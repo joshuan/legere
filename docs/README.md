@@ -8,26 +8,30 @@ documentation — report it (see [`../CLAUDE.md`](../CLAUDE.md)).
 
 ## Reading order
 
-| # | Document | About | Status |
-|---|----------|-------|--------|
-| 01 | [`01-vision-and-scope.md`](./01-vision-and-scope.md) | Vision, personas, glossary, MVP boundaries | ✅ written |
-| 02 | [`02-architecture-overview.md`](./02-architecture-overview.md) | One process (Nest+Next), stack rationale (ADRs) | ✅ written |
-| 03 | `03-domain-model.md` | Entities, relations, enums, invariants, access model | 📋 planned |
-| 04 | `04-database-schema.md` | Full Prisma schema, pgvector, indexes, migrations | 📋 planned |
-| 05 | [`05-library-and-processing.md`](./05-library-and-processing.md) | External library, scanning, deduplication, queue, processing pipeline | ✅ written |
-| 06 | `06-backend-architecture.md` | NestJS + Clean Architecture, Next integration, queue workers | 📋 planned |
-| 07 | `07-api-specification.md` | REST API: conventions and endpoints | 📋 planned |
-| 08 | [`08-auth-and-authorization.md`](./08-auth-and-authorization.md) | Email+password, email verification, invites, sessions, roles | ✅ written |
-| 09 | `09-file-storage.md` | Read-only library, S3 for derived artifacts, signed URLs, source streaming | 📋 planned |
-| 10 | `10-frontend-architecture.md` | Next.js + FSD + next-intl + antd + TanStack Query | 📋 planned |
-| 11 | `11-ui-ux-spec.md` | Screens: viewer, search, libraries, scan sets, admin panel | 📋 planned |
-| 12 | `12-build-config-run.md` | Build, env, local run, deployment example | 📋 planned |
-| 13 | `13-ci-cd.md` | GitHub Actions: PR checks and image publishing to GHCR | 📋 planned |
-| 14 | `14-coding-standards.md` | Code and testing standards | 📋 planned |
+| # | Document | About |
+|---|----------|-------|
+| 01 | [`01-vision-and-scope.md`](./01-vision-and-scope.md) | Vision, personas, glossary, MVP boundaries |
+| 02 | [`02-architecture-overview.md`](./02-architecture-overview.md) | One process (Nest+Next), stack rationale (ADRs) |
+| 03 | [`03-domain-model.md`](./03-domain-model.md) | Entities, relations, enums, invariants, access model |
+| 04 | [`04-database-schema.md`](./04-database-schema.md) | Full Prisma schema, pgvector, indexes, migrations |
+| 05 | [`05-library-and-processing.md`](./05-library-and-processing.md) | External library, scanning, deduplication, queue, processing pipeline |
+| 06 | [`06-backend-architecture.md`](./06-backend-architecture.md) | NestJS + Clean Architecture, ports, use cases, Next integration, workers |
+| 07 | [`07-api-specification.md`](./07-api-specification.md) | REST API: conventions, error codes, full endpoint catalog |
+| 08 | [`08-auth-and-authorization.md`](./08-auth-and-authorization.md) | Email+password, email verification, invites, sessions, roles, access model |
+| 09 | [`09-file-storage.md`](./09-file-storage.md) | Read-only library, S3 for derived artifacts, signed URLs, source streaming |
+| 10 | [`10-frontend-architecture.md`](./10-frontend-architecture.md) | Next.js + FSD + next-intl + antd + TanStack Query |
+| 11 | [`11-ui-ux-spec.md`](./11-ui-ux-spec.md) | Screens: viewer, browse, search, collections, scan sets, admin panel |
+| 12 | [`12-build-config-run.md`](./12-build-config-run.md) | Build, env, local run, Dockerfile, deployment example |
+| 13 | [`13-ci-cd.md`](./13-ci-cd.md) | GitHub Actions: PR checks and image publishing to GHCR |
+| 14 | [`14-coding-standards.md`](./14-coding-standards.md) | Code standards, ESLint boundaries, testing, Definition of Done |
+
+The specification is **complete** — every document is written and all previously open questions are
+resolved (each document ends with its resolution notes).
 
 ## Implementation
 
-The task backlog (`tasks/backlog.md`) will appear **after** the specification is complete (documents 03–14).
+The next step is the task backlog (`tasks/README.md` + `tasks/backlog.md`) — a numbered implementation
+plan derived from these documents. Until it exists, no code is written.
 
 ---
 

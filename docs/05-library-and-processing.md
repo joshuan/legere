@@ -120,16 +120,18 @@ Scenario: a physical document scanned into dozens of JPGs with large margins (a 
 
 - In the UI the user selects the image files (in page order) and triggers "Merge into PDF" — a
   `ScanSet` is created along with a `scanset-merge` job.
-- `scanset-merge` via Stirling-PDF: images → PDF (one page per image) → margin cropping → the final
-  PDF.
-- The result is a **new derived `Document`** (an artifact in S3; it has no `FileRef` in the library;
-  provenance is recorded as a link to the source documents). It goes through the regular §5.5 pipeline
-  (preview/OCR/categorization/vectorization) and belongs to the user who created it
-  ([`08 §8.5`](./08-auth-and-authorization.md)).
+- `scanset-merge` pipeline: for each item, read the source image → **margin trimming** via `sharp`'s
+  `trim()` (content bounding-box detection; applied when `cropMode = TRIM`, skipped for `NONE`) →
+  Stirling-PDF assembles the trimmed images into a PDF (one page per image, page order = item
+  positions) → the result is uploaded to S3.
+- The result is a **new derived `Document`** (its source PDF lives in S3 as
+  `documents/{id}/source.pdf`; it has no `FileRef` in the library; provenance is recorded via
+  `scanSetId`). It goes through the regular §5.5 pipeline (preview/OCR/categorization/vectorization)
+  and belongs to the user who created it ([`08 §8.5`](./08-auth-and-authorization.md)).
+  Edge case: if the merged PDF's content hash matches an existing active document, that document is
+  **reused** (attached as the scan set's result) instead of creating a duplicate.
 - The source files are not modified and do not disappear from the library. A failed merge — a FAILED
-  status on the `ScanSet`; it can be retried with a changed set/order.
-- Open question: the exact margin-cropping algorithm (which Stirling-PDF operations to use, whether a
-  cropping preview is needed) — to be clarified by a spike during implementation.
+  status on the `ScanSet` (with the error text); the user may edit the set and retry.
 
 ## 5.7. Files disappearing and returning
 
@@ -152,11 +154,15 @@ Scenario: a physical document scanned into dozens of JPGs with large margins (a 
 
 ## 5.9. Open questions
 
-1. The PDF text-layer extraction tool (step 3): choosing the Node library — a spike during
-   implementation.
-2. The "text layer is meaningful" threshold (when to send a PDF to OCR) — a heuristic, to be refined
-   by a spike.
-3. The scan-set margin-cropping algorithm (§5.6) and whether a preview of the crop is needed.
-4. Chunking parameters for vectorization (size/overlap) — to be tuned during implementation.
-5. HEIC: conversion for previews (sharp with libheif / Stirling) — to be verified during
-   implementation.
+None. Previously open items — resolved:
+
+1. **PDF text-layer extraction:** `pdfjs-dist` via the `TextExtractor` port; validated by an early
+   spike task.
+2. **OCR threshold:** a PDF goes to OCR when its average extracted text is below
+   `PDF_TEXT_MIN_CHARS_PER_PAGE` (default 32) characters per page.
+3. **Margin cropping:** per-image `sharp.trim()` before PDF assembly (§5.6); no crop preview in MVP.
+4. **Chunking:** split on headings/paragraph boundaries targeting `CHUNK_TARGET_CHARS` (1000) with
+   `CHUNK_OVERLAP_CHARS` (200) overlap.
+5. **HEIC:** attempt `sharp` decode; if the runtime build lacks HEIC support, preview/markdown steps
+   are `SKIPPED` for that document (documented limitation; the file remains registered and
+   downloadable).

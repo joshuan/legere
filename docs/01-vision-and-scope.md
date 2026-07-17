@@ -85,13 +85,17 @@ ODT/ODS/ODP), plain text/Markdown. Other formats are registered as documents "wi
 
 ## 1.7. Open questions
 
-1. **Embedding provider** for vectorization: a configurable OpenAI-compatible HTTP API is proposed
-   (covers both cloud and local Ollama/vLLM). What should the shipping default be?
-2. **Categorization:** LLM classification against the managed category list is proposed (via the same
-   configurable API) with manual override. Confirm the approach and the initial category list.
-3. **OCR languages** (tesseract in Stirling-PDF): rus+eng proposed as the default, configurable via env.
-4. **PDF text-layer extraction library** (when OCR is not needed): the specific tool is chosen during
-   implementation (a spike in the backlog).
+None. Previously open items — resolved:
 
-UI languages — resolved: **en (default)** and **ru** (see
-[ADR-016](./02-architecture-overview.md#adr-016-i18n--next-intl-locale-not-in-the-url)).
+- **UI languages:** **en (default)** and **ru**
+  ([ADR-016](./02-architecture-overview.md#adr-016-i18n--next-intl-locale-not-in-the-url)).
+- **Embedding provider:** a configurable OpenAI-compatible HTTP API; no bundled default — when
+  unconfigured, vectorization is `SKIPPED` and semantic search is unavailable (graceful degradation,
+  [`12 §12.4`](./12-build-config-run.md#124-envexample)).
+- **Categorization:** LLM classification against the managed category list via the same configurable
+  API; manual override always wins; seeded default categories —
+  [`03 §3.3.12`](./03-domain-model.md#3312-category).
+- **OCR languages:** `OCR_LANGUAGES=rus+eng` by default, env-configurable.
+- **PDF text-layer extraction:** `pdfjs-dist` behind the `TextExtractor` port
+  ([`06 §6.3.3`](./06-backend-architecture.md#633-application-ports-non-repository)); an early spike
+  task validates it.

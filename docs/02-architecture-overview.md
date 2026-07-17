@@ -242,8 +242,8 @@ The application lives and ships as a whole; isomorphic contracts are a plain fol
 ### ADR-012. PDF tooling — external Stirling-PDF
 - **Decision:** all operations on binary formats are delegated to the sibling **Stirling-PDF**
   container over an internal HTTP API: office-to-PDF conversion, OCR (tesseract), PDF→JPG (previews),
-  merging images into a PDF, margin cropping. In code — a `PdfToolbox` port with a client
-  implementation.
+  merging images into a PDF. In code — a `PdfToolbox` port with a client implementation. (Scan-set
+  margin trimming happens per image via `sharp` before assembly — [`05 §5.6`](./05-library-and-processing.md#56-scan-sets-merging-into-a-pdf-on-explicit-request).)
 - **Why:** the requirement ("the PDF tool lives outside"); LibreOffice/tesseract inside the app image
   would bloat it by gigabytes.
 - **Alternatives:** built-in conversion libraries — rejected; narrow Node libraries (PDF text-layer

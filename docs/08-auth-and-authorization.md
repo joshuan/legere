@@ -27,7 +27,7 @@ permanently answers 404/redirect (a race between two onboardings is resolved by 
 - Token properties: high-entropy, single-use, stored only as a hash, with a TTL, revocable; it is a
   bearer secret — never logged.
 
-### 8.1.3. The three account-setup steps (shared by onboarding and invites)
+### 8.1.3. The three account-setup steps (shared by onboarding, invites, and password resets)
 A `User` is not created until email ownership is proven and a password is set. The intermediate state
 lives in the `EmailVerification` table, not in `users`.
 
@@ -54,12 +54,19 @@ Argon2id only (the `argon2` package; OWASP parameters: `m=19456 KiB, t=2, p=1`),
 `users.password_hash`; never serialized outward. Behind a `PasswordHasher` port
 (domain/application do not depend on `argon2`).
 
-### 8.1.6. Not in the MVP
-No password recovery ("Contact your administrator" — an admin-initiated reset from the panel is an open
-question, §8.7), no email change, no MFA. Email verification always exists (protection against address
-squatting).
+### 8.1.6. Password reset (admin-initiated)
+There is no self-service "forgot password". An admin generates a **single-use reset link** from the
+admin panel (`PasswordReset`: opaque token, `tokenHash` in the DB, TTL 24 h, revocable) and hands it
+to the user out of band. The user opens the link and passes the same 3-step flow (§8.1.3) with
+`purpose = PASSWORD_RESET`: code to their email → new password. Completion revokes **all** of the
+user's sessions. Entities — [`03 §3.3.5`](./03-domain-model.md#335-passwordreset); endpoints —
+[`07 §7.3`](./07-api-specification.md#73-endpoints).
 
-### 8.1.7. Local development
+### 8.1.7. Not in the MVP
+No self-service password recovery ("Contact your administrator"), no email change, no MFA. Email
+verification always exists (protection against address squatting).
+
+### 8.1.8. Local development
 SMTP not configured → `LogEmailSender` prints the code to the log. CAPTCHA keys not set → no-op. The
 seed creates an admin and a user with the password `password`.
 
@@ -140,9 +147,9 @@ Guards: `SessionGuard` (authn) → `RolesGuard` (admin routes) → `DocumentAcce
 
 ## 8.7. Open questions
 
-1. **Admin-initiated password reset:** a "generate reset link" button in the admin panel is proposed
-   (the same mechanism as invites: a single-use token + an email code). Confirm.
-2. **Default library visibility** on creation: "all users" or "nobody" (explicit assignment)?
-   "Nobody" (fail-closed) is proposed.
-3. Is a "view-only" instance-wide sharing mode needed (a guest without organizing rights) — or are two
-   roles enough? Proposal: two are enough.
+None. Previously open items — resolved:
+
+1. **Admin-initiated password reset** — yes, specified in §8.1.6.
+2. **Default library visibility** — `RESTRICTED` (fail-closed), explicit assignment
+   ([`03 §3.3.6`](./03-domain-model.md#336-library)).
+3. **A third "view-only" role** — no; `ADMIN`/`USER` are sufficient for the MVP.

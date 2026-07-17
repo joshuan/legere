@@ -4,11 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-The project is in the **specification** phase: there is no code yet; documentation is being written in
-`docs/` (the source of truth). Written so far: `docs/README.md` (map + cross-cutting decisions),
-01 (vision), 02 (architecture, ADRs), 05 (library and processing pipeline), 08 (auth). The remaining
-documents (03–04, 06–07, 09–14) are planned; the task backlog appears after the specification is
-complete. Once scaffolding starts, add the real build/lint/test commands here.
+There is no code yet. The **specification is complete**: all documents 01–14 in `docs/` (the source
+of truth) are written and all open questions are resolved. The next step is the task backlog
+(`docs/tasks/backlog.md` — a numbered implementation plan derived from the docs); implementation
+starts only after it exists. Once scaffolding starts, add the real build/lint/test commands here.
 
 ## Golden rules
 
@@ -44,7 +43,7 @@ Legere is a self-hosted document management system (the Immich external-library 
 file storage is attached to the server; Legere scans it, deduplicates by SHA-256, processes documents
 through a pg-boss queue (canonicalization to PDF → JPG preview → Markdown with OCR → categorization →
 vectorization into pgvector), and provides a viewer, hybrid search (FTS + vectors), sharing, and an
-admin panel. Heavy PDF operations (conversion, OCR, scan-set merging with margin cropping) run in an
-external **Stirling-PDF** container. Derived artifacts live in a private **S3 bucket** (served via
+admin panel. Heavy PDF operations (conversion, OCR, scan-set merging) run in an external
+**Stirling-PDF** container. Derived artifacts live in a private **S3 bucket** (served via
 short-lived signed URLs); the server stores no files locally. Details — `docs/01`, `docs/02`,
 `docs/05`.
