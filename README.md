@@ -1,21 +1,34 @@
 # Legere
 
-Legere - это система для управления документами. Её принцип основа на том, как приложение immich работает с external library. Основной сценарий - это развертывание legere на сервере, куда подключено read-only хранилище файлов-документов, которые мониторятся и управляются этой системой.
+Legere is a document management system. Its principle is based on how Immich works with an external
+library. The primary scenario: Legere is deployed on a server with a read-only storage of document
+files attached; the system monitors and manages those documents.
 
-Принципы:
-1) Внешняя библиотека read-only.
-2) Есть очередь обработки (jobs-queue) файлов, что бы обрабатывать достаточно большие объемы данных, поступающих за раз.
-3) Дедубликация файлов.
-4) Парсинг файлов в md, категоризация и векторизация документов.
-5) Удобный view'ер докуметов (и jpg превью первой страницы любого документа).
+Principles:
+1) The external library is read-only.
+2) There is a processing job queue for files, to handle fairly large volumes of data arriving at once.
+3) File deduplication.
+4) Parsing files into Markdown, categorization, and vectorization of documents.
+5) A convenient document viewer (and a JPG preview of the first page of any document).
 
-Техническое:
-- node.js 26 + typescript 7,
-- нормализованная postgresql,
-- собственная авторизация с кодом подтверждения на email.
+Technical:
+- Node.js 26 + TypeScript 7,
+- normalized PostgreSQL,
+- in-house authentication with an email confirmation code,
+- files produced by the system (previews, Markdown, merged PDFs) are stored in S3 (a private bucket),
+  not on the local disk.
 
-Дополнительно:
-- многопользовательская система с ролями и возможностью сделать ряды документов/папок общими;
-- особый режим работы с наборами сканов, например если отсканировать паспорт, то у тебя будет около 40 jpg файлов с большими полями, наша система должна уметь по явному запросу склеить их в pdf и обрезать поля;
-- инструмент для работы с PDF должен жить снаружи, скорее всего это отдельный инстанс stirling-pdf;
-- панель администриования самим сервисом для админов
+Additionally:
+- a multi-user system with roles and the ability to make sets of documents/folders shared;
+- a special mode for working with scan sets: for example, a scanned passport yields ~40 JPG files with
+  large margins — on explicit request the system must merge them into a PDF and crop the margins;
+- the PDF tooling must live outside the app, most likely a separate Stirling-PDF instance;
+- an administration panel for the service itself, for admins.
+
+---
+
+## Documentation
+
+The service specification lives in [`docs/`](./docs/) (**the source of truth** — the code implements
+it). Start with [`docs/README.md`](./docs/README.md) — the documentation map and cross-cutting
+decisions. Repository rules for AI agents — [`CLAUDE.md`](./CLAUDE.md).
