@@ -1,0 +1,30 @@
+# dependencies
+/node_modules
+
+# build output
+/dist
+/.next
+/out
+/tsconfig.tsbuildinfo
+
+# environment
+.env
+.env.local
+.env.*.local
+
+# local development
+/dev-library
+/coverage
+
+# prisma generated client
+/prisma/generated
+
+# logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea
+*.swp

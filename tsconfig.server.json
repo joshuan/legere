@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "jsx": "react-jsx",
+    "outDir": "dist",
+    "rootDir": ".",
+    "noEmit": false,
+    "incremental": false,
+    "plugins": []
+  },
+  "include": ["server/**/*.ts", "src/server/**/*.ts", "src/shared/**/*.ts"],
+  "exclude": ["node_modules", "dist", ".next", "**/*.test.ts", "**/*.test.tsx"]
+}

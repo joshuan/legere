@@ -1,0 +1,12 @@
+node_modules
+.next
+dist
+out
+coverage
+package-lock.json
+prisma/migrations
+
+# Documentation is the human-authored source of truth (careful tables/ASCII diagrams); not Prettier-managed.
+docs
+README.md
+CLAUDE.md

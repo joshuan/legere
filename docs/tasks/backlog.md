@@ -6,7 +6,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 ## M0 — Foundations
 
-- [ ] **M0.1 — Repository scaffolding**
+- [x] **M0.1 — Repository scaffolding**
   **Goal:** the repo skeleton with all tooling configs; `npm run typecheck` and `npm run lint` pass on
   an empty-but-structured codebase.
   **Docs:** [`02 §2.3`](../02-architecture-overview.md#23-repository-layout-one-package-no-workspaces), [`12 §12.1–12.3`](../12-build-config-run.md), [`14 §14.1–14.4`](../14-coding-standards.md)
