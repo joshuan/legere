@@ -1,0 +1,29 @@
+# Local development dependencies only — the Legere app itself is NOT in this file
+# (it runs via `npm run dev`). See docs/12 §12.5 and docs/09 §9.4.
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment: { POSTGRES_USER: legere, POSTGRES_PASSWORD: legere, POSTGRES_DB: legere }
+    ports: ['5432:5432']
+    volumes: ['db-data:/var/lib/postgresql/data']
+  stirling:
+    image: stirlingtools/stirling-pdf:latest
+    ports: ['8080:8080']
+    environment: { DISABLE_ADDITIONAL_FEATURES: 'true' }
+  minio:
+    image: minio/minio
+    command: server /data --console-address ':9001'
+    environment: { MINIO_ROOT_USER: legere, MINIO_ROOT_PASSWORD: legere-secret }
+    ports: ['9000:9000', '9001:9001']
+    volumes: ['minio-data:/data']
+  createbuckets:
+    image: minio/mc
+    depends_on: [minio]
+    # `depends_on` only waits for the container to start, not for MinIO to accept
+    # connections; retry `mc alias set` until it is ready so the bucket reliably
+    # exists after `dev:up` (docs/12 §12.5 acceptance).
+    entrypoint: >
+      /bin/sh -c "until mc alias set local http://minio:9000 legere legere-secret; do
+                    echo 'waiting for minio...'; sleep 1; done &&
+                  mc mb --ignore-existing local/legere"
+volumes: { db-data: {}, minio-data: {} }

@@ -17,7 +17,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   - Folder skeleton: `server/`, `src/server/{domain,application,infrastructure,presentation}`, `src/web/{screens,widgets,features,entities,shared}`, `src/app`, `src/shared/contracts`, `prisma/`, `messages/`.
   - `.env.example` verbatim per 12 §12.4.
 
-- [ ] **M0.2 — Local dev dependencies (docker compose)**
+- [x] **M0.2 — Local dev dependencies (docker compose)**
   **Goal:** `npm run dev:up` starts PostgreSQL(+pgvector), Stirling-PDF, MinIO with bucket init.
   **Docs:** [`12 §12.5`](../12-build-config-run.md#125-local-development), [`09 §9.4`](../09-file-storage.md#94-local-development)
   **Acceptance:** compose file matches 12 §12.5; `dev:up`/`dev:down` scripts work; MinIO console reachable; bucket `legere` exists after up; Stirling answers on :8080.
