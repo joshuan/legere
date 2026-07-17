@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-There is no code yet. The **specification is complete**: all documents 01–14 in `docs/` (the source
-of truth) are written and all open questions are resolved. The next step is the task backlog
-(`docs/tasks/backlog.md` — a numbered implementation plan derived from the docs); implementation
-starts only after it exists. Once scaffolding starts, add the real build/lint/test commands here.
+There is no code yet. The **specification is complete** (documents 01–14 in `docs/`, all open
+questions resolved) and the **backlog is ready**: `docs/tasks/backlog.md` (milestones M0–M9) with the
+execution rules in `docs/tasks/README.md`. Implementation = take the first unchecked task, one task
+per PR, tick it off in the same PR. Once scaffolding (M0.1) lands, add the real build/lint/test
+commands here.
 
 ## Golden rules
 
