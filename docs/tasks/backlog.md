@@ -22,7 +22,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`12 §12.5`](../12-build-config-run.md#125-local-development), [`09 §9.4`](../09-file-storage.md#94-local-development)
   **Acceptance:** compose file matches 12 §12.5; `dev:up`/`dev:down` scripts work; MinIO console reachable; bucket `legere` exists after up; Stirling answers on :8080.
 
-- [ ] **M0.3 — SWC transpilation spike (dev runner + Vitest)**
+- [x] **M0.3 — SWC transpilation spike (dev runner + Vitest)**
   **Goal:** proof that Nest DI (decorator metadata) works under the dev runner and Vitest.
   **Docs:** [ADR-017](../02-architecture-overview.md#adr-017-devtest-transpilation--swc-for-decorator-metadata), [`14 §14.8`](../14-coding-standards.md#148-testing)
   **Acceptance:**

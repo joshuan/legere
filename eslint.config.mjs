@@ -76,7 +76,10 @@ export default tseslint.config(
     files: ['server/**/*.ts', 'src/**/*.{ts,tsx}', 'prisma/**/*.ts', 'test/**/*.ts'],
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // Classic multi-project mode: the codebase has purpose-specific tsconfigs (client, server,
+        // test) with different lib/jsx/module settings, which projectService cannot auto-discover
+        // (it only finds the root tsconfig.json).
+        project: ['./tsconfig.json', './tsconfig.server.json', './tsconfig.test.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
