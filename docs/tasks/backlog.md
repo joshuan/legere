@@ -91,7 +91,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`08 §8.1.2, §8.1.6`](../08-auth-and-authorization.md), [`03 §3.3.4–3.3.5`](../03-domain-model.md), [`07`](../07-api-specification.md) (invites, resets)
   **Acceptance (e2e):** invite create returns URL once; preview endpoint reports validity; accept path creates a user with the invite's role and marks it used; expired/revoked/used → `INVITE_INVALID`; reset link + code flow updates the password and revokes all sessions; reset for a deactivated user rejected.
 
-- [ ] **M2.6 — Me & admin user management**
+- [x] **M2.6 — Me & admin user management**
   **Goal:** profile settings and the full admin user API.
   **Docs:** [`07`](../07-api-specification.md) (me, admin users), [`08 §8.3`](../08-auth-and-authorization.md#83-roles), [`03 §3.3.1`](../03-domain-model.md#331-user)
   **Acceptance (e2e):** `PATCH /api/me` updates displayName/language/theme and refreshes `NEXT_LOCALE`; admin list/role-change/deactivate/reactivate/revoke-sessions; every `LAST_ADMIN` path covered (role change, deactivate — and later delete); non-admin on admin routes → 403.

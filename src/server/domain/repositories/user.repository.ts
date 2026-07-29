@@ -43,4 +43,17 @@ export abstract class UserRepository {
   abstract create(input: CreateUserInput, tx?: TransactionHandle): Promise<User>;
 
   abstract update(id: string, input: UpdateUserInput, tx?: TransactionHandle): Promise<User>;
+
+  // Admin listing, sorted createdAt ascending with cursor pagination (docs/07 §7.1, §7.3).
+  abstract list(query: ListUsersInput, tx?: TransactionHandle): Promise<UserPage>;
 }
+
+export type ListUsersInput = {
+  limit: number;
+  cursor?: string | undefined;
+};
+
+export type UserPage = {
+  items: User[];
+  nextCursor: string | null;
+};

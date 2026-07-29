@@ -18,7 +18,9 @@ import {
 import {
   UserRepository,
   type CreateUserInput,
+  type ListUsersInput,
   type UpdateUserInput,
+  type UserPage,
 } from '../../src/server/domain/repositories/user.repository';
 import { CaptchaVerifier } from '../../src/server/application/ports/captcha-verifier';
 import { Clock } from '../../src/server/application/ports/clock';
@@ -149,6 +151,16 @@ export class InMemoryUserRepository extends UserRepository {
     };
     this.users.push(user);
     return Promise.resolve(user);
+  }
+
+  list(query: ListUsersInput): Promise<UserPage> {
+    const sorted = [...this.users].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+    );
+    const start = query.cursor === undefined ? 0 : Number(query.cursor);
+    const page = sorted.slice(start, start + query.limit);
+    const nextCursor = start + query.limit < sorted.length ? String(start + query.limit) : null;
+    return Promise.resolve({ items: page, nextCursor });
   }
 
   update(id: string, input: UpdateUserInput): Promise<User> {

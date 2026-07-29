@@ -6,8 +6,11 @@ import { ConflictError } from '../../domain/errors/domain-error';
 import {
   UserRepository,
   type CreateUserInput,
+  type ListUsersInput,
   type UpdateUserInput,
+  type UserPage,
 } from '../../domain/repositories/user.repository';
+import { decodeCursor, encodeCursor } from './cursor';
 import { clientOf } from './prisma-client';
 import { PrismaService } from './prisma.service';
 
@@ -75,5 +78,35 @@ export class PrismaUserRepository implements UserRepository {
   async update(id: string, input: UpdateUserInput, tx?: TransactionHandle): Promise<User> {
     const row = await clientOf(this.prisma, tx).user.update({ where: { id }, data: input });
     return toDomain(row);
+  }
+
+  // Keyset pagination on (createdAt, id) ascending: stable under concurrent inserts, unlike offsets.
+  // One extra row is fetched to decide whether a next page exists.
+  async list(query: ListUsersInput, tx?: TransactionHandle): Promise<UserPage> {
+    const cursor = decodeCursor(query.cursor);
+    const rows = await clientOf(this.prisma, tx).user.findMany({
+      where: {
+        deletedAt: null,
+        ...(cursor === null
+          ? {}
+          : {
+              OR: [
+                { createdAt: { gt: cursor.at } },
+                { createdAt: cursor.at, id: { gt: cursor.id } },
+              ],
+            }),
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: query.limit + 1,
+    });
+
+    const page = rows.slice(0, query.limit);
+    const last = page.at(-1);
+    const nextCursor =
+      rows.length > query.limit && last !== undefined
+        ? encodeCursor({ at: last.createdAt, id: last.id })
+        : null;
+
+    return { items: page.map(toDomain), nextCursor };
   }
 }
