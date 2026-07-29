@@ -8,6 +8,7 @@ import { ConfigModule } from './infrastructure/config/config.module';
 import { LibraryModule } from './infrastructure/library/library.module';
 import { buildLoggerOptions } from './infrastructure/logging/logger.options';
 import { PersistenceModule } from './infrastructure/persistence/persistence.module';
+import { QueueModule } from './infrastructure/queue/queue.module';
 import { AuthModule } from './presentation/auth/auth.module';
 import { DomainExceptionFilter } from './presentation/http/domain-exception.filter';
 import { HealthModule } from './presentation/health/health.module';
@@ -27,6 +28,7 @@ import { UsersModule } from './presentation/users/users.module';
     PersistenceModule,
     AuthInfrastructureModule,
     LibraryModule,
+    QueueModule,
     AuthModule,
     UsersModule,
     HealthModule,

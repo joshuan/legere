@@ -1,0 +1,244 @@
+import { Test } from '@nestjs/testing';
+import { LoggerModule } from 'nestjs-pino';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { JobHandler } from '../../src/server/application/jobs/job-handler';
+import { JobQueue } from '../../src/server/application/ports/job-queue';
+import { QueueMonitor } from '../../src/server/application/ports/queue-monitor';
+import {
+  UnitOfWork,
+  type TransactionHandle,
+} from '../../src/server/application/ports/unit-of-work';
+import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
+import { isPrismaTx } from '../../src/server/infrastructure/persistence/prisma-client';
+import type { PrismaTx } from '../../src/server/infrastructure/persistence/prisma-unit-of-work';
+import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
+import { PrismaService } from '../../src/server/infrastructure/persistence/prisma.service';
+import { PgBossProvider } from '../../src/server/infrastructure/queue/pg-boss.provider';
+import { QueueModule } from '../../src/server/infrastructure/queue/queue.module';
+import { WorkerRegistry } from '../../src/server/infrastructure/queue/worker-registry';
+import { disconnectTestPrisma, truncateAll } from '../helpers/db';
+
+// A handler that records what it received, so worker wiring and payload delivery can be observed.
+class RecordingHandler extends JobHandler {
+  readonly received: unknown[] = [];
+  handle(payload: unknown): Promise<void> {
+    this.received.push(payload);
+    return Promise.resolve();
+  }
+}
+
+// Integration coverage for the queue (docs/06 §6.8, docs/05 §5.4) against the real pg-boss schema.
+describe('Queue (integration)', () => {
+  let queue: JobQueue;
+  let monitor: QueueMonitor;
+  let unitOfWork: UnitOfWork;
+  let prisma: PrismaService;
+  let provider: PgBossProvider;
+  let workers: WorkerRegistry;
+  let handler: RecordingHandler;
+  let close: () => Promise<void>;
+
+  beforeAll(async () => {
+    handler = new RecordingHandler();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        LoggerModule.forRoot({ pinoHttp: { level: 'silent' } }),
+        ConfigModule,
+        PersistenceModule,
+        QueueModule,
+      ],
+      providers: [{ provide: RecordingHandler, useValue: handler }],
+    }).compile();
+
+    queue = moduleRef.get(JobQueue);
+    monitor = moduleRef.get(QueueMonitor);
+    unitOfWork = moduleRef.get(UnitOfWork);
+    prisma = moduleRef.get(PrismaService);
+    provider = moduleRef.get(PgBossProvider);
+    workers = moduleRef.get(WorkerRegistry);
+    close = () => moduleRef.close();
+
+    await provider.start();
+    await truncateAll();
+  });
+
+  afterEach(async () => {
+    // Leave no jobs behind for the next test.
+    await prisma.$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+    handler.received.length = 0;
+  });
+
+  afterAll(async () => {
+    await prisma.$executeRawUnsafe('TRUNCATE TABLE pgboss.job').catch(() => undefined);
+    await close();
+    await disconnectTestPrisma();
+  });
+
+  type JobRow = { name: string; state: string; singletonkey: string | null; data: unknown };
+
+  const jobs = (): Promise<JobRow[]> =>
+    prisma.$queryRawUnsafe<JobRow[]>(
+      'SELECT name, state, singleton_key AS singletonkey, data FROM pgboss.job ORDER BY created_on',
+    );
+
+  it('starts pg-boss in its own schema with every queue created', async () => {
+    // pg-boss keeps internal queues of its own (__pgboss__*); only ours are asserted.
+    const rows = await prisma.$queryRawUnsafe<{ name: string }[]>(
+      "SELECT name FROM pgboss.queue WHERE name NOT LIKE '__pgboss__%' ORDER BY name",
+    );
+
+    expect(rows.map((row) => row.name)).toEqual([
+      'document-process',
+      'file-ingest',
+      'library-scan',
+      'maintenance',
+      'scanset-merge',
+    ]);
+  });
+
+  it('enqueues a job with its payload', async () => {
+    const id = await queue.enqueue('file-ingest', { fileRefId: 'abc' });
+
+    expect(id).not.toBeNull();
+    const rows = await jobs();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.name).toBe('file-ingest');
+    expect(rows[0]?.data).toEqual({ fileRefId: 'abc' });
+  });
+
+  it('collapses repeated enqueues that share a singleton key', async () => {
+    // One scan per library at a time (docs/05 §5.2, docs/06 §6.8).
+    const first = await queue.enqueue(
+      'library-scan',
+      { libraryId: 'lib-1' },
+      { singletonKey: 'lib-1' },
+    );
+    const second = await queue.enqueue(
+      'library-scan',
+      { libraryId: 'lib-1' },
+      { singletonKey: 'lib-1' },
+    );
+    const other = await queue.enqueue(
+      'library-scan',
+      { libraryId: 'lib-2' },
+      { singletonKey: 'lib-2' },
+    );
+
+    expect(first).not.toBeNull();
+    expect(second).toBeNull();
+    expect(other).not.toBeNull();
+
+    const rows = await jobs();
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.singletonkey).sort()).toEqual(['lib-1', 'lib-2']);
+  });
+
+  describe('enqueueAfterTx', () => {
+    it('commits the job together with the entity write', async () => {
+      await unitOfWork.run(async (tx) => {
+        await categoryWriter(tx).category.create({
+          data: { slug: 'queued-together', name: 'Together' },
+        });
+        await queue.enqueueAfterTx(tx, 'document-process', { documentId: 'doc-1' });
+      });
+
+      expect(await jobs()).toHaveLength(1);
+      expect(await prisma.category.count({ where: { slug: 'queued-together' } })).toBe(1);
+    });
+
+    it('discards the job when the transaction rolls back', async () => {
+      await expect(
+        unitOfWork.run(async (tx) => {
+          await categoryWriter(tx).category.create({
+            data: { slug: 'rolled-back', name: 'Rollback' },
+          });
+          await queue.enqueueAfterTx(tx, 'document-process', { documentId: 'doc-2' });
+          throw new Error('boom');
+        }),
+      ).rejects.toThrow('boom');
+
+      // 🔒 The core guarantee of docs/06 §6.3.4: no orphan job for an entity that never existed.
+      expect(await jobs()).toHaveLength(0);
+      expect(await prisma.category.count({ where: { slug: 'rolled-back' } })).toBe(0);
+    });
+  });
+
+  it('runs a registered worker against a DI-resolved handler', async () => {
+    workers.register({ queue: 'maintenance', handler: RecordingHandler, concurrency: 1 });
+    await workers.start();
+
+    await queue.enqueue('maintenance', { reason: 'test' });
+
+    await waitFor(() => handler.received.length === 1);
+    expect(handler.received[0]).toEqual({ reason: 'test' });
+  });
+
+  it('registers the hourly maintenance cron', async () => {
+    await workers.scheduleSystemCrons();
+
+    const rows = await prisma.$queryRawUnsafe<{ name: string; cron: string }[]>(
+      "SELECT name, cron FROM pgboss.schedule WHERE name = 'maintenance'",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.cron).toBe('0 * * * *');
+  });
+
+  it('reports per-queue depths and a healthy queue', async () => {
+    await queue.enqueue('file-ingest', { fileRefId: 'x' });
+    await queue.enqueue('file-ingest', { fileRefId: 'y' });
+    await queue.enqueue('scanset-merge', { scanSetId: 'z' });
+
+    const depths = await monitor.depths();
+    const ingest = depths.find((depth) => depth.name === 'file-ingest');
+    const merge = depths.find((depth) => depth.name === 'scanset-merge');
+
+    expect(ingest?.queued).toBe(2);
+    expect(merge?.queued).toBe(1);
+    // Every known queue appears, even with nothing in it.
+    expect(depths).toHaveLength(5);
+    expect(await monitor.isHealthy()).toBe(true);
+  });
+
+  it('lists failed jobs with their payload and error, and retries one', async () => {
+    const id = await queue.enqueue('scanset-merge', { scanSetId: 'fails' });
+    // Mark it failed the way pg-boss records an exhausted job.
+    await prisma.$executeRawUnsafe(
+      `UPDATE pgboss.job SET state = 'failed', completed_on = now(),
+       output = '{"message":"merge exploded"}'::jsonb WHERE id = $1::uuid`,
+      id,
+    );
+
+    const page = await monitor.failedJobs();
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({
+      queue: 'scanset-merge',
+      error: 'merge exploded',
+      payload: { scanSetId: 'fails' },
+    });
+
+    // Retrying re-enqueues a copy and leaves the original failure in the journal.
+    expect(await monitor.retry(page.items[0]?.jobId ?? '')).toBe(true);
+    const rows = await jobs();
+    expect(rows.filter((row) => row.state === 'failed')).toHaveLength(1);
+    expect(rows.filter((row) => row.state === 'created')).toHaveLength(1);
+
+    expect(await monitor.retry('11111111-1111-4111-8111-111111111111')).toBe(false);
+  });
+});
+
+// The entity write has to go through the transaction handle, or it would not be part of what rolls
+// back; tests narrow the opaque handle with the same guard repositories use.
+function categoryWriter(tx: TransactionHandle): PrismaTx {
+  if (!isPrismaTx(tx)) throw new Error('expected a Prisma transaction handle');
+  return tx;
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('Timed out waiting for the queue');
+}

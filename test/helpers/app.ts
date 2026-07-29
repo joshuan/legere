@@ -8,6 +8,7 @@ import request, { type Test as SupertestRequest } from 'supertest';
 import { wireServer } from '../../server/main';
 import { AppModule } from '../../src/server/app.module';
 import { EmailSender, type EmailMessage } from '../../src/server/application/ports/email-sender';
+import { PgBossProvider } from '../../src/server/infrastructure/queue/pg-boss.provider';
 
 // Captures outbound mail so e2e tests can read the verification code the same way a user reads it
 // from their inbox (docs/14 §14.8: EmailSender is mocked behind its port).
@@ -72,6 +73,11 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   await wireServer(server, nestApp, (_req, res) => {
     res.status(200).json({ next: true });
   });
+
+  // Start pg-boss but not the workers: /api/health then reports the queue the way it does in
+  // production (docs/06 §6.10), while jobs stay queued for tests to inspect rather than being
+  // consumed underneath them.
+  await nestApp.get(PgBossProvider).start();
 
   // One HTTP server for the whole file, rather than letting supertest start and tear down an
   // ephemeral server per request: at e2e volumes that churn occasionally hands a client a socket

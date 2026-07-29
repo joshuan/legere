@@ -10,6 +10,7 @@ import { pinoHttp } from 'pino-http';
 import { AppModule } from '../src/server/app.module';
 import { AppConfig, loadConfig } from '../src/server/infrastructure/config/app-config';
 import { buildPinoHttpOptions } from '../src/server/infrastructure/logging/logger.options';
+import { WorkerRegistry } from '../src/server/infrastructure/queue/worker-registry';
 import { csrfOriginCheck } from '../src/server/presentation/http/csrf.middleware';
 import { errorEnvelope } from '../src/server/presentation/http/envelope';
 
@@ -77,10 +78,21 @@ export async function bootstrap({ dev }: { dev: boolean }): Promise<void> {
     });
   });
 
+  // Step 5 (docs/02 §2.2): pg-boss workers start after Nest is initialized — they resolve handlers
+  // from its container — and before the port opens, so nothing is served while the queue is down.
+  await startQueueWorkers(nestApp);
+
   const port = nestApp.get(AppConfig).get('PORT');
   server.listen(port, () => {
     nestApp.get(PinoLogger).log(`Legere listening on :${port} (dev=${dev})`);
   });
+}
+
+// Starting workers is separated so tests can boot the HTTP surface without consuming jobs.
+export async function startQueueWorkers(nestApp: INestApplication): Promise<void> {
+  const workers = nestApp.get(WorkerRegistry);
+  await workers.scheduleSystemCrons();
+  await workers.start();
 }
 
 // Auto-start in production (`node dist/server/main.js`, a CommonJS entry). In dev/tests the runner
