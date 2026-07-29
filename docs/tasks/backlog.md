@@ -59,7 +59,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   - `prisma migrate deploy` on a fresh pgvector DB succeeds; re-running is a no-op.
   - `db:seed` idempotently creates `admin@legere.local`/`user@legere.local` (password `password`) and the dev library; running twice creates no dupes.
 
-- [ ] **M1.2 — PersistenceModule + UnitOfWork + integration-test harness**
+- [x] **M1.2 — PersistenceModule + UnitOfWork + integration-test harness**
   **Goal:** repositories can be written and integration-tested.
   **Docs:** [`06 §6.2, §6.3.3–6.3.4, §6.5`](../06-backend-architecture.md), [`14 §14.8`](../14-coding-standards.md#148-testing)
   **Acceptance:** Prisma client provider with graceful shutdown; `UnitOfWork.run` wraps `$transaction` and repositories accept the tx handle; test helper truncates all tables between integration tests; example round-trip repo test passes in CI.

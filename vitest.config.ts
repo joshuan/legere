@@ -17,6 +17,9 @@ export default defineConfig({
           name: 'server',
           environment: 'node',
           globals: true,
+          // Server tests share one database and the integration harness truncates between tests,
+          // so files must not run concurrently (docs/14 §14.8).
+          fileParallelism: false,
           setupFiles: ['./test/setup.server.ts'],
           include: [
             'server/**/*.test.ts',

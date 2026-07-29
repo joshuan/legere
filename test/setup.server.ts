@@ -4,5 +4,7 @@
 process.env.LOG_LEVEL ??= 'silent';
 process.env.APP_BASE_URL ??= 'http://localhost:3000';
 process.env.AUTH_SECRET ??= 'test-secret-minimum-32-characters!!';
-process.env.DATABASE_URL ??= 'postgresql://legere:legere@localhost:5432/legere?schema=public';
+// Defaults to a dedicated *test* database (same name CI uses), never the developer's dev database:
+// the integration harness truncates every table between tests.
+process.env.DATABASE_URL ??= 'postgresql://legere:legere@localhost:5432/legere_test?schema=public';
 process.env.LIBRARY_ROOT ??= '/tmp/test-library';
