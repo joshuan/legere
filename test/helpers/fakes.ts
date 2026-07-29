@@ -7,10 +7,12 @@ import {
 } from '../../src/server/domain/repositories/email-verification.repository';
 import {
   PasswordResetRepository,
+  type CreatePasswordResetInput,
   type PasswordReset,
 } from '../../src/server/domain/repositories/password-reset.repository';
 import {
   UserInviteRepository,
+  type CreateUserInviteInput,
   type UserInvite,
 } from '../../src/server/domain/repositories/user-invite.repository';
 import {
@@ -276,6 +278,48 @@ export class InMemoryUserInviteRepository extends UserInviteRepository {
     }
     return Promise.resolve();
   }
+
+  create(input: CreateUserInviteInput): Promise<UserInvite> {
+    const invite = {
+      id: `invite-${this.invites.length + 1}`,
+      tokenHash: input.tokenHash,
+      role: input.role,
+      emailHint: input.emailHint,
+      createdById: input.createdById,
+      expiresAt: input.expiresAt,
+      revokedAt: null,
+      acceptedAt: null,
+      acceptedById: null,
+      createdAt: new Date(0),
+    };
+    this.invites.push(invite);
+    return Promise.resolve(invite);
+  }
+
+  listActive(now: Date): Promise<UserInvite[]> {
+    return Promise.resolve(
+      this.invites.filter(
+        (invite) =>
+          invite.revokedAt === null &&
+          invite.acceptedAt === null &&
+          invite.expiresAt.getTime() > now.getTime(),
+      ),
+    );
+  }
+
+  revoke(id: string, revokedAt: Date): Promise<void> {
+    const invite = this.invites.find((candidate) => candidate.id === id);
+    if (invite !== undefined) invite.revokedAt = revokedAt;
+    return Promise.resolve();
+  }
+
+  deleteExpired(now: Date): Promise<number> {
+    const before = this.invites.length;
+    const kept = this.invites.filter((invite) => invite.expiresAt.getTime() >= now.getTime());
+    this.invites.length = 0;
+    this.invites.push(...kept);
+    return Promise.resolve(before - kept.length);
+  }
 }
 
 export class InMemoryPasswordResetRepository extends PasswordResetRepository {
@@ -293,5 +337,39 @@ export class InMemoryPasswordResetRepository extends PasswordResetRepository {
     const reset = this.resets.find((candidate) => candidate.id === id);
     if (reset !== undefined) reset.usedAt = usedAt;
     return Promise.resolve();
+  }
+
+  create(input: CreatePasswordResetInput): Promise<PasswordReset> {
+    const reset = {
+      id: `reset-${this.resets.length + 1}`,
+      tokenHash: input.tokenHash,
+      userId: input.userId,
+      createdById: input.createdById,
+      expiresAt: input.expiresAt,
+      revokedAt: null,
+      usedAt: null,
+      createdAt: new Date(0),
+    };
+    this.resets.push(reset);
+    return Promise.resolve(reset);
+  }
+
+  revokeAllForUser(userId: string, revokedAt: Date): Promise<number> {
+    let revoked = 0;
+    for (const reset of this.resets) {
+      if (reset.userId === userId && reset.revokedAt === null && reset.usedAt === null) {
+        reset.revokedAt = revokedAt;
+        revoked += 1;
+      }
+    }
+    return Promise.resolve(revoked);
+  }
+
+  deleteExpired(now: Date): Promise<number> {
+    const before = this.resets.length;
+    const kept = this.resets.filter((reset) => reset.expiresAt.getTime() >= now.getTime());
+    this.resets.length = 0;
+    this.resets.push(...kept);
+    return Promise.resolve(before - kept.length);
   }
 }

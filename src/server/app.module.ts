@@ -10,6 +10,7 @@ import { PersistenceModule } from './infrastructure/persistence/persistence.modu
 import { AuthModule } from './presentation/auth/auth.module';
 import { DomainExceptionFilter } from './presentation/http/domain-exception.filter';
 import { HealthModule } from './presentation/health/health.module';
+import { UsersModule } from './presentation/users/users.module';
 
 // Composition root (docs/06 §6.5). Feature modules are added as milestones land.
 @Module({
@@ -25,6 +26,7 @@ import { HealthModule } from './presentation/health/health.module';
     PersistenceModule,
     AuthInfrastructureModule,
     AuthModule,
+    UsersModule,
     HealthModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],

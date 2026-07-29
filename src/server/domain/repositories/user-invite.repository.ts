@@ -22,10 +22,25 @@ export function isInviteValid(invite: UserInvite, now: Date): boolean {
   );
 }
 
+export type CreateUserInviteInput = {
+  tokenHash: string;
+  role: UserRole;
+  emailHint: string | null;
+  createdById: string;
+  expiresAt: Date;
+};
+
 export abstract class UserInviteRepository {
   abstract findByTokenHash(tokenHash: string, tx?: TransactionHandle): Promise<UserInvite | null>;
 
   abstract findById(id: string, tx?: TransactionHandle): Promise<UserInvite | null>;
+
+  abstract create(input: CreateUserInviteInput, tx?: TransactionHandle): Promise<UserInvite>;
+
+  // Invites still usable right now: unrevoked, unaccepted, unexpired (docs/07 admin invites).
+  abstract listActive(now: Date, tx?: TransactionHandle): Promise<UserInvite[]>;
+
+  abstract revoke(id: string, revokedAt: Date, tx?: TransactionHandle): Promise<void>;
 
   abstract markAccepted(
     id: string,
@@ -33,4 +48,7 @@ export abstract class UserInviteRepository {
     acceptedAt: Date,
     tx?: TransactionHandle,
   ): Promise<void>;
+
+  // Maintenance purge of expired rows (docs/06 §6.3.2).
+  abstract deleteExpired(now: Date, tx?: TransactionHandle): Promise<number>;
 }
