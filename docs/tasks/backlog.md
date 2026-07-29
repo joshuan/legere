@@ -71,7 +71,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`07 §7.3`](../07-api-specification.md#73-endpoints) (Auth & account, Admin users & invites), [`07 §7.4–7.5`](../07-api-specification.md)
   **Acceptance:** `contracts/auth.ts`, `contracts/users.ts` export request/response schemas + inferred types for every endpoint of those sections; password rule (8–128 + denylist) lives here; no runtime deps beyond zod.
 
-- [ ] **M2.2 — Auth infrastructure ports**
+- [x] **M2.2 — Auth infrastructure ports**
   **Goal:** working `PasswordHasher` (Argon2id), `SessionTokens`, `EmailSender` (SMTP + Log fallback), `CaptchaVerifier` (Turnstile + no-op), `Clock`.
   **Docs:** [`08 §8.1.5, §8.4.2`](../08-auth-and-authorization.md), [`06 §6.3.3`](../06-backend-architecture.md#633-application-ports-non-repository)
   **Acceptance:** Argon2id params per 08 §8.1.5 (PHC string round-trip test); LogEmailSender used when `SMTP_HOST` empty; CaptchaVerifier no-op when keys unset; unit tests for each.

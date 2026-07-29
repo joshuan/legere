@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
+import { AuthInfrastructureModule } from './infrastructure/auth/auth-infrastructure.module';
 import { AppConfig } from './infrastructure/config/app-config';
 import { ConfigModule } from './infrastructure/config/config.module';
 import { buildLoggerOptions } from './infrastructure/logging/logger.options';
@@ -17,6 +18,7 @@ import { HealthModule } from './presentation/health/health.module';
       useFactory: buildLoggerOptions,
     }),
     PersistenceModule,
+    AuthInfrastructureModule,
     HealthModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],
