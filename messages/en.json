@@ -119,5 +119,60 @@
       "DARK": "Dark"
     },
     "saved": "Saved"
+  },
+  "admin": {
+    "oneTimeLink": {
+      "warning": "This link is shown only once. Copy it now — it cannot be retrieved later.",
+      "copy": "Copy link",
+      "expires": "Expires {date}"
+    },
+    "users": {
+      "title": "Users",
+      "columns": {
+        "name": "Name",
+        "email": "Email",
+        "role": "Role",
+        "status": "Status",
+        "created": "Created",
+        "actions": "Actions"
+      },
+      "status": {
+        "active": "Active",
+        "deactivated": "Deactivated"
+      },
+      "actions": {
+        "deactivate": "Deactivate",
+        "reactivate": "Reactivate",
+        "revokeSessions": "Revoke sessions",
+        "resetLink": "Reset link",
+        "makeUser": "Make user",
+        "makeAdmin": "Make admin"
+      },
+      "confirmDeactivate": "Deactivate {email}? They will be signed out and unable to sign in.",
+      "confirmReactivate": "Reactivate {email}?",
+      "sessionsRevoked": "Revoked {count} sessions",
+      "resetLinkTitle": "Password reset link",
+      "confirmDemote": "Make {email} a regular user?",
+      "confirmPromote": "Make {email} an administrator?"
+    },
+    "invites": {
+      "title": "Active invites",
+      "empty": "No active invites",
+      "linkTitle": "Invite link",
+      "columns": {
+        "role": "Role",
+        "emailHint": "Email hint",
+        "expires": "Expires"
+      },
+      "fields": {
+        "role": "Role",
+        "emailHint": "Email hint (optional)"
+      },
+      "actions": {
+        "create": "Invite user",
+        "revoke": "Revoke"
+      },
+      "confirmRevoke": "Revoke this invite? The link stops working immediately."
+    }
   }
 }

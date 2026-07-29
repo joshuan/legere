@@ -119,5 +119,60 @@
       "DARK": "Тёмная"
     },
     "saved": "Сохранено"
+  },
+  "admin": {
+    "oneTimeLink": {
+      "warning": "Ссылка показывается один раз. Скопируйте её сейчас — позже получить её будет нельзя.",
+      "copy": "Скопировать ссылку",
+      "expires": "Действует до {date}"
+    },
+    "users": {
+      "title": "Пользователи",
+      "columns": {
+        "name": "Имя",
+        "email": "Почта",
+        "role": "Роль",
+        "status": "Статус",
+        "created": "Создан",
+        "actions": "Действия"
+      },
+      "status": {
+        "active": "Активен",
+        "deactivated": "Отключён"
+      },
+      "actions": {
+        "deactivate": "Отключить",
+        "reactivate": "Включить",
+        "revokeSessions": "Сбросить сессии",
+        "resetLink": "Ссылка сброса",
+        "makeUser": "Сделать пользователем",
+        "makeAdmin": "Сделать админом"
+      },
+      "confirmDeactivate": "Отключить {email}? Пользователь будет разлогинен и не сможет войти.",
+      "confirmReactivate": "Включить {email}?",
+      "sessionsRevoked": "Сброшено сессий: {count}",
+      "resetLinkTitle": "Ссылка для сброса пароля",
+      "confirmDemote": "Сделать {email} обычным пользователем?",
+      "confirmPromote": "Сделать {email} администратором?"
+    },
+    "invites": {
+      "title": "Активные приглашения",
+      "empty": "Нет активных приглашений",
+      "linkTitle": "Ссылка-приглашение",
+      "columns": {
+        "role": "Роль",
+        "emailHint": "Подсказка почты",
+        "expires": "Действует до"
+      },
+      "fields": {
+        "role": "Роль",
+        "emailHint": "Подсказка почты (необязательно)"
+      },
+      "actions": {
+        "create": "Пригласить",
+        "revoke": "Отозвать"
+      },
+      "confirmRevoke": "Отозвать приглашение? Ссылка перестанет работать сразу."
+    }
   }
 }

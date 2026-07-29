@@ -2,6 +2,7 @@ import { type INestApplication } from '@nestjs/common';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { getOptionsToken } from '@nestjs/throttler';
+import type { Server } from 'node:http';
 import express, { type Express } from 'express';
 import request, { type Test as SupertestRequest } from 'supertest';
 import { wireServer } from '../../server/main';
@@ -37,6 +38,8 @@ export class RecordingEmailSender extends EmailSender {
 
 export type TestApp = {
   server: Express;
+  // Base URL of the one long-lived HTTP server this app listens on (see createTestApp).
+  baseUrl: string;
   nestApp: INestApplication;
   emails: RecordingEmailSender;
   close: () => Promise<void>;
@@ -70,14 +73,33 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     res.status(200).json({ next: true });
   });
 
+  // One HTTP server for the whole file, rather than letting supertest start and tear down an
+  // ephemeral server per request: at e2e volumes that churn occasionally hands a client a socket
+  // belonging to an already-closed server, which surfaces as an unparseable HTTP response.
+  const http = await listen(server);
+  const address = http.address();
+  if (address === null || typeof address === 'string')
+    throw new Error('server did not bind a port');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
   return {
     server,
+    baseUrl,
     nestApp,
     emails,
     close: async () => {
+      await new Promise<void>((resolve, reject) => {
+        http.close((error) => (error === undefined ? resolve() : reject(error)));
+      });
       await nestApp.close();
     },
   };
+}
+
+function listen(app: Express): Promise<Server> {
+  return new Promise((resolve) => {
+    const server = app.listen(0, '127.0.0.1', () => resolve(server));
+  });
 }
 
 // The origin the app is configured with in tests (test/setup.server.ts), i.e. the one the
@@ -89,11 +111,11 @@ export const APP_ORIGIN = 'http://localhost:3000';
 export function api(app: TestApp) {
   const withOrigin = (req: SupertestRequest): SupertestRequest => req.set('Origin', APP_ORIGIN);
   return {
-    get: (path: string): SupertestRequest => request(app.server).get(path),
+    get: (path: string): SupertestRequest => request(app.baseUrl).get(path),
     post: (path: string, body: object = {}): SupertestRequest =>
-      withOrigin(request(app.server).post(path)).send(body),
+      withOrigin(request(app.baseUrl).post(path)).send(body),
     patch: (path: string, body: object = {}): SupertestRequest =>
-      withOrigin(request(app.server).patch(path)).send(body),
-    delete: (path: string): SupertestRequest => withOrigin(request(app.server).delete(path)),
+      withOrigin(request(app.baseUrl).patch(path)).send(body),
+    delete: (path: string): SupertestRequest => withOrigin(request(app.baseUrl).delete(path)),
   };
 }

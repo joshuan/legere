@@ -14,10 +14,6 @@ export default defineConfig({
     // files must not run concurrently (docs/14 §14.8). This has to live at the root: a project-level
     // `fileParallelism` is ignored, which lets two files truncate each other's rows mid-flow.
     fileParallelism: false,
-    // Forked processes rather than worker threads: msw (used by the web component tests) patches
-    // Node's http layer, and in a shared process that interception reaches the supertest calls in
-    // the server project, which then fail to parse their own responses.
-    pool: 'forks',
     projects: [
       {
         plugins: [swc.vite({ jsc })],
@@ -25,6 +21,10 @@ export default defineConfig({
           name: 'server',
           environment: 'node',
           globals: true,
+          // Child processes, kept apart from the web project's worker threads: msw patches Node's
+          // http layer, and any shared runtime lets that interception swallow supertest's own
+          // requests, which then fail to parse their responses.
+          pool: 'forks',
           setupFiles: ['./test/setup.server.ts'],
           include: [
             'server/**/*.test.ts',
@@ -40,6 +40,7 @@ export default defineConfig({
           name: 'web',
           environment: 'jsdom',
           globals: true,
+          pool: 'threads',
           setupFiles: ['./test/setup.web.ts'],
           include: ['src/web/**/*.test.{ts,tsx}', 'src/app/**/*.test.{ts,tsx}'],
         },

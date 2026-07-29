@@ -106,7 +106,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`11 §11.2, §11.9`](../11-ui-ux-spec.md), [`10 §10.2, §10.6`](../10-frontend-architecture.md)
   **Acceptance:** the shared 3-step wizard (Steps, code input with TTL countdown + resend cooldown, password rules) drives all three entry flows; login form with Turnstile slot and localized errors; `(app)` layout session guard redirects with `returnTo`; settings screen saves immediately and switches locale live; component tests for wizard and login (msw).
 
-- [ ] **M2.9 — Admin UI: users & invites**
+- [x] **M2.9 — Admin UI: users & invites**
   **Goal:** the admin can run the user lifecycle from the browser.
   **Docs:** [`11 §11.11`](../11-ui-ux-spec.md#1111-admin-users-adminusers)
   **Acceptance:** users table with role/status actions and `LAST_ADMIN` error toasts; invite modal → one-time URL display with copy; active invites list with revoke; reset-link modal (shown once); admin route guard (`notFound` for USER).

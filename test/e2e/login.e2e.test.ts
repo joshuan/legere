@@ -179,7 +179,7 @@ describe('Login and sessions (e2e)', () => {
 
   describe('CSRF (fail-closed origin check)', () => {
     it('rejects a mutation with no Origin or Referer', async () => {
-      const res = await request(app.server)
+      const res = await request(app.baseUrl)
         .post('/api/auth/login')
         .send({ email: 'admin@legere.local', password: PASSWORD });
 
@@ -188,7 +188,7 @@ describe('Login and sessions (e2e)', () => {
     });
 
     it('rejects a mutation from a foreign origin', async () => {
-      const res = await request(app.server)
+      const res = await request(app.baseUrl)
         .post('/api/auth/login')
         .set('Origin', 'https://evil.example.com')
         .send({ email: 'admin@legere.local', password: PASSWORD });
@@ -201,7 +201,7 @@ describe('Login and sessions (e2e)', () => {
       const email = 'referer@legere.local';
       await onboard(email);
 
-      const res = await request(app.server)
+      const res = await request(app.baseUrl)
         .post('/api/auth/login')
         .set('Referer', `${APP_ORIGIN}/login`)
         .send({ email, password: PASSWORD });
@@ -210,12 +210,12 @@ describe('Login and sessions (e2e)', () => {
     });
 
     it('leaves reads alone', async () => {
-      const res = await request(app.server).get('/api/auth/onboarding');
+      const res = await request(app.baseUrl).get('/api/auth/onboarding');
       expect(res.status).toBe(200);
     });
 
     it('guards every mutating method, not just POST', async () => {
-      const res = await request(app.server).patch('/api/me').send({ language: 'RU' });
+      const res = await request(app.baseUrl).patch('/api/me').send({ language: 'RU' });
       // Refused by CSRF before routing, so a route that does not exist yet still answers 403.
       expect(res.status).toBe(403);
       expect(expectError(res).code).toBe('FORBIDDEN');
