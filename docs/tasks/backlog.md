@@ -66,7 +66,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 ## M2 — Auth & users
 
-- [ ] **M2.1 — Auth/users contracts**
+- [x] **M2.1 — Auth/users contracts**
   **Goal:** all Zod schemas for auth, me, admin users, invites, resets.
   **Docs:** [`07 §7.3`](../07-api-specification.md#73-endpoints) (Auth & account, Admin users & invites), [`07 §7.4–7.5`](../07-api-specification.md)
   **Acceptance:** `contracts/auth.ts`, `contracts/users.ts` export request/response schemas + inferred types for every endpoint of those sections; password rule (8–128 + denylist) lives here; no runtime deps beyond zod.
