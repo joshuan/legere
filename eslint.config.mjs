@@ -146,10 +146,11 @@ export default tseslint.config(
     files: ['src/web/**/*.{ts,tsx}', 'src/app/**/*.{ts,tsx}'],
     plugins: { boundaries },
     settings: {
-      'boundaries/include': ['src/web/**/*', 'src/app/**/*', 'src/server/**/*'],
+      'boundaries/include': ['src/web/**/*', 'src/app/**/*', 'src/server/**/*', 'src/i18n/**/*'],
       'boundaries/elements': [
         { type: 'server', pattern: 'src/server/**/*', mode: 'full' },
         { type: 'contracts', pattern: 'src/shared/contracts/**/*', mode: 'full' },
+        { type: 'i18n', pattern: 'src/i18n/**/*', mode: 'full' },
         { type: 'app', pattern: 'src/app/**/*', mode: 'full' },
         { type: 'screens', pattern: 'src/web/screens/**/*', mode: 'full' },
         { type: 'widgets', pattern: 'src/web/widgets/**/*', mode: 'full' },
@@ -167,7 +168,7 @@ export default tseslint.config(
           rules: [
             {
               from: ['app'],
-              allow: ['screens', 'widgets', 'features', 'entities', 'shared', 'contracts'],
+              allow: ['screens', 'widgets', 'features', 'entities', 'shared', 'contracts', 'i18n'],
             },
             {
               from: ['screens'],

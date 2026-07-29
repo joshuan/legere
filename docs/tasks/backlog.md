@@ -96,7 +96,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`07`](../07-api-specification.md) (me, admin users), [`08 §8.3`](../08-auth-and-authorization.md#83-roles), [`03 §3.3.1`](../03-domain-model.md#331-user)
   **Acceptance (e2e):** `PATCH /api/me` updates displayName/language/theme and refreshes `NEXT_LOCALE`; admin list/role-change/deactivate/reactivate/revoke-sessions; every `LAST_ADMIN` path covered (role change, deactivate — and later delete); non-admin on admin routes → 403.
 
-- [ ] **M2.7 — Frontend foundations**
+- [x] **M2.7 — Frontend foundations**
   **Goal:** the client platform every screen builds on.
   **Docs:** [`10`](../10-frontend-architecture.md) (entire)
   **Acceptance:** providers (AntdRegistry, ConfigProvider with theme algorithm + antd locale sync, QueryClient per 10 §10.5, next-intl without routing); typed api client with envelope parsing, Zod response validation, `ApiError`, 401 redirect; exhaustive `ErrorCode → message key` map (type-checked); `messages/en.json` + `messages/ru.json` bootstrapped; ErrorBoundary widget; `error/global-error/not-found` pages.

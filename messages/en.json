@@ -1,0 +1,54 @@
+{
+  "common": {
+    "appName": "Legere",
+    "actions": {
+      "cancel": "Cancel",
+      "close": "Close",
+      "retry": "Try again",
+      "save": "Save"
+    },
+    "loading": "Loading…"
+  },
+  "errors": {
+    "title": "Something went wrong",
+    "unexpected": "An unexpected error occurred. Please try again.",
+    "network": "Could not reach the server. Check your connection and try again.",
+    "notFound": {
+      "title": "Page not found",
+      "description": "The page you are looking for does not exist.",
+      "backHome": "Go to the home page"
+    },
+    "codes": {
+      "UNAUTHENTICATED": "Your session has expired. Please sign in again.",
+      "INVALID_CREDENTIALS": "Incorrect email or password.",
+      "FORBIDDEN": "You do not have access to this.",
+      "NOT_FOUND": "Not found.",
+      "USER_NOT_FOUND": "This user no longer exists.",
+      "LIBRARY_NOT_FOUND": "This library no longer exists.",
+      "DOCUMENT_NOT_FOUND": "This document no longer exists.",
+      "CATEGORY_NOT_FOUND": "This category no longer exists.",
+      "COLLECTION_NOT_FOUND": "This collection no longer exists.",
+      "SCANSET_NOT_FOUND": "This scan set no longer exists.",
+      "INVITE_NOT_FOUND": "This invite no longer exists.",
+      "EMAIL_ALREADY_REGISTERED": "An account with this email already exists.",
+      "LAST_ADMIN": "The last administrator cannot be demoted or deactivated.",
+      "LIBRARY_PATH_CONFLICT": "This folder overlaps another library.",
+      "CATEGORY_SLUG_TAKEN": "A category with this slug already exists.",
+      "COLLECTION_NAME_TAKEN": "You already have a collection with this name.",
+      "SCANSET_INVALID_STATE": "This scan set cannot be changed in its current state.",
+      "DOCUMENT_UNAVAILABLE": "The original file is currently unavailable.",
+      "ONBOARDING_CLOSED": "This instance has already been set up.",
+      "VALIDATION_FAILED": "Please check the highlighted fields.",
+      "LIBRARY_PATH_INVALID": "This path is not a folder inside the library volume.",
+      "SCANSET_ITEM_NOT_IMAGE": "Only images can be added to a scan set.",
+      "EMAIL_CODE_INVALID": "This code is not correct.",
+      "REGISTRATION_TICKET_INVALID": "This step has expired. Please start again.",
+      "INVITE_INVALID": "This invite link is no longer valid.",
+      "RESET_INVALID": "This reset link is no longer valid.",
+      "CAPTCHA_FAILED": "The anti-spam check failed. Please try again.",
+      "RATE_LIMITED": "Too many attempts. Please wait a moment and try again.",
+      "EMAIL_CODE_TOO_MANY_ATTEMPTS": "Too many wrong codes. Request a new one.",
+      "INTERNAL": "An unexpected server error occurred."
+    }
+  }
+}
