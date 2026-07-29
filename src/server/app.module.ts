@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { AuthInfrastructureModule } from './infrastructure/auth/auth-infrastructure.module';
 import { AppConfig } from './infrastructure/config/app-config';
@@ -18,6 +19,9 @@ import { HealthModule } from './presentation/health/health.module';
       inject: [AppConfig],
       useFactory: buildLoggerOptions,
     }),
+    // Per-IP rate limiting (docs/06 §6.4, docs/08 §8.4). The guard is applied per route rather than
+    // globally, so it covers /api/auth/* and /api/invites/* without throttling the health probe.
+    ThrottlerModule.forRoot([{ name: 'auth', ttl: 60_000, limit: 20 }]),
     PersistenceModule,
     AuthInfrastructureModule,
     AuthModule,

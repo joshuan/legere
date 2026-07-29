@@ -1,13 +1,17 @@
 import { Module } from '@nestjs/common';
+import { AuthenticateSession } from '../../application/auth/authenticate-session';
 import { CompleteRegistration } from '../../application/auth/complete-registration';
 import { GetOnboardingStatus } from '../../application/auth/get-onboarding-status';
 import { IssueSession } from '../../application/auth/issue-session';
+import { Login } from '../../application/auth/login';
+import { Logout } from '../../application/auth/logout';
 import { StartRegistration } from '../../application/auth/start-registration';
 import { VerifyEmailCode } from '../../application/auth/verify-email-code';
 import { CaptchaVerifier } from '../../application/ports/captcha-verifier';
 import { Clock } from '../../application/ports/clock';
 import { EmailSendThrottle } from '../../application/ports/email-send-throttle';
 import { EmailSender } from '../../application/ports/email-sender';
+import { LoginAttempts } from '../../application/ports/login-attempts';
 import { PasswordHasher } from '../../application/ports/password-hasher';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
@@ -19,12 +23,41 @@ import { UserInviteRepository } from '../../domain/repositories/user-invite.repo
 import { UserRepository } from '../../domain/repositories/user.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { AuthController } from './auth.controller';
+import { SessionGuard } from './session.guard';
 
 // Use cases are framework-free classes, so they are wired with explicit factory providers
 // (docs/06 §6.1): no decorators leak into the application layer.
 @Module({
   controllers: [AuthController],
   providers: [
+    SessionGuard,
+    {
+      provide: AuthenticateSession,
+      useFactory: (
+        sessions: SessionRepository,
+        users: UserRepository,
+        tokens: SessionTokens,
+        clock: Clock,
+      ): AuthenticateSession => new AuthenticateSession(sessions, users, tokens, clock),
+      inject: [SessionRepository, UserRepository, SessionTokens, Clock],
+    },
+    {
+      provide: Login,
+      useFactory: (
+        users: UserRepository,
+        hasher: PasswordHasher,
+        captcha: CaptchaVerifier,
+        attempts: LoginAttempts,
+        issueSession: IssueSession,
+      ): Login => new Login(users, hasher, captcha, attempts, issueSession),
+      inject: [UserRepository, PasswordHasher, CaptchaVerifier, LoginAttempts, IssueSession],
+    },
+    {
+      provide: Logout,
+      useFactory: (sessions: SessionRepository, clock: Clock): Logout =>
+        new Logout(sessions, clock),
+      inject: [SessionRepository, Clock],
+    },
     {
       provide: IssueSession,
       useFactory: (

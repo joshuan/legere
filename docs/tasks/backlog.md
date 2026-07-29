@@ -81,7 +81,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`08 §8.1.1–8.1.3`](../08-auth-and-authorization.md), [`03 §3.3.3`](../03-domain-model.md#333-emailverification), [`07`](../07-api-specification.md) (register endpoints)
   **Acceptance (e2e):** onboarding-required flag; concurrent onboarding creates exactly one ADMIN; start/verify/complete happy path (code read from mock sender); wrong code ×5 burns the record (`EMAIL_CODE_TOO_MANY_ATTEMPTS`); expired code/ticket rejected; per-email caps (1/60s, 5/day) → `RATE_LIMITED`; anti-enumeration (`start` always 200); registration race → `EMAIL_ALREADY_REGISTERED`.
 
-- [ ] **M2.4 — Login, sessions, CSRF, rate limiting**
+- [x] **M2.4 — Login, sessions, CSRF, rate limiting**
   **Goal:** session authn hardened per spec.
   **Docs:** [`08 §8.1.4, §8.2, §8.4`](../08-auth-and-authorization.md), [`06 §6.4`](../06-backend-architecture.md#64-presentation-layer)
   **Acceptance (e2e):** login sets new `sid` each time (anti-fixation); dummy-verify keeps unknown-email and wrong-password responses identical (`INVALID_CREDENTIALS`); `SessionGuard` populates `currentUser`; logout revokes; deactivated user → 403; CSRF fail-closed on all mutations (missing/foreign Origin → 403); per-IP throttling on `/api/auth/*`; login backoff after 5 failures; cookie attributes per 08 §8.2.

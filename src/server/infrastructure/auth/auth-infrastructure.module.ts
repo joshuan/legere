@@ -3,6 +3,7 @@ import { CaptchaVerifier } from '../../application/ports/captcha-verifier';
 import { Clock } from '../../application/ports/clock';
 import { EmailSendThrottle } from '../../application/ports/email-send-throttle';
 import { EmailSender } from '../../application/ports/email-sender';
+import { LoginAttempts } from '../../application/ports/login-attempts';
 import { PasswordHasher } from '../../application/ports/password-hasher';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import { VerificationCodes } from '../../application/ports/verification-codes';
@@ -13,6 +14,7 @@ import { Argon2PasswordHasher } from './argon2-password-hasher';
 import { CryptoSessionTokens } from './crypto-session-tokens';
 import { HmacVerificationCodes } from './hmac-verification-codes';
 import { InMemoryEmailSendThrottle } from './in-memory-email-send-throttle';
+import { InMemoryLoginAttempts } from './in-memory-login-attempts';
 import { SystemClock } from './system-clock';
 import { TurnstileCaptchaVerifier } from './turnstile-captcha-verifier';
 
@@ -28,6 +30,7 @@ import { TurnstileCaptchaVerifier } from './turnstile-captcha-verifier';
     { provide: CaptchaVerifier, useClass: TurnstileCaptchaVerifier },
     { provide: VerificationCodes, useClass: HmacVerificationCodes },
     { provide: EmailSendThrottle, useClass: InMemoryEmailSendThrottle },
+    { provide: LoginAttempts, useClass: InMemoryLoginAttempts },
     {
       provide: EmailSender,
       useFactory: (config: AppConfig, logSender: LogEmailSender): EmailSender =>
@@ -43,6 +46,7 @@ import { TurnstileCaptchaVerifier } from './turnstile-captcha-verifier';
     EmailSender,
     VerificationCodes,
     EmailSendThrottle,
+    LoginAttempts,
   ],
 })
 export class AuthInfrastructureModule {}

@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from 'node:crypto';
-import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   onboardingStatusSchema,
@@ -7,7 +6,7 @@ import {
   registerVerifyResponseSchema,
   userDtoSchema,
 } from '../../src/shared/contracts/auth';
-import { createTestApp, type TestApp } from '../helpers/app';
+import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
 
@@ -29,12 +28,11 @@ describe('Registration and onboarding (e2e)', () => {
     await disconnectTestPrisma();
   });
 
-  const start = (body: Record<string, unknown>) =>
-    request(app.server).post('/api/auth/register/start').send(body);
+  const start = (body: Record<string, unknown>) => api(app).post('/api/auth/register/start', body);
   const verify = (body: Record<string, unknown>) =>
-    request(app.server).post('/api/auth/register/verify').send(body);
+    api(app).post('/api/auth/register/verify', body);
   const complete = (body: Record<string, unknown>) =>
-    request(app.server).post('/api/auth/register/complete').send(body);
+    api(app).post('/api/auth/register/complete', body);
 
   async function issueTicket(email: string): Promise<string> {
     await start({ email });
@@ -49,13 +47,13 @@ describe('Registration and onboarding (e2e)', () => {
   }
 
   it('reports onboarding as required on an empty instance and closed afterwards', async () => {
-    const before = await request(app.server).get('/api/auth/onboarding');
+    const before = await api(app).get('/api/auth/onboarding');
     expect(before.status).toBe(200);
     expect(expectData(before, onboardingStatusSchema)).toEqual({ required: true });
 
     await onboardFirstAdmin('first@legere.local');
 
-    const after = await request(app.server).get('/api/auth/onboarding');
+    const after = await api(app).get('/api/auth/onboarding');
     expect(expectData(after, onboardingStatusSchema)).toEqual({ required: false });
   });
 

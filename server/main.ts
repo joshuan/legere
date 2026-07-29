@@ -10,6 +10,7 @@ import { pinoHttp } from 'pino-http';
 import { AppModule } from '../src/server/app.module';
 import { AppConfig, loadConfig } from '../src/server/infrastructure/config/app-config';
 import { buildPinoHttpOptions } from '../src/server/infrastructure/logging/logger.options';
+import { csrfOriginCheck } from '../src/server/presentation/http/csrf.middleware';
 import { errorEnvelope } from '../src/server/presentation/http/envelope';
 
 // A request handler for everything Nest does not serve (Next pages/assets, or a stub in tests).
@@ -44,6 +45,8 @@ export async function wireServer(
   server.use('/api', cookieParser());
   server.use('/api', express.json({ limit: '1mb' }));
   server.use('/api', express.urlencoded({ extended: true }));
+  // Fail-closed CSRF origin check on every mutating /api request (docs/08 §8.4), before Nest sees it.
+  server.use('/api', csrfOriginCheck(nestApp.get(AppConfig).get('APP_BASE_URL')));
 
   await nestApp.init();
 

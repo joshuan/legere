@@ -1,9 +1,23 @@
-import { Controller, Get, HttpCode, HttpStatus, Ip, Post, Req, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Ip,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import {
+  loginRequestSchema,
   registerCompleteRequestSchema,
   registerStartRequestSchema,
   registerVerifyRequestSchema,
+  type LoginRequest,
+  type LogoutResponse,
   type OnboardingStatus,
   type RegisterCompleteRequest,
   type RegisterStartRequest,
@@ -15,23 +29,31 @@ import {
 import type { Language } from '../../../shared/contracts/enums';
 import { CompleteRegistration } from '../../application/auth/complete-registration';
 import { GetOnboardingStatus } from '../../application/auth/get-onboarding-status';
+import { Login } from '../../application/auth/login';
+import { Logout } from '../../application/auth/logout';
 import { StartRegistration } from '../../application/auth/start-registration';
 import { VerifyEmailCode } from '../../application/auth/verify-email-code';
+import type { Session } from '../../domain/entities/session';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { successEnvelope } from '../http/envelope';
-import { setLocaleCookie, setSessionCookie } from '../http/session-cookie';
+import { clearSessionCookie, setLocaleCookie, setSessionCookie } from '../http/session-cookie';
 import { ZodBody } from '../http/zod-validation.pipe';
+import { CurrentSession } from './current-user';
+import { SessionGuard } from './session.guard';
 import type { Envelope } from '../../../shared/contracts/common';
 
 // Auth endpoints (docs/07 §7.3). Controllers stay thin: validate with the contract schema, call the
-// use case, map to the envelope. Login/logout land in M2.4.
+// use case, map to the envelope. Per-IP throttling covers the whole controller (docs/08 §8.4).
 @Controller('auth')
+@UseGuards(ThrottlerGuard)
 export class AuthController {
   constructor(
     private readonly getOnboardingStatus: GetOnboardingStatus,
     private readonly startRegistration: StartRegistration,
     private readonly verifyEmailCode: VerifyEmailCode,
     private readonly completeRegistration: CompleteRegistration,
+    private readonly login: Login,
+    private readonly logout: Logout,
     private readonly config: AppConfig,
   ) {}
 
@@ -74,6 +96,39 @@ export class AuthController {
     setSessionCookie(res, this.config, result.sessionToken);
     setLocaleCookie(res, this.config, result.user.language);
     return successEnvelope(result.user);
+  }
+
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  async signIn(
+    @ZodBody(loginRequestSchema) body: LoginRequest,
+    @Ip() ip: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<Envelope<UserDto>> {
+    const result = await this.login.execute({
+      email: body.email,
+      password: body.password,
+      captchaToken: body.captchaToken,
+      ip,
+      userAgent: req.headers['user-agent'] ?? null,
+    });
+
+    setSessionCookie(res, this.config, result.sessionToken);
+    setLocaleCookie(res, this.config, result.user.language);
+    return successEnvelope(result.user);
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(SessionGuard)
+  async signOut(
+    @CurrentSession() session: Session,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<Envelope<LogoutResponse>> {
+    await this.logout.execute(session.id);
+    clearSessionCookie(res, this.config);
+    return successEnvelope({ ok: true });
   }
 }
 
