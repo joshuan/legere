@@ -101,7 +101,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`10`](../10-frontend-architecture.md) (entire)
   **Acceptance:** providers (AntdRegistry, ConfigProvider with theme algorithm + antd locale sync, QueryClient per 10 §10.5, next-intl without routing); typed api client with envelope parsing, Zod response validation, `ApiError`, 401 redirect; exhaustive `ErrorCode → message key` map (type-checked); `messages/en.json` + `messages/ru.json` bootstrapped; ErrorBoundary widget; `error/global-error/not-found` pages.
 
-- [ ] **M2.8 — Auth screens**
+- [x] **M2.8 — Auth screens**
   **Goal:** login, onboarding/invite/reset wizard, settings.
   **Docs:** [`11 §11.2, §11.9`](../11-ui-ux-spec.md), [`10 §10.2, §10.6`](../10-frontend-architecture.md)
   **Acceptance:** the shared 3-step wizard (Steps, code input with TTL countdown + resend cooldown, password rules) drives all three entry flows; login form with Turnstile slot and localized errors; `(app)` layout session guard redirects with `returnTo`; settings screen saves immediately and switches locale live; component tests for wizard and login (msw).

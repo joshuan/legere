@@ -14,6 +14,10 @@ export default defineConfig({
     // files must not run concurrently (docs/14 §14.8). This has to live at the root: a project-level
     // `fileParallelism` is ignored, which lets two files truncate each other's rows mid-flow.
     fileParallelism: false,
+    // Forked processes rather than worker threads: msw (used by the web component tests) patches
+    // Node's http layer, and in a shared process that interception reaches the supertest calls in
+    // the server project, which then fail to parse their own responses.
+    pool: 'forks',
     projects: [
       {
         plugins: [swc.vite({ jsc })],

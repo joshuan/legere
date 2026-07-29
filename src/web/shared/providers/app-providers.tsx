@@ -1,6 +1,7 @@
 'use client';
 
 import { AntdRegistry } from '@ant-design/nextjs-registry';
+import { App as AntdApp } from 'antd';
 import { NextIntlClientProvider, type AbstractIntlMessages } from 'next-intl';
 import type { ReactNode } from 'react';
 import type { Theme } from '../../../shared/contracts/enums';
@@ -25,7 +26,9 @@ export function AppProviders({
     <AntdRegistry>
       <NextIntlClientProvider locale={locale} messages={messages}>
         <ThemeProvider {...(theme === undefined ? {} : { preference: theme })}>
-          <QueryProvider>{children}</QueryProvider>
+          <AntdApp>
+            <QueryProvider>{children}</QueryProvider>
+          </AntdApp>
         </ThemeProvider>
       </NextIntlClientProvider>
     </AntdRegistry>

@@ -73,7 +73,7 @@ export default tseslint.config(
 
   // Type-aware linting for the TypeScript sources.
   {
-    files: ['server/**/*.ts', 'src/**/*.{ts,tsx}', 'prisma/**/*.ts', 'test/**/*.ts'],
+    files: ['server/**/*.ts', 'src/**/*.{ts,tsx}', 'prisma/**/*.ts', 'test/**/*.{ts,tsx}'],
     languageOptions: {
       parserOptions: {
         // Classic multi-project mode: the codebase has purpose-specific tsconfigs (client, server,
@@ -203,6 +203,14 @@ export default tseslint.config(
       ...nextPlugin.configs['core-web-vitals'].rules,
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
+    },
+  },
+
+  // Test files may name mock factories after the hooks they replace (vi.mock('next/navigation')).
+  {
+    files: ['**/*.test.{ts,tsx}', 'test/**/*.{ts,tsx}'],
+    rules: {
+      '@eslint-react/hooks-extra/no-unnecessary-use-prefix': 'off',
     },
   },
 

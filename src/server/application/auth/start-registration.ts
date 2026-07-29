@@ -57,31 +57,36 @@ export class StartRegistration {
     }
 
     const now = this.clock.now();
-    const { purpose, inviteId, passwordResetId } = await this.resolveEntryPath(input, now);
+    const entry = await this.resolveEntryPath(input, now);
+    const { purpose, inviteId, passwordResetId } = entry;
+    // A reset series is bound to the account behind the link, not to whatever address was typed:
+    // the client only ever sees a masked address (docs/11 §11.2), and deriving it server-side means
+    // a typo still delivers the code to the right mailbox and reveals nothing about other accounts.
+    const email = entry.email ?? input.email;
 
-    const existing = await this.verifications.findActive(input.email, purpose);
+    const existing = await this.verifications.findActive(email, purpose);
     if (existing !== null && this.tooSoon(existing.createdAt, now)) {
       throw new RateLimitedError('RATE_LIMITED', 'A code was already sent recently');
     }
-    if (!this.throttle.canSend(input.email)) {
+    if (!this.throttle.canSend(email)) {
       throw new RateLimitedError('RATE_LIMITED', 'Too many codes requested for this address');
     }
 
     const code = this.codes.generate();
     const expiresAt = new Date(now.getTime() + CODE_TTL_MS);
     await this.verifications.replace({
-      email: input.email,
+      email,
       purpose,
       codeHash: this.codes.hash(code),
       expiresAt,
       inviteId,
       passwordResetId,
     });
-    this.throttle.record(input.email);
+    this.throttle.record(email);
 
-    const alreadyRegistered = (await this.users.findActiveByEmail(input.email)) !== null;
+    const alreadyRegistered = (await this.users.findActiveByEmail(email)) !== null;
     await this.email.send({
-      to: input.email,
+      to: email,
       subject: this.subjectFor(purpose),
       text: this.bodyFor(purpose, code, alreadyRegistered),
     });
@@ -98,13 +103,24 @@ export class StartRegistration {
     purpose: VerificationPurpose;
     inviteId: string | null;
     passwordResetId: string | null;
+    // Set only for reset series, where the address comes from the link rather than the request.
+    email?: string;
   }> {
     if (input.resetToken !== undefined) {
       const reset = await this.passwordResets.findByTokenHash(this.tokens.hash(input.resetToken));
       if (reset === null || !isPasswordResetValid(reset, now)) {
         throw new AuthFlowError('RESET_INVALID', 'Password reset link is not valid');
       }
-      return { purpose: 'PASSWORD_RESET', inviteId: null, passwordResetId: reset.id };
+      const target = await this.users.findById(reset.userId);
+      if (target === null) {
+        throw new AuthFlowError('RESET_INVALID', 'Password reset link is not valid');
+      }
+      return {
+        purpose: 'PASSWORD_RESET',
+        inviteId: null,
+        passwordResetId: reset.id,
+        email: target.email,
+      };
     }
 
     if (input.inviteToken !== undefined) {

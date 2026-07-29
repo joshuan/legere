@@ -50,5 +50,74 @@
       "EMAIL_CODE_TOO_MANY_ATTEMPTS": "Too many wrong codes. Request a new one.",
       "INTERNAL": "An unexpected server error occurred."
     }
+  },
+  "auth": {
+    "fields": {
+      "email": "Email",
+      "password": "Password",
+      "passwordConfirm": "Confirm password",
+      "code": "Verification code"
+    },
+    "login": {
+      "title": "Sign in",
+      "submit": "Sign in",
+      "emailRequired": "Enter your email",
+      "passwordRequired": "Enter your password",
+      "forgot": "Forgot password?",
+      "forgotHint": "Ask your administrator for a reset link."
+    },
+    "wizard": {
+      "title": {
+        "onboarding": "Set up your instance",
+        "invite": "Create your account",
+        "reset": "Set a new password"
+      },
+      "steps": {
+        "email": "Email",
+        "code": "Code",
+        "password": "Password"
+      },
+      "email": {
+        "invalid": "Enter a valid email address"
+      },
+      "code": {
+        "sent": "We sent a code to {email}.",
+        "expiresIn": "The code expires in {seconds}s.",
+        "expired": "The code has expired. Request a new one."
+      },
+      "password": {
+        "hint": "Between {min} and {max} characters; common passwords are rejected.",
+        "rules": "Choose a longer, less common password",
+        "mismatch": "The passwords do not match"
+      },
+      "actions": {
+        "sendCode": "Send code",
+        "resend": "Resend code",
+        "resendIn": "Resend in {seconds}s",
+        "finish": "Finish"
+      }
+    },
+    "invite": {
+      "invalidTitle": "This invitation is no longer valid",
+      "invalidDescription": "Ask your administrator for a new invite link."
+    },
+    "reset": {
+      "invalidTitle": "This reset link is no longer valid",
+      "invalidDescription": "Ask your administrator for a new reset link.",
+      "emailHint": "Enter the address for {masked}."
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "displayName": "Display name",
+    "email": "Email",
+    "language": "Language",
+    "theme": "Theme",
+    "themes": {
+      "SYSTEM": "System",
+      "LIGHT": "Light",
+      "DARK": "Dark"
+    },
+    "saved": "Saved"
   }
 }
