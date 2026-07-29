@@ -5,6 +5,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { AuthInfrastructureModule } from './infrastructure/auth/auth-infrastructure.module';
 import { AppConfig } from './infrastructure/config/app-config';
 import { ConfigModule } from './infrastructure/config/config.module';
+import { LibraryModule } from './infrastructure/library/library.module';
 import { buildLoggerOptions } from './infrastructure/logging/logger.options';
 import { PersistenceModule } from './infrastructure/persistence/persistence.module';
 import { AuthModule } from './presentation/auth/auth.module';
@@ -25,6 +26,7 @@ import { UsersModule } from './presentation/users/users.module';
     ThrottlerModule.forRoot([{ name: 'auth', ttl: 60_000, limit: 20 }]),
     PersistenceModule,
     AuthInfrastructureModule,
+    LibraryModule,
     AuthModule,
     UsersModule,
     HealthModule,

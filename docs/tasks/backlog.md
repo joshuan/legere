@@ -113,7 +113,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 ## M3 — Libraries & scanning
 
-- [ ] **M3.1 — `RelativePath` + `LibraryReader` (fs)**
+- [x] **M3.1 — `RelativePath` + `LibraryReader` (fs)**
   **Goal:** safe, tested filesystem access under `LIBRARY_ROOT`.
   **Docs:** [`09 §9.1`](../09-file-storage.md#91-library-volume), [`05 §5.1`](../05-library-and-processing.md#51-external-libraries), [`06 §6.2`](../06-backend-architecture.md#62-domain-layer)
   **Acceptance:** `RelativePath` VO rejects traversal/absolute/`..`; `FsLibraryReader.walk` yields deterministic ordered entries with size/mtime; symlinks and special files skipped (fixture includes a symlink escaping the root — must be ignored); hidden files and excludeGlobs honored; unreadable dir recorded, not fatal; integration tests on tmp fixtures.
