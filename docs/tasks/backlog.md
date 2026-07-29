@@ -44,7 +44,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`13 §13.1–13.2, §13.4`](../13-ci-cd.md)
   **Acceptance:** `.github/workflows/ci.yml` verbatim-equivalent to 13 §13.2; green on the current tree; branch protection requirements documented in the PR description for the repo owner to enable.
 
-- [ ] **M0.6 — Dockerfile + release workflow**
+- [x] **M0.6 — Dockerfile + release workflow**
   **Goal:** one production image, published to GHCR on main/tags.
   **Docs:** [`12 §12.6`](../12-build-config-run.md#126-dockerfile-one-image), [`13 §13.3`](../13-ci-cd.md#133-githubworkflowsreleaseyml)
   **Acceptance:** multi-stage Dockerfile per 12 §12.6 builds locally; `CMD` = migrate deploy + start; `release.yml` per 13 §13.3; image runs and serves `/api/health` (with compose deps).
