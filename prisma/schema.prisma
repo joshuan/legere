@@ -1,10 +1,393 @@
-// Physical schema (docs/04). Bootstrapped with datasource + generator only; the full model set and
-// the first migration land in M1.1. The generated client is used from PrismaService (health SELECT 1).
+// Physical schema — implements docs/04 §4.1 exactly. Uniqueness for soft-deletable models lives in
+// the partial unique indexes of §4.3 (raw SQL in the migration), not in @unique attributes.
+
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Required for the `extensions` datasource property below (pgvector, docs/04 §4.1).
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+enum Language {
+  EN
+  RU
+}
+
+enum Theme {
+  SYSTEM
+  LIGHT
+  DARK
+}
+
+enum LibraryVisibility {
+  ALL_USERS
+  RESTRICTED
+}
+
+enum FileRefStatus {
+  DISCOVERED
+  HASHED
+  MISSING
+}
+
+enum DocumentSource {
+  LIBRARY
+  DERIVED
+}
+
+enum StepStatus {
+  PENDING
+  DONE
+  FAILED
+  SKIPPED
+}
+
+enum CategorySource {
+  NONE
+  AUTO
+  MANUAL
+}
+
+enum ScanSetStatus {
+  DRAFT
+  QUEUED
+  PROCESSING
+  DONE
+  FAILED
+}
+
+enum ScanRunStatus {
+  RUNNING
+  DONE
+  FAILED
+}
+
+enum VerificationPurpose {
+  REGISTRATION
+  PASSWORD_RESET
+}
+
+enum ScanSetCropMode {
+  TRIM
+  NONE
+}
+
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  email         String
+  passwordHash  String    @map("password_hash")
+  displayName   String    @map("display_name")
+  role          UserRole
+  language      Language  @default(EN)
+  theme         Theme     @default(SYSTEM)
+  deactivatedAt DateTime? @map("deactivated_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  sessions         Session[]
+  createdInvites   UserInvite[]      @relation("InviteCreator")
+  acceptedInvites  UserInvite[]      @relation("InviteAcceptor")
+  passwordResets   PasswordReset[]   @relation("ResetTarget")
+  createdResets    PasswordReset[]   @relation("ResetCreator")
+  libraryAccess    LibraryAccess[]
+  collections      Collection[]
+  collectionShares CollectionShare[]
+  scanSets         ScanSet[]
+  derivedDocuments Document[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String    @id @default(uuid()) @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  userId    String    @map("user_id") @db.Uuid
+  userAgent String?   @map("user_agent")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model EmailVerification {
+  id              String              @id @default(uuid()) @db.Uuid
+  email           String
+  purpose         VerificationPurpose
+  codeHash        String              @map("code_hash")
+  attempts        Int                 @default(0)
+  expiresAt       DateTime            @map("expires_at") @db.Timestamptz(6)
+  verifiedAt      DateTime?           @map("verified_at") @db.Timestamptz(6)
+  ticketHash      String?             @unique @map("ticket_hash")
+  ticketExpiresAt DateTime?           @map("ticket_expires_at") @db.Timestamptz(6)
+  consumedAt      DateTime?           @map("consumed_at") @db.Timestamptz(6)
+  inviteId        String?             @map("invite_id") @db.Uuid
+  passwordResetId String?             @map("password_reset_id") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // one active series per (email, purpose); new request replaces the row
+  @@unique([email, purpose])
+  @@map("email_verifications")
+}
+
+model UserInvite {
+  id           String    @id @default(uuid()) @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  role         UserRole
+  emailHint    String?   @map("email_hint")
+  createdById  String    @map("created_by_id") @db.Uuid
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(6)
+  acceptedAt   DateTime? @map("accepted_at") @db.Timestamptz(6)
+  acceptedById String?   @map("accepted_by_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  createdBy  User  @relation("InviteCreator", fields: [createdById], references: [id])
+  acceptedBy User? @relation("InviteAcceptor", fields: [acceptedById], references: [id])
+
+  @@map("user_invites")
+}
+
+model PasswordReset {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  tokenHash   String    @unique @map("token_hash")
+  createdById String    @map("created_by_id") @db.Uuid
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt   DateTime? @map("revoked_at") @db.Timestamptz(6)
+  usedAt      DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user      User @relation("ResetTarget", fields: [userId], references: [id])
+  createdBy User @relation("ResetCreator", fields: [createdById], references: [id])
+
+  @@index([userId])
+  @@map("password_resets")
+}
+
+model Library {
+  id                  String            @id @default(uuid()) @db.Uuid
+  name                String
+  rootPath            String            @map("root_path")
+  enabled             Boolean           @default(true)
+  visibility          LibraryVisibility @default(RESTRICTED)
+  scanIntervalMinutes Int               @default(15) @map("scan_interval_minutes")
+  excludeGlobs        String[]          @map("exclude_globs")
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
+
+  fileRefs FileRef[]
+  access   LibraryAccess[]
+  scanRuns ScanRun[]
+
+  @@map("libraries")
+}
+
+model LibraryAccess {
+  libraryId String   @map("library_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  library Library @relation(fields: [libraryId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@id([libraryId, userId])
+  @@map("library_access")
+}
+
+model ScanRun {
+  id           String        @id @default(uuid()) @db.Uuid
+  libraryId    String        @map("library_id") @db.Uuid
+  status       ScanRunStatus
+  startedAt    DateTime      @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt   DateTime?     @map("finished_at") @db.Timestamptz(6)
+  filesSeen    Int           @default(0) @map("files_seen")
+  filesNew     Int           @default(0) @map("files_new")
+  filesChanged Int           @default(0) @map("files_changed")
+  filesMissing Int           @default(0) @map("files_missing")
+  error        String?
+
+  library Library @relation(fields: [libraryId], references: [id])
+
+  @@index([libraryId, startedAt(sort: Desc)])
+  @@map("scan_runs")
+}
+
+model FileRef {
+  id           String        @id @default(uuid()) @db.Uuid
+  libraryId    String        @map("library_id") @db.Uuid
+  path         String
+  size         BigInt
+  mtime        DateTime      @map("mtime") @db.Timestamptz(6)
+  status       FileRefStatus
+  contentHash  String?       @map("content_hash")
+  documentId   String?       @map("document_id") @db.Uuid
+  missingSince DateTime?     @map("missing_since") @db.Timestamptz(6)
+  firstSeenAt  DateTime      @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt   DateTime      @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+
+  library  Library   @relation(fields: [libraryId], references: [id])
+  document Document? @relation(fields: [documentId], references: [id])
+
+  @@unique([libraryId, path])
+  @@index([documentId])
+  @@index([libraryId, status])
+  @@map("file_refs")
+}
+
+model Document {
+  id                   String                   @id @default(uuid()) @db.Uuid
+  contentHash          String                   @map("content_hash")
+  source               DocumentSource
+  mimeType             String                   @map("mime_type")
+  ext                  String
+  sizeBytes            BigInt                   @map("size_bytes")
+  pageCount            Int?                     @map("page_count")
+  title                String
+  markdown             String?
+  searchVector         Unsupported("tsvector")? @map("search_vector")
+  canonicalStatus      StepStatus               @default(PENDING) @map("canonical_status")
+  previewStatus        StepStatus               @default(PENDING) @map("preview_status")
+  markdownStatus       StepStatus               @default(PENDING) @map("markdown_status")
+  categorizationStatus StepStatus               @default(PENDING) @map("categorization_status")
+  vectorizationStatus  StepStatus               @default(PENDING) @map("vectorization_status")
+  processingError      String?                  @map("processing_error")
+  failedStep           String?                  @map("failed_step")
+  ocrUsed              Boolean                  @default(false) @map("ocr_used")
+  categoryId           String?                  @map("category_id") @db.Uuid
+  categorySource       CategorySource           @default(NONE) @map("category_source")
+  createdById          String?                  @map("created_by_id") @db.Uuid
+  scanSetId            String?                  @map("scan_set_id") @db.Uuid
+  createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt            DateTime?                @map("deleted_at") @db.Timestamptz(6)
+
+  category        Category?        @relation(fields: [categoryId], references: [id])
+  createdBy       User?            @relation(fields: [createdById], references: [id])
+  fileRefs        FileRef[]
+  chunks          DocumentChunk[]
+  collectionItems CollectionItem[]
+  scanSetItems    ScanSetItem[]
+  resultOf        ScanSet?         @relation("ScanSetResult")
+
+  @@index([categoryId])
+  @@index([createdAt(sort: Desc)])
+  @@map("documents")
+}
+
+model DocumentChunk {
+  id         String                     @id @default(uuid()) @db.Uuid
+  documentId String                     @map("document_id") @db.Uuid
+  index      Int
+  content    String
+  charCount  Int                        @map("char_count")
+  embedding  Unsupported("vector(1536)")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, index])
+  @@map("document_chunks")
+}
+
+model Category {
+  id          String    @id @default(uuid()) @db.Uuid
+  slug        String
+  name        String
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  documents Document[]
+
+  @@map("categories")
+}
+
+model Collection {
+  id          String    @id @default(uuid()) @db.Uuid
+  ownerId     String    @map("owner_id") @db.Uuid
+  name        String
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  owner  User              @relation(fields: [ownerId], references: [id])
+  items  CollectionItem[]
+  shares CollectionShare[]
+
+  @@map("collections")
+}
+
+model CollectionItem {
+  collectionId String   @map("collection_id") @db.Uuid
+  documentId   String   @map("document_id") @db.Uuid
+  addedById    String   @map("added_by_id") @db.Uuid
+  addedAt      DateTime @default(now()) @map("added_at") @db.Timestamptz(6)
+
+  collection Collection @relation(fields: [collectionId], references: [id])
+  document   Document   @relation(fields: [documentId], references: [id])
+
+  @@id([collectionId, documentId])
+  @@map("collection_items")
+}
+
+model CollectionShare {
+  id            String    @id @default(uuid()) @db.Uuid
+  collectionId  String    @map("collection_id") @db.Uuid
+  granteeUserId String?   @map("grantee_user_id") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  collection Collection @relation(fields: [collectionId], references: [id])
+  grantee    User?      @relation(fields: [granteeUserId], references: [id])
+
+  @@map("collection_shares")
+}
+
+model ScanSet {
+  id               String          @id @default(uuid()) @db.Uuid
+  name             String
+  createdById      String          @map("created_by_id") @db.Uuid
+  status           ScanSetStatus   @default(DRAFT)
+  cropMode         ScanSetCropMode @default(TRIM) @map("crop_mode")
+  resultDocumentId String?         @unique @map("result_document_id") @db.Uuid
+  error            String?
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?       @map("deleted_at") @db.Timestamptz(6)
+
+  createdBy      User          @relation(fields: [createdById], references: [id])
+  resultDocument Document?     @relation("ScanSetResult", fields: [resultDocumentId], references: [id])
+  items          ScanSetItem[]
+
+  @@index([createdById])
+  @@map("scan_sets")
+}
+
+model ScanSetItem {
+  scanSetId  String @map("scan_set_id") @db.Uuid
+  position   Int
+  documentId String @map("document_id") @db.Uuid
+
+  scanSet  ScanSet  @relation(fields: [scanSetId], references: [id])
+  document Document @relation(fields: [documentId], references: [id])
+
+  @@id([scanSetId, position])
+  @@map("scan_set_items")
 }

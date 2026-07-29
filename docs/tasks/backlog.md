@@ -51,7 +51,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 ## M1 — Persistence
 
-- [ ] **M1.1 — Prisma schema, first migration, seed**
+- [x] **M1.1 — Prisma schema, first migration, seed**
   **Goal:** the full physical schema exists and migrates; seed provides dev users/categories/library.
   **Docs:** [`04`](../04-database-schema.md) (entire), [`03`](../03-domain-model.md)
   **Acceptance:**
