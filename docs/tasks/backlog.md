@@ -39,7 +39,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   - `DomainExceptionFilter` + envelope + `ZodValidationPipe` skeleton with `VALIDATION_FAILED` mapping.
   - `contracts/common.ts`: envelope, pagination, `ErrorCode` enum per 07 §7.2.
 
-- [ ] **M0.5 — CI workflow**
+- [x] **M0.5 — CI workflow**
   **Goal:** every PR runs typecheck/lint/test/build against pgvector Postgres.
   **Docs:** [`13 §13.1–13.2, §13.4`](../13-ci-cd.md)
   **Acceptance:** `.github/workflows/ci.yml` verbatim-equivalent to 13 §13.2; green on the current tree; branch protection requirements documented in the PR description for the repo owner to enable.

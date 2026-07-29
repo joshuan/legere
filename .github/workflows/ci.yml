@@ -1,0 +1,45 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env: { POSTGRES_USER: legere, POSTGRES_PASSWORD: legere, POSTGRES_DB: legere_test }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U legere -d legere_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://legere:legere@localhost:5432/legere_test?schema=public
+      APP_BASE_URL: http://localhost:3000
+      AUTH_SECRET: test-secret-minimum-32-characters!!
+      LIBRARY_ROOT: /tmp/test-library
+      STIRLING_URL: http://localhost:8080
+      S3_ENDPOINT: http://localhost:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: test
+      S3_ACCESS_KEY_ID: test
+      S3_SECRET_ACCESS_KEY: test
+      NEXT_PUBLIC_TURNSTILE_SITE_KEY: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version-file: .nvmrc, cache: npm }
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run db:migrate # apply migrations to the test DB
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build
