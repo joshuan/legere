@@ -1,0 +1,10 @@
+// Physical schema (docs/04). Bootstrapped with datasource + generator only; the full model set and
+// the first migration land in M1.1. The generated client is used from PrismaService (health SELECT 1).
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

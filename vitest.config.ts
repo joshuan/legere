@@ -17,7 +17,13 @@ export default defineConfig({
           name: 'server',
           environment: 'node',
           globals: true,
-          include: ['server/**/*.test.ts', 'src/server/**/*.test.ts', 'src/shared/**/*.test.ts'],
+          setupFiles: ['./test/setup.server.ts'],
+          include: [
+            'server/**/*.test.ts',
+            'src/server/**/*.test.ts',
+            'src/shared/**/*.test.ts',
+            'test/**/*.test.ts',
+          ],
         },
       },
       {

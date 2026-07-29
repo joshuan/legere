@@ -2,7 +2,14 @@
 // metadata (design:paramtypes) — Nest DI depends on it. esbuild/tsx do NOT emit this metadata,
 // which is why the dev/test transpiler is SWC and not esbuild. See ./swc-esm-loader.mjs for why
 // the loader is hand-rolled rather than @swc-node/register.
+import { existsSync } from 'node:fs';
 import { register } from 'node:module';
+
+// Load .env into process.env for local dev (Node has no implicit .env loading). Prod/CI provide env
+// via the container/workflow.
+if (existsSync('.env')) {
+  process.loadEnvFile('.env');
+}
 
 register('./swc-esm-loader.mjs', import.meta.url);
 

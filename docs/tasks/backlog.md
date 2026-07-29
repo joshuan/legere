@@ -29,7 +29,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   - `server/dev.mjs` registers the SWC ESM loader; a minimal Nest module with constructor injection resolves under `npm run dev`.
   - `vitest.config.ts` with two projects (`server`: node + `unplugin-swc`; `web`: jsdom); a server test instantiating a Nest testing module with DI passes; a jsdom component test passes.
 
-- [ ] **M0.4 — One-process bootstrap (Express + Nest + Next), config, logging, health**
+- [x] **M0.4 — One-process bootstrap (Express + Nest + Next), config, logging, health**
   **Goal:** the single process serves a Next placeholder page and `/api/health`; all integration invariants hold.
   **Docs:** [`02 §2.2`](../02-architecture-overview.md#22-entry-point-servermaints), [`06 §6.6–6.10`](../06-backend-architecture.md), [`07 §7.1`](../07-api-specification.md#71-conventions)
   **Acceptance:**
