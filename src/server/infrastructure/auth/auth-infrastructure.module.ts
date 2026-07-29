@@ -1,14 +1,18 @@
 import { Global, Module } from '@nestjs/common';
 import { CaptchaVerifier } from '../../application/ports/captcha-verifier';
 import { Clock } from '../../application/ports/clock';
+import { EmailSendThrottle } from '../../application/ports/email-send-throttle';
 import { EmailSender } from '../../application/ports/email-sender';
 import { PasswordHasher } from '../../application/ports/password-hasher';
 import { SessionTokens } from '../../application/ports/session-tokens';
+import { VerificationCodes } from '../../application/ports/verification-codes';
 import { AppConfig } from '../config/app-config';
 import { LogEmailSender } from '../email/log-email-sender';
 import { SmtpEmailSender } from '../email/smtp-email-sender';
 import { Argon2PasswordHasher } from './argon2-password-hasher';
 import { CryptoSessionTokens } from './crypto-session-tokens';
+import { HmacVerificationCodes } from './hmac-verification-codes';
+import { InMemoryEmailSendThrottle } from './in-memory-email-send-throttle';
 import { SystemClock } from './system-clock';
 import { TurnstileCaptchaVerifier } from './turnstile-captcha-verifier';
 
@@ -22,6 +26,8 @@ import { TurnstileCaptchaVerifier } from './turnstile-captcha-verifier';
     { provide: PasswordHasher, useClass: Argon2PasswordHasher },
     { provide: SessionTokens, useClass: CryptoSessionTokens },
     { provide: CaptchaVerifier, useClass: TurnstileCaptchaVerifier },
+    { provide: VerificationCodes, useClass: HmacVerificationCodes },
+    { provide: EmailSendThrottle, useClass: InMemoryEmailSendThrottle },
     {
       provide: EmailSender,
       useFactory: (config: AppConfig, logSender: LogEmailSender): EmailSender =>
@@ -29,6 +35,14 @@ import { TurnstileCaptchaVerifier } from './turnstile-captcha-verifier';
       inject: [AppConfig, LogEmailSender],
     },
   ],
-  exports: [Clock, PasswordHasher, SessionTokens, CaptchaVerifier, EmailSender],
+  exports: [
+    Clock,
+    PasswordHasher,
+    SessionTokens,
+    CaptchaVerifier,
+    EmailSender,
+    VerificationCodes,
+    EmailSendThrottle,
+  ],
 })
 export class AuthInfrastructureModule {}

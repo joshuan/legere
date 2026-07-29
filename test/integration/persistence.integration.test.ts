@@ -5,7 +5,7 @@ import {
   type TransactionHandle,
 } from '../../src/server/application/ports/unit-of-work';
 import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
-import { isPrismaTx } from '../../src/server/infrastructure/persistence/prisma-repository.base';
+import { isPrismaTx } from '../../src/server/infrastructure/persistence/prisma-client';
 import type { PrismaTx } from '../../src/server/infrastructure/persistence/prisma-unit-of-work';
 import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
 import { PrismaService } from '../../src/server/infrastructure/persistence/prisma.service';

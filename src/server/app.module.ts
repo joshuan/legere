@@ -6,6 +6,7 @@ import { AppConfig } from './infrastructure/config/app-config';
 import { ConfigModule } from './infrastructure/config/config.module';
 import { buildLoggerOptions } from './infrastructure/logging/logger.options';
 import { PersistenceModule } from './infrastructure/persistence/persistence.module';
+import { AuthModule } from './presentation/auth/auth.module';
 import { DomainExceptionFilter } from './presentation/http/domain-exception.filter';
 import { HealthModule } from './presentation/health/health.module';
 
@@ -19,6 +20,7 @@ import { HealthModule } from './presentation/health/health.module';
     }),
     PersistenceModule,
     AuthInfrastructureModule,
+    AuthModule,
     HealthModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],

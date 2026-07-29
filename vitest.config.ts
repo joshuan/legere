@@ -10,6 +10,10 @@ const { jsc } = JSON.parse(readFileSync(new URL('./.swcrc', import.meta.url), 'u
 
 export default defineConfig({
   test: {
+    // Server tests share one database and the integration harness truncates between tests, so test
+    // files must not run concurrently (docs/14 §14.8). This has to live at the root: a project-level
+    // `fileParallelism` is ignored, which lets two files truncate each other's rows mid-flow.
+    fileParallelism: false,
     projects: [
       {
         plugins: [swc.vite({ jsc })],
@@ -17,9 +21,6 @@ export default defineConfig({
           name: 'server',
           environment: 'node',
           globals: true,
-          // Server tests share one database and the integration harness truncates between tests,
-          // so files must not run concurrently (docs/14 §14.8).
-          fileParallelism: false,
           setupFiles: ['./test/setup.server.ts'],
           include: [
             'server/**/*.test.ts',
