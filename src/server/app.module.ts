@@ -12,6 +12,7 @@ import { QueueModule } from './infrastructure/queue/queue.module';
 import { AuthModule } from './presentation/auth/auth.module';
 import { DomainExceptionFilter } from './presentation/http/domain-exception.filter';
 import { HealthModule } from './presentation/health/health.module';
+import { LibrariesModule } from './presentation/libraries/libraries.module';
 import { UsersModule } from './presentation/users/users.module';
 
 // Composition root (docs/06 §6.5). Feature modules are added as milestones land.
@@ -31,6 +32,7 @@ import { UsersModule } from './presentation/users/users.module';
     QueueModule,
     AuthModule,
     UsersModule,
+    LibrariesModule,
     HealthModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],

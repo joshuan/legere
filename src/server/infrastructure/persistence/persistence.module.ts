@@ -1,12 +1,16 @@
 import { Global, Module } from '@nestjs/common';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
+import { LibraryRepository } from '../../domain/repositories/library.repository';
 import { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
+import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
 import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
 import { UserRepository } from '../../domain/repositories/user.repository';
 import { PrismaEmailVerificationRepository } from './prisma-email-verification.repository';
+import { PrismaLibraryRepository } from './prisma-library.repository';
 import { PrismaPasswordResetRepository } from './prisma-password-reset.repository';
+import { PrismaScanRunRepository } from './prisma-scan-run.repository';
 import { PrismaSessionRepository } from './prisma-session.repository';
 import { PrismaUnitOfWork } from './prisma-unit-of-work';
 import { PrismaUserInviteRepository } from './prisma-user-invite.repository';
@@ -22,6 +26,8 @@ const REPOSITORIES = [
   { provide: EmailVerificationRepository, useClass: PrismaEmailVerificationRepository },
   { provide: UserInviteRepository, useClass: PrismaUserInviteRepository },
   { provide: PasswordResetRepository, useClass: PrismaPasswordResetRepository },
+  { provide: LibraryRepository, useClass: PrismaLibraryRepository },
+  { provide: ScanRunRepository, useClass: PrismaScanRunRepository },
 ];
 
 @Global()
@@ -35,6 +41,8 @@ const REPOSITORIES = [
     EmailVerificationRepository,
     UserInviteRepository,
     PasswordResetRepository,
+    LibraryRepository,
+    ScanRunRepository,
   ],
 })
 export class PersistenceModule {}

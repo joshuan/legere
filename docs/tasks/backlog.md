@@ -123,7 +123,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`06 §6.8`](../06-backend-architecture.md#68-queue-integration-pg-boss), [`05 §5.4`](../05-library-and-processing.md#54-job-queue-pg-boss)
   **Acceptance:** pg-boss starts in bootstrap step 5 (schema `pgboss`); worker registry maps queue names → DI-resolved handlers with per-queue concurrency/retry config; `enqueueAfterTx` commits atomically with the entity write (test: rollback → no job); singletonKey support; cron registration API; graceful shutdown drains; `/api/health` `queue` becomes real.
 
-- [ ] **M3.3 — Libraries admin API + visibility**
+- [x] **M3.3 — Libraries admin API + visibility**
   **Goal:** the admin can define what gets scanned and who sees it.
   **Docs:** [`03 §3.3.6–3.3.7`](../03-domain-model.md), [`07`](../07-api-specification.md) (admin libraries, user-facing list), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model)
   **Acceptance (e2e):** create validates path (`LIBRARY_PATH_INVALID` for outside-root/nonexistent/file; `LIBRARY_PATH_CONFLICT` for nesting/duplicate); create enqueues the first scan and registers cron; path-candidates endpoint browses only inside `LIBRARY_ROOT`; visibility RESTRICTED default + userIds round-trip; `GET /api/libraries` returns only visible ones; soft delete hides content; rootPath immutable.
