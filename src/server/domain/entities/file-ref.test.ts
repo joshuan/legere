@@ -1,0 +1,70 @@
+import { describe, expect, it } from 'vitest';
+import { RelativePath } from '../value-objects/relative-path';
+import { canTransition, isLive, needsRehash, type FileRef } from './file-ref';
+
+const ref = (overrides: Partial<FileRef> = {}): FileRef => ({
+  id: 'ref-1',
+  libraryId: 'lib-1',
+  path: RelativePath.parse('a/b.pdf'),
+  size: 100n,
+  mtimeMs: 1_700_000_000_000,
+  status: 'HASHED',
+  contentHash: 'a'.repeat(64),
+  documentId: 'doc-1',
+  missingSince: null,
+  firstSeenAt: new Date(0),
+  lastSeenAt: new Date(0),
+  ...overrides,
+});
+
+describe('needsRehash (docs/05 §5.2)', () => {
+  it('skips a file whose path, size and mtime all match', () => {
+    expect(needsRehash(ref(), 100n, 1_700_000_000_000)).toBe(false);
+  });
+
+  it('re-hashes when the size changed', () => {
+    expect(needsRehash(ref(), 101n, 1_700_000_000_000)).toBe(true);
+  });
+
+  it('re-hashes when the mtime changed, even at the same size', () => {
+    expect(needsRehash(ref(), 100n, 1_700_000_060_000)).toBe(true);
+  });
+
+  it('ignores sub-millisecond mtime drift, which filesystems report inconsistently', () => {
+    expect(needsRehash(ref({ mtimeMs: 1_700_000_000_000.4 }), 100n, 1_700_000_000_000.9)).toBe(
+      false,
+    );
+  });
+
+  it('re-hashes anything not already fully ingested', () => {
+    expect(needsRehash(ref({ status: 'DISCOVERED' }), 100n, 1_700_000_000_000)).toBe(true);
+    expect(needsRehash(ref({ status: 'MISSING' }), 100n, 1_700_000_000_000)).toBe(true);
+    // HASHED but never attached — an interrupted ingest.
+    expect(needsRehash(ref({ contentHash: null }), 100n, 1_700_000_000_000)).toBe(true);
+    expect(needsRehash(ref({ documentId: null }), 100n, 1_700_000_000_000)).toBe(true);
+  });
+});
+
+describe('canTransition (docs/03 §3.3.9)', () => {
+  it('allows the documented moves', () => {
+    expect(canTransition('DISCOVERED', 'HASHED')).toBe(true);
+    expect(canTransition('HASHED', 'MISSING')).toBe(true);
+    expect(canTransition('MISSING', 'HASHED')).toBe(true);
+    expect(canTransition('MISSING', 'DISCOVERED')).toBe(true);
+    // Size/mtime moved, so the ref goes back for a re-hash.
+    expect(canTransition('HASHED', 'DISCOVERED')).toBe(true);
+  });
+
+  it('treats staying put as allowed', () => {
+    expect(canTransition('HASHED', 'HASHED')).toBe(true);
+  });
+});
+
+describe('isLive', () => {
+  it('is true only for a hashed ref attached to a document', () => {
+    expect(isLive(ref())).toBe(true);
+    expect(isLive(ref({ status: 'MISSING' }))).toBe(false);
+    expect(isLive(ref({ status: 'DISCOVERED' }))).toBe(false);
+    expect(isLive(ref({ documentId: null }))).toBe(false);
+  });
+});

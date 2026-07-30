@@ -12,6 +12,7 @@ import { QueueModule } from './infrastructure/queue/queue.module';
 import { AuthModule } from './presentation/auth/auth.module';
 import { DomainExceptionFilter } from './presentation/http/domain-exception.filter';
 import { HealthModule } from './presentation/health/health.module';
+import { JobsModule } from './presentation/jobs/jobs.module';
 import { LibrariesModule } from './presentation/libraries/libraries.module';
 import { UsersModule } from './presentation/users/users.module';
 
@@ -33,6 +34,7 @@ import { UsersModule } from './presentation/users/users.module';
     AuthModule,
     UsersModule,
     LibrariesModule,
+    JobsModule,
     HealthModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],
