@@ -133,7 +133,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`05 §5.2–5.4, §5.7`](../05-library-and-processing.md), [`03 §3.3.9–3.3.10`](../03-domain-model.md)
   **Acceptance (integration over fixtures):** `HandleLibraryScan` implements the §5.2 diff exactly (new/changed/missing/unchanged) and writes a correct `ScanRun`; singleton scan per library; re-scan with no changes enqueues zero ingests; `HandleFileIngest` streams sha256, attaches to existing document on hash match (pipeline NOT re-run), creates + enqueues `document-process` otherwise (`MimeDetector` sets mime/ext/title); rename = old path MISSING + new ref attached, document untouched; file return restores availability; both handlers pass a double-delivery idempotency test; scan endpoints (`scan now`, journal) work.
 
-- [ ] **M3.5 — Admin UI: libraries**
+- [x] **M3.5 — Admin UI: libraries**
   **Goal:** the primary product scenario is operable from the browser.
   **Docs:** [`11 §11.10`](../11-ui-ux-spec.md#1110-admin-libraries-adminlibraries-adminlibrariesid)
   **Acceptance:** table with counters, enabled switch, Scan-now; create/edit drawer with the directory picker (path-candidates), visibility controls, exclude globs; detail page with the scan journal and a live-updating running row; validation errors surfaced inline.

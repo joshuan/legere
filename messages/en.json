@@ -7,7 +7,9 @@
       "retry": "Try again",
       "save": "Save"
     },
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "yes": "Yes",
+    "no": "No"
   },
   "errors": {
     "title": "Something went wrong",
@@ -173,6 +175,68 @@
         "revoke": "Revoke"
       },
       "confirmRevoke": "Revoke this invite? The link stops working immediately."
+    },
+    "libraries": {
+      "title": "Libraries",
+      "empty": "No libraries yet. Add one pointing at a folder on the mounted volume.",
+      "createTitle": "Add library",
+      "editTitle": "Edit library",
+      "backToList": "All libraries",
+      "neverScanned": "Never scanned",
+      "scanStarted": "Scan started",
+      "scanAlreadyRunning": "A scan is already running",
+      "countersValue": "{files} files · {documents} documents · {missing} missing",
+      "minutes": "{minutes} min",
+      "confirmDelete": "Delete “{name}”? Its content disappears from all listings; files on disk are untouched.",
+      "columns": {
+        "name": "Name",
+        "path": "Path",
+        "enabled": "Enabled",
+        "visibility": "Visibility",
+        "counters": "Contents",
+        "lastScan": "Last scan",
+        "actions": "Actions"
+      },
+      "actions": {
+        "create": "Add library",
+        "edit": "Edit",
+        "delete": "Delete",
+        "scanNow": "Scan now"
+      },
+      "visibility": {
+        "ALL_USERS": "All users",
+        "RESTRICTED": "Restricted"
+      },
+      "fields": {
+        "name": "Name",
+        "nameRequired": "Enter a name",
+        "rootPath": "Folder",
+        "enabled": "Enabled",
+        "visibility": "Visibility",
+        "userIds": "Users with access",
+        "scanInterval": "Scan interval (minutes)",
+        "excludeGlobs": "Exclude patterns",
+        "excludeGlobsHint": "Glob patterns, e.g. **/node_modules/**. Hidden files are always skipped."
+      },
+      "picker": {
+        "root": "Library root",
+        "empty": "No subfolders here",
+        "select": "Use this folder",
+        "selected": "Selected: {path}",
+        "selectedRoot": "Selected: the library root"
+      },
+      "scans": {
+        "title": "Scan journal",
+        "empty": "No scans yet",
+        "started": "Started",
+        "duration": "Duration",
+        "status": "Status",
+        "counters": "Files",
+        "error": "Error",
+        "inProgress": "in progress",
+        "seconds": "{seconds}s",
+        "countersValue": "{seen} seen · {new} new · {changed} changed · {missing} missing"
+      }
     }
   }
 }
