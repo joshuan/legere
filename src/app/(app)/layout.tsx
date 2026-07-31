@@ -2,14 +2,17 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { userDtoSchema, type UserDto } from '../../shared/contracts/auth';
+import { AppShell } from '../../web/widgets/app-shell';
 import { PATHNAME_HEADER } from '../../middleware';
 
 // Session guard for the authenticated area (docs/10 §10.2): an async server component that calls
 // GET /api/me with the incoming cookies. A 401 redirects to /login carrying returnTo, so the user
 // lands back where they were after signing in.
 export default async function AppLayout({ children }: { children: ReactNode }) {
-  await requireUser();
-  return <>{children}</>;
+  // The shell needs the user anyway (name, role), so the guard's answer is reused rather than
+  // fetched twice (docs/11 §11.1).
+  const user = await requireUser();
+  return <AppShell user={user}>{children}</AppShell>;
 }
 
 async function requireUser(): Promise<UserDto> {

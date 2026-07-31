@@ -363,5 +363,29 @@
       "locations": "File locations",
       "noLocations": "This document has no files on any library you can see."
     }
+  },
+  "nav": {
+    "documents": "Documents",
+    "browse": "Browse",
+    "search": "Search",
+    "collections": "Collections",
+    "scanSets": "Scan sets",
+    "administration": "Administration",
+    "settings": "Settings",
+    "logout": "Log out",
+    "searchPlaceholder": "Search documents",
+    "admin": {
+      "libraries": "Libraries",
+      "users": "Users",
+      "categories": "Categories",
+      "queue": "Queue"
+    }
+  },
+  "browse": {
+    "library": "Library",
+    "folders": "Folders",
+    "empty": "This folder is empty.",
+    "documentCount": "{count} documents",
+    "more": "Load more"
   }
 }

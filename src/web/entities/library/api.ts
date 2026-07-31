@@ -1,4 +1,5 @@
 import {
+  browseResponseSchema,
   libraryAdminDtoSchema,
   listLibrariesAdminResponseSchema,
   listLibrariesResponseSchema,
@@ -6,6 +7,7 @@ import {
   pathCandidatesResponseSchema,
   triggerScanResponseSchema,
   type CreateLibraryRequest,
+  type BrowseResponse,
   type LibraryAdminDto,
   type ListLibrariesAdminResponse,
   type ListLibrariesResponse,
@@ -52,6 +54,12 @@ export const libraryApi = {
   // The caller's visible libraries, used by filters and browse roots (docs/11 §11.1).
   listVisible: (): Promise<ListLibrariesResponse> =>
     apiClient.get('/api/libraries', { schema: listLibrariesResponseSchema }),
+
+  browse: (id: string, path: string, cursor?: string): Promise<BrowseResponse> =>
+    apiClient.get(`/api/libraries/${id}/browse`, {
+      schema: browseResponseSchema,
+      query: { path, ...(cursor === undefined ? {} : { cursor }) },
+    }),
 };
 
 export const libraryKeys = {
@@ -60,4 +68,5 @@ export const libraryKeys = {
   scans: (id: string) => ['admin', 'library', id, 'scans'] as const,
   candidates: (path: string) => ['admin', 'path-candidates', path] as const,
   visible: ['libraries'] as const,
+  browse: (id: string, path: string) => ['library', id, 'browse', path] as const,
 };

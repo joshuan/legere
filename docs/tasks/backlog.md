@@ -202,7 +202,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsid), [`10 §10.8`](../10-frontend-architecture.md#108-media-in-the-ui)
   **Acceptance:** Preview/Text/Details tabs per spec (PDF `<object>`, sanitized markdown render, metadata incl. copyable hash and file locations with MISSING badges); sidebar: inline title edit, category select with auto tag, download (disabled tooltip when unavailable), add-to-collection stub until M7, processing panel with per-step states + admin Reprocess with step checkboxes.
 
-- [ ] **M5.7 — UI: browse**
+- [x] **M5.7 — UI: browse**
   **Goal:** folder navigation UI.
   **Docs:** [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browselibraryidpath)
   **Acceptance:** sidebar submenu of visible libraries; breadcrumb + folder list + document grid; URL-driven (`?path=`); works on deep nesting.

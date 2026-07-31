@@ -363,5 +363,29 @@
       "locations": "Расположение файлов",
       "noLocations": "У этого документа нет файлов в доступных вам библиотеках."
     }
+  },
+  "nav": {
+    "documents": "Документы",
+    "browse": "Обзор",
+    "search": "Поиск",
+    "collections": "Коллекции",
+    "scanSets": "Наборы сканов",
+    "administration": "Администрирование",
+    "settings": "Настройки",
+    "logout": "Выйти",
+    "searchPlaceholder": "Искать документы",
+    "admin": {
+      "libraries": "Библиотеки",
+      "users": "Пользователи",
+      "categories": "Категории",
+      "queue": "Очередь"
+    }
+  },
+  "browse": {
+    "library": "Библиотека",
+    "folders": "Папки",
+    "empty": "Эта папка пуста.",
+    "documentCount": "документов: {count}",
+    "more": "Показать ещё"
   }
 }
