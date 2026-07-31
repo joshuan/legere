@@ -6,6 +6,7 @@ import { AuthInfrastructureModule } from './infrastructure/auth/auth-infrastruct
 import { AppConfig } from './infrastructure/config/app-config';
 import { ConfigModule } from './infrastructure/config/config.module';
 import { buildLoggerOptions } from './infrastructure/logging/logger.options';
+import { PdfModule } from './infrastructure/pdf/pdf.module';
 import { PersistenceModule } from './infrastructure/persistence/persistence.module';
 import { QueueModule } from './infrastructure/queue/queue.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
@@ -30,6 +31,7 @@ import { UsersModule } from './presentation/users/users.module';
     PersistenceModule,
     AuthInfrastructureModule,
     StorageModule,
+    PdfModule,
     QueueModule,
     AuthModule,
     UsersModule,

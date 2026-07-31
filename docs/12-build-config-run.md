@@ -128,7 +128,8 @@ services:
   stirling:
     image: stirlingtools/stirling-pdf:latest
     ports: ['8080:8080']
-    environment: { DISABLE_ADDITIONAL_FEATURES: 'true' }
+    # Stirling 2.x requires a login by default and answers 401 to every API call.
+    environment: { SECURITY_ENABLELOGIN: 'false', SYSTEM_ENABLEANALYTICS: 'false' }
   minio:
     image: minio/minio
     command: server /data --console-address ':9001'
@@ -194,7 +195,7 @@ services:
 
   stirling:
     image: stirlingtools/stirling-pdf:latest         # internal network only
-    environment: { DISABLE_ADDITIONAL_FEATURES: 'true' }
+    environment: { SECURITY_ENABLELOGIN: 'false', SYSTEM_ENABLEANALYTICS: 'false' }
 
   app:
     image: ghcr.io/<owner>/legere:latest             # built by CI (docs/13)
