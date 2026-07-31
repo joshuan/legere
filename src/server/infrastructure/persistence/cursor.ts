@@ -20,3 +20,21 @@ export function decodeCursor(value: string | undefined): Cursor | null {
   if (Number.isNaN(at.getTime()) || id === '') return null;
   return { at, id };
 }
+
+// Some pages are ordered by a string rather than a timestamp (browse sorts documents by title,
+// docs/07 §7.3). Same shape, same opacity — the sort key just happens to be text.
+export type TextCursor = { key: string; id: string };
+
+export function encodeTextCursor(cursor: TextCursor): string {
+  return Buffer.from(`${cursor.key}\u0000${cursor.id}`).toString('base64url');
+}
+
+export function decodeTextCursor(value: string | undefined): TextCursor | null {
+  if (value === undefined || value === '') return null;
+  const decoded = Buffer.from(value, 'base64url').toString('utf8');
+  const separator = decoded.lastIndexOf('\u0000');
+  if (separator < 0) return null;
+
+  const id = decoded.slice(separator + 1);
+  return id === '' ? null : { key: decoded.slice(0, separator), id };
+}

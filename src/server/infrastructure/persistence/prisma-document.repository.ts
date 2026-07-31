@@ -17,7 +17,7 @@ import {
   type UpdateDocumentMetaInput,
   type Viewer,
 } from '../../domain/repositories/document.repository';
-import { decodeCursor, encodeCursor } from './cursor';
+import { decodeCursor, decodeTextCursor, encodeCursor, encodeTextCursor } from './cursor';
 import { clientOf } from './prisma-client';
 import { PrismaService } from './prisma.service';
 
@@ -311,6 +311,60 @@ export class PrismaDocumentRepository implements DocumentRepository {
         : null;
 
     return { items: page.map(toListItem), nextCursor };
+  }
+
+  // Documents whose files sit directly in one folder, by title (docs/07 §7.3). The folder match is
+  // a string operation on the path, so the ids come from raw SQL; the rows themselves then load
+  // through the same include and mapper as every other list.
+  async listInFolder(
+    libraryId: string,
+    folder: string,
+    query: { limit: number; cursor?: string | undefined },
+    tx?: TransactionHandle,
+  ): Promise<DocumentPage> {
+    const client = clientOf(this.prisma, tx);
+    const cursor = decodeTextCursor(query.cursor);
+
+    const keys = await client.$queryRaw<{ id: string; title: string }[]>`
+      SELECT DISTINCT d.id, d.title
+      FROM documents d
+      JOIN file_refs f ON f.document_id = d.id
+      WHERE d.deleted_at IS NULL
+        AND f.library_id = ${libraryId}::uuid
+        AND (${folder} = '' OR f.path LIKE ${folder} || '/%')
+        AND position('/' in CASE
+              WHEN ${folder} = '' THEN f.path
+              ELSE substring(f.path from char_length(${folder}) + 2)
+            END) = 0
+        AND (
+          ${cursor === null}::boolean
+          OR (d.title, d.id::text) > (${cursor?.key ?? ''}, ${cursor?.id ?? ''})
+        )
+      ORDER BY d.title ASC, d.id ASC
+      LIMIT ${query.limit + 1}
+    `;
+
+    const page = keys.slice(0, query.limit);
+    const last = page.at(-1);
+    const nextCursor =
+      keys.length > query.limit && last !== undefined
+        ? encodeTextCursor({ key: last.title, id: last.id })
+        : null;
+
+    const rows = await client.document.findMany({
+      where: { id: { in: page.map((key) => key.id) } },
+      include: LIST_INCLUDE,
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    return {
+      // The raw query decided the order; the fetch by id does not preserve it.
+      items: page.flatMap((key) => {
+        const row = byId.get(key.id);
+        return row === undefined ? [] : [toListItem(row)];
+      }),
+      nextCursor,
+    };
   }
 
   async findReadableById(

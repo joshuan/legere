@@ -6,6 +6,7 @@ import {
   FileRefRepository,
   type CreateFileRefInput,
   type FileRefSnapshot,
+  type FolderSummary,
 } from '../../domain/repositories/file-ref.repository';
 import { RelativePath } from '../../domain/value-objects/relative-path';
 import { clientOf } from './prisma-client';
@@ -148,6 +149,36 @@ export class PrismaFileRefRepository implements FileRefRepository {
       data: { status: 'MISSING', missingSince },
     });
     return result.count;
+  }
+
+  // Folders are derived, not stored (docs/11 §11.4): the distinct next path segment of every ref
+  // below `folder`, counted by the documents underneath. Raw SQL because the shape of the answer is
+  // a string operation on the path, which the query builder cannot express.
+  async listFoldersUnder(
+    libraryId: string,
+    folder: string,
+    tx?: TransactionHandle,
+  ): Promise<FolderSummary[]> {
+    const rows = await clientOf(this.prisma, tx).$queryRaw<{ name: string; count: bigint }[]>`
+      WITH below AS (
+        SELECT f.document_id,
+               CASE
+                 WHEN ${folder} = '' THEN f.path
+                 ELSE substring(f.path from char_length(${folder}) + 2)
+               END AS rel
+        FROM file_refs f
+        JOIN documents d ON d.id = f.document_id AND d.deleted_at IS NULL
+        WHERE f.library_id = ${libraryId}::uuid
+          AND (${folder} = '' OR f.path LIKE ${folder} || '/%')
+      )
+      SELECT split_part(rel, '/', 1) AS name, count(DISTINCT document_id) AS count
+      FROM below
+      WHERE position('/' in rel) > 0
+      GROUP BY 1
+      ORDER BY 1
+    `;
+
+    return rows.map((row) => ({ name: row.name, documentCount: Number(row.count) }));
   }
 
   async findLiveRefForDocument(

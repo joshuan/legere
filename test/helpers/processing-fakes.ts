@@ -16,6 +16,7 @@ import {
   FileRefRepository,
   type CreateFileRefInput,
   type FileRefSnapshot,
+  type FolderSummary,
 } from '../../src/server/domain/repositories/file-ref.repository';
 import {
   LibraryRepository,
@@ -150,6 +151,9 @@ export class InMemoryDocumentRepository extends DocumentRepository {
   findReadableById(): Promise<DocumentDetail | null> {
     return unused('findReadableById');
   }
+  listInFolder(): Promise<DocumentPage> {
+    return unused('listInFolder');
+  }
   updateMeta(): Promise<Document> {
     return unused('updateMeta');
   }
@@ -195,6 +199,9 @@ export class InMemoryFileRefRepository extends FileRefRepository {
 
   findByPath(): Promise<FileRef | null> {
     return unused('findByPath');
+  }
+  listFoldersUnder(): Promise<FolderSummary[]> {
+    return unused('listFoldersUnder');
   }
   snapshotForLibrary(): Promise<FileRefSnapshot[]> {
     return unused('snapshotForLibrary');

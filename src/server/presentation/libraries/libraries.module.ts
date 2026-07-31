@@ -9,12 +9,15 @@ import {
   ListVisibleLibraries,
   UpdateLibrary,
 } from '../../application/libraries/manage-libraries';
+import { BrowseLibrary } from '../../application/libraries/browse-library';
 import { ListScanRuns, TriggerScan } from '../../application/libraries/manage-scans';
 import { Clock } from '../../application/ports/clock';
 import { JobQueue } from '../../application/ports/job-queue';
 import { LibraryReader } from '../../application/ports/library-reader';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
+import { DocumentRepository } from '../../domain/repositories/document.repository';
+import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
 import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
 import { SessionRepository } from '../../domain/repositories/session.repository';
@@ -73,6 +76,15 @@ import { LibrariesController } from './libraries.controller';
       provide: GetLibraryAdmin,
       useFactory: (libraries: LibraryRepository): GetLibraryAdmin => new GetLibraryAdmin(libraries),
       inject: [LibraryRepository],
+    },
+    {
+      provide: BrowseLibrary,
+      useFactory: (
+        libraries: LibraryRepository,
+        fileRefs: FileRefRepository,
+        documents: DocumentRepository,
+      ): BrowseLibrary => new BrowseLibrary(libraries, fileRefs, documents),
+      inject: [LibraryRepository, FileRefRepository, DocumentRepository],
     },
     {
       provide: ListVisibleLibraries,

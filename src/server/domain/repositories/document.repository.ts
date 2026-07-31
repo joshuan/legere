@@ -122,6 +122,15 @@ export abstract class DocumentRepository {
 
   // Null when the document does not exist, is soft-deleted, or is one this viewer may not read —
   // 🔒 the three are deliberately indistinguishable from outside (docs/08 §8.5).
+  // Documents whose files sit *directly* in one folder of a library, by title (docs/07 §7.3).
+  // Access is settled by the caller having been granted the library itself.
+  abstract listInFolder(
+    libraryId: string,
+    folder: string,
+    query: { limit: number; cursor?: string | undefined },
+    tx?: TransactionHandle,
+  ): Promise<DocumentPage>;
+
   abstract findReadableById(
     id: string,
     viewer: Viewer,

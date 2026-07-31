@@ -21,8 +21,23 @@ export type FileRefSnapshot = {
   documentId: string | null;
 };
 
+// A folder in the browse view (docs/11 §11.4). Folders are not stored: they are the distinct next
+// path segments of the refs a scan recorded.
+export type FolderSummary = {
+  name: string;
+  documentCount: number;
+};
+
 export abstract class FileRefRepository {
   abstract findById(id: string, tx?: TransactionHandle): Promise<FileRef | null>;
+
+  // Immediate subfolders of `folder` in a library, with how many documents live anywhere beneath
+  // each of them — a folder that only contains folders is still worth showing.
+  abstract listFoldersUnder(
+    libraryId: string,
+    folder: string,
+    tx?: TransactionHandle,
+  ): Promise<FolderSummary[]>;
 
   // The file to read when a LIBRARY document's own bytes are needed — for processing, and later for
   // the source download (docs/09 §9.1): the first HASHED ref in a library that is still active.

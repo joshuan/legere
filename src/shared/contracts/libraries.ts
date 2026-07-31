@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { paginatedSchema, paginationQuerySchema } from './common';
+import { documentListDtoSchema } from './documents';
 import { libraryVisibilitySchema, scanRunStatusSchema } from './enums';
 
 // Library contracts (docs/07 §7.3 admin libraries + user-facing list, docs/03 §3.3.6–3.3.8).
@@ -132,3 +133,24 @@ export type ListScanRunsQuery = z.infer<typeof listScanRunsQuerySchema>;
 
 export const listScanRunsResponseSchema = paginatedSchema(scanRunDtoSchema);
 export type ListScanRunsResponse = z.infer<typeof listScanRunsResponseSchema>;
+
+// Browse (docs/07 §7.3, docs/11 §11.4): folders are not stored anywhere — they are derived from the
+// paths of the FileRefs a scan recorded, at whatever depth the volume happens to have.
+export const browseQuerySchema = paginationQuerySchema.extend({
+  path: libraryRootPathSchema.default(''),
+});
+export type BrowseQuery = z.infer<typeof browseQuerySchema>;
+
+export const browseFolderSchema = z.object({
+  name: z.string(),
+  // Documents anywhere beneath the folder, so an empty-looking folder is never a dead end.
+  documentCount: z.number().int().nonnegative(),
+});
+export type BrowseFolderDto = z.infer<typeof browseFolderSchema>;
+
+export const browseResponseSchema = z.object({
+  path: z.string(),
+  folders: z.array(browseFolderSchema),
+  documents: paginatedSchema(documentListDtoSchema),
+});
+export type BrowseResponse = z.infer<typeof browseResponseSchema>;
