@@ -35,6 +35,7 @@ import {
   type FirstPageOptions,
   type NamedBinary,
 } from '../../src/server/application/ports/pdf-toolbox';
+import { TextExtractor } from '../../src/server/application/ports/text-extractor';
 
 // In-memory doubles for the processing pipeline (docs/14 §14.8). The repositories keep only the
 // behaviour the pipeline depends on; anything a handler never calls throws instead of pretending.
@@ -57,6 +58,7 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     sizeBytes: 1024n,
     pageCount: null,
     title: 'Invoice 2026-01',
+    markdown: null,
     steps: pendingSteps(),
     processingError: null,
     failedStep: null,
@@ -96,6 +98,7 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       ...existing,
       steps,
       ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
+      ...(update.markdown === undefined ? {} : { markdown: update.markdown }),
       ...(update.ocrUsed === undefined ? {} : { ocrUsed: update.ocrUsed }),
       ...(update.processingError === undefined ? {} : { processingError: update.processingError }),
       ...(update.failedStep === undefined ? {} : { failedStep: update.failedStep }),
@@ -298,8 +301,9 @@ export class FakePdfToolbox extends PdfToolbox {
     return Promise.resolve(Buffer.from('ocr-pdf'));
   }
 
-  imagesToPdf(): Promise<Buffer> {
-    this.check('imagesToPdf');
+  imagesToPdf(images: readonly NamedBinary[]): Promise<Buffer> {
+    // The names are the interesting part: page order is item order (docs/05 §5.6).
+    this.check('imagesToPdf', images.map((image) => image.fileName).join(','));
     return Promise.resolve(Buffer.from('merged-pdf'));
   }
 
@@ -336,4 +340,21 @@ async function describe(source: BinarySource): Promise<string> {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
   }
   return Buffer.concat(chunks).toString();
+}
+
+// Returns whatever text the test says the PDF in front of it holds, keyed by the bytes it receives,
+// so the OCR branch can be told apart from the text-layer one.
+export class FakeTextExtractor extends TextExtractor {
+  readonly reads: string[] = [];
+  // Text layer of anything not listed in `byContent`.
+  defaultPages: string[] = [];
+  readonly byContent = new Map<string, string[]>();
+  failing = false;
+
+  async pdfTextByPage(source: BinarySource): Promise<string[]> {
+    const content = await describe(source);
+    this.reads.push(content);
+    if (this.failing) throw new Error('pdfjs: invalid PDF structure');
+    return this.byContent.get(content) ?? this.defaultPages;
+  }
 }

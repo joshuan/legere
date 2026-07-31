@@ -10,6 +10,7 @@ import { JobQueue } from '../../application/ports/job-queue';
 import { LibraryReader } from '../../application/ports/library-reader';
 import { MimeDetector } from '../../application/ports/mime-detector';
 import { PdfToolbox } from '../../application/ports/pdf-toolbox';
+import { TextExtractor } from '../../application/ports/text-extractor';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
@@ -22,6 +23,14 @@ function processingSettings(config: AppConfig): ProcessingSettings {
   return {
     previewMaxDim: config.get('PREVIEW_MAX_DIM'),
     thumbMaxDim: config.get('THUMB_MAX_DIM'),
+    // OCR_LANGUAGES is written the way tesseract takes it on the command line ("rus+eng"); the port
+    // takes them one by one (docs/12 §12.4).
+    ocrLanguages: config
+      .get('OCR_LANGUAGES')
+      .split('+')
+      .map((language) => language.trim())
+      .filter((language) => language !== ''),
+    pdfTextMinCharsPerPage: config.get('PDF_TEXT_MIN_CHARS_PER_PAGE'),
   };
 }
 
@@ -82,6 +91,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         files: FileStorage,
         pdfs: PdfToolbox,
         images: ImageTool,
+        text: TextExtractor,
         config: AppConfig,
       ): HandleDocumentProcess =>
         new HandleDocumentProcess(
@@ -92,6 +102,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           files,
           pdfs,
           images,
+          text,
           processingSettings(config),
         ),
       inject: [
@@ -102,6 +113,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         FileStorage,
         PdfToolbox,
         ImageTool,
+        TextExtractor,
         AppConfig,
       ],
     },

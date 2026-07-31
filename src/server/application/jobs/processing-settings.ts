@@ -3,4 +3,8 @@
 export type ProcessingSettings = {
   previewMaxDim: number;
   thumbMaxDim: number;
+  // tesseract language codes, in the order OCR should try them.
+  ocrLanguages: readonly string[];
+  // Below this many characters per page, a PDF's text layer is not worth trusting (docs/05 §5.9).
+  pdfTextMinCharsPerPage: number;
 };

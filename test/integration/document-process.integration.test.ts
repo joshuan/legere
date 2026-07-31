@@ -10,7 +10,12 @@ import { PersistenceModule } from '../../src/server/infrastructure/persistence/p
 import { PrismaService } from '../../src/server/infrastructure/persistence/prisma.service';
 import { InMemoryFileStorage } from '../../src/server/infrastructure/storage/in-memory-file-storage';
 import { disconnectTestPrisma, truncateAll } from '../helpers/db';
-import { FakeImageTool, FakePdfToolbox, StubLibraryReader } from '../helpers/processing-fakes';
+import {
+  FakeImageTool,
+  FakePdfToolbox,
+  FakeTextExtractor,
+  StubLibraryReader,
+} from '../helpers/processing-fakes';
 
 const SOURCE_PATH = 'a.pdf';
 
@@ -22,6 +27,7 @@ describe('Document processing (integration)', () => {
   let handler: HandleDocumentProcess;
   let files: InMemoryFileStorage;
   let pdfs: FakePdfToolbox;
+  let text: FakeTextExtractor;
   let reader: StubLibraryReader;
   let close: () => Promise<void>;
 
@@ -35,6 +41,8 @@ describe('Document processing (integration)', () => {
 
     files = new InMemoryFileStorage();
     pdfs = new FakePdfToolbox();
+    text = new FakeTextExtractor();
+    text.defaultPages = ['Invoice 2026-01 for consulting services, payable within thirty days'];
     reader = new StubLibraryReader();
     reader.put(SOURCE_PATH, 'source-bytes');
 
@@ -46,7 +54,13 @@ describe('Document processing (integration)', () => {
       files,
       pdfs,
       new FakeImageTool(),
-      { previewMaxDim: 1600, thumbMaxDim: 400 },
+      text,
+      {
+        previewMaxDim: 1600,
+        thumbMaxDim: 400,
+        ocrLanguages: ['eng'],
+        pdfTextMinCharsPerPage: 32,
+      },
     );
 
     await truncateAll();
@@ -58,6 +72,8 @@ describe('Document processing (integration)', () => {
     pdfs.calls.length = 0;
     pdfs.failures.clear();
     pdfs.failureDetail = '';
+    text.failing = false;
+    text.reads.length = 0;
   });
 
   afterAll(async () => {
@@ -137,6 +153,42 @@ describe('Document processing (integration)', () => {
     await handler.handle({ documentId });
 
     expect(reader.opened).toContain(SOURCE_PATH);
+  });
+
+  it('stores the Markdown where the full-text index picks it up', async () => {
+    const documentId = await givenLibraryDocument();
+
+    await handler.handle({ documentId });
+
+    const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    expect(row.markdownStatus).toBe('DONE');
+    expect(row.markdown).toContain('consulting services');
+    expect(row.ocrUsed).toBe(false);
+
+    // 🔒 search_vector is generated from title + markdown (docs/04 §4.3): writing the column is what
+    // makes the document findable, with no separate indexing step to forget.
+    const hits = await prisma.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM documents WHERE search_vector @@ websearch_to_tsquery('simple', $1)`,
+      'consulting',
+    );
+    expect(hits.map((hit) => hit.id)).toEqual([documentId]);
+
+    // The title feeds the same vector, weighted higher.
+    const byTitle = await prisma.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id FROM documents WHERE search_vector @@ websearch_to_tsquery('simple', $1)`,
+      'invoice',
+    );
+    expect(byTitle.map((hit) => hit.id)).toEqual([documentId]);
+  });
+
+  it('stores text with characters no single-byte encoding could carry', async () => {
+    const documentId = await givenLibraryDocument('text/plain');
+    reader.put(SOURCE_PATH, Buffer.from('Счёт за январь — 1 200 ₽', 'utf8'));
+
+    await handler.handle({ documentId });
+
+    const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    expect(row.markdown).toBe('Счёт за январь — 1 200 ₽');
   });
 
   it('leaves an unsupported format settled without any artifact', async () => {

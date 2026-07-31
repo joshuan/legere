@@ -21,6 +21,7 @@ function toDomain(row: PrismaDocument): Document {
     sizeBytes: row.sizeBytes,
     pageCount: row.pageCount,
     title: row.title,
+    markdown: row.markdown,
     steps: {
       canonical: row.canonicalStatus,
       preview: row.previewStatus,

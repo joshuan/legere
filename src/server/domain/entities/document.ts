@@ -19,6 +19,9 @@ export type Document = {
   sizeBytes: bigint;
   pageCount: number | null;
   title: string;
+  // The extracted Markdown representation (docs/03 §3.3.10); null until step 3 has run, and also
+  // when the step ran and found no text at all.
+  markdown: string | null;
   steps: DocumentSteps;
   processingError: string | null;
   failedStep: string | null;
