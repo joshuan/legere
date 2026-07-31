@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import type { BinarySource } from '../../application/ports/binary-source';
+import { toBuffer, type BinarySource } from '../../application/ports/binary-source';
 import { TextExtractor } from '../../application/ports/text-extractor';
-import { toBuffer } from './binary';
 
 // pdfjs-dist ships ESM only, while the production server is compiled to CommonJS (docs/12 §12.3),
 // where a static import of it fails to resolve at runtime. A dynamic import works under both module

@@ -143,8 +143,31 @@ describe('Queue (integration)', () => {
         await queue.enqueueAfterTx(tx, 'document-process', { documentId: 'doc-1' });
       });
 
-      expect(await jobs()).toHaveLength(1);
+      const rows = await jobs();
+      expect(rows).toHaveLength(1);
+      // The payload has to survive the transactional path intact: a handler that receives an empty
+      // object cannot tell which document it was sent for.
+      expect(rows[0]?.data).toEqual({ documentId: 'doc-1' });
       expect(await prisma.category.count({ where: { slug: 'queued-together' } })).toBe(1);
+    });
+
+    it('keeps the payload when the send also carries queue options', async () => {
+      // What "Scan now" does (docs/05 §5.2): one keyed job, at user priority, in the same
+      // transaction as the ScanRun row.
+      await unitOfWork.run(async (tx) => {
+        await categoryWriter(tx).category.create({ data: { slug: 'keyed', name: 'Keyed' } });
+        await queue.enqueueAfterTx(
+          tx,
+          'library-scan',
+          { libraryId: 'lib-7', scanRunId: 'run-7' },
+          { singletonKey: 'lib-7', priority: 10 },
+        );
+      });
+
+      const rows = await jobs();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.data).toEqual({ libraryId: 'lib-7', scanRunId: 'run-7' });
+      expect(rows[0]?.singletonkey).toBe('lib-7');
     });
 
     it('discards the job when the transaction rolls back', async () => {

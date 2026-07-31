@@ -180,7 +180,15 @@ export class HandleLibraryScan extends JobHandler {
       if (run === null || run.status !== 'RUNNING') return null;
       return { id: run.id };
     }
-    return this.scanRuns.startRun(libraryId);
+
+    const started = await this.scanRuns.startRun(libraryId);
+    if (started !== null) return started;
+
+    // scan_runs_running_uq refused: a RUNNING row is already there, left behind by a process that
+    // died mid-scan or by a "Scan now" whose job the queue collapsed. Adopting it heals the library
+    // instead of blocking it forever — the queue guarantees only one scan job per library runs at a
+    // time, so there is no second worker to collide with (docs/05 §5.2).
+    return this.scanRuns.findRunning(libraryId);
   }
 }
 

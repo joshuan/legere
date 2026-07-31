@@ -6,10 +6,15 @@ import { LoggerModule } from 'nestjs-pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { HandleFileIngest } from '../../src/server/application/jobs/handle-file-ingest';
 import { HandleLibraryScan } from '../../src/server/application/jobs/handle-library-scan';
+import { TriggerScan } from '../../src/server/application/libraries/manage-scans';
 import { JobQueue } from '../../src/server/application/ports/job-queue';
+import { UnitOfWork } from '../../src/server/application/ports/unit-of-work';
+import { LibraryRepository } from '../../src/server/domain/repositories/library.repository';
+import { ScanRunRepository } from '../../src/server/domain/repositories/scan-run.repository';
 import { AuthInfrastructureModule } from '../../src/server/infrastructure/auth/auth-infrastructure.module';
 import { AppConfig, loadConfig } from '../../src/server/infrastructure/config/app-config';
 import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
+import { PdfModule } from '../../src/server/infrastructure/pdf/pdf.module';
 import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
 import { PrismaService } from '../../src/server/infrastructure/persistence/prisma.service';
 import { PgBossProvider } from '../../src/server/infrastructure/queue/pg-boss.provider';
@@ -26,6 +31,7 @@ describe('Scan and ingest (integration)', () => {
   let queue: JobQueue;
   let scan: HandleLibraryScan;
   let ingest: HandleFileIngest;
+  let triggerScan: TriggerScan;
   let close: (() => Promise<void>) | null = null;
 
   beforeAll(async () => {
@@ -39,6 +45,7 @@ describe('Scan and ingest (integration)', () => {
         AuthInfrastructureModule,
         PersistenceModule,
         StorageModule,
+        PdfModule,
         QueueModule,
         JobsModule,
       ],
@@ -57,6 +64,13 @@ describe('Scan and ingest (integration)', () => {
     queue = moduleRef.get(JobQueue);
     scan = moduleRef.get(HandleLibraryScan);
     ingest = moduleRef.get(HandleFileIngest);
+    // The "Scan now" use case over the same real repositories and queue (docs/07 §7.3).
+    triggerScan = new TriggerScan(
+      moduleRef.get(LibraryRepository),
+      moduleRef.get(ScanRunRepository),
+      moduleRef.get(JobQueue),
+      moduleRef.get(UnitOfWork),
+    );
     close = () => moduleRef.close();
 
     await moduleRef.get(PgBossProvider).start();
@@ -507,6 +521,36 @@ describe('Scan and ingest (integration)', () => {
       expect(first).not.toBeNull();
       // One scan per library at a time (docs/05 §5.2).
       expect(second).toBeNull();
+    });
+
+    // Found by running the app: "Scan now" while the periodic sweep already had a scan queued left
+    // a RUNNING row with no job behind it, and scan_runs_running_uq then blocked every later scan of
+    // that library — the library simply stopped being scanned, silently.
+    it('answers alreadyRunning without leaving a run behind when the queue collapses the job', async () => {
+      const libraryId = await createLibrary();
+      await queue.enqueue('library-scan', { libraryId }, { singletonKey: libraryId });
+
+      const result = await triggerScan.execute(libraryId);
+
+      expect(result).toEqual({ alreadyRunning: true });
+      expect(await prisma.scanRun.count({ where: { libraryId } })).toBe(0);
+    });
+
+    it('adopts a RUNNING run left behind by a crash instead of refusing to scan', async () => {
+      const libraryId = await createLibrary();
+      await writeFixture('orphaned.txt', 'still here');
+      const stale = await prisma.scanRun.create({
+        data: { libraryId, status: 'RUNNING', startedAt: new Date('2026-01-01T00:00:00.000Z') },
+      });
+
+      await scan.handle({ libraryId });
+
+      const adopted = await prisma.scanRun.findUniqueOrThrow({ where: { id: stale.id } });
+      expect(adopted.status).toBe('DONE');
+      expect(adopted.filesSeen).toBe(1);
+      // One journal entry, not a second one alongside a stuck first.
+      expect(await prisma.scanRun.count({ where: { libraryId } })).toBe(1);
+      expect((await refs(libraryId)).map((ref) => ref.path)).toEqual(['orphaned.txt']);
     });
   });
 });

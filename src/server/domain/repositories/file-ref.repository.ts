@@ -24,6 +24,13 @@ export type FileRefSnapshot = {
 export abstract class FileRefRepository {
   abstract findById(id: string, tx?: TransactionHandle): Promise<FileRef | null>;
 
+  // The file to read when a LIBRARY document's own bytes are needed — for processing, and later for
+  // the source download (docs/09 §9.1): the first HASHED ref in a library that is still active.
+  abstract findLiveRefForDocument(
+    documentId: string,
+    tx?: TransactionHandle,
+  ): Promise<FileRef | null>;
+
   abstract findByPath(
     libraryId: string,
     path: RelativePath,

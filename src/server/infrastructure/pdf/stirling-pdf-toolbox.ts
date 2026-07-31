@@ -1,13 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import type { BinarySource } from '../../application/ports/binary-source';
+import { toBuffer, type BinarySource } from '../../application/ports/binary-source';
 import {
   PdfToolbox,
   type FirstPageOptions,
   type NamedBinary,
 } from '../../application/ports/pdf-toolbox';
 import { AppConfig } from '../config/app-config';
-import { toBuffer } from './binary';
 
 // Stirling's REST surface (ADR-012). One endpoint per port method; the container is reached over the
 // internal network and is never exposed.

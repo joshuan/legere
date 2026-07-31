@@ -1,16 +1,29 @@
 import { Module, type OnModuleInit } from '@nestjs/common';
+import { HandleDocumentProcess } from '../../application/jobs/handle-document-process';
 import { HandleFileIngest } from '../../application/jobs/handle-file-ingest';
 import { HandleLibraryScan } from '../../application/jobs/handle-library-scan';
+import type { ProcessingSettings } from '../../application/jobs/processing-settings';
 import { Clock } from '../../application/ports/clock';
+import { FileStorage } from '../../application/ports/file-storage';
+import { ImageTool } from '../../application/ports/image-tool';
 import { JobQueue } from '../../application/ports/job-queue';
 import { LibraryReader } from '../../application/ports/library-reader';
 import { MimeDetector } from '../../application/ports/mime-detector';
+import { PdfToolbox } from '../../application/ports/pdf-toolbox';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
 import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
+import { AppConfig } from '../../infrastructure/config/app-config';
 import { WorkerRegistry } from '../../infrastructure/queue/worker-registry';
+
+function processingSettings(config: AppConfig): ProcessingSettings {
+  return {
+    previewMaxDim: config.get('PREVIEW_MAX_DIM'),
+    thumbMaxDim: config.get('THUMB_MAX_DIM'),
+  };
+}
 
 // Binds the job handlers and tells the worker registry which queue each one serves (docs/06 §6.8).
 // Registration happens on module init; the workers themselves start in bootstrap step 5, after the
@@ -59,8 +72,41 @@ import { WorkerRegistry } from '../../infrastructure/queue/worker-registry';
         UnitOfWork,
       ],
     },
+    {
+      provide: HandleDocumentProcess,
+      useFactory: (
+        documents: DocumentRepository,
+        fileRefs: FileRefRepository,
+        libraries: LibraryRepository,
+        reader: LibraryReader,
+        files: FileStorage,
+        pdfs: PdfToolbox,
+        images: ImageTool,
+        config: AppConfig,
+      ): HandleDocumentProcess =>
+        new HandleDocumentProcess(
+          documents,
+          fileRefs,
+          libraries,
+          reader,
+          files,
+          pdfs,
+          images,
+          processingSettings(config),
+        ),
+      inject: [
+        DocumentRepository,
+        FileRefRepository,
+        LibraryRepository,
+        LibraryReader,
+        FileStorage,
+        PdfToolbox,
+        ImageTool,
+        AppConfig,
+      ],
+    },
   ],
-  exports: [HandleLibraryScan, HandleFileIngest],
+  exports: [HandleLibraryScan, HandleFileIngest, HandleDocumentProcess],
 })
 export class JobsModule implements OnModuleInit {
   constructor(private readonly workers: WorkerRegistry) {}
@@ -71,6 +117,9 @@ export class JobsModule implements OnModuleInit {
       { queue: 'library-scan', handler: HandleLibraryScan, concurrency: 1 },
       // Concurrency from QUEUE_CONCURRENCY_INGEST (docs/12 §12.4).
       { queue: 'file-ingest', handler: HandleFileIngest },
+      // Concurrency from QUEUE_CONCURRENCY_PROCESS: these jobs hold whole files in memory and lean
+      // on the Stirling container, so they are deliberately the least parallel of the three.
+      { queue: 'document-process', handler: HandleDocumentProcess },
     );
   }
 }

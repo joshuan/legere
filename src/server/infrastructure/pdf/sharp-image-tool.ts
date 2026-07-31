@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import sharp from 'sharp';
-import type { BinarySource } from '../../application/ports/binary-source';
+import { toBuffer, type BinarySource } from '../../application/ports/binary-source';
 import { ImageTool, type JpegPreviewOptions } from '../../application/ports/image-tool';
-import { toBuffer } from './binary';
 
 const DEFAULT_QUALITY = 80;
 

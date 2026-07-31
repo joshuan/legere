@@ -6,6 +6,7 @@ import {
   DocumentRepository,
   type CreateDocumentInput,
   type DocumentUpsert,
+  type ProcessingUpdate,
 } from '../../domain/repositories/document.repository';
 import { clientOf } from './prisma-client';
 import { PrismaService } from './prisma.service';
@@ -39,6 +40,15 @@ function toDomain(row: PrismaDocument): Document {
   };
 }
 
+// processingError is capped at 2000 characters (docs/03 §3.3.10): a stack trace or an HTML error page
+// from a sibling container must not become the largest column in the table.
+const MAX_ERROR_CHARS = 2000;
+
+function truncate(message: string | null): string | null {
+  if (message === null) return null;
+  return message.length <= MAX_ERROR_CHARS ? message : `${message.slice(0, MAX_ERROR_CHARS - 1)}…`;
+}
+
 @Injectable()
 export class PrismaDocumentRepository implements DocumentRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -46,6 +56,34 @@ export class PrismaDocumentRepository implements DocumentRepository {
   async findById(id: string, tx?: TransactionHandle): Promise<Document | null> {
     const row = await clientOf(this.prisma, tx).document.findUnique({ where: { id } });
     return row === null ? null : toDomain(row);
+  }
+
+  async updateProcessing(
+    id: string,
+    update: ProcessingUpdate,
+    tx?: TransactionHandle,
+  ): Promise<Document> {
+    const steps = update.steps ?? {};
+    const row = await clientOf(this.prisma, tx).document.update({
+      where: { id },
+      data: {
+        ...(steps.canonical === undefined ? {} : { canonicalStatus: steps.canonical }),
+        ...(steps.preview === undefined ? {} : { previewStatus: steps.preview }),
+        ...(steps.markdown === undefined ? {} : { markdownStatus: steps.markdown }),
+        ...(steps.categorization === undefined
+          ? {}
+          : { categorizationStatus: steps.categorization }),
+        ...(steps.vectorization === undefined ? {} : { vectorizationStatus: steps.vectorization }),
+        ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
+        ...(update.markdown === undefined ? {} : { markdown: update.markdown }),
+        ...(update.ocrUsed === undefined ? {} : { ocrUsed: update.ocrUsed }),
+        ...(update.processingError === undefined
+          ? {}
+          : { processingError: truncate(update.processingError) }),
+        ...(update.failedStep === undefined ? {} : { failedStep: update.failedStep }),
+      },
+    });
+    return toDomain(row);
   }
 
   async findActiveByContentHash(

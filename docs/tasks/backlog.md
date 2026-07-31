@@ -150,7 +150,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`06 §6.3.3`](../06-backend-architecture.md#633-application-ports-non-repository), [ADR-012/017](../02-architecture-overview.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process)
   **Acceptance:** Stirling client: officeToPdf, pdfFirstPageJpg, ocrPdf(langs), imagesToPdf, pdfPageCount — integration-tested against the dev Stirling container (skippable in CI, mocked otherwise); sharp: JPEG preview with EXIF orientation + max-dim, `trim()`; pdfjs text-by-page extraction validated on a fixture PDF (this closes the pdfjs spike).
 
-- [ ] **M4.3 — `document-process`: canonicalization + previews**
+- [x] **M4.3 — `document-process`: canonicalization + previews**
   **Goal:** steps 1–2 of the pipeline with per-format routing and step statuses.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process) (steps 1–2), [`09 §9.2`](../09-file-storage.md#92-s3-bucket)
   **Acceptance (integration, ports mocked/in-memory):** format matrix — pdf: no canonical; office: canonical.pdf written; image: direct preview; txt/md: skips; unsupported: SKIPPED 1–3,5; preview.jpg + thumb.jpg written with configured dims; statuses/pageCount recorded; a failing step records FAILED+error but independent steps still run; handler idempotent (re-run overwrites, no dupes).

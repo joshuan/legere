@@ -150,6 +150,18 @@ export class PrismaFileRefRepository implements FileRefRepository {
     return result.count;
   }
 
+  async findLiveRefForDocument(
+    documentId: string,
+    tx?: TransactionHandle,
+  ): Promise<FileRef | null> {
+    const row = await clientOf(this.prisma, tx).fileRef.findFirst({
+      where: { documentId, status: 'HASHED', library: { deletedAt: null } },
+      // Oldest first, so repeated runs read the same copy of duplicated content.
+      orderBy: { firstSeenAt: 'asc' },
+    });
+    return row === null ? null : toDomain(row);
+  }
+
   countLiveRefsInActiveLibraries(documentId: string, tx?: TransactionHandle): Promise<number> {
     return clientOf(this.prisma, tx).fileRef.count({
       where: {

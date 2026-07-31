@@ -17,6 +17,13 @@ import { cookieNamed, expectData, expectError } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
 
+// Creating a library commits a scan job with it (docs/05 §5.2), and a second scan for the same
+// library collapses into that one. These tests run no workers, so the queued job is removed here to
+// stand in for a worker having taken it.
+async function takeQueuedScans(): Promise<void> {
+  await testPrisma().$executeRawUnsafe("DELETE FROM pgboss.job WHERE name = 'library-scan'");
+}
+
 // Libraries admin API and visibility (docs/07 §7.3, docs/03 §3.3.6–3.3.7, docs/08 §8.5).
 describe('Libraries (e2e)', () => {
   let app: TestApp;
@@ -358,6 +365,8 @@ describe('Libraries (e2e)', () => {
         libraryAdminDtoSchema,
       );
 
+      await takeQueuedScans();
+
       const first = await api(app)
         .post(`/api/admin/libraries/${library.id}/scan`)
         .set('Cookie', adminCookie);
@@ -379,6 +388,26 @@ describe('Libraries (e2e)', () => {
       expect(runs.items[0]).toMatchObject({ status: 'RUNNING', filesSeen: 0 });
     });
 
+    it('answers alreadyRunning, and journals nothing, when a scan is already queued', async () => {
+      // Creating a library queues its first scan; asking for another one collapses into it. 🔒 The
+      // journal must stay empty — a RUNNING row with no job behind it would block this library's
+      // scans forever through scan_runs_running_uq (docs/04 §4.3).
+      const library = expectData(
+        await createLibrary({ name: 'Invoices', rootPath: 'invoices' }),
+        libraryAdminDtoSchema,
+      );
+
+      const res = await api(app)
+        .post(`/api/admin/libraries/${library.id}/scan`)
+        .set('Cookie', adminCookie);
+
+      expect(expectData(res, triggerScanResponseSchema)).toEqual({ alreadyRunning: true });
+      const journal = await api(app)
+        .get(`/api/admin/libraries/${library.id}/scans`)
+        .set('Cookie', adminCookie);
+      expect(expectData(journal, listScanRunsResponseSchema).items).toHaveLength(0);
+    });
+
     it('404s a scan trigger for an unknown library', async () => {
       const res = await api(app)
         .post('/api/admin/libraries/11111111-1111-4111-8111-111111111111/scan')
@@ -394,6 +423,7 @@ describe('Libraries (e2e)', () => {
         await createLibrary({ name: 'Invoices', rootPath: 'invoices' }),
         libraryAdminDtoSchema,
       );
+      await takeQueuedScans();
       await api(app).post(`/api/admin/libraries/${library.id}/scan`).set('Cookie', adminCookie);
 
       const res = await api(app).get('/api/admin/libraries').set('Cookie', adminCookie);
