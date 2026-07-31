@@ -192,7 +192,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`07`](../07-api-specification.md) (categories), [`03 §3.3.12`](../03-domain-model.md#3312-category), [`11 §11.12`](../11-ui-ux-spec.md#1112-admin-categories-admincategories)
   **Acceptance:** CRUD with slug immutability + `CATEGORY_SLUG_TAKEN`; delete resets documents to NONE in one transaction (e2e); admin table UI with counts and confirms.
 
-- [ ] **M5.5 — UI: documents grid**
+- [x] **M5.5 — UI: documents grid**
   **Goal:** the home screen.
   **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen), [`10 §10.5, §10.8`](../10-frontend-architecture.md)
   **Acceptance:** responsive card grid (thumb via `/thumb`, fallback icon, processing/unavailable badges); filter bar synced to URL; infinite scroll; 5 s polling while any visible doc is processing; empty states per spec; component tests for the card and filters.

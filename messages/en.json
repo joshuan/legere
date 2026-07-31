@@ -301,5 +301,27 @@
         "descriptionHint": "Shown to the classifier as guidance, and to admins here."
       }
     }
+  },
+  "documents": {
+    "title": "Documents",
+    "badges": {
+      "processing": "Processing",
+      "unavailable": "File missing"
+    },
+    "filters": {
+      "library": "Library",
+      "category": "Category",
+      "source": "Source",
+      "sourceLibrary": "From libraries",
+      "sourceDerived": "Created by me",
+      "unavailableOnly": "Missing files only",
+      "processingOnly": "Processing only",
+      "clear": "Clear filters"
+    },
+    "empty": {
+      "instance": "No documents yet. Ask your administrator to add a library.",
+      "filtered": "Nothing matches these filters.",
+      "addLibrary": "Add a library"
+    }
   }
 }
