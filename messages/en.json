@@ -237,6 +237,39 @@
         "seconds": "{seconds}s",
         "countersValue": "{seen} seen · {new} new · {changed} changed · {missing} missing"
       }
+    },
+    "queue": {
+      "title": "Queue",
+      "autoRefresh": "Auto-refresh",
+      "live": "Live",
+      "paused": "Paused",
+      "queued": "Queued",
+      "active": "Active",
+      "failedRecent": "Failed (24 h)",
+      "retried": "Job re-enqueued",
+      "actions": {
+        "retry": "Retry"
+      },
+      "steps": {
+        "canonical": "Canonical PDF",
+        "preview": "Preview",
+        "markdown": "Markdown",
+        "categorization": "Category",
+        "vectorization": "Vectors"
+      },
+      "pipeline": {
+        "title": "Documents in the pipeline",
+        "total": "{count} documents"
+      },
+      "failures": {
+        "title": "Failures",
+        "empty": "No failed jobs",
+        "time": "Time",
+        "queue": "Queue",
+        "payload": "Payload",
+        "retries": "Retries",
+        "actions": "Actions"
+      }
     }
   }
 }

@@ -609,6 +609,76 @@ describe('HandleDocumentProcess', () => {
     });
   });
 
+  describe('reprocessing a subset of steps (docs/07 §7.3)', () => {
+    it('runs only the requested step and leaves the others exactly as they were', async () => {
+      givenDocument({ mimeType: 'application/pdf' });
+      await run();
+      const before = stateOf();
+      files.clear();
+      pdfs.calls.length = 0;
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['preview'] });
+
+      const after = stateOf();
+      expect(after.steps.preview).toBe('DONE');
+      expect(files.keys()).toEqual([
+        artifactKeys.preview(DOCUMENT_ID),
+        artifactKeys.thumbnail(DOCUMENT_ID),
+      ]);
+      // Nothing else was touched: the Markdown is the one from the first run, not re-extracted.
+      expect(after.markdown).toBe(before.markdown);
+      expect(text.reads).toHaveLength(1);
+      expect(classifier.calls).toHaveLength(1);
+      expect(chunks.replacements).toBe(1);
+    });
+
+    it('re-reads the canonical PDF for a later step instead of converting again', async () => {
+      givenDocument({ mimeType: 'application/rtf', ext: 'rtf' });
+      text.byContent.set('canonical-pdf', ['Converted body text that is long enough to trust']);
+      await run();
+      pdfs.calls.length = 0;
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['markdown'] });
+
+      // 🔒 The office file is not converted a second time; step 3 reads what step 1 already wrote
+      // to the bucket (docs/07 §7.3).
+      expect(pdfs.calls.some((call) => call.method === 'officeToPdf')).toBe(false);
+      expect(stateOf().markdown).toBe('Converted body text that is long enough to trust');
+      expect(stateOf().steps.canonical).toBe('DONE');
+    });
+
+    it('fails a step that depends on a canonical PDF which was never produced', async () => {
+      givenDocument({ mimeType: 'application/msword', ext: 'doc' });
+      pdfs.failOn('officeToPdf');
+      await run();
+      pdfs.failures.clear();
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['markdown'] });
+
+      expect(stateOf().steps.markdown).toBe('FAILED');
+    });
+
+    it('settles only the requested steps of an unsupported document', async () => {
+      givenDocument({ mimeType: 'application/x-executable', ext: 'bin' });
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['preview'] });
+
+      const document = stateOf();
+      expect(document.steps.preview).toBe('SKIPPED');
+      // Never asked for, never written.
+      expect(document.steps.markdown).toBe('PENDING');
+      expect(classifier.calls).toEqual([]);
+    });
+
+    it('rejects a step name the pipeline does not have', async () => {
+      givenDocument();
+
+      await expect(
+        handler.handle({ documentId: DOCUMENT_ID, steps: ['thumbnail'] }),
+      ).rejects.toThrow();
+    });
+  });
+
   describe('idempotency', () => {
     it('rewrites artifacts and statuses on a re-run without duplicating anything', async () => {
       givenDocument();

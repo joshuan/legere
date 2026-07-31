@@ -165,7 +165,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`05 §5.5`](../05-library-and-processing.md) (steps 4–5), [`06 §6.3.3`](../06-backend-architecture.md) (EmbeddingProvider, DocumentClassifier), [`04`](../04-database-schema.md) (chunks)
   **Acceptance:** classifier prompt gets category slugs+descriptions, answer validated against active slugs (invalid → NONE); `MANUAL` never overwritten; chunking per configured target/overlap splitting on headings/paragraphs (unit-tested edge cases: huge paragraph, empty doc); chunks+embeddings replaced wholesale in a transaction; unconfigured providers → steps SKIPPED, no error; provider HTTP failure → step FAILED, retryable.
 
-- [ ] **M4.6 — Reprocess + queue administration**
+- [x] **M4.6 — Reprocess + queue administration**
   **Goal:** operational control over the pipeline.
   **Docs:** [`07`](../07-api-specification.md) (reprocess, admin queue), [`05 §5.8`](../05-library-and-processing.md#58-observability-admin-panel), [`11 §11.13`](../11-ui-ux-spec.md#1113-admin-queue-adminqueue)
   **Acceptance:** reprocess with step subset re-runs only those steps (e2e); `QueueMonitor` overview (per-queue depths + document step counters) and failures list with payload/error; retry re-enqueues; queue admin UI: overview cards, failures table with expandable errors and Retry, 5 s auto-refresh with pause.

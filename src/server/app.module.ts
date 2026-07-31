@@ -12,10 +12,12 @@ import { PersistenceModule } from './infrastructure/persistence/persistence.modu
 import { QueueModule } from './infrastructure/queue/queue.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
 import { AuthModule } from './presentation/auth/auth.module';
+import { DocumentsModule } from './presentation/documents/documents.module';
 import { DomainExceptionFilter } from './presentation/http/domain-exception.filter';
 import { HealthModule } from './presentation/health/health.module';
 import { JobsModule } from './presentation/jobs/jobs.module';
 import { LibrariesModule } from './presentation/libraries/libraries.module';
+import { QueueAdminModule } from './presentation/queue/queue-admin.module';
 import { UsersModule } from './presentation/users/users.module';
 
 // Composition root (docs/06 §6.5). Feature modules are added as milestones land.
@@ -38,6 +40,8 @@ import { UsersModule } from './presentation/users/users.module';
     AuthModule,
     UsersModule,
     LibrariesModule,
+    DocumentsModule,
+    QueueAdminModule,
     JobsModule,
     HealthModule,
   ],

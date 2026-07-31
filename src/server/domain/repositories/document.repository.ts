@@ -1,4 +1,5 @@
-import type { CategorySource, DocumentSource } from '../../../shared/contracts/enums';
+import type { DocumentStep } from '../../../shared/contracts/documents';
+import type { CategorySource, DocumentSource, StepStatus } from '../../../shared/contracts/enums';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Document, DocumentSteps } from '../entities/document';
 
@@ -33,6 +34,12 @@ export type ProcessingUpdate = {
   categorySource?: CategorySource;
 };
 
+// Documents by pipeline step and status, for the admin overview (docs/05 §5.8).
+export type StepStatusCounters = {
+  total: number;
+  steps: Record<DocumentStep, Record<StepStatus, number>>;
+};
+
 export abstract class DocumentRepository {
   abstract findById(id: string, tx?: TransactionHandle): Promise<Document | null>;
 
@@ -43,6 +50,8 @@ export abstract class DocumentRepository {
     update: ProcessingUpdate,
     tx?: TransactionHandle,
   ): Promise<Document>;
+
+  abstract countByStepStatus(tx?: TransactionHandle): Promise<StepStatusCounters>;
 
   abstract findActiveByContentHash(
     contentHash: string,

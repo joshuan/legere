@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  DOCUMENT_STEPS,
+  documentStepSchema,
+  type DocumentStep,
+} from '../../../shared/contracts/documents';
 import type { Document } from '../../domain/entities/document';
 import { chunkMarkdown } from '../../domain/entities/document-chunks';
 import { classifyFormat, type DocumentFormat } from '../../domain/entities/document-format';
@@ -25,7 +30,11 @@ import { artifactKeys } from '../storage/artifact-keys';
 import { JobHandler } from './job-handler';
 import type { ProcessingSettings } from './processing-settings';
 
-export const documentProcessPayloadSchema = z.object({ documentId: z.string().uuid() });
+export const documentProcessPayloadSchema = z.object({
+  documentId: z.string().uuid(),
+  // A reprocess may ask for a subset; an absent list means the whole pipeline (docs/07 §7.3).
+  steps: z.array(documentStepSchema).min(1).optional(),
+});
 export type DocumentProcessPayload = z.infer<typeof documentProcessPayloadSchema>;
 
 // Quality settings of docs/09 §9.2 — fixed by the spec rather than configurable.
@@ -75,7 +84,11 @@ export class HandleDocumentProcess extends JobHandler {
   }
 
   async handle(rawPayload: unknown): Promise<void> {
-    const { documentId } = documentProcessPayloadSchema.parse(rawPayload);
+    const payload = documentProcessPayloadSchema.parse(rawPayload);
+    const documentId = payload.documentId;
+    // Which steps this run is allowed to touch. Everything outside the set keeps the status and the
+    // artifact it already has (docs/07 §7.3: reprocess re-runs only the requested steps).
+    const requested = new Set<DocumentStep>(payload.steps ?? DOCUMENT_STEPS);
 
     const document = await this.documents.findById(documentId);
     // Soft-deleted or gone between enqueue and delivery: nothing to process, and nothing to fail.
@@ -88,38 +101,53 @@ export class HandleDocumentProcess extends JobHandler {
       // classify — and, just as importantly, no step may be left PENDING: a document with a PENDING
       // step reads as "still processing" forever (docs/03 §3.3.10).
       await this.documents.updateProcessing(documentId, {
-        steps: {
-          canonical: 'SKIPPED',
-          preview: 'SKIPPED',
-          markdown: 'SKIPPED',
-          vectorization: 'SKIPPED',
-        },
+        steps: onlyRequested(
+          {
+            canonical: 'SKIPPED',
+            preview: 'SKIPPED',
+            markdown: 'SKIPPED',
+            vectorization: 'SKIPPED',
+          },
+          requested,
+        ),
         processingError: null,
         failedStep: null,
       });
-      await this.categorize(document);
+      if (requested.has('categorization')) await this.categorize(document);
       return;
     }
 
     // A re-run starts from a clean slate: an error from a previous attempt must not outlive it.
     await this.documents.updateProcessing(documentId, {
-      steps: { canonical: 'PENDING', preview: 'PENDING', markdown: 'PENDING' },
+      steps: onlyRequested(
+        { canonical: 'PENDING', preview: 'PENDING', markdown: 'PENDING' },
+        requested,
+      ),
       processingError: null,
       failedStep: null,
     });
 
     const openSource = await this.sourceOpener(document);
-    const canonical = await this.canonicalize(document, format, openSource);
-    await this.renderPreviews(document, format, openSource, canonical);
+    const canonical = requested.has('canonical')
+      ? await this.canonicalize(document, format, openSource)
+      : // Not asked for: whatever step 1 produced earlier is still in the bucket, and the steps
+        // after it must read that rather than the original office file (docs/07 §7.3).
+        alreadyCanonical(document, format);
+
+    if (requested.has('preview')) {
+      await this.renderPreviews(document, format, openSource, canonical);
+    }
     // Independent of the preview: a document whose page could not be rendered is still worth
     // reading and searching (docs/05 §5.5).
-    await this.extractMarkdown(document, format, openSource, canonical);
+    if (requested.has('markdown')) {
+      await this.extractMarkdown(document, format, openSource, canonical);
+    }
 
     // Steps 4 and 5 read what step 3 wrote, so the document is re-read rather than reusing the
     // stale copy this handler started with.
     const extracted = (await this.documents.findById(document.id)) ?? document;
-    await this.categorize(extracted);
-    await this.vectorize(extracted);
+    if (requested.has('categorization')) await this.categorize(extracted);
+    if (requested.has('vectorization')) await this.vectorize(extracted);
   }
 
   // Step 1. Only office formats need converting; a PDF already is one, and images and text are
@@ -432,4 +460,23 @@ function classifierExcerpt(document: Document): string {
     .join('\n\n')
     .trim()
     .slice(0, CLASSIFIER_EXCERPT_CHARS);
+}
+
+// Keeps only the entries this run is allowed to write, so a subset reprocess never resets the
+// status of a step it was not asked to touch.
+function onlyRequested(
+  steps: Partial<Record<DocumentStep, 'PENDING' | 'SKIPPED'>>,
+  requested: ReadonlySet<DocumentStep>,
+): Partial<Record<DocumentStep, 'PENDING' | 'SKIPPED'>> {
+  return Object.fromEntries(
+    Object.entries(steps).filter(([step]) => requested.has(documentStepSchema.parse(step))),
+  );
+}
+
+// What step 1 left in the bucket on an earlier run, as far as the later steps are concerned.
+function alreadyCanonical(document: Document, format: DocumentFormat): Canonical {
+  if (format === 'TEXT') return { kind: 'noPreview' };
+  if (format !== 'OFFICE') return { kind: 'sourceIsUsable' };
+  // An office document with no canonical PDF has nothing for the later steps to read.
+  return document.steps.canonical === 'DONE' ? { kind: 'written' } : { kind: 'failed' };
 }

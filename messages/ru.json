@@ -237,6 +237,39 @@
         "seconds": "{seconds} с",
         "countersValue": "{seen} найдено · {new} новых · {changed} изменено · {missing} отсутствует"
       }
+    },
+    "queue": {
+      "title": "Очередь",
+      "autoRefresh": "Автообновление",
+      "live": "Идёт",
+      "paused": "Пауза",
+      "queued": "В очереди",
+      "active": "В работе",
+      "failedRecent": "Ошибки (24 ч)",
+      "retried": "Задача поставлена заново",
+      "actions": {
+        "retry": "Повторить"
+      },
+      "steps": {
+        "canonical": "Канонический PDF",
+        "preview": "Превью",
+        "markdown": "Markdown",
+        "categorization": "Категория",
+        "vectorization": "Векторы"
+      },
+      "pipeline": {
+        "title": "Документы в конвейере",
+        "total": "Документов: {count}"
+      },
+      "failures": {
+        "title": "Ошибки",
+        "empty": "Нет упавших задач",
+        "time": "Время",
+        "queue": "Очередь",
+        "payload": "Данные",
+        "retries": "Повторы",
+        "actions": "Действия"
+      }
     }
   }
 }

@@ -8,6 +8,7 @@ import {
   type CreateDocumentInput,
   type DocumentUpsert,
   type ProcessingUpdate,
+  type StepStatusCounters,
 } from '../../src/server/domain/repositories/document.repository';
 import {
   FileRefRepository,
@@ -136,6 +137,10 @@ export class InMemoryDocumentRepository extends DocumentRepository {
 
   findOrCreateByContentHash(_input: CreateDocumentInput): Promise<DocumentUpsert> {
     return unused('findOrCreateByContentHash');
+  }
+
+  countByStepStatus(): Promise<StepStatusCounters> {
+    return unused('countByStepStatus');
   }
 }
 
