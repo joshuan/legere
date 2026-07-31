@@ -177,7 +177,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`07`](../07-api-specification.md) (documents), [`03 §3.4`](../03-domain-model.md#34-access-model-authoritative-summary), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model)
   **Acceptance (e2e):** list with all filters + cursor pagination, only readable docs (RESTRICTED library invisible to outsiders — 404 on detail too); availability computed per 03 §3.3.10; detail exposes fileRefs only from caller-visible libraries (admin sees all); PATCH meta per canEditDocumentMeta incl. `categorySource` transitions; admin soft delete → 404 everywhere; `DocumentAccessGuard` attaches the loaded doc (no double fetch).
 
-- [ ] **M5.2 — File endpoints**
+- [x] **M5.2 — File endpoints**
   **Goal:** bytes flow: source streaming + signed-URL redirects.
   **Docs:** [`07`](../07-api-specification.md) (file endpoints), [`09 §9.1–9.2`](../09-file-storage.md)
   **Acceptance (e2e):** source streams with correct headers (length/type/RFC5987 filename); ENOENT during stream → ref MISSING + `DOCUMENT_UNAVAILABLE`; DERIVED source 302 → signed URL; preview/thumb/canonical 302 (404 when step not DONE); markdown endpoint; every file route rejects a non-authorized caller exactly like metadata routes.

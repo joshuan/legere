@@ -6,8 +6,10 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import type { Envelope } from '../../../shared/contracts/common';
 import {
   listDocumentsQuerySchema,
@@ -19,6 +21,7 @@ import {
   type ReprocessRequest,
   type ReprocessResponse,
   type UpdateDocumentRequest,
+  DocumentMarkdownResponse,
 } from '../../../shared/contracts/documents';
 import type { OkResponse } from '../../../shared/contracts/users';
 import type { User } from '../../domain/entities/user';
@@ -28,6 +31,13 @@ import {
   ListDocuments,
   UpdateDocumentMeta,
 } from '../../application/documents/manage-documents';
+import {
+  DownloadDocumentSource,
+  GetDocumentArtifactUrl,
+  GetDocumentMarkdown,
+  type ArtifactKind,
+  type Download,
+} from '../../application/documents/download-document';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
 import type { DocumentDetail } from '../../domain/repositories/document.repository';
 import { CurrentUser } from '../auth/current-user';
@@ -48,6 +58,9 @@ export class DocumentsController {
     private readonly updateMeta: UpdateDocumentMeta,
     private readonly remove: DeleteDocument,
     private readonly reprocess: ReprocessDocument,
+    private readonly download: DownloadDocumentSource,
+    private readonly artifactUrl: GetDocumentArtifactUrl,
+    private readonly markdown: GetDocumentMarkdown,
   ) {}
 
   @Get()
@@ -80,6 +93,50 @@ export class DocumentsController {
     return successEnvelope(await this.remove.execute(id));
   }
 
+  @Get(':id/markdown')
+  @UseGuards(DocumentAccessGuard)
+  getMarkdown(@CurrentDocument() document: DocumentDetail): Envelope<DocumentMarkdownResponse> {
+    return successEnvelope(this.markdown.execute(document));
+  }
+
+  // The original file: streamed for a library document, a signed URL for a derived one
+  // (docs/09 §9.1–9.2).
+  @Get(':id/source')
+  @UseGuards(DocumentAccessGuard)
+  async getSource(
+    @CurrentDocument() document: DocumentDetail,
+    @Res() res: Response,
+  ): Promise<void> {
+    send(res, await this.download.execute(document), 'attachment');
+  }
+
+  @Get(':id/preview')
+  @UseGuards(DocumentAccessGuard)
+  getPreview(@CurrentDocument() document: DocumentDetail, @Res() res: Response): Promise<void> {
+    return this.sendArtifact(document, 'preview', res);
+  }
+
+  @Get(':id/thumb')
+  @UseGuards(DocumentAccessGuard)
+  getThumb(@CurrentDocument() document: DocumentDetail, @Res() res: Response): Promise<void> {
+    return this.sendArtifact(document, 'thumb', res);
+  }
+
+  @Get(':id/canonical')
+  @UseGuards(DocumentAccessGuard)
+  getCanonical(@CurrentDocument() document: DocumentDetail, @Res() res: Response): Promise<void> {
+    return this.sendArtifact(document, 'canonical', res);
+  }
+
+  private async sendArtifact(
+    document: DocumentDetail,
+    kind: ArtifactKind,
+    res: Response,
+  ): Promise<void> {
+    // Viewed rather than saved: these are what an <img> or <embed> on the page points at.
+    send(res, await this.artifactUrl.execute(document, kind), 'inline');
+  }
+
   // Admin only: reprocessing costs OCR and provider calls, and it rewrites artifacts.
   @Post(':id/reprocess')
   @Roles('ADMIN')
@@ -89,4 +146,31 @@ export class DocumentsController {
   ): Promise<Envelope<ReprocessResponse>> {
     return successEnvelope(await this.reprocess.execute(id, body.steps));
   }
+}
+
+// A 302 to a signed URL, or the bytes themselves. The signed URL is short-lived and never published
+// as a permanent link (docs/08 §8.5), which is why the API redirects instead of returning it.
+function send(res: Response, download: Download, disposition: 'attachment' | 'inline'): void {
+  if (download.kind === 'redirect') {
+    res.redirect(302, download.url);
+    return;
+  }
+
+  res.setHeader('Content-Type', download.contentType);
+  res.setHeader('Content-Length', download.contentLength.toString());
+  res.setHeader('Content-Disposition', contentDisposition(disposition, download.fileName));
+  // 🔒 A library file is user content served from our own origin: nothing here may be sniffed into
+  // something the browser decides to execute.
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  // Backpressure comes from pipe (docs/09 §9.1); a read error after the headers are out can only be
+  // signalled by dropping the connection.
+  download.body.on('error', () => res.destroy());
+  download.body.pipe(res);
+}
+
+// RFC 5987: a plain ASCII fallback plus the real name, so a Cyrillic title survives the trip.
+function contentDisposition(kind: 'attachment' | 'inline', fileName: string): string {
+  const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }

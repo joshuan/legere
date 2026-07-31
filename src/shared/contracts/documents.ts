@@ -120,3 +120,6 @@ export const reprocessResponseSchema = z.object({
   steps: z.array(documentStepSchema),
 });
 export type ReprocessResponse = z.infer<typeof reprocessResponseSchema>;
+
+export const documentMarkdownResponseSchema = z.object({ markdown: z.string().nullable() });
+export type DocumentMarkdownResponse = z.infer<typeof documentMarkdownResponseSchema>;
