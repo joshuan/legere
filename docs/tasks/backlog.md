@@ -197,7 +197,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen), [`10 §10.5, §10.8`](../10-frontend-architecture.md)
   **Acceptance:** responsive card grid (thumb via `/thumb`, fallback icon, processing/unavailable badges); filter bar synced to URL; infinite scroll; 5 s polling while any visible doc is processing; empty states per spec; component tests for the card and filters.
 
-- [ ] **M5.6 — UI: document viewer**
+- [x] **M5.6 — UI: document viewer**
   **Goal:** read and manage a single document.
   **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsid), [`10 §10.8`](../10-frontend-architecture.md#108-media-in-the-ui)
   **Acceptance:** Preview/Text/Details tabs per spec (PDF `<object>`, sanitized markdown render, metadata incl. copyable hash and file locations with MISSING badges); sidebar: inline title edit, category select with auto tag, download (disabled tooltip when unavailable), add-to-collection stub until M7, processing panel with per-step states + admin Reprocess with step checkboxes.

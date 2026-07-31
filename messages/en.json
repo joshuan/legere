@@ -323,5 +323,45 @@
       "filtered": "Nothing matches these filters.",
       "addLibrary": "Add a library"
     }
+  },
+  "viewer": {
+    "saved": "Saved",
+    "category": "Category",
+    "auto": "auto",
+    "download": "Download",
+    "downloadUnavailable": "The file is missing from the library volume.",
+    "addToCollection": "Add to collection",
+    "collectionsSoon": "Collections are not available yet.",
+    "noPreview": "No preview for this document.",
+    "noText": "No text extracted yet",
+    "textFailed": "Extraction failed",
+    "tabs": {
+      "preview": "Preview",
+      "text": "Text",
+      "details": "Details"
+    },
+    "steps": {
+      "canonical": "Canonical PDF",
+      "preview": "Preview",
+      "markdown": "Text",
+      "categorization": "Categorization",
+      "vectorization": "Vectors"
+    },
+    "processing": {
+      "title": "Processing",
+      "queued": "Reprocessing queued",
+      "reprocessAll": "Reprocess everything",
+      "reprocessSelected": "Reprocess {count} steps"
+    },
+    "details": {
+      "size": "Size",
+      "pages": "Pages",
+      "mime": "Type",
+      "hash": "Content hash",
+      "created": "Added",
+      "ocr": "OCR used",
+      "locations": "File locations",
+      "noLocations": "This document has no files on any library you can see."
+    }
   }
 }
