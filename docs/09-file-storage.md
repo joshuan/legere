@@ -31,7 +31,8 @@ Two distinct storages with opposite rules:
 
 ## 9.2. S3 bucket
 
-- S3-compatible storage, AWS SDK v3 (`@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`), custom
+- S3-compatible storage, AWS SDK v3 (`@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`,
+  `@aws-sdk/lib-storage` for the multipart `Upload` helper below), custom
   `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE=true` for MinIO. The bucket is **private**; no public ACLs; no
   bucket policies granting anonymous read.
 - **Key layout (deterministic, no DB columns):**

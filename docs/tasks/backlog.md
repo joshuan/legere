@@ -140,7 +140,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 ## M4 — Processing pipeline
 
-- [ ] **M4.1 — `FileStorage` (S3) + `MimeDetector`**
+- [x] **M4.1 — `FileStorage` (S3) + `MimeDetector`**
   **Goal:** artifact storage works against MinIO/S3.
   **Docs:** [`09 §9.2–9.3`](../09-file-storage.md), [`06 §6.3.3`](../06-backend-architecture.md#633-application-ports-non-repository)
   **Acceptance:** put/getStream/getSignedUrl/exists/delete implemented (multipart >8 MiB); path-style for MinIO; `InMemoryFileStorage` for tests; integration suite against MinIO (skippable in CI); signed URL expires (assert TTL param); MimeDetector via magic bytes with extension fallback for text.

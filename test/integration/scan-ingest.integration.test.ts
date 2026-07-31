@@ -10,10 +10,10 @@ import { JobQueue } from '../../src/server/application/ports/job-queue';
 import { AuthInfrastructureModule } from '../../src/server/infrastructure/auth/auth-infrastructure.module';
 import { AppConfig, loadConfig } from '../../src/server/infrastructure/config/app-config';
 import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
-import { LibraryModule } from '../../src/server/infrastructure/library/library.module';
 import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
 import { PrismaService } from '../../src/server/infrastructure/persistence/prisma.service';
 import { PgBossProvider } from '../../src/server/infrastructure/queue/pg-boss.provider';
+import { StorageModule } from '../../src/server/infrastructure/storage/storage.module';
 import { QueueModule } from '../../src/server/infrastructure/queue/queue.module';
 import { JobsModule } from '../../src/server/presentation/jobs/jobs.module';
 import { disconnectTestPrisma, truncateAll } from '../helpers/db';
@@ -38,7 +38,7 @@ describe('Scan and ingest (integration)', () => {
         // Provides Clock, which the scan handler uses for run timing (global in AppModule).
         AuthInfrastructureModule,
         PersistenceModule,
-        LibraryModule,
+        StorageModule,
         QueueModule,
         JobsModule,
       ],

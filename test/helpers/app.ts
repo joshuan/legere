@@ -8,7 +8,9 @@ import request, { type Test as SupertestRequest } from 'supertest';
 import { wireServer } from '../../server/main';
 import { AppModule } from '../../src/server/app.module';
 import { EmailSender, type EmailMessage } from '../../src/server/application/ports/email-sender';
+import { FileStorage } from '../../src/server/application/ports/file-storage';
 import { PgBossProvider } from '../../src/server/infrastructure/queue/pg-boss.provider';
+import { InMemoryFileStorage } from '../../src/server/infrastructure/storage/in-memory-file-storage';
 
 // Captures outbound mail so e2e tests can read the verification code the same way a user reads it
 // from their inbox (docs/14 §14.8: EmailSender is mocked behind its port).
@@ -43,6 +45,7 @@ export type TestApp = {
   baseUrl: string;
   nestApp: INestApplication;
   emails: RecordingEmailSender;
+  files: InMemoryFileStorage;
   close: () => Promise<void>;
 };
 
@@ -57,10 +60,14 @@ export type TestAppOptions = {
 // stub in place of Next (no page rendering needed for API tests) and mail captured in memory.
 export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
   const emails = new RecordingEmailSender();
+  // No e2e test may reach a real bucket (docs/14 §14.8): artifacts stay in memory and readable.
+  const files = new InMemoryFileStorage();
   const throttle = options.throttle ?? { ttl: 60_000, limit: 100_000 };
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(EmailSender)
     .useValue(emails)
+    .overrideProvider(FileStorage)
+    .useValue(files)
     .overrideProvider(getOptionsToken())
     .useValue([{ name: 'auth', ...throttle }])
     .compile();
@@ -93,6 +100,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     baseUrl,
     nestApp,
     emails,
+    files,
     close: async () => {
       await new Promise<void>((resolve, reject) => {
         http.close((error) => (error === undefined ? resolve() : reject(error)));
