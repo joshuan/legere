@@ -1,4 +1,9 @@
-import type { CategorySource, DocumentSource, StepStatus } from '../../../shared/contracts/enums';
+import type {
+  CategorySource,
+  DocumentSource,
+  StepStatus,
+  UserRole,
+} from '../../../shared/contracts/enums';
 
 // Document entity (docs/03 §3.3.10): the deduplicated logical unit of content. Pipeline step statuses
 // live on the row so progress is visible in the admin panel (docs/05 §5.5).
@@ -59,4 +64,18 @@ export function pendingSteps(): DocumentSteps {
     categorization: 'PENDING',
     vectorization: 'PENDING',
   };
+}
+
+// Who may change a document's title or category (docs/03 §3.4). Read access is decided by the
+// repository query; this is the extra rule on top of it.
+export function canEditDocumentMeta(
+  user: { id: string; role: UserRole },
+  document: Pick<Document, 'source' | 'createdById'>,
+): boolean {
+  if (user.role === 'ADMIN') return true;
+  // Library documents are shared property: anyone who can read one can correct its title or
+  // category — the alternative is a library nobody may tidy up.
+  if (document.source === 'LIBRARY') return true;
+  // A derived document is its creator's; a share grants reading, not editing (docs/08 §8.5).
+  return document.createdById === user.id;
 }

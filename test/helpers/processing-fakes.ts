@@ -8,6 +8,8 @@ import {
   type CreateDocumentInput,
   type DocumentUpsert,
   type ProcessingUpdate,
+  type DocumentDetail,
+  type DocumentPage,
   type StepStatusCounters,
 } from '../../src/server/domain/repositories/document.repository';
 import {
@@ -141,6 +143,18 @@ export class InMemoryDocumentRepository extends DocumentRepository {
 
   countByStepStatus(): Promise<StepStatusCounters> {
     return unused('countByStepStatus');
+  }
+  listReadable(): Promise<DocumentPage> {
+    return unused('listReadable');
+  }
+  findReadableById(): Promise<DocumentDetail | null> {
+    return unused('findReadableById');
+  }
+  updateMeta(): Promise<Document> {
+    return unused('updateMeta');
+  }
+  softDelete(): Promise<void> {
+    return unused('softDelete');
   }
 }
 

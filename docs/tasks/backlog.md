@@ -172,7 +172,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 ## M5 — Documents UX
 
-- [ ] **M5.1 — Documents API + access guards**
+- [x] **M5.1 — Documents API + access guards**
   **Goal:** the read model of the product, correctly authorized.
   **Docs:** [`07`](../07-api-specification.md) (documents), [`03 §3.4`](../03-domain-model.md#34-access-model-authoritative-summary), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model)
   **Acceptance (e2e):** list with all filters + cursor pagination, only readable docs (RESTRICTED library invisible to outsiders — 404 on detail too); availability computed per 03 §3.3.10; detail exposes fileRefs only from caller-visible libraries (admin sees all); PATCH meta per canEditDocumentMeta incl. `categorySource` transitions; admin soft delete → 404 everywhere; `DocumentAccessGuard` attaches the loaded doc (no double fetch).
