@@ -187,7 +187,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`07`](../07-api-specification.md) (browse), [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browselibraryidpath)
   **Acceptance (e2e):** folders derived from FileRef paths with document counts; nested paths of arbitrary depth; documents of the exact folder paginated; path validated (no traversal); RESTRICTED enforcement.
 
-- [ ] **M5.4 — Categories: API + admin UI**
+- [x] **M5.4 — Categories: API + admin UI**
   **Goal:** the reference list is manageable.
   **Docs:** [`07`](../07-api-specification.md) (categories), [`03 §3.3.12`](../03-domain-model.md#3312-category), [`11 §11.12`](../11-ui-ux-spec.md#1112-admin-categories-admincategories)
   **Acceptance:** CRUD with slug immutability + `CATEGORY_SLUG_TAKEN`; delete resets documents to NONE in one transaction (e2e); admin table UI with counts and confirms.

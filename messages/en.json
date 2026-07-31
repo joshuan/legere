@@ -5,7 +5,9 @@
       "cancel": "Cancel",
       "close": "Close",
       "retry": "Try again",
-      "save": "Save"
+      "save": "Save",
+      "edit": "Edit",
+      "delete": "Delete"
     },
     "loading": "Loading…",
     "yes": "Yes",
@@ -269,6 +271,34 @@
         "payload": "Payload",
         "retries": "Retries",
         "actions": "Actions"
+      }
+    },
+    "categories": {
+      "title": "Categories",
+      "empty": "No categories yet",
+      "createTitle": "New category",
+      "editTitle": "Edit category",
+      "deleted": "Category deleted",
+      "confirmDelete": "Delete “{name}”? {count} documents will lose this category.",
+      "actions": {
+        "create": "New category"
+      },
+      "columns": {
+        "slug": "Slug",
+        "name": "Name",
+        "description": "Description",
+        "documents": "Documents",
+        "actions": "Actions"
+      },
+      "fields": {
+        "slug": "Slug",
+        "slugRequired": "Enter a slug",
+        "slugFormat": "Use lower-case words separated by single hyphens",
+        "slugImmutable": "The slug cannot be changed: the classifier and saved filters refer to it.",
+        "name": "Name",
+        "nameRequired": "Enter a name",
+        "description": "Description",
+        "descriptionHint": "Shown to the classifier as guidance, and to admins here."
       }
     }
   }

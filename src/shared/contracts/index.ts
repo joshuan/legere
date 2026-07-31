@@ -8,3 +8,4 @@ export * from './users';
 export * from './libraries';
 export * from './documents';
 export * from './queue';
+export * from './categories';

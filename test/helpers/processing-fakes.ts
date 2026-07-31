@@ -52,6 +52,7 @@ import {
 import {
   CategoryRepository,
   type Category,
+  type CategoryWithCount,
 } from '../../src/server/domain/repositories/category.repository';
 import {
   DocumentChunkRepository,
@@ -423,6 +424,28 @@ export class InMemoryCategoryRepository extends CategoryRepository {
 
   listActive(): Promise<Category[]> {
     return Promise.resolve(this.categories.filter((category) => category.deletedAt === null));
+  }
+
+  listActiveWithCounts(): Promise<CategoryWithCount[]> {
+    return unused('listActiveWithCounts');
+  }
+  findById(id: string): Promise<Category | null> {
+    return Promise.resolve(this.categories.find((category) => category.id === id) ?? null);
+  }
+  findActiveBySlug(slug: string): Promise<Category | null> {
+    return Promise.resolve(this.categories.find((category) => category.slug === slug) ?? null);
+  }
+  create(): Promise<Category> {
+    return unused('create');
+  }
+  update(): Promise<Category> {
+    return unused('update');
+  }
+  softDelete(): Promise<void> {
+    return unused('softDelete');
+  }
+  clearCategoryFromDocuments(): Promise<number> {
+    return unused('clearCategoryFromDocuments');
   }
 }
 
