@@ -4,6 +4,8 @@ import { HandleFileIngest } from '../../application/jobs/handle-file-ingest';
 import { HandleLibraryScan } from '../../application/jobs/handle-library-scan';
 import type { ProcessingSettings } from '../../application/jobs/processing-settings';
 import { Clock } from '../../application/ports/clock';
+import { DocumentClassifier } from '../../application/ports/document-classifier';
+import { EmbeddingProvider } from '../../application/ports/embedding-provider';
 import { FileStorage } from '../../application/ports/file-storage';
 import { ImageTool } from '../../application/ports/image-tool';
 import { JobQueue } from '../../application/ports/job-queue';
@@ -12,6 +14,8 @@ import { MimeDetector } from '../../application/ports/mime-detector';
 import { PdfToolbox } from '../../application/ports/pdf-toolbox';
 import { TextExtractor } from '../../application/ports/text-extractor';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
+import { CategoryRepository } from '../../domain/repositories/category.repository';
+import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
@@ -31,6 +35,8 @@ function processingSettings(config: AppConfig): ProcessingSettings {
       .map((language) => language.trim())
       .filter((language) => language !== ''),
     pdfTextMinCharsPerPage: config.get('PDF_TEXT_MIN_CHARS_PER_PAGE'),
+    chunkTargetChars: config.get('CHUNK_TARGET_CHARS'),
+    chunkOverlapChars: config.get('CHUNK_OVERLAP_CHARS'),
   };
 }
 
@@ -92,6 +98,11 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         pdfs: PdfToolbox,
         images: ImageTool,
         text: TextExtractor,
+        categories: CategoryRepository,
+        classifier: DocumentClassifier,
+        chunks: DocumentChunkRepository,
+        embeddings: EmbeddingProvider,
+        unitOfWork: UnitOfWork,
         config: AppConfig,
       ): HandleDocumentProcess =>
         new HandleDocumentProcess(
@@ -103,6 +114,11 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           pdfs,
           images,
           text,
+          categories,
+          classifier,
+          chunks,
+          embeddings,
+          unitOfWork,
           processingSettings(config),
         ),
       inject: [
@@ -114,6 +130,11 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         PdfToolbox,
         ImageTool,
         TextExtractor,
+        CategoryRepository,
+        DocumentClassifier,
+        DocumentChunkRepository,
+        EmbeddingProvider,
+        UnitOfWork,
         AppConfig,
       ],
     },

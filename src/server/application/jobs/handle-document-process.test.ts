@@ -3,9 +3,14 @@ import {
   DOCUMENT_ID,
   documentFixture,
   LIBRARY_ID,
+  FakeClassifier,
+  FakeEmbeddingProvider,
   FakeImageTool,
   FakePdfToolbox,
   FakeTextExtractor,
+  ImmediateUnitOfWork,
+  InMemoryCategoryRepository,
+  InMemoryDocumentChunkRepository,
   InMemoryDocumentRepository,
   InMemoryFileRefRepository,
   InMemoryLibraryRepository,
@@ -38,6 +43,10 @@ describe('HandleDocumentProcess', () => {
   let pdfs: FakePdfToolbox;
   let images: FakeImageTool;
   let text: FakeTextExtractor;
+  let categories: InMemoryCategoryRepository;
+  let classifier: FakeClassifier;
+  let chunks: InMemoryDocumentChunkRepository;
+  let embeddings: FakeEmbeddingProvider;
   let handler: HandleDocumentProcess;
 
   beforeEach(() => {
@@ -53,6 +62,13 @@ describe('HandleDocumentProcess', () => {
     // What OCR produces, so an OCR'd document reads differently from one with a text layer.
     text.byContent.set('ocr-pdf', ['Recognized text from the scan']);
 
+    categories = new InMemoryCategoryRepository();
+    categories.add('invoice', 'Bills and payment requests.');
+    categories.add('contract');
+    classifier = new FakeClassifier();
+    chunks = new InMemoryDocumentChunkRepository();
+    embeddings = new FakeEmbeddingProvider();
+
     libraries.add(libraryFixture());
     reader.put(SOURCE_PATH, 'source-bytes');
 
@@ -65,11 +81,18 @@ describe('HandleDocumentProcess', () => {
       pdfs,
       images,
       text,
+      categories,
+      classifier,
+      chunks,
+      embeddings,
+      new ImmediateUnitOfWork(),
       {
         previewMaxDim: PREVIEW_MAX_DIM,
         thumbMaxDim: THUMB_MAX_DIM,
         ocrLanguages: ['rus', 'eng'],
         pdfTextMinCharsPerPage: MIN_CHARS_PER_PAGE,
+        chunkTargetChars: 200,
+        chunkOverlapChars: 40,
       },
     );
   });
@@ -175,8 +198,10 @@ describe('HandleDocumentProcess', () => {
         markdown: 'SKIPPED',
         vectorization: 'SKIPPED',
       });
-      // A title is still something to classify, so step 4 is left alone.
-      expect(document.steps.categorization).toBe('PENDING');
+      // A title is still something to classify, and 🔒 no step may be left PENDING — the document
+      // would read as "still processing" for the rest of its life (docs/03 §3.3.10).
+      expect(document.steps.categorization).toBe('DONE');
+      expect(classifier.calls[0]?.excerpt).toBe('Invoice 2026-01');
       expect(pdfs.calls).toEqual([]);
       expect(files.keys()).toEqual([]);
     });
@@ -330,6 +355,188 @@ describe('HandleDocumentProcess', () => {
       expect(document.steps.markdown).toBe('FAILED');
       // Still the conversion error, not a second report of its consequence.
       expect(document.failedStep).toBe('canonical');
+    });
+  });
+
+  describe('categorization (docs/05 §5.5 step 4)', () => {
+    it('assigns the category the classifier chose, marked as automatic', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'March invoice' });
+      reader.put(SOURCE_PATH, 'Amount due: 1200. Payable within 30 days.');
+      classifier.answer = 'invoice';
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.categorization).toBe('DONE');
+      expect(document.categoryId).toBe('category-1');
+      expect(document.categorySource).toBe('AUTO');
+    });
+
+    it('offers the classifier the slugs and the descriptions an admin wrote', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'March invoice' });
+      reader.put(SOURCE_PATH, 'Amount due: 1200.');
+
+      await run();
+
+      const call = classifier.calls[0];
+      expect(call?.categories).toEqual([
+        { slug: 'invoice', name: 'invoice', description: 'Bills and payment requests.' },
+        { slug: 'contract', name: 'contract', description: null },
+      ]);
+      // Title first, then the extracted text — the title is there even when the text is not.
+      expect(call?.excerpt).toBe('March invoice\n\nAmount due: 1200.');
+    });
+
+    it('records no category when the model answers with a slug nobody defined', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      // 🔒 A hallucinated category must not become a real one (docs/05 §5.5 step 4).
+      classifier.answer = 'tax-return-2019';
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.categorization).toBe('DONE');
+      expect(document.categoryId).toBeNull();
+      expect(document.categorySource).toBe('NONE');
+    });
+
+    it('never overwrites a category a person chose', async () => {
+      givenDocument({
+        mimeType: 'text/plain',
+        ext: 'txt',
+        categoryId: 'category-2',
+        categorySource: 'MANUAL',
+      });
+      classifier.answer = 'invoice';
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.categorization).toBe('SKIPPED');
+      expect(document.categoryId).toBe('category-2');
+      expect(document.categorySource).toBe('MANUAL');
+      expect(classifier.calls).toEqual([]);
+    });
+
+    it('skips itself when no classifier is configured', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      classifier.configured = false;
+
+      await run();
+
+      expect(stateOf().steps.categorization).toBe('SKIPPED');
+      expect(stateOf().processingError).toBeNull();
+    });
+
+    it('skips itself when the category list is empty', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      categories.categories.length = 0;
+
+      await run();
+
+      expect(stateOf().steps.categorization).toBe('SKIPPED');
+      expect(classifier.calls).toEqual([]);
+    });
+
+    it('records a provider failure as a step failure, leaving the rest of the run intact', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      classifier.failing = true;
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.categorization).toBe('FAILED');
+      expect(document.failedStep).toBe('categorization');
+      expect(document.processingError).toContain('503');
+      // The document is still readable and still gets its vectors.
+      expect(document.steps.markdown).toBe('DONE');
+      expect(document.steps.vectorization).toBe('DONE');
+    });
+  });
+
+  describe('vectorization (docs/05 §5.5 step 5)', () => {
+    it('chunks the Markdown, embeds it, and stores the vectors', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      reader.put(SOURCE_PATH, '# Contract\n\nThe parties agree.\n\nPayment is monthly.');
+
+      await run();
+
+      expect(stateOf().steps.vectorization).toBe('DONE');
+      const stored = chunks.chunksOf(DOCUMENT_ID);
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toMatchObject({ index: 0, charCount: stored[0]?.content.length });
+      expect(stored[0]?.embedding).toHaveLength(3);
+      expect(embeddings.batches[0]).toEqual([stored[0]?.content]);
+    });
+
+    it('replaces the whole set on a re-run rather than adding to it', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      reader.put(SOURCE_PATH, 'First body.');
+      await run();
+
+      reader.put(SOURCE_PATH, 'A different body entirely.');
+      await run();
+
+      expect(chunks.chunksOf(DOCUMENT_ID).map((chunk) => chunk.content)).toEqual([
+        'A different body entirely.',
+      ]);
+      // 🔒 Two runs, two wholesale replacements — never a merge of the two (docs/03 §3.3.11).
+      expect(chunks.replacements).toBe(2);
+    });
+
+    it('skips itself when no provider is configured, and touches no vectors', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      embeddings.configured = false;
+
+      await run();
+
+      expect(stateOf().steps.vectorization).toBe('SKIPPED');
+      expect(stateOf().processingError).toBeNull();
+      expect(chunks.replacements).toBe(0);
+    });
+
+    it('drops the vectors of a document that no longer has any text', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      reader.put(SOURCE_PATH, 'Something to embed.');
+      await run();
+      expect(chunks.chunksOf(DOCUMENT_ID)).toHaveLength(1);
+
+      reader.put(SOURCE_PATH, '');
+      await run();
+
+      // Otherwise search would keep returning the document by text it no longer has.
+      expect(stateOf().steps.vectorization).toBe('SKIPPED');
+      expect(chunks.chunksOf(DOCUMENT_ID)).toEqual([]);
+    });
+
+    it('records a provider failure as a step failure and writes nothing', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      reader.put(SOURCE_PATH, 'Body to embed.');
+      embeddings.failing = true;
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.vectorization).toBe('FAILED');
+      expect(document.failedStep).toBe('vectorization');
+      expect(document.processingError).toContain('500');
+      expect(chunks.chunksOf(DOCUMENT_ID)).toEqual([]);
+    });
+
+    it('splits a long body into several chunks, numbered in order', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      const paragraph = (label: string): string => `${label}. ${'word '.repeat(30).trim()}.`;
+      reader.put(
+        SOURCE_PATH,
+        [paragraph('One'), paragraph('Two'), paragraph('Three')].join('\n\n'),
+      );
+
+      await run();
+
+      const stored = chunks.chunksOf(DOCUMENT_ID);
+      expect(stored.length).toBeGreaterThan(1);
+      expect(stored.map((chunk) => chunk.index)).toEqual(stored.map((_, index) => index));
+      expect(embeddings.batches[0]).toHaveLength(stored.length);
     });
   });
 

@@ -14,6 +14,7 @@ import { ScanRunRepository } from '../../src/server/domain/repositories/scan-run
 import { AuthInfrastructureModule } from '../../src/server/infrastructure/auth/auth-infrastructure.module';
 import { AppConfig, loadConfig } from '../../src/server/infrastructure/config/app-config';
 import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
+import { AiModule } from '../../src/server/infrastructure/ai/ai.module';
 import { PdfModule } from '../../src/server/infrastructure/pdf/pdf.module';
 import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
 import { PrismaService } from '../../src/server/infrastructure/persistence/prisma.service';
@@ -46,6 +47,7 @@ describe('Scan and ingest (integration)', () => {
         PersistenceModule,
         StorageModule,
         PdfModule,
+        AiModule,
         QueueModule,
         JobsModule,
       ],

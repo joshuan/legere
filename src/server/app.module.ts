@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
+import { AiModule } from './infrastructure/ai/ai.module';
 import { AuthInfrastructureModule } from './infrastructure/auth/auth-infrastructure.module';
 import { AppConfig } from './infrastructure/config/app-config';
 import { ConfigModule } from './infrastructure/config/config.module';
@@ -32,6 +33,7 @@ import { UsersModule } from './presentation/users/users.module';
     AuthInfrastructureModule,
     StorageModule,
     PdfModule,
+    AiModule,
     QueueModule,
     AuthModule,
     UsersModule,

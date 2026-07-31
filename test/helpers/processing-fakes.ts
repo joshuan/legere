@@ -36,6 +36,23 @@ import {
   type NamedBinary,
 } from '../../src/server/application/ports/pdf-toolbox';
 import { TextExtractor } from '../../src/server/application/ports/text-extractor';
+import {
+  DocumentClassifier,
+  type CategoryOption,
+} from '../../src/server/application/ports/document-classifier';
+import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
+import {
+  UnitOfWork,
+  type TransactionHandle,
+} from '../../src/server/application/ports/unit-of-work';
+import {
+  CategoryRepository,
+  type Category,
+} from '../../src/server/domain/repositories/category.repository';
+import {
+  DocumentChunkRepository,
+  type NewDocumentChunk,
+} from '../../src/server/domain/repositories/document-chunk.repository';
 
 // In-memory doubles for the processing pipeline (docs/14 §14.8). The repositories keep only the
 // behaviour the pipeline depends on; anything a handler never calls throws instead of pretending.
@@ -102,6 +119,8 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       ...(update.ocrUsed === undefined ? {} : { ocrUsed: update.ocrUsed }),
       ...(update.processingError === undefined ? {} : { processingError: update.processingError }),
       ...(update.failedStep === undefined ? {} : { failedStep: update.failedStep }),
+      ...(update.categoryId === undefined ? {} : { categoryId: update.categoryId }),
+      ...(update.categorySource === undefined ? {} : { categorySource: update.categorySource }),
     };
     this.documents.set(id, updated);
     return Promise.resolve(updated);
@@ -356,5 +375,97 @@ export class FakeTextExtractor extends TextExtractor {
     this.reads.push(content);
     if (this.failing) throw new Error('pdfjs: invalid PDF structure');
     return this.byContent.get(content) ?? this.defaultPages;
+  }
+}
+
+// The categories the classifier is offered (docs/03 §3.3.12).
+export class InMemoryCategoryRepository extends CategoryRepository {
+  readonly categories: Category[] = [];
+
+  add(slug: string, description: string | null = null): Category {
+    const category: Category = {
+      id: `category-${this.categories.length + 1}`,
+      slug,
+      name: slug,
+      description,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      deletedAt: null,
+    };
+    this.categories.push(category);
+    return category;
+  }
+
+  listActive(): Promise<Category[]> {
+    return Promise.resolve(this.categories.filter((category) => category.deletedAt === null));
+  }
+}
+
+export class InMemoryDocumentChunkRepository extends DocumentChunkRepository {
+  readonly byDocument = new Map<string, NewDocumentChunk[]>();
+  // How many times a document's set was replaced, so a test can tell one wholesale write from two.
+  replacements = 0;
+
+  replaceForDocument(documentId: string, chunks: readonly NewDocumentChunk[]): Promise<void> {
+    this.replacements += 1;
+    this.byDocument.set(documentId, [...chunks]);
+    return Promise.resolve();
+  }
+
+  countForDocument(documentId: string): Promise<number> {
+    return Promise.resolve((this.byDocument.get(documentId) ?? []).length);
+  }
+
+  chunksOf(documentId: string): NewDocumentChunk[] {
+    return this.byDocument.get(documentId) ?? [];
+  }
+}
+
+// Runs the body without a real transaction; the handle is never inspected by the fakes.
+export class ImmediateUnitOfWork extends UnitOfWork {
+  run<T>(fn: (tx: TransactionHandle) => Promise<T>): Promise<T> {
+    return fn({});
+  }
+}
+
+export class FakeClassifier extends DocumentClassifier {
+  configured = true;
+  answer: string | null = null;
+  failing = false;
+  readonly calls: Array<{ excerpt: string; categories: readonly CategoryOption[] }> = [];
+
+  get isConfigured(): boolean {
+    return this.configured;
+  }
+
+  classify(excerpt: string, categories: readonly CategoryOption[]): Promise<string | null> {
+    this.calls.push({ excerpt, categories });
+    if (this.failing) return Promise.reject(new Error('Classifier request failed with 503'));
+    return Promise.resolve(this.answer);
+  }
+}
+
+export class FakeEmbeddingProvider extends EmbeddingProvider {
+  configured = true;
+  failing = false;
+  // Vectors are padded to this width; the real column is vector(1536), so anything writing to a
+  // database has to say so (docs/04 §4.3).
+  dimensions = 3;
+  readonly batches: string[][] = [];
+
+  get isConfigured(): boolean {
+    return this.configured;
+  }
+
+  embed(texts: readonly string[]): Promise<number[][]> {
+    this.batches.push([...texts]);
+    if (this.failing) return Promise.reject(new Error('Embeddings request failed with 500'));
+    // Distinguishable per chunk: position and length, then zeros.
+    return Promise.resolve(
+      texts.map((text, index) =>
+        Array.from({ length: this.dimensions }, (_, position) =>
+          position === 0 ? index : position === 1 ? text.length : 0,
+        ),
+      ),
+    );
   }
 }

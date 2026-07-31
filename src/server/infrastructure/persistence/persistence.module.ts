@@ -1,5 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
+import { CategoryRepository } from '../../domain/repositories/category.repository';
+import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
@@ -9,6 +11,8 @@ import { ScanRunRepository } from '../../domain/repositories/scan-run.repository
 import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
 import { UserRepository } from '../../domain/repositories/user.repository';
+import { PrismaCategoryRepository } from './prisma-category.repository';
+import { PrismaDocumentChunkRepository } from './prisma-document-chunk.repository';
 import { PrismaDocumentRepository } from './prisma-document.repository';
 import { PrismaEmailVerificationRepository } from './prisma-email-verification.repository';
 import { PrismaFileRefRepository } from './prisma-file-ref.repository';
@@ -34,6 +38,8 @@ const REPOSITORIES = [
   { provide: ScanRunRepository, useClass: PrismaScanRunRepository },
   { provide: FileRefRepository, useClass: PrismaFileRefRepository },
   { provide: DocumentRepository, useClass: PrismaDocumentRepository },
+  { provide: DocumentChunkRepository, useClass: PrismaDocumentChunkRepository },
+  { provide: CategoryRepository, useClass: PrismaCategoryRepository },
 ];
 
 @Global()
@@ -51,6 +57,8 @@ const REPOSITORIES = [
     ScanRunRepository,
     FileRefRepository,
     DocumentRepository,
+    DocumentChunkRepository,
+    CategoryRepository,
   ],
 })
 export class PersistenceModule {}

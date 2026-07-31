@@ -82,6 +82,8 @@ export class PrismaDocumentRepository implements DocumentRepository {
           ? {}
           : { processingError: truncate(update.processingError) }),
         ...(update.failedStep === undefined ? {} : { failedStep: update.failedStep }),
+        ...(update.categoryId === undefined ? {} : { categoryId: update.categoryId }),
+        ...(update.categorySource === undefined ? {} : { categorySource: update.categorySource }),
       },
     });
     return toDomain(row);

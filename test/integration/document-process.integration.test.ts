@@ -2,15 +2,20 @@ import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { HandleDocumentProcess } from '../../src/server/application/jobs/handle-document-process';
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
+import { CategoryRepository } from '../../src/server/domain/repositories/category.repository';
+import { DocumentChunkRepository } from '../../src/server/domain/repositories/document-chunk.repository';
 import { DocumentRepository } from '../../src/server/domain/repositories/document.repository';
 import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../src/server/domain/repositories/library.repository';
+import { UnitOfWork } from '../../src/server/application/ports/unit-of-work';
 import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
 import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
 import { PrismaService } from '../../src/server/infrastructure/persistence/prisma.service';
 import { InMemoryFileStorage } from '../../src/server/infrastructure/storage/in-memory-file-storage';
 import { disconnectTestPrisma, truncateAll } from '../helpers/db';
 import {
+  FakeClassifier,
+  FakeEmbeddingProvider,
   FakeImageTool,
   FakePdfToolbox,
   FakeTextExtractor,
@@ -28,6 +33,8 @@ describe('Document processing (integration)', () => {
   let files: InMemoryFileStorage;
   let pdfs: FakePdfToolbox;
   let text: FakeTextExtractor;
+  let classifier: FakeClassifier;
+  let embeddings: FakeEmbeddingProvider;
   let reader: StubLibraryReader;
   let close: () => Promise<void>;
 
@@ -43,6 +50,11 @@ describe('Document processing (integration)', () => {
     pdfs = new FakePdfToolbox();
     text = new FakeTextExtractor();
     text.defaultPages = ['Invoice 2026-01 for consulting services, payable within thirty days'];
+    classifier = new FakeClassifier();
+    embeddings = new FakeEmbeddingProvider();
+    // The column is vector(1536) (docs/04 §4.3); a provider of another width is a configuration
+    // error, which is what the unit suite covers.
+    embeddings.dimensions = 1536;
     reader = new StubLibraryReader();
     reader.put(SOURCE_PATH, 'source-bytes');
 
@@ -55,11 +67,18 @@ describe('Document processing (integration)', () => {
       pdfs,
       new FakeImageTool(),
       text,
+      moduleRef.get(CategoryRepository),
+      classifier,
+      moduleRef.get(DocumentChunkRepository),
+      embeddings,
+      moduleRef.get(UnitOfWork),
       {
         previewMaxDim: 1600,
         thumbMaxDim: 400,
         ocrLanguages: ['eng'],
         pdfTextMinCharsPerPage: 32,
+        chunkTargetChars: 200,
+        chunkOverlapChars: 40,
       },
     );
 
@@ -74,6 +93,11 @@ describe('Document processing (integration)', () => {
     pdfs.failureDetail = '';
     text.failing = false;
     text.reads.length = 0;
+    classifier.answer = null;
+    classifier.configured = true;
+    classifier.failing = false;
+    embeddings.configured = true;
+    embeddings.failing = false;
   });
 
   afterAll(async () => {
@@ -191,7 +215,97 @@ describe('Document processing (integration)', () => {
     expect(row.markdown).toBe('Счёт за январь — 1 200 ₽');
   });
 
+  it('writes chunks with their vectors into pgvector, replacing them wholesale on a re-run', async () => {
+    const documentId = await givenLibraryDocument('text/plain');
+    reader.put(SOURCE_PATH, 'The first body of this document, long enough to be worth embedding.');
+
+    await handler.handle({ documentId });
+
+    const first = await prisma.$queryRawUnsafe<{ index: number; content: string; dims: number }[]>(
+      `SELECT index, content, vector_dims(embedding) AS dims
+       FROM document_chunks WHERE document_id = $1::uuid ORDER BY index`,
+      documentId,
+    );
+    expect(first).toHaveLength(1);
+    expect(first[0]?.content).toContain('first body');
+    expect(Number(first[0]?.dims)).toBe(1536);
+    expect(
+      (await prisma.document.findUniqueOrThrow({ where: { id: documentId } })).vectorizationStatus,
+    ).toBe('DONE');
+
+    // A re-run with different text replaces the set rather than adding to it (docs/03 §3.3.11).
+    reader.put(SOURCE_PATH, 'A completely different body.\n\nWith a second paragraph in it.');
+    await handler.handle({ documentId });
+
+    const second = await prisma.$queryRawUnsafe<{ content: string }[]>(
+      `SELECT content FROM document_chunks WHERE document_id = $1::uuid ORDER BY index`,
+      documentId,
+    );
+    expect(second).toHaveLength(1);
+    expect(second[0]?.content).toContain('completely different');
+  });
+
+  it('finds a chunk by cosine distance, which is what semantic search will do', async () => {
+    const documentId = await givenLibraryDocument('text/plain');
+    reader.put(SOURCE_PATH, 'Searchable body text.');
+
+    await handler.handle({ documentId });
+
+    // The same query the search use case will run (docs/04 §4.5): nearest neighbours by cosine.
+    const query = `[${Array.from({ length: 1536 }, (_, index) => (index === 1 ? 21 : 0)).join(',')}]`;
+    const nearest = await prisma.$queryRawUnsafe<{ document_id: string; distance: number }[]>(
+      `SELECT document_id, embedding <=> $1::vector AS distance
+       FROM document_chunks ORDER BY embedding <=> $1::vector LIMIT 1`,
+      query,
+    );
+    expect(nearest[0]?.document_id).toBe(documentId);
+  });
+
+  it('assigns the category the classifier chose, and never overwrites a manual one', async () => {
+    const category = await prisma.category.create({
+      data: { slug: 'invoice', name: 'Invoice', description: 'Bills and payment requests.' },
+    });
+    const documentId = await givenLibraryDocument('text/plain');
+    reader.put(SOURCE_PATH, 'Amount due: 1200.');
+    classifier.answer = 'invoice';
+
+    await handler.handle({ documentId });
+
+    const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    expect(row.categoryId).toBe(category.id);
+    expect(row.categorySource).toBe('AUTO');
+    expect(row.categorizationStatus).toBe('DONE');
+
+    // A person moves it elsewhere; the next run must leave that alone.
+    await prisma.document.update({
+      where: { id: documentId },
+      data: { categoryId: null, categorySource: 'MANUAL' },
+    });
+    await handler.handle({ documentId });
+
+    const after = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    expect(after.categorySource).toBe('MANUAL');
+    expect(after.categoryId).toBeNull();
+    expect(after.categorizationStatus).toBe('SKIPPED');
+  });
+
+  it('skips both AI steps, without error, when no provider is configured', async () => {
+    const documentId = await givenLibraryDocument('text/plain');
+    reader.put(SOURCE_PATH, 'Body text.');
+    classifier.configured = false;
+    embeddings.configured = false;
+
+    await handler.handle({ documentId });
+
+    const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    expect(row.categorizationStatus).toBe('SKIPPED');
+    expect(row.vectorizationStatus).toBe('SKIPPED');
+    expect(row.processingError).toBeNull();
+    expect(await prisma.documentChunk.count({ where: { documentId } })).toBe(0);
+  });
+
   it('leaves an unsupported format settled without any artifact', async () => {
+    await prisma.category.create({ data: { slug: 'other', name: 'Other' } });
     const documentId = await givenLibraryDocument('application/x-executable');
 
     await handler.handle({ documentId });
@@ -201,7 +315,8 @@ describe('Document processing (integration)', () => {
     expect(row.previewStatus).toBe('SKIPPED');
     expect(row.markdownStatus).toBe('SKIPPED');
     expect(row.vectorizationStatus).toBe('SKIPPED');
-    expect(row.categorizationStatus).toBe('PENDING');
+    // Nothing is left PENDING: the document is finished, not forever in progress.
+    expect(row.categorizationStatus).toBe('DONE');
     expect(files.keys()).toEqual([]);
   });
 });

@@ -7,4 +7,7 @@ export type ProcessingSettings = {
   ocrLanguages: readonly string[];
   // Below this many characters per page, a PDF's text layer is not worth trusting (docs/05 §5.9).
   pdfTextMinCharsPerPage: number;
+  // Chunking for embedding: the size to aim for and how much of each chunk repeats in the next.
+  chunkTargetChars: number;
+  chunkOverlapChars: number;
 };

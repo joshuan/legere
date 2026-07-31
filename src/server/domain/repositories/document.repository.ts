@@ -1,4 +1,4 @@
-import type { DocumentSource } from '../../../shared/contracts/enums';
+import type { CategorySource, DocumentSource } from '../../../shared/contracts/enums';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Document, DocumentSteps } from '../entities/document';
 
@@ -29,6 +29,8 @@ export type ProcessingUpdate = {
   ocrUsed?: boolean;
   processingError?: string | null;
   failedStep?: string | null;
+  categoryId?: string | null;
+  categorySource?: CategorySource;
 };
 
 export abstract class DocumentRepository {
