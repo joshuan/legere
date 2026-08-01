@@ -331,7 +331,6 @@
     "download": "Download",
     "downloadUnavailable": "The file is missing from the library volume.",
     "addToCollection": "Add to collection",
-    "collectionsSoon": "Collections are not available yet.",
     "noPreview": "No preview for this document.",
     "noText": "No text extracted yet",
     "textFailed": "Extraction failed",
@@ -362,7 +361,8 @@
       "ocr": "OCR used",
       "locations": "File locations",
       "noLocations": "This document has no files on any library you can see."
-    }
+    },
+    "addedToCollection": "Added to the collection"
   },
   "nav": {
     "documents": "Documents",
@@ -398,6 +398,35 @@
       "hybrid": "Hybrid",
       "text": "Text",
       "semantic": "Semantic"
+    }
+  },
+  "collections": {
+    "title": "Collections",
+    "mine": "My collections",
+    "sharedWithMe": "Shared with me",
+    "sharedByMe": "shared",
+    "emptyMine": "You have no collections yet.",
+    "emptyShared": "Nobody has shared a collection with you.",
+    "emptyItems": "This collection has nothing you can see.",
+    "itemCount": "{count} documents",
+    "ownedBy": "Owned by {name}",
+    "confirmRemove": "Remove “{title}” from this collection?",
+    "actions": {
+      "create": "New collection",
+      "share": "Share",
+      "remove": "Remove"
+    },
+    "fields": {
+      "name": "Name",
+      "nameRequired": "Enter a name",
+      "description": "Description"
+    },
+    "share": {
+      "title": "Share this collection",
+      "findPerson": "Find a person by name or email",
+      "everyone": "Everyone on this instance",
+      "nobody": "Not shared with anyone yet",
+      "revoke": "Revoke"
     }
   }
 }

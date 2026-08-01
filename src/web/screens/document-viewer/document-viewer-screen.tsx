@@ -30,6 +30,7 @@ import {
 } from '../../../shared/contracts/documents';
 import type { StepStatus } from '../../../shared/contracts/enums';
 import { categoryApi, categoryKeys } from '../../entities/category';
+import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
 import { useErrorMessage } from '../../shared/lib';
 
@@ -56,6 +57,7 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
   });
 
   const categories = useQuery({ queryKey: categoryKeys.all, queryFn: categoryApi.list });
+  const collections = useQuery({ queryKey: collectionKeys.all, queryFn: collectionApi.list });
 
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.detail(id) });
@@ -68,6 +70,15 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
     onSuccess: () => {
       void message.success(t('viewer.saved'), 2);
       refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
+  const addToCollection = useMutation({
+    mutationFn: (collectionId: string) => collectionApi.addItem(collectionId, id),
+    onSuccess: () => {
+      void message.success(t('viewer.addedToCollection'), 2);
+      void queryClient.invalidateQueries({ queryKey: collectionKeys.all });
     },
     onError: (error: unknown) => void message.error(describeError(error)),
   });
@@ -176,16 +187,21 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
                 </Button>
               </Tooltip>
 
-              {/* Collections arrive in M7; the slot is here so the sidebar does not move later. */}
-              <Tooltip title={t('viewer.collectionsSoon')}>
-                <Select
-                  disabled
-                  style={{ width: '100%' }}
-                  placeholder={t('viewer.addToCollection')}
-                  aria-label={t('viewer.addToCollection')}
-                  options={[]}
-                />
-              </Tooltip>
+              {/* Only the caller's own collections: adding to somebody else's is not a thing a
+                  reader may do (docs/03 §3.4). */}
+              <Select
+                showSearch
+                optionFilterProp="label"
+                style={{ width: '100%' }}
+                placeholder={t('viewer.addToCollection')}
+                aria-label={t('viewer.addToCollection')}
+                loading={collections.isPending}
+                value={null}
+                onChange={(collectionId: string) => addToCollection.mutate(collectionId)}
+                options={(collections.data?.items ?? [])
+                  .filter((collection) => collection.mine)
+                  .map((collection) => ({ value: collection.id, label: collection.name }))}
+              />
             </Space>
           </Card>
 
