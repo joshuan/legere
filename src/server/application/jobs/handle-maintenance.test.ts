@@ -57,7 +57,7 @@ describe('HandleMaintenance', () => {
     ] as const) {
       await verifications.replace({
         email,
-        purpose: 'REGISTER',
+        purpose: 'REGISTRATION',
         codeHash: 'code',
         expiresAt,
         inviteId: null,
@@ -158,6 +158,21 @@ describe('HandleMaintenance', () => {
       bytes: '1000',
       measuredAt: NOW.toISOString(),
     });
+  });
+
+  it('changes nothing when the same job is delivered twice', async () => {
+    await givenCredentials();
+    documents.add(documentFixture({ id: LIVE_DOCUMENT }));
+    await files.put(`documents/${LIVE_DOCUMENT}/preview.jpg`, Buffer.alloc(10), 'image/jpeg');
+    await files.put(`documents/${GONE_DOCUMENT}/preview.jpg`, Buffer.alloc(10), 'image/jpeg');
+
+    await handler.handle();
+    const afterFirst = { keys: files.keys(), usage: metrics.getStorageUsage() };
+    await handler.handle();
+
+    expect(files.keys()).toEqual(afterFirst.keys);
+    expect(metrics.getStorageUsage()).toEqual(afterFirst.usage);
+    expect(invites.invites.map((invite) => invite.id)).toEqual(['invite-fresh']);
   });
 
   it('reports an empty bucket rather than nothing at all', async () => {

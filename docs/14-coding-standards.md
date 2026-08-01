@@ -118,8 +118,13 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
 - API: unknown `/api/*` → JSON `NOT_FOUND` (not HTML); envelope shape on success and error; BigInt as
   string; soft-deleted → 404 everywhere.
 
+Each scenario above is mapped to the test that proves it in
+[`tasks/scenario-coverage.md`](./tasks/scenario-coverage.md); renaming or deleting one of those tests
+means updating that table in the same commit.
+
 **Coverage:** domain + application ≥ 90% lines (thresholds in `vitest.config` for those directories);
-no global vanity threshold. UI: unit for `shared/lib` + component tests for forms/wizards with msw.
+no global vanity threshold. `npm run test:coverage` enforces it, and CI runs that instead of
+`npm test`. UI: unit for `shared/lib` + component tests for forms/wizards with msw.
 
 ## 14.9. Definition of Done
 

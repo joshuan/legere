@@ -250,7 +250,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`05 §5.4`](../05-library-and-processing.md#54-job-queue-pg-boss), [`06 §6.3.2`](../06-backend-architecture.md#632-job-handlers), [`09 §9.5`](../09-file-storage.md#95-operational-notes)
   **Acceptance:** hourly cron purges expired EmailVerifications/invites/resets and orphaned S3 objects; S3 usage aggregation cached and shown on the queue overview; pipeline/document counters on the overview match reality (test).
 
-- [ ] **M9.2 — Mandatory-scenario audit + coverage gates**
+- [x] **M9.2 — Mandatory-scenario audit + coverage gates**
   **Goal:** every scenario of 14 §14.8 provably covered.
   **Docs:** [`14 §14.8`](../14-coding-standards.md#148-testing)
   **Acceptance:** a checklist in the PR maps each mandatory scenario to a test file/name; missing ones implemented; coverage thresholds (domain+application ≥90% lines) enforced in `vitest.config`; CI green.

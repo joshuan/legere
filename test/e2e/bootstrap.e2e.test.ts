@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { healthDataSchema } from '../../src/shared/contracts/common';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma } from '../helpers/db';
@@ -36,6 +37,23 @@ describe('API bootstrap (e2e)', () => {
       message: 'Unknown API route',
       details: null,
     });
+  });
+
+  it('wraps success in { data } and failure in { error }, and nothing else (docs/07 §7.1)', async () => {
+    // Parsed loosely on purpose: the contract schemas would strip extra keys, and extra keys are
+    // exactly what this test is looking for.
+    const anyObject = z.record(z.unknown());
+
+    const ok = anyObject.parse((await api(app).get('/api/health')).body);
+    expect(Object.keys(ok)).toEqual(['data']);
+
+    const failed = z
+      .object({ error: anyObject })
+      .parse((await api(app).get('/api/does-not-exist')).body);
+    expect(Object.keys(failed)).toEqual(['error']);
+    // All three keys, always: `details` is null rather than absent (docs/07 §7.1).
+    expect(Object.keys(failed.error).sort()).toEqual(['code', 'details', 'message']);
+    expect(failed.error.details).toBeNull();
   });
 
   it('non-api routes are dispatched to the Next handler, not Nest', async () => {

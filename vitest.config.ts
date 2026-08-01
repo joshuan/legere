@@ -10,6 +10,18 @@ const { jsc } = JSON.parse(readFileSync(new URL('./.swcrc', import.meta.url), 'u
 
 export default defineConfig({
   test: {
+    // The acceptance floor of docs/14 §14.8: the two framework-free layers, where the rules of the
+    // product live, stay above 90% of lines. No global threshold — a number covering generated
+    // Prisma mappers and Nest modules measures ceremony, not risk. `npm run test:coverage` (and CI)
+    // fails below the floor; `npm test` stays fast and reports nothing.
+    coverage: {
+      provider: 'v8',
+      include: ['src/server/domain/**', 'src/server/application/**'],
+      // Type-only files hold no statements; V8 reports them as 0% and drags the average down.
+      exclude: ['**/*.test.ts', 'src/server/application/jobs/processing-settings.ts'],
+      reporter: ['text-summary', 'html'],
+      thresholds: { lines: 90 },
+    },
     // Server tests share one database and the integration harness truncates between tests, so test
     // files must not run concurrently (docs/14 §14.8). This has to live at the root: a project-level
     // `fileParallelism` is ignored, which lets two files truncate each other's rows mid-flow.

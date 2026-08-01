@@ -98,6 +98,7 @@ describe('Documents (e2e)', () => {
     previewStatus?: 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
     markdownStatus?: 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
     createdAt?: Date;
+    sizeBytes?: bigint;
   };
 
   async function givenDocument(options: DocumentOptions = {}): Promise<string> {
@@ -108,7 +109,7 @@ describe('Documents (e2e)', () => {
         source: 'LIBRARY',
         mimeType: 'application/pdf',
         ext: 'pdf',
-        sizeBytes: 2048n,
+        sizeBytes: options.sizeBytes ?? 2048n,
         title: options.title ?? `Document ${contentSeq}`,
         canonicalStatus: 'SKIPPED',
         previewStatus: options.previewStatus ?? 'DONE',
@@ -171,6 +172,22 @@ describe('Documents (e2e)', () => {
         // BigInt travels as a string (docs/07 §7.4).
         sizeBytes: '2048',
       });
+    });
+
+    it('carries a size past what a JS number holds, exactly (docs/07 §7.4)', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      // Number.MAX_SAFE_INTEGER + 2: a double cannot hold it, so a numeric DTO would come back
+      // rounded down by one. Only a string survives the round trip.
+      const documentId = await givenDocument({
+        libraryId: open,
+        title: 'Huge',
+        sizeBytes: 9007199254740993n,
+      });
+      const user = await inviteUser(`sizes${seq}@legere.local`);
+
+      const page = expectData(await listAs(user.cookie), listDocumentsResponseSchema);
+
+      expect(page.items.find((item) => item.id === documentId)?.sizeBytes).toBe('9007199254740993');
     });
 
     it('hides a RESTRICTED library from a user without a grant, and shows it once granted', async () => {

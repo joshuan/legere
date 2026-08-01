@@ -41,5 +41,5 @@ jobs:
       - run: npm run db:migrate # apply migrations to the test DB
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm run test
+      - run: npm run test:coverage # domain+application floor of docs/14 §14.8, enforced
       - run: npm run build

@@ -15,6 +15,17 @@ import { Login } from './login';
 
 const PASSWORD = 'a-decent-passphrase';
 
+// Counts verifications so a test can prove the unknown-address path still pays for one (docs/08
+// §8.1.5): without it, a missing account would answer measurably faster than a wrong password.
+class CountingPasswordHasher extends Argon2PasswordHasher {
+  readonly verified: string[] = [];
+
+  override verify(hash: string, password: string): Promise<boolean> {
+    this.verified.push(hash);
+    return super.verify(hash, password);
+  }
+}
+
 class InMemorySessionRepository extends SessionRepository {
   readonly sessions: Session[] = [];
   private counter = 0;
@@ -64,7 +75,7 @@ async function build(captcha = new StubCaptchaVerifier()) {
   const clock = new FixedClock();
   const users = new InMemoryUserRepository(clock);
   const sessions = new InMemorySessionRepository(clock);
-  const hasher = new Argon2PasswordHasher();
+  const hasher = new CountingPasswordHasher();
   const attempts = new InMemoryLoginAttempts(clock);
   const issueSession = new IssueSession(sessions, new FakeSessionTokens(), clock, 30);
   const useCase = new Login(users, hasher, captcha, attempts, issueSession);
@@ -77,7 +88,7 @@ async function build(captcha = new StubCaptchaVerifier()) {
     language: 'EN',
   });
 
-  return { useCase, clock, users, sessions, attempts };
+  return { useCase, clock, users, sessions, attempts, hasher };
 }
 
 describe('Login', () => {
@@ -130,6 +141,19 @@ describe('Login', () => {
     expect(unknown).toMatchObject({ code: 'INVALID_CREDENTIALS', httpStatus: 401 });
     expect(wrong).toMatchObject({ code: 'INVALID_CREDENTIALS', httpStatus: 401 });
     expect(context.sessions.sessions).toHaveLength(0);
+  });
+
+  it('verifies a hash even for an address nobody registered, so both answers cost the same', async () => {
+    const known = await context.users.findActiveByEmail('user@legere.local');
+    context.hasher.verified.length = 0;
+
+    await context.useCase
+      .execute({ email: 'nobody@legere.local', password: PASSWORD, userAgent: null })
+      .catch(() => undefined);
+
+    // 🔒 One verification either way, against a hash that is not any user's (docs/08 §8.1.5).
+    expect(context.hasher.verified).toHaveLength(1);
+    expect(context.hasher.verified[0]).not.toBe(known?.passwordHash);
   });
 
   it('refuses a deactivated account that presents the right password', async () => {
