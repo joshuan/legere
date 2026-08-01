@@ -100,6 +100,20 @@ export type UpdateDocumentMetaInput = {
   categorySource?: CategorySource;
 };
 
+// One row of a search result before it becomes a DTO (docs/07 §7.3).
+export type SearchMatch = {
+  item: DocumentListItem;
+  // Rank of this document within one ordering, 1-based; the fusion in the use case needs the
+  // position, not the engine's own score.
+  rank: number;
+  snippet: string | null;
+};
+
+export type SearchFilters = {
+  libraryId?: string | undefined;
+  categoryId?: string | undefined;
+};
+
 export abstract class DocumentRepository {
   abstract findById(id: string, tx?: TransactionHandle): Promise<Document | null>;
 
@@ -130,6 +144,26 @@ export abstract class DocumentRepository {
     query: { limit: number; cursor?: string | undefined },
     tx?: TransactionHandle,
   ): Promise<DocumentPage>;
+
+  // Full-text search over title + markdown (docs/04 §4.3): the generated tsvector, queried with
+  // websearch_to_tsquery and snippeted with ts_headline. 🔒 The access rule is part of the query.
+  abstract searchByText(
+    viewer: Viewer,
+    query: string,
+    filters: SearchFilters,
+    limit: number,
+    tx?: TransactionHandle,
+  ): Promise<SearchMatch[]>;
+
+  // Nearest chunks by cosine distance, grouped to their documents — the best chunk wins and its
+  // text becomes the snippet (docs/07 §7.3).
+  abstract searchByVector(
+    viewer: Viewer,
+    embedding: number[],
+    filters: SearchFilters,
+    limit: number,
+    tx?: TransactionHandle,
+  ): Promise<SearchMatch[]>;
 
   abstract findReadableById(
     id: string,

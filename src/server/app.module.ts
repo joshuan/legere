@@ -19,6 +19,7 @@ import { HealthModule } from './presentation/health/health.module';
 import { JobsModule } from './presentation/jobs/jobs.module';
 import { LibrariesModule } from './presentation/libraries/libraries.module';
 import { QueueAdminModule } from './presentation/queue/queue-admin.module';
+import { SearchModule } from './presentation/search/search.module';
 import { UsersModule } from './presentation/users/users.module';
 
 // Composition root (docs/06 §6.5). Feature modules are added as milestones land.
@@ -43,6 +44,7 @@ import { UsersModule } from './presentation/users/users.module';
     LibrariesModule,
     DocumentsModule,
     CategoriesModule,
+    SearchModule,
     QueueAdminModule,
     JobsModule,
     HealthModule,

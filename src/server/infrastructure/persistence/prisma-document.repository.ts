@@ -13,6 +13,8 @@ import {
   type DocumentUpsert,
   type ListDocumentsInput,
   type ProcessingUpdate,
+  type SearchFilters,
+  type SearchMatch,
   type StepStatusCounters,
   type UpdateDocumentMetaInput,
   type Viewer,
@@ -161,6 +163,69 @@ function filters(query: ListDocumentsInput): Prisma.DocumentWhereInput {
   }
 
   return where;
+}
+
+// The access rule of docs/03 §3.4 again, this time as SQL. Search ranks and limits inside the
+// query — a limit of 20 has to mean 20 readable rows — and the query builder cannot express
+// ts_rank or the vector operator, so the rule exists in both dialects. They are tested together by
+// the same e2e cases.
+function readableSql(viewer: Viewer): Prisma.Sql {
+  if (viewer.role === 'ADMIN') return Prisma.sql`d.deleted_at IS NULL`;
+
+  return Prisma.sql`
+    d.deleted_at IS NULL
+    AND (
+      (d.source = 'LIBRARY' AND EXISTS (
+        SELECT 1 FROM file_refs fr
+        JOIN libraries l ON l.id = fr.library_id
+        WHERE fr.document_id = d.id
+          AND l.deleted_at IS NULL
+          AND (
+            l.visibility = 'ALL_USERS'
+            OR EXISTS (
+              SELECT 1 FROM library_access la
+              WHERE la.library_id = l.id AND la.user_id = ${viewer.id}::uuid
+            )
+          )
+      ))
+      OR (d.source = 'DERIVED' AND (
+        d.created_by_id = ${viewer.id}::uuid
+        OR EXISTS (
+          SELECT 1 FROM collection_items ci
+          JOIN collections c ON c.id = ci.collection_id
+          WHERE ci.document_id = d.id
+            AND c.deleted_at IS NULL
+            AND (
+              c.owner_id = ${viewer.id}::uuid
+              OR EXISTS (
+                SELECT 1 FROM collection_shares cs
+                WHERE cs.collection_id = c.id
+                  AND cs.revoked_at IS NULL
+                  AND (cs.grantee_user_id = ${viewer.id}::uuid OR cs.grantee_user_id IS NULL)
+              )
+            )
+        )
+      ))
+    )
+  `;
+}
+
+function filtersSql(filters: SearchFilters): Prisma.Sql {
+  const clauses: Prisma.Sql[] = [Prisma.sql`TRUE`];
+
+  if (filters.categoryId !== undefined) {
+    clauses.push(Prisma.sql`d.category_id = ${filters.categoryId}::uuid`);
+  }
+  if (filters.libraryId !== undefined) {
+    clauses.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM file_refs fl
+      JOIN libraries ll ON ll.id = fl.library_id
+      WHERE fl.document_id = d.id AND fl.library_id = ${filters.libraryId}::uuid
+        AND ll.deleted_at IS NULL
+    )`);
+  }
+
+  return Prisma.join(clauses, ' AND ');
 }
 
 // processingError is capped at 2000 characters (docs/03 §3.3.10): a stack trace or an HTML error page
@@ -365,6 +430,97 @@ export class PrismaDocumentRepository implements DocumentRepository {
       }),
       nextCursor,
     };
+  }
+
+  // Full-text search (docs/04 §4.3): the generated search_vector, queried with websearch_to_tsquery
+  // and snippeted by ts_headline. 🔒 Access and filters are inside the query, so the limit applies to
+  // rows the caller may actually read.
+  async searchByText(
+    viewer: Viewer,
+    query: string,
+    filters: SearchFilters,
+    limit: number,
+    tx?: TransactionHandle,
+  ): Promise<SearchMatch[]> {
+    const client = clientOf(this.prisma, tx);
+
+    const rows = await client.$queryRaw<{ id: string; snippet: string }[]>`
+      SELECT d.id,
+             ts_headline(
+               'simple',
+               coalesce(d.markdown, d.title),
+               websearch_to_tsquery('simple', ${query}),
+               'MaxFragments=2, MinWords=5, MaxWords=24, StartSel=<mark>, StopSel=</mark>'
+             ) AS snippet
+      FROM documents d
+      WHERE d.search_vector @@ websearch_to_tsquery('simple', ${query})
+        AND ${readableSql(viewer)}
+        AND ${filtersSql(filters)}
+      ORDER BY ts_rank(d.search_vector, websearch_to_tsquery('simple', ${query})) DESC, d.id
+      LIMIT ${limit}
+    `;
+
+    return this.hydrate(
+      client,
+      rows.map((row) => ({ id: row.id, snippet: row.snippet })),
+    );
+  }
+
+  // Nearest chunks first, then one row per document: the best chunk wins and its text is the
+  // snippet (docs/07 §7.3). The candidate pool is deliberately wider than the page, because several
+  // of the nearest chunks often belong to the same document.
+  async searchByVector(
+    viewer: Viewer,
+    embedding: number[],
+    filters: SearchFilters,
+    limit: number,
+    tx?: TransactionHandle,
+  ): Promise<SearchMatch[]> {
+    const client = clientOf(this.prisma, tx);
+    const vector = `[${embedding.join(',')}]`;
+
+    const rows = await client.$queryRaw<{ id: string; snippet: string }[]>`
+      WITH nearest AS (
+        SELECT k.document_id, k.content, (k.embedding <=> ${vector}::vector) AS distance
+        FROM document_chunks k
+        JOIN documents d ON d.id = k.document_id
+        WHERE ${readableSql(viewer)}
+          AND ${filtersSql(filters)}
+        ORDER BY k.embedding <=> ${vector}::vector
+        LIMIT ${limit * 5}
+      ), best AS (
+        SELECT DISTINCT ON (document_id) document_id AS id, distance, left(content, 300) AS snippet
+        FROM nearest
+        ORDER BY document_id, distance
+      )
+      SELECT id, snippet FROM best ORDER BY distance LIMIT ${limit}
+    `;
+
+    return this.hydrate(
+      client,
+      rows.map((row) => ({ id: row.id, snippet: row.snippet })),
+    );
+  }
+
+  // Ranked ids → full list rows, in the order the ranking produced.
+  private async hydrate(
+    client: ReturnType<typeof clientOf>,
+    ranked: { id: string; snippet: string | null }[],
+  ): Promise<SearchMatch[]> {
+    if (ranked.length === 0) return [];
+
+    const rows = await client.document.findMany({
+      where: { id: { in: ranked.map((entry) => entry.id) } },
+      include: LIST_INCLUDE,
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    return ranked.flatMap((entry, index) => {
+      const row = byId.get(entry.id);
+      return row === undefined
+        ? []
+        : [{ item: toListItem(row), rank: index + 1, snippet: entry.snippet }];
+    });
   }
 
   async findReadableById(

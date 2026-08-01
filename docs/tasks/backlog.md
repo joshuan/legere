@@ -209,7 +209,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 ## M6 — Search
 
-- [ ] **M6.1 — Search API (FTS + semantic + hybrid)**
+- [x] **M6.1 — Search API (FTS + semantic + hybrid)**
   **Goal:** find by words and by meaning.
   **Docs:** [`07`](../07-api-specification.md) (search), [`04 §4.3–4.4`](../04-database-schema.md)
   **Acceptance (e2e):** text mode: `websearch_to_tsquery('simple')` + `ts_headline` snippet, finds title and body matches; semantic mode: query embedding → HNSW top-k → grouped by document; hybrid: RRF (k=60) merge, deterministic order; access filtering inside SQL (RESTRICTED docs never surface — test with two users); provider unset → `semanticAvailable:false`, hybrid falls back to text; filters (library/category) apply.

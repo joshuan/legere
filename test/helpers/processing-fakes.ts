@@ -10,6 +10,7 @@ import {
   type ProcessingUpdate,
   type DocumentDetail,
   type DocumentPage,
+  type SearchMatch,
   type StepStatusCounters,
 } from '../../src/server/domain/repositories/document.repository';
 import {
@@ -154,6 +155,12 @@ export class InMemoryDocumentRepository extends DocumentRepository {
   }
   listInFolder(): Promise<DocumentPage> {
     return unused('listInFolder');
+  }
+  searchByText(): Promise<SearchMatch[]> {
+    return unused('searchByText');
+  }
+  searchByVector(): Promise<SearchMatch[]> {
+    return unused('searchByVector');
   }
   updateMeta(): Promise<Document> {
     return unused('updateMeta');
