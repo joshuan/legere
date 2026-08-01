@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  Patch,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpStatus, Patch, Post, UseGuards } from '@nestjs/common';
 import type { Envelope } from '../../../shared/contracts/common';
 import {
   listUsersQuerySchema,
@@ -33,6 +24,7 @@ import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodQuery, ZodBody } from '../http/zod-validation.pipe';
+import { UuidParam } from '../http/uuid-param.pipe';
 
 // Admin user lifecycle (docs/07 §7.3). Guard order is SessionGuard → RolesGuard (docs/06 §6.4).
 @Controller('admin/users')
@@ -57,7 +49,7 @@ export class AdminUsersController {
 
   @Patch(':id')
   async update(
-    @Param('id') id: string,
+    @UuidParam('id', 'USER_NOT_FOUND', 'User') id: string,
     @ZodBody(updateUserRequestSchema) body: UpdateUserRequest,
   ): Promise<Envelope<AdminUserDto>> {
     // The schema guarantees at least one field; role is the only one today.
@@ -68,26 +60,32 @@ export class AdminUsersController {
 
   @Post(':id/deactivate')
   @HttpCode(HttpStatus.OK)
-  async deactivate(@Param('id') id: string): Promise<Envelope<AdminUserDto>> {
+  async deactivate(
+    @UuidParam('id', 'USER_NOT_FOUND', 'User') id: string,
+  ): Promise<Envelope<AdminUserDto>> {
     return successEnvelope(await this.deactivateUser.execute(id));
   }
 
   @Post(':id/reactivate')
   @HttpCode(HttpStatus.OK)
-  async reactivate(@Param('id') id: string): Promise<Envelope<AdminUserDto>> {
+  async reactivate(
+    @UuidParam('id', 'USER_NOT_FOUND', 'User') id: string,
+  ): Promise<Envelope<AdminUserDto>> {
     return successEnvelope(await this.reactivateUser.execute(id));
   }
 
   @Post(':id/revoke-sessions')
   @HttpCode(HttpStatus.OK)
-  async revokeSessions(@Param('id') id: string): Promise<Envelope<RevokeSessionsResponse>> {
+  async revokeSessions(
+    @UuidParam('id', 'USER_NOT_FOUND', 'User') id: string,
+  ): Promise<Envelope<RevokeSessionsResponse>> {
     return successEnvelope(await this.revokeUserSessions.execute(id));
   }
 
   @Post(':id/password-reset')
   @HttpCode(HttpStatus.CREATED)
   async passwordReset(
-    @Param('id') id: string,
+    @UuidParam('id', 'USER_NOT_FOUND', 'User') id: string,
     @CurrentUser() admin: User,
   ): Promise<Envelope<CreatePasswordResetResponse>> {
     return successEnvelope(await this.createPasswordReset.execute(id, admin.id));

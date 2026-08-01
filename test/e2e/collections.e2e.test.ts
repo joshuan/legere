@@ -193,6 +193,13 @@ describe('Collections (e2e)', () => {
         .delete(`/api/collections/${collection.id}`)
         .set('Cookie', adminCookie);
       expect(deleted.status).toBe(200);
+
+      // A malformed id reads as "no such collection", not as a driver error (docs/07 §7.1).
+      const malformed = await api(app)
+        .get('/api/collections/not-a-uuid')
+        .set('Cookie', adminCookie);
+      expect(malformed.status).toBe(404);
+      expect(expectError(malformed).code).toBe('COLLECTION_NOT_FOUND');
       expect((await asUser(adminCookie).get(collection.id)).status).toBe(404);
     });
   });

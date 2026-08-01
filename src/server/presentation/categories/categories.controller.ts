@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Delete,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Delete, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   createCategoryRequestSchema,
   updateCategoryRequestSchema,
@@ -27,6 +18,7 @@ import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodBody } from '../http/zod-validation.pipe';
+import { UuidParam } from '../http/uuid-param.pipe';
 
 // GET /api/categories (docs/07 §7.3): every signed-in user reads the reference list — it is what the
 // filters and the category picker are built from.
@@ -61,7 +53,7 @@ export class AdminCategoriesController {
 
   @Patch(':id')
   async updateCategory(
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'CATEGORY_NOT_FOUND', 'Category') id: string,
     @ZodBody(updateCategoryRequestSchema) body: UpdateCategoryRequest,
   ): Promise<Envelope<CategoryDto>> {
     return successEnvelope(await this.update.execute(id, body));
@@ -69,7 +61,7 @@ export class AdminCategoriesController {
 
   @Delete(':id')
   async deleteCategory(
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'CATEGORY_NOT_FOUND', 'Category') id: string,
   ): Promise<Envelope<{ ok: true; documentsReset: number }>> {
     return successEnvelope(await this.remove.execute(id));
   }

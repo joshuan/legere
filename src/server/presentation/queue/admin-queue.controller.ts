@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards } from '@nestjs/common';
 import {
   paginationQuerySchema,
   type Envelope,
@@ -18,6 +18,7 @@ import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodQuery } from '../http/zod-validation.pipe';
+import { UuidParam } from '../http/uuid-param.pipe';
 
 // Admin queue observability (docs/07 §7.3, docs/05 §5.8, docs/11 §11.13).
 @Controller('admin/queue')
@@ -43,7 +44,9 @@ export class AdminQueueController {
   }
 
   @Post('failures/:jobId/retry')
-  async retry(@Param('jobId') jobId: string): Promise<Envelope<RetryJobResponse>> {
+  async retry(
+    @UuidParam('jobId', 'NOT_FOUND', 'Job') jobId: string,
+  ): Promise<Envelope<RetryJobResponse>> {
     return successEnvelope(await this.retryJob.execute(jobId));
   }
 }

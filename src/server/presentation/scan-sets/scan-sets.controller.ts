@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Delete,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Delete, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import type { Envelope } from '../../../shared/contracts/common';
 import {
   createScanSetRequestSchema,
@@ -32,6 +23,7 @@ import { CurrentUser } from '../auth/current-user';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodBody } from '../http/zod-validation.pipe';
+import { UuidParam } from '../http/uuid-param.pipe';
 
 // Scan sets (docs/07 §7.3): a stack of photographed pages, and the PDF they become.
 @Controller('scan-sets')
@@ -62,7 +54,7 @@ export class ScanSetsController {
   @Get(':id')
   async getScanSet(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'SCANSET_NOT_FOUND', 'Scan set') id: string,
   ): Promise<Envelope<ScanSetDetailDto>> {
     return successEnvelope(await this.get.execute(viewerOf(user), id));
   }
@@ -70,7 +62,7 @@ export class ScanSetsController {
   @Patch(':id')
   async updateScanSet(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'SCANSET_NOT_FOUND', 'Scan set') id: string,
     @ZodBody(updateScanSetRequestSchema) body: UpdateScanSetRequest,
   ): Promise<Envelope<ScanSetDetailDto>> {
     return successEnvelope(await this.update.execute(viewerOf(user), id, body));
@@ -79,7 +71,7 @@ export class ScanSetsController {
   @Post(':id/merge')
   async mergeScanSet(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'SCANSET_NOT_FOUND', 'Scan set') id: string,
   ): Promise<Envelope<ScanSetDto>> {
     return successEnvelope(await this.merge.execute(viewerOf(user), id));
   }
@@ -87,7 +79,7 @@ export class ScanSetsController {
   @Delete(':id')
   async deleteScanSet(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'SCANSET_NOT_FOUND', 'Scan set') id: string,
   ): Promise<Envelope<OkResponse>> {
     return successEnvelope(await this.remove.execute(viewerOf(user), id));
   }

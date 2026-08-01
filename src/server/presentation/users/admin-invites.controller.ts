@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  HttpStatus,
-  Param,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import type { Envelope } from '../../../shared/contracts/common';
 import {
   createInviteRequestSchema,
@@ -23,6 +14,7 @@ import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodBody } from '../http/zod-validation.pipe';
+import { UuidParam } from '../http/uuid-param.pipe';
 
 // Admin invite management (docs/07 §7.3). Guard order is SessionGuard → RolesGuard (docs/06 §6.4).
 @Controller('admin/invites')
@@ -50,7 +42,9 @@ export class AdminInvitesController {
   }
 
   @Delete(':id')
-  async revoke(@Param('id') id: string): Promise<Envelope<OkResponse>> {
+  async revoke(
+    @UuidParam('id', 'INVITE_NOT_FOUND', 'Invite') id: string,
+  ): Promise<Envelope<OkResponse>> {
     await this.revokeInvite.execute(id);
     return successEnvelope({ ok: true });
   }

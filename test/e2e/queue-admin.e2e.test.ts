@@ -337,6 +337,12 @@ describe('Reprocess and queue administration (e2e)', () => {
 
       expect(res.status).toBe(404);
       expect(expectError(res).code).toBe('NOT_FOUND');
+
+      const malformed = await api(app)
+        .post('/api/admin/queue/failures/not-a-uuid/retry')
+        .set('Cookie', adminCookie);
+      expect(malformed.status).toBe(404);
+      expect(expectError(malformed).code).toBe('NOT_FOUND');
     });
 
     it('refuses the whole queue view to a non-admin', async () => {

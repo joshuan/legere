@@ -206,6 +206,12 @@ describe('Me and admin user management (e2e)', () => {
 
       expect(res.status).toBe(404);
       expect(expectError(res).code).toBe('USER_NOT_FOUND');
+
+      const malformed = await api(app)
+        .post('/api/admin/users/not-a-uuid/deactivate')
+        .set('Cookie', adminCookie);
+      expect(malformed.status).toBe(404);
+      expect(expectError(malformed).code).toBe('USER_NOT_FOUND');
     });
   });
 

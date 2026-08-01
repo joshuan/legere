@@ -355,6 +355,18 @@ describe('Libraries (e2e)', () => {
         .patch('/api/admin/libraries/11111111-1111-4111-8111-111111111111', { name: 'x' })
         .set('Cookie', adminCookie);
       expect(unknown.status).toBe(404);
+
+      // A malformed id is answered exactly like an unknown one, never with a 500 from the driver
+      // (docs/07 §7.1).
+      const malformed = await api(app)
+        .patch('/api/admin/libraries/not-a-uuid', { name: 'x' })
+        .set('Cookie', adminCookie);
+      expect(malformed.status).toBe(404);
+      expect(expectError(malformed).code).toBe('LIBRARY_NOT_FOUND');
+
+      const read = await api(app).get('/api/admin/libraries/not-a-uuid').set('Cookie', adminCookie);
+      expect(read.status).toBe(404);
+      expect(expectError(read).code).toBe('LIBRARY_NOT_FOUND');
     });
   });
 

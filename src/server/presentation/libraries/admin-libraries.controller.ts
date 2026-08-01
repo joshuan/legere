@@ -4,7 +4,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Param,
   Patch,
   Post,
   UseGuards,
@@ -39,6 +38,7 @@ import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
+import { UuidParam } from '../http/uuid-param.pipe';
 
 // Admin library management (docs/07 §7.3). Guard order: SessionGuard → RolesGuard (docs/06 §6.4).
 @Controller('admin')
@@ -78,33 +78,39 @@ export class AdminLibrariesController {
   }
 
   @Get('libraries/:id')
-  async get(@Param('id') id: string): Promise<Envelope<LibraryAdminDto>> {
+  async get(
+    @UuidParam('id', 'LIBRARY_NOT_FOUND', 'Library') id: string,
+  ): Promise<Envelope<LibraryAdminDto>> {
     return successEnvelope(await this.getLibrary.execute(id));
   }
 
   @Patch('libraries/:id')
   async update(
-    @Param('id') id: string,
+    @UuidParam('id', 'LIBRARY_NOT_FOUND', 'Library') id: string,
     @ZodBody(updateLibraryRequestSchema) body: UpdateLibraryRequest,
   ): Promise<Envelope<LibraryAdminDto>> {
     return successEnvelope(await this.updateLibrary.execute(id, body));
   }
 
   @Delete('libraries/:id')
-  async remove(@Param('id') id: string): Promise<Envelope<OkResponse>> {
+  async remove(
+    @UuidParam('id', 'LIBRARY_NOT_FOUND', 'Library') id: string,
+  ): Promise<Envelope<OkResponse>> {
     await this.deleteLibrary.execute(id);
     return successEnvelope({ ok: true });
   }
 
   @Post('libraries/:id/scan')
   @HttpCode(HttpStatus.OK)
-  async scan(@Param('id') id: string): Promise<Envelope<TriggerScanResponse>> {
+  async scan(
+    @UuidParam('id', 'LIBRARY_NOT_FOUND', 'Library') id: string,
+  ): Promise<Envelope<TriggerScanResponse>> {
     return successEnvelope(await this.triggerScan.execute(id));
   }
 
   @Get('libraries/:id/scans')
   async scans(
-    @Param('id') id: string,
+    @UuidParam('id', 'LIBRARY_NOT_FOUND', 'Library') id: string,
     @ZodQuery(listScanRunsQuerySchema) query: ListScanRunsQuery,
   ): Promise<Envelope<ListScanRunsResponse>> {
     return successEnvelope(await this.listScanRuns.execute(id, query));

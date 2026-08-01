@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import type { Envelope } from '../../../shared/contracts/common';
 import {
   browseQuerySchema,
@@ -13,6 +13,7 @@ import { CurrentUser } from '../auth/current-user';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodQuery } from '../http/zod-validation.pipe';
+import { UuidParam } from '../http/uuid-param.pipe';
 
 // GET /api/libraries (docs/07 §7.3): the libraries this caller may read, used for filters and browse
 // roots. A RESTRICTED library the caller has no grant for simply is not listed (docs/08 §8.5).
@@ -36,7 +37,7 @@ export class LibrariesController {
   @Get(':id/browse')
   async browseLibrary(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'LIBRARY_NOT_FOUND', 'Library') id: string,
     @ZodQuery(browseQuerySchema) query: BrowseQuery,
   ): Promise<Envelope<BrowseResponse>> {
     return successEnvelope(await this.browse.execute({ id: user.id, role: user.role }, id, query));

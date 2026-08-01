@@ -316,6 +316,13 @@ describe('Scan sets (e2e)', () => {
     expect(stillThere.deletedAt).toBeNull();
   });
 
+  it('404s a malformed id instead of failing inside the driver (docs/07 §7.1)', async () => {
+    const res = await api(app).get('/api/scan-sets/not-a-uuid').set('Cookie', adminCookie);
+
+    expect(res.status).toBe(404);
+    expect(expectError(res).code).toBe('SCANSET_NOT_FOUND');
+  });
+
   it('refuses an anonymous caller', async () => {
     expect((await api(app).get('/api/scan-sets')).status).toBe(401);
   });

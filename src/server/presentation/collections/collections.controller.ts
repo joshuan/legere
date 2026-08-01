@@ -1,13 +1,4 @@
-import {
-  Controller,
-  Delete,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Delete, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   addCollectionItemRequestSchema,
   collectionItemsQuerySchema,
@@ -50,6 +41,7 @@ import { CurrentUser } from '../auth/current-user';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
+import { UuidParam } from '../http/uuid-param.pipe';
 
 // Collections and sharing (docs/07 §7.3). Reading is decided by ownership or an active share;
 // changing anything is the owner's alone (docs/03 §3.4).
@@ -85,7 +77,7 @@ export class CollectionsController {
   @Get(':id')
   async getCollection(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'COLLECTION_NOT_FOUND', 'Collection') id: string,
     @ZodQuery(collectionItemsQuerySchema) query: CollectionItemsQuery,
   ): Promise<Envelope<CollectionDetailResponse>> {
     return successEnvelope(await this.get.execute(viewerOf(user), id, query));
@@ -94,7 +86,7 @@ export class CollectionsController {
   @Patch(':id')
   async updateCollection(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'COLLECTION_NOT_FOUND', 'Collection') id: string,
     @ZodBody(updateCollectionRequestSchema) body: UpdateCollectionRequest,
   ): Promise<Envelope<CollectionDto>> {
     return successEnvelope(await this.update.execute(viewerOf(user), id, body));
@@ -103,7 +95,7 @@ export class CollectionsController {
   @Delete(':id')
   async deleteCollection(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'COLLECTION_NOT_FOUND', 'Collection') id: string,
   ): Promise<Envelope<OkResponse>> {
     return successEnvelope(await this.remove.execute(viewerOf(user), id));
   }
@@ -111,7 +103,7 @@ export class CollectionsController {
   @Post(':id/items')
   async addCollectionItem(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'COLLECTION_NOT_FOUND', 'Collection') id: string,
     @ZodBody(addCollectionItemRequestSchema) body: AddCollectionItemRequest,
   ): Promise<Envelope<OkResponse>> {
     return successEnvelope(await this.addItem.execute(viewerOf(user), id, body));
@@ -120,8 +112,8 @@ export class CollectionsController {
   @Delete(':id/items/:documentId')
   async removeCollectionItem(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('documentId', ParseUUIDPipe) documentId: string,
+    @UuidParam('id', 'COLLECTION_NOT_FOUND', 'Collection') id: string,
+    @UuidParam('documentId', 'DOCUMENT_NOT_FOUND', 'Document') documentId: string,
   ): Promise<Envelope<OkResponse>> {
     return successEnvelope(await this.removeItem.execute(viewerOf(user), id, documentId));
   }
@@ -129,7 +121,7 @@ export class CollectionsController {
   @Get(':id/shares')
   async getShares(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'COLLECTION_NOT_FOUND', 'Collection') id: string,
   ): Promise<Envelope<ListCollectionSharesResponse>> {
     return successEnvelope(await this.listShares.execute(viewerOf(user), id));
   }
@@ -137,7 +129,7 @@ export class CollectionsController {
   @Post(':id/shares')
   async createShare(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'COLLECTION_NOT_FOUND', 'Collection') id: string,
     @ZodBody(createShareRequestSchema) body: CreateShareRequest,
   ): Promise<Envelope<CollectionShareDto>> {
     return successEnvelope(await this.share.execute(viewerOf(user), id, body));
@@ -146,8 +138,8 @@ export class CollectionsController {
   @Delete(':id/shares/:shareId')
   async revokeShare(
     @CurrentUser() user: User,
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('shareId', ParseUUIDPipe) shareId: string,
+    @UuidParam('id', 'COLLECTION_NOT_FOUND', 'Collection') id: string,
+    @UuidParam('shareId', 'NOT_FOUND', 'Share') shareId: string,
   ): Promise<Envelope<OkResponse>> {
     return successEnvelope(await this.revoke.execute(viewerOf(user), id, shareId));
   }

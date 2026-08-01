@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Delete,
-  Get,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Post,
-  Res,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Delete, Get, Patch, Post, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import type { Envelope } from '../../../shared/contracts/common';
 import {
@@ -45,6 +35,7 @@ import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
+import { UuidParam } from '../http/uuid-param.pipe';
 import { CurrentDocument, DocumentAccessGuard } from './document-access.guard';
 
 // Documents (docs/07 §7.3). Guard order: SessionGuard → RolesGuard → DocumentAccessGuard
@@ -89,7 +80,9 @@ export class DocumentsController {
 
   @Delete(':id')
   @Roles('ADMIN')
-  async deleteDocument(@Param('id', ParseUUIDPipe) id: string): Promise<Envelope<OkResponse>> {
+  async deleteDocument(
+    @UuidParam('id', 'DOCUMENT_NOT_FOUND', 'Document') id: string,
+  ): Promise<Envelope<OkResponse>> {
     return successEnvelope(await this.remove.execute(id));
   }
 
@@ -141,7 +134,7 @@ export class DocumentsController {
   @Post(':id/reprocess')
   @Roles('ADMIN')
   async reprocessDocument(
-    @Param('id', ParseUUIDPipe) id: string,
+    @UuidParam('id', 'DOCUMENT_NOT_FOUND', 'Document') id: string,
     @ZodBody(reprocessRequestSchema) body: ReprocessRequest,
   ): Promise<Envelope<ReprocessResponse>> {
     return successEnvelope(await this.reprocess.execute(id, body.steps));

@@ -168,6 +168,13 @@ describe('Categories (e2e)', () => {
     expect(patched.status).toBe(404);
     expect(expectError(patched).code).toBe('CATEGORY_NOT_FOUND');
     expect(deleted.status).toBe(404);
+
+    // The same answer for an id that is not even a UUID (docs/07 §7.1).
+    const malformed = await api(app)
+      .patch('/api/admin/categories/not-a-uuid', { name: 'x' })
+      .set('Cookie', adminCookie);
+    expect(malformed.status).toBe(404);
+    expect(expectError(malformed).code).toBe('CATEGORY_NOT_FOUND');
   });
 
   it('lets any signed-in user read the list but only an admin change it', async () => {
