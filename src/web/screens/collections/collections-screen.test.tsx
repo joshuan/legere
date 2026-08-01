@@ -107,7 +107,10 @@ describe('CollectionsScreen', () => {
       await screen.findByRole('button', { name: enMessages.collections.actions.create }),
     );
     const dialog = await screen.findByRole('dialog');
-    await userEvent.type(within(dialog).getByLabelText(enMessages.collections.fields.name), 'Taxes');
+    await userEvent.type(
+      within(dialog).getByLabelText(enMessages.collections.fields.name),
+      'Taxes',
+    );
     await userEvent.click(
       within(dialog).getByRole('button', { name: enMessages.common.actions.save }),
     );

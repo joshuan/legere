@@ -52,9 +52,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
   server.use(
     http.get(`/api/collections/${ID}`, () => HttpResponse.json(envelope(detail))),
-    http.get(`/api/collections/${ID}/shares`, () =>
-      HttpResponse.json(envelope({ items: [] })),
-    ),
+    http.get(`/api/collections/${ID}/shares`, () => HttpResponse.json(envelope({ items: [] }))),
   );
 });
 afterEach(() => {

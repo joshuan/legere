@@ -11,7 +11,13 @@ import { DocumentCard } from '../../widgets/document-card';
 
 // /collections/:id (docs/11 §11.7). A viewer who is not the owner gets no edit affordances at all —
 // the API would refuse them anyway, and offering them would be a lie.
-export function CollectionDetailScreen({ id, currentUserId }: { id: string; currentUserId: string }) {
+export function CollectionDetailScreen({
+  id,
+  currentUserId,
+}: {
+  id: string;
+  currentUserId: string;
+}) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
