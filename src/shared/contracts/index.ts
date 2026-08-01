@@ -11,3 +11,4 @@ export * from './queue';
 export * from './categories';
 export * from './search';
 export * from './collections';
+export * from './scan-sets';

@@ -2,6 +2,7 @@ import { Module, type OnModuleInit } from '@nestjs/common';
 import { HandleDocumentProcess } from '../../application/jobs/handle-document-process';
 import { HandleFileIngest } from '../../application/jobs/handle-file-ingest';
 import { HandleLibraryScan } from '../../application/jobs/handle-library-scan';
+import { HandleScanSetMerge } from '../../application/jobs/handle-scanset-merge';
 import type { ProcessingSettings } from '../../application/jobs/processing-settings';
 import { Clock } from '../../application/ports/clock';
 import { DocumentClassifier } from '../../application/ports/document-classifier';
@@ -20,6 +21,7 @@ import { DocumentRepository } from '../../domain/repositories/document.repositor
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
 import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
+import { ScanSetRepository } from '../../domain/repositories/scan-set.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { WorkerRegistry } from '../../infrastructure/queue/worker-registry';
 
@@ -138,8 +140,47 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         AppConfig,
       ],
     },
+    {
+      provide: HandleScanSetMerge,
+      useFactory: (
+        scanSets: ScanSetRepository,
+        documents: DocumentRepository,
+        fileRefs: FileRefRepository,
+        libraries: LibraryRepository,
+        reader: LibraryReader,
+        files: FileStorage,
+        images: ImageTool,
+        pdfs: PdfToolbox,
+        queue: JobQueue,
+        unitOfWork: UnitOfWork,
+      ): HandleScanSetMerge =>
+        new HandleScanSetMerge(
+          scanSets,
+          documents,
+          fileRefs,
+          libraries,
+          reader,
+          files,
+          images,
+          pdfs,
+          queue,
+          unitOfWork,
+        ),
+      inject: [
+        ScanSetRepository,
+        DocumentRepository,
+        FileRefRepository,
+        LibraryRepository,
+        LibraryReader,
+        FileStorage,
+        ImageTool,
+        PdfToolbox,
+        JobQueue,
+        UnitOfWork,
+      ],
+    },
   ],
-  exports: [HandleLibraryScan, HandleFileIngest, HandleDocumentProcess],
+  exports: [HandleLibraryScan, HandleFileIngest, HandleDocumentProcess, HandleScanSetMerge],
 })
 export class JobsModule implements OnModuleInit {
   constructor(private readonly workers: WorkerRegistry) {}
@@ -153,6 +194,8 @@ export class JobsModule implements OnModuleInit {
       // Concurrency from QUEUE_CONCURRENCY_PROCESS: these jobs hold whole files in memory and lean
       // on the Stirling container, so they are deliberately the least parallel of the three.
       { queue: 'document-process', handler: HandleDocumentProcess },
+      // One merge per scan set at a time, enforced by the queue's stately policy (docs/06 §6.8).
+      { queue: 'scanset-merge', handler: HandleScanSetMerge, concurrency: 1 },
     );
   }
 }

@@ -9,6 +9,7 @@ import { FileRefRepository } from '../../domain/repositories/file-ref.repository
 import { LibraryRepository } from '../../domain/repositories/library.repository';
 import { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
 import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
+import { ScanSetRepository } from '../../domain/repositories/scan-set.repository';
 import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
 import { UserRepository } from '../../domain/repositories/user.repository';
@@ -21,6 +22,7 @@ import { PrismaFileRefRepository } from './prisma-file-ref.repository';
 import { PrismaLibraryRepository } from './prisma-library.repository';
 import { PrismaPasswordResetRepository } from './prisma-password-reset.repository';
 import { PrismaScanRunRepository } from './prisma-scan-run.repository';
+import { PrismaScanSetRepository } from './prisma-scan-set.repository';
 import { PrismaSessionRepository } from './prisma-session.repository';
 import { PrismaUnitOfWork } from './prisma-unit-of-work';
 import { PrismaUserInviteRepository } from './prisma-user-invite.repository';
@@ -43,6 +45,7 @@ const REPOSITORIES = [
   { provide: DocumentChunkRepository, useClass: PrismaDocumentChunkRepository },
   { provide: CategoryRepository, useClass: PrismaCategoryRepository },
   { provide: CollectionRepository, useClass: PrismaCollectionRepository },
+  { provide: ScanSetRepository, useClass: PrismaScanSetRepository },
 ];
 
 @Global()
@@ -63,6 +66,7 @@ const REPOSITORIES = [
     DocumentChunkRepository,
     CategoryRepository,
     CollectionRepository,
+    ScanSetRepository,
   ],
 })
 export class PersistenceModule {}

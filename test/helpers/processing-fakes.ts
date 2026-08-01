@@ -375,6 +375,8 @@ export type ResizeCall = { maxDim: number; quality: number | undefined; input: s
 // configured dimensions, and sharp itself is covered by its own tests.
 export class FakeImageTool extends ImageTool {
   readonly resizes: ResizeCall[] = [];
+  // What was handed to trim(), so a scan set's crop mode is observable.
+  readonly trims: string[] = [];
   failing = false;
 
   async toJpegPreview(source: BinarySource, options: JpegPreviewOptions): Promise<Buffer> {
@@ -384,8 +386,11 @@ export class FakeImageTool extends ImageTool {
     return Buffer.from(`jpeg:${options.maxDim}:${input}`);
   }
 
-  trim(): Promise<Buffer> {
-    return unused('trim');
+  async trim(source: BinarySource, threshold: number): Promise<Buffer> {
+    const input = await describe(source);
+    this.trims.push(input);
+    if (this.failing) throw new Error('sharp: unsupported image format');
+    return Buffer.from(`trimmed(${threshold}):${input}`);
   }
 }
 
