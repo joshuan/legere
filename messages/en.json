@@ -322,6 +322,15 @@
       "instance": "No documents yet. Ask your administrator to add a library.",
       "filtered": "Nothing matches these filters.",
       "addLibrary": "Add a library"
+    },
+    "selection": {
+      "start": "Select pages",
+      "cancel": "Cancel selection",
+      "count": "{count} images selected",
+      "skipped": "{count} non-images will be skipped",
+      "create": "Create scan set from selection",
+      "created": "Scan set created",
+      "defaultName": "New scan set"
     }
   },
   "viewer": {
@@ -428,5 +437,21 @@
       "nobody": "Not shared with anyone yet",
       "revoke": "Revoke"
     }
+  },
+  "scanSets": {
+    "title": "Scan sets",
+    "empty": "No scan sets yet. Select a few images in Documents to build one.",
+    "pageCount": "{count} pages",
+    "pages": "Pages",
+    "noPages": "This set has no pages.",
+    "trimMargins": "Trim margins",
+    "merge": "Merge into PDF",
+    "queued": "Merge queued",
+    "failed": "The merge failed",
+    "done": "The pages were merged",
+    "openResult": "Open the result",
+    "movePageLeft": "Move page {position} earlier",
+    "movePageRight": "Move page {position} later",
+    "removePage": "Remove page {position}"
   }
 }

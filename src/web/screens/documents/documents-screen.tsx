@@ -1,16 +1,18 @@
 'use client';
 
-import { useInfiniteQuery } from '@tanstack/react-query';
-import { Button, Col, Empty, Row, Space, Spin, Typography } from 'antd';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { App, Button, Checkbox, Col, Empty, Row, Space, Spin, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { availabilitySchema } from '../../../shared/contracts/documents';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { availabilitySchema, type DocumentListDto } from '../../../shared/contracts/documents';
 import { documentSourceSchema } from '../../../shared/contracts/enums';
 import { documentApi, documentKeys, type DocumentFilters } from '../../entities/document';
+import { scanSetApi, scanSetKeys } from '../../entities/scan-set';
 import { DocumentFiltersBar } from '../../features/document-filters';
 import { DocumentCard } from '../../widgets/document-card';
+import { useErrorMessage } from '../../shared/lib';
 
 // While anything on screen is still being processed the list refreshes, so a document stops saying
 // "Processing" without the user reloading (docs/10 §10.5).
@@ -22,6 +24,9 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const describeError = useErrorMessage();
+  const { message } = App.useApp();
 
   // The URL is the single source of truth for the filters, so a filtered view can be linked,
   // bookmarked and reloaded (docs/11 §11.3).
@@ -57,6 +62,37 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
     [documents.data],
   );
 
+  // Multi-select exists for one reason: turning a stack of photographed pages into a scan set
+  // (docs/11 §11.8). It stays off until asked for, so an ordinary click still opens a document.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  // Mapped over the selection, not filtered from the grid: the order pages were clicked in is the
+  // page order of the set (docs/11 §11.8).
+  const selectedDocuments = selected.flatMap((id) => {
+    const found = items.find((item) => item.id === id);
+    return found === undefined ? [] : [found];
+  });
+  const images = selectedDocuments.filter(isImage);
+  const skipped = selectedDocuments.length - images.length;
+
+  const createScanSet = useMutation({
+    mutationFn: () =>
+      scanSetApi.create({
+        name: t('documents.selection.defaultName'),
+        cropMode: 'TRIM',
+        // Selection order is page order; the builder is where it gets rearranged.
+        items: images.map((item) => item.id),
+      }),
+    onSuccess: (created) => {
+      void message.success(t('documents.selection.created'), 2);
+      void queryClient.invalidateQueries({ queryKey: scanSetKeys.all });
+      setSelecting(false);
+      setSelected([]);
+      router.push(`/scan-sets/${created.id}`);
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
   // Infinite scroll: a sentinel below the grid asks for the next page as it comes into view.
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -78,7 +114,38 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
         {t('documents.title')}
       </Typography.Title>
 
-      <DocumentFiltersBar value={filters} onChange={setFilters} />
+      <Space wrap size="middle">
+        <DocumentFiltersBar value={filters} onChange={setFilters} />
+        <Button
+          onClick={() => {
+            setSelecting((on) => !on);
+            setSelected([]);
+          }}
+        >
+          {selecting ? t('documents.selection.cancel') : t('documents.selection.start')}
+        </Button>
+        {selecting && (
+          <Space>
+            <Typography.Text type="secondary">
+              {t('documents.selection.count', { count: images.length })}
+            </Typography.Text>
+            {skipped > 0 && (
+              // Mixed selections are allowed; the non-images are simply not pages (docs/11 §11.8).
+              <Typography.Text type="warning">
+                {t('documents.selection.skipped', { count: skipped })}
+              </Typography.Text>
+            )}
+            <Button
+              type="primary"
+              disabled={images.length === 0}
+              loading={createScanSet.isPending}
+              onClick={() => createScanSet.mutate()}
+            >
+              {t('documents.selection.create')}
+            </Button>
+          </Space>
+        )}
+      </Space>
 
       {documents.isPending ? (
         <Spin />
@@ -102,7 +169,24 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
           <Row gutter={[16, 16]}>
             {items.map((document) => (
               <Col key={document.id} xs={12} sm={8} md={6} lg={4} xl={4} xxl={4}>
-                <DocumentCard document={document} />
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  {selecting && (
+                    <Checkbox
+                      checked={selected.includes(document.id)}
+                      disabled={!isImage(document)}
+                      onChange={(event) =>
+                        setSelected((current) =>
+                          event.target.checked
+                            ? [...current, document.id]
+                            : current.filter((id) => id !== document.id),
+                        )
+                      }
+                    >
+                      {document.title}
+                    </Checkbox>
+                  )}
+                  <DocumentCard document={document} />
+                </Space>
               </Col>
             ))}
           </Row>
@@ -135,4 +219,9 @@ function parseFilters(params: URLSearchParams): DocumentFilters {
   if (processing === 'false') filters.processing = false;
 
   return filters;
+}
+
+// Only images can be pages of a scan set (docs/03 §3.3.17).
+function isImage(document: DocumentListDto): boolean {
+  return document.mimeType.startsWith('image/');
 }

@@ -238,7 +238,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`05 §5.6`](../05-library-and-processing.md#56-scan-sets-merging-into-a-pdf-on-explicit-request), [`03 §3.3.16–3.3.17`](../03-domain-model.md), [`07`](../07-api-specification.md) (scan sets)
   **Acceptance (e2e + integration):** CRUD with the DRAFT/FAILED-only edit rule (`SCANSET_INVALID_STATE`); non-image item → `SCANSET_ITEM_NOT_IMAGE`; merge: TRIM crops via sharp, NONE doesn't; result = DERIVED document (owner, provenance, `source.pdf` in S3) enqueued into the standard pipeline; identical result content → existing document reused; failure records error, retry after edit works; handler idempotent.
 
-- [ ] **M8.2 — UI: scan-set builder + grid multi-select**
+- [x] **M8.2 — UI: scan-set builder + grid multi-select**
   **Goal:** the flow is usable.
   **Docs:** [`11 §11.8`](../11-ui-ux-spec.md#118-scan-sets-scan-sets-scan-setsid)
   **Acceptance:** list with status tags; builder: drag-reorder strip, image picker, crop toggle, merge button, live status, failure panel, result link; documents-grid multi-select → "Create scan set from selection" (non-images skipped with notice).

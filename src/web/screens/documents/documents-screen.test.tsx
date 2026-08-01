@@ -14,10 +14,11 @@ vi.mock('next/link', () => ({
 
 // The screen reads its filters from the URL and writes them back through the router (docs/11 §11.3).
 const replace = vi.fn();
+const push = vi.fn();
 let currentSearch = '';
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace }),
+  useRouter: () => ({ replace, push }),
   usePathname: () => '/documents',
   useSearchParams: () => new URLSearchParams(currentSearch),
 }));
@@ -201,4 +202,84 @@ describe('DocumentsScreen', () => {
       expect(calls).toBe(settled);
     },
   );
+
+  describe('building a scan set from the grid (docs/11 §11.8)', () => {
+    it('creates a set from the selected images, in selection order', async () => {
+      let created: unknown = null;
+      server.use(
+        http.get('/api/documents', () =>
+          HttpResponse.json(
+            envelope({
+              items: [
+                documentAt(1, { mimeType: 'image/jpeg', title: 'Scan A' }),
+                documentAt(2, { mimeType: 'image/jpeg', title: 'Scan B' }),
+              ],
+              nextCursor: null,
+            }),
+          ),
+        ),
+        http.post('/api/scan-sets', async ({ request }) => {
+          created = await request.json();
+          return HttpResponse.json(
+            envelope({
+              id: 'ffffffff-6666-4666-8666-666666666666',
+              name: 'New scan set',
+              status: 'DRAFT',
+              cropMode: 'TRIM',
+              itemCount: 2,
+              resultDocumentId: null,
+              error: null,
+              createdAt: '2026-01-01T00:00:00.000Z',
+              items: [],
+            }),
+            { status: 201 },
+          );
+        }),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+      await userEvent.click(
+        await screen.findByRole('button', { name: enMessages.documents.selection.start }),
+      );
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Scan B' }));
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Scan A' }));
+      await userEvent.click(
+        screen.getByRole('button', { name: enMessages.documents.selection.create }),
+      );
+
+      // Selection order is page order; the builder is where it gets rearranged.
+      await waitFor(() =>
+        expect(created).toMatchObject({
+          items: [documentAt(2).id, documentAt(1).id],
+          cropMode: 'TRIM',
+        }),
+      );
+      expect(push).toHaveBeenCalledWith('/scan-sets/ffffffff-6666-4666-8666-666666666666');
+    });
+
+    it('cannot select a document that is not an image', async () => {
+      server.use(
+        http.get('/api/documents', () =>
+          HttpResponse.json(
+            envelope({
+              items: [
+                documentAt(1, { mimeType: 'application/pdf', title: 'A PDF' }),
+                documentAt(2, { mimeType: 'image/jpeg', title: 'Scan B' }),
+              ],
+              nextCursor: null,
+            }),
+          ),
+        ),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+      await userEvent.click(
+        await screen.findByRole('button', { name: enMessages.documents.selection.start }),
+      );
+
+      // Only images can be pages (docs/03 §3.3.17), so the checkbox is simply not offered.
+      expect(screen.getByRole('checkbox', { name: 'A PDF' })).toBeDisabled();
+      expect(screen.getByRole('checkbox', { name: 'Scan B' })).not.toBeDisabled();
+    });
+  });
 });
