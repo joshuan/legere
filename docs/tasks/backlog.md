@@ -214,7 +214,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`07`](../07-api-specification.md) (search), [`04 §4.3–4.4`](../04-database-schema.md)
   **Acceptance (e2e):** text mode: `websearch_to_tsquery('simple')` + `ts_headline` snippet, finds title and body matches; semantic mode: query embedding → HNSW top-k → grouped by document; hybrid: RRF (k=60) merge, deterministic order; access filtering inside SQL (RESTRICTED docs never surface — test with two users); provider unset → `semanticAvailable:false`, hybrid falls back to text; filters (library/category) apply.
 
-- [ ] **M6.2 — UI: search**
+- [x] **M6.2 — UI: search**
   **Goal:** the search screen + global search input.
   **Docs:** [`11 §11.6`](../11-ui-ux-spec.md#116-search-searchq), [`11 §11.1`](../11-ui-ux-spec.md#111-shell--navigation)
   **Acceptance:** mode toggle (semantic disabled with tooltip when unavailable); snippet highlighting; filters; topbar input navigates to `/search?q=`; empty/no-results states.

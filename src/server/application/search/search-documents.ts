@@ -69,7 +69,10 @@ function fuse(
   text: readonly SearchMatch[],
   semantic: readonly SearchMatch[],
 ): { item: SearchMatch['item']; score: number; snippet: string | null }[] {
-  const scores = new Map<string, { item: SearchMatch['item']; score: number; snippet: string | null }>();
+  const scores = new Map<
+    string,
+    { item: SearchMatch['item']; score: number; snippet: string | null }
+  >();
 
   for (const list of [text, semantic]) {
     for (const match of list) {

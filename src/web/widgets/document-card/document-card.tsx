@@ -34,7 +34,9 @@ export function DocumentCard({ document }: { document: DocumentListDto }) {
             }}
           >
             {showThumb ? (
-              // 302s to a signed URL; next/image would proxy and cache private content (docs/10 §10.8).
+              // The URL is an API route that 302s to a signed URL; next/image would proxy and
+              // cache private content through a shared optimizer (docs/10 §10.8).
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={documentFiles.thumb(document.id)}
                 alt=""

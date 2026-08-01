@@ -68,7 +68,9 @@ describe('Search (e2e)', () => {
 
   let contentSeq = 0;
 
-  async function givenLibrary(visibility: 'ALL_USERS' | 'RESTRICTED' = 'ALL_USERS'): Promise<string> {
+  async function givenLibrary(
+    visibility: 'ALL_USERS' | 'RESTRICTED' = 'ALL_USERS',
+  ): Promise<string> {
     contentSeq += 1;
     const library = await testPrisma().library.create({
       data: {

@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { documentFixture, FakeEmbeddingProvider } from '../../../../test/helpers/processing-fakes';
-import { DocumentRepository, type SearchMatch } from '../../domain/repositories/document.repository';
+import {
+  DocumentRepository,
+  type SearchMatch,
+} from '../../domain/repositories/document.repository';
 import { SearchDocuments } from './search-documents';
 
 const VIEWER = { id: 'user-1', role: 'USER' } as const;
@@ -100,7 +103,11 @@ describe('SearchDocuments', () => {
 
     const result = await search.execute(VIEWER, query);
 
-    expect(result.items.map((hit) => hit.document.id)).toEqual(['both', 'only-text', 'only-vector']);
+    expect(result.items.map((hit) => hit.document.id)).toEqual([
+      'both',
+      'only-text',
+      'only-vector',
+    ]);
     // A text snippet carries the highlight, so it wins over a chunk excerpt.
     expect(result.items[0]?.snippet).toBe('both from text');
   });

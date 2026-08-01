@@ -387,5 +387,17 @@
     "empty": "This folder is empty.",
     "documentCount": "{count} documents",
     "more": "Load more"
+  },
+  "search": {
+    "placeholder": "Search documents",
+    "start": "Type something to search for.",
+    "noResults": "Nothing found.",
+    "noResultsHint": "Check the spelling, or try semantic mode for meaning rather than words.",
+    "semanticUnavailable": "Semantic search needs an embeddings provider, which this instance has not been given.",
+    "modes": {
+      "hybrid": "Hybrid",
+      "text": "Text",
+      "semantic": "Semantic"
+    }
   }
 }

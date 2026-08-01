@@ -27,10 +27,8 @@ import { SearchController } from './search.controller';
     },
     {
       provide: SearchDocuments,
-      useFactory: (
-        documents: DocumentRepository,
-        embeddings: EmbeddingProvider,
-      ): SearchDocuments => new SearchDocuments(documents, embeddings),
+      useFactory: (documents: DocumentRepository, embeddings: EmbeddingProvider): SearchDocuments =>
+        new SearchDocuments(documents, embeddings),
       inject: [DocumentRepository, EmbeddingProvider],
     },
   ],
