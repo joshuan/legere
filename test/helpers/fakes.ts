@@ -163,6 +163,17 @@ export class InMemoryUserRepository extends UserRepository {
     return Promise.resolve({ items: page, nextCursor });
   }
 
+  lookup(query: string, limit: number): Promise<User[]> {
+    const matches = this.users.filter(
+      (user) =>
+        user.deactivatedAt === null &&
+        (query === '' ||
+          user.displayName.toLowerCase().includes(query.toLowerCase()) ||
+          user.email.toLowerCase().includes(query.toLowerCase())),
+    );
+    return Promise.resolve(matches.slice(0, limit));
+  }
+
   update(id: string, input: UpdateUserInput): Promise<User> {
     const index = this.users.findIndex((user) => user.id === id);
     const existing = this.users[index];

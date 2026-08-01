@@ -523,6 +523,44 @@ export class PrismaDocumentRepository implements DocumentRepository {
     });
   }
 
+  async listInCollection(
+    collectionId: string,
+    viewer: Viewer,
+    query: { limit: number; cursor?: string | undefined },
+    tx?: TransactionHandle,
+  ): Promise<DocumentPage> {
+    const cursor = decodeCursor(query.cursor);
+
+    const rows = await clientOf(this.prisma, tx).document.findMany({
+      where: {
+        deletedAt: null,
+        collectionItems: { some: { collectionId } },
+        ...readableBy(viewer),
+        ...(cursor === null
+          ? {}
+          : {
+              OR: [
+                { createdAt: { lt: cursor.at } },
+                { createdAt: cursor.at, id: { lt: cursor.id } },
+              ],
+            }),
+      },
+      include: LIST_INCLUDE,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+    });
+
+    const page = rows.slice(0, query.limit);
+    const last = page.at(-1);
+    return {
+      items: page.map(toListItem),
+      nextCursor:
+        rows.length > query.limit && last !== undefined
+          ? encodeCursor({ at: last.createdAt, id: last.id })
+          : null,
+    };
+  }
+
   async findReadableById(
     id: string,
     viewer: Viewer,

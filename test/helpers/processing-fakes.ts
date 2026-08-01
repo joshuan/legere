@@ -156,6 +156,9 @@ export class InMemoryDocumentRepository extends DocumentRepository {
   listInFolder(): Promise<DocumentPage> {
     return unused('listInFolder');
   }
+  listInCollection(): Promise<DocumentPage> {
+    return unused('listInCollection');
+  }
   searchByText(): Promise<SearchMatch[]> {
     return unused('searchByText');
   }

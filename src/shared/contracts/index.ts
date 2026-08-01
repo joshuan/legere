@@ -10,3 +10,4 @@ export * from './documents';
 export * from './queue';
 export * from './categories';
 export * from './search';
+export * from './collections';

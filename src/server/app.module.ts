@@ -13,6 +13,7 @@ import { QueueModule } from './infrastructure/queue/queue.module';
 import { StorageModule } from './infrastructure/storage/storage.module';
 import { AuthModule } from './presentation/auth/auth.module';
 import { CategoriesModule } from './presentation/categories/categories.module';
+import { CollectionsModule } from './presentation/collections/collections.module';
 import { DocumentsModule } from './presentation/documents/documents.module';
 import { DomainExceptionFilter } from './presentation/http/domain-exception.filter';
 import { HealthModule } from './presentation/health/health.module';
@@ -45,6 +46,7 @@ import { UsersModule } from './presentation/users/users.module';
     DocumentsModule,
     CategoriesModule,
     SearchModule,
+    CollectionsModule,
     QueueAdminModule,
     JobsModule,
     HealthModule,

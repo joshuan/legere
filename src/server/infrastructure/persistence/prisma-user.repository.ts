@@ -109,4 +109,24 @@ export class PrismaUserRepository implements UserRepository {
 
     return { items: page.map(toDomain), nextCursor };
   }
+
+  async lookup(query: string, limit: number, tx?: TransactionHandle): Promise<User[]> {
+    const rows = await clientOf(this.prisma, tx).user.findMany({
+      where: {
+        deletedAt: null,
+        deactivatedAt: null,
+        ...(query === ''
+          ? {}
+          : {
+              OR: [
+                { displayName: { contains: query, mode: 'insensitive' } },
+                { email: { contains: query, mode: 'insensitive' } },
+              ],
+            }),
+      },
+      orderBy: { displayName: 'asc' },
+      take: limit,
+    });
+    return rows.map(toDomain);
+  }
 }

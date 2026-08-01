@@ -221,7 +221,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 ## M7 — Collections & sharing
 
-- [ ] **M7.1 — Collections API + shares + user lookup**
+- [x] **M7.1 — Collections API + shares + user lookup**
   **Goal:** organize and share.
   **Docs:** [`07`](../07-api-specification.md) (collections, lookup), [`03 §3.3.13–3.3.15`](../03-domain-model.md), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model)
   **Acceptance (e2e):** CRUD with per-owner name uniqueness; items add/remove (add requires read access); shares: user-specific + instance-wide incl. unique-active constraints; viewer sees the intersection rule of 03 §3.3.14 (LIBRARY docs filtered by own access; shared DERIVED docs readable via the share — both directions tested); share grants no library-doc access; lookup returns ≤10 active users.

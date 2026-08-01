@@ -165,6 +165,16 @@ export abstract class DocumentRepository {
     tx?: TransactionHandle,
   ): Promise<SearchMatch[]>;
 
+  // The items of a collection this viewer may read (docs/03 §3.3.14): the same access rule as
+  // everywhere else, which is what makes a shared DERIVED document readable and a LIBRARY document
+  // not.
+  abstract listInCollection(
+    collectionId: string,
+    viewer: Viewer,
+    query: { limit: number; cursor?: string | undefined },
+    tx?: TransactionHandle,
+  ): Promise<DocumentPage>;
+
   abstract findReadableById(
     id: string,
     viewer: Viewer,

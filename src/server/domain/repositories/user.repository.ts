@@ -46,6 +46,10 @@ export abstract class UserRepository {
 
   // Admin listing, sorted createdAt ascending with cursor pagination (docs/07 §7.1, §7.3).
   abstract list(query: ListUsersInput, tx?: TransactionHandle): Promise<UserPage>;
+
+  // The share picker's directory (docs/07 §7.3): active users matching a fragment of name or email,
+  // capped so this can never become a way to enumerate everyone.
+  abstract lookup(query: string, limit: number, tx?: TransactionHandle): Promise<User[]>;
 }
 
 export type ListUsersInput = {
