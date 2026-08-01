@@ -5,6 +5,7 @@ import type {
   ScanSetDto,
   UpdateScanSetRequest,
 } from '../../../shared/contracts/scan-sets';
+import { canEditItems, canMerge } from '../../domain/entities/scan-set';
 import {
   ConflictError,
   ForbiddenError,
@@ -19,10 +20,6 @@ import type {
 import type { Clock } from '../ports/clock';
 import type { JobQueue } from '../ports/job-queue';
 import type { UnitOfWork } from '../ports/unit-of-work';
-
-// Items may be edited only while the set is DRAFT or FAILED (docs/03 §3.3.16): a merge in flight
-// must not have the ground moved under it.
-const EDITABLE: ReadonlySet<ScanSetWithItems['status']> = new Set(['DRAFT', 'FAILED']);
 
 export class ListScanSets {
   constructor(private readonly scanSets: ScanSetRepository) {}
@@ -79,7 +76,7 @@ export class UpdateScanSet {
     input: UpdateScanSetRequest,
   ): Promise<ScanSetDetailDto> {
     const scanSet = await requireOwned(this.scanSets, viewer, id);
-    if (!EDITABLE.has(scanSet.status)) {
+    if (!canEditItems(scanSet)) {
       throw new ConflictError(
         'SCANSET_INVALID_STATE',
         `A ${scanSet.status} scan set cannot be edited`,
@@ -117,7 +114,7 @@ export class MergeScanSet {
 
   async execute(viewer: Viewer, id: string): Promise<ScanSetDto> {
     const scanSet = await requireOwned(this.scanSets, viewer, id);
-    if (!EDITABLE.has(scanSet.status)) {
+    if (!canMerge(scanSet)) {
       throw new ConflictError(
         'SCANSET_INVALID_STATE',
         `A ${scanSet.status} scan set cannot be merged`,
