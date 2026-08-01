@@ -255,7 +255,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`14 §14.8`](../14-coding-standards.md#148-testing)
   **Acceptance:** a checklist in the PR maps each mandatory scenario to a test file/name; missing ones implemented; coverage thresholds (domain+application ≥90% lines) enforced in `vitest.config`; CI green.
 
-- [ ] **M9.3 — Release v0.1.0**
+- [x] **M9.3 — Release v0.1.0**
   **Goal:** a deployable, documented first release.
   **Docs:** [`12 §12.7–12.8`](../12-build-config-run.md), [`13`](../13-ci-cd.md)
   **Acceptance:** fresh-instance walkthrough executed against the built image (onboarding → add library over a real folder → scan → processed docs → search → scan-set merge) and recorded in the PR; root `README.md` quickstart verified; tag `v0.1.0` → GHCR image with semver tag; CLAUDE.md updated with the real build/lint/test commands (closing the "Project status" placeholder).

@@ -4,11 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-There is no code yet. The **specification is complete** (documents 01–14 in `docs/`, all open
-questions resolved) and the **backlog is ready**: `docs/tasks/backlog.md` (milestones M0–M9) with the
-execution rules in `docs/tasks/README.md`. Implementation = take the first unchecked task, one task
-per PR, tick it off in the same PR. Once scaffolding (M0.1) lands, add the real build/lint/test
-commands here.
+**v0.1.0 — the backlog M0–M9 is implemented**: `docs/tasks/backlog.md` is fully ticked, and every
+mandatory scenario of `docs/14 §14.8` is mapped to a test in `docs/tasks/scenario-coverage.md`. The
+specification (documents 01–14 in `docs/`) remains the source of truth; new work continues the same
+way — take the first unchecked task, one task per PR, tick it off in the same PR.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | one process on :3000 (Express + Nest `/api` + Next) — needs `npm run dev:up` |
+| `npm run dev:up` / `dev:down` | the dev dependencies in Docker: PostgreSQL+pgvector, Stirling-PDF, MinIO |
+| `npm run build` | `next build`, then the server into `dist/` |
+| `npm run typecheck` | `tsc --noEmit` over the app, the server and the tests — **run before every commit** |
+| `npm run lint` / `lint:fix` | ESLint (layer boundaries included) + Prettier |
+| `npm test` | the whole suite (unit + integration + e2e) against the dev PostgreSQL |
+| `npm run test:coverage` | the same with the ≥90% line floor on `domain` + `application`; this is what CI runs |
+| `npm run db:migrate` | apply migrations forward (also what the container does on start) |
+| `npm run db:migrate:dev` | author a new migration from a schema change |
+| `npm run db:seed` | idempotent dev seed: `admin@legere.local` / `password` |
+
+A single test file: `npx vitest run --project server <path>` (`--project web` for `src/web`). The
+MinIO- and Stirling-backed integration suites skip themselves when those containers are not up.
 
 ## Golden rules
 
