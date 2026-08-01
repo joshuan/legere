@@ -245,7 +245,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 ## M9 — Hardening & release
 
-- [ ] **M9.1 — Maintenance job + admin metrics**
+- [x] **M9.1 — Maintenance job + admin metrics**
   **Goal:** the instance stays clean and observable.
   **Docs:** [`05 §5.4`](../05-library-and-processing.md#54-job-queue-pg-boss), [`06 §6.3.2`](../06-backend-architecture.md#632-job-handlers), [`09 §9.5`](../09-file-storage.md#95-operational-notes)
   **Acceptance:** hourly cron purges expired EmailVerifications/invites/resets and orphaned S3 objects; S3 usage aggregation cached and shown on the queue overview; pipeline/document counters on the overview match reality (test).

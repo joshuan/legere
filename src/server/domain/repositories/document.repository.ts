@@ -190,6 +190,11 @@ export abstract class DocumentRepository {
   // Soft delete (ADR-015): the row stays, and every route stops finding it.
   abstract softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void>;
 
+  // Which of these ids exist as rows at all — soft-deleted ones included, because their artifacts
+  // are deliberately retained (docs/09 §9.2). Maintenance uses it to tell an orphaned S3 object
+  // from one that still belongs to a document.
+  abstract filterExistingIds(ids: string[], tx?: TransactionHandle): Promise<string[]>;
+
   abstract findActiveByContentHash(
     contentHash: string,
     tx?: TransactionHandle,

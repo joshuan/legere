@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 import { buffer as readToBuffer } from 'node:stream/consumers';
-import { FileStorage } from '../../application/ports/file-storage';
+import { FileStorage, type StoredObjectInfo } from '../../application/ports/file-storage';
 
 export type StoredObject = {
   body: Buffer;
@@ -38,6 +38,14 @@ export class InMemoryFileStorage extends FileStorage {
   delete(key: string): Promise<void> {
     this.objects.delete(key);
     return Promise.resolve();
+  }
+
+  list(prefix: string): Promise<StoredObjectInfo[]> {
+    const listed: StoredObjectInfo[] = [];
+    for (const [key, stored] of this.objects) {
+      if (key.startsWith(prefix)) listed.push({ key, size: stored.body.byteLength });
+    }
+    return Promise.resolve(listed.sort((a, b) => a.key.localeCompare(b.key)));
   }
 
   // Test-side reads.

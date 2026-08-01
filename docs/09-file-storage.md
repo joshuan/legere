@@ -67,6 +67,7 @@ abstract class FileStorage {
   abstract getSignedUrl(key: string, ttlSec: number): Promise<string>;
   abstract exists(key: string): Promise<boolean>;
   abstract delete(key: string): Promise<void>;                   // maintenance only
+  abstract list(prefix: string): Promise<{ key: string; size: number }[]>;  // maintenance only
 }
 ```
 
@@ -85,7 +86,9 @@ tests for `S3FileStorage` run against MinIO locally ([`14 §14.8`](./14-coding-s
 - Backup = PostgreSQL dump + S3 bucket sync. The library volume is the user's own data, outside
   Legere's responsibility.
 - Bucket size and object counts surface in the admin panel (via `ListObjectsV2` aggregation cached
-  hourly by `maintenance`).
+  hourly by `maintenance` in process memory — one process serves the instance, so the cache needs no
+  store of its own; it reads `null` until the first run rather than pretending the bucket is empty).
+  The same listing feeds the orphan sweep above, so housekeeping costs one full listing per hour.
 - S3 outage: uploads fail → jobs retry with backoff; signed-URL issuance fails → viewer shows the
   error state; the API and library streaming keep working.
 

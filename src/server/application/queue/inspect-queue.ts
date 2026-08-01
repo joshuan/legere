@@ -5,6 +5,7 @@ import type {
 } from '../../../shared/contracts/queue';
 import { NotFoundError } from '../../domain/errors/domain-error';
 import type { DocumentRepository } from '../../domain/repositories/document.repository';
+import type { MetricsCache } from '../ports/metrics-cache';
 import type { QueueMonitor } from '../ports/queue-monitor';
 
 // GET /api/admin/queue/overview (docs/07 §7.3, docs/05 §5.8): what the queue is doing right now,
@@ -13,6 +14,7 @@ export class GetQueueOverview {
   constructor(
     private readonly monitor: QueueMonitor,
     private readonly documents: DocumentRepository,
+    private readonly metrics: MetricsCache,
   ) {}
 
   async execute(): Promise<QueueOverviewResponse> {
@@ -29,6 +31,9 @@ export class GetQueueOverview {
         // a card that disappears when it reaches zero is worse than one showing zero.
         steps: DOCUMENT_STEPS.map((step) => ({ step, counts: counters.steps[step] })),
       },
+      // Null until maintenance has run once: an honest "not measured yet" beats a zero that looks
+      // like an empty bucket (docs/09 §9.5).
+      storage: this.metrics.getStorageUsage(),
     };
   }
 }

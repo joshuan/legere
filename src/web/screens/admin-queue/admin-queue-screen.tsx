@@ -18,7 +18,7 @@ import { useTranslations } from 'next-intl';
 import { useCallback, useState } from 'react';
 import type { FailedJobDto, StepCountersDto } from '../../../shared/contracts/queue';
 import { queueApi, queueKeys } from '../../entities/queue';
-import { useErrorMessage } from '../../shared/lib';
+import { formatBytes, useErrorMessage } from '../../shared/lib';
 
 // The queue moves on its own, so the view follows it (docs/11 §11.13). Pausing matters: reading a
 // long error message while the table reorders underneath is the opposite of useful.
@@ -60,6 +60,9 @@ export function AdminQueueScreen() {
       void message.error(describeError(error));
     },
   });
+
+  // Refreshed hourly by `maintenance`, so it is null on a fresh instance (docs/09 §9.5).
+  const storage = overview.data?.storage ?? null;
 
   const failureColumns = [
     {
@@ -158,6 +161,29 @@ export function AdminQueueScreen() {
             </Col>
           ))}
         </Row>
+      </Card>
+
+      <Card title={t('admin.queue.storage.title')} loading={overview.isPending}>
+        {storage === null ? (
+          // Honest until maintenance has run once: a zero here would read as an empty bucket.
+          <Typography.Text type="secondary">{t('admin.queue.storage.pending')}</Typography.Text>
+        ) : (
+          <Space size="large" wrap>
+            <Statistic title={t('admin.queue.storage.objects')} value={storage.objects} />
+            {/* Through the formatter, not as a value: Statistic splits a value on its decimal
+                separator to style the fraction, which would break "1.8 GB" into two spans. */}
+            <Statistic
+              title={t('admin.queue.storage.size')}
+              value={storage.bytes}
+              formatter={() => formatBytes(storage.bytes)}
+            />
+            <Typography.Text type="secondary">
+              {t('admin.queue.storage.measuredAt', {
+                time: new Date(storage.measuredAt).toLocaleString(),
+              })}
+            </Typography.Text>
+          </Space>
+        )}
       </Card>
 
       <Card title={t('admin.queue.failures.title')}>

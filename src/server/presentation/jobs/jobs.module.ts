@@ -2,12 +2,14 @@ import { Module, type OnModuleInit } from '@nestjs/common';
 import { HandleDocumentProcess } from '../../application/jobs/handle-document-process';
 import { HandleFileIngest } from '../../application/jobs/handle-file-ingest';
 import { HandleLibraryScan } from '../../application/jobs/handle-library-scan';
+import { HandleMaintenance } from '../../application/jobs/handle-maintenance';
 import { HandleScanSetMerge } from '../../application/jobs/handle-scanset-merge';
 import type { ProcessingSettings } from '../../application/jobs/processing-settings';
 import { Clock } from '../../application/ports/clock';
 import { DocumentClassifier } from '../../application/ports/document-classifier';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
 import { FileStorage } from '../../application/ports/file-storage';
+import { MetricsCache } from '../../application/ports/metrics-cache';
 import { ImageTool } from '../../application/ports/image-tool';
 import { JobQueue } from '../../application/ports/job-queue';
 import { LibraryReader } from '../../application/ports/library-reader';
@@ -18,6 +20,9 @@ import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { CategoryRepository } from '../../domain/repositories/category.repository';
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
+import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
+import { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
+import { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
 import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
@@ -179,8 +184,36 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         UnitOfWork,
       ],
     },
+    {
+      provide: HandleMaintenance,
+      useFactory: (
+        verifications: EmailVerificationRepository,
+        invites: UserInviteRepository,
+        resets: PasswordResetRepository,
+        documents: DocumentRepository,
+        files: FileStorage,
+        metrics: MetricsCache,
+        clock: Clock,
+      ): HandleMaintenance =>
+        new HandleMaintenance(verifications, invites, resets, documents, files, metrics, clock),
+      inject: [
+        EmailVerificationRepository,
+        UserInviteRepository,
+        PasswordResetRepository,
+        DocumentRepository,
+        FileStorage,
+        MetricsCache,
+        Clock,
+      ],
+    },
   ],
-  exports: [HandleLibraryScan, HandleFileIngest, HandleDocumentProcess, HandleScanSetMerge],
+  exports: [
+    HandleLibraryScan,
+    HandleFileIngest,
+    HandleDocumentProcess,
+    HandleScanSetMerge,
+    HandleMaintenance,
+  ],
 })
 export class JobsModule implements OnModuleInit {
   constructor(private readonly workers: WorkerRegistry) {}
@@ -196,6 +229,8 @@ export class JobsModule implements OnModuleInit {
       { queue: 'document-process', handler: HandleDocumentProcess },
       // One merge per scan set at a time, enforced by the queue's stately policy (docs/06 §6.8).
       { queue: 'scanset-merge', handler: HandleScanSetMerge, concurrency: 1 },
+      // Hourly housekeeping (docs/06 §6.8): expired credentials out, bucket usage measured.
+      { queue: 'maintenance', handler: HandleMaintenance, concurrency: 1 },
     );
   }
 }

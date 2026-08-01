@@ -27,6 +27,7 @@ const overview = {
       { step: 'vectorization', counts: { SKIPPED: 12, PENDING: 0, DONE: 0, FAILED: 0 } },
     ],
   },
+  storage: { objects: 34, bytes: '1932735283', measuredAt: '2026-01-02T09:00:00.000Z' },
 };
 
 const failure = {
@@ -82,6 +83,27 @@ describe('AdminQueueScreen', () => {
     if (!(markdown instanceof HTMLElement)) throw new Error('expected the markdown step card');
     expect(within(markdown).queryByText('PENDING')).not.toBeInTheDocument();
     expect(within(markdown).getByText('DONE')).toBeInTheDocument();
+  });
+
+  it('shows what the bucket holds, scaled to something readable', async () => {
+    renderWithProviders(<AdminQueueScreen />);
+
+    expect(await screen.findByText('34')).toBeInTheDocument();
+    // 1_932_735_283 bytes is 1.8 GB — printed in the unit a human reads, not in bytes.
+    expect(screen.getByText('1.8 GB')).toBeInTheDocument();
+    expect(screen.getByText(enMessages.admin.queue.storage.objects)).toBeInTheDocument();
+  });
+
+  it('says the bucket has not been measured instead of showing a zero', async () => {
+    server.use(
+      http.get('/api/admin/queue/overview', () =>
+        HttpResponse.json(envelope({ ...overview, storage: null })),
+      ),
+    );
+
+    renderWithProviders(<AdminQueueScreen />);
+
+    expect(await screen.findByText(enMessages.admin.queue.storage.pending)).toBeInTheDocument();
   });
 
   it('lists a failure with its payload and retry count', async () => {

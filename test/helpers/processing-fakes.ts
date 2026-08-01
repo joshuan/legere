@@ -132,6 +132,10 @@ export class InMemoryDocumentRepository extends DocumentRepository {
     return Promise.resolve(updated);
   }
 
+  filterExistingIds(ids: string[]): Promise<string[]> {
+    return Promise.resolve(ids.filter((id) => this.documents.has(id)));
+  }
+
   findActiveByContentHash(contentHash: string): Promise<Document | null> {
     return Promise.resolve(
       [...this.documents.values()].find(

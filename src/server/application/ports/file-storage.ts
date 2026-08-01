@@ -17,4 +17,15 @@ export abstract class FileStorage {
 
   // Maintenance only: artifacts of soft-deleted documents are retained (docs/09 §9.2).
   abstract delete(key: string): Promise<void>;
+
+  // Everything under a prefix, in one shot. Maintenance only (docs/09 §9.5): it is a full listing of
+  // the bucket, which is why it runs hourly on a cron and not on a request path. One listing answers
+  // both questions maintenance has — what is orphaned, and how much the bucket holds.
+  abstract list(prefix: string): Promise<StoredObjectInfo[]>;
 }
+
+export type StoredObjectInfo = {
+  key: string;
+  // A single object's size always fits a JS number; totals are summed as BigInt by the caller.
+  size: number;
+};

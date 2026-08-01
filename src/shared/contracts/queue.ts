@@ -19,12 +19,21 @@ export const stepCountersSchema = z.object({
 });
 export type StepCountersDto = z.infer<typeof stepCountersSchema>;
 
+// What the bucket holds, as of the last maintenance run; null until the first one (docs/09 §9.5).
+export const storageUsageSchema = z.object({
+  objects: z.number().int().nonnegative(),
+  bytes: z.string(),
+  measuredAt: z.string().datetime(),
+});
+export type StorageUsageDto = z.infer<typeof storageUsageSchema>;
+
 export const queueOverviewResponseSchema = z.object({
   queues: z.array(queueDepthSchema),
   documents: z.object({
     total: z.number().int().nonnegative(),
     steps: z.array(stepCountersSchema),
   }),
+  storage: storageUsageSchema.nullable(),
 });
 export type QueueOverviewResponse = z.infer<typeof queueOverviewResponseSchema>;
 

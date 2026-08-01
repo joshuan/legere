@@ -1,9 +1,11 @@
 import { Global, Module } from '@nestjs/common';
 import { FileStorage } from '../../application/ports/file-storage';
+import { MetricsCache } from '../../application/ports/metrics-cache';
 import { LibraryReader } from '../../application/ports/library-reader';
 import { MimeDetector } from '../../application/ports/mime-detector';
 import { FileTypeMimeDetector } from '../library/file-type-mime-detector';
 import { FsLibraryReader } from '../library/fs-library-reader';
+import { InMemoryMetricsCache } from './in-memory-metrics-cache';
 import { S3FileStorage } from './s3-file-storage';
 
 // The two storages of docs/09 behind one module (docs/06 §6.5): the read-only library volume and
@@ -13,9 +15,10 @@ import { S3FileStorage } from './s3-file-storage';
 @Module({
   providers: [
     { provide: FileStorage, useClass: S3FileStorage },
+    { provide: MetricsCache, useClass: InMemoryMetricsCache },
     { provide: LibraryReader, useClass: FsLibraryReader },
     { provide: MimeDetector, useClass: FileTypeMimeDetector },
   ],
-  exports: [FileStorage, LibraryReader, MimeDetector],
+  exports: [FileStorage, MetricsCache, LibraryReader, MimeDetector],
 })
 export class StorageModule {}

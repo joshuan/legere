@@ -7,6 +7,7 @@ import {
   retryJobResponseSchema,
 } from '../../src/shared/contracts/queue';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
+import { HandleMaintenance } from '../../src/server/application/jobs/handle-maintenance';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
@@ -209,6 +210,61 @@ describe('Reprocess and queue administration (e2e)', () => {
       const preview = overview.documents.steps.find((entry) => entry.step === 'preview');
       expect(preview?.counts.DONE).toBe(1);
       expect(preview?.counts.FAILED).toBe(0);
+    });
+
+    it('counts every step of every document, matching what the database holds', async () => {
+      await givenProcessedDocument();
+      // A second document mid-pipeline: preview done, the rest still to come.
+      await testPrisma().document.create({
+        data: {
+          contentHash: `${seq}`.padStart(64, 'b'),
+          source: 'LIBRARY',
+          mimeType: 'application/pdf',
+          ext: 'pdf',
+          sizeBytes: 10n,
+          title: 'Half-way',
+          previewStatus: 'DONE',
+          markdownStatus: 'FAILED',
+        },
+      });
+      // A soft-deleted one, which the counters must not include.
+      await testPrisma().document.create({
+        data: {
+          contentHash: `${seq}`.padStart(64, 'c'),
+          source: 'LIBRARY',
+          mimeType: 'application/pdf',
+          ext: 'pdf',
+          sizeBytes: 10n,
+          title: 'Deleted',
+          previewStatus: 'DONE',
+          deletedAt: new Date(),
+        },
+      });
+
+      const res = await api(app).get('/api/admin/queue/overview').set('Cookie', adminCookie);
+
+      const overview = expectData(res, queueOverviewResponseSchema);
+      expect(overview.documents.total).toBe(2);
+      const counts = (step: string) =>
+        overview.documents.steps.find((entry) => entry.step === step)?.counts;
+      expect(counts('preview')).toMatchObject({ DONE: 2, PENDING: 0 });
+      expect(counts('markdown')).toMatchObject({ DONE: 1, FAILED: 1 });
+      expect(counts('canonical')).toMatchObject({ SKIPPED: 1, PENDING: 1 });
+      expect(counts('vectorization')).toMatchObject({ DONE: 1, PENDING: 1 });
+    });
+
+    it('reports storage only once maintenance has measured it', async () => {
+      const before = await api(app).get('/api/admin/queue/overview').set('Cookie', adminCookie);
+      // 🔒 Honest on a fresh instance: nothing has counted the bucket yet (docs/09 §9.5).
+      expect(expectData(before, queueOverviewResponseSchema).storage).toBeNull();
+
+      await app.files.put('documents/dangling/preview.jpg', Buffer.alloc(64), 'image/jpeg');
+      await app.nestApp.get(HandleMaintenance).handle();
+
+      const after = await api(app).get('/api/admin/queue/overview').set('Cookie', adminCookie);
+      const storage = expectData(after, queueOverviewResponseSchema).storage;
+      expect(storage).toMatchObject({ objects: 1, bytes: '64' });
+      expect(Date.parse(storage?.measuredAt ?? '')).toBeGreaterThan(0);
     });
 
     it('counts a queued job in its own queue', async () => {

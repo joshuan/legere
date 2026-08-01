@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthenticateSession } from '../../application/auth/authenticate-session';
 import { Clock } from '../../application/ports/clock';
+import { MetricsCache } from '../../application/ports/metrics-cache';
 import { QueueMonitor } from '../../application/ports/queue-monitor';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import {
@@ -31,9 +32,12 @@ import { AdminQueueController } from './admin-queue.controller';
     },
     {
       provide: GetQueueOverview,
-      useFactory: (monitor: QueueMonitor, documents: DocumentRepository): GetQueueOverview =>
-        new GetQueueOverview(monitor, documents),
-      inject: [QueueMonitor, DocumentRepository],
+      useFactory: (
+        monitor: QueueMonitor,
+        documents: DocumentRepository,
+        metrics: MetricsCache,
+      ): GetQueueOverview => new GetQueueOverview(monitor, documents, metrics),
+      inject: [QueueMonitor, DocumentRepository, MetricsCache],
     },
     {
       provide: ListQueueFailures,

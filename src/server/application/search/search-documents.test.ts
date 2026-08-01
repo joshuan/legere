@@ -63,6 +63,9 @@ class StubSearchRepository extends DocumentRepository {
   softDelete() {
     return notUsed();
   }
+  filterExistingIds() {
+    return notUsed();
+  }
   findActiveByContentHash() {
     return notUsed();
   }

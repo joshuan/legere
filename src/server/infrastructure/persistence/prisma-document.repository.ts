@@ -622,6 +622,16 @@ export class PrismaDocumentRepository implements DocumentRepository {
     });
   }
 
+  // No `deletedAt` filter on purpose: a soft-deleted document still owns its artifacts.
+  async filterExistingIds(ids: string[], tx?: TransactionHandle): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows = await clientOf(this.prisma, tx).document.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
   async findActiveByContentHash(
     contentHash: string,
     tx?: TransactionHandle,

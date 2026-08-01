@@ -263,6 +263,13 @@
         "title": "Documents in the pipeline",
         "total": "{count} documents"
       },
+      "storage": {
+        "title": "S3 storage",
+        "objects": "Objects",
+        "size": "Size",
+        "measuredAt": "Measured at {time}",
+        "pending": "Not measured yet — the hourly maintenance job has not run since startup."
+      },
       "failures": {
         "title": "Failures",
         "empty": "No failed jobs",

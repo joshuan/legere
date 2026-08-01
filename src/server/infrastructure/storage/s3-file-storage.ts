@@ -3,12 +3,13 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   S3Client,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl as presign } from '@aws-sdk/s3-request-presigner';
 import { Injectable } from '@nestjs/common';
-import { FileStorage } from '../../application/ports/file-storage';
+import { FileStorage, type StoredObjectInfo } from '../../application/ports/file-storage';
 import { AppConfig } from '../config/app-config';
 
 // Bodies above this go up as a multipart upload, smaller ones as a single PutObject — the `Upload`
@@ -80,6 +81,31 @@ export class S3FileStorage extends FileStorage {
 
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
+
+  // ListObjectsV2 pages through the prefix (docs/09 §9.5), 1000 keys at a time. Keys without a name
+  // or a size cannot happen on a real bucket, but the SDK types them optional, so they are skipped
+  // rather than asserted away.
+  async list(prefix: string): Promise<StoredObjectInfo[]> {
+    const objects: StoredObjectInfo[] = [];
+    let token: string | undefined;
+
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          ...(prefix === '' ? {} : { Prefix: prefix }),
+          ...(token === undefined ? {} : { ContinuationToken: token }),
+        }),
+      );
+      for (const object of page.Contents ?? []) {
+        if (object.Key === undefined) continue;
+        objects.push({ key: object.Key, size: object.Size ?? 0 });
+      }
+      token = page.IsTruncated === true ? page.NextContinuationToken : undefined;
+    } while (token !== undefined);
+
+    return objects;
   }
 }
 

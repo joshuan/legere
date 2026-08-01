@@ -147,6 +147,19 @@ describe('S3FileStorage (integration, MinIO)', () => {
     await expect(files.getStream(artifactKeys.thumbnail(documentId))).rejects.toThrow();
   });
 
+  itWithMinio('lists a prefix with the size of every object under it', async () => {
+    await files.put(previewKey, Buffer.from('rewritten'), 'image/jpeg');
+
+    const listed = await files.list(`documents/${documentId}/`);
+
+    // Only this run's objects: the dev bucket holds whatever earlier work left in it.
+    expect(listed.map((object) => object.key).sort()).toEqual([canonicalKey, previewKey]);
+    expect(listed.find((object) => object.key === previewKey)?.size).toBe(9);
+    expect(listed.find((object) => object.key === canonicalKey)?.size).toBe(9 * 1024 * 1024);
+    // And the whole-bucket listing maintenance actually runs contains them too (docs/09 §9.5).
+    expect((await files.list('')).map((object) => object.key)).toContain(previewKey);
+  });
+
   itWithMinio('deletes an object, and deleting again is not an error', async () => {
     await files.put(artifactKeys.thumbnail(documentId), Buffer.from('thumb'), 'image/jpeg');
 
