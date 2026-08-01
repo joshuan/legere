@@ -26,6 +26,11 @@ import { disconnectTestPrisma, truncateAll } from '../helpers/db';
 
 // The core promise of the product (docs/05 §5.2–5.4, §5.7, docs/03 §3.3.9–3.3.10): a mounted folder
 // becomes deduplicated documents. Exercised over real files with the real database and queue.
+// chmod 000 means nothing to root: the directory stays readable, and the two tests below would fail
+// for a reason that is not about the code. CI runs as an ordinary user; a root container (or a
+// devcontainer) skips them instead of reporting a false failure.
+const RUNNING_AS_ROOT = typeof process.getuid === 'function' && process.getuid() === 0;
+
 describe('Scan and ingest (integration)', () => {
   let root: string;
   let prisma: PrismaService;
@@ -296,7 +301,8 @@ describe('Scan and ingest (integration)', () => {
       expect(await prisma.scanRun.count()).toBe(1);
     });
 
-    it('records an unreadable directory in the journal without failing the scan', async () => {
+    it('records an unreadable directory in the journal without failing the scan', async (ctx) => {
+      if (RUNNING_AS_ROOT) ctx.skip('running as root — permission bits do not apply');
       const libraryId = await createLibrary();
       await writeFixture('readable.txt', 'ok');
       const locked = join(root, 'locked');

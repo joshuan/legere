@@ -75,9 +75,17 @@ after everything above had been processed, cached
 `mc ls -r` and `mc du` report for the bucket (16 objects, 265 KiB). Nothing was swept: every object
 belongs to a document that exists.
 
+## The CI job list, on linux
+
+The same reasoning applies to the build that will publish the image: `npm ci`, `db:generate`,
+`db:migrate`, `typecheck`, `lint`, `test:coverage`, `build` were run inside `node:26.5.1` against the
+compose PostgreSQL, as an ordinary user. Everything passes — 630 tests, 97.98% of lines on
+domain+application, and the Next/server build — but only after the two fixes below.
+
 ## Things this turned up
 
-Two defects, both fixed before the tag, both invisible to the test suite:
+Three defects, all fixed before the tag, none of them visible to `npm test` on a developer's
+machine:
 
 1. **`npm ci` could not run on linux** — the lock file was missing `@emnapi/*` versions pinned by two
    wasm32-wasi optional bindings. macOS never resolves those, so it passed locally while CI and every
@@ -85,6 +93,11 @@ Two defects, both fixed before the tag, both invisible to the test suite:
 2. **A malformed path id answered 500** (or `400 INTERNAL` where Nest's `ParseUUIDPipe` was used)
    instead of the 404 `docs/07 §7.1` requires. Found by mistyping a URL. Fixed with a `UuidParam`
    pipe across every `:id` route, plus per-resource e2e assertions.
+3. **Eight component tests failed under coverage on a slower machine** — Vitest's 5 s default is a
+   dev-laptop assumption, and M9.2 had just pointed CI at `npm run test:coverage`. The default is now
+   20 s per project; the tests that wait on purpose keep their own longer timeouts. Two integration
+   tests that `chmod 000` a directory also fail as root, who ignores permission bits, and now skip
+   with a reason instead.
 
 Two notes for whoever deploys it, neither a defect:
 

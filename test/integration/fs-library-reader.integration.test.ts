@@ -9,6 +9,11 @@ import { FsLibraryReader } from '../../src/server/infrastructure/library/fs-libr
 
 // Integration coverage over real files (docs/14 §14.8): the walker, the exclusion rules and the
 // traversal/symlink guards of docs/09 §9.1.
+// chmod 000 means nothing to root: the directory stays readable, and the two tests below would fail
+// for a reason that is not about the code. CI runs as an ordinary user; a root container (or a
+// devcontainer) skips them instead of reporting a false failure.
+const RUNNING_AS_ROOT = typeof process.getuid === 'function' && process.getuid() === 0;
+
 describe('FsLibraryReader (integration)', () => {
   let root: string;
   let outside: string;
@@ -166,7 +171,8 @@ describe('FsLibraryReader (integration)', () => {
     expect(await reader.isDirectory(RelativePath.root())).toBe(true);
   });
 
-  it('records an unreadable directory as an error and keeps scanning', async () => {
+  it('records an unreadable directory as an error and keeps scanning', async (ctx) => {
+    if (RUNNING_AS_ROOT) ctx.skip('running as root — permission bits do not apply');
     const locked = join(root, 'locked');
     await mkdir(locked, { recursive: true });
     await writeFile(join(locked, 'file.pdf'), 'x');

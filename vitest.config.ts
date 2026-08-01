@@ -8,6 +8,13 @@ import { defineConfig } from 'vitest/config';
 // unplugin-swc does not read `.swcrc` automatically.
 const { jsc } = JSON.parse(readFileSync(new URL('./.swcrc', import.meta.url), 'utf8'));
 
+// Vitest's 5 s default is a dev-laptop assumption. Under coverage instrumentation on a two-core CI
+// runner, ordinary antd component tests cross it — they render a whole design-system tree per
+// interaction — and a green suite turns red for no reason anyone can act on. Tests that wait on
+// purpose (a real 5 s poll interval) still declare their own longer timeout at the call site.
+// Spread into every project: a project's `test` block does not inherit the root one.
+const TIMEOUTS = { testTimeout: 20_000, hookTimeout: 20_000 } as const;
+
 export default defineConfig({
   test: {
     // The acceptance floor of docs/14 §14.8: the two framework-free layers, where the rules of the
@@ -33,6 +40,7 @@ export default defineConfig({
           name: 'server',
           environment: 'node',
           globals: true,
+          ...TIMEOUTS,
           // Child processes, kept apart from the web project's worker threads: msw patches Node's
           // http layer, and any shared runtime lets that interception swallow supertest's own
           // requests, which then fail to parse their responses.
@@ -52,6 +60,7 @@ export default defineConfig({
           name: 'web',
           environment: 'jsdom',
           globals: true,
+          ...TIMEOUTS,
           pool: 'threads',
           setupFiles: ['./test/setup.web.ts'],
           include: ['src/web/**/*.test.{ts,tsx}', 'src/app/**/*.test.{ts,tsx}'],
