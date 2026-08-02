@@ -21,13 +21,16 @@ const PART_CONCURRENCY = 4;
 @Injectable()
 export class S3FileStorage extends FileStorage {
   private readonly client: S3Client;
+  // Signs the URLs clients follow. The same client unless S3_PUBLIC_ENDPOINT says the bucket answers
+  // on a different name outside the server's network: the host is part of what gets signed, so a URL
+  // signed for `minio:9000` is rejected when a browser asks `localhost:9000` for it (docs/09 §9.2).
+  private readonly presigner: S3Client;
   private readonly bucket: string;
 
   constructor(config: AppConfig) {
     super();
     this.bucket = config.get('S3_BUCKET');
-    this.client = new S3Client({
-      endpoint: config.get('S3_ENDPOINT'),
+    const options = {
       region: config.get('S3_REGION'),
       // MinIO serves buckets as a path segment; virtual-host style would need per-bucket DNS.
       forcePathStyle: config.get('S3_FORCE_PATH_STYLE'),
@@ -35,7 +38,11 @@ export class S3FileStorage extends FileStorage {
         accessKeyId: config.get('S3_ACCESS_KEY_ID'),
         secretAccessKey: config.get('S3_SECRET_ACCESS_KEY'),
       },
-    });
+    };
+    const publicEndpoint = config.get('S3_PUBLIC_ENDPOINT');
+    this.client = new S3Client({ ...options, endpoint: config.get('S3_ENDPOINT') });
+    this.presigner =
+      publicEndpoint === '' ? this.client : new S3Client({ ...options, endpoint: publicEndpoint });
   }
 
   async put(key: string, body: Readable | Buffer, contentType: string): Promise<void> {
@@ -62,7 +69,7 @@ export class S3FileStorage extends FileStorage {
   }
 
   getSignedUrl(key: string, ttlSec: number): Promise<string> {
-    return presign(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: key }), {
+    return presign(this.presigner, new GetObjectCommand({ Bucket: this.bucket, Key: key }), {
       expiresIn: ttlSec,
     });
   }

@@ -40,6 +40,11 @@ export const configSchema = z.object({
 
   // S3 (derived artifacts)
   S3_ENDPOINT: z.string().url().default('http://localhost:9000'),
+  // The endpoint browsers use, when it differs from the one the server uses — a bundled MinIO is
+  // reachable as `http://minio:9000` inside the compose network and as `http://localhost:9000` from
+  // the outside, and a presigned URL is only valid for the host it was signed against (docs/09 §9.2).
+  // Empty = the two are the same.
+  S3_PUBLIC_ENDPOINT: z.string().default(''),
   S3_REGION: z.string().min(1).default('us-east-1'),
   S3_BUCKET: z.string().min(1).default('legere'),
   S3_ACCESS_KEY_ID: z.string().min(1).default('legere'),

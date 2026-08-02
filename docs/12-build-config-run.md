@@ -69,6 +69,7 @@ LIBRARY_ROOT=/library                        # dev compose mounts ./dev-library 
 
 # --- S3 (derived artifacts; dev values match the compose MinIO) ---
 S3_ENDPOINT=http://localhost:9000
+S3_PUBLIC_ENDPOINT=                          # empty = same as S3_ENDPOINT; set it when browsers reach the bucket under another name (09 §9.2)
 S3_REGION=us-east-1
 S3_BUCKET=legere
 S3_ACCESS_KEY_ID=legere
@@ -178,58 +179,36 @@ EXPOSE 80
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server/main.js"]
 ```
 
-## 12.7. Deployment example (illustration — keep OUTSIDE the repository)
+## 12.7. Deployment (`deploy/`, shipped with the repository)
 
-One app container + PostgreSQL; library mounted `:ro`; S3 and TLS termination are external.
+`deploy/docker-compose.yaml` + `deploy/.env.example` are the supported way to run Legere, and the
+root `README.md` quickstart is one `curl` of those two files followed by `docker compose up -d`. They
+ship **in** the repository on purpose: a self-hosted product whose install instructions are "write
+your own compose file" is a product nobody installs. What must never ship is a secret — the example
+file holds placeholders and instructions to generate them, and the operator's real `.env` is
+gitignored.
 
-```yaml
-# docker-compose.deploy.yml — EXAMPLE. Secrets from a secret manager, not from this file.
-services:
-  db:
-    image: pgvector/pgvector:pg16
-    environment:
-      POSTGRES_USER: legere
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: legere
-    volumes: ['db-data:/var/lib/postgresql/data']    # do not expose the DB port
+The stack is self-contained: the app, PostgreSQL with pgvector, Stirling-PDF, and MinIO with a
+one-shot bucket init. Only the app and MinIO publish a port; the database and Stirling stay on the
+internal network. Migrations apply themselves on start (§12.6). Pointing `S3_*` at a managed object
+store and deleting the two MinIO services is a supported edit, and is what a larger deployment does.
 
-  stirling:
-    image: stirlingtools/stirling-pdf:latest         # internal network only
-    environment: { SECURITY_ENABLELOGIN: 'false', SYSTEM_ENABLEANALYTICS: 'false' }
+Two settings decide whether a fresh install works, and both are the first thing `.env.example`
+explains:
 
-  app:
-    image: ghcr.io/<owner>/legere:latest             # built by CI (docs/13)
-    depends_on: [db, stirling]
-    environment:
-      NODE_ENV: production
-      PORT: 80
-      APP_BASE_URL: https://legere.example.com
-      DATABASE_URL: postgresql://legere:${POSTGRES_PASSWORD}@db:5432/legere?schema=public
-      AUTH_SECRET: ${AUTH_SECRET}
-      COOKIE_DOMAIN: legere.example.com
-      LIBRARY_ROOT: /library
-      STIRLING_URL: http://stirling:8080
-      S3_ENDPOINT: https://storage.example-s3.com
-      S3_REGION: ${S3_REGION}
-      S3_BUCKET: ${S3_BUCKET}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
-      SMTP_HOST: ${SMTP_HOST}
-      SMTP_USER: ${SMTP_USER}
-      SMTP_PASSWORD: ${SMTP_PASSWORD}
-      SMTP_FROM: 'Legere <no-reply@legere.example.com>'
-      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY}
-      EMBEDDINGS_API_BASE_URL: ${EMBEDDINGS_API_BASE_URL}
-      EMBEDDINGS_API_KEY: ${EMBEDDINGS_API_KEY}
-    volumes:
-      - /mnt/documents:/library:ro                   # THE external library (read-only!)
-    ports: ['80']                                    # external ingress terminates TLS
+- `LIBRARY_PATH` — the folder mounted at `/library`, **read-only**. It is the operator's own document
+  storage; Legere never writes there ([`09 §9.1`](./09-file-storage.md)).
+- `S3_PUBLIC_ENDPOINT` — how the *browser* reaches the bucket. The server talks to `http://minio:9000`
+  inside the compose network, but a presigned URL is only valid for the host it was signed against,
+  so previews stay blank unless this names the outside address ([`09 §9.2`](./09-file-storage.md)).
 
-volumes: { db-data: {} }
-```
+Beyond that: `APP_BASE_URL` must match what the browser shows (the CSRF origin check is fail-closed),
+and the `sid` cookie is `Secure` in production — over plain HTTP only `localhost` works, anything
+else needs TLS in front (§12.8).
 
-Start: `docker compose -f docker-compose.deploy.yml up -d`. Migrations apply automatically on start.
-Liveness probe: `GET /api/health`.
+The compose project is named `legere`. Running it from a clone of this repository collides with the
+development stack of §12.5, which takes the same name from its directory — use
+`docker compose -p <other-name>` there.
 
 ## 12.8. Production notes
 

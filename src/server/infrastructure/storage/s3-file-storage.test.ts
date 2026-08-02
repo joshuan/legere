@@ -56,6 +56,27 @@ describe('S3FileStorage', () => {
       expect(url.pathname).toBe('/documents/doc-1/thumb.jpg');
     });
 
+    it('signs against the endpoint browsers use when that differs from the internal one', async () => {
+      const url = new URL(
+        await storage({
+          S3_ENDPOINT: 'http://minio:9000',
+          S3_PUBLIC_ENDPOINT: 'https://files.example.com',
+        }).getSignedUrl('documents/doc-1/preview.jpg', 300),
+      );
+
+      // 🔒 The host is part of the signature: a URL signed for `minio:9000` is rejected the moment a
+      // browser asks `files.example.com` for it (docs/09 §9.2).
+      expect(url.origin).toBe('https://files.example.com');
+      expect(url.pathname).toBe('/legere/documents/doc-1/preview.jpg');
+      expect(url.searchParams.get('X-Amz-Signature')).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    it('keeps signing against the only endpoint there is when no public one is set', async () => {
+      const url = new URL(await storage().getSignedUrl('documents/doc-1/preview.jpg', 300));
+
+      expect(url.origin).toBe('http://localhost:9000');
+    });
+
     it('signs a different URL per key, so one URL never grants access to another artifact', async () => {
       const files = storage();
       const [preview, thumb] = await Promise.all([

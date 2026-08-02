@@ -1,0 +1,125 @@
+# Legere — a self-contained deployment (docs/12 §12.7).
+#
+#   curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/{docker-compose.yaml,.env.example} -o docker-compose.yaml -o .env
+#   $EDITOR .env          # LIBRARY_PATH and the two secrets, at least
+#   docker compose up -d
+#
+# Everything the app needs runs here: PostgreSQL with pgvector, Stirling-PDF for the heavy PDF work,
+# and MinIO for the artifacts Legere produces. Only the app and MinIO publish a port; the database
+# and Stirling stay on the internal network. Migrations apply themselves when the app starts.
+#
+# Using a managed S3 instead: point the S3_* variables at it, drop S3_PUBLIC_ENDPOINT, and delete the
+# `minio` and `minio-init` services below.
+#
+# The project is named `legere`. Inside a clone of the repository that collides with the development
+# stack of docs/12 §12.5, which takes the same name from its directory — run this one with
+# `docker compose -p <other-name>` there.
+name: legere
+
+services:
+  app:
+    image: ghcr.io/joshuan/legere:${LEGERE_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+      stirling: { condition: service_started }
+    environment:
+      NODE_ENV: production
+      PORT: 80
+      APP_BASE_URL: ${APP_BASE_URL:?set APP_BASE_URL to the URL you open in the browser}
+      AUTH_SECRET: ${AUTH_SECRET:?generate one with `openssl rand -base64 32`}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgresql://legere:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/legere?schema=public
+      LIBRARY_ROOT: /library
+      STIRLING_URL: http://stirling:8080
+      # The server reaches MinIO inside this network; the browser reaches it through the published
+      # port. A presigned URL is only valid for the host it was signed against, hence both.
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT to how the browser reaches MinIO}
+      S3_REGION: us-east-1
+      S3_BUCKET: legere
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-legere}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      S3_FORCE_PATH_STYLE: 'true'
+      SIGNED_URL_TTL_SEC: ${SIGNED_URL_TTL_SEC:-300}
+      # Empty SMTP_HOST prints the sign-up codes to `docker compose logs app` instead of mailing
+      # them — enough to create the first admin, not enough to invite anyone.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-Legere <no-reply@example.com>}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      OCR_LANGUAGES: ${OCR_LANGUAGES:-rus+eng}
+      # Empty = categorization and vector search stay switched off, and the UI says so.
+      EMBEDDINGS_API_BASE_URL: ${EMBEDDINGS_API_BASE_URL:-}
+      EMBEDDINGS_API_KEY: ${EMBEDDINGS_API_KEY:-}
+      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-text-embedding-3-small}
+      CLASSIFIER_API_BASE_URL: ${CLASSIFIER_API_BASE_URL:-}
+      CLASSIFIER_API_KEY: ${CLASSIFIER_API_KEY:-}
+      CLASSIFIER_MODEL: ${CLASSIFIER_MODEL:-}
+    volumes:
+      # 🔒 Read-only, and Legere never writes here anyway — this is your own document storage.
+      - ${LIBRARY_PATH:?set LIBRARY_PATH to the folder holding your documents}:/library:ro
+    ports:
+      - '${APP_PORT:-3000}:80'
+
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: legere
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: legere
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U legere -d legere']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  stirling:
+    image: stirlingtools/stirling-pdf:latest
+    restart: unless-stopped
+    # Stirling 2.x demands a login by default and answers 401 to every API call; Legere talks to it
+    # over the internal network without credentials (ADR-012), so the login is off and the container
+    # publishes no port.
+    environment:
+      SECURITY_ENABLELOGIN: 'false'
+      SYSTEM_ENABLEANALYTICS: 'false'
+
+  minio:
+    image: minio/minio
+    restart: unless-stopped
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-legere}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    # Published because browsers follow presigned URLs straight to it. The bucket stays private: the
+    # URLs are signed and short-lived.
+    ports:
+      - '${MINIO_PORT:-9000}:9000'
+    healthcheck:
+      test: ['CMD-SHELL', 'mc ready local || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    image: minio/mc
+    depends_on:
+      minio: { condition: service_healthy }
+    # One shot: create the bucket if it is not there, then exit. The app waits for this to succeed.
+    entrypoint: >
+      /bin/sh -c "mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-legere} ${MINIO_ROOT_PASSWORD} &&
+                  mc mb --ignore-existing local/legere"
+
+volumes:
+  db-data:
+  minio-data:

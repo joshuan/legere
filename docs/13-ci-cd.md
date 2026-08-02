@@ -89,6 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
@@ -104,6 +105,7 @@ jobs:
         with:
           context: .
           file: Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -113,7 +115,11 @@ jobs:
           cache-to: type=gha,mode=max
 ```
 
-- Image: `ghcr.io/<owner>/legere`, tags `main`, `sha-…`, `vX.Y.Z`.
+- Image: `ghcr.io/<owner>/legere`, tags `main`, `sha-…`, `vX.Y.Z` (+ `latest` for semver tags).
+- Built for **linux/amd64 and linux/arm64**: the quickstart of the root `README.md` is a
+  `docker compose up` and self-hosters run it on Apple Silicon and ARM servers too. The arm64 half
+  is emulated through QEMU, which roughly triples the build time — the price of an image that starts
+  everywhere.
 - `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is a **build-arg** (baked into the client bundle at `next build`);
   empty secret → CAPTCHA widget absent, server verification no-op — a working degradation.
 
@@ -127,7 +133,8 @@ jobs:
 
 - [ ] `ci.yml`: typecheck/lint/test/build against pgvector Postgres; no real external credentials.
 - [ ] `release.yml`: one image to GHCR with meaningful tags; public `NEXT_PUBLIC_*` via build-args.
-- [ ] Secrets only in GitHub Secrets; deployment not described in the repo.
+- [ ] Secrets only in GitHub Secrets; `deploy/` ships a compose file and a `.env.example` of
+      placeholders, never a real secret ([`12 §12.7`](./12-build-config-run.md)).
 - [ ] Branch protection active before the first feature PR.
 
 ## 13.6. Open questions

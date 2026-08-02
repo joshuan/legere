@@ -29,34 +29,26 @@ Additionally:
 
 ## Quickstart
 
-You need Docker, an S3-compatible bucket and a folder of documents. The app is one container: it
-applies its own migrations on start and serves both the API and the UI on one port.
+Docker, a folder of documents, and two files:
 
 ```bash
-docker run -d --name legere -p 3000:80 \
-  -v /mnt/documents:/library:ro \
-  -e APP_BASE_URL=http://localhost:3000 \
-  -e DATABASE_URL='postgresql://legere:legere@db:5432/legere?schema=public' \
-  -e AUTH_SECRET='a-random-string-of-at-least-32-characters' \
-  -e LIBRARY_ROOT=/library \
-  -e STIRLING_URL=http://stirling:8080 \
-  -e S3_ENDPOINT=http://minio:9000 -e S3_BUCKET=legere -e S3_REGION=us-east-1 \
-  -e S3_ACCESS_KEY_ID=... -e S3_SECRET_ACCESS_KEY=... -e S3_FORCE_PATH_STYLE=true \
-  ghcr.io/joshuan/legere:latest
+curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/{docker-compose.yaml,.env.example} -o docker-compose.yaml -o .env
 ```
 
-It needs three neighbours on the same network: **PostgreSQL 16 with pgvector**
-(`pgvector/pgvector:pg16`), **Stirling-PDF** (`stirlingtools/stirling-pdf`, started with
-`SECURITY_ENABLELOGIN=false` — 2.x demands a login otherwise and answers 401 to every call), and an
-**S3-compatible store** (MinIO does). A complete compose file is in
-[`docs/12 §12.7`](./docs/12-build-config-run.md#127-deployment-example-illustration--keep-outside-the-repository);
-every variable the app reads is listed in [`docs/12 §12.4`](./docs/12-build-config-run.md#124-envexample).
+Open `.env` and fill in the first block — the folder to read (`LIBRARY_PATH`) and three secrets
+(`openssl rand -base64 32` for each). Then:
 
-Then, in the browser:
+```bash
+docker compose up -d
+```
 
-1. open the site — the first visit offers **onboarding**: an email, a six-digit code, a password, and
-   you are the instance's first admin. With no `SMTP_HOST` set, the code is printed to the container
-   log (`docker logs legere`), which is enough to get started but not to invite anyone else;
+That is the whole stack: Legere, PostgreSQL with pgvector, Stirling-PDF for the heavy PDF work, and
+MinIO for the artifacts Legere produces. Migrations apply themselves on start. Open
+<http://localhost:3000> and:
+
+1. the first visit offers **onboarding**: an email, a six-digit code, a password, and you are the
+   instance's first admin. Until you configure SMTP the code goes to `docker compose logs app` — that
+   is enough to create the first account, and not enough to invite anyone else;
 2. **Admin → Libraries → Add**: pick a folder inside the mounted volume. The first scan starts
    immediately, and every file becomes a document — deduplicated by content, so the same bytes in two
    places stay one document;
@@ -64,16 +56,28 @@ Then, in the browser:
 4. **Documents** shows the grid with previews as they are produced; open one for the viewer, the
    extracted text, and its metadata;
 5. **Search** finds documents by their text (title and body). Semantic search stays switched off, and
-   says so, until an embeddings provider is configured;
+   says so, until you point `EMBEDDINGS_API_BASE_URL` at an OpenAI-compatible endpoint;
 6. select a few scanned images in the grid → **Create scan set** → reorder, trim margins, merge: the
-   pages become one PDF document, processed like any other. The originals are untouched — the library
-   volume is only ever read.
+   pages become one PDF document, processed like any other.
 
 `GET /api/health` reports the database and the queue; it is the liveness probe.
 
-Nothing is written to the library volume, ever. Everything Legere produces — canonical PDFs,
-previews, thumbnails, merged scans — lives in the S3 bucket, and clients only reach it through
-short-lived signed URLs.
+Nothing is written to the library volume, ever — it is mounted read-only. Everything Legere produces —
+canonical PDFs, previews, thumbnails, merged scans — lives in the object store, and clients only reach
+it through short-lived signed URLs.
+
+Two things to know before serving it to anyone else:
+
+- **TLS is not optional beyond localhost.** The session cookie is `Secure` in production, which
+  browsers accept over plain HTTP only for `localhost`. Put a reverse proxy in front, then set
+  `APP_BASE_URL` and `S3_PUBLIC_ENDPOINT` to the HTTPS addresses.
+- **`S3_PUBLIC_ENDPOINT` is how the browser reaches the object store**, not how the server does. A
+  presigned URL is only valid for the host it was signed against, so previews stay blank if it points
+  somewhere the browser cannot follow.
+
+Pointing the `S3_*` variables at a managed object store and deleting the two MinIO services is a
+supported edit; the full variable list is in
+[`docs/12 §12.4`](./docs/12-build-config-run.md#124-envexample).
 
 ## Local development
 

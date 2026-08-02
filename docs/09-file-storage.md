@@ -52,6 +52,10 @@ documents/{documentId}/source.pdf      # DERIVED documents only: the merged scan
 - **Reads by clients** use presigned GET URLs, TTL `SIGNED_URL_TTL_SEC` (default 300 s), issued only
   by endpoints that already passed the document access check; the API responds `302 Location:
   <signed url>` so `<img src>`/`<embed>` work naturally with cookies on the same origin.
+- The host is part of what gets signed, so when the bucket answers on a different name outside the
+  server's network — a bundled MinIO is `http://minio:9000` inside a compose network and
+  `http://localhost:9000` from the browser — `S3_PUBLIC_ENDPOINT` names the outside one and only
+  presigning uses it. Empty (the default) means there is one endpoint for both.
 - **Reads by the pipeline** (e.g. OCR needs `canonical.pdf`) go through the SDK directly (streaming
   `GetObject`), not through presigned URLs.
 - Deletion policy: artifacts of soft-deleted documents are **retained** (soft delete is reversible);
