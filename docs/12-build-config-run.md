@@ -65,7 +65,7 @@ SMTP_PASSWORD=
 SMTP_FROM="Legere <no-reply@example.com>"
 
 # --- library volume ---
-LIBRARY_ROOT=/library                        # dev compose mounts ./dev-library here (ro)
+LIBRARY_ROOT=./dev-library                   # the folder `npm run dev` reads; the container overrides this with /library
 
 # --- S3 (derived artifacts; dev values match the compose MinIO) ---
 S3_ENDPOINT=http://localhost:9000
@@ -110,7 +110,7 @@ at runtime has no effect.
 nvm use
 npm install
 cp .env.example .env
-mkdir -p dev-library && cp -r <some-documents> dev-library/   # your test corpus
+mkdir -p dev-library && cp -r <some-documents> dev-library/   # your test corpus; LIBRARY_ROOT points here
 npm run dev:up          # PostgreSQL(+pgvector) + Stirling-PDF + MinIO (+ bucket init)
 npm run db:migrate:dev
 npm run db:seed         # admin@legere.local / password; library over dev-library/

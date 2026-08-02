@@ -159,9 +159,17 @@ passwords, tokens, codes, session ids, email bodies, signed URLs. Job handlers l
 - Worker registration maps queue names to application handlers with per-queue concurrency from config
   (defaults in [`05 §5.4`](./05-library-and-processing.md#54-job-queue-pg-boss)); handlers are
   resolved from the Nest DI container (`app.get(HandleFileIngest)`).
-- Retry policy per queue: `retryLimit: 5`, `retryBackoff: true` (exponential), `expireInHours: 2`.
+- Retry policy per queue: `retryLimit: 5`, `retryBackoff: true` (exponential).
   `library-scan` uses a **singleton key** = libraryId (pg-boss `singletonKey`) so one scan per library
   runs at a time; `scanset-merge` uses singletonKey = scanSetId.
+- **`expireInSeconds` is per queue**, and it is a recovery time rather than a work timeout: it is how
+  long a job stays `active` after its worker disappeared — a crash, a deploy, a dev restart — before
+  pg-boss gives it to someone else. Under the `stately` policy an abandoned job keeps its singleton
+  slot, so this interval is exactly how long a library stays unscannable (and its ScanRun stuck at
+  RUNNING) after a restart mid-scan. Values: `library-scan` 15 min, `file-ingest` 10 min,
+  `document-process` 60 min (conversion and OCR), `scanset-merge` 30 min, `maintenance` 15 min —
+  generous multiples of the real work, safe because every handler is idempotent
+  ([`05 §5.4`](./05-library-and-processing.md#54-job-queue-pg-boss)).
 - Cron: on start, the app (re)registers pg-boss schedules — per-library scans (`*/N` from
   `scanIntervalMinutes`; re-registered whenever a library is created/updated) and `maintenance`
   (hourly).

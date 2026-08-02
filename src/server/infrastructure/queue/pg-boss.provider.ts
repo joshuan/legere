@@ -5,7 +5,28 @@ import { AppConfig } from '../config/app-config';
 
 // Retry policy shared by every queue (docs/06 §6.8).
 export const RETRY_LIMIT = 5;
-export const EXPIRE_IN_HOURS = 2;
+
+// How long a job may stay `active` before pg-boss decides its worker is gone and hands it to
+// someone else. This is the recovery time after a crash, a deploy or a `nodemon` restart — not a
+// timeout for the work itself — and it has to be sized per queue, because with the `stately` policy
+// an abandoned job keeps its singleton slot: a scan whose worker died blocks every later scan of
+// that library for exactly this long, and the ScanRun it left behind reads RUNNING all the while.
+// One shared two-hour value made that two hours.
+//
+// Generous multiples of what each handler actually takes, since every handler is idempotent
+// (docs/05 §5.4) and a premature reclaim costs a repeat, not corruption.
+export const EXPIRE_IN_SECONDS: Readonly<Record<QueueName, number>> = {
+  // Walks the tree and enqueues per-file work; the hashing happens elsewhere.
+  'library-scan': 15 * 60,
+  // Reads and hashes one file.
+  'file-ingest': 10 * 60,
+  // The slow one: conversion and OCR through Stirling, for a document of any size.
+  'document-process': 60 * 60,
+  // Trims and merges up to a few dozen images.
+  'scanset-merge': 30 * 60,
+  // Lists the bucket and deletes a few rows.
+  maintenance: 15 * 60,
+};
 
 // Graceful shutdown waits for active jobs, capped so a stuck job cannot block exit (docs/06 §6.8).
 const STOP_TIMEOUT_MS = 30_000;
@@ -58,7 +79,7 @@ export class PgBossProvider implements OnApplicationShutdown {
         policy: SINGLETON_QUEUES.has(name) ? ('stately' as const) : ('standard' as const),
         retryLimit: RETRY_LIMIT,
         retryBackoff: true,
-        expireInHours: EXPIRE_IN_HOURS,
+        expireInSeconds: EXPIRE_IN_SECONDS[name],
       };
       await boss.createQueue(name, options);
       await boss.updateQueue(name, options);

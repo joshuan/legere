@@ -97,6 +97,22 @@ describe('Queue (integration)', () => {
     ]);
   });
 
+  it('gives each queue its own expiry, so a dead worker blocks it for minutes and not hours', async () => {
+    const rows = await prisma.$queryRawUnsafe<{ name: string; seconds: number }[]>(
+      `SELECT name, expire_seconds AS seconds
+       FROM pgboss.queue WHERE name NOT LIKE '__pgboss__%'`,
+    );
+    const byName = new Map(rows.map((row) => [row.name, Number(row.seconds)]));
+
+    // 🔒 The singleton queues are the ones that hurt: an abandoned job keeps its key, so this is how
+    // long a library stays unscannable after a restart mid-scan (docs/06 §6.8).
+    expect(byName.get('library-scan')).toBe(15 * 60);
+    expect(byName.get('scanset-merge')).toBe(30 * 60);
+    // OCR through Stirling is the slow one and gets room; nothing gets the old blanket two hours.
+    expect(byName.get('document-process')).toBe(60 * 60);
+    for (const seconds of byName.values()) expect(seconds).toBeLessThanOrEqual(60 * 60);
+  });
+
   it('enqueues a job with its payload', async () => {
     const id = await queue.enqueue('file-ingest', { fileRefId: 'abc' });
 

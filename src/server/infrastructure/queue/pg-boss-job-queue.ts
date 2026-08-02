@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { JobQueue, type EnqueueOptions, type QueueName } from '../../application/ports/job-queue';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import { isPrismaTx } from '../persistence/prisma-client';
-import { EXPIRE_IN_HOURS, PgBossProvider, RETRY_LIMIT } from './pg-boss.provider';
+import { EXPIRE_IN_SECONDS, PgBossProvider, RETRY_LIMIT } from './pg-boss.provider';
 
 @Injectable()
 export class PgBossJobQueue extends JobQueue {
@@ -16,7 +16,7 @@ export class PgBossJobQueue extends JobQueue {
     options: EnqueueOptions = {},
   ): Promise<string | null> {
     const boss = await this.provider.start();
-    return boss.send(name, payload, this.sendOptions(options));
+    return boss.send(name, payload, this.sendOptions(name, options));
   }
 
   // Runs the INSERT on the transaction's own connection, so the job and the entity write commit
@@ -32,7 +32,7 @@ export class PgBossJobQueue extends JobQueue {
     const boss = await this.provider.start();
 
     return boss.send(name, payload, {
-      ...this.sendOptions(options),
+      ...this.sendOptions(name, options),
       db: {
         executeSql: async (text: string, values: unknown[]) => {
           const rows = await tx.$queryRawUnsafe<Record<string, unknown>[]>(text, ...values);
@@ -59,11 +59,13 @@ export class PgBossJobQueue extends JobQueue {
     await boss.unschedule(name).catch(() => undefined);
   }
 
-  private sendOptions(options: EnqueueOptions) {
+  // The expiry travels on the job itself, not only on the queue: pg-boss copies it into the row at
+  // insert time, so a job sent with the old value would keep it even after the queue was updated.
+  private sendOptions(name: QueueName, options: EnqueueOptions) {
     return {
       retryLimit: RETRY_LIMIT,
       retryBackoff: true,
-      expireInHours: EXPIRE_IN_HOURS,
+      expireInSeconds: EXPIRE_IN_SECONDS[name],
       ...(options.singletonKey === undefined ? {} : { singletonKey: options.singletonKey }),
       ...(options.priority === undefined ? {} : { priority: options.priority }),
     };
