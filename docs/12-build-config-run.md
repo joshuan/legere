@@ -181,12 +181,21 @@ CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server/main.js"]
 
 ## 12.7. Deployment (`deploy/`, shipped with the repository)
 
-`deploy/docker-compose.yaml` + `deploy/.env.example` are the supported way to run Legere, and the
-root `README.md` quickstart is one `curl` of those two files followed by `docker compose up -d`. They
-ship **in** the repository on purpose: a self-hosted product whose install instructions are "write
-your own compose file" is a product nobody installs. What must never ship is a secret — the example
-file holds placeholders and instructions to generate them, and the operator's real `.env` is
-gitignored.
+`deploy/` is the supported way to run Legere: `init.sh`, `docker-compose.yaml` and `.env.example`.
+The root `README.md` quickstart is `curl … /deploy/init.sh | bash` — the script asks for the document
+folder (creating it when it does not exist), downloads the compose file, writes a `.env` with three
+generated secrets, and offers to start. They ship **in** the repository on purpose: a self-hosted
+product whose install instructions are "write your own compose file" is a product nobody installs.
+
+What must never ship is a secret, and none does: `.env.example` carries empty placeholders, `init.sh`
+fills them with `openssl rand -hex 24` (hex, because the value lands inside a `postgres://` URL where
+a `/` or `+` would truncate it), and the resulting `.env` is written `chmod 600`. Empty placeholders
+are also why the compose file's `${VAR:?…}` guards exist and why the file cannot be used with the
+example as-is: compose treats an empty value as missing and refuses to start, naming one variable at
+a time. Generating the values is the script's whole reason to exist.
+
+Without a terminal — piped into a provisioning tool, or run in CI — the script asks nothing, applies
+defaults, and stops before starting containers rather than doing it unannounced.
 
 The stack is self-contained: the app, PostgreSQL with pgvector, Stirling-PDF, and MinIO with a
 one-shot bucket init. Only the app and MinIO publish a port; the database and Stirling stay on the

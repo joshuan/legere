@@ -29,17 +29,19 @@ Additionally:
 
 ## Quickstart
 
-Docker, a folder of documents, and two files:
+Docker, and one line:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/{docker-compose.yaml,.env.example} -o docker-compose.yaml -o .env
+curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/init.sh | bash
 ```
 
-Open `.env` and fill in the first block — the folder to read (`LIBRARY_PATH`) and three secrets
-(`openssl rand -base64 32` for each). Then:
+It asks where your documents live (creating the folder if it is not there yet), writes a
+`docker-compose.yaml` and a `.env` with freshly generated secrets, and offers to start. Prefer to read
+before you run — a sound habit with any `curl | bash`:
 
 ```bash
-docker compose up -d
+curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/init.sh -o init.sh
+less init.sh && bash init.sh
 ```
 
 That is the whole stack: Legere, PostgreSQL with pgvector, Stirling-PDF for the heavy PDF work, and
@@ -70,14 +72,15 @@ Two things to know before serving it to anyone else:
 
 - **TLS is not optional beyond localhost.** The session cookie is `Secure` in production, which
   browsers accept over plain HTTP only for `localhost`. Put a reverse proxy in front, then set
-  `APP_BASE_URL` and `S3_PUBLIC_ENDPOINT` to the HTTPS addresses.
+  `APP_BASE_URL` and `S3_PUBLIC_ENDPOINT` in `.env` to the HTTPS addresses.
 - **`S3_PUBLIC_ENDPOINT` is how the browser reaches the object store**, not how the server does. A
   presigned URL is only valid for the host it was signed against, so previews stay blank if it points
   somewhere the browser cannot follow.
 
 Pointing the `S3_*` variables at a managed object store and deleting the two MinIO services is a
 supported edit; the full variable list is in
-[`docs/12 §12.4`](./docs/12-build-config-run.md#124-envexample).
+[`docs/12 §12.4`](./docs/12-build-config-run.md#124-envexample). The image is published for
+`linux/amd64` and `linux/arm64`.
 
 ## Local development
 
