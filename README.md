@@ -36,8 +36,14 @@ curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/init.sh 
 ```
 
 It asks where your documents live (creating the folder if it is not there yet), writes a
-`docker-compose.yaml` and a `.env` with freshly generated secrets, and offers to start. Prefer to read
-before you run — a sound habit with any `curl | bash`:
+`docker-compose.yaml` and a `.env` with freshly generated secrets, and offers to start. To answer up
+front instead, put the setting in front of `bash` — in front of `curl` it reaches the wrong process:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/init.sh | LIBRARY_PATH=/mnt/documents bash
+```
+
+Prefer to read before you run — a sound habit with any `curl | bash`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/init.sh -o init.sh

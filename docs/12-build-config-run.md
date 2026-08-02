@@ -195,7 +195,12 @@ example as-is: compose treats an empty value as missing and refuses to start, na
 a time. Generating the values is the script's whole reason to exist.
 
 Without a terminal — piped into a provisioning tool, or run in CI — the script asks nothing, applies
-defaults, and stops before starting containers rather than doing it unannounced.
+defaults, and stops before starting containers rather than doing it unannounced. Settings go in front
+of `bash`, not in front of `curl`, or they reach the wrong process:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/init.sh | LIBRARY_PATH=/mnt/documents bash
+```
 
 The stack is self-contained: the app, PostgreSQL with pgvector, Stirling-PDF, and MinIO with a
 one-shot bucket init. Only the app and MinIO publish a port; the database and Stirling stay on the
