@@ -1,0 +1,152 @@
+/* The atmosphere of docs/11 §11.15. Everything colour-related reads antd's own CSS variables
+   (ConfigProvider `cssVar: true`), so this file never repeats a palette value and follows the theme
+   into dark mode by itself. */
+
+:root {
+  --legere-grain-opacity: 0.035;
+  --legere-motion: 140ms;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--ant-color-bg-layout);
+  color: var(--ant-color-text);
+  font-family: var(--font-sans);
+  /* Old-style figures in prose, lining figures wherever numbers line up in columns. */
+  font-variant-numeric: oldstyle-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Paper, procedurally: a turbulence field at 3.5% over the page so wide empty areas read as a
+   surface rather than a colour swatch. No image request, no layout cost — it is painted on the
+   body's own backdrop and never intercepts a click. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--legere-grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+
+/* The title-page voice: the serif carries headings and the wordmark, the sans carries the interface.
+   antd sets fontFamily per component, so headings are claimed here rather than in the token map. */
+h1,
+h2,
+h3,
+.ant-typography h1,
+.ant-typography h2,
+.ant-typography h3,
+h1.ant-typography,
+h2.ant-typography,
+h3.ant-typography {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  font-variant-numeric: lining-nums;
+}
+
+/* Values people compare character by character — hashes, paths, sizes, ids — never in a
+   proportional face (docs/11 §11.15). */
+code,
+kbd,
+samp,
+pre,
+.ant-typography code,
+.ant-statistic-content-value,
+.ant-table-cell-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.ant-table,
+.ant-statistic,
+.ant-picker,
+.ant-input-number {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+/* Depth is an interaction. Cards sit flat on the page and rise only under the pointer. */
+.ant-card {
+  transition:
+    transform var(--legere-motion) ease-out,
+    box-shadow var(--legere-motion) ease-out,
+    border-color var(--legere-motion) ease-out;
+}
+
+.ant-card-hoverable:hover {
+  transform: translateY(-2px);
+  border-color: var(--ant-color-primary-border-hover, var(--ant-color-primary));
+}
+
+/* One orchestrated moment per screen: content rises and fades in, grid items 40 ms apart. The delay
+   is driven by a custom property so a list can stagger without a style attribute per item. */
+@keyframes legere-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.legere-enter {
+  animation: legere-rise 340ms cubic-bezier(0.22, 0.8, 0.3, 1) both;
+  animation-delay: calc(var(--legere-index, 0) * 40ms);
+}
+
+/* Focus is always visible — never `outline: none` (docs/11 §11.15). */
+:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--ant-color-primary);
+  color: var(--ant-color-bg-container);
+}
+
+/* A scrollbar in the product's own colours rather than the platform's grey. */
+* {
+  scrollbar-color: var(--ant-color-border) transparent;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--ant-color-border);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ant-color-border-secondary);
+  background-clip: content-box;
+}
+
+/* Motion is decoration; anyone who asked for less gets none of it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .ant-card-hoverable:hover {
+    transform: none;
+  }
+}

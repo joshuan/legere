@@ -13,6 +13,7 @@ import {
   Table,
   Tag,
   Typography,
+  theme,
 } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useCallback, useState } from 'react';
@@ -30,6 +31,7 @@ export function AdminQueueScreen() {
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();
+  const { token } = theme.useToken();
 
   const [live, setLive] = useState(true);
 
@@ -135,7 +137,7 @@ export function AdminQueueScreen() {
                   title={t('admin.queue.failedRecent')}
                   value={queue.failedRecent}
                   // Red only when there is something to be alarmed about.
-                  {...(queue.failedRecent > 0 ? { valueStyle: { color: '#cf1322' } } : {})}
+                  {...(queue.failedRecent > 0 ? { valueStyle: { color: token.colorError } } : {})}
                 />
               </Space>
             </Card>

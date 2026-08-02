@@ -13,7 +13,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Input, Layout, Menu, Space, Typography } from 'antd';
+import { Input, Layout, Menu, Space, Tag, Typography, theme } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -28,6 +28,7 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const { token } = theme.useToken();
 
   // Browse is a submenu of the libraries this user can actually see (docs/11 §11.1); an empty list
   // simply means no library has been shared with them yet.
@@ -98,9 +99,35 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Layout.Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} theme="light">
-        <div style={{ padding: 16 }}>
-          <Typography.Text strong>{collapsed ? 'L' : t('common.appName')}</Typography.Text>
+      <Layout.Sider
+        width={240}
+        collapsible
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        style={{ borderInlineEnd: `1px solid ${token.colorBorderSecondary}` }}
+      >
+        {/* The wordmark in the display face, over a hairline — a title page, not a logo slot
+            (docs/11 §11.15). Collapsed, it keeps the monogram rather than a truncated word. */}
+        <div
+          style={{
+            padding: collapsed ? '18px 0' : '18px 20px',
+            marginBottom: 8,
+            textAlign: collapsed ? 'center' : 'start',
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          }}
+        >
+          <span
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: collapsed ? 24 : 26,
+              fontWeight: 600,
+              letterSpacing: '-0.02em',
+              color: token.colorText,
+              fontVariationSettings: "'SOFT' 40, 'WONK' 1",
+            }}
+          >
+            {collapsed ? 'L' : t('common.appName')}
+          </span>
         </div>
         <Menu
           mode="inline"
@@ -127,23 +154,38 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
       </Layout.Sider>
 
       <Layout>
-        <Layout.Header style={{ background: '#fff', padding: '0 16px' }}>
-          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+        <Layout.Header
+          style={{ borderBottom: `1px solid ${token.colorBorderSecondary}`, lineHeight: 'normal' }}
+        >
+          <Space style={{ width: '100%', height: '100%', justifyContent: 'space-between' }}>
             <Input.Search
               allowClear
+              size="large"
               placeholder={t('nav.searchPlaceholder')}
               aria-label={t('nav.searchPlaceholder')}
-              style={{ maxWidth: 420 }}
+              style={{ width: 'min(46vw, 480px)' }}
               onSearch={(value) => {
                 const q = value.trim();
                 if (q !== '') router.push(`/search?q=${encodeURIComponent(q)}`);
               }}
             />
-            <Typography.Text type="secondary">{user.displayName}</Typography.Text>
+            <Space size={10}>
+              {user.role === 'ADMIN' && (
+                <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+                  {t('nav.administration')}
+                </Tag>
+              )}
+              <Typography.Text style={{ fontWeight: 500 }}>{user.displayName}</Typography.Text>
+            </Space>
           </Space>
         </Layout.Header>
 
-        <Layout.Content style={{ padding: 16 }}>{children}</Layout.Content>
+        {/* A reading column: wide enough for a six-card grid, never edge to edge on a 4K display. */}
+        <Layout.Content style={{ padding: '24px 32px' }}>
+          <div className="legere-enter" style={{ maxWidth: 1440, margin: '0 auto' }}>
+            {children}
+          </div>
+        </Layout.Content>
       </Layout>
     </Layout>
   );

@@ -2,7 +2,7 @@
 
 import { DeleteOutlined, FileImageOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App, Button, Card, Empty, Space, Spin, Switch, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Empty, Space, Spin, Switch, Tag, Typography, theme } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { documentFiles } from '../../entities/document';
@@ -16,6 +16,7 @@ const LIVE_REFRESH_MS = 5000;
 // /scan-sets/:id (docs/11 §11.8): order the pages, crop or not, merge.
 export function ScanSetBuilderScreen({ id }: { id: string }) {
   const t = useTranslations();
+  const { token } = theme.useToken();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();
@@ -157,7 +158,7 @@ export function ScanSetBuilderScreen({ id }: { id: string }) {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      background: '#fafafa',
+                      background: token.colorBgLayout,
                     }}
                   >
                     {item.hasPreview ? (
@@ -168,7 +169,10 @@ export function ScanSetBuilderScreen({ id }: { id: string }) {
                         style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }}
                       />
                     ) : (
-                      <FileImageOutlined style={{ fontSize: 32, color: '#bfbfbf' }} aria-hidden />
+                      <FileImageOutlined
+                        style={{ fontSize: 32, color: token.colorTextQuaternary }}
+                        aria-hidden
+                      />
                     )}
                   </div>
                 }

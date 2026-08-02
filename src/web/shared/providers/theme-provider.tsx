@@ -1,11 +1,12 @@
 'use client';
 
-import { ConfigProvider, theme as antdTheme } from 'antd';
+import { ConfigProvider } from 'antd';
 import enUS from 'antd/locale/en_US';
 import ruRU from 'antd/locale/ru_RU';
 import { useLocale } from 'next-intl';
 import { useCallback, useSyncExternalStore, type ReactNode } from 'react';
 import type { Theme } from '../../../shared/contracts/enums';
+import { legereTheme } from '../theme';
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
@@ -41,10 +42,7 @@ export function ThemeProvider({
   const dark = useSyncExternalStore(subscribeToColorScheme, getSnapshot, serverSnapshot);
 
   return (
-    <ConfigProvider
-      locale={locale === 'ru' ? ruRU : enUS}
-      theme={{ algorithm: dark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm }}
-    >
+    <ConfigProvider locale={locale === 'ru' ? ruRU : enUS} theme={legereTheme(dark)}>
       {children}
     </ConfigProvider>
   );

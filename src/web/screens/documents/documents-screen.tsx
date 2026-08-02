@@ -5,7 +5,7 @@ import { App, Button, Checkbox, Col, Empty, Row, Space, Spin, Typography } from 
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { availabilitySchema, type DocumentListDto } from '../../../shared/contracts/documents';
 import { documentSourceSchema } from '../../../shared/contracts/enums';
 import { documentApi, documentKeys, type DocumentFilters } from '../../entities/document';
@@ -17,6 +17,10 @@ import { useErrorMessage } from '../../shared/lib';
 // While anything on screen is still being processed the list refreshes, so a document stops saying
 // "Processing" without the user reloading (docs/10 §10.5).
 const LIVE_REFRESH_MS = 5000;
+
+// How many cards take part in the entrance (docs/11 §11.15). Roughly a screenful at the widest
+// breakpoint: past that the animation would be a delay, not a flourish.
+const STAGGER_LIMIT = 18;
 
 // /documents (docs/11 §11.3): the home screen.
 export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
@@ -167,8 +171,21 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
       ) : (
         <>
           <Row gutter={[16, 16]}>
-            {items.map((document) => (
-              <Col key={document.id} xs={12} sm={8} md={6} lg={4} xl={4} xxl={4}>
+            {items.map((document, index) => (
+              <Col
+                key={document.id}
+                xs={12}
+                sm={8}
+                md={6}
+                lg={4}
+                xl={4}
+                xxl={4}
+                // The one orchestrated moment of the screen (docs/11 §11.15): the grid deals itself
+                // out 40 ms at a time. Only the first screenful is staggered — a card arriving on
+                // page seven should appear, not perform.
+                className={index < STAGGER_LIMIT ? 'legere-enter' : undefined}
+                style={staggerStyle(index)}
+              >
                 <Space direction="vertical" size={4} style={{ width: '100%' }}>
                   {selecting && (
                     <Checkbox
@@ -224,4 +241,11 @@ function parseFilters(params: URLSearchParams): DocumentFilters {
 // Only images can be pages of a scan set (docs/03 §3.3.17).
 function isImage(document: DocumentListDto): boolean {
   return document.mimeType.startsWith('image/');
+}
+
+// `--legere-index` drives the animation delay in CSS. React types style as CSSProperties, which has
+// no room for custom properties, so it is built as a Record and handed over as one.
+function staggerStyle(index: number): CSSProperties {
+  const custom: Record<string, string> = { '--legere-index': String(index % STAGGER_LIMIT) };
+  return custom;
 }

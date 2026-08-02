@@ -151,6 +151,60 @@ warns that documents will lose the category.
   defaults suffice — no custom hotkey system in MVP).
 - No dark-pattern empty states: when something is admin-gated, tell the user who can fix it.
 
-## 11.15. Open questions
+## 11.15. Visual identity — "the reading room"
+
+Legere is Latin for *to read*, and the product is a private archive: passports, contracts, invoices,
+the scans of a life. The interface is built to feel like a well-kept reading room rather than a SaaS
+dashboard — warm paper, ink, brass and verdigris, restraint in motion, and technical values set in a
+monospace face because here they carry meaning (hashes, paths, sizes, ids) rather than decorate.
+
+Everything below is expressed as antd theme tokens (`ConfigProvider`, `cssVar: true`) so components
+inherit it instead of each screen inventing colours. **No hex literals in components** — a screen that
+hardcodes `#fff` is a screen that turns white in dark mode.
+
+### Palette
+
+| Role | Paper (light) | Ink (dark) | Why |
+|---|---|---|---|
+| Page | `#F4F0E7` | `#141210` | Warm paper / warm black; neither is neutral grey |
+| Surface | `#FFFDF8` | `#1C1917` | Cards, sider, header |
+| Border | `#E3DBC9` | `#33302A` | Hairlines, never shadows-as-separators |
+| Text | `#1E1B16` | `#EDE7DA` | Ink on paper, and back |
+| Text secondary | `#6B6355` | `#A2998A` | |
+| **Primary** | `#2F6B5E` | `#4E9A87` | Verdigris — a library green, far from antd blue and from error red |
+| Accent | `#B7873A` | `#C89B4E` | Brass: highlights, the active shelf |
+| Success | `#5F8D4E` | `#7CA96A` | Moss, distinct from primary |
+| Warning | `#B7873A` | `#C89B4E` | Brass again — a warning is not a different world |
+| Error | `#B23B3B` | `#E07070` | Warm red, still unmistakably an error |
+
+### Type
+
+- **Fraunces** — display: the wordmark, page titles, empty-state headlines. A variable serif with
+  optical sizing; it gives the product a title-page voice instead of a dashboard voice.
+- **IBM Plex Sans** — everything else. Humanist, slightly technical, legible at 13–14 px.
+- **IBM Plex Mono** — hashes, file paths, sizes, ids, error payloads. These are values people compare
+  character by character; proportional digits actively hurt.
+
+Loaded through `next/font` so Next self-hosts them in the bundle: a self-hosted instance on a private
+network must never call a font CDN at runtime.
+
+### Surfaces, depth, motion
+
+- Cards and panels: 1 px hairline border, radius 10, **no ambient shadow at rest**. Hover lifts 2 px,
+  warms the border to primary, and adds one soft shadow — depth is an interaction, not a default.
+- The page carries a faint procedural grain (inline SVG turbulence, ~3% opacity) so large empty areas
+  read as paper rather than as a colour swatch.
+- One orchestrated moment per screen: content rises 8 px and fades in, grid items staggered 40 ms
+  apart. Everything else is 140 ms ease-out hover/focus. All of it collapses to nothing under
+  `prefers-reduced-motion: reduce`.
+- Focus is always visible: a 2 px primary ring at 2 px offset, never `outline: none`.
+
+### Density
+
+Content column caps at 1440 px with 24–32 px gutters; controls are 36 px high; the grid breathes at
+16 px gaps. The sider is 240 px, the wordmark sits above a hairline rule, and collapsing it leaves the
+monogram — an "L" in Fraunces, not a truncated word.
+
+## 11.16. Open questions
 
 None.

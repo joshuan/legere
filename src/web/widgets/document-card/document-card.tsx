@@ -1,7 +1,7 @@
 'use client';
 
 import { FileTextOutlined, LoadingOutlined } from '@ant-design/icons';
-import { Card, Space, Tag, Tooltip, Typography } from 'antd';
+import { Card, Space, Tag, Tooltip, Typography, theme } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -15,6 +15,7 @@ export function DocumentCard({ document }: { document: DocumentListDto }) {
   // A thumbnail can be missing even when the step says DONE — an artifact swept from the bucket, a
   // document deleted mid-scroll. The icon is the honest fallback rather than a broken image.
   const [thumbFailed, setThumbFailed] = useState(false);
+  const { token } = theme.useToken();
   const showThumb = document.hasPreview && !thumbFailed;
 
   return (
@@ -25,11 +26,14 @@ export function DocumentCard({ document }: { document: DocumentListDto }) {
         cover={
           <div
             style={{
-              height: 160,
+              height: 168,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              background: '#fafafa',
+              // The shelf behind the page: a shade off the card so a scan reads as an object lying
+              // on it rather than as a white rectangle on white (docs/11 §11.15).
+              background: token.colorBgLayout,
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
               overflow: 'hidden',
             }}
           >
@@ -42,10 +46,19 @@ export function DocumentCard({ document }: { document: DocumentListDto }) {
                 alt=""
                 loading="lazy"
                 onError={() => setThumbFailed(true)}
-                style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }}
+                style={{
+                  maxHeight: '100%',
+                  maxWidth: '100%',
+                  objectFit: 'contain',
+                  // A page has an edge; a floating bitmap does not.
+                  boxShadow: token.boxShadowTertiary,
+                }}
               />
             ) : (
-              <FileTextOutlined style={{ fontSize: 40, color: '#bfbfbf' }} aria-hidden />
+              <FileTextOutlined
+                style={{ fontSize: 38, color: token.colorTextQuaternary }}
+                aria-hidden
+              />
             )}
           </div>
         }
@@ -61,7 +74,11 @@ export function DocumentCard({ document }: { document: DocumentListDto }) {
         </Tooltip>
 
         <Space size={[4, 4]} wrap>
-          {document.ext !== '' && <Tag>{document.ext.toUpperCase()}</Tag>}
+          {document.ext !== '' && (
+            <Tag style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.04em' }}>
+              {document.ext.toUpperCase()}
+            </Tag>
+          )}
           {document.category !== null && <Tag color="blue">{document.category.name}</Tag>}
           {document.processing && (
             <Tag icon={<LoadingOutlined />} color="processing">
