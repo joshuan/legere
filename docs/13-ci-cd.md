@@ -73,6 +73,21 @@ jobs:
 
 ## 13.3. `.github/workflows/release.yml`
 
+Triggered by a push to `main` (image tags `main`, `sha-…`) and by a `v*` tag. The tag is not created
+by CI: a maintainer publishes a GitHub Release, GitHub creates the tag, and that push starts the
+build — so the release notes are written by a person and the image follows from them.
+
+The image is **multi-platform** (`linux/amd64`, `linux/arm64`): the quickstart of the root
+`README.md` is a `docker compose up`, and self-hosters run it on Apple Silicon and ARM servers as
+readily as on x86. Each platform builds on a runner of its own architecture and pushes an untagged
+manifest **by digest**; a final job stitches the digests into one tag with
+`docker buildx imagetools create`.
+
+One job with `platforms: linux/amd64,linux/arm64` under QEMU would be shorter and does not work:
+emulated arm64 makes `prisma generate` fall back to its wasm engine, which rejects
+`env("DATABASE_URL")` in the schema (P1012). Native runners also build in roughly a third of the
+time.
+
 ```yaml
 name: Release
 on:
@@ -84,42 +99,51 @@ permissions:
   contents: read
   packages: write
 
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
 jobs:
-  image:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux/amd64, runner: ubuntu-latest }
+          - { platform: linux/arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
-        with: { registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }} }
-      - id: meta
-        uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=ref,event=branch
-            type=sha
-            type=semver,pattern={{version}}
-      - uses: docker/build-push-action@v6
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             NEXT_PUBLIC_TURNSTILE_SITE_KEY=${{ secrets.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+      # …digest exported as an artifact…
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      # …digests downloaded, metadata-action computes the tags…
+      - run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}@sha256:%s " *)
 ```
 
 - Image: `ghcr.io/<owner>/legere`, tags `main`, `sha-…`, `vX.Y.Z` (+ `latest` for semver tags).
-- Built for **linux/amd64 and linux/arm64**: the quickstart of the root `README.md` is a
-  `docker compose up` and self-hosters run it on Apple Silicon and ARM servers too. The arm64 half
-  is emulated through QEMU, which roughly triples the build time — the price of an image that starts
-  everywhere.
 - `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is a **build-arg** (baked into the client bundle at `next build`);
   empty secret → CAPTCHA widget absent, server verification no-op — a working degradation.
 
