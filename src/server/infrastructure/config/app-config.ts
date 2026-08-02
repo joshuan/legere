@@ -12,6 +12,14 @@ export class AppConfig {
   get isProduction(): boolean {
     return this.values.NODE_ENV === 'production';
   }
+
+  // Whether the app is served over TLS, read from the address it is served under (docs/08 §8.2).
+  // The `Secure` cookie attribute follows this and not NODE_ENV: a browser silently drops a Secure
+  // cookie over plain HTTP, so a self-hosted instance on `http://192.168.x.x` could never keep a
+  // session — while an HTTPS deployment gets the attribute whatever NODE_ENV says.
+  get usesHttps(): boolean {
+    return this.values.APP_BASE_URL.startsWith('https://');
+  }
 }
 
 // Parse the environment once; on failure throw a readable, multi-line error so the process can fail

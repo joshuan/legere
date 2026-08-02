@@ -77,8 +77,13 @@ seed creates an admin and a user with the password `password`.
 - `SessionGuard` on every request: the `sid` cookie → hash → an active session →
   `request.currentUser`.
 - `POST /api/auth/logout` → `revokedAt`, cookie cleared. An admin can revoke a user's sessions.
-- The `sid` cookie: HttpOnly; Secure (prod); SameSite=Lax; Path=/; Max-Age = SESSION_TTL;
-  Domain from `COOKIE_DOMAIN`.
+- The `sid` cookie: HttpOnly; **Secure whenever `APP_BASE_URL` is `https://`**; SameSite=Lax; Path=/;
+  Max-Age = SESSION_TTL; Domain from `COOKIE_DOMAIN`.
+  The attribute follows the address the app is served under rather than `NODE_ENV`: browsers drop a
+  Secure cookie arriving over plain HTTP, so tying it to the mode would leave every self-hosted
+  instance on `http://<lan-ip>` unable to hold a session at all — the operator's choice to run
+  without TLS should cost them encryption, not the ability to log in. Any deployment reachable over
+  HTTPS gets the attribute, in production or not.
 
 ## 8.3. Roles
 

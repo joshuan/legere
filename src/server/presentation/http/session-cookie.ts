@@ -1,9 +1,16 @@
-import type { CookieOptions, Response } from 'express';
+import type { CookieOptions } from 'express';
 import type { AppConfig } from '../../infrastructure/config/app-config';
 
-// Session cookie attributes (docs/08 §8.2): HttpOnly, Secure in production, SameSite=Lax, Path=/,
-// Max-Age = SESSION_TTL_DAYS, Domain from COOKIE_DOMAIN when set.
+// Session cookie attributes (docs/08 §8.2): HttpOnly, Secure when APP_BASE_URL is https, SameSite=Lax,
+// Path=/, Max-Age = SESSION_TTL_DAYS, Domain from COOKIE_DOMAIN when set.
 export const SESSION_COOKIE_NAME = 'sid';
+
+// What these helpers need of a response — express satisfies it, and so can a test double without
+// pretending to be the other ninety methods. The return value is ignored: nothing here chains.
+export type CookieSink = {
+  cookie(name: string, value: string, options?: CookieOptions): unknown;
+  clearCookie(name: string, options?: CookieOptions): unknown;
+};
 
 // The locale cookie next-intl reads for SSR (docs/10 §10.3). Not HttpOnly: the client reads it too.
 export const LOCALE_COOKIE_NAME = 'NEXT_LOCALE';
@@ -12,30 +19,30 @@ function baseOptions(config: AppConfig): CookieOptions {
   const domain = config.get('COOKIE_DOMAIN');
   return {
     httpOnly: true,
-    secure: config.isProduction,
+    secure: config.usesHttps,
     sameSite: 'lax',
     path: '/',
     ...(domain === '' ? {} : { domain }),
   };
 }
 
-export function setSessionCookie(res: Response, config: AppConfig, token: string): void {
+export function setSessionCookie(res: CookieSink, config: AppConfig, token: string): void {
   res.cookie(SESSION_COOKIE_NAME, token, {
     ...baseOptions(config),
     maxAge: config.get('SESSION_TTL_DAYS') * 24 * 60 * 60 * 1000,
   });
 }
 
-export function clearSessionCookie(res: Response, config: AppConfig): void {
+export function clearSessionCookie(res: CookieSink, config: AppConfig): void {
   res.clearCookie(SESSION_COOKIE_NAME, baseOptions(config));
 }
 
 // Keeps SSR rendering in the user's language after login or a profile change (docs/10 §10.3).
-export function setLocaleCookie(res: Response, config: AppConfig, language: string): void {
+export function setLocaleCookie(res: CookieSink, config: AppConfig, language: string): void {
   const domain = config.get('COOKIE_DOMAIN');
   res.cookie(LOCALE_COOKIE_NAME, language.toLowerCase(), {
     httpOnly: false,
-    secure: config.isProduction,
+    secure: config.usesHttps,
     sameSite: 'lax',
     path: '/',
     maxAge: 365 * 24 * 60 * 60 * 1000,

@@ -76,9 +76,11 @@ it through short-lived signed URLs.
 
 Two things to know before serving it to anyone else:
 
-- **TLS is not optional beyond localhost.** The session cookie is `Secure` in production, which
-  browsers accept over plain HTTP only for `localhost`. Put a reverse proxy in front, then set
-  `APP_BASE_URL` and `S3_PUBLIC_ENDPOINT` in `.env` to the HTTPS addresses.
+- **`APP_BASE_URL` must be the address people actually type.** The CSRF check is fail-closed, so a
+  mismatch rejects every login. `init.sh` asks for it; changing it later means editing `.env`.
+- **Put TLS in front of anything that leaves your network.** Sessions and documents travel in the
+  clear otherwise. The `sid` cookie takes its `Secure` attribute from `APP_BASE_URL`, so switching to
+  `https://…` there (and in `S3_PUBLIC_ENDPOINT`) is all it takes.
 - **`S3_PUBLIC_ENDPOINT` is how the browser reaches the object store**, not how the server does. A
   presigned URL is only valid for the host it was signed against, so previews stay blank if it points
   somewhere the browser cannot follow.

@@ -64,6 +64,20 @@ fi
 # `cd` resolves relative paths the way the operator meant them; compose needs an absolute one.
 library_path=$(cd "$library_path" && pwd)
 
+# Both the CSRF origin check and the presigned URLs are tied to the address people actually type, so
+# guessing `localhost` for a box on the network gets a login that 403s and previews that never load.
+host="${LEGERE_HOST:-}"
+if [ -z "$host" ]; then
+  host=$(ask 'Host or IP you will open Legere at [localhost]: ')
+fi
+host="${host:-localhost}"
+
+port="${LEGERE_PORT:-}"
+if [ -z "$port" ]; then
+  port=$(ask 'Port for the web interface [3000]: ')
+fi
+port="${port:-3000}"
+
 printf 'Fetching docker-compose.yaml…\n'
 curl -fsSL "${BASE_URL}/docker-compose.yaml" -o docker-compose.yaml ||
   die "could not download docker-compose.yaml from ${BASE_URL}"
@@ -74,6 +88,9 @@ curl -fsSL "${BASE_URL}/.env.example" -o .env.tmp ||
 
 sed \
   -e "s|^LIBRARY_PATH=.*|LIBRARY_PATH=${library_path}|" \
+  -e "s|^APP_BASE_URL=.*|APP_BASE_URL=http://${host}:${port}|" \
+  -e "s|^APP_PORT=.*|APP_PORT=${port}|" \
+  -e "s|^S3_PUBLIC_ENDPOINT=.*|S3_PUBLIC_ENDPOINT=http://${host}:9000|" \
   -e "s|^AUTH_SECRET=.*|AUTH_SECRET=$(random_hex)|" \
   -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(random_hex)|" \
   -e "s|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=$(random_hex)|" \
@@ -93,8 +110,8 @@ Done. Two files are here:
 Library:  ${library_path}  (read-only — Legere never writes there)
 Address:  ${app_url}
 
-Serving it to anyone but yourself? Set APP_BASE_URL and S3_PUBLIC_ENDPOINT in .env to the addresses
-they will use, and put TLS in front: the session cookie is Secure outside localhost.
+Putting TLS in front of it later? Change APP_BASE_URL and S3_PUBLIC_ENDPOINT in .env to the https
+addresses — the session cookie takes its Secure attribute from them.
 
 EOF
 
