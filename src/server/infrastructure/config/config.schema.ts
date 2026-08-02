@@ -37,6 +37,10 @@ export const configSchema = z.object({
 
   // library volume
   LIBRARY_ROOT: z.string().min(1).default('/library'),
+  // A scan that walks into the wrong tree — a home directory, a whole disk — will happily ingest all
+  // of it. This is the stop (docs/05 §5.2): the scan gives up past this many files and says so in
+  // the journal instead of spending the night hashing. 0 disables the guard.
+  SCAN_MAX_FILES: z.coerce.number().int().nonnegative().default(50_000),
 
   // S3 (derived artifacts)
   S3_ENDPOINT: z.string().url().default('http://localhost:9000'),

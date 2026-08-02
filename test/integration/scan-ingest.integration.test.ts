@@ -1,14 +1,17 @@
 import { mkdtemp, mkdir, rm, rename, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModule } from '@nestjs/testing';
 import { LoggerModule } from 'nestjs-pino';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { HandleFileIngest } from '../../src/server/application/jobs/handle-file-ingest';
 import { HandleLibraryScan } from '../../src/server/application/jobs/handle-library-scan';
 import { TriggerScan } from '../../src/server/application/libraries/manage-scans';
+import { Clock } from '../../src/server/application/ports/clock';
 import { JobQueue } from '../../src/server/application/ports/job-queue';
+import { LibraryReader } from '../../src/server/application/ports/library-reader';
 import { UnitOfWork } from '../../src/server/application/ports/unit-of-work';
+import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../src/server/domain/repositories/library.repository';
 import { ScanRunRepository } from '../../src/server/domain/repositories/scan-run.repository';
 import { AuthInfrastructureModule } from '../../src/server/infrastructure/auth/auth-infrastructure.module';
@@ -38,12 +41,13 @@ describe('Scan and ingest (integration)', () => {
   let scan: HandleLibraryScan;
   let ingest: HandleFileIngest;
   let triggerScan: TriggerScan;
+  let moduleRef: TestingModule;
   let close: (() => Promise<void>) | null = null;
 
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), 'legere-scan-'));
 
-    const moduleRef = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
       imports: [
         LoggerModule.forRoot({ pinoHttp: { level: 'silent' } }),
         ConfigModule,
@@ -273,6 +277,49 @@ describe('Scan and ingest (integration)', () => {
       expect(await prisma.scanRun.count()).toBe(0);
     });
 
+    it('gives up on a tree larger than SCAN_MAX_FILES rather than ingesting a whole disk', async () => {
+      const libraryId = await createLibrary();
+      await writeFixture('one.txt', '1');
+      await writeFixture('two.txt', '2');
+      await writeFixture('three.txt', '3');
+
+      // The same handler the container builds, with the limit an operator would set (docs/05 §5.2).
+      const capped = new HandleLibraryScan(
+        moduleRef.get(LibraryRepository),
+        moduleRef.get(FileRefRepository),
+        moduleRef.get(ScanRunRepository),
+        moduleRef.get(LibraryReader),
+        moduleRef.get(JobQueue),
+        moduleRef.get(Clock),
+        2,
+      );
+
+      await capped.handle({ libraryId });
+
+      const run = await latestRun(libraryId);
+      expect(run.status).toBe('FAILED');
+      // The message has to say what to change; the number alone helps nobody.
+      expect(run.error).toContain('SCAN_MAX_FILES');
+      // 🔒 The point of the guard: nothing downstream was scheduled.
+      const queued = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+        "SELECT count(*) FROM pgboss.job WHERE name = 'file-ingest'",
+      );
+      expect(Number(queued[0]?.count ?? 0)).toBe(0);
+    });
+
+    it('takes the same tree once the limit allows it', async () => {
+      const libraryId = await createLibrary();
+      await writeFixture('one.txt', '1');
+      await writeFixture('two.txt', '2');
+
+      await scan.handle({ libraryId });
+
+      // The refs the capped pass left behind are ordinary DISCOVERED refs; a scan with room simply
+      // ingests them.
+      expect((await latestRun(libraryId)).status).toBe('DONE');
+      expect(await refs(libraryId)).toHaveLength(2);
+    });
+
     it('is idempotent under double delivery', async () => {
       const libraryId = await createLibrary();
       await writeFixture('a.txt', 'a');
@@ -425,6 +472,49 @@ describe('Scan and ingest (integration)', () => {
       const document = await prisma.document.findFirstOrThrow();
       expect(document.mimeType).toBe('image/png');
       expect(document.ext).toBe('png');
+    });
+
+    it('gives up on a tree larger than SCAN_MAX_FILES rather than ingesting a whole disk', async () => {
+      const libraryId = await createLibrary();
+      await writeFixture('one.txt', '1');
+      await writeFixture('two.txt', '2');
+      await writeFixture('three.txt', '3');
+
+      // The same handler the container builds, with the limit an operator would set (docs/05 §5.2).
+      const capped = new HandleLibraryScan(
+        moduleRef.get(LibraryRepository),
+        moduleRef.get(FileRefRepository),
+        moduleRef.get(ScanRunRepository),
+        moduleRef.get(LibraryReader),
+        moduleRef.get(JobQueue),
+        moduleRef.get(Clock),
+        2,
+      );
+
+      await capped.handle({ libraryId });
+
+      const run = await latestRun(libraryId);
+      expect(run.status).toBe('FAILED');
+      // The message has to say what to change; the number alone helps nobody.
+      expect(run.error).toContain('SCAN_MAX_FILES');
+      // 🔒 The point of the guard: nothing downstream was scheduled.
+      const queued = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+        "SELECT count(*) FROM pgboss.job WHERE name = 'file-ingest'",
+      );
+      expect(Number(queued[0]?.count ?? 0)).toBe(0);
+    });
+
+    it('takes the same tree once the limit allows it', async () => {
+      const libraryId = await createLibrary();
+      await writeFixture('one.txt', '1');
+      await writeFixture('two.txt', '2');
+
+      await scan.handle({ libraryId });
+
+      // The refs the capped pass left behind are ordinary DISCOVERED refs; a scan with room simply
+      // ingests them.
+      expect((await latestRun(libraryId)).status).toBe('DONE');
+      expect(await refs(libraryId)).toHaveLength(2);
     });
 
     it('is idempotent under double delivery', async () => {

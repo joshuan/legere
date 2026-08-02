@@ -24,6 +24,11 @@ export type LibraryScanPayload = z.infer<typeof libraryScanPayloadSchema>;
 // ScanRun.error holds at most this much text, so one unreadable tree cannot bloat the journal.
 const MAX_ERROR_LENGTH = 2000;
 
+// Raised when a library turns out to hold more files than the instance is willing to take in one
+// pass. Terminal by nature: retrying walks the same enormous tree again, so the handler records it
+// and returns instead of rethrowing into the queue's backoff.
+class ScanTooLargeError extends Error {}
+
 // `library-scan` (docs/05 §5.2). Walks the volume, compares path + size + mtime against the known
 // FileRefs, and enqueues `file-ingest` only for what is new or changed.
 //
@@ -38,6 +43,8 @@ export class HandleLibraryScan extends JobHandler {
     private readonly reader: LibraryReader,
     private readonly queue: JobQueue,
     private readonly clock: Clock,
+    // SCAN_MAX_FILES; 0 means the operator has taken the brakes off deliberately (docs/12 §12.4).
+    private readonly maxFiles: number,
   ) {
     super();
   }
@@ -100,6 +107,12 @@ export class HandleLibraryScan extends JobHandler {
     try {
       for await (const entry of walk.entries) {
         filesSeen += 1;
+        if (this.maxFiles > 0 && filesSeen > this.maxFiles) {
+          throw new ScanTooLargeError(
+            `Stopped after ${this.maxFiles} files: this library covers a larger tree than ` +
+              'SCAN_MAX_FILES allows. Point it at a narrower folder, or raise SCAN_MAX_FILES.',
+          );
+        }
         seenPaths.add(entry.relPath.value);
 
         const existing = byPath.get(entry.relPath.value);
@@ -146,6 +159,8 @@ export class HandleLibraryScan extends JobHandler {
       const filesMissing =
         vanished.length === 0 ? 0 : await this.fileRefs.markMissing(vanished, startedAt);
 
+      // Only once the whole tree is known: a scan that gives up halfway must not leave tens of
+      // thousands of ingest jobs behind it.
       for (const fileRefId of toIngest) {
         await this.queue.enqueue('file-ingest', { fileRefId });
       }
@@ -165,6 +180,9 @@ export class HandleLibraryScan extends JobHandler {
         this.clock.now(),
         truncate(error instanceof Error ? error.message : String(error)),
       );
+      // Anything else deserves the queue's retry; being too large does not — the tree will be just
+      // as large in thirty seconds, and five more passes only cost the operator time.
+      if (error instanceof ScanTooLargeError) return;
       throw error;
     }
   }

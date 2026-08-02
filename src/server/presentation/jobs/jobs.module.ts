@@ -61,8 +61,17 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         reader: LibraryReader,
         queue: JobQueue,
         clock: Clock,
+        config: AppConfig,
       ): HandleLibraryScan =>
-        new HandleLibraryScan(libraries, fileRefs, scanRuns, reader, queue, clock),
+        new HandleLibraryScan(
+          libraries,
+          fileRefs,
+          scanRuns,
+          reader,
+          queue,
+          clock,
+          config.get('SCAN_MAX_FILES'),
+        ),
       inject: [
         LibraryRepository,
         FileRefRepository,
@@ -70,6 +79,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         LibraryReader,
         JobQueue,
         Clock,
+        AppConfig,
       ],
     },
     {

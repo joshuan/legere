@@ -23,6 +23,12 @@ The data model here is described conceptually; exact fields/indexes — in 03/04
   - path exists, `size`/`mtime` match → skip (content is not re-read);
   - path exists, `size`/`mtime` changed → move to `DISCOVERED`, enqueue `file-ingest` (rehash);
   - path exists in the DB but the file is gone from disk → mark `MISSING` (§5.7).
+- **A scan gives up past `SCAN_MAX_FILES` files** (default 50 000; 0 disables the guard). A library
+  pointed at a home directory or a whole disk would otherwise ingest all of it, and the first sign
+  would be a machine hashing overnight. The run ends `FAILED` with a message naming the limit, no
+  `file-ingest` is enqueued for that pass, and the job is **not** retried — the tree will be exactly
+  as large on the next attempt, so what has to change is the library path or the setting. The
+  `FileRef`s created before the stop stay `DISCOVERED` and are picked up by the next successful scan.
 - One scan per library at a time (a pg-boss singleton job); re-triggering during a scan is a no-op.
 - The scan result (found/new/changed/missing counts, duration, errors) goes to the scan journal
   (admin panel).
