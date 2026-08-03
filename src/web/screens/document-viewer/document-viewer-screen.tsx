@@ -36,18 +36,10 @@ import { categoryApi, categoryKeys } from '../../entities/category';
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
 import { useErrorMessage, formatBytes } from '../../shared/lib';
+import { isViewerTab, type ViewerTab } from './viewer-tab';
 
 // The viewer refreshes while the pipeline is still working on this document (docs/10 §10.5).
 const LIVE_REFRESH_MS = 5000;
-
-// The open tab is the last segment of the address (docs/11 §11.5), so a link to a document can be a
-// link to its text.
-const VIEWER_TABS = ['preview', 'text', 'details'] as const;
-export type ViewerTab = (typeof VIEWER_TABS)[number];
-
-export function isViewerTab(value: string): value is ViewerTab {
-  return VIEWER_TABS.some((tab) => tab === value);
-}
 
 // /documents/:id (docs/11 §11.5): read the document, and manage the little that belongs to it.
 export function DocumentViewerScreen({

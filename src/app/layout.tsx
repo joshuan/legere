@@ -1,6 +1,7 @@
 import { IBM_Plex_Mono, IBM_Plex_Sans } from 'next/font/google';
 import { getLocale, getMessages } from 'next-intl/server';
 import type { ReactNode } from 'react';
+import { TIME_ZONE } from '../i18n/request';
 import { AppProviders } from '../web/shared/providers';
 import '../web/shared/styles/globals.css';
 
@@ -35,7 +36,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     <html lang={locale} className={`${sans.variable} ${mono.variable}`}>
       <body>
-        <AppProviders locale={locale} messages={messages}>
+        <AppProviders locale={locale} messages={messages} timeZone={TIME_ZONE}>
           {children}
         </AppProviders>
       </body>

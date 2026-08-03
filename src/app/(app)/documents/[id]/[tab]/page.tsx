@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
-import { DocumentViewerScreen, isViewerTab } from '../../../../../web/screens/document-viewer';
+import { DocumentViewerScreen } from '../../../../../web/screens/document-viewer';
+import { isViewerTab } from '../../../../../web/screens/document-viewer/viewer-tab';
 import { currentUser } from '../../../../_server/current-user';
 
 // /documents/:id/:tab (docs/11 §11.5). The open tab is part of the address so that a link to a

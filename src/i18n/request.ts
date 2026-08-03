@@ -9,6 +9,11 @@ export const DEFAULT_LOCALE: Locale = 'en';
 
 const LOCALE_COOKIE = 'NEXT_LOCALE';
 
+// Fixed rather than taken from the machine: the server and the browser must agree on what a
+// formatted date says, and the server's own zone is a deployment accident. Dates a person reads are
+// formatted in the browser, in their own zone (docs/10 §10.3).
+export const TIME_ZONE = 'UTC';
+
 function isLocale(value: string | undefined): value is Locale {
   return value !== undefined && LOCALES.some((locale) => locale === value);
 }
@@ -43,5 +48,5 @@ export default getRequestConfig(async () => {
       ? await import('../../messages/ru.json')
       : await import('../../messages/en.json');
 
-  return { locale, messages: messages.default };
+  return { locale, messages: messages.default, timeZone: TIME_ZONE };
 });

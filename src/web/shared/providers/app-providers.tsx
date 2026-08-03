@@ -16,15 +16,17 @@ export function AppProviders({
   locale,
   messages,
   theme,
+  timeZone,
 }: {
   children: ReactNode;
   locale: string;
   messages: AbstractIntlMessages;
   theme?: Theme;
+  timeZone: string;
 }) {
   return (
     <AntdRegistry>
-      <NextIntlClientProvider locale={locale} messages={messages}>
+      <NextIntlClientProvider locale={locale} messages={messages} timeZone={timeZone}>
         <ThemeProvider {...(theme === undefined ? {} : { preference: theme })}>
           <AntdApp>
             <QueryProvider>{children}</QueryProvider>
