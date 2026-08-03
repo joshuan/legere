@@ -8,6 +8,7 @@ import {
   Checkbox,
   Col,
   Empty,
+  Input,
   Row,
   Select,
   Space,
@@ -65,8 +66,7 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
   };
 
   const update = useMutation({
-    mutationFn: (input: { title?: string; categoryId?: string | null }) =>
-      documentApi.update(id, input),
+    mutationFn: (input: MetaChange) => documentApi.update(id, input),
     onSuccess: () => {
       void message.success(t('viewer.saved'), 2);
       refresh();
@@ -145,7 +145,8 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
                   <DetailsPane
                     document={detail}
                     categories={categories.data?.items ?? []}
-                    onChange={(input) => update.mutate(input)}
+                    onSave={(input) => update.mutate(input)}
+                    saving={update.isPending}
                   />
                 ),
               },
@@ -347,20 +348,60 @@ type MetaChange = {
   city?: string | null;
 };
 
+// What a person may correct, while they are correcting it. Held apart from the document so that
+// nothing is sent until Save: a select that writes on every keystroke turns a glance into an edit.
+type Draft = {
+  categoryId: string | null;
+  languages: string[];
+  country: string | null;
+  city: string;
+};
+
 // Everything about the document that is not the document, in one list: what the file is, what the
-// pipeline made of it, where its bytes live — and, for the parts a machine guessed, a way to correct
-// them (docs/11 §11.5).
+// pipeline made of it, where its bytes live — and, behind an Edit button, a way to correct the parts
+// a machine guessed (docs/11 §11.5).
 function DetailsPane({
   document,
   categories,
-  onChange,
+  onSave,
+  saving,
 }: {
   document: DocumentDetailDto;
   categories: Array<{ id: string; slug: string; name: string }>;
-  onChange: (input: MetaChange) => void;
+  onSave: (input: MetaChange) => void;
+  saving: boolean;
 }) {
   const t = useTranslations();
   const size = useMemo(() => formatBytes(document.sizeBytes), [document.sizeBytes]);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const editing = draft !== null;
+
+  const startEditing = (): void =>
+    setDraft({
+      categoryId: document.category?.id ?? null,
+      languages: document.languages,
+      country: document.country,
+      city: document.city ?? '',
+    });
+
+  // Only what actually changed: an untouched field must not be sent, or every save would count as a
+  // manual assignment and a category the classifier chose would silently become a person's choice
+  // (docs/03 §3.3.10).
+  const save = (): void => {
+    if (draft === null) return;
+    const change: MetaChange = {};
+    if (draft.categoryId !== (document.category?.id ?? null)) change.categoryId = draft.categoryId;
+    if (draft.languages.join('|') !== document.languages.join('|')) {
+      change.languages = draft.languages;
+    }
+    if (draft.country !== document.country) change.country = draft.country;
+    const city = draft.city.trim() === '' ? null : draft.city.trim();
+    if (city !== document.city) change.city = city;
+
+    if (Object.keys(change).length > 0) onSave(change);
+    setDraft(null);
+  };
+
   // Which step writes which field (docs/05 §5.5): the page count comes with the preview, the text
   // and the languages with the parse, the place and the category with the AI step. A field whose
   // step has not settled is a field whose value is provisional, and it says so rather than showing
@@ -383,134 +424,158 @@ function DetailsPane({
   const autoPlace = placeOf(document.auto.city ?? null, document.auto.country ?? null);
 
   return (
-    <DefinitionList
-      items={[
-        { label: t('viewer.details.size'), value: size, emphasis: true },
-        {
-          label: t('viewer.details.pages'),
-          value: document.pageCount,
-          emphasis: true,
-          pending: state('preview'),
-        },
-        { label: t('viewer.details.mime'), value: document.mimeType },
-        {
-          label: t('viewer.details.category'),
-          value: (
-            <Space size={4} wrap>
-              <Select
-                allowClear
-                variant="borderless"
-                className="legere-field"
-                placeholder={t('viewer.category')}
-                aria-label={t('viewer.category')}
-                value={document.category?.id ?? undefined}
-                onChange={(categoryId?: string) => onChange({ categoryId: categoryId ?? null })}
-                options={categories.map((category) => ({
-                  value: category.id,
-                  label: category.name,
-                }))}
-              />
-              {/* Chosen by the classifier and not confirmed by anybody since (docs/03 §3.3.10). */}
-              {document.categorySource === 'AUTO' && <Tag color="blue">{t('viewer.auto')}</Tag>}
-            </Space>
-          ),
-          pending: state('categorization'),
-          note: wasRead(
-            autoCategory?.name ?? document.auto.categorySlug,
-            document.category?.name ?? '',
-          ),
-        },
-        {
-          label: t('viewer.details.languages'),
-          // Free-form on purpose: BCP-47 has more tags than any list worth shipping, and the ones
-          // already on the document are offered with their names spelled out.
-          value: (
-            <Select
-              mode="tags"
-              variant="borderless"
-              className="legere-field"
-              placeholder={t('viewer.details.languagesPlaceholder')}
-              aria-label={t('viewer.details.languages')}
-              value={document.languages}
-              onChange={(languages: string[]) => onChange({ languages })}
-              options={languageOptions(document.languages, document.auto.languages ?? [])}
-            />
-          ),
-          pending: state('markdown', 'categorization'),
-          note: wasRead(autoLanguages, document.languages.map(displayLanguage).join(', ')),
-        },
-        {
-          label: t('viewer.details.place'),
-          value: (
-            <Space size={4} wrap>
-              <Typography.Text
-                editable={{
-                  triggerType: ['icon', 'text'],
-                  onChange: (city) => onChange({ city: city.trim() === '' ? null : city.trim() }),
-                }}
-              >
-                {document.city ?? ''}
-              </Typography.Text>
-              <Select
-                showSearch
-                allowClear
-                variant="borderless"
-                className="legere-field"
-                optionFilterProp="label"
-                placeholder={t('viewer.details.countryPlaceholder')}
-                aria-label={t('viewer.details.country')}
-                value={document.country ?? undefined}
-                onChange={(country?: string) => onChange({ country: country ?? null })}
-                options={COUNTRY_OPTIONS}
-              />
-            </Space>
-          ),
-          pending: state('categorization'),
-          note: wasRead(autoPlace, placeOf(document.city, document.country)),
-        },
-        {
-          label: t('viewer.details.hash'),
-          value: (
-            <Typography.Text code copyable={{ text: document.contentHash }}>
-              {document.contentHash.slice(0, 12)}…
-            </Typography.Text>
-          ),
-        },
-        {
-          label: t('viewer.details.created'),
-          value: new Date(document.createdAt).toLocaleString(),
-        },
-        {
-          label: t('viewer.details.ocr'),
-          value: document.ocrUsed ? t('common.yes') : t('common.no'),
-          pending: state('markdown'),
-        },
-        // Where the bytes are. One row per place, labelled by the library holding it: a card of its
-        // own made it look like a section of the document rather than one more fact about it.
-        ...(document.fileRefs.length === 0
-          ? [
-              {
-                label: t('viewer.details.locations'),
-                value: (
-                  <Typography.Text type="secondary">
-                    {t('viewer.details.noLocations')}
-                  </Typography.Text>
-                ),
-              },
-            ]
-          : document.fileRefs.map((ref) => ({
-              label: ref.libraryName,
-              value: (
+    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <DefinitionList
+        items={[
+          { label: t('viewer.details.size'), value: size, emphasis: true },
+          {
+            label: t('viewer.details.pages'),
+            value: document.pageCount,
+            emphasis: true,
+            pending: state('preview'),
+          },
+          { label: t('viewer.details.mime'), value: document.mimeType },
+          {
+            label: t('viewer.details.category'),
+            value:
+              draft !== null ? (
+                <Select
+                  allowClear
+                  className="legere-field"
+                  placeholder={t('viewer.category')}
+                  aria-label={t('viewer.category')}
+                  value={draft.categoryId ?? undefined}
+                  onChange={(categoryId?: string) =>
+                    setDraft({ ...draft, categoryId: categoryId ?? null })
+                  }
+                  options={categories.map((category) => ({
+                    value: category.id,
+                    label: category.name,
+                  }))}
+                />
+              ) : (
                 <Space size={4} wrap>
-                  <Typography.Text code>{ref.path}</Typography.Text>
-                  {ref.status === 'MISSING' && (
-                    <Tag color="default">{t('documents.badges.unavailable')}</Tag>
-                  )}
+                  {document.category?.name ?? ''}
+                  {/* Chosen by the classifier and not confirmed by anybody since (03 §3.3.10). */}
+                  {document.categorySource === 'AUTO' && <Tag color="blue">{t('viewer.auto')}</Tag>}
                 </Space>
               ),
-            }))),
-      ]}
-    />
+            pending: state('categorization'),
+            note: wasRead(
+              autoCategory?.name ?? document.auto.categorySlug,
+              document.category?.name ?? '',
+            ),
+          },
+          {
+            label: t('viewer.details.languages'),
+            // Free-form on purpose: BCP-47 has more tags than any list worth shipping, and the ones
+            // already on the document are offered with their names spelled out.
+            value:
+              draft !== null ? (
+                <Select
+                  mode="tags"
+                  className="legere-field"
+                  placeholder={t('viewer.details.languagesPlaceholder')}
+                  aria-label={t('viewer.details.languages')}
+                  value={draft.languages}
+                  onChange={(languages: string[]) => setDraft({ ...draft, languages })}
+                  options={languageOptions(document.languages, document.auto.languages ?? [])}
+                />
+              ) : (
+                document.languages.map(displayLanguage).join(', ')
+              ),
+            pending: state('markdown', 'categorization'),
+            note: wasRead(autoLanguages, document.languages.map(displayLanguage).join(', ')),
+          },
+          {
+            label: t('viewer.details.place'),
+            value:
+              draft !== null ? (
+                <Space size={8} wrap>
+                  <Input
+                    className="legere-field"
+                    placeholder={t('viewer.details.cityPlaceholder')}
+                    aria-label={t('viewer.details.city')}
+                    value={draft.city}
+                    onChange={(event) => setDraft({ ...draft, city: event.target.value })}
+                  />
+                  <Select
+                    showSearch
+                    allowClear
+                    className="legere-field"
+                    optionFilterProp="label"
+                    placeholder={t('viewer.details.countryPlaceholder')}
+                    aria-label={t('viewer.details.country')}
+                    value={draft.country ?? undefined}
+                    onChange={(country?: string) =>
+                      setDraft({ ...draft, country: country ?? null })
+                    }
+                    options={COUNTRY_OPTIONS}
+                  />
+                </Space>
+              ) : (
+                placeOf(document.city, document.country)
+              ),
+            pending: state('categorization'),
+            note: wasRead(autoPlace, placeOf(document.city, document.country)),
+          },
+          {
+            label: t('viewer.details.hash'),
+            value: (
+              <Typography.Text code copyable={{ text: document.contentHash }}>
+                {document.contentHash.slice(0, 12)}…
+              </Typography.Text>
+            ),
+          },
+          {
+            label: t('viewer.details.created'),
+            value: new Date(document.createdAt).toLocaleString(),
+          },
+          {
+            label: t('viewer.details.ocr'),
+            value: document.ocrUsed ? t('common.yes') : t('common.no'),
+            pending: state('markdown'),
+          },
+          // Where the bytes are. One row per place, labelled by the library holding it: a card of
+          // its own made it look like a section of the document rather than one more fact about it.
+          ...(document.fileRefs.length === 0
+            ? [
+                {
+                  label: t('viewer.details.locations'),
+                  value: (
+                    <Typography.Text type="secondary">
+                      {t('viewer.details.noLocations')}
+                    </Typography.Text>
+                  ),
+                },
+              ]
+            : document.fileRefs.map((ref) => ({
+                label: ref.libraryName,
+                value: (
+                  <Space size={4} wrap>
+                    <Typography.Text code>{ref.path}</Typography.Text>
+                    {ref.status === 'MISSING' && (
+                      <Tag color="default">{t('documents.badges.unavailable')}</Tag>
+                    )}
+                  </Space>
+                ),
+              }))),
+        ]}
+      />
+
+      {/* One switch for the whole list rather than a control per row: reading is the common case,
+          and a page of inputs invites edits nobody meant to make (docs/11 §11.5). */}
+      {editing ? (
+        <Space>
+          <Button type="primary" loading={saving} onClick={save}>
+            {t('common.actions.save')}
+          </Button>
+          <Button onClick={() => setDraft(null)}>{t('common.actions.cancel')}</Button>
+        </Space>
+      ) : (
+        <Button onClick={startEditing}>{t('common.actions.edit')}</Button>
+      )}
+    </Space>
   );
 }
 

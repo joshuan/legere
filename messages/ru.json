@@ -392,6 +392,8 @@
       "languages": "Языки",
       "languagesPlaceholder": "Добавить код языка",
       "place": "Место",
+      "city": "Город",
+      "cityPlaceholder": "Город",
       "country": "Страна",
       "countryPlaceholder": "Страна",
       "hash": "Хеш содержимого",

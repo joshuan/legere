@@ -244,3 +244,9 @@ pre,
   font-size: 12px;
   white-space: pre-wrap;
 }
+
+/* An editable field inside a definition row: wide enough to read a category or a country in, and
+   never so wide that the row stops looking like a row. */
+.legere-field {
+  min-width: 180px;
+}

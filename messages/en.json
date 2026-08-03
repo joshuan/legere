@@ -392,6 +392,8 @@
       "languages": "Languages",
       "languagesPlaceholder": "Add a language tag",
       "place": "Place",
+      "city": "City",
+      "cityPlaceholder": "City",
       "country": "Country",
       "countryPlaceholder": "Country",
       "hash": "Content hash",

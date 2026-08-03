@@ -76,7 +76,12 @@ before the metadata of the thing it names.
   table: size, pages, mime, hash (copyable), created, OCR used, **languages** and **place**, file
   locations = visible FileRef paths with library names and MISSING badges, provenance for DERIVED
   docs — link to the scan set). Everything a machine decided is **editable here and only here** —
-  category, languages, country, city — and what the machine decided is kept: when the two differ, a
+  category, languages, country, city — behind one **Edit** button that turns those rows into ordinary
+  inputs and one **Save** that turns them back, rather than controls sitting in the page all the
+  time: reading is the common case, and a page of live selects invites edits nobody meant to make.
+  Save sends **only the fields that changed** — an untouched category must not travel, or every save
+  would flip `categorySource` to `MANUAL` and a classifier's choice would silently become a person's.
+  Cancel drops the draft. What the machine decided is kept: when the two differ, a
   quiet grey line under the value says "read as …". A correction is then never a dead end, and the
   question "did it get this wrong, or did somebody change it?" has an answer on the page. File
   locations are rows of this same list, one per library, rather than a card of their own — where the

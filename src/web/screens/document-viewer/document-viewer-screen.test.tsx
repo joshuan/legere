@@ -160,11 +160,68 @@ describe('DocumentViewerScreen', () => {
 
     renderWithProviders(<DocumentViewerScreen id={ID} />);
     await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    // Scoped to the tab: the title above the tabs has an Edit affordance of its own.
+    const details = within(screen.getByRole('tabpanel'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+
     const select = await screen.findByRole('combobox', { name: enMessages.viewer.category });
     await userEvent.click(select);
     await userEvent.click(await screen.findByTitle('Contract'));
 
+    // 🔒 Nothing is sent while the form is open: a select that writes on every keystroke turns a
+    // glance into an edit (docs/11 §11.5).
+    expect(patched).toBeNull();
+
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
     await waitFor(() => expect(patched).toEqual({ categoryId: CATEGORY_ID }));
+  });
+
+  it('sends only the fields that changed, so a save is not a manual assignment of everything', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+
+    const city = details.getByRole('textbox', { name: enMessages.viewer.details.city });
+    await userEvent.clear(city);
+    await userEvent.type(city, 'Bar');
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
+
+    // 🔒 The category was not touched, so it is not in the payload: sending it would flip
+    // categorySource to MANUAL and a classifier's choice would silently become a person's
+    // (docs/03 §3.3.10).
+    await waitFor(() => expect(patched).toEqual({ city: 'Bar' }));
+  });
+
+  it('drops an edit that is cancelled', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+    await userEvent.type(
+      details.getByRole('textbox', { name: enMessages.viewer.details.city }),
+      'Bar',
+    );
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.cancel }));
+
+    expect(patched).toBeNull();
+    expect(details.queryByRole('textbox', { name: enMessages.viewer.details.city })).toBeNull();
   });
 
   it('marks a category the classifier chose', async () => {
