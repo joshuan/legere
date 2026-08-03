@@ -96,7 +96,7 @@ supported edit; the full variable list is in
 nvm use && npm install
 cp .env.example .env
 mkdir -p dev-library && cp -r <some documents> dev-library/   # LIBRARY_ROOT points here
-npm run dev:up          # PostgreSQL + Stirling-PDF + MinIO (bucket included)
+npm run dev:up          # PostgreSQL + Stirling-PDF + Docling + ollama + MinIO (bucket included)
 npm run db:migrate      # forward-only, same command the container runs on start
 npm run db:seed         # admin@legere.local / password, and a library over dev-library/
 npm run dev             # http://localhost:3000

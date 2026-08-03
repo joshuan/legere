@@ -140,11 +140,42 @@ nvm use
 npm install
 cp .env.example .env
 mkdir -p dev-library && cp -r <some-documents> dev-library/   # your test corpus; LIBRARY_ROOT points here
-npm run dev:up          # PostgreSQL(+pgvector) + Stirling-PDF + MinIO (+ bucket init)
+npm run dev:up          # PostgreSQL(+pgvector) + Stirling-PDF + Docling + ollama + MinIO (+ bucket init)
 npm run db:migrate:dev
 npm run db:seed         # admin@legere.local / password; library over dev-library/
 npm run dev             # one process on :3000
 ```
+
+**Trying the AI step locally.** The dev stack includes `ollama`, which speaks the same
+OpenAI-compatible API as any hosted provider, so nothing but `.env` changes between them:
+
+```bash
+docker compose exec ollama ollama pull mistral-nemo:12b     # ~7.1 GB, once
+```
+```dotenv
+CLASSIFIER_API_BASE_URL=http://localhost:11434/v1
+CLASSIFIER_MODEL=mistral-nemo:12b
+```
+
+**Which model.** Bigger than you would expect, because the hard part of this step is not the format
+of the answer but knowing things. Measured on one real train ticket — Podgorica → Belgrade, issued
+by ŽPCG, with no country named anywhere in its text:
+
+| model | answer |
+|---|---|
+| `qwen2.5:7b` | category right, city `Podgorica` right, country **`RS`** — it named the city and then placed it in the wrong country |
+| `mistral-nemo:12b` | category right, city `Podgorica`, country **`ME`** — right |
+| `qwen2.5:14b` | never answered: 9 GB of weights do not load in the default Docker VM (11.6 GB total) |
+
+Run it with `npx vitest run --project server test/integration/analyst.integration.test.ts` and the
+environment above: the test skips itself when no provider is configured and prints what the model
+you chose actually said.
+
+On macOS the container has no GPU — Docker cannot pass Metal through — so answers take tens of
+seconds instead of one. That is fine for seeing the step work; run ollama natively if you want it
+quick. Embeddings are a separate question: `EMBEDDING_DIMENSIONS` must match the `vector(1536)`
+column, and the usual local embedding models are 768 or 1024, so pointing `EMBEDDINGS_API_BASE_URL`
+at ollama needs a migration first — leave it empty and vectorization stays `SKIPPED`.
 
 Root `docker-compose.yaml` (dev dependencies only — the app itself is NOT in it):
 
@@ -160,6 +191,16 @@ services:
     ports: ['8080:8080']
     # Stirling 2.x requires a login by default and answers 401 to every API call.
     environment: { SECURITY_ENABLELOGIN: 'false', SYSTEM_ENABLEANALYTICS: 'false' }
+  docling:
+    # Our own build: the upstream image ships tesseract with English only (ADR-018).
+    image: legere-docling:dev
+    build: ./deploy/docling
+    environment: { DOCLING_SERVE_ENABLE_UI: 'false' }
+    ports: ['5001:5001']
+  ollama:
+    image: ollama/ollama:latest
+    ports: ['11434:11434']
+    volumes: ['ollama-data:/root/.ollama']
   minio:
     image: minio/minio
     command: server /data --console-address ':9001'
@@ -172,7 +213,7 @@ services:
     entrypoint: >
       /bin/sh -c "mc alias set local http://minio:9000 legere legere-secret &&
                   mc mb --ignore-existing local/legere"
-volumes: { db-data: {}, minio-data: {} }
+volumes: { db-data: {}, minio-data: {}, ollama-data: {} }
 ```
 
 ## 12.6. Dockerfile (one image)

@@ -30,6 +30,9 @@ const SYSTEM_PROMPT = [
   'Never invent a slug that is not on the list.',
   'Infer the country and the city from what the document is about — an issuing office, an operator,',
   'a station, a currency, an address, a phone prefix — not only from words naming a country.',
+  'When several places appear, name the one the document comes from — the issuer, or the point of',
+  'departure — never a destination.',
+  'If you name a city, name the country that city is in as well.',
   'Use null when the document gives you no reason to name one; a guess is worse than nothing.',
 ].join(' ');
 

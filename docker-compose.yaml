@@ -19,6 +19,28 @@ services:
     environment: { MINIO_ROOT_USER: legere, MINIO_ROOT_PASSWORD: legere-secret }
     ports: ['9000:9000', '9001:9001']
     volumes: ['minio-data:/data']
+  docling:
+    # Built rather than pulled: the upstream image ships tesseract with English only, and our
+    # Dockerfile adds the languages a document archive actually meets (ADR-018, docs/05 §5.5).
+    # `dev:up` builds it the first time — with an older buildx (< 0.17) compose cannot build at all,
+    # so do it by hand once: `docker build -t legere-docling:dev deploy/docling`.
+    image: legere-docling:dev
+    build: ./deploy/docling
+    environment: { DOCLING_SERVE_ENABLE_UI: 'false' }
+    ports: ['5001:5001']
+  ollama:
+    # The AI step (categories, languages, where a document is from) talks to anything
+    # OpenAI-compatible; this is the one you can run without an account. Point .env at it:
+    #   CLASSIFIER_API_BASE_URL=http://localhost:11434/v1
+    #   CLASSIFIER_MODEL=mistral-nemo:12b
+    # and pull the model once: `docker compose exec ollama ollama pull mistral-nemo:12b`.
+    # Size matters more than you would guess for this job — docs/12 §12.5 has the measurement.
+    # On macOS this container has no access to the GPU — Docker cannot pass Metal through, so it
+    # runs on CPU and a 7B model answers in tens of seconds rather than instantly. Fine for trying
+    # the pipeline out; run ollama natively if you want it quick.
+    image: ollama/ollama:latest
+    ports: ['11434:11434']
+    volumes: ['ollama-data:/root/.ollama']
   createbuckets:
     image: minio/mc
     depends_on: [minio]
@@ -29,4 +51,4 @@ services:
       /bin/sh -c "until mc alias set local http://minio:9000 legere legere-secret; do
                     echo 'waiting for minio...'; sleep 1; done &&
                   mc mb --ignore-existing local/legere"
-volumes: { db-data: {}, minio-data: {} }
+volumes: { db-data: {}, minio-data: {}, ollama-data: {} }
