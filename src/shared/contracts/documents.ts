@@ -79,6 +79,9 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   skipReasons: documentSkipReasonsSchema,
   // BCP-47 tags, most likely first (docs/03 §3.3.10).
   languages: z.array(z.string()),
+  // ISO 3166-1 alpha-2, and the city as the document writes it.
+  country: z.string().nullable(),
+  city: z.string().nullable(),
   processingError: z.string().nullable(),
   failedStep: z.string().nullable(),
   fileRefs: z.array(documentFileRefSchema),
@@ -119,6 +122,17 @@ export const updateDocumentRequestSchema = z
   .object({
     title: z.string().trim().min(1).max(500).optional(),
     categoryId: z.string().uuid().nullable().optional(),
+    // BCP-47, loosely: `ru`, `en`, `sr-Latn`. Kept short so a typo cannot become a novel.
+    languages: z.array(z.string().trim().min(2).max(12)).max(5).optional(),
+    // ISO 3166-1 alpha-2, upper-cased; null clears it.
+    country: z
+      .string()
+      .trim()
+      .length(2)
+      .transform((value) => value.toUpperCase())
+      .nullable()
+      .optional(),
+    city: z.string().trim().min(1).max(120).nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: 'At least one field must be provided',

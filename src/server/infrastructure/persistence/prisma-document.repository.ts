@@ -50,6 +50,8 @@ function toDomain(row: PrismaDocument): Document {
     processingError: row.processingError,
     skipReasons: toSkipReasons(row.skipReasons),
     languages: row.languages,
+    country: row.country,
+    city: row.city,
     failedStep: row.failedStep,
     ocrUsed: row.ocrUsed,
     categoryId: row.categoryId,
@@ -350,6 +352,8 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ...(steps.vectorization === undefined ? {} : { vectorizationStatus: steps.vectorization }),
         ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
         ...(update.languages === undefined ? {} : { languages: update.languages }),
+        ...(update.country === undefined ? {} : { country: update.country }),
+        ...(update.city === undefined ? {} : { city: update.city }),
         ...(update.markdown === undefined ? {} : { markdown: update.markdown }),
         ...(update.ocrUsed === undefined ? {} : { ocrUsed: update.ocrUsed }),
         ...(update.processingError === undefined
@@ -654,6 +658,9 @@ export class PrismaDocumentRepository implements DocumentRepository {
       where: { id },
       data: {
         ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.languages === undefined ? {} : { languages: input.languages }),
+        ...(input.country === undefined ? {} : { country: input.country }),
+        ...(input.city === undefined ? {} : { city: input.city }),
         ...(input.categoryId === undefined ? {} : { categoryId: input.categoryId }),
         ...(input.categorySource === undefined ? {} : { categorySource: input.categorySource }),
       },

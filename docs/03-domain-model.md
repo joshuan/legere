@@ -205,6 +205,8 @@ The logical unit of content (deduplicated).
 | processingError | string? | last error message (truncated to 2000 chars) |
 | skipReasons | json | why a step is `SKIPPED`, per step — see below; empty for steps that ran |
 | languages | string[] | BCP-47 tags of what the document is written in, most likely first — `['ru']`, `['ru','sr-Latn']`. Detected from the extracted text, editable; empty when there was too little text to tell |
+| country | string? | ISO 3166-1 alpha-2 of where the document belongs — the issuer's country, the place of an event |
+| city | string? | free text, as written in the document |
 | failedStep | string? | which step produced `processingError` |
 | ocrUsed | bool | whether Markdown came from OCR |
 | categoryId | uuid? | |
@@ -220,6 +222,13 @@ where the same language exists in two of them: Serbian is `sr-Cyrl` or `sr-Latn`
 The set decides which languages OCR is given, and a wrong one costs accuracy — `EUR` read with
 Cyrillic in the set comes back as `ЕОВ` — so below a length threshold the answer is an empty list
 rather than a guess.
+
+**Where a document belongs.** `country` and `city` answer "where is this from" — the issuing office
+of a contract, the departure city on a ticket. They are inferred by the AI step when a provider is
+configured, because the evidence is rarely literal: a Montenegrin train ticket says `ŽPCG` and
+`Podgorica`, never "Montenegro", and the operator's full name lives in the logo, which is a picture.
+Without a provider both stay empty until somebody fills them in; both are editable either way, and a
+value a person set is never overwritten (the rule that already governs the category).
 
 **Skip reasons.** `SKIPPED` on its own reads like something went wrong, and three of the five steps
 skip for reasons an operator can act on. Each skipped step records why, from a closed set:

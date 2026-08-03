@@ -71,8 +71,11 @@ Two-pane layout:
 - **Left (main): tabs** — `Preview` (canonical/source PDF in an `<object>`; for images the
   preview.jpg full-size; for text/markdown sources — rendered markdown), `Text` (rendered Markdown
   representation; empty state "No text extracted yet" / "Extraction failed"), `Details` (metadata
-  table: size, pages, mime, hash (copyable), created, OCR used, file locations = visible FileRef
-  paths with library names and MISSING badges, provenance for DERIVED docs — link to the scan set).
+  table: size, pages, mime, hash (copyable), created, OCR used, **languages** and **place**, file
+  locations = visible FileRef paths with library names and MISSING badges, provenance for DERIVED
+  docs — link to the scan set). Languages and the country are shown as names in the reader's own
+  language (`Intl.DisplayNames`), not as the tags stored — "Serbian (Latin), Montenegro", not
+  "sr-Latn, ME"; an em dash where nothing was detected, which is honest and never looks broken.
 - **Right (sidebar):** title (inline-editable when permitted), category select (all users with
   access; shows "auto" tag when `categorySource=AUTO`), Download source button (disabled +
   tooltip when `UNAVAILABLE`), Add-to-collection select, processing status panel (5 steps with

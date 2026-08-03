@@ -37,6 +37,8 @@ export type ProcessingUpdate = {
   skipReasons?: Partial<Record<keyof DocumentSteps, StepSkipReason | null>>;
   pageCount?: number | null;
   languages?: string[];
+  country?: string | null;
+  city?: string | null;
   markdown?: string | null;
   ocrUsed?: boolean;
   processingError?: string | null;
@@ -101,6 +103,9 @@ export type DocumentPage = {
 
 export type UpdateDocumentMetaInput = {
   title?: string;
+  languages?: string[];
+  country?: string | null;
+  city?: string | null;
   categoryId?: string | null;
   categorySource?: CategorySource;
 };

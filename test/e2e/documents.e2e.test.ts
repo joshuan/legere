@@ -555,6 +555,27 @@ describe('Documents (e2e)', () => {
       expect(expectError(edit).code).toBe('FORBIDDEN');
     });
 
+    it('takes the languages and the place a person corrected by hand', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open, title: 'Ticket' });
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}`, {
+          languages: ['sr-Latn', 'en'],
+          country: 'me',
+          city: 'Podgorica',
+        })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      const row = await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } });
+      expect(row.languages).toEqual(['sr-Latn', 'en']);
+      // Upper-cased on the way in: ISO 3166-1 alpha-2 is written that way, and a stored 'me' would
+      // never match a lookup for 'ME'.
+      expect(row.country).toBe('ME');
+      expect(row.city).toBe('Podgorica');
+    });
+
     it('rejects an empty patch', async () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open });

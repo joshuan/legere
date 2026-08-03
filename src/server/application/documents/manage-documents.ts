@@ -53,6 +53,12 @@ export class UpdateDocumentMeta {
 
     const update: UpdateDocumentMetaInput = {};
     if (input.title !== undefined) update.title = input.title;
+    // Corrections a person makes by hand. The detector is a guess — it cannot tell Serbian from
+    // Croatian in Latin script, and it knows nothing about where a document came from — so being
+    // able to fix it is part of the feature, not an afterthought (docs/03 §3.3.10).
+    if (input.languages !== undefined) update.languages = input.languages;
+    if (input.country !== undefined) update.country = input.country;
+    if (input.city !== undefined) update.city = input.city;
 
     if (input.categoryId !== undefined) {
       if (input.categoryId === null) {
@@ -134,6 +140,8 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     steps: document.steps,
     skipReasons: document.skipReasons,
     languages: document.languages,
+    country: document.country,
+    city: document.city,
     processingError: document.processingError,
     failedStep: document.failedStep,
     fileRefs: detail.fileRefs,

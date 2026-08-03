@@ -37,6 +37,9 @@ export type Document = {
   skipReasons: SkipReasons;
   // BCP-47 tags, most likely first; empty when there was too little text to tell (docs/03 §3.3.10).
   languages: string[];
+  // Where the document belongs: ISO 3166-1 alpha-2, and the city as it is written (docs/03 §3.3.10).
+  country: string | null;
+  city: string | null;
   failedStep: string | null;
   ocrUsed: boolean;
   categoryId: string | null;

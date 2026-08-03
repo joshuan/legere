@@ -270,6 +270,8 @@ model Document {
   processingError      String?                  @map("processing_error")
   skipReasons          Json                     @default("{}") @map("skip_reasons")
   languages            String[]                 @map("languages")
+  country              String?                  @map("country")
+  city                 String?                  @map("city")
   failedStep           String?                  @map("failed_step")
   ocrUsed              Boolean                  @default(false) @map("ocr_used")
   categoryId           String?                  @map("category_id") @db.Uuid

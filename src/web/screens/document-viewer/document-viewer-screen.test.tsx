@@ -29,6 +29,8 @@ const detail: DocumentDetailDto = {
   categorySource: 'NONE',
   skipReasons: {},
   languages: ['ru', 'sr-Latn'],
+  country: 'ME',
+  city: 'Podgorica',
   steps: {
     canonical: 'SKIPPED',
     preview: 'DONE',

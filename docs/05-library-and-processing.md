@@ -130,6 +130,9 @@ they are served to the client via short-lived signed URLs after an access check.
    flattened into one line.
    - the PDF has a text layer (a meaningful-text threshold, measured over the extracted text divided
      by the page count) → that text is the Markdown;
+   - the languages of the result are detected from it and stored on the document (03 §3.3.10); on a
+     re-run they are what OCR is given, so a scan of a Russian page is OCR'd as Russian rather than
+     as whatever the instance defaults to
    - no text layer / it is an image (a scan) → **OCR** via Stirling-PDF (tesseract, languages from
      env, default rus+eng), then the same conversion over the searchable PDF;
    - plain text / Markdown → as is (encoding normalization).

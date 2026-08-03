@@ -352,6 +352,12 @@ function DetailsPane({ document }: { document: DocumentDetailDto }) {
             value: document.languages.map((language) => displayLanguage(language)).join(', '),
           },
           {
+            label: t('viewer.details.place'),
+            value: [document.city, displayCountry(document.country)]
+              .filter((part) => part !== null && part !== '')
+              .join(', '),
+          },
+          {
             label: t('viewer.details.hash'),
             value: (
               <Typography.Text code copyable={{ text: document.contentHash }}>
@@ -400,6 +406,16 @@ function statusColor(status: StepStatus): string {
 
 function isStep(value: unknown): value is DocumentStep {
   return DOCUMENT_STEPS.some((step) => step === value);
+}
+
+// "ME" → "Montenegro", in the reader's own language. Intl knows the list; we do not keep one.
+function displayCountry(code: string | null): string | null {
+  if (code === null) return null;
+  try {
+    return new Intl.DisplayNames([navigator.language], { type: 'region' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }
 
 // "ru" → "Russian" in the reader's own language, "sr-Latn" → "Serbian (Latin)". Intl does the work;

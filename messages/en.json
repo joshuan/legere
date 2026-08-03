@@ -389,6 +389,7 @@
       "pages": "Pages",
       "mime": "Type",
       "languages": "Languages",
+      "place": "Place",
       "hash": "Content hash",
       "created": "Added",
       "ocr": "OCR used",

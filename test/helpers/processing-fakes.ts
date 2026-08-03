@@ -90,6 +90,8 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     failedStep: null,
     skipReasons: {},
     languages: [],
+    country: null,
+    city: null,
     ocrUsed: false,
     categoryId: null,
     categorySource: 'NONE',
