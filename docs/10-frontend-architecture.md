@@ -94,7 +94,13 @@ a redirect to `/login` (see §10.5).
 - Query keys per entity slice: `['documents', filters]`, `['document', id]`, `['collections']`, etc.
   Lists use `useInfiniteQuery` with `nextCursor`. Mutations invalidate the narrowest affected keys.
 - **Processing liveness:** the documents list and the viewer poll with `refetchInterval: 5000` while
-  any visible document has `processing: true`; the admin queue dashboard polls every 5 s
+  any visible document has `processing: true`; the admin queue dashboard polls every 5 s. The
+  viewer's other queries — the extracted text, the log — are **not** polled: they are invalidated
+  when a step changes state, which is the only moment either can change and is already being
+  watched. The log additionally polls while the document is processing, because an entry can appear
+  without a step moving — somebody else editing the same document. Artifacts served as URLs (the
+  preview image, the canonical PDF) are keyed by the step that produces them: a `<img>` asked for
+  before the file existed is a broken image the browser will never retry on its own
   unconditionally.
 
 ## 10.6. Forms

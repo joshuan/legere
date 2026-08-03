@@ -75,6 +75,17 @@ export function DocumentViewerScreen({
     enabled: document.data !== undefined,
   });
 
+  // The document itself is polled while the pipeline works on it, so Details keeps up on its own.
+  // The text and the log live on their own queries and would sit there stale, showing "being
+  // extracted" over a document that finished a minute ago (docs/10 §10.5). Rather than polling them
+  // too, they are refetched when a step changes state: that is the only moment either can change,
+  // and it is already being watched.
+  const stepsKey = JSON.stringify(document.data?.steps ?? {});
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: documentKeys.markdown(id) });
+    void queryClient.invalidateQueries({ queryKey: documentKeys.events(id) });
+  }, [stepsKey, id, queryClient]);
+
   const categories = useQuery({ queryKey: categoryKeys.all, queryFn: categoryApi.list });
   const collections = useQuery({ queryKey: collectionKeys.all, queryFn: collectionApi.list });
 
@@ -167,7 +178,9 @@ export function DocumentViewerScreen({
               {
                 key: 'log',
                 label: t('viewer.tabs.log'),
-                children: <LogPane id={id} active={active === 'log'} />,
+                children: (
+                  <LogPane id={id} active={active === 'log'} processing={detail.processing} />
+                ),
               },
               {
                 key: 'details',
@@ -306,6 +319,9 @@ function PreviewPane({
     return (
       // eslint-disable-next-line @next/next/no-img-element -- an API route that 302s to a signed URL.
       <img
+        // Keyed by the step that produces it: a preview requested before it existed is a broken
+        // image the browser will never retry on its own (docs/10 §10.5).
+        key={document.steps.preview}
         src={documentFiles.preview(document.id)}
         alt={document.title}
         style={{ maxWidth: '100%' }}
@@ -317,6 +333,7 @@ function PreviewPane({
   if (hasPdf && document.availability === 'AVAILABLE') {
     return (
       <object
+        key={document.steps.canonical}
         data={documentFiles.canonical(document.id)}
         type="application/pdf"
         style={{ width: '100%', height: '70vh' }}
@@ -706,12 +723,15 @@ function DetailsPane({
 
 // The history of the document (docs/03 §3.3.18): who did what to it, and what the pipeline made of
 // it, newest first. Fetched only when the tab is open — most visits never ask.
-function LogPane({ id, active }: { id: string; active: boolean }) {
+function LogPane({ id, active, processing }: { id: string; active: boolean; processing: boolean }) {
   const t = useTranslations();
   const events = useQuery({
     queryKey: documentKeys.events(id),
     queryFn: () => documentApi.events(id),
     enabled: active,
+    // While the pipeline is working there is more to come, and not every entry follows a step
+    // change — somebody else may be editing the same document (docs/10 §10.5).
+    refetchInterval: processing ? LIVE_REFRESH_MS : false,
   });
 
   if (events.isPending) return <Spin />;

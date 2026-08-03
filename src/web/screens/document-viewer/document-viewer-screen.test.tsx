@@ -314,6 +314,36 @@ describe('DocumentViewerScreen', () => {
     expect(screen.getByText(/Admin/)).toBeInTheDocument();
   });
 
+  it('picks up the text as soon as the step that produces it finishes', async () => {
+    let extracted = false;
+    server.use(
+      http.get(`/api/documents/${ID}`, () =>
+        HttpResponse.json(
+          envelope({
+            ...detail,
+            processing: !extracted,
+            steps: { ...detail.steps, markdown: extracted ? 'DONE' : 'RUNNING' },
+          }),
+        ),
+      ),
+      http.get(`/api/documents/${ID}/markdown`, () =>
+        HttpResponse.json(envelope({ markdown: extracted ? '# Terms\n\nBody' : null })),
+      ),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" />);
+    expect(await screen.findByText(enMessages.viewer.textPending)).toBeInTheDocument();
+
+    // The pipeline finishes; the next poll of the document sees a step that moved.
+    extracted = true;
+
+    // 🔒 The text arrives without a reload: a viewer that shows "being extracted" over a document
+    // that finished a minute ago is worse than one that never claimed to be live (docs/10 §10.5).
+    expect(
+      await screen.findByRole('heading', { name: 'Terms' }, { timeout: 10_000 }),
+    ).toBeVisible();
+  }, 15_000);
+
   it('keeps the open tab in the address', async () => {
     renderWithProviders(<DocumentViewerScreen id={ID} />);
 
