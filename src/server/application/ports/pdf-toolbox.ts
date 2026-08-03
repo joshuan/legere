@@ -29,4 +29,9 @@ export abstract class PdfToolbox {
   abstract imagesToPdf(images: readonly NamedBinary[]): Promise<Buffer>;
 
   abstract pdfPageCount(source: BinarySource): Promise<number>;
+
+  // The PDF's own text as Markdown (step 3). One engine parses PDFs in this product, and it is this
+  // one: the converter recovers paragraphs and headings, which is the difference between a readable
+  // document and one long line (docs/05 §5.5).
+  abstract pdfToMarkdown(source: BinarySource): Promise<string>;
 }

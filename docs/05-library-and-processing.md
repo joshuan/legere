@@ -124,12 +124,20 @@ they are served to the client via short-lived signed URLs after an access check.
 2. **First-page JPG preview:** PDF (source or canonical) → Stirling-PDF (PDF→IMG, first page); an
    image → `sharp` (resize/EXIF orientation/JPEG). Artifacts `preview.jpg` (+ a smaller `thumb.jpg`
    for lists).
-3. **Markdown extraction:**
-   - the PDF has a text layer (a meaningful-text threshold) → extract the text layer → Markdown;
+3. **Markdown extraction** — every PDF goes through **Stirling-PDF** (`/convert/pdf/markdown`), which
+   is the single parser in the product (ADR-012): one container owns the PDF stack, and the layout it
+   recovers — paragraphs, headings, lists — survives into the stored Markdown instead of being
+   flattened into one line.
+   - the PDF has a text layer (a meaningful-text threshold, measured over the extracted text divided
+     by the page count) → that text is the Markdown;
    - no text layer / it is an image (a scan) → **OCR** via Stirling-PDF (tesseract, languages from
-     env, default rus+eng) → text → Markdown;
+     env, default rus+eng), then the same conversion over the searchable PDF;
    - plain text / Markdown → as is (encoding normalization).
    The Markdown is stored with the document and indexed by PostgreSQL FTS.
+Every `SKIPPED` step records **why** (docs/03 §3.3.10), because "skipped" alone cannot be told apart
+from "broken" by the person looking at it: not needed for this format, format unsupported, provider
+not configured, no categories defined, no text to embed, or a category a person set by hand.
+
 4. **Categorization:** classification against the managed category list (proposal: LLM via the same
    configurable API as embeddings — open question
    [`01 §1.7`](./01-vision-and-scope.md#17-open-questions)). An auto-assigned category is marked as
@@ -183,7 +191,10 @@ Scenario: a physical document scanned into dozens of JPGs with large margins (a 
 
 None. Previously open items — resolved:
 
-1. **PDF text-layer extraction:** `pdfjs-dist` via the `TextExtractor` port; validated by an early
+1. **PDF text-layer extraction:** ~~`pdfjs-dist`~~ — **superseded**: Stirling-PDF does all PDF
+   parsing (`/convert/pdf/markdown`), so the product has one PDF engine rather than two. pdfjs
+   returned text runs in content-stream order with no structure, which arrived in the viewer as an
+   unbroken wall; validated by an early
    spike task.
 2. **OCR threshold:** a PDF goes to OCR when its average extracted text is below
    `PDF_TEXT_MIN_CHARS_PER_PAGE` (default 32) characters per page.

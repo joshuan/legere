@@ -3,6 +3,7 @@ import type {
   CategorySource,
   DocumentSource,
   FileRefStatus,
+  StepSkipReason,
   StepStatus,
   UserRole,
 } from '../../../shared/contracts/enums';
@@ -31,6 +32,9 @@ export type DocumentUpsert = {
 // its own outcome and nothing else, so progress is visible while the rest of the run continues.
 export type ProcessingUpdate = {
   steps?: Partial<DocumentSteps>;
+  // Merged into what is already there, one step at a time — the pipeline settles steps separately
+  // (docs/03 §3.3.10). Setting a step's reason to null clears it, which is what a re-run does.
+  skipReasons?: Partial<Record<keyof DocumentSteps, StepSkipReason | null>>;
   pageCount?: number | null;
   markdown?: string | null;
   ocrUsed?: boolean;

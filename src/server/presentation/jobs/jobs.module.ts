@@ -15,7 +15,6 @@ import { JobQueue } from '../../application/ports/job-queue';
 import { LibraryReader } from '../../application/ports/library-reader';
 import { MimeDetector } from '../../application/ports/mime-detector';
 import { PdfToolbox } from '../../application/ports/pdf-toolbox';
-import { TextExtractor } from '../../application/ports/text-extractor';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { CategoryRepository } from '../../domain/repositories/category.repository';
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
@@ -114,7 +113,6 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         files: FileStorage,
         pdfs: PdfToolbox,
         images: ImageTool,
-        text: TextExtractor,
         categories: CategoryRepository,
         classifier: DocumentClassifier,
         chunks: DocumentChunkRepository,
@@ -130,7 +128,6 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           files,
           pdfs,
           images,
-          text,
           categories,
           classifier,
           chunks,
@@ -146,7 +143,6 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         FileStorage,
         PdfToolbox,
         ImageTool,
-        TextExtractor,
         CategoryRepository,
         DocumentClassifier,
         DocumentChunkRepository,

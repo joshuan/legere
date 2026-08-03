@@ -203,6 +203,7 @@ The logical unit of content (deduplicated).
 | searchVector | tsvector | generated from title + markdown (see 04) |
 | canonicalStatus / previewStatus / markdownStatus / categorizationStatus / vectorizationStatus | StepStatus | pipeline step statuses |
 | processingError | string? | last error message (truncated to 2000 chars) |
+| skipReasons | json | why a step is `SKIPPED`, per step — see below; empty for steps that ran |
 | failedStep | string? | which step produced `processingError` |
 | ocrUsed | bool | whether Markdown came from OCR |
 | categoryId | uuid? | |
@@ -210,6 +211,18 @@ The logical unit of content (deduplicated).
 | createdById | uuid? | the owner; set for DERIVED and UPLOAD documents |
 | scanSetId | uuid? | provenance for DERIVED documents |
 | createdAt / updatedAt / deletedAt | | |
+
+**Skip reasons.** `SKIPPED` on its own reads like something went wrong, and three of the five steps
+skip for reasons an operator can act on. Each skipped step records why, from a closed set:
+
+| Reason | Meaning |
+|---|---|
+| `NOT_NEEDED` | nothing to do for this format — a PDF needs no canonicalization, text has no page to render |
+| `UNSUPPORTED_FORMAT` | the format has no representation the product can build |
+| `NOT_CONFIGURED` | the instance has no classifier / embeddings provider (docs/05 §5.5) |
+| `NO_CATEGORIES` | there is nothing to classify into: the category list is empty |
+| `NO_TEXT` | the document yielded no text to embed |
+| `MANUAL_CATEGORY` | a person chose the category, and a machine never overwrites that |
 
 **Derived state (computed, not stored):**
 - `availability`: a LIBRARY document is `AVAILABLE` if it has ≥1 `FileRef` with status `HASHED` in an

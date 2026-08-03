@@ -1,7 +1,6 @@
 import sharp from 'sharp';
 import { beforeAll, describe, expect, it, type TestContext } from 'vitest';
 import { loadConfig } from '../../src/server/infrastructure/config/app-config';
-import { PdfjsTextExtractor } from '../../src/server/infrastructure/pdf/pdfjs-text-extractor';
 import { StirlingPdfToolbox } from '../../src/server/infrastructure/pdf/stirling-pdf-toolbox';
 import { rtfWithText } from '../fixtures/office';
 import { pdfWithText } from '../fixtures/pdf';
@@ -26,7 +25,6 @@ function itWithStirling(name: string, body: () => Promise<void>, timeoutMs = 60_
 
 describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
   const pdfs = new StirlingPdfToolbox(config);
-  const text = new PdfjsTextExtractor();
 
   beforeAll(async () => {
     stirling.up = await reachable(`${STIRLING_URL}/api/v1/info/status`);
@@ -47,8 +45,7 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
       expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
       // Converted, not merely wrapped: the text survives into the canonical PDF and step 3 can read
       // it without OCR (docs/05 §5.5).
-      const pages = await text.pdfTextByPage(pdf);
-      expect(pages.join(' ')).toContain('Quarterly report for Legere');
+      expect(await pdfs.pdfToMarkdown(pdf)).toContain('Quarterly report for Legere');
     },
     120_000,
   );
@@ -92,11 +89,11 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
       const scan = await pdfs.imagesToPdf([
         { body: await renderedText('LEGERE OCR'), fileName: 'scan.jpg' },
       ]);
-      expect((await text.pdfTextByPage(scan)).join('')).toBe('');
+      expect((await pdfs.pdfToMarkdown(scan)).trim()).toBe('');
 
       const searchable = await pdfs.ocrPdf(scan, ['eng']);
 
-      expect((await text.pdfTextByPage(searchable)).join(' ')).toContain('LEGERE OCR');
+      expect(await pdfs.pdfToMarkdown(searchable)).toContain('LEGERE OCR');
     },
     180_000,
   );

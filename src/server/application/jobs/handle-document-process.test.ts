@@ -7,7 +7,6 @@ import {
   FakeEmbeddingProvider,
   FakeImageTool,
   FakePdfToolbox,
-  FakeTextExtractor,
   ImmediateUnitOfWork,
   InMemoryCategoryRepository,
   InMemoryDocumentChunkRepository,
@@ -28,7 +27,7 @@ const SOURCE_PATH = 'invoices/a.pdf';
 const DERIVED_ID = '33333333-3333-4333-8333-333333333333';
 const MIN_CHARS_PER_PAGE = 32;
 // Comfortably above the threshold, so the default PDF path is "has a text layer".
-const TEXT_LAYER = ['Invoice 2026-01 for services rendered in January, payable within 30 days.'];
+const TEXT_LAYER = 'Invoice 2026-01 for services rendered in January, payable within 30 days.';
 const GONE_ID = '44444444-4444-4444-8444-444444444444';
 
 // Steps 1–2 of docs/05 §5.5 with the containers and the bucket replaced by in-memory doubles: what
@@ -42,7 +41,6 @@ describe('HandleDocumentProcess', () => {
   let files: InMemoryFileStorage;
   let pdfs: FakePdfToolbox;
   let images: FakeImageTool;
-  let text: FakeTextExtractor;
   let categories: InMemoryCategoryRepository;
   let classifier: FakeClassifier;
   let chunks: InMemoryDocumentChunkRepository;
@@ -57,10 +55,9 @@ describe('HandleDocumentProcess', () => {
     files = new InMemoryFileStorage();
     pdfs = new FakePdfToolbox();
     images = new FakeImageTool();
-    text = new FakeTextExtractor();
-    text.defaultPages = TEXT_LAYER;
+    pdfs.defaultMarkdown = TEXT_LAYER;
     // What OCR produces, so an OCR'd document reads differently from one with a text layer.
-    text.byContent.set('ocr-pdf', ['Recognized text from the scan']);
+    pdfs.markdownByContent.set('ocr-pdf', 'Recognized text from the scan');
 
     categories = new InMemoryCategoryRepository();
     categories.add('invoice', 'Bills and payment requests.');
@@ -80,7 +77,6 @@ describe('HandleDocumentProcess', () => {
       files,
       pdfs,
       images,
-      text,
       categories,
       classifier,
       chunks,
@@ -116,6 +112,9 @@ describe('HandleDocumentProcess', () => {
     it('a PDF needs no canonicalization and previews from the source', async () => {
       givenDocument({ mimeType: 'application/pdf', ext: 'pdf' });
       pdfs.pageCount = 12;
+      // A dozen pages carrying a dozen pages' worth of text. The threshold is per page now, so one
+      // sentence spread over twelve pages would (correctly) be read as a scan.
+      pdfs.defaultMarkdown = `${TEXT_LAYER}\n\n`.repeat(12);
 
       await run();
 
@@ -128,7 +127,13 @@ describe('HandleDocumentProcess', () => {
         artifactKeys.thumbnail(DOCUMENT_ID),
       ]);
       // Rendering, then reading the text layer — no OCR, because the layer is worth trusting.
-      expect(pdfs.calls.map((call) => call.method)).toEqual(['pdfPageCount', 'pdfFirstPageJpg']);
+      // No conversion: the page count and the render for the preview, then the parse for the text —
+      // all of it Stirling, none of it a second engine (docs/05 §5.5).
+      expect(pdfs.calls.map((call) => call.method)).toEqual([
+        'pdfPageCount',
+        'pdfFirstPageJpg',
+        'pdfToMarkdown',
+      ]);
       expect(document.steps.markdown).toBe('DONE');
       expect(document.ocrUsed).toBe(false);
     });
@@ -169,7 +174,11 @@ describe('HandleDocumentProcess', () => {
         'source-bytes',
       ]);
       // The only PDF work an image causes is the OCR round trip of step 3.
-      expect(pdfs.calls.map((call) => call.method)).toEqual(['imagesToPdf', 'ocrPdf']);
+      expect(pdfs.calls.map((call) => call.method)).toEqual([
+        'imagesToPdf',
+        'ocrPdf',
+        'pdfToMarkdown',
+      ]);
     });
 
     it('plain text and Markdown skip both steps', async () => {
@@ -257,8 +266,8 @@ describe('HandleDocumentProcess', () => {
       // A scan often carries a few stray characters — page numbers, a watermark — which is exactly
       // what PDF_TEXT_MIN_CHARS_PER_PAGE is there to see through (docs/05 §5.9).
       givenDocument({ mimeType: 'application/pdf' });
-      text.defaultPages = ['1', '2', '3'];
-      text.byContent.set('ocr-pdf', ['The full text of the scanned page']);
+      pdfs.defaultMarkdown = ['1', '2', '3'].join('\n\n');
+      pdfs.markdownByContent.set('ocr-pdf', 'The full text of the scanned page');
 
       await run();
 
@@ -271,7 +280,8 @@ describe('HandleDocumentProcess', () => {
     it('measures the text layer per page, not in total', async () => {
       // 200 characters spread over 20 pages is 10 per page: a scan, however long.
       givenDocument({ mimeType: 'application/pdf' });
-      text.defaultPages = Array.from({ length: 20 }, () => 'ten chars.');
+      pdfs.defaultMarkdown = 'ten chars.'.repeat(20);
+      pdfs.pageCount = 20;
 
       await run();
 
@@ -306,22 +316,25 @@ describe('HandleDocumentProcess', () => {
       const document = stateOf();
       expect(document.markdown).toBe('# Notes\n\nSecond line');
       expect(document.ocrUsed).toBe(false);
-      expect(text.reads).toEqual([]);
+      expect(pdfs.markdownReads).toEqual([]);
     });
 
     it('reads an office document from the canonical PDF, not from the original', async () => {
       givenDocument({ mimeType: 'application/rtf', ext: 'rtf' });
-      text.byContent.set('canonical-pdf', ['Converted body text that is long enough to trust']);
+      pdfs.markdownByContent.set(
+        'canonical-pdf',
+        'Converted body text that is long enough to trust',
+      );
 
       await run();
 
       expect(stateOf().markdown).toBe('Converted body text that is long enough to trust');
-      expect(text.reads).toContain('canonical-pdf');
+      expect(pdfs.markdownReads).toContain('canonical-pdf');
     });
 
     it('stores nothing rather than an empty string when OCR finds no text', async () => {
       givenDocument({ mimeType: 'image/png', ext: 'png' });
-      text.byContent.set('ocr-pdf', ['', '   ']);
+      pdfs.markdownByContent.set('ocr-pdf', ['', '   '].join('\n\n'));
 
       await run();
 
@@ -334,7 +347,7 @@ describe('HandleDocumentProcess', () => {
 
     it('keeps a markdown failure from touching the preview', async () => {
       givenDocument({ mimeType: 'application/pdf' });
-      text.failing = true;
+      pdfs.markdownFailing = true;
 
       await run();
 
@@ -342,7 +355,7 @@ describe('HandleDocumentProcess', () => {
       expect(document.steps.preview).toBe('DONE');
       expect(document.steps.markdown).toBe('FAILED');
       expect(document.failedStep).toBe('markdown');
-      expect(document.processingError).toContain('invalid PDF structure');
+      expect(document.processingError).toContain('pdfToMarkdown failed');
     });
 
     it('cannot read an office document whose conversion failed', async () => {
@@ -627,14 +640,17 @@ describe('HandleDocumentProcess', () => {
       ]);
       // Nothing else was touched: the Markdown is the one from the first run, not re-extracted.
       expect(after.markdown).toBe(before.markdown);
-      expect(text.reads).toHaveLength(1);
+      expect(pdfs.markdownReads).toHaveLength(1);
       expect(classifier.calls).toHaveLength(1);
       expect(chunks.replacements).toBe(1);
     });
 
     it('re-reads the canonical PDF for a later step instead of converting again', async () => {
       givenDocument({ mimeType: 'application/rtf', ext: 'rtf' });
-      text.byContent.set('canonical-pdf', ['Converted body text that is long enough to trust']);
+      pdfs.markdownByContent.set(
+        'canonical-pdf',
+        'Converted body text that is long enough to trust',
+      );
       await run();
       pdfs.calls.length = 0;
 

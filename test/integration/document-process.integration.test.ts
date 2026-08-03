@@ -18,7 +18,6 @@ import {
   FakeEmbeddingProvider,
   FakeImageTool,
   FakePdfToolbox,
-  FakeTextExtractor,
   StubLibraryReader,
 } from '../helpers/processing-fakes';
 
@@ -32,7 +31,6 @@ describe('Document processing (integration)', () => {
   let handler: HandleDocumentProcess;
   let files: InMemoryFileStorage;
   let pdfs: FakePdfToolbox;
-  let text: FakeTextExtractor;
   let classifier: FakeClassifier;
   let embeddings: FakeEmbeddingProvider;
   let reader: StubLibraryReader;
@@ -48,8 +46,7 @@ describe('Document processing (integration)', () => {
 
     files = new InMemoryFileStorage();
     pdfs = new FakePdfToolbox();
-    text = new FakeTextExtractor();
-    text.defaultPages = ['Invoice 2026-01 for consulting services, payable within thirty days'];
+    pdfs.defaultMarkdown = 'Invoice 2026-01 for consulting services, payable within thirty days';
     classifier = new FakeClassifier();
     embeddings = new FakeEmbeddingProvider();
     // The column is vector(1536) (docs/04 §4.3); a provider of another width is a configuration
@@ -66,7 +63,6 @@ describe('Document processing (integration)', () => {
       files,
       pdfs,
       new FakeImageTool(),
-      text,
       moduleRef.get(CategoryRepository),
       classifier,
       moduleRef.get(DocumentChunkRepository),
@@ -91,8 +87,11 @@ describe('Document processing (integration)', () => {
     pdfs.calls.length = 0;
     pdfs.failures.clear();
     pdfs.failureDetail = '';
-    text.failing = false;
-    text.reads.length = 0;
+    pdfs.markdownFailing = false;
+    pdfs.markdownReads.length = 0;
+    // The page count decides the OCR threshold now, so a count left behind by an earlier test would
+    // silently turn the next document into a "scan".
+    pdfs.pageCount = 1;
     classifier.answer = null;
     classifier.configured = true;
     classifier.failing = false;

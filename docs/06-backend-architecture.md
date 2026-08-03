@@ -92,9 +92,8 @@ re-delivery (pg-boss is at-least-once).
 | `SessionTokens` | `generate(): {token, hash}`, `hash(token)` | `CryptoSessionTokens` |
 | `FileStorage` | `put(key, body, contentType)`, `getSignedUrl(key, ttlSec)`, `exists(key)`, `delete(key)` | `S3FileStorage` (AWS SDK v3) |
 | `LibraryReader` | `stat(lib, relPath)`, `list(lib, relPath)`, `openStream(lib, relPath)`, `walk(lib): AsyncIterable<FsEntry>` | `FsLibraryReader` (validates every path against the library root; follows no symlinks — `lstat`, skip links) |
-| `PdfToolbox` | `officeToPdf({body, fileName})`, `pdfFirstPageJpg(source, {dpi?})`, `ocrPdf(source, langs)`, `imagesToPdf([{body, fileName}])`, `pdfPageCount(source)` — a source is a stream or a buffer; the file name travels with office/image input because the converter picks its filter from the extension | `StirlingPdfToolbox` (HTTP client, `STIRLING_URL`) |
+| `PdfToolbox` | `officeToPdf({body, fileName})`, `pdfFirstPageJpg(source, {dpi?})`, `ocrPdf(source, langs)`, `imagesToPdf([{body, fileName}])`, `pdfPageCount(source)`, `pdfToMarkdown(source)` — a source is a stream or a buffer; the file name travels with office/image input because the converter picks its filter from the extension | `StirlingPdfToolbox` (HTTP client, `STIRLING_URL`) |
 | `ImageTool` | `toJpegPreview(stream, {maxDim})`, `trim(stream, threshold)` | `SharpImageTool` |
-| `TextExtractor` | `pdfTextByPage(stream): string[]` | `PdfjsTextExtractor` (`pdfjs-dist`) |
 | `EmbeddingProvider` | `embed(texts[]): number[][]`, `isConfigured` | `OpenAiCompatEmbeddings` (fetch, `EMBEDDINGS_*` env) |
 | `DocumentClassifier` | `classify(markdownExcerpt, categories[]): slug \| null`, `isConfigured` | `OpenAiCompatClassifier` (chat-completions JSON answer) |
 | `JobQueue` | `enqueue(name, payload, opts?)`, `enqueueAfterTx(...)`, `scheduleCron(name, cron)` | `PgBossJobQueue` |
@@ -133,7 +132,7 @@ atomically.
 
 `AppModule` imports: `ConfigModule` (global), `LoggerModule` (nestjs-pino), `ThrottlerModule`,
 `PersistenceModule` (Prisma client + repositories + UnitOfWork), `StorageModule` (FileStorage,
-LibraryReader), `PdfModule` (PdfToolbox, ImageTool, TextExtractor), `AiModule` (EmbeddingProvider,
+LibraryReader), `PdfModule` (PdfToolbox, ImageTool), `AiModule` (EmbeddingProvider,
 DocumentClassifier), `QueueModule` (JobQueue, QueueMonitor, worker bootstrap), and the feature
 modules: `AuthModule`, `UsersModule`, `LibrariesModule`, `DocumentsModule`, `SearchModule`,
 `CategoriesModule`, `CollectionsModule`, `ScanSetsModule`, `QueueAdminModule`, `HealthModule`.

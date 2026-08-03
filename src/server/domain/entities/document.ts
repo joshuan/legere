@@ -1,6 +1,7 @@
 import type {
   CategorySource,
   DocumentSource,
+  StepSkipReason,
   StepStatus,
   UserRole,
 } from '../../../shared/contracts/enums';
@@ -14,6 +15,9 @@ export type DocumentSteps = {
   categorization: StepStatus;
   vectorization: StepStatus;
 };
+
+// Keyed by the step names of DocumentSteps; a step that ran carries no entry.
+export type SkipReasons = Partial<Record<keyof DocumentSteps, StepSkipReason>>;
 
 export type Document = {
   id: string;
@@ -29,6 +33,8 @@ export type Document = {
   markdown: string | null;
   steps: DocumentSteps;
   processingError: string | null;
+  // Why each SKIPPED step was skipped (docs/03 §3.3.10); a step that ran has no entry.
+  skipReasons: SkipReasons;
   failedStep: string | null;
   ocrUsed: boolean;
   categoryId: string | null;

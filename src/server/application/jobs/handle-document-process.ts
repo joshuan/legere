@@ -7,11 +7,7 @@ import {
 import type { Document } from '../../domain/entities/document';
 import { chunkMarkdown } from '../../domain/entities/document-chunks';
 import { classifyFormat, type DocumentFormat } from '../../domain/entities/document-format';
-import {
-  decodeText,
-  hasUsableTextLayer,
-  markdownFromPages,
-} from '../../domain/entities/document-text';
+import { decodeText, hasUsableTextLayer, tidyMarkdown } from '../../domain/entities/document-text';
 import type { CategoryRepository } from '../../domain/repositories/category.repository';
 import type { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import type { DocumentRepository } from '../../domain/repositories/document.repository';
@@ -24,7 +20,6 @@ import type { FileStorage } from '../ports/file-storage';
 import type { ImageTool } from '../ports/image-tool';
 import type { LibraryReader } from '../ports/library-reader';
 import type { PdfToolbox } from '../ports/pdf-toolbox';
-import type { TextExtractor } from '../ports/text-extractor';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import { artifactKeys } from '../storage/artifact-keys';
 import { JobHandler } from './job-handler';
@@ -72,7 +67,6 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly files: FileStorage,
     private readonly pdfs: PdfToolbox,
     private readonly images: ImageTool,
-    private readonly text: TextExtractor,
     private readonly categories: CategoryRepository,
     private readonly classifier: DocumentClassifier,
     private readonly chunks: DocumentChunkRepository,
@@ -110,6 +104,15 @@ export class HandleDocumentProcess extends JobHandler {
           },
           requested,
         ),
+        skipReasons: onlyRequested(
+          {
+            canonical: 'UNSUPPORTED_FORMAT',
+            preview: 'UNSUPPORTED_FORMAT',
+            markdown: 'UNSUPPORTED_FORMAT',
+            vectorization: 'UNSUPPORTED_FORMAT',
+          },
+          requested,
+        ),
         processingError: null,
         failedStep: null,
       });
@@ -123,6 +126,7 @@ export class HandleDocumentProcess extends JobHandler {
         { canonical: 'PENDING', preview: 'PENDING', markdown: 'PENDING' },
         requested,
       ),
+      skipReasons: onlyRequested({ canonical: null, preview: null, markdown: null }, requested),
       processingError: null,
       failedStep: null,
     });
@@ -134,13 +138,15 @@ export class HandleDocumentProcess extends JobHandler {
         // after it must read that rather than the original office file (docs/07 §7.3).
         alreadyCanonical(document, format);
 
-    if (requested.has('preview')) {
-      await this.renderPreviews(document, format, openSource, canonical);
-    }
+    // Step 2 asks Stirling how many pages there are; step 3 needs the same number to weigh the text
+    // layer, so it is carried across rather than asked for twice.
+    const pageCount = requested.has('preview')
+      ? await this.renderPreviews(document, format, openSource, canonical)
+      : null;
     // Independent of the preview: a document whose page could not be rendered is still worth
     // reading and searching (docs/05 §5.5).
     if (requested.has('markdown')) {
-      await this.extractMarkdown(document, format, openSource, canonical);
+      await this.extractMarkdown(document, format, openSource, canonical, pageCount);
     }
 
     // Steps 4 and 5 read what step 3 wrote, so the document is re-read rather than reusing the
@@ -158,7 +164,10 @@ export class HandleDocumentProcess extends JobHandler {
     openSource: OpenSource,
   ): Promise<Canonical> {
     if (format !== 'OFFICE') {
-      await this.documents.updateProcessing(document.id, { steps: { canonical: 'SKIPPED' } });
+      await this.documents.updateProcessing(document.id, {
+        steps: { canonical: 'SKIPPED' },
+        skipReasons: { canonical: 'NOT_NEEDED' },
+      });
       return format === 'TEXT' ? { kind: 'noPreview' } : { kind: 'sourceIsUsable' };
     }
 
@@ -178,30 +187,35 @@ export class HandleDocumentProcess extends JobHandler {
 
   // Step 2. Both artifacts come from one rendered page, so a PDF is rasterized once and resized
   // twice (docs/09 §9.2: preview.jpg at PREVIEW_MAX_DIM, thumb.jpg at THUMB_MAX_DIM).
+  // Returns the page count it learned on the way, or null when there was no PDF to ask about.
   private async renderPreviews(
     document: Document,
     format: DocumentFormat,
     openSource: OpenSource,
     canonical: Canonical,
-  ): Promise<void> {
+  ): Promise<number | null> {
     if (canonical.kind === 'noPreview') {
-      await this.documents.updateProcessing(document.id, { steps: { preview: 'SKIPPED' } });
-      return;
+      await this.documents.updateProcessing(document.id, {
+        steps: { preview: 'SKIPPED' },
+        skipReasons: { preview: 'NOT_NEEDED' },
+      });
+      return null;
     }
 
     if (canonical.kind === 'failed') {
       // Not a failure of its own: the page never existed to be rendered. The recorded error stays
       // the one from step 1 — replacing a root cause with its consequence helps nobody.
       await this.documents.updateProcessing(document.id, { steps: { preview: 'FAILED' } });
-      return;
+      return null;
     }
 
     try {
       // Both artifacts are made from the same bytes, and a stream can only be read once.
-      const page =
+      const rendered =
         format === 'IMAGE'
-          ? await toBuffer(await openSource())
+          ? { page: await toBuffer(await openSource()), pageCount: null }
           : await this.renderFirstPage(document, canonical, openSource);
+      const page = rendered.page;
 
       const [preview, thumb] = await Promise.all([
         this.images.toJpegPreview(page, {
@@ -217,8 +231,10 @@ export class HandleDocumentProcess extends JobHandler {
       await this.files.put(artifactKeys.preview(document.id), preview, 'image/jpeg');
       await this.files.put(artifactKeys.thumbnail(document.id), thumb, 'image/jpeg');
       await this.documents.updateProcessing(document.id, { steps: { preview: 'DONE' } });
+      return rendered.pageCount;
     } catch (error) {
       await this.recordFailure(document.id, 'preview', error);
+      return null;
     }
   }
 
@@ -230,6 +246,7 @@ export class HandleDocumentProcess extends JobHandler {
     format: DocumentFormat,
     openSource: OpenSource,
     canonical: Canonical,
+    pageCount: number | null,
   ): Promise<void> {
     if (canonical.kind === 'failed') {
       // The cause is already recorded against step 1; there is no canonical PDF to read.
@@ -243,7 +260,7 @@ export class HandleDocumentProcess extends JobHandler {
           ? { markdown: decodeText(await toBuffer(await openSource())), ocrUsed: false }
           : format === 'IMAGE'
             ? await this.ocrImage(document, openSource)
-            : await this.readPdfText(document, canonical, openSource);
+            : await this.readPdfText(document, canonical, openSource, pageCount);
 
       await this.documents.updateProcessing(document.id, {
         steps: { markdown: 'DONE' },
@@ -264,17 +281,22 @@ export class HandleDocumentProcess extends JobHandler {
     document: Document,
     canonical: Canonical,
     openSource: OpenSource,
+    knownPageCount: number | null,
   ): Promise<{ markdown: string; ocrUsed: boolean }> {
     const openPdf = this.pdfOpener(document, canonical, openSource);
 
-    const pages = await this.text.pdfTextByPage(await openPdf());
-    if (hasUsableTextLayer(pages, this.settings.pdfTextMinCharsPerPage)) {
-      return { markdown: markdownFromPages(pages), ocrUsed: false };
+    const extracted = tidyMarkdown(await this.pdfs.pdfToMarkdown(await openPdf()));
+    // The preview step has usually recorded the page count by now; when it has not — a preview that
+    // failed, a reprocess of this step alone — one more call answers it rather than guessing.
+    const pageCount =
+      knownPageCount ?? document.pageCount ?? (await this.pdfs.pdfPageCount(await openPdf()));
+    if (hasUsableTextLayer(extracted, pageCount, this.settings.pdfTextMinCharsPerPage)) {
+      return { markdown: extracted, ocrUsed: false };
     }
 
     const searchable = await this.pdfs.ocrPdf(await openPdf(), this.settings.ocrLanguages);
     return {
-      markdown: markdownFromPages(await this.text.pdfTextByPage(searchable)),
+      markdown: tidyMarkdown(await this.pdfs.pdfToMarkdown(searchable)),
       ocrUsed: true,
     };
   }
@@ -290,7 +312,7 @@ export class HandleDocumentProcess extends JobHandler {
     ]);
     const searchable = await this.pdfs.ocrPdf(asPdf, this.settings.ocrLanguages);
     return {
-      markdown: markdownFromPages(await this.text.pdfTextByPage(searchable)),
+      markdown: tidyMarkdown(await this.pdfs.pdfToMarkdown(searchable)),
       ocrUsed: true,
     };
   }
@@ -301,13 +323,12 @@ export class HandleDocumentProcess extends JobHandler {
     document: Document,
     canonical: Canonical,
     openSource: OpenSource,
-  ): Promise<Buffer> {
+  ): Promise<{ page: Buffer; pageCount: number }> {
     const openPdf = this.pdfOpener(document, canonical, openSource);
 
     const pageCount = await this.pdfs.pdfPageCount(await openPdf());
     await this.documents.updateProcessing(document.id, { pageCount });
-
-    return this.pdfs.pdfFirstPageJpg(await openPdf());
+    return { page: await this.pdfs.pdfFirstPageJpg(await openPdf()), pageCount };
   }
 
   // Step 4. The classifier is offered the active categories and answers with one of their slugs.
@@ -316,11 +337,17 @@ export class HandleDocumentProcess extends JobHandler {
   private async categorize(document: Document): Promise<void> {
     // 🔒 A category a person chose is never overwritten by a machine (docs/03 §3.3.10).
     if (document.categorySource === 'MANUAL') {
-      await this.documents.updateProcessing(document.id, { steps: { categorization: 'SKIPPED' } });
+      await this.documents.updateProcessing(document.id, {
+        steps: { categorization: 'SKIPPED' },
+        skipReasons: { categorization: 'MANUAL_CATEGORY' },
+      });
       return;
     }
     if (!this.classifier.isConfigured) {
-      await this.documents.updateProcessing(document.id, { steps: { categorization: 'SKIPPED' } });
+      await this.documents.updateProcessing(document.id, {
+        steps: { categorization: 'SKIPPED' },
+        skipReasons: { categorization: 'NOT_CONFIGURED' },
+      });
       return;
     }
 
@@ -329,6 +356,7 @@ export class HandleDocumentProcess extends JobHandler {
       if (categories.length === 0) {
         await this.documents.updateProcessing(document.id, {
           steps: { categorization: 'SKIPPED' },
+          skipReasons: { categorization: 'NO_CATEGORIES' },
         });
         return;
       }
@@ -358,7 +386,10 @@ export class HandleDocumentProcess extends JobHandler {
   // Step 5. Chunk the Markdown, embed the chunks, and replace the document's vectors wholesale.
   private async vectorize(document: Document): Promise<void> {
     if (!this.embeddings.isConfigured) {
-      await this.documents.updateProcessing(document.id, { steps: { vectorization: 'SKIPPED' } });
+      await this.documents.updateProcessing(document.id, {
+        steps: { vectorization: 'SKIPPED' },
+        skipReasons: { vectorization: 'NOT_CONFIGURED' },
+      });
       return;
     }
 
@@ -367,7 +398,10 @@ export class HandleDocumentProcess extends JobHandler {
       // Nothing to embed. Any vectors from an earlier run go too, so search cannot return a
       // document by text it no longer has.
       await this.replaceChunks(document.id, []);
-      await this.documents.updateProcessing(document.id, { steps: { vectorization: 'SKIPPED' } });
+      await this.documents.updateProcessing(document.id, {
+        steps: { vectorization: 'SKIPPED' },
+        skipReasons: { vectorization: 'NO_TEXT' },
+      });
       return;
     }
 
@@ -466,12 +500,14 @@ function classifierExcerpt(document: Document): string {
 
 // Keeps only the entries this run is allowed to write, so a subset reprocess never resets the
 // status of a step it was not asked to touch.
-function onlyRequested(
-  steps: Partial<Record<DocumentStep, 'PENDING' | 'SKIPPED'>>,
+// Reprocessing a subset must touch only the steps that were asked for — statuses and, for the same
+// reason, the notes that explain them (docs/07 §7.3).
+function onlyRequested<T>(
+  values: Partial<Record<DocumentStep, T>>,
   requested: ReadonlySet<DocumentStep>,
-): Partial<Record<DocumentStep, 'PENDING' | 'SKIPPED'>> {
+): Partial<Record<DocumentStep, T>> {
   return Object.fromEntries(
-    Object.entries(steps).filter(([step]) => requested.has(documentStepSchema.parse(step))),
+    Object.entries(values).filter(([step]) => requested.has(documentStepSchema.parse(step))),
   );
 }
 

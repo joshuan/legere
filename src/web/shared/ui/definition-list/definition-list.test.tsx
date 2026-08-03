@@ -45,7 +45,7 @@ describe('DefinitionList', () => {
     const { container } = render(<DefinitionList items={[{ label: 'Size', value: '2 KB' }]} />);
 
     const row = container.querySelector('.legere-definition');
-    if (row === null) throw new Error('expected a row');
+    if (!(row instanceof HTMLElement)) throw new Error('expected a row');
     expect(within(row).getByText('Size')).toBeInTheDocument();
     expect(row.querySelector('.legere-definition-leader')?.getAttribute('aria-hidden')).toBe(
       'true',

@@ -370,6 +370,14 @@
       "categorization": "Categorization",
       "vectorization": "Vectors"
     },
+    "skipReasons": {
+      "NOT_NEEDED": "Not needed for this file type",
+      "UNSUPPORTED_FORMAT": "This format cannot be processed",
+      "NOT_CONFIGURED": "No AI provider configured on this instance",
+      "NO_CATEGORIES": "No categories to choose from yet",
+      "NO_TEXT": "No text was extracted to work with",
+      "MANUAL_CATEGORY": "The category was set by hand and is left alone"
+    },
     "processing": {
       "title": "Processing",
       "queued": "Reprocessing queued",

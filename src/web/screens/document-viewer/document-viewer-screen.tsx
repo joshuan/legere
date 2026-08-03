@@ -207,12 +207,24 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
 
           <Card title={t('viewer.processing.title')} size="small">
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              {DOCUMENT_STEPS.map((step) => (
-                <Space key={step} align="center">
-                  <Tag color={statusColor(detail.steps[step])}>{detail.steps[step]}</Tag>
-                  <Typography.Text>{t(`viewer.steps.${step}`)}</Typography.Text>
-                </Space>
-              ))}
+              {DOCUMENT_STEPS.map((step) => {
+                const reason = detail.skipReasons[step];
+                return (
+                  <Space key={step} align="start">
+                    <Tag color={statusColor(detail.steps[step])}>{detail.steps[step]}</Tag>
+                    <Space direction="vertical" size={0}>
+                      <Typography.Text>{t(`viewer.steps.${step}`)}</Typography.Text>
+                      {/* SKIPPED alone reads like a failure; the reason says which harmless one it
+                          was, and whether it is something an admin can change (docs/03 §3.3.10). */}
+                      {reason !== undefined && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {t(`viewer.skipReasons.${reason}`)}
+                        </Typography.Text>
+                      )}
+                    </Space>
+                  </Space>
+                );
+              })}
 
               {detail.processingError !== null && (
                 <Typography.Paragraph type="danger" style={{ whiteSpace: 'pre-wrap' }}>

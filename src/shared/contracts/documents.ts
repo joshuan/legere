@@ -4,6 +4,7 @@ import {
   categorySourceSchema,
   documentSourceSchema,
   fileRefStatusSchema,
+  stepSkipReasonSchema,
   stepStatusSchema,
 } from './enums';
 
@@ -66,11 +67,16 @@ export const documentFileRefSchema = z.object({
   status: fileRefStatusSchema,
 });
 
+// Why a step is SKIPPED, per step; absent for steps that ran (docs/03 §3.3.10).
+export const documentSkipReasonsSchema = z.record(documentStepSchema, stepSkipReasonSchema);
+export type DocumentSkipReasons = z.infer<typeof documentSkipReasonsSchema>;
+
 export const documentDetailDtoSchema = documentListDtoSchema.extend({
   contentHash: z.string(),
   ocrUsed: z.boolean(),
   categorySource: categorySourceSchema,
   steps: documentStepsSchema,
+  skipReasons: documentSkipReasonsSchema,
   processingError: z.string().nullable(),
   failedStep: z.string().nullable(),
   fileRefs: z.array(documentFileRefSchema),

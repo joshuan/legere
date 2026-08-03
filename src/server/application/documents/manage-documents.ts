@@ -132,6 +132,7 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     ocrUsed: document.ocrUsed,
     categorySource: document.categorySource,
     steps: document.steps,
+    skipReasons: document.skipReasons,
     processingError: document.processingError,
     failedStep: document.failedStep,
     fileRefs: detail.fileRefs,

@@ -27,6 +27,7 @@ const detail: DocumentDetailDto = {
   contentHash: 'abc123def456abc123def456abc123def456abc123def456abc123def4561234',
   ocrUsed: true,
   categorySource: 'NONE',
+  skipReasons: {},
   steps: {
     canonical: 'SKIPPED',
     preview: 'DONE',
@@ -199,6 +200,26 @@ describe('DocumentViewerScreen', () => {
     expect(await screen.findByText(enMessages.viewer.processing.title)).toBeInTheDocument();
     expect(screen.getByText('FAILED')).toBeInTheDocument();
     expect(screen.getByText(/preview: Stirling failed with 500/)).toBeInTheDocument();
+  });
+
+  it('says why a step was skipped, instead of leaving SKIPPED to look like a failure', async () => {
+    server.use(
+      http.get('/api/documents/:id', () =>
+        HttpResponse.json(
+          envelope({
+            ...detail,
+            steps: { ...detail.steps, canonical: 'SKIPPED', vectorization: 'SKIPPED' },
+            skipReasons: { canonical: 'NOT_NEEDED', vectorization: 'NOT_CONFIGURED' },
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} isAdmin={false} />);
+
+    expect(await screen.findByText(enMessages.viewer.skipReasons.NOT_NEEDED)).toBeInTheDocument();
+    // The one an admin can act on: it names what is missing from the instance.
+    expect(screen.getByText(enMessages.viewer.skipReasons.NOT_CONFIGURED)).toBeInTheDocument();
   });
 
   it('offers reprocessing to an admin only, with the chosen steps', async () => {

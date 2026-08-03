@@ -30,7 +30,6 @@ Key rules:
 - **Layer boundaries (restricted imports):**
   - in `src/server/domain/**` and `src/server/application/**`: forbid `@nestjs/*`,
     `@prisma/client`, `express`, `next`, `pg-boss`, `@aws-sdk/*`, `argon2`, `nodemailer`, `sharp`,
-    `pdfjs-dist`;
   - in `src/web/**` and `src/app/**`: forbid any import resolving into `src/server/**`;
   - in `src/shared/contracts/**`: forbid all runtime deps except `zod`.
 - **FSD boundaries** (`eslint-plugin-boundaries`) for `src/web`: downward-only imports

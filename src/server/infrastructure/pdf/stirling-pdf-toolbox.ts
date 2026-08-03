@@ -16,6 +16,7 @@ const ENDPOINTS = {
   ocr: '/api/v1/misc/ocr-pdf',
   imagesToPdf: '/api/v1/convert/img/pdf',
   pageCount: '/api/v1/analysis/page-count',
+  pdfToMarkdown: '/api/v1/convert/pdf/markdown',
 } as const;
 
 const DEFAULT_PREVIEW_DPI = 150;
@@ -50,6 +51,13 @@ export class StirlingPdfToolbox extends PdfToolbox {
     form.append('colorType', 'color');
     form.append('dpi', String(options.dpi ?? DEFAULT_PREVIEW_DPI));
     return this.postForBytes(ENDPOINTS.pdfToImage, form);
+  }
+
+  async pdfToMarkdown(source: BinarySource): Promise<string> {
+    const form = new FormData();
+    form.append('fileInput', await blobOf(source), 'input.pdf');
+    const bytes = await this.postForBytes(ENDPOINTS.pdfToMarkdown, form);
+    return stripImagePlaceholders(bytes.toString('utf8'));
   }
 
   async ocrPdf(source: BinarySource, languages: readonly string[]): Promise<Buffer> {
@@ -123,4 +131,12 @@ async function blobOf(source: BinarySource): Promise<Blob> {
 
 function truncate(text: string, max = 500): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`;
+}
+
+// Stirling describes every embedded image in place — `<image redacted: 596x842px, ~72dpi, JPG, …>`.
+// That is a note about the file, not text from the document, and leaving it in would be worse than
+// noise: a scanned page is *only* images, so the placeholders would pass the "has a text layer"
+// threshold and the document would never be sent to OCR (docs/05 §5.5).
+function stripImagePlaceholders(markdown: string): string {
+  return markdown.replace(/<image redacted:[^>]*>/g, '');
 }

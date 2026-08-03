@@ -35,25 +35,30 @@ export function normalizeText(text: string): string {
   );
 }
 
-// Page texts → one Markdown body. Pages are joined by a blank line and nothing else: a "Page 3"
-// heading per page would be indexed as content and would surface in every search snippet.
-export function markdownFromPages(pages: readonly string[]): string {
-  return pages
-    .map((page) => normalizeText(collapseWhitespace(page)))
-    .filter((page) => page !== '')
-    .join('\n\n');
+// What the converter returned, tidied but not flattened. Line breaks and blank lines are structure —
+// paragraphs, list items, table rows — and collapsing them (which is what this used to do) turned
+// every document into one unbroken line in the viewer. Only runs of three or more blank lines go,
+// since those are page gaps rather than meaning.
+export function tidyMarkdown(markdown: string): string {
+  return normalizeText(markdown)
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
-// How much real text a PDF's text layer carries, per page — the measure that decides whether a
-// document is a scan (docs/05 §5.9: below PDF_TEXT_MIN_CHARS_PER_PAGE on average → OCR).
-export function charsPerPage(pages: readonly string[]): number {
-  if (pages.length === 0) return 0;
-  const total = pages.reduce((sum, page) => sum + meaningfulChars(page), 0);
-  return total / pages.length;
+// How much real text a PDF carries per page — the measure that decides whether a document is a scan
+// (docs/05 §5.5: below PDF_TEXT_MIN_CHARS_PER_PAGE on average → OCR). The extractor returns the
+// document whole, so the count is divided by the pages rather than measured page by page.
+export function charsPerPage(markdown: string, pageCount: number): number {
+  if (pageCount <= 0) return meaningfulChars(markdown);
+  return meaningfulChars(markdown) / pageCount;
 }
 
-export function hasUsableTextLayer(pages: readonly string[], minCharsPerPage: number): boolean {
-  return charsPerPage(pages) >= minCharsPerPage;
+export function hasUsableTextLayer(
+  markdown: string,
+  pageCount: number,
+  minCharsPerPage: number,
+): boolean {
+  return charsPerPage(markdown, pageCount) >= minCharsPerPage;
 }
 
 // Whitespace is what a thin PDF text layer is mostly made of — positioning artefacts, not content.
@@ -63,10 +68,3 @@ function meaningfulChars(page: string): number {
 
 // Extractors emit text run by run, so a page arrives full of stray spacing; paragraph breaks (blank
 // lines) survive, everything else collapses to single spaces.
-function collapseWhitespace(page: string): string {
-  return page
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.replace(/\s+/g, ' ').trim())
-    .filter((paragraph) => paragraph !== '')
-    .join('\n\n');
-}

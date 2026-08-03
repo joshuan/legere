@@ -119,6 +119,23 @@ describe('StirlingPdfToolbox', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it('drops the image placeholders the converter writes in place of pictures', async () => {
+    // What Stirling really answers for a scanned page: a note about the image, not text from it.
+    mockStirling(
+      new Response(
+        '<image redacted: 596x842px, 595x842pt, ~72dpi, JPG, DEVICE_RGB, 32bpp>\n\nInvoice',
+        { headers: { 'content-type': 'text/markdown' } },
+      ),
+    );
+
+    const markdown = await toolbox().pdfToMarkdown(Buffer.from('pdf'));
+
+    // 🔒 Left in, those placeholders would pass the "has a text layer" threshold and a scan would
+    // never reach OCR (docs/05 §5.5).
+    expect(markdown).not.toContain('image redacted');
+    expect(markdown).toContain('Invoice');
+  });
+
   it('reads the page count out of the analysis answer', async () => {
     mockStirling(Response.json({ pageCount: 7, encrypted: false }));
 

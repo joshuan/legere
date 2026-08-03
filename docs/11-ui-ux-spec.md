@@ -76,8 +76,10 @@ Two-pane layout:
 - **Right (sidebar):** title (inline-editable when permitted), category select (all users with
   access; shows "auto" tag when `categorySource=AUTO`), Download source button (disabled +
   tooltip when `UNAVAILABLE`), Add-to-collection select, processing status panel (5 steps with
-  states; ADMIN sees a "Reprocess" button with step checkboxes and the `processingError` text on
-  failure).
+  states; a `SKIPPED` step **always shows why** in a line under its name — "not needed for this file
+  type", "no AI provider configured", and the rest of docs/03 §3.3.10 — because the label alone reads
+  as a failure to everyone who has not read the pipeline; ADMIN sees a "Reprocess" button with step
+  checkboxes and the `processingError` text on failure).
 
 ## 11.6. Search (`/search?q=`)
 

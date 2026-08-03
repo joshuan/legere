@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type Document as PrismaDocument } from '@prisma/client';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
-import type { Document } from '../../domain/entities/document';
-import type { DocumentStep } from '../../../shared/contracts/documents';
+import { z } from 'zod';
+import type { Document, SkipReasons } from '../../domain/entities/document';
+import { DOCUMENT_STEPS, type DocumentStep } from '../../../shared/contracts/documents';
 import {
+  stepSkipReasonSchema,
   stepStatusSchema,
   type DocumentSource,
   type StepStatus,
@@ -46,6 +48,7 @@ function toDomain(row: PrismaDocument): Document {
       vectorization: row.vectorizationStatus,
     },
     processingError: row.processingError,
+    skipReasons: toSkipReasons(row.skipReasons),
     failedStep: row.failedStep,
     ocrUsed: row.ocrUsed,
     categoryId: row.categoryId,
@@ -80,6 +83,19 @@ function toListItem(row: ListRow): DocumentListItem {
     availability:
       document.source !== 'LIBRARY' || row._count.fileRefs > 0 ? 'AVAILABLE' : 'UNAVAILABLE',
   };
+}
+
+// The column is jsonb, so what comes back is `unknown` as far as types go: parse it rather than
+// trusting it, and treat anything unrecognised as "no reason recorded".
+function toSkipReasons(value: unknown): SkipReasons {
+  const parsed = z.record(stepSkipReasonSchema).safeParse(value);
+  if (!parsed.success) return {};
+  const reasons: SkipReasons = {};
+  for (const step of DOCUMENT_STEPS) {
+    const reason = parsed.data[step];
+    if (reason !== undefined) reasons[step] = reason;
+  }
+  return reasons;
 }
 
 // The two kinds whose bytes we hold ourselves: a scan-set result and an upload. They differ in where
@@ -302,7 +318,26 @@ export class PrismaDocumentRepository implements DocumentRepository {
     tx?: TransactionHandle,
   ): Promise<Document> {
     const steps = update.steps ?? {};
-    const row = await clientOf(this.prisma, tx).document.update({
+    const client = clientOf(this.prisma, tx);
+
+    // A step records its own reason and must not disturb its neighbours', so the column is patched
+    // with jsonb concatenation — the typed client can only replace the whole value. Nulls are
+    // stripped rather than stored: "no reason" is the absence of a key (docs/03 §3.3.10).
+    if (update.skipReasons !== undefined) {
+      const patch = Object.fromEntries(
+        Object.entries(update.skipReasons).filter(([, reason]) => reason !== null),
+      );
+      const cleared = Object.entries(update.skipReasons)
+        .filter(([, reason]) => reason === null)
+        .map(([step]) => step);
+      await client.$executeRaw`
+        UPDATE documents
+           SET skip_reasons = (coalesce(skip_reasons, '{}'::jsonb) - ${cleared}::text[])
+                              || ${patch}::jsonb
+         WHERE id = ${id}::uuid`;
+    }
+
+    const row = await client.document.update({
       where: { id },
       data: {
         ...(steps.canonical === undefined ? {} : { canonicalStatus: steps.canonical }),

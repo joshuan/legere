@@ -40,7 +40,6 @@ import {
   type FirstPageOptions,
   type NamedBinary,
 } from '../../src/server/application/ports/pdf-toolbox';
-import { TextExtractor } from '../../src/server/application/ports/text-extractor';
 import {
   DocumentClassifier,
   type CategoryOption,
@@ -85,6 +84,7 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     steps: pendingSteps(),
     processingError: null,
     failedStep: null,
+    skipReasons: {},
     ocrUsed: false,
     categoryId: null,
     categorySource: 'NONE',
@@ -351,6 +351,12 @@ export class FakePdfToolbox extends PdfToolbox {
   readonly calls: PdfToolboxCall[] = [];
   failures = new Set<string>();
   pageCount = 1;
+
+  // Text extraction lives on this port now (docs/06 §6.3.3): one Stirling client, one fake.
+  readonly markdownReads: string[] = [];
+  defaultMarkdown = '';
+  readonly markdownByContent = new Map<string, string>();
+  markdownFailing = false;
   // Appended to the failure message: the sibling containers answer with their own bodies, which can
   // be an entire HTML error page.
   failureDetail = '';
@@ -380,6 +386,14 @@ export class FakePdfToolbox extends PdfToolbox {
   ocrPdf(): Promise<Buffer> {
     this.check('ocrPdf');
     return Promise.resolve(Buffer.from('ocr-pdf'));
+  }
+
+  async pdfToMarkdown(source: BinarySource): Promise<string> {
+    const content = await describe(source);
+    this.markdownReads.push(content);
+    this.check('pdfToMarkdown');
+    if (this.markdownFailing) throw new Error('Stirling pdfToMarkdown failed with 500');
+    return this.markdownByContent.get(content) ?? this.defaultMarkdown;
   }
 
   imagesToPdf(images: readonly NamedBinary[]): Promise<Buffer> {
@@ -430,20 +444,6 @@ async function describe(source: BinarySource): Promise<string> {
 
 // Returns whatever text the test says the PDF in front of it holds, keyed by the bytes it receives,
 // so the OCR branch can be told apart from the text-layer one.
-export class FakeTextExtractor extends TextExtractor {
-  readonly reads: string[] = [];
-  // Text layer of anything not listed in `byContent`.
-  defaultPages: string[] = [];
-  readonly byContent = new Map<string, string[]>();
-  failing = false;
-
-  async pdfTextByPage(source: BinarySource): Promise<string[]> {
-    const content = await describe(source);
-    this.reads.push(content);
-    if (this.failing) throw new Error('pdfjs: invalid PDF structure');
-    return this.byContent.get(content) ?? this.defaultPages;
-  }
-}
 
 // The categories the classifier is offered (docs/03 §3.3.12).
 export class InMemoryCategoryRepository extends CategoryRepository {
