@@ -91,10 +91,42 @@ export async function bootstrap({ dev }: { dev: boolean }): Promise<void> {
   // from its container — and before the port opens, so nothing is served while the queue is down.
   await startQueueWorkers(nestApp);
 
-  const port = nestApp.get(AppConfig).get('PORT');
+  const config = nestApp.get(AppConfig);
+  const port = config.get('PORT');
   server.listen(port, () => {
-    nestApp.get(PinoLogger).log(`Legere listening on :${port} (dev=${dev})`);
+    const logger = nestApp.get(PinoLogger);
+    logger.log(`Legere listening on :${port} (dev=${dev})`);
+    // Every one of these degrades quietly when it is not set — parsing falls back to a converter
+    // that flattens the document, categorization and semantic search simply do not happen. Saying
+    // so once at startup is the difference between "configured off" and "forgot to configure".
+    logger.log(
+      `Optional integrations: ${describe([
+        [
+          'parsing',
+          config.get('DOCLING_URL') === '' ? 'Stirling fallback (flattens layout)' : 'Docling',
+        ],
+        ['picture captions', config.get('DOCLING_PICTURE_DESCRIPTION') ? 'on' : 'off'],
+        ['AI analysis', providerOf(config, 'CLASSIFIER_API_BASE_URL', 'CLASSIFIER_MODEL')],
+        ['embeddings', providerOf(config, 'EMBEDDINGS_API_BASE_URL', 'EMBEDDINGS_MODEL')],
+      ])}`,
+    );
   });
+}
+
+function describe(pairs: Array<[string, string]>): string {
+  return pairs.map(([name, state]) => `${name}=${state}`).join(', ');
+}
+
+// A base URL alone is not enough to call anything: without a model name there is nothing to ask.
+function providerOf(
+  config: AppConfig,
+  urlKey: 'CLASSIFIER_API_BASE_URL' | 'EMBEDDINGS_API_BASE_URL',
+  modelKey: 'CLASSIFIER_MODEL' | 'EMBEDDINGS_MODEL',
+): string {
+  const url =
+    config.get(urlKey) === '' ? config.get('EMBEDDINGS_API_BASE_URL') : config.get(urlKey);
+  const model = config.get(modelKey);
+  return url === '' || model === '' ? 'not configured (steps will be SKIPPED)' : model;
 }
 
 // Starting workers is separated so tests can boot the HTTP surface without consuming jobs.

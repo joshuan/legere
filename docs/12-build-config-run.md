@@ -165,7 +165,12 @@ by ŽPCG, with no country named anywhere in its text:
 |---|---|
 | `qwen2.5:7b` | category right, city `Podgorica` right, country **`RS`** — it named the city and then placed it in the wrong country |
 | `mistral-nemo:12b` | category right, city `Podgorica`, country **`ME`** — right |
-| `qwen2.5:14b` | never answered: 9 GB of weights do not load in the default Docker VM (11.6 GB total) |
+| `qwen2.5:14b` | never answered: 9 GB of weights do not load in a 12 GB Docker VM |
+
+Memory is the constraint worth planning for: the 12B needs ~7 GB resident *while Docling holds its
+own models*, so a 12 GB VM OOM-kills it mid-job and the step fails with `llama-server process has
+terminated: signal: killed`. 20 GB is comfortable (`colima start --memory 20 --cpu 6`; Docker
+Desktop has the same setting under Resources).
 
 Run it with `npx vitest run --project server test/integration/analyst.integration.test.ts` and the
 environment above: the test skips itself when no provider is configured and prints what the model
