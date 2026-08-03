@@ -390,12 +390,17 @@
       "pages": "Pages",
       "mime": "Type",
       "languages": "Languages",
+      "languagesPlaceholder": "Add a language tag",
       "place": "Place",
+      "country": "Country",
+      "countryPlaceholder": "Country",
       "hash": "Content hash",
       "created": "Added",
       "ocr": "OCR used",
       "locations": "File locations",
-      "noLocations": "This document has no files on any library you can see."
+      "noLocations": "This document has no files on any library you can see.",
+      "auto": "read as {value}",
+      "category": "Category"
     },
     "addedToCollection": "Added to the collection"
   },

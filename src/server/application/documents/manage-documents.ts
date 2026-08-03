@@ -140,6 +140,7 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     steps: document.steps,
     skipReasons: document.skipReasons,
     languages: document.languages,
+    auto: document.auto,
     country: document.country,
     city: document.city,
     processingError: document.processingError,

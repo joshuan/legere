@@ -71,7 +71,20 @@ export const documentFileRefSchema = z.object({
 export const documentSkipReasonsSchema = z.record(documentStepSchema, stepSkipReasonSchema);
 export type DocumentSkipReasons = z.infer<typeof documentSkipReasonsSchema>;
 
+// What the pipeline worked out, kept beside what the document now says. A person may correct any of
+// it; the machine's answer is not thrown away, so the viewer can show "we read X, you made it Y"
+// and a wrong correction is never a dead end (docs/03 §3.3.10).
+export const autoValuesSchema = z.object({
+  title: z.string().optional(),
+  categorySlug: z.string().nullish(),
+  languages: z.array(z.string()).optional(),
+  country: z.string().nullish(),
+  city: z.string().nullish(),
+});
+export type AutoValues = z.infer<typeof autoValuesSchema>;
+
 export const documentDetailDtoSchema = documentListDtoSchema.extend({
+  auto: autoValuesSchema,
   contentHash: z.string(),
   ocrUsed: z.boolean(),
   categorySource: categorySourceSchema,

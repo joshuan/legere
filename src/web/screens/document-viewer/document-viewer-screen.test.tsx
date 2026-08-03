@@ -28,6 +28,7 @@ const detail: DocumentDetailDto = {
   ocrUsed: true,
   categorySource: 'NONE',
   skipReasons: {},
+  auto: {},
   languages: ['ru', 'sr-Latn'],
   country: 'ME',
   city: 'Podgorica',
@@ -158,6 +159,7 @@ describe('DocumentViewerScreen', () => {
     );
 
     renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
     const select = await screen.findByRole('combobox', { name: enMessages.viewer.category });
     await userEvent.click(select);
     await userEvent.click(await screen.findByTitle('Contract'));
@@ -173,8 +175,33 @@ describe('DocumentViewerScreen', () => {
     });
 
     renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
 
     expect(await screen.findByText(enMessages.viewer.auto)).toBeInTheDocument();
+  });
+
+  it('keeps what the pipeline read under what a person made of it', async () => {
+    serve({
+      ...detail,
+      category: { id: CATEGORY_ID, slug: 'contract', name: 'Contract' },
+      categorySource: 'MANUAL',
+      languages: ['sr-Latn'],
+      city: 'Bar',
+      country: 'ME',
+      // 🔒 The machine's answer survives the correction (docs/03 §3.3.10).
+      auto: { categorySlug: 'invoice', languages: ['hr'], city: 'Podgorica', country: 'ME' },
+    });
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+
+    // The catalogue here holds only "contract", so the category it read is named by its slug —
+    // which is still the answer, and better than hiding it.
+    expect(await screen.findByText(/read as invoice/)).toBeInTheDocument();
+    expect(screen.getByText(/read as Podgorica, Montenegro/)).toBeInTheDocument();
+    // The country was right and only the city was corrected — the note carries the whole place, so
+    // there is one thing to compare rather than two.
+    expect(screen.queryByText(/read as Croatian/)).toBeInTheDocument();
   });
 
   it('disables the download of a document whose file is gone', async () => {

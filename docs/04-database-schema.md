@@ -277,7 +277,8 @@ model Document {
   vectorizationStatus  StepStatus     @default(PENDING) @map("vectorization_status")
   processingError      String?        @map("processing_error")
   skipReasons          Json           @default("{}") @map("skip_reasons")
-  languages            String[]       @map("languages")
+  languages            String[]
+  autoValues           Json           @default("{}") @map("auto_values")       @map("languages")
   country              String?        @map("country")
   city                 String?        @map("city")
   failedStep           String?        @map("failed_step")

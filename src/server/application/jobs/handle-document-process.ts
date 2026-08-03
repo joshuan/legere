@@ -292,15 +292,19 @@ export class HandleDocumentProcess extends JobHandler {
             ? await this.ocrImage(document, openSource)
             : await this.readPdfText(document, canonical, openSource, pageCount);
 
+      // What the document turned out to be written in — the set a later OCR pass is given
+      // (docs/03 §3.3.10). Detected here because this is where the text first exists.
+      const detected = detectLanguages(markdown);
       await this.documents.updateProcessing(document.id, {
         steps: { markdown: 'DONE' },
         // Empty means "nothing to read", which is different from "not extracted yet"; the column
         // stays null so search and the viewer can tell those apart.
         markdown: markdown === '' ? null : markdown,
         ocrUsed,
-        // What the document turned out to be written in — the set a later OCR pass is given
-        // (docs/03 §3.3.10). Detected here because this is where the text first exists.
-        languages: detectLanguages(markdown),
+        languages: detected,
+        // Kept separately as well, so a correction by hand can be shown for what it is: a
+        // correction of this (docs/03 §3.3.10).
+        auto: { languages: detected },
       });
     } catch (error) {
       await this.recordFailure(document.id, 'markdown', error);
@@ -429,6 +433,14 @@ export class HandleDocumentProcess extends JobHandler {
         categoryId: chosen?.id ?? null,
         categorySource: chosen === null ? 'NONE' : 'AUTO',
         ...placeUpdate(document, analysis),
+        // Recorded whether or not it was applied: a place somebody filled in by hand stays, and the
+        // reader still gets to see what the machine read (docs/03 §3.3.10).
+        auto: {
+          categorySlug: analysis.categorySlug,
+          ...(analysis.languages.length > 0 ? { languages: analysis.languages } : {}),
+          country: analysis.country,
+          city: analysis.city,
+        },
       });
     } catch (error) {
       await this.recordFailure(document.id, 'categorization', error);

@@ -204,6 +204,7 @@ The logical unit of content (deduplicated).
 | canonicalStatus / previewStatus / markdownStatus / categorizationStatus / vectorizationStatus | StepStatus | pipeline step statuses |
 | processingError | string? | last error message (truncated to 2000 chars) |
 | skipReasons | json | why a step is `SKIPPED`, per step — see below; empty for steps that ran |
+| autoValues | json | what the pipeline decided — `{title?, categorySlug?, languages?, country?, city?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction |
 | languages | string[] | BCP-47 tags of what the document is written in, most likely first — `['ru']`, `['ru','sr-Latn']`. Detected from the extracted text, editable; empty when there was too little text to tell |
 | country | string? | ISO 3166-1 alpha-2 of where the document belongs — the issuer's country, the place of an event |
 | city | string? | free text, as written in the document |

@@ -90,6 +90,7 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     processingError: null,
     failedStep: null,
     skipReasons: {},
+  auto: {},
     languages: [],
     country: null,
     city: null,

@@ -97,7 +97,7 @@ human-readable index and must stay in sync with them.
 |---------------|------|-------|
 | `POST /api/documents` | 🔒 | **upload**: the file as the raw request body, its name in `X-Legere-Filename` (RFC 5987 or plain). Mime detected from content; `UPLOAD_MAX_BYTES` cap → 413. Deduplicated (ADR-009): identical bytes the caller may read resolve to that document (`200`), identical bytes they may not → `409 DOCUMENT_DUPLICATE`. Otherwise `201` with the new `UPLOAD` document, processing already enqueued |
 | `GET /api/documents` | 🔒 | paginated, newest first; filters: `libraryId?`, `categoryId?`, `availability?` (`AVAILABLE`\|`UNAVAILABLE`), `processing?` (bool), `source?`; only documents the caller can read |
-| `GET /api/documents/:id` | 🔒 | → `DocumentDetailDto` |
+| `GET /api/documents/:id` | 🔒 | → `DocumentDetailDto`, including `auto` — what the pipeline decided before anybody corrected it (03 §3.3.10) |
 | `PATCH /api/documents/:id` | 🔒 | `{ title?, languages?, country?, city?, categoryId? }` per canEditDocumentMeta (03 §3.4); setting categoryId flips `categorySource` to MANUAL (null → NONE). `languages` are BCP-47 tags, `country` ISO 3166-1 alpha-2 (upper-cased on the way in), `city` free text; all three are corrections of what detection guessed (03 §3.3.10) |
 | `DELETE /api/documents/:id` | 🔒ᴬ | soft delete |
 | `POST /api/documents/:id/reprocess` | 🔒ᴬ | `{ steps?: ('canonical'\|'preview'\|'markdown'\|'categorization'\|'vectorization')[] }` → re-enqueues `document-process` |

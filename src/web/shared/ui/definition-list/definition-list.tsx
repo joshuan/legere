@@ -9,6 +9,9 @@ export type Definition = {
   // A value some step of the pipeline is still going to write. Shown next to the value so an empty
   // field, or one that is about to change under the reader, says so itself (docs/11 §11.5).
   pending?: 'PENDING' | 'RUNNING' | undefined;
+  // What the pipeline read, when a person has since changed it. A correction is worth keeping the
+  // original for: it says the machine was wrong here, and how (docs/03 §3.3.10).
+  note?: ReactNode;
 };
 
 // Label, leader, value (docs/11 §11.15). A dotted leader beats a two-column table here: the pairs
@@ -36,6 +39,7 @@ export function DefinitionList({ items }: { items: Definition[] }) {
               </Tag>
             )}
             {isEmpty(item.value) ? (item.pending === undefined ? '—' : null) : item.value}
+            {!isEmpty(item.note) && <span className="legere-definition-note">{item.note}</span>}
           </dd>
         </div>
       ))}

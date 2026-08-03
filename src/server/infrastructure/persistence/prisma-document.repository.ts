@@ -3,7 +3,12 @@ import { Prisma, type Document as PrismaDocument } from '@prisma/client';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import { z } from 'zod';
 import type { Document, SkipReasons } from '../../domain/entities/document';
-import { DOCUMENT_STEPS, type DocumentStep } from '../../../shared/contracts/documents';
+import {
+  DOCUMENT_STEPS,
+  autoValuesSchema,
+  type AutoValues,
+  type DocumentStep,
+} from '../../../shared/contracts/documents';
 import {
   stepSkipReasonSchema,
   stepStatusSchema,
@@ -50,6 +55,7 @@ function toDomain(row: PrismaDocument): Document {
     processingError: row.processingError,
     skipReasons: toSkipReasons(row.skipReasons),
     languages: row.languages,
+    auto: toAutoValues(row.autoValues),
     country: row.country,
     city: row.city,
     failedStep: row.failedStep,
@@ -90,6 +96,13 @@ function toListItem(row: ListRow): DocumentListItem {
 
 // The column is jsonb, so what comes back is `unknown` as far as types go: parse it rather than
 // trusting it, and treat anything unrecognised as "no reason recorded".
+// Anything unreadable is treated as "nothing was recorded": the auto values are an explanation, and
+// an explanation that cannot be parsed must never take a document down with it.
+function toAutoValues(value: unknown): AutoValues {
+  const parsed = autoValuesSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
+}
+
 function toSkipReasons(value: unknown): SkipReasons {
   const parsed = z.record(stepSkipReasonSchema).safeParse(value);
   if (!parsed.success) return {};
@@ -325,6 +338,15 @@ export class PrismaDocumentRepository implements DocumentRepository {
     const client = clientOf(this.prisma, tx);
 
     // A step records its own reason and must not disturb its neighbours', so the column is patched
+    // Merged, not replaced: each step records what it worked out without erasing what an earlier
+    // step recorded (docs/03 §3.3.10).
+    if (update.auto !== undefined) {
+      await client.$executeRaw`
+        UPDATE documents
+           SET auto_values = coalesce(auto_values, '{}'::jsonb) || ${update.auto}::jsonb
+         WHERE id = ${id}::uuid`;
+    }
+
     // with jsonb concatenation — the typed client can only replace the whole value. Nulls are
     // stripped rather than stored: "no reason" is the absence of a key (docs/03 §3.3.10).
     if (update.skipReasons !== undefined) {

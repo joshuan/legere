@@ -271,6 +271,7 @@ model Document {
   processingError      String?                  @map("processing_error")
   skipReasons          Json                     @default("{}") @map("skip_reasons")
   languages            String[]                 @map("languages")
+  autoValues           Json                     @default("{}") @map("auto_values")
   country              String?                  @map("country")
   city                 String?                  @map("city")
   failedStep           String?                  @map("failed_step")

@@ -19,7 +19,7 @@ import {
 } from 'antd';
 import { useTranslations } from 'next-intl';
 import { DefinitionList } from '../../shared/ui/definition-list';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
@@ -102,6 +102,21 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
   return (
     <Row gutter={[16, 16]}>
       <Col xs={24} lg={16}>
+        {/* Above the document, not beside it: the title names what is on this page, and a name is
+            read before its metadata (docs/11 §11.5). */}
+        <Typography.Title
+          level={3}
+          style={{ marginTop: 0 }}
+          editable={{
+            onChange: (title) => {
+              if (title.trim() !== '' && title !== detail.title) update.mutate({ title });
+            },
+            triggerType: ['icon', 'text'],
+          }}
+        >
+          {detail.title}
+        </Typography.Title>
+
         <Card>
           <Tabs
             items={[
@@ -126,7 +141,13 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
               {
                 key: 'details',
                 label: t('viewer.tabs.details'),
-                children: <DetailsPane document={detail} />,
+                children: (
+                  <DetailsPane
+                    document={detail}
+                    categories={categories.data?.items ?? []}
+                    onChange={(input) => update.mutate(input)}
+                  />
+                ),
               },
             ]}
           />
@@ -137,47 +158,6 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Card>
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <Typography.Title
-                level={4}
-                style={{ margin: 0 }}
-                // Inline edit: the title is the one piece of metadata everyone fixes (docs/11 §11.5).
-                editable={{
-                  onChange: (title) => {
-                    if (title.trim() !== '' && title !== detail.title) update.mutate({ title });
-                  },
-                  triggerType: ['icon', 'text'],
-                }}
-              >
-                {detail.title}
-              </Typography.Title>
-
-              <Space wrap>
-                <Select
-                  allowClear
-                  style={{ minWidth: 200 }}
-                  placeholder={t('viewer.category')}
-                  aria-label={t('viewer.category')}
-                  loading={categories.isPending}
-                  value={detail.category?.id ?? undefined}
-                  onChange={(categoryId?: string) =>
-                    update.mutate({ categoryId: categoryId ?? null })
-                  }
-                  options={(categories.data?.items ?? []).map((category) => ({
-                    value: category.id,
-                    label: category.name,
-                  }))}
-                />
-                {detail.categorySource === 'AUTO' && <Tag color="blue">{t('viewer.auto')}</Tag>}
-                {/* The AI step writes this one too, so it says the same thing the fields in
-                    Details say while that step is outstanding (docs/11 §11.5). */}
-                {(detail.steps.categorization === 'RUNNING' ||
-                  detail.steps.categorization === 'PENDING') && (
-                  <Tag color={detail.steps.categorization === 'RUNNING' ? 'processing' : 'default'}>
-                    {detail.steps.categorization}
-                  </Tag>
-                )}
-              </Space>
-
               <Tooltip
                 title={
                   detail.availability === 'UNAVAILABLE'
@@ -359,7 +339,26 @@ function RenderedMarkdown({ markdown }: { markdown: string }) {
   );
 }
 
-function DetailsPane({ document }: { document: DocumentDetailDto }) {
+type MetaChange = {
+  title?: string;
+  categoryId?: string | null;
+  languages?: string[];
+  country?: string | null;
+  city?: string | null;
+};
+
+// Everything about the document that is not the document, in one list: what the file is, what the
+// pipeline made of it, where its bytes live — and, for the parts a machine guessed, a way to correct
+// them (docs/11 §11.5).
+function DetailsPane({
+  document,
+  categories,
+  onChange,
+}: {
+  document: DocumentDetailDto;
+  categories: Array<{ id: string; slug: string; name: string }>;
+  onChange: (input: MetaChange) => void;
+}) {
   const t = useTranslations();
   const size = useMemo(() => formatBytes(document.sizeBytes), [document.sizeBytes]);
   // Which step writes which field (docs/05 §5.5): the page count comes with the preview, the text
@@ -372,71 +371,163 @@ function DetailsPane({ document }: { document: DocumentDetailDto }) {
     return statuses.includes('PENDING') ? 'PENDING' : undefined;
   };
 
-  return (
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-      <DefinitionList
-        items={[
-          { label: t('viewer.details.size'), value: size, emphasis: true },
-          {
-            label: t('viewer.details.pages'),
-            value: document.pageCount,
-            emphasis: true,
-            pending: state('preview'),
-          },
-          { label: t('viewer.details.mime'), value: document.mimeType },
-          {
-            label: t('viewer.details.languages'),
-            // Empty is honest: there was too little text to tell (docs/03 §3.3.10). Two steps write
-            // this one — the parse detects them, the AI step fills them in if it found none.
-            value: document.languages.map((language) => displayLanguage(language)).join(', '),
-            pending: state('markdown', 'categorization'),
-          },
-          {
-            label: t('viewer.details.place'),
-            value: [document.city, displayCountry(document.country)]
-              .filter((part) => part !== null && part !== '')
-              .join(', '),
-            pending: state('categorization'),
-          },
-          {
-            label: t('viewer.details.hash'),
-            value: (
-              <Typography.Text code copyable={{ text: document.contentHash }}>
-                {document.contentHash.slice(0, 12)}…
-              </Typography.Text>
-            ),
-          },
-          {
-            label: t('viewer.details.created'),
-            value: new Date(document.createdAt).toLocaleString(),
-          },
-          {
-            label: t('viewer.details.ocr'),
-            value: document.ocrUsed ? t('common.yes') : t('common.no'),
-            pending: state('markdown'),
-          },
-        ]}
-      />
+  // "read as X" — shown only where the machine's answer and the current one differ, because
+  // repeating a value that nobody changed is noise (docs/03 §3.3.10).
+  const wasRead = (auto: string | null | undefined, current: string): ReactNode =>
+    auto === null || auto === undefined || auto === '' || auto === current
+      ? undefined
+      : t('viewer.details.auto', { value: auto });
 
-      <Card size="small" title={t('viewer.details.locations')}>
-        {document.fileRefs.length === 0 ? (
-          <Typography.Text type="secondary">{t('viewer.details.noLocations')}</Typography.Text>
-        ) : (
-          <Space direction="vertical" size={4} style={{ width: '100%' }}>
-            {document.fileRefs.map((ref) => (
-              <Space key={`${ref.libraryId}:${ref.path}`} wrap>
-                <Tag>{ref.libraryName}</Tag>
-                <Typography.Text code>{ref.path}</Typography.Text>
-                {ref.status === 'MISSING' && (
-                  <Tag color="default">{t('documents.badges.unavailable')}</Tag>
-                )}
-              </Space>
-            ))}
-          </Space>
-        )}
-      </Card>
-    </Space>
+  const autoCategory = categories.find((category) => category.slug === document.auto.categorySlug);
+  const autoLanguages = (document.auto.languages ?? []).map(displayLanguage).join(', ');
+  const autoPlace = placeOf(document.auto.city ?? null, document.auto.country ?? null);
+
+  return (
+    <DefinitionList
+      items={[
+        { label: t('viewer.details.size'), value: size, emphasis: true },
+        {
+          label: t('viewer.details.pages'),
+          value: document.pageCount,
+          emphasis: true,
+          pending: state('preview'),
+        },
+        { label: t('viewer.details.mime'), value: document.mimeType },
+        {
+          label: t('viewer.details.category'),
+          value: (
+            <Space size={4} wrap>
+              <Select
+                allowClear
+                variant="borderless"
+                className="legere-field"
+                placeholder={t('viewer.category')}
+                aria-label={t('viewer.category')}
+                value={document.category?.id ?? undefined}
+                onChange={(categoryId?: string) => onChange({ categoryId: categoryId ?? null })}
+                options={categories.map((category) => ({
+                  value: category.id,
+                  label: category.name,
+                }))}
+              />
+              {/* Chosen by the classifier and not confirmed by anybody since (docs/03 §3.3.10). */}
+              {document.categorySource === 'AUTO' && <Tag color="blue">{t('viewer.auto')}</Tag>}
+            </Space>
+          ),
+          pending: state('categorization'),
+          note: wasRead(
+            autoCategory?.name ?? document.auto.categorySlug,
+            document.category?.name ?? '',
+          ),
+        },
+        {
+          label: t('viewer.details.languages'),
+          // Free-form on purpose: BCP-47 has more tags than any list worth shipping, and the ones
+          // already on the document are offered with their names spelled out.
+          value: (
+            <Select
+              mode="tags"
+              variant="borderless"
+              className="legere-field"
+              placeholder={t('viewer.details.languagesPlaceholder')}
+              aria-label={t('viewer.details.languages')}
+              value={document.languages}
+              onChange={(languages: string[]) => onChange({ languages })}
+              options={languageOptions(document.languages, document.auto.languages ?? [])}
+            />
+          ),
+          pending: state('markdown', 'categorization'),
+          note: wasRead(autoLanguages, document.languages.map(displayLanguage).join(', ')),
+        },
+        {
+          label: t('viewer.details.place'),
+          value: (
+            <Space size={4} wrap>
+              <Typography.Text
+                editable={{
+                  triggerType: ['icon', 'text'],
+                  onChange: (city) => onChange({ city: city.trim() === '' ? null : city.trim() }),
+                }}
+              >
+                {document.city ?? ''}
+              </Typography.Text>
+              <Select
+                showSearch
+                allowClear
+                variant="borderless"
+                className="legere-field"
+                optionFilterProp="label"
+                placeholder={t('viewer.details.countryPlaceholder')}
+                aria-label={t('viewer.details.country')}
+                value={document.country ?? undefined}
+                onChange={(country?: string) => onChange({ country: country ?? null })}
+                options={COUNTRY_OPTIONS}
+              />
+            </Space>
+          ),
+          pending: state('categorization'),
+          note: wasRead(autoPlace, placeOf(document.city, document.country)),
+        },
+        {
+          label: t('viewer.details.hash'),
+          value: (
+            <Typography.Text code copyable={{ text: document.contentHash }}>
+              {document.contentHash.slice(0, 12)}…
+            </Typography.Text>
+          ),
+        },
+        {
+          label: t('viewer.details.created'),
+          value: new Date(document.createdAt).toLocaleString(),
+        },
+        {
+          label: t('viewer.details.ocr'),
+          value: document.ocrUsed ? t('common.yes') : t('common.no'),
+          pending: state('markdown'),
+        },
+        // Where the bytes are. One row per place, labelled by the library holding it: a card of its
+        // own made it look like a section of the document rather than one more fact about it.
+        ...(document.fileRefs.length === 0
+          ? [
+              {
+                label: t('viewer.details.locations'),
+                value: (
+                  <Typography.Text type="secondary">
+                    {t('viewer.details.noLocations')}
+                  </Typography.Text>
+                ),
+              },
+            ]
+          : document.fileRefs.map((ref) => ({
+              label: ref.libraryName,
+              value: (
+                <Space size={4} wrap>
+                  <Typography.Text code>{ref.path}</Typography.Text>
+                  {ref.status === 'MISSING' && (
+                    <Tag color="default">{t('documents.badges.unavailable')}</Tag>
+                  )}
+                </Space>
+              ),
+            }))),
+      ]}
+    />
   );
+}
+
+function placeOf(city: string | null, country: string | null): string {
+  return [city, displayCountry(country)].filter((part) => part !== null && part !== '').join(', ');
+}
+
+// The tags already on the document, plus whatever the pipeline read, each with its name spelled
+// out. Anything else can still be typed — the field takes free tags.
+function languageOptions(
+  current: string[],
+  auto: string[],
+): Array<{ value: string; label: string }> {
+  return [...new Set([...current, ...auto])].map((tag) => ({
+    value: tag,
+    label: `${displayLanguage(tag)} (${tag})`,
+  }));
 }
 
 function statusColor(status: StepStatus): string {
@@ -446,6 +537,22 @@ function statusColor(status: StepStatus): string {
   if (status === 'PENDING') return 'blue';
   return 'default';
 }
+
+// Every ISO 3166-1 alpha-2 code that Intl recognises, named in the reader's own language. Built by
+// asking Intl about all 676 two-letter combinations and keeping the ones it has a name for: a list
+// of countries is data that goes out of date, and this one cannot.
+const COUNTRY_OPTIONS: Array<{ value: string; label: string }> = (() => {
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const options: Array<{ value: string; label: string }> = [];
+  for (const first of letters) {
+    for (const second of letters) {
+      const code = `${first}${second}`;
+      const name = displayCountry(code);
+      if (name !== null && name !== code) options.push({ value: code, label: name });
+    }
+  }
+  return options.sort((a, b) => a.label.localeCompare(b.label));
+})();
 
 // "ME" → "Montenegro", in the reader's own language. Intl knows the list; we do not keep one.
 function displayCountry(code: string | null): string | null {

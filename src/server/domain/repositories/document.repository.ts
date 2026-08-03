@@ -1,4 +1,4 @@
-import type { Availability, DocumentStep } from '../../../shared/contracts/documents';
+import type { AutoValues, Availability, DocumentStep } from '../../../shared/contracts/documents';
 import type {
   CategorySource,
   DocumentSource,
@@ -39,6 +39,9 @@ export type ProcessingUpdate = {
   languages?: string[];
   country?: string | null;
   city?: string | null;
+  // Merged into what is already recorded, one step at a time: the parse contributes the languages
+  // it detected, the AI step the rest (docs/03 §3.3.10).
+  auto?: AutoValues;
   markdown?: string | null;
   ocrUsed?: boolean;
   processingError?: string | null;

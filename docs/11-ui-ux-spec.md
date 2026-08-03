@@ -67,14 +67,21 @@ files show as unavailable cards. This is the primary "explore what got mounted" 
 
 ## 11.5. Document viewer (`/documents/:id`)
 
-Two-pane layout:
+Two-pane layout, with the **title above the tabs**: it names what is on the page, and a name is read
+before the metadata of the thing it names.
 - **Left (main): tabs** — `Preview` (canonical/source PDF in an `<object>`; for images the
   preview.jpg full-size; for text/markdown sources — rendered markdown), `Text` (rendered Markdown
   representation; empty state "No text extracted yet" / "Extraction failed" / "Being extracted…"
   while the step is `PENDING` or `RUNNING`), `Details` (metadata
   table: size, pages, mime, hash (copyable), created, OCR used, **languages** and **place**, file
   locations = visible FileRef paths with library names and MISSING badges, provenance for DERIVED
-  docs — link to the scan set). Languages and the country are shown as names in the reader's own
+  docs — link to the scan set). Everything a machine decided is **editable here and only here** —
+  category, languages, country, city — and what the machine decided is kept: when the two differ, a
+  quiet grey line under the value says "read as …". A correction is then never a dead end, and the
+  question "did it get this wrong, or did somebody change it?" has an answer on the page. File
+  locations are rows of this same list, one per library, rather than a card of their own — where the
+  bytes live is one more fact about the document, not a section of it. Languages and the country are
+  shown as names in the reader's own
   language (`Intl.DisplayNames`), not as the tags stored — "Serbian (Latin), Montenegro", not
   "sr-Latn, ME"; an em dash where nothing was detected, which is honest and never looks broken.
   **A field whose step has not settled carries that step's badge** — `RUNNING` or `PENDING`, the same
