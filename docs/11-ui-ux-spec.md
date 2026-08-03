@@ -78,7 +78,9 @@ Two-pane layout:
   "sr-Latn, ME"; an em dash where nothing was detected, which is honest and never looks broken.
 - **Right (sidebar):** title (inline-editable when permitted), category select (all users with
   access; shows "auto" tag when `categorySource=AUTO`), Download source button (disabled +
-  tooltip when `UNAVAILABLE`), Add-to-collection select, processing status panel: five steps, one row each,
+  tooltip when `UNAVAILABLE`), Add-to-collection select, processing status panel: five steps, one row each
+  (`RUNNING` in the panel means the pipeline is on that step right now — the viewer polls every 5 s
+  while the document is processing, so a long step shows its progress by moving on, not by a bar),
   laid out as a grid — select, state, name — so every name starts at the same x whatever width the
   status tag happens to have. What a step has to say about itself goes **under its own name**, in
   that same column: a `SKIPPED` step **always shows why** ("not needed for this file type", "no AI

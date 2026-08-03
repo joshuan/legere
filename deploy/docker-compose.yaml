@@ -105,6 +105,9 @@ services:
     environment:
       # Models are baked into the image; nothing is fetched at runtime.
       DOCLING_SERVE_ENABLE_UI: 'false'
+      # Captioning a page takes minutes; the default 120 s would 504 a request that is working
+      # fine. The client has its own budget (docs/12 §12.4).
+      DOCLING_SERVE_MAX_SYNC_WAIT: '3600'
 
   minio:
     image: minio/minio

@@ -26,7 +26,8 @@ services:
     # so do it by hand once: `docker build -t legere-docling:dev deploy/docling`.
     image: legere-docling:dev
     build: ./deploy/docling
-    environment: { DOCLING_SERVE_ENABLE_UI: 'false' }
+    environment:
+      DOCLING_SERVE_ENABLE_UI: 'false'
     ports: ['5001:5001']
   ollama:
     # The AI step (categories, languages, where a document is from) talks to anything

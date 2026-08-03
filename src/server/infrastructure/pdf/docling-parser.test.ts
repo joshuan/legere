@@ -19,8 +19,31 @@ function parser(overrides: Record<string, string> = {}): DoclingParser {
 
 type FetchSpy = MockInstance<typeof fetch>;
 
-function answers(markdown: string | null): Response {
-  return Response.json({ document: { md_content: markdown } });
+const TASK = 'task-1';
+
+// fetch takes a string, a URL or a Request; the fake has to answer on all three the same way.
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  return input instanceof URL ? input.href : input.url;
+}
+
+// Submit, poll, collect — the three calls a conversion makes (docs/05 §5.5). `polls` lets a test
+// keep the task working for a while before it settles.
+function answers(markdown: string | null, { polls = 1 } = {}): FetchSpy {
+  let remaining = polls;
+  return vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+    const url = urlOf(input);
+    if (url.includes('/v1/convert')) {
+      return Promise.resolve(Response.json({ task_id: TASK, task_status: 'pending' }));
+    }
+    if (url.includes('/v1/status/poll')) {
+      remaining -= 1;
+      return Promise.resolve(
+        Response.json({ task_id: TASK, task_status: remaining > 0 ? 'started' : 'success' }),
+      );
+    }
+    return Promise.resolve(Response.json({ document: { md_content: markdown } }));
+  });
 }
 
 function sentRequest(spy: FetchSpy): { url: string; form: FormData } {
@@ -46,13 +69,13 @@ describe('DoclingParser', () => {
   });
 
   it('reads a document that has its own text, rather than recognising a picture of it', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('## Ugovor\n\nText.'));
+    const spy = answers('## Ugovor\n\nText.');
 
     const markdown = await parser().toMarkdown(PDF, { ocrLanguages: [] });
 
     expect(markdown).toBe('## Ugovor\n\nText.');
     const { url, form } = sentRequest(spy);
-    expect(url).toBe('http://docling:5001/v1/convert/file');
+    expect(url).toBe('http://docling:5001/v1/convert/file/async');
     expect(form.get('to_formats')).toBe('md');
     // Measured: the default backend splits diacritics into separate glyph runs — "li č ne".
     expect(form.get('pdf_backend')).toBe('pypdfium2');
@@ -61,7 +84,7 @@ describe('DoclingParser', () => {
   });
 
   it('forces a full OCR pass in the languages it was given, one field each', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('Договор'));
+    const spy = answers('Договор');
 
     await parser().toMarkdown(PDF, { ocrLanguages: ['rus', 'srp_latn'] });
 
@@ -75,7 +98,7 @@ describe('DoclingParser', () => {
   });
 
   it('leaves picture description off unless it is switched on', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('text'));
+    const spy = answers('text');
 
     await parser().toMarkdown(PDF, { ocrLanguages: [] });
 
@@ -83,7 +106,7 @@ describe('DoclingParser', () => {
   });
 
   it('asks for captions when it is switched on', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('text'));
+    const spy = answers('text');
 
     await parser({ DOCLING_PICTURE_DESCRIPTION: 'true' }).toMarkdown(PDF, { ocrLanguages: [] });
 
@@ -91,7 +114,7 @@ describe('DoclingParser', () => {
   });
 
   it('drops the placeholders Docling writes in place of pictures it did not describe', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('<!-- image -->\n\nInvoice'));
+    answers('<!-- image -->\n\nInvoice');
 
     const markdown = await parser().toMarkdown(PDF, { ocrLanguages: [] });
 
@@ -102,9 +125,7 @@ describe('DoclingParser', () => {
   });
 
   it('keeps a caption, which is text about the document rather than a note about the file', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      answers('<!-- image -->\n\nIn this image, we can see a QR code.'),
-    );
+    answers('<!-- image -->\n\nIn this image, we can see a QR code.');
 
     expect(
       await parser({ DOCLING_PICTURE_DESCRIPTION: 'true' }).toMarkdown(PDF, {
@@ -134,24 +155,64 @@ describe('DoclingParser', () => {
   });
 
   it('treats a document with no content as empty, not as a broken answer', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers(null));
+    answers(null);
 
     expect(await parser().toMarkdown(PDF, { ocrLanguages: [] })).toBe('');
   });
 
   it('fails loudly on an answer whose shape it does not know', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ markdown: 'text' }));
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        urlOf(input).includes('/v1/convert')
+          ? Response.json({ task_id: TASK, task_status: 'pending' })
+          : urlOf(input).includes('/v1/status/poll')
+            ? Response.json({ task_id: TASK, task_status: 'success' })
+            : Response.json({ markdown: 'text' }),
+      ),
+    );
 
     await expect(parser().toMarkdown(PDF, { ocrLanguages: [] })).rejects.toThrow(
       /shape this version does not know/,
     );
   });
 
+  it('waits through a task that is still working, instead of reading a result that is not there', async () => {
+    const spy = answers('## Ugovor', { polls: 3 });
+
+    expect(await parser().toMarkdown(PDF, { ocrLanguages: [] })).toBe('## Ugovor');
+
+    const polls = spy.mock.calls.filter(
+      (call) => call[0] !== undefined && urlOf(call[0]).includes('/v1/status/poll'),
+    );
+    expect(polls).toHaveLength(3);
+    // 🔒 Long-polling, not busy-looping: the wait is on the server's side of the connection.
+    const first = polls[0]?.[0];
+    expect(first === undefined ? '' : urlOf(first)).toContain('wait=');
+  });
+
+  it('reports what Docling said when a task fails, rather than an empty document', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        urlOf(input).includes('/v1/convert')
+          ? Response.json({ task_id: TASK, task_status: 'pending' })
+          : Response.json({
+              task_id: TASK,
+              task_status: 'failure',
+              error_message: 'page 3 is encrypted',
+            }),
+      ),
+    );
+
+    await expect(parser().toMarkdown(PDF, { ocrLanguages: [] })).rejects.toThrow(
+      /page 3 is encrypted/,
+    );
+  });
+
   it('tolerates a configured URL with a trailing slash', async () => {
-    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('text'));
+    const spy = answers('text');
 
     await parser({ DOCLING_URL: 'http://docling:5001/' }).toMarkdown(PDF, { ocrLanguages: [] });
 
-    expect(sentRequest(spy).url).toBe('http://docling:5001/v1/convert/file');
+    expect(sentRequest(spy).url).toBe('http://docling:5001/v1/convert/file/async');
   });
 });

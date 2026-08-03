@@ -4,7 +4,7 @@ import {
   documentStepSchema,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
-import type { Document } from '../../domain/entities/document';
+import type { Document, DocumentSteps } from '../../domain/entities/document';
 import { chunkMarkdown } from '../../domain/entities/document-chunks';
 import { detectLanguages } from '../../domain/entities/document-language';
 import { classifyFormat, type DocumentFormat } from '../../domain/entities/document-format';
@@ -139,7 +139,9 @@ export class HandleDocumentProcess extends JobHandler {
 
     const openSource = await this.sourceOpener(document);
     const canonical = requested.has('canonical')
-      ? await this.canonicalize(document, format, openSource)
+      ? await this.running(documentId, 'canonical', () =>
+          this.canonicalize(document, format, openSource),
+        )
       : // Not asked for: whatever step 1 produced earlier is still in the bucket, and the steps
         // after it must read that rather than the original office file (docs/07 §7.3).
         alreadyCanonical(document, format);
@@ -147,19 +149,41 @@ export class HandleDocumentProcess extends JobHandler {
     // Step 2 asks Stirling how many pages there are; step 3 needs the same number to weigh the text
     // layer, so it is carried across rather than asked for twice.
     const pageCount = requested.has('preview')
-      ? await this.renderPreviews(document, format, openSource, canonical)
+      ? await this.running(documentId, 'preview', () =>
+          this.renderPreviews(document, format, openSource, canonical),
+        )
       : null;
     // Independent of the preview: a document whose page could not be rendered is still worth
     // reading and searching (docs/05 §5.5).
     if (requested.has('markdown')) {
-      await this.extractMarkdown(document, format, openSource, canonical, pageCount);
+      await this.running(documentId, 'markdown', () =>
+        this.extractMarkdown(document, format, openSource, canonical, pageCount),
+      );
     }
 
     // Steps 4 and 5 read what step 3 wrote, so the document is re-read rather than reusing the
     // stale copy this handler started with.
     const extracted = (await this.documents.findById(document.id)) ?? document;
-    if (requested.has('categorization')) await this.categorize(extracted);
-    if (requested.has('vectorization')) await this.vectorize(extracted);
+    if (requested.has('categorization')) {
+      await this.running(document.id, 'categorization', () => this.categorize(extracted));
+    }
+    if (requested.has('vectorization')) {
+      await this.running(document.id, 'vectorization', () => this.vectorize(extracted));
+    }
+  }
+
+  // Says out loud that this step is being worked on, then lets the step settle its own outcome.
+  // Without it a step that takes minutes — parsing with picture captions, OCR over a long scan, a
+  // local model thinking — is indistinguishable from one that has not started, and the panel reads
+  // as stuck (docs/03 §3.3.10). The mark is best-effort: it must never be the reason a job fails.
+  private async running<T>(
+    documentId: string,
+    step: DocumentStep,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const steps: Partial<DocumentSteps> = { [step]: 'RUNNING' };
+    await this.documents.updateProcessing(documentId, { steps });
+    return work();
   }
 
   // Step 1. Only office formats need converting; a PDF already is one, and images and text are

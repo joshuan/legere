@@ -375,6 +375,27 @@ describe('HandleDocumentProcess', () => {
     });
   });
 
+  it('says a step is running before it runs, so a slow one is not mistaken for a stuck one', async () => {
+    givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+    reader.put(SOURCE_PATH, 'Amount due: 1200.');
+
+    await run();
+
+    // The order matters, not the count: every step is announced before it is settled (docs/03
+    // §3.3.10). Parsing with picture captions takes minutes — for those minutes PENDING would read
+    // as "nothing is happening".
+    for (const step of ['preview', 'markdown', 'categorization', 'vectorization'] as const) {
+      const statuses = documents.updates
+        .map((entry) => entry.update.steps?.[step])
+        .filter((status) => status !== undefined);
+      // A re-run resets the earlier steps to PENDING first, so RUNNING is not necessarily the
+      // first thing written — but it always comes before the outcome, and never after it.
+      expect(statuses).toContain('RUNNING');
+      expect(statuses.indexOf('RUNNING')).toBe(statuses.length - 2);
+      expect(statuses.at(-1)).not.toBe('RUNNING');
+    }
+  });
+
   describe('categorization (docs/05 §5.5 step 4)', () => {
     it('assigns the category the analyst chose, marked as automatic', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'March invoice' });

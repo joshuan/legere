@@ -410,6 +410,7 @@ function DetailsPane({ document }: { document: DocumentDetailDto }) {
 }
 
 function statusColor(status: StepStatus): string {
+  if (status === 'RUNNING') return 'processing';
   if (status === 'DONE') return 'green';
   if (status === 'FAILED') return 'red';
   if (status === 'PENDING') return 'blue';

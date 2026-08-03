@@ -139,6 +139,9 @@ they are served to the client via short-lived signed URLs after an access check.
      this itself; on the fallback path Stirling OCRs into a searchable PDF and that is converted;
    - plain text / Markdown → as is (encoding normalization).
    The Markdown is stored with the document and indexed by PostgreSQL FTS.
+A step is marked `RUNNING` when the pipeline starts it and settles to its outcome when it ends, so
+a long step is visibly alive rather than indistinguishable from a queued one (03 §3.3.10).
+
 Every `SKIPPED` step records **why** (docs/03 §3.3.10), because "skipped" alone cannot be told apart
 from "broken" by the person looking at it: not needed for this format, format unsupported, provider
 not configured, no categories defined, no text to embed, or a category a person set by hand.

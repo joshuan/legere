@@ -63,7 +63,7 @@ export function isAvailable(
 
 // True while any step still has work to do and nothing it depends on has failed (docs/03 §3.3.10).
 export function isProcessing(steps: DocumentSteps): boolean {
-  return Object.values(steps).some((status) => status === 'PENDING');
+  return Object.values(steps).some((status) => status === 'PENDING' || status === 'RUNNING');
 }
 
 // Every step starts PENDING; the pipeline moves them to DONE/FAILED/SKIPPED (docs/05 §5.5).

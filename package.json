@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "nodemon --quiet --watch server --watch src/server --watch src/shared --ext ts,mjs,json --exec \"node server/dev.mjs\"",
     "dev:up": "docker compose up -d",
+    "docling:captions": "docker build -t legere-docling:dev --build-arg PICTURE_DESCRIPTION_MODEL=HuggingFaceTB/SmolVLM-256M-Instruct deploy/docling && docker compose up -d --force-recreate docling",
     "dev:down": "docker compose down",
     "build": "next build && tsc -p tsconfig.server.json && echo '{\"type\":\"commonjs\"}' > dist/package.json",
     "start": "node dist/server/main.js",

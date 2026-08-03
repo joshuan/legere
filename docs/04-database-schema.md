@@ -56,6 +56,7 @@ enum DocumentSource {
 
 enum StepStatus {
   PENDING
+  RUNNING
   DONE
   FAILED
   SKIPPED

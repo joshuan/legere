@@ -37,7 +37,7 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `LibraryVisibility` | `ALL_USERS`, `RESTRICTED` | new libraries default to `RESTRICTED` (fail-closed) |
 | `FileRefStatus` | `DISCOVERED`, `HASHED`, `MISSING` | |
 | `DocumentSource` | `LIBRARY`, `DERIVED`, `UPLOAD` | where the bytes live and where they came from: a file in a read-only library, a scan-set merge, or a file a person sent from their browser. `DERIVED` and `UPLOAD` both keep their bytes in S3 |
-| `StepStatus` | `PENDING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step; "running" is a queue state, not persisted |
+| `StepStatus` | `PENDING`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes `PENDING` reads as "stuck". The mark is best-effort and never the reason a job fails |
 | `CategorySource` | `NONE`, `AUTO`, `MANUAL` | |
 | `ScanSetStatus` | `DRAFT`, `QUEUED`, `PROCESSING`, `DONE`, `FAILED` | |
 | `ScanRunStatus` | `RUNNING`, `DONE`, `FAILED` | |
@@ -246,7 +246,7 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 - `availability`: a LIBRARY document is `AVAILABLE` if it has ≥1 `FileRef` with status `HASHED` in an
   active, non-deleted library; otherwise `UNAVAILABLE`. DERIVED and UPLOAD documents are always
   `AVAILABLE` — their bytes are in S3, which is ours and does not go missing behind our back.
-- `processing`: `true` while any step is `PENDING` and prerequisites are not `FAILED`.
+- `processing`: `true` while any step is `PENDING` or `RUNNING` and prerequisites are not `FAILED`.
 
 **Invariants:**
 - One active document per `contentHash`.

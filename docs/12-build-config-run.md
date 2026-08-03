@@ -12,6 +12,7 @@
 {
   "dev": "nodemon --quiet --watch server --watch src/server --watch src/shared --ext ts,mjs,json --exec \"node server/dev.mjs\"",
   "dev:up": "docker compose up -d",
+  "docling:captions": "docker build -t legere-docling:dev --build-arg PICTURE_DESCRIPTION_MODEL=HuggingFaceTB/SmolVLM-256M-Instruct deploy/docling && docker compose up -d --force-recreate docling",
   "dev:down": "docker compose down",
   "build": "next build && tsc -p tsconfig.server.json && echo '{\"type\":\"commonjs\"}' > dist/package.json",
   "start": "node dist/server/main.js",
@@ -117,17 +118,34 @@ and text" for the operator's logo, which is true and useless: it never named the
 you want from a picture is *what it means*, the AI step ([`05 §5.5`](./05-library-and-processing.md)
 step 4) reads the document as a whole and answers that better and in one second.
 
-The model is not in the published image (it is ~0.9 GB). To use this, build the Docling image with
-it:
+The model is not in the published image (it is ~0.9 GB). In development one command builds it in and
+restarts the container:
 
 ```bash
-docker build -t legere-docling:captions \
+npm run docling:captions
+```
+
+For a deployment, build the image the same way and push it under your own tag:
+
+```bash
+docker build -t <your-registry>/legere-docling:captions \
   --build-arg PICTURE_DESCRIPTION_MODEL=HuggingFaceTB/SmolVLM-256M-Instruct \
   deploy/docling
 ```
 
-With the flag on and no model in the image, Docling answers `404` and the markdown step fails with
-an error that says exactly this.
+Three things have to line up, and each one fails differently, so all three are handled rather than
+documented:
+- **the model has to be there.** Without it Docling answers `404`, and the markdown step now fails
+  with an error naming the command above rather than the bare status code;
+- **the conversion has to be allowed to take its time.** It is submitted to Docling's asynchronous
+  endpoint and long-polled, because the synchronous one cannot carry work this long: `docling-serve`
+  answers `504` after 120 s, and Node's HTTP client gives up waiting for headers after 300 s — a
+  conversion going perfectly well then fails as `fetch failed`. With captions on the overall budget
+  is 55 minutes, inside the `document-process` job's own hour.
+
+The picture threshold is lowered to 1% of the page when captions are on: Docling's own default of 5%
+skips exactly the pictures a document archive has — a logo, a stamp, a QR code — and the feature
+then looks broken rather than strict.
 
 `NEXT_PUBLIC_*` values are **build-time**: they are baked into the client bundle during `next build`
 (passed as Docker build-args, [`13 §13.3`](./13-ci-cd.md#133-githubworkflowsreleaseyml)); setting them

@@ -277,6 +277,7 @@ type CounterRow = {
 function emptyCounters(): StepStatusCounters {
   const zeroes = (): Record<StepStatus, number> => ({
     PENDING: 0,
+    RUNNING: 0,
     DONE: 0,
     FAILED: 0,
     SKIPPED: 0,

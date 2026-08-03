@@ -35,7 +35,7 @@ export type StepSkipReason = z.infer<typeof stepSkipReasonSchema>;
 export const documentSourceSchema = z.enum(['LIBRARY', 'DERIVED', 'UPLOAD']);
 export type DocumentSource = z.infer<typeof documentSourceSchema>;
 
-export const stepStatusSchema = z.enum(['PENDING', 'DONE', 'FAILED', 'SKIPPED']);
+export const stepStatusSchema = z.enum(['PENDING', 'RUNNING', 'DONE', 'FAILED', 'SKIPPED']);
 export type StepStatus = z.infer<typeof stepStatusSchema>;
 
 export const categorySourceSchema = z.enum(['NONE', 'AUTO', 'MANUAL']);
