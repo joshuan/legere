@@ -7,6 +7,17 @@
   --legere-motion: 140ms;
 }
 
+/* The tone a scan lies on inside a card. It cannot be the page colour — that is what made a card's
+   thumbnail area merge with the background and cost the card its top edge — and it cannot be the
+   card's own surface either, or the scan would float. Mixed from the theme's own container and text
+   so both modes get it right: 1.19 against the page on paper, 1.56 on ink. */
+.ant-app {
+  /* Two declarations on purpose: a browser without color-mix keeps the first, rather than dropping
+     the property and painting the well transparent. */
+  --legere-well: var(--ant-color-fill-secondary);
+  --legere-well: color-mix(in srgb, var(--ant-color-bg-container) 86%, var(--ant-color-text) 14%);
+}
+
 html,
 body {
   margin: 0;
@@ -99,6 +110,44 @@ pre,
 .legere-enter {
   animation: legere-rise 340ms cubic-bezier(0.22, 0.8, 0.3, 1) both;
   animation-delay: calc(var(--legere-index, 0) * 40ms);
+}
+
+/* Label · · · · · · value (docs/11 §11.15). The leader is an empty element aligned to the baseline,
+   so its bottom border lands exactly on the text baseline the way a printed contents page does. */
+.legere-definitions {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.legere-definition {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.legere-definition-label {
+  color: var(--ant-color-text-secondary);
+  white-space: nowrap;
+}
+
+.legere-definition-leader {
+  flex: 1 1 auto;
+  align-self: baseline;
+  min-width: 16px;
+  border-bottom: 1px dotted var(--ant-color-border);
+}
+
+.legere-definition-value {
+  margin: 0;
+  text-align: end;
+  /* Figures line up under one another: these are values people compare. */
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.legere-definition-value.is-emphasis {
+  font-weight: 600;
 }
 
 /* Focus is always visible — never `outline: none` (docs/11 §11.15). */

@@ -30,9 +30,9 @@ export function DocumentCard({ document }: { document: DocumentListDto }) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              // The shelf behind the page: a shade off the card so a scan reads as an object lying
-              // on it rather than as a white rectangle on white (docs/11 §11.15).
-              background: token.colorBgLayout,
+              // The shelf behind the page: distinct from both the page and the card, so the card
+              // keeps a visible top edge (docs/11 §11.15).
+              background: 'var(--legere-well)',
               borderBottom: `1px solid ${token.colorBorderSecondary}`,
               overflow: 'hidden',
             }}

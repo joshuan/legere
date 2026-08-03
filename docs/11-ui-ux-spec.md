@@ -195,8 +195,18 @@ network must never call a font CDN at runtime.
 
 ### Surfaces, depth, motion
 
-- Cards and panels: 1 px hairline border, radius 10, **no ambient shadow at rest**. Hover lifts 2 px,
-  warms the border to primary, and adds one soft shadow — depth is an interaction, not a default.
+- Cards and panels: 1 px border in the **strong** border tone, radius 10, **no ambient shadow at
+  rest**. Hover lifts 2 px, warms the border to primary, and adds one soft shadow — depth is an
+  interaction, not a default. The border carries the whole separation, so it has to be seen: ~1.5:1
+  against the page, not the ~1.2:1 a hairline gives. Hairlines are for divisions *inside* a surface —
+  the rule under the wordmark, the line between a card's thumbnail and its body.
+- Label–value pairs are a **definition list with a dotted leader**, not a two-column table: the pairs
+  stay legible at any width, no column has to be agreed on, and the eye is carried across the gap
+  instead of jumping it. A missing value is an em dash — a blank reads as a rendering bug. Figures
+  are tabular so they line up under one another.
+- A thumbnail lies in a **well** (`--legere-well`), a tone mixed from the container and the text and
+  therefore distinct from both the page and the card. It must never be the page colour: a card whose
+  thumbnail area matches the background loses its top edge and stops looking like an object at all.
 - The page carries a faint procedural grain (inline SVG turbulence, ~3% opacity) so large empty areas
   read as paper rather than as a colour swatch.
 - One orchestrated moment per screen: content rises 8 px and fades in, grid items staggered 40 ms

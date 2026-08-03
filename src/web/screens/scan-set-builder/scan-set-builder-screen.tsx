@@ -158,7 +158,7 @@ export function ScanSetBuilderScreen({ id }: { id: string }) {
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      background: token.colorBgLayout,
+                      background: 'var(--legere-well)',
                     }}
                   >
                     {item.hasPreview ? (

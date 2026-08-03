@@ -7,7 +7,6 @@ import {
   Card,
   Checkbox,
   Col,
-  Descriptions,
   Empty,
   Row,
   Select,
@@ -19,6 +18,7 @@ import {
   Typography,
 } from 'antd';
 import { useTranslations } from 'next-intl';
+import { DefinitionList } from '../../shared/ui/definition-list';
 import { useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
@@ -32,7 +32,7 @@ import type { StepStatus } from '../../../shared/contracts/enums';
 import { categoryApi, categoryKeys } from '../../entities/category';
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
-import { useErrorMessage } from '../../shared/lib';
+import { useErrorMessage, formatBytes } from '../../shared/lib';
 
 // The viewer refreshes while the pipeline is still working on this document (docs/10 §10.5).
 const LIVE_REFRESH_MS = 5000;
@@ -329,24 +329,29 @@ function DetailsPane({ document }: { document: DocumentDetailDto }) {
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-      <Descriptions column={1} size="small">
-        <Descriptions.Item label={t('viewer.details.size')}>{size}</Descriptions.Item>
-        <Descriptions.Item label={t('viewer.details.pages')}>
-          {document.pageCount ?? '—'}
-        </Descriptions.Item>
-        <Descriptions.Item label={t('viewer.details.mime')}>{document.mimeType}</Descriptions.Item>
-        <Descriptions.Item label={t('viewer.details.hash')}>
-          <Typography.Text code copyable={{ text: document.contentHash }}>
-            {document.contentHash.slice(0, 12)}…
-          </Typography.Text>
-        </Descriptions.Item>
-        <Descriptions.Item label={t('viewer.details.created')}>
-          {new Date(document.createdAt).toLocaleString()}
-        </Descriptions.Item>
-        <Descriptions.Item label={t('viewer.details.ocr')}>
-          {document.ocrUsed ? t('common.yes') : t('common.no')}
-        </Descriptions.Item>
-      </Descriptions>
+      <DefinitionList
+        items={[
+          { label: t('viewer.details.size'), value: size, emphasis: true },
+          { label: t('viewer.details.pages'), value: document.pageCount, emphasis: true },
+          { label: t('viewer.details.mime'), value: document.mimeType },
+          {
+            label: t('viewer.details.hash'),
+            value: (
+              <Typography.Text code copyable={{ text: document.contentHash }}>
+                {document.contentHash.slice(0, 12)}…
+              </Typography.Text>
+            ),
+          },
+          {
+            label: t('viewer.details.created'),
+            value: new Date(document.createdAt).toLocaleString(),
+          },
+          {
+            label: t('viewer.details.ocr'),
+            value: document.ocrUsed ? t('common.yes') : t('common.no'),
+          },
+        ]}
+      />
 
       <Card size="small" title={t('viewer.details.locations')}>
         {document.fileRefs.length === 0 ? (
@@ -378,19 +383,4 @@ function statusColor(status: StepStatus): string {
 
 function isStep(value: unknown): value is DocumentStep {
   return DOCUMENT_STEPS.some((step) => step === value);
-}
-
-// Sizes arrive as decimal strings (docs/07 §7.4) and can exceed Number.MAX_SAFE_INTEGER in theory.
-function formatBytes(value: string): string {
-  const bytes = Number(value);
-  if (!Number.isFinite(bytes)) return `${value} B`;
-
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = bytes;
-  let unit = 0;
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024;
-    unit += 1;
-  }
-  return `${unit === 0 ? size : size.toFixed(1)} ${units[unit] ?? 'B'}`;
 }

@@ -77,7 +77,9 @@ export function legereTheme(dark: boolean): ThemeConfig {
         iconSize: 16,
       },
       Card: {
-        colorBorderSecondary: c.border,
+        // The strong border, not the hairline: a card sits on the page and has to have an edge you
+        // can see (1.5:1 against the page rather than 1.2:1).
+        colorBorderSecondary: c.borderStrong,
         paddingLG: 20,
       },
       Table: {
