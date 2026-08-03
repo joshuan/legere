@@ -10,7 +10,7 @@ described in the repository (example only — [`12 §12.7`](./12-build-config-ru
 - Node from `.nvmrc` (`actions/setup-node` with `node-version-file`), npm cache.
 - Integration tests run against a PostgreSQL **pgvector** service container.
 - External services are not needed in CI: `FileStorage`, `PdfToolbox`, `EmailSender`,
-  `CaptchaVerifier`, `EmbeddingProvider`, `DocumentClassifier` are mocked behind their ports
+  `CaptchaVerifier`, `EmbeddingProvider`, `DocumentAnalyst` are mocked behind their ports
   ([`14 §14.8`](./14-coding-standards.md#148-testing)). Dummy env values exist only to satisfy config
   validation.
 - On `main`/tags: build and push a single Docker image. **No deploy job.**

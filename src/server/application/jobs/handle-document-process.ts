@@ -11,11 +11,14 @@ import { classifyFormat, type DocumentFormat } from '../../domain/entities/docum
 import { decodeText, hasUsableTextLayer, tidyMarkdown } from '../../domain/entities/document-text';
 import type { CategoryRepository } from '../../domain/repositories/category.repository';
 import type { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
-import type { DocumentRepository } from '../../domain/repositories/document.repository';
+import type {
+  DocumentRepository,
+  ProcessingUpdate,
+} from '../../domain/repositories/document.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
 import { toBuffer, type BinarySource } from '../ports/binary-source';
-import type { DocumentClassifier } from '../ports/document-classifier';
+import type { DocumentAnalysis, DocumentAnalyst } from '../ports/document-analyst';
 import type { EmbeddingProvider } from '../ports/embedding-provider';
 import type { FileStorage } from '../ports/file-storage';
 import type { ImageTool } from '../ports/image-tool';
@@ -38,9 +41,9 @@ export type DocumentProcessPayload = z.infer<typeof documentProcessPayloadSchema
 const PREVIEW_QUALITY = 80;
 const THUMB_QUALITY = 75;
 
-// How much of a document the classifier is shown. A category is decided by what a document is, which
+// How much of a document the analyst is shown. A category is decided by what a document is, which
 // is visible in its first page or two — sending a 200-page contract would cost tokens for nothing.
-const CLASSIFIER_EXCERPT_CHARS = 4000;
+const ANALYST_EXCERPT_CHARS = 4000;
 
 // A source of bytes that can be read more than once: page count and rendering are two separate
 // passes over the same file, and a stream survives only one of them.
@@ -71,7 +74,7 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly parser: DocumentParser,
     private readonly images: ImageTool,
     private readonly categories: CategoryRepository,
-    private readonly classifier: DocumentClassifier,
+    private readonly analyst: DocumentAnalyst,
     private readonly chunks: DocumentChunkRepository,
     private readonly embeddings: EmbeddingProvider,
     private readonly unitOfWork: UnitOfWork,
@@ -363,8 +366,8 @@ export class HandleDocumentProcess extends JobHandler {
     return { page: await this.pdfs.pdfFirstPageJpg(await openPdf()), pageCount };
   }
 
-  // Step 4. The classifier is offered the active categories and answers with one of their slugs.
-  // An unconfigured provider is not a failure — it is an instance that runs without AI at all
+  // Step 4. One look at the document: which of the active categories it belongs to, and where it is
+  // from. An unconfigured provider is not a failure — it is an instance that runs without AI at all
   // (docs/05 §5.5).
   private async categorize(document: Document): Promise<void> {
     // 🔒 A category a person chose is never overwritten by a machine (docs/03 §3.3.10).
@@ -375,7 +378,7 @@ export class HandleDocumentProcess extends JobHandler {
       });
       return;
     }
-    if (!this.classifier.isConfigured) {
+    if (!this.analyst.isConfigured) {
       await this.documents.updateProcessing(document.id, {
         steps: { categorization: 'SKIPPED' },
         skipReasons: { categorization: 'NOT_CONFIGURED' },
@@ -385,16 +388,8 @@ export class HandleDocumentProcess extends JobHandler {
 
     try {
       const categories = await this.categories.listActive();
-      if (categories.length === 0) {
-        await this.documents.updateProcessing(document.id, {
-          steps: { categorization: 'SKIPPED' },
-          skipReasons: { categorization: 'NO_CATEGORIES' },
-        });
-        return;
-      }
-
-      const slug = await this.classifier.classify(
-        classifierExcerpt(document),
+      const analysis = await this.analyst.analyze(
+        analystExcerpt(document),
         categories.map(({ slug: value, name, description }) => ({
           slug: value,
           name,
@@ -404,11 +399,12 @@ export class HandleDocumentProcess extends JobHandler {
 
       // Second guard against a hallucinated slug: whatever came back has to match a category that
       // actually exists, or the document simply has none (docs/05 §5.5 step 4).
-      const chosen = categories.find((category) => category.slug === slug) ?? null;
+      const chosen = categories.find((category) => category.slug === analysis.categorySlug) ?? null;
       await this.documents.updateProcessing(document.id, {
         steps: { categorization: 'DONE' },
         categoryId: chosen?.id ?? null,
         categorySource: chosen === null ? 'NONE' : 'AUTO',
+        ...placeUpdate(document, analysis),
       });
     } catch (error) {
       await this.recordFailure(document.id, 'categorization', error);
@@ -521,13 +517,29 @@ export class HandleDocumentProcess extends JobHandler {
   }
 }
 
+// What the analyst may add, and only that. It fills blanks: the offline detector reads scripts and
+// n-grams and is better at that than a chat model, so a language it found stands; a place nobody has
+// filled in is the analyst's to answer, and a place somebody did fill in is theirs to keep
+// (docs/03 §3.3.10). Clearing a field is how you ask for it to be inferred again.
+function placeUpdate(document: Document, analysis: DocumentAnalysis): ProcessingUpdate {
+  return {
+    ...(document.languages.length === 0 && analysis.languages.length > 0
+      ? { languages: analysis.languages }
+      : {}),
+    ...(document.country === null && analysis.country !== null
+      ? { country: analysis.country }
+      : {}),
+    ...(document.city === null && analysis.city !== null ? { city: analysis.city } : {}),
+  };
+}
+
 // Title first: it is often the most telling thing about a document, and it is there even when the
 // text layer is empty.
-function classifierExcerpt(document: Document): string {
+function analystExcerpt(document: Document): string {
   return [document.title, document.markdown ?? '']
     .join('\n\n')
     .trim()
-    .slice(0, CLASSIFIER_EXCERPT_CHARS);
+    .slice(0, ANALYST_EXCERPT_CHARS);
 }
 
 // Keeps only the entries this run is allowed to write, so a subset reprocess never resets the

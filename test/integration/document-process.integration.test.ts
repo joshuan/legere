@@ -14,7 +14,7 @@ import { PrismaService } from '../../src/server/infrastructure/persistence/prism
 import { InMemoryFileStorage } from '../../src/server/infrastructure/storage/in-memory-file-storage';
 import { disconnectTestPrisma, truncateAll } from '../helpers/db';
 import {
-  FakeClassifier,
+  FakeAnalyst,
   FakeEmbeddingProvider,
   FakeImageTool,
   FakeDocumentParser,
@@ -33,7 +33,7 @@ describe('Document processing (integration)', () => {
   let files: InMemoryFileStorage;
   let pdfs: FakePdfToolbox;
   let parser: FakeDocumentParser;
-  let classifier: FakeClassifier;
+  let analyst: FakeAnalyst;
   let embeddings: FakeEmbeddingProvider;
   let reader: StubLibraryReader;
   let close: () => Promise<void>;
@@ -50,7 +50,7 @@ describe('Document processing (integration)', () => {
     pdfs = new FakePdfToolbox();
     parser = new FakeDocumentParser();
     pdfs.defaultMarkdown = 'Invoice 2026-01 for consulting services, payable within thirty days';
-    classifier = new FakeClassifier();
+    analyst = new FakeAnalyst();
     embeddings = new FakeEmbeddingProvider();
     // The column is vector(1536) (docs/04 §4.3); a provider of another width is a configuration
     // error, which is what the unit suite covers.
@@ -68,7 +68,7 @@ describe('Document processing (integration)', () => {
       parser,
       new FakeImageTool(),
       moduleRef.get(CategoryRepository),
-      classifier,
+      analyst,
       moduleRef.get(DocumentChunkRepository),
       embeddings,
       moduleRef.get(UnitOfWork),
@@ -96,9 +96,9 @@ describe('Document processing (integration)', () => {
     // The page count decides the OCR threshold now, so a count left behind by an earlier test would
     // silently turn the next document into a "scan".
     pdfs.pageCount = 1;
-    classifier.answer = null;
-    classifier.configured = true;
-    classifier.failing = false;
+    analyst.slug = null;
+    analyst.configured = true;
+    analyst.failing = false;
     embeddings.configured = true;
     embeddings.failing = false;
   });
@@ -264,13 +264,13 @@ describe('Document processing (integration)', () => {
     expect(nearest[0]?.document_id).toBe(documentId);
   });
 
-  it('assigns the category the classifier chose, and never overwrites a manual one', async () => {
+  it('assigns the category the analyst chose, and never overwrites a manual one', async () => {
     const category = await prisma.category.create({
       data: { slug: 'invoice', name: 'Invoice', description: 'Bills and payment requests.' },
     });
     const documentId = await givenLibraryDocument('text/plain');
     reader.put(SOURCE_PATH, 'Amount due: 1200.');
-    classifier.answer = 'invoice';
+    analyst.slug = 'invoice';
 
     await handler.handle({ documentId });
 
@@ -295,7 +295,7 @@ describe('Document processing (integration)', () => {
   it('skips both AI steps, without error, when no provider is configured', async () => {
     const documentId = await givenLibraryDocument('text/plain');
     reader.put(SOURCE_PATH, 'Body text.');
-    classifier.configured = false;
+    analyst.configured = false;
     embeddings.configured = false;
 
     await handler.handle({ documentId });

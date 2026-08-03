@@ -45,9 +45,10 @@ import {
   type NamedBinary,
 } from '../../src/server/application/ports/pdf-toolbox';
 import {
-  DocumentClassifier,
+  DocumentAnalyst,
   type CategoryOption,
-} from '../../src/server/application/ports/document-classifier';
+  type DocumentAnalysis,
+} from '../../src/server/application/ports/document-analyst';
 import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
 import {
   UnitOfWork,
@@ -130,6 +131,8 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       steps,
       ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
       ...(update.languages === undefined ? {} : { languages: update.languages }),
+      ...(update.country === undefined ? {} : { country: update.country }),
+      ...(update.city === undefined ? {} : { city: update.city }),
       ...(update.markdown === undefined ? {} : { markdown: update.markdown }),
       ...(update.ocrUsed === undefined ? {} : { ocrUsed: update.ocrUsed }),
       ...(update.processingError === undefined ? {} : { processingError: update.processingError }),
@@ -541,9 +544,9 @@ export class ImmediateUnitOfWork extends UnitOfWork {
   }
 }
 
-export class FakeClassifier extends DocumentClassifier {
+export class FakeAnalyst extends DocumentAnalyst {
   configured = true;
-  answer: string | null = null;
+  answer: DocumentAnalysis = { categorySlug: null, languages: [], country: null, city: null };
   failing = false;
   readonly calls: Array<{ excerpt: string; categories: readonly CategoryOption[] }> = [];
 
@@ -551,9 +554,14 @@ export class FakeClassifier extends DocumentClassifier {
     return this.configured;
   }
 
-  classify(excerpt: string, categories: readonly CategoryOption[]): Promise<string | null> {
+  // The slug alone is what most tests care about; the place is opt-in via `answer`.
+  set slug(value: string | null) {
+    this.answer = { ...this.answer, categorySlug: value };
+  }
+
+  analyze(excerpt: string, categories: readonly CategoryOption[]): Promise<DocumentAnalysis> {
     this.calls.push({ excerpt, categories });
-    if (this.failing) return Promise.reject(new Error('Classifier request failed with 503'));
+    if (this.failing) return Promise.reject(new Error('Analyst request failed with 503'));
     return Promise.resolve(this.answer);
   }
 }

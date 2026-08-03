@@ -95,7 +95,7 @@ re-delivery (pg-boss is at-least-once).
 | `PdfToolbox` | `officeToPdf({body, fileName})`, `pdfFirstPageJpg(source, {dpi?})`, `ocrPdf(source, langs)`, `imagesToPdf([{body, fileName}])`, `pdfPageCount(source)`, `pdfToMarkdown(source)` — a source is a stream or a buffer; the file name travels with office/image input because the converter picks its filter from the extension | `StirlingPdfToolbox` (HTTP client, `STIRLING_URL`) |
 | `ImageTool` | `toJpegPreview(stream, {maxDim})`, `trim(stream, threshold)` | `SharpImageTool` |
 | `EmbeddingProvider` | `embed(texts[]): number[][]`, `isConfigured` | `OpenAiCompatEmbeddings` (fetch, `EMBEDDINGS_*` env) |
-| `DocumentClassifier` | `classify(markdownExcerpt, categories[]): slug \| null`, `isConfigured` | `OpenAiCompatClassifier` (chat-completions JSON answer) |
+| `DocumentAnalyst` | `analyze(markdownExcerpt, categories[]): { categorySlug, languages, country, city }`, `isConfigured` | `OpenAiCompatAnalyst` (chat-completions JSON answer) |
 | `JobQueue` | `enqueue(name, payload, opts?)`, `enqueueAfterTx(...)`, `scheduleCron(name, cron)` | `PgBossJobQueue` |
 | `QueueMonitor` | `overview()`, `failedJobs(cursor)`, `retry(jobId)` | `PgBossQueueMonitor` (raw SQL over the `pgboss` schema) |
 | `UnitOfWork` | `run<T>(fn: (tx) => Promise<T>)` | `PrismaUnitOfWork` (`$transaction`; repositories accept the tx handle) |
@@ -133,7 +133,7 @@ atomically.
 `AppModule` imports: `ConfigModule` (global), `LoggerModule` (nestjs-pino), `ThrottlerModule`,
 `PersistenceModule` (Prisma client + repositories + UnitOfWork), `StorageModule` (FileStorage,
 LibraryReader), `PdfModule` (PdfToolbox, ImageTool), `AiModule` (EmbeddingProvider,
-DocumentClassifier), `QueueModule` (JobQueue, QueueMonitor, worker bootstrap), and the feature
+DocumentAnalyst), `QueueModule` (JobQueue, QueueMonitor, worker bootstrap), and the feature
 modules: `AuthModule`, `UsersModule`, `LibrariesModule`, `DocumentsModule`, `SearchModule`,
 `CategoriesModule`, `CollectionsModule`, `ScanSetsModule`, `QueueAdminModule`, `HealthModule`.
 

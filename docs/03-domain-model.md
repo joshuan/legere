@@ -238,7 +238,7 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 | `NOT_NEEDED` | nothing to do for this format — a PDF needs no canonicalization, text has no page to render |
 | `UNSUPPORTED_FORMAT` | the format has no representation the product can build |
 | `NOT_CONFIGURED` | the instance has no classifier / embeddings provider (docs/05 §5.5) |
-| `NO_CATEGORIES` | there is nothing to classify into: the category list is empty |
+| `NO_CATEGORIES` | retained for documents processed before step 4 became a full analysis; no longer produced — with no categories defined the step still runs, because it also reads where the document is from |
 | `NO_TEXT` | the document yielded no text to embed |
 | `MANUAL_CATEGORY` | a person chose the category, and a machine never overwrites that |
 

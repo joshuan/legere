@@ -6,7 +6,7 @@ import { HandleMaintenance } from '../../application/jobs/handle-maintenance';
 import { HandleScanSetMerge } from '../../application/jobs/handle-scanset-merge';
 import type { ProcessingSettings } from '../../application/jobs/processing-settings';
 import { Clock } from '../../application/ports/clock';
-import { DocumentClassifier } from '../../application/ports/document-classifier';
+import { DocumentAnalyst } from '../../application/ports/document-analyst';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
 import { DocumentParser } from '../../application/ports/document-parser';
 import { FileStorage } from '../../application/ports/file-storage';
@@ -116,7 +116,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         parser: DocumentParser,
         images: ImageTool,
         categories: CategoryRepository,
-        classifier: DocumentClassifier,
+        classifier: DocumentAnalyst,
         chunks: DocumentChunkRepository,
         embeddings: EmbeddingProvider,
         unitOfWork: UnitOfWork,
@@ -148,7 +148,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         DocumentParser,
         ImageTool,
         CategoryRepository,
-        DocumentClassifier,
+        DocumentAnalyst,
         DocumentChunkRepository,
         EmbeddingProvider,
         UnitOfWork,

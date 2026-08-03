@@ -141,10 +141,19 @@ Every `SKIPPED` step records **why** (docs/03 §3.3.10), because "skipped" alone
 from "broken" by the person looking at it: not needed for this format, format unsupported, provider
 not configured, no categories defined, no text to embed, or a category a person set by hand.
 
-4. **Categorization:** classification against the managed category list (proposal: LLM via the same
+4. **Categorization:** one look at the document by the `DocumentAnalyst` (LLM via the same
    configurable API as embeddings — open question
-   [`01 §1.7`](./01-vision-and-scope.md#17-open-questions)). An auto-assigned category is marked as
-   auto; the user may correct it (a manual assignment is never overwritten by auto again).
+   [`01 §1.7`](./01-vision-and-scope.md#17-open-questions)), which answers with a category *and*
+   with where the document is from. An auto-assigned category is marked as auto; the user may
+   correct it (a manual assignment is never overwritten by auto again). The place — `country`,
+   `city` — is asked for in the same call because the excerpt is the same and one round trip is
+   cheaper than two, and because it needs exactly what a model has and a detector has not: a train
+   ticket that says `ŽPCG` and `PODGORICA` is Montenegrin, and nothing in its text says so. Each
+   field is validated on its own, so an invented category slug does not discard a good country. The
+   step **fills blanks only**: languages the offline detector found stand (it read the whole text,
+   not a 4000-character excerpt), and a place somebody filled in by hand stays — clearing a field is
+   how you ask for it to be inferred again. With no categories defined the step still runs, because
+   the place is worth the call.
 5. **Vectorization:** chunking of the Markdown (by headings/paragraphs, with overlap) →
    `EmbeddingProvider` → chunk vectors into pgvector. Provider not configured → `SKIPPED` (graceful
    degradation: semantic search unavailable, everything else works).

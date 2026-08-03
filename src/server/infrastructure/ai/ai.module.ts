@@ -1,7 +1,7 @@
 import { Global, Module } from '@nestjs/common';
-import { DocumentClassifier } from '../../application/ports/document-classifier';
+import { DocumentAnalyst } from '../../application/ports/document-analyst';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
-import { OpenAiCompatClassifier } from './openai-compat-classifier';
+import { OpenAiCompatAnalyst } from './openai-compat-analyst';
 import { OpenAiCompatEmbeddings } from './openai-compat-embeddings';
 
 // The optional half of the pipeline (docs/06 §6.5). Both providers are always bound; each reports
@@ -11,8 +11,8 @@ import { OpenAiCompatEmbeddings } from './openai-compat-embeddings';
 @Module({
   providers: [
     { provide: EmbeddingProvider, useClass: OpenAiCompatEmbeddings },
-    { provide: DocumentClassifier, useClass: OpenAiCompatClassifier },
+    { provide: DocumentAnalyst, useClass: OpenAiCompatAnalyst },
   ],
-  exports: [EmbeddingProvider, DocumentClassifier],
+  exports: [EmbeddingProvider, DocumentAnalyst],
 })
 export class AiModule {}

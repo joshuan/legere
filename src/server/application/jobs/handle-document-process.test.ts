@@ -3,7 +3,7 @@ import {
   DOCUMENT_ID,
   documentFixture,
   LIBRARY_ID,
-  FakeClassifier,
+  FakeAnalyst,
   FakeEmbeddingProvider,
   FakeImageTool,
   FakeDocumentParser,
@@ -44,7 +44,7 @@ describe('HandleDocumentProcess', () => {
   let parser: FakeDocumentParser;
   let images: FakeImageTool;
   let categories: InMemoryCategoryRepository;
-  let classifier: FakeClassifier;
+  let analyst: FakeAnalyst;
   let chunks: InMemoryDocumentChunkRepository;
   let embeddings: FakeEmbeddingProvider;
   let handler: HandleDocumentProcess;
@@ -65,7 +65,7 @@ describe('HandleDocumentProcess', () => {
     categories = new InMemoryCategoryRepository();
     categories.add('invoice', 'Bills and payment requests.');
     categories.add('contract');
-    classifier = new FakeClassifier();
+    analyst = new FakeAnalyst();
     chunks = new InMemoryDocumentChunkRepository();
     embeddings = new FakeEmbeddingProvider();
 
@@ -82,7 +82,7 @@ describe('HandleDocumentProcess', () => {
       parser,
       images,
       categories,
-      classifier,
+      analyst,
       chunks,
       embeddings,
       new ImmediateUnitOfWork(),
@@ -214,7 +214,7 @@ describe('HandleDocumentProcess', () => {
       // A title is still something to classify, and 🔒 no step may be left PENDING — the document
       // would read as "still processing" for the rest of its life (docs/03 §3.3.10).
       expect(document.steps.categorization).toBe('DONE');
-      expect(classifier.calls[0]?.excerpt).toBe('Invoice 2026-01');
+      expect(analyst.calls[0]?.excerpt).toBe('Invoice 2026-01');
       expect(pdfs.calls).toEqual([]);
       expect(files.keys()).toEqual([]);
     });
@@ -376,10 +376,10 @@ describe('HandleDocumentProcess', () => {
   });
 
   describe('categorization (docs/05 §5.5 step 4)', () => {
-    it('assigns the category the classifier chose, marked as automatic', async () => {
+    it('assigns the category the analyst chose, marked as automatic', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'March invoice' });
       reader.put(SOURCE_PATH, 'Amount due: 1200. Payable within 30 days.');
-      classifier.answer = 'invoice';
+      analyst.slug = 'invoice';
 
       await run();
 
@@ -389,13 +389,13 @@ describe('HandleDocumentProcess', () => {
       expect(document.categorySource).toBe('AUTO');
     });
 
-    it('offers the classifier the slugs and the descriptions an admin wrote', async () => {
+    it('offers the analyst the slugs and the descriptions an admin wrote', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'March invoice' });
       reader.put(SOURCE_PATH, 'Amount due: 1200.');
 
       await run();
 
-      const call = classifier.calls[0];
+      const call = analyst.calls[0];
       expect(call?.categories).toEqual([
         { slug: 'invoice', name: 'invoice', description: 'Bills and payment requests.' },
         { slug: 'contract', name: 'contract', description: null },
@@ -407,7 +407,7 @@ describe('HandleDocumentProcess', () => {
     it('records no category when the model answers with a slug nobody defined', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt' });
       // 🔒 A hallucinated category must not become a real one (docs/05 §5.5 step 4).
-      classifier.answer = 'tax-return-2019';
+      analyst.slug = 'tax-return-2019';
 
       await run();
 
@@ -424,7 +424,7 @@ describe('HandleDocumentProcess', () => {
         categoryId: 'category-2',
         categorySource: 'MANUAL',
       });
-      classifier.answer = 'invoice';
+      analyst.slug = 'invoice';
 
       await run();
 
@@ -432,12 +432,12 @@ describe('HandleDocumentProcess', () => {
       expect(document.steps.categorization).toBe('SKIPPED');
       expect(document.categoryId).toBe('category-2');
       expect(document.categorySource).toBe('MANUAL');
-      expect(classifier.calls).toEqual([]);
+      expect(analyst.calls).toEqual([]);
     });
 
-    it('skips itself when no classifier is configured', async () => {
+    it('skips itself when no analyst is configured', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      classifier.configured = false;
+      analyst.configured = false;
 
       await run();
 
@@ -445,19 +445,80 @@ describe('HandleDocumentProcess', () => {
       expect(stateOf().processingError).toBeNull();
     });
 
-    it('skips itself when the category list is empty', async () => {
+    it('still runs with no categories defined, because it also reads where the document is from', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt' });
       categories.categories.length = 0;
+      analyst.answer = {
+        categorySlug: null,
+        languages: [],
+        country: 'ME',
+        city: 'Podgorica',
+      };
 
       await run();
 
-      expect(stateOf().steps.categorization).toBe('SKIPPED');
-      expect(classifier.calls).toEqual([]);
+      const document = stateOf();
+      expect(document.steps.categorization).toBe('DONE');
+      expect(document.categoryId).toBeNull();
+      expect(document.country).toBe('ME');
+    });
+
+    it('reads the place out of what a document is about, not out of the words in it', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'Ticket' });
+      // A real Montenegrin train ticket: the country is nowhere in the text, only in what "ŽPCG"
+      // means to a reader who knows the railway.
+      reader.put(SOURCE_PATH, 'ŽPCG · PODGORICA — BAR · 2. razred · 3,20 EUR');
+      analyst.answer = {
+        categorySlug: null,
+        languages: ['sr-Latn'],
+        country: 'ME',
+        city: 'Podgorica',
+      };
+
+      await run();
+
+      const document = stateOf();
+      expect(document.country).toBe('ME');
+      expect(document.city).toBe('Podgorica');
+      // Too little text for the offline detector to have found anything, so the analyst's answer
+      // is what the document ends up with.
+      expect(document.languages).toEqual(['sr-Latn']);
+    });
+
+    it('leaves alone every field that already has an answer', async () => {
+      givenDocument({
+        mimeType: 'text/plain',
+        ext: 'txt',
+        country: 'RS',
+        city: 'Belgrade',
+      });
+      reader.put(
+        SOURCE_PATH,
+        'Настоящий договор заключён между сторонами третьего августа две тысячи двадцать шестого ' +
+          'года и вступает в силу с момента подписания. Исполнитель обязуется обеспечить ' +
+          'сохранность документов и ежемесячную отчётность заказчику.',
+      );
+      analyst.answer = {
+        categorySlug: null,
+        languages: ['en'],
+        country: 'ME',
+        city: 'Podgorica',
+      };
+
+      await run();
+
+      const document = stateOf();
+      // 🔒 A place a person filled in is not a blank to be overwritten (docs/03 §3.3.10), and the
+      // offline detector — which read the whole text, not a 4000-character excerpt — outranks the
+      // model on the question of what script is on the page.
+      expect(document.country).toBe('RS');
+      expect(document.city).toBe('Belgrade');
+      expect(document.languages).toEqual(['ru']);
     });
 
     it('records a provider failure as a step failure, leaving the rest of the run intact', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      classifier.failing = true;
+      analyst.failing = true;
 
       await run();
 
@@ -645,7 +706,7 @@ describe('HandleDocumentProcess', () => {
       // Nothing else was touched: the Markdown is the one from the first run, not re-extracted.
       expect(after.markdown).toBe(before.markdown);
       expect(pdfs.markdownReads).toHaveLength(1);
-      expect(classifier.calls).toHaveLength(1);
+      expect(analyst.calls).toHaveLength(1);
       expect(chunks.replacements).toBe(1);
     });
 
@@ -687,7 +748,7 @@ describe('HandleDocumentProcess', () => {
       expect(document.steps.preview).toBe('SKIPPED');
       // Never asked for, never written.
       expect(document.steps.markdown).toBe('PENDING');
-      expect(classifier.calls).toEqual([]);
+      expect(analyst.calls).toEqual([]);
     });
 
     it('parses through Docling when it is configured, and reads its languages back', async () => {
