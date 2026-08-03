@@ -418,7 +418,10 @@
       "fileAttached": "Появилась ещё одна копия документа — {path}",
       "fileMissing": "Файл пропал из библиотеки — {path}",
       "metaChanged": "Изменены свойства",
-      "change": "{field}: {from} → {to}"
+      "change": "{field}: {from} → {to}",
+      "when": "Когда",
+      "what": "Что произошло",
+      "who": "Кто"
     }
   },
   "nav": {

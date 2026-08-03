@@ -14,8 +14,8 @@ import {
   Space,
   Spin,
   Tabs,
+  Table,
   Tag,
-  Timeline,
   Tooltip,
   Typography,
 } from 'antd';
@@ -719,34 +719,50 @@ function LogPane({ id, active }: { id: string; active: boolean }) {
   if (items.length === 0) return <Empty description={t('viewer.log.empty')} />;
 
   return (
-    <Timeline
-      items={items.map((event) => ({
-        color: timelineColor(event),
-        children: (
-          <Space direction="vertical" size={0}>
-            <Typography.Text>{describeEvent(event, t)}</Typography.Text>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+    <Table
+      dataSource={items}
+      rowKey="id"
+      size="small"
+      // The whole page at once: a log is scanned, not paged through, and the server already caps it.
+      pagination={false}
+      columns={[
+        {
+          title: t('viewer.log.when'),
+          dataIndex: 'at',
+          width: 180,
+          render: (_: unknown, event: DocumentEventDto) => (
+            <Typography.Text type="secondary">
               {new Date(event.at).toLocaleString()}
-              {event.actor === null ? '' : ` · ${event.actor}`}
             </Typography.Text>
-            {event.payload.error !== undefined && (
-              <Typography.Text type="danger" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
-                {event.payload.error}
-              </Typography.Text>
-            )}
-          </Space>
-        ),
-      }))}
+          ),
+        },
+        {
+          title: t('viewer.log.what'),
+          dataIndex: 'type',
+          render: (_: unknown, event: DocumentEventDto) => (
+            <Space direction="vertical" size={0}>
+              <Typography.Text>{describeEvent(event, t)}</Typography.Text>
+              {/* The message travels with the row that failed: the log is where somebody goes when
+                  something went wrong (docs/11 §11.5). */}
+              {event.payload.error !== undefined && (
+                <Typography.Text type="danger" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
+                  {event.payload.error}
+                </Typography.Text>
+              )}
+            </Space>
+          ),
+        },
+        {
+          title: t('viewer.log.who'),
+          dataIndex: 'actor',
+          width: 160,
+          // Empty is the pipeline acting on its own, and an em dash says that out loud.
+          render: (actor: string | null) =>
+            actor === null ? <Typography.Text type="secondary">—</Typography.Text> : actor,
+        },
+      ]}
     />
   );
-}
-
-// A failure is the one entry worth finding at a glance in a long log.
-function timelineColor(event: DocumentEventDto): string {
-  if (event.payload.status === 'FAILED') return 'red';
-  if (event.payload.status === 'SKIPPED') return 'gray';
-  if (event.type === 'META_CHANGED') return 'blue';
-  return 'green';
 }
 
 // One sentence per entry, built from the payload each type happens to carry. Written here rather

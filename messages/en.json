@@ -418,7 +418,10 @@
       "fileAttached": "Another copy of this document appeared — {path}",
       "fileMissing": "The file is gone from the library — {path}",
       "metaChanged": "Metadata changed",
-      "change": "{field}: {from} → {to}"
+      "change": "{field}: {from} → {to}",
+      "when": "When",
+      "what": "What happened",
+      "who": "Who"
     }
   },
   "nav": {

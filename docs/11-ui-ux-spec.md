@@ -105,10 +105,13 @@ before the metadata of the thing it names.
   be rewritten. Which step owns which field follows the pipeline (05 §5.5): pages from the preview,
   text/languages/OCR from the parse, place and category from the AI step. Nothing else gets a badge:
   size, type and hash are facts about the file, and no step will ever change them.
-- **`Log`** — the document's history as a timeline, newest first (03 §3.3.18): added, queued, each
+- **`Log`** — the document's history as a table — when, what happened, who — newest first
+  (03 §3.3.18): added, queued, each
   step started and settled, what a person changed and from what. A failed step carries its message,
   because the log is where somebody goes when something went wrong; a skipped one carries its
-  reason. Entries the pipeline wrote have no author, which is how "the machine did this" is said.
+  reason. Entries the pipeline wrote have no author — an em dash in the Who column, which is how
+  "the machine did this" is said. A table rather than a timeline: a log is scanned for the one row
+  that matters, and columns that line up are what makes scanning possible.
   Fetched only when the tab is open — most visits never ask.
 - **Right (sidebar):** title (inline-editable when permitted), category select (all users with
   access; shows "auto" tag when `categorySource=AUTO`), Download source button (disabled +
