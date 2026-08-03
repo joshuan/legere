@@ -50,8 +50,8 @@ curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/init.sh 
 less init.sh && bash init.sh
 ```
 
-That is the whole stack: Legere, PostgreSQL with pgvector, Stirling-PDF for the heavy PDF work, and
-MinIO for the artifacts Legere produces. Migrations apply themselves on start. Open
+That is the whole stack: Legere, PostgreSQL with pgvector, Stirling-PDF for the heavy PDF work,
+Docling for reading documents into structured Markdown, and MinIO for the artifacts Legere produces. Migrations apply themselves on start. Open
 <http://localhost:3000> and:
 
 1. the first visit offers **onboarding**: an email, a six-digit code, a password, and you are the

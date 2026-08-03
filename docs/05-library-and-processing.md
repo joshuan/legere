@@ -124,17 +124,19 @@ they are served to the client via short-lived signed URLs after an access check.
 2. **First-page JPG preview:** PDF (source or canonical) → Stirling-PDF (PDF→IMG, first page); an
    image → `sharp` (resize/EXIF orientation/JPEG). Artifacts `preview.jpg` (+ a smaller `thumb.jpg`
    for lists).
-3. **Markdown extraction** — every PDF goes through **Stirling-PDF** (`/convert/pdf/markdown`), which
-   is the single parser in the product (ADR-012): one container owns the PDF stack, and the layout it
-   recovers — paragraphs, headings, lists — survives into the stored Markdown instead of being
-   flattened into one line.
+3. **Markdown extraction** — every PDF goes through **Docling** (ADR-018), which has a layout model:
+   headings stay headings and tables stay tables, instead of being flattened into a wall of text.
+   With `DOCLING_URL` empty the step falls back to Stirling's converter, which reads the text and
+   loses that structure. Docling can also write a caption under every picture — off by default,
+   because it is slow enough to matter ([`12 §12.4`](./12-build-config-run.md)).
    - the PDF has a text layer (a meaningful-text threshold, measured over the extracted text divided
      by the page count) → that text is the Markdown;
    - the languages of the result are detected from it and stored on the document (03 §3.3.10); on a
      re-run they are what OCR is given, so a scan of a Russian page is OCR'd as Russian rather than
      as whatever the instance defaults to
-   - no text layer / it is an image (a scan) → **OCR** via Stirling-PDF (tesseract, languages from
-     env, default rus+eng), then the same conversion over the searchable PDF;
+   - no text layer / it is an image (a scan) → **OCR** with tesseract in the document's own
+     languages, falling back to `OCR_LANGUAGES` (default `rus+eng`) while it has none. Docling does
+     this itself; on the fallback path Stirling OCRs into a searchable PDF and that is converted;
    - plain text / Markdown → as is (encoding normalization).
    The Markdown is stored with the document and indexed by PostgreSQL FTS.
 Every `SKIPPED` step records **why** (docs/03 §3.3.10), because "skipped" alone cannot be told apart

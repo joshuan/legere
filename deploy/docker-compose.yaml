@@ -36,6 +36,7 @@ services:
       LIBRARY_ROOT: /library
       STIRLING_URL: http://stirling:8080
       DOCLING_URL: ${DOCLING_URL-http://docling:5001}
+      DOCLING_PICTURE_DESCRIPTION: ${DOCLING_PICTURE_DESCRIPTION-false}
       # The server reaches MinIO inside this network; the browser reaches it through the published
       # port. A presigned URL is only valid for the host it was signed against, hence both.
       S3_ENDPOINT: http://minio:9000

@@ -82,6 +82,10 @@ SIGNED_URL_TTL_SEC=300
 # --- Stirling-PDF ---
 STIRLING_URL=http://localhost:8080
 
+# --- Docling (layout-aware parsing; empty URL = fall back to Stirling's converter) ---
+DOCLING_URL=
+DOCLING_PICTURE_DESCRIPTION=false            # captions for pictures; read the note below before turning it on
+
 # --- processing ---
 OCR_LANGUAGES=rus+eng
 PDF_TEXT_MIN_CHARS_PER_PAGE=32               # below → treat as scan, run OCR
@@ -101,6 +105,29 @@ CLASSIFIER_API_BASE_URL=                     # empty = reuse EMBEDDINGS_API_BASE
 CLASSIFIER_API_KEY=
 CLASSIFIER_MODEL=
 ```
+
+**`DOCLING_PICTURE_DESCRIPTION`.** Docling can write a caption under every picture in a document,
+using a vision model that runs inside its container. It works, and it is off by default, because
+measured on one 1-page train ticket with three small pictures (logo, QR code, barcode) it took **17
+minutes** at ~4 cores — the model is `SmolVLM-256M`, and there is no GPU in the CPU image. The
+default `picture_description_area_threshold` (5% of the page) skips pictures that small altogether,
+so at the default setting nothing is captioned and nothing is slow; lowering it is what costs the
+17 minutes. The captions themselves are literal — "a logo consisting of two main elements: a flag
+and text" for the operator's logo, which is true and useless: it never named the railway. If what
+you want from a picture is *what it means*, the AI step ([`05 §5.5`](./05-library-and-processing.md)
+step 4) reads the document as a whole and answers that better and in one second.
+
+The model is not in the published image (it is ~0.9 GB). To use this, build the Docling image with
+it:
+
+```bash
+docker build -t legere-docling:captions \
+  --build-arg PICTURE_DESCRIPTION_MODEL=HuggingFaceTB/SmolVLM-256M-Instruct \
+  deploy/docling
+```
+
+With the flag on and no model in the image, Docling answers `404` and the markdown step fails with
+an error that says exactly this.
 
 `NEXT_PUBLIC_*` values are **build-time**: they are baked into the client bundle during `next build`
 (passed as Docker build-args, [`13 §13.3`](./13-ci-cd.md#133-githubworkflowsreleaseyml)); setting them

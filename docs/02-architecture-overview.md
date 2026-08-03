@@ -242,7 +242,7 @@ The application lives and ships as a whole; isomorphic contracts are a plain fol
 ### ADR-012. PDF tooling — external Stirling-PDF
 - **Decision:** all operations on binary formats are delegated to the sibling **Stirling-PDF**
   container over an internal HTTP API: office-to-PDF conversion, OCR (tesseract), PDF→JPG (previews),
-  merging images into a PDF. In code — a `PdfToolbox` port with a client implementation. (Scan-set
+  merging images into a PDF. Reading a PDF *into text* is no longer one of them — that is ADR-018. In code — a `PdfToolbox` port with a client implementation. (Scan-set
   margin trimming happens per image via `sharp` before assembly — [`05 §5.6`](./05-library-and-processing.md#56-scan-sets-merging-into-a-pdf-on-explicit-request).)
 - **Why:** the requirement ("the PDF tool lives outside"); LibreOffice/tesseract inside the app image
   would bloat it by gigabytes.
@@ -250,6 +250,29 @@ The application lives and ships as a whole; isomorphic contracts are a plain fol
   extraction, sharp for images) are acceptable for light operations that don't need Stirling.
 - **Consequences:** Stirling-PDF is a mandatory deployment dependency (internal network, not exposed);
   Stirling unavailability → jobs retry, the service keeps working (viewing/search unaffected).
+
+### ADR-018. Parsing — Docling, with Stirling as the fallback
+- **Decision:** a PDF becomes Markdown through **Docling** (`docling-serve`, `POST /v1/convert/file`)
+  behind a `DocumentParser` port. `DOCLING_URL` empty falls back to Stirling's own converter, which
+  keeps a Docling-less deployment working.
+- **Why:** Stirling's converter reads text and loses the document. Measured on real files: a table
+  came back as one paragraph per row with the columns run together, and a layout table used purely
+  for positioning became a Markdown table of nonsense. Docling was built for exactly this — it has a
+  layout model, so a heading stays a heading and a table stays a table, which is what makes the
+  stored Markdown worth reading and worth chunking for search.
+- **Details that were not optional:** `pdf_backend=pypdfium2`, because the default backend splits
+  diacritics into separate glyph runs ("li č ne" for "lične"), breaking the word for search as much
+  as for reading; and `ocr_preset=tesseract` with explicit `ocr_lang`, because the default engine has
+  no Cyrillic model and, asked for Russian, silently falls back to its Chinese model set and returns
+  confident-looking nonsense. The image is built from `deploy/docling/Dockerfile` with tessdata for
+  the languages a document archive actually meets.
+- **Alternatives:** pdfjs in-process — dropped, it extracts text spans and has no idea what a table
+  is; Stirling only — the measurement above; Docling with no fallback — rejected, the container is
+  several gigabytes and an instance should be able to run without it.
+- **Consequences:** one more optional container. OCR still runs in Stirling on the fallback path;
+  on the Docling path Docling does it, given the document's own languages
+  ([`03 §3.3.10`](./03-domain-model.md)). Picture captioning is available and off — see
+  [`12 §12.4`](./12-build-config-run.md) for the measured cost.
 
 ### ADR-013. CI — a single Docker image to GHCR; deployment outside the repository
 - **Decision:** GitHub Actions: on every PR — `typecheck` + `lint` + `test` + `build` (with a

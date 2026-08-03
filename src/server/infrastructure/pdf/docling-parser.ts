@@ -14,10 +14,12 @@ const conversionSchema = z.object({
 @Injectable()
 export class DoclingParser extends DocumentParser {
   private readonly baseUrl: string;
+  private readonly describePictures: boolean;
 
   constructor(config: AppConfig) {
     super();
     this.baseUrl = config.get('DOCLING_URL').replace(/\/+$/, '');
+    this.describePictures = config.get('DOCLING_PICTURE_DESCRIPTION');
   }
 
   get isConfigured(): boolean {
@@ -48,10 +50,22 @@ export class DoclingParser extends DocumentParser {
       for (const language of options.ocrLanguages) form.append('ocr_lang', language);
     }
 
+    // A caption under every picture, from the vision model in the Docling image. Slow enough that it
+    // is opt-in (docs/12 §12.4), so the flag is passed only when it is on.
+    if (this.describePictures) form.append('do_picture_description', 'true');
+
     const response = await fetch(`${this.baseUrl}${CONVERT}`, { method: 'POST', body: form });
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
-      throw new Error(`Docling ${CONVERT} failed with ${response.status}: ${detail.slice(0, 500)}`);
+      // The one failure worth naming: asking for captions from an image built without the vision
+      // model answers 404, and "404" alone sends nobody anywhere useful.
+      const hint =
+        this.describePictures && response.status === 404
+          ? ' — DOCLING_PICTURE_DESCRIPTION is on; does the Docling image carry a picture-description model?'
+          : '';
+      throw new Error(
+        `Docling ${CONVERT} failed with ${response.status}: ${detail.slice(0, 500)}${hint}`,
+      );
     }
 
     const parsed = conversionSchema.safeParse(await response.json());
@@ -63,6 +77,7 @@ export class DoclingParser extends DocumentParser {
 
 // Docling marks every picture it did not describe with an HTML comment. It is a note about the file,
 // not text from it, and it would otherwise count towards the "does this have a text layer" measure.
+// A described picture keeps the comment and gains a paragraph under it, which is text and stays.
 function stripImagePlaceholders(markdown: string): string {
   return markdown.replace(/<!--\s*image\s*-->/g, '');
 }

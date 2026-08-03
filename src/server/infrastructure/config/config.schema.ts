@@ -69,6 +69,11 @@ export const configSchema = z.object({
   // Docling: layout-aware parsing (docs/05 §5.5). Empty = the pipeline falls back to Stirling's own
   // converter, which reads text but flattens structure.
   DOCLING_URL: z.string().default(''),
+  // Captions for the pictures inside a document, written by a local vision model. Off by default,
+  // and deliberately: measured on one 1-page ticket with three pictures it took 17 minutes at ~4
+  // cores, and the caption of a railway logo read "a flag, red and white" — it never named the
+  // operator. Needs a Docling image built with PICTURE_DESCRIPTION_MODEL set (docs/12 §12.4).
+  DOCLING_PICTURE_DESCRIPTION: envBoolean(false),
 
   // processing
   // Tesseract codes for the first OCR pass, before a document's own languages are known. Written

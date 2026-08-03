@@ -96,6 +96,6 @@ None. Previously open items — resolved:
   API; manual override always wins; seeded default categories —
   [`03 §3.3.12`](./03-domain-model.md#3312-category).
 - **OCR languages:** `OCR_LANGUAGES=rus+eng` by default, env-configurable.
-- **PDF parsing (text layer → Markdown):** Stirling-PDF, the same container that converts, renders and OCRs (ADR-012)
+- **PDF parsing (layout → Markdown):** Docling, with Stirling-PDF as the fallback when it is not deployed (ADR-018)
   ([`06 §6.3.3`](./06-backend-architecture.md#633-application-ports-non-repository)); an early spike
   task validates it.
