@@ -199,3 +199,30 @@ pre,
     transform: none;
   }
 }
+
+/* The processing panel (docs/11 §11.5). Three columns — pick, state, name — so that labels start at
+   one x whatever the tag says, and a note about a step sits under that step's own name rather than
+   at the bottom of the card where it belongs to nothing in particular. */
+.legere-steps {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 8px;
+}
+
+.legere-steps.has-select {
+  grid-template-columns: max-content max-content 1fr;
+}
+
+.legere-steps .ant-tag {
+  margin-inline-end: 0;
+}
+
+/* The last column, whether or not there is a checkbox column before it. */
+.legere-step-note {
+  grid-column: -2 / -1;
+  margin-top: -4px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}

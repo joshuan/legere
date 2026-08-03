@@ -78,11 +78,16 @@ Two-pane layout:
   "sr-Latn, ME"; an em dash where nothing was detected, which is honest and never looks broken.
 - **Right (sidebar):** title (inline-editable when permitted), category select (all users with
   access; shows "auto" tag when `categorySource=AUTO`), Download source button (disabled +
-  tooltip when `UNAVAILABLE`), Add-to-collection select, processing status panel (5 steps with
-  states; a `SKIPPED` step **always shows why** in a line under its name — "not needed for this file
-  type", "no AI provider configured", and the rest of docs/03 §3.3.10 — because the label alone reads
-  as a failure to everyone who has not read the pipeline; ADMIN sees a "Reprocess" button with step
-  checkboxes and the `processingError` text on failure).
+  tooltip when `UNAVAILABLE`), Add-to-collection select, processing status panel: five steps, one row each,
+  laid out as a grid — select, state, name — so every name starts at the same x whatever width the
+  status tag happens to have. What a step has to say about itself goes **under its own name**, in
+  that same column: a `SKIPPED` step **always shows why** ("not needed for this file type", "no AI
+  provider configured", and the rest of docs/03 §3.3.10), because the label alone reads as a failure
+  to everyone who has not read the pipeline; a `FAILED` step shows its `processingError` there too,
+  attached to the step that produced it rather than pooled at the bottom of the card where it names
+  nothing. ADMIN gets a checkbox at the start of each row and one "Reprocess" button below — the
+  step names are already on screen, so a second list of them to tick would be the same five words
+  twice. An error the server could not attribute to any step still renders under the list.
 
 ## 11.6. Search (`/search?q=`)
 

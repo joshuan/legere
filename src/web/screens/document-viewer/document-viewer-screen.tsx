@@ -19,7 +19,7 @@ import {
 } from 'antd';
 import { useTranslations } from 'next-intl';
 import { DefinitionList } from '../../shared/ui/definition-list';
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import Markdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
@@ -206,50 +206,62 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
           </Card>
 
           <Card title={t('viewer.processing.title')} size="small">
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              {DOCUMENT_STEPS.map((step) => {
-                const reason = detail.skipReasons[step];
-                return (
-                  <Space key={step} align="start">
-                    <Tag color={statusColor(detail.steps[step])}>{detail.steps[step]}</Tag>
-                    <Space direction="vertical" size={0}>
-                      <Typography.Text>{t(`viewer.steps.${step}`)}</Typography.Text>
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              {/* One row per step: pick it, see its state, read what happened to it. A grid rather
+                  than stacked rows because the status tags have different widths — laid out
+                  independently, every label would start at a different place (docs/11 §11.5). */}
+              <div className={`legere-steps${isAdmin ? ' has-select' : ''}`}>
+                {DOCUMENT_STEPS.map((step) => {
+                  const reason = detail.skipReasons[step];
+                  const label = t(`viewer.steps.${step}`);
+                  const failure = detail.failedStep === step ? detail.processingError : null;
+                  return (
+                    <Fragment key={step}>
+                      {isAdmin && (
+                        <Checkbox
+                          aria-label={label}
+                          checked={steps.includes(step)}
+                          onChange={(event) =>
+                            setSteps((chosen) =>
+                              event.target.checked
+                                ? [...chosen, step]
+                                : chosen.filter((other) => other !== step),
+                            )
+                          }
+                        />
+                      )}
+                      <Tag color={statusColor(detail.steps[step])}>{detail.steps[step]}</Tag>
+                      <Typography.Text>{label}</Typography.Text>
                       {/* SKIPPED alone reads like a failure; the reason says which harmless one it
                           was, and whether it is something an admin can change (docs/03 §3.3.10). */}
                       {reason !== undefined && (
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        <Typography.Text type="secondary" className="legere-step-note">
                           {t(`viewer.skipReasons.${reason}`)}
                         </Typography.Text>
                       )}
-                    </Space>
-                  </Space>
-                );
-              })}
+                      {failure !== null && (
+                        <Typography.Text type="danger" className="legere-step-note">
+                          {failure}
+                        </Typography.Text>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </div>
 
-              {detail.processingError !== null && (
-                <Typography.Paragraph type="danger" style={{ whiteSpace: 'pre-wrap' }}>
-                  {detail.failedStep === null
-                    ? detail.processingError
-                    : `${detail.failedStep}: ${detail.processingError}`}
-                </Typography.Paragraph>
+              {/* A failure the server could not attribute to a step still has to be readable. */}
+              {detail.processingError !== null && detail.failedStep === null && (
+                <Typography.Text type="danger" style={{ whiteSpace: 'pre-wrap' }}>
+                  {detail.processingError}
+                </Typography.Text>
               )}
 
               {isAdmin && (
-                <>
-                  <Checkbox.Group
-                    value={steps}
-                    onChange={(checked) => setSteps(checked.filter(isStep))}
-                    options={DOCUMENT_STEPS.map((step) => ({
-                      value: step,
-                      label: t(`viewer.steps.${step}`),
-                    }))}
-                  />
-                  <Button onClick={() => reprocess.mutate()} loading={reprocess.isPending}>
-                    {steps.length === 0
-                      ? t('viewer.processing.reprocessAll')
-                      : t('viewer.processing.reprocessSelected', { count: steps.length })}
-                  </Button>
-                </>
+                <Button onClick={() => reprocess.mutate()} loading={reprocess.isPending}>
+                  {steps.length === 0
+                    ? t('viewer.processing.reprocessAll')
+                    : t('viewer.processing.reprocessSelected', { count: steps.length })}
+                </Button>
               )}
             </Space>
           </Card>
@@ -402,10 +414,6 @@ function statusColor(status: StepStatus): string {
   if (status === 'FAILED') return 'red';
   if (status === 'PENDING') return 'blue';
   return 'default';
-}
-
-function isStep(value: unknown): value is DocumentStep {
-  return DOCUMENT_STEPS.some((step) => step === value);
 }
 
 // "ME" → "Montenegro", in the reader's own language. Intl knows the list; we do not keep one.

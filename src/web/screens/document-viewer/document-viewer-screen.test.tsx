@@ -202,7 +202,10 @@ describe('DocumentViewerScreen', () => {
 
     expect(await screen.findByText(enMessages.viewer.processing.title)).toBeInTheDocument();
     expect(screen.getByText('FAILED')).toBeInTheDocument();
-    expect(screen.getByText(/preview: Stirling failed with 500/)).toBeInTheDocument();
+    // 🔒 Under the step that failed, not at the bottom of the card: an error that names no step is
+    // an error nobody can act on (docs/11 §11.5).
+    const failed = screen.getByText('Stirling failed with 500');
+    expect(failed.previousElementSibling?.textContent).toBe(enMessages.viewer.steps.preview);
   });
 
   it('says why a step was skipped, instead of leaving SKIPPED to look like a failure', async () => {
