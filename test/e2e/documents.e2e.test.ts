@@ -576,6 +576,34 @@ describe('Documents (e2e)', () => {
       expect(row.city).toBe('Podgorica');
     });
 
+    it('puts a field back to what the pipeline read, and stops calling it a choice', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open, title: 'Ticket' });
+      const category = await testPrisma().category.create({
+        data: { slug: 'ticket', name: 'Ticket' },
+      });
+      await testPrisma().document.update({
+        where: { id: documentId },
+        data: {
+          city: 'Bar',
+          categoryId: null,
+          categorySource: 'NONE',
+          autoValues: { categorySlug: category.slug, city: 'Podgorica', country: 'ME' },
+        },
+      });
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}`, { reset: ['city', 'category'] })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      const row = await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } });
+      expect(row.city).toBe('Podgorica');
+      expect(row.categoryId).toBe(category.id);
+      // 🔒 AUTO, not MANUAL: a reset document stops claiming a person chose this (docs/03 §3.3.10).
+      expect(row.categorySource).toBe('AUTO');
+    });
+
     it('rejects an empty patch', async () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open });

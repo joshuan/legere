@@ -402,7 +402,9 @@
       "locations": "File locations",
       "noLocations": "This document has no files on any library you can see.",
       "auto": "read as {value}",
-      "category": "Category"
+      "category": "Category",
+      "reset": "reset",
+      "editHint": "Edit — or press E"
     },
     "addedToCollection": "Added to the collection"
   },

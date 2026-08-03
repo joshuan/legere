@@ -131,6 +131,11 @@ export type UploadDocumentResponse = z.infer<typeof uploadDocumentResponseSchema
 export type ListDocumentsResponse = z.infer<typeof listDocumentsResponseSchema>;
 
 // `categoryId: null` clears the category; absent leaves it alone (docs/07 §7.4).
+// The fields a machine fills in and a person may therefore want back the way it had them.
+export const RESETTABLE_FIELDS = ['category', 'languages', 'country', 'city'] as const;
+export const resettableFieldSchema = z.enum(RESETTABLE_FIELDS);
+export type ResettableField = z.infer<typeof resettableFieldSchema>;
+
 export const updateDocumentRequestSchema = z
   .object({
     title: z.string().trim().min(1).max(500).optional(),
@@ -146,6 +151,9 @@ export const updateDocumentRequestSchema = z
       .nullable()
       .optional(),
     city: z.string().trim().min(1).max(120).nullable().optional(),
+    // Put a field back to what the pipeline read. Not the same as sending that value by hand: a
+    // reset category becomes AUTO again, so it stops claiming a person chose it (docs/03 §3.3.10).
+    reset: z.array(resettableFieldSchema).min(1).max(4).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: 'At least one field must be provided',

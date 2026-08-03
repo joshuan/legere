@@ -3,7 +3,6 @@ import { paletteFor } from './palette';
 
 // The CSS variables the root layout binds the self-hosted faces to (docs/11 §11.15). Referenced by
 // name rather than imported so this module stays free of Next specifics and testable as data.
-export const FONT_DISPLAY = 'var(--font-display)';
 export const FONT_SANS = 'var(--font-sans)';
 export const FONT_MONO = 'var(--font-mono)';
 
@@ -37,8 +36,6 @@ export function legereTheme(dark: boolean): ThemeConfig {
       fontFamily: FONT_SANS,
       fontFamilyCode: FONT_MONO,
       fontSize: 14,
-      // Headings lead with the serif; antd applies fontFamily per component, so the display face is
-      // bound in CSS for h1–h3 instead of here.
       lineHeight: 1.6,
 
       borderRadius: 10,

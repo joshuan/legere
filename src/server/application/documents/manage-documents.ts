@@ -78,6 +78,25 @@ export class UpdateDocumentMeta {
       }
     }
 
+    // Putting a field back to what the pipeline read. Applied after the explicit values so that a
+    // reset always wins: a form can send both, and "put it back" is the later instruction.
+    if (input.reset !== undefined) {
+      const auto = detail.document.auto;
+      for (const field of input.reset) {
+        if (field === 'languages') update.languages = auto.languages ?? [];
+        if (field === 'country') update.country = auto.country ?? null;
+        if (field === 'city') update.city = auto.city ?? null;
+        if (field === 'category') {
+          const categories = await this.categories.listActive();
+          const read = categories.find((category) => category.slug === auto.categorySlug);
+          update.categoryId = read?.id ?? null;
+          // 🔒 Back to AUTO, not MANUAL: the point of a reset is that the document stops claiming a
+          // person chose this, so the next run may classify it again (docs/03 §3.3.10).
+          update.categorySource = read === undefined ? 'NONE' : 'AUTO';
+        }
+      }
+    }
+
     const updated = await this.documents.updateMeta(detail.document.id, update);
     const category =
       update.categoryId === undefined

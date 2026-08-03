@@ -65,7 +65,11 @@ Folder-tree navigation over the library's real directory structure (any nesting)
 grid of that folder (same cards as 11.3). Clicking a folder descends; breadcrumb ascends. Missing
 files show as unavailable cards. This is the primary "explore what got mounted" scenario.
 
-## 11.5. Document viewer (`/documents/:id`)
+## 11.5. Document viewer (`/documents/:id/:tab?`)
+
+The open tab is the last segment of the address — `/documents/:id/text` — so a link to a document can
+be a link to its text, and a reload lands where it was left. `/documents/:id` opens the preview; an
+unknown tab is a 404 rather than a guess.
 
 Two-pane layout, with the **title above the tabs**: it names what is on the page, and a name is read
 before the metadata of the thing it names.
@@ -76,9 +80,14 @@ before the metadata of the thing it names.
   table: size, pages, mime, hash (copyable), created, OCR used, **languages** and **place**, file
   locations = visible FileRef paths with library names and MISSING badges, provenance for DERIVED
   docs — link to the scan set). Everything a machine decided is **editable here and only here** —
-  category, languages, country, city — behind one **Edit** button that turns those rows into ordinary
-  inputs and one **Save** that turns them back, rather than controls sitting in the page all the
-  time: reading is the common case, and a page of live selects invites edits nobody meant to make.
+  category, languages, country, city — behind one **Edit** button (top right of the pane,
+  or the **E** key; **Escape** leaves) that turns those rows into ordinary inputs, and **Save** at
+  the bottom right that turns them back — rather than controls sitting in the page all the time:
+  reading is the common case, and a page of live selects invites edits nobody meant to make. Every
+  input is one width; a place is two inputs sharing that one width, because it is one fact. A field
+  the pipeline read differently carries a **reset** next to it, which puts it back to what was read —
+  travelling as a reset rather than as the same value typed in, so a reset category becomes `AUTO`
+  again instead of claiming somebody chose it.
   Save sends **only the fields that changed** — an untouched category must not travel, or every save
   would flip `categorySource` to `MANUAL` and a classifier's choice would silently become a person's.
   Cancel drops the draft. What the machine decided is kept: when the two differ, a
@@ -214,9 +223,10 @@ hardcodes `#fff` is a screen that turns white in dark mode.
 
 ### Type
 
-- **Fraunces** — display: the wordmark, page titles, empty-state headlines. A variable serif with
-  optical sizing; it gives the product a title-page voice instead of a dashboard voice.
-- **IBM Plex Sans** — everything else. Humanist, slightly technical, legible at 13–14 px.
+- **IBM Plex Sans** — everything. Humanist, slightly technical, legible at 13–14 px. Headings are
+  the same face, heavier and tighter. **No serif anywhere**: the display serif this spec used to
+  name gave the shell a title-page voice, which reads as decoration in a product whose whole job is
+  to show somebody else's documents — those are what should look like documents.
 - **IBM Plex Mono** — hashes, file paths, sizes, ids, error payloads. These are values people compare
   character by character; proportional digits actively hurt.
 
@@ -248,7 +258,7 @@ network must never call a font CDN at runtime.
 
 Content column caps at 1440 px with 24–32 px gutters; controls are 36 px high; the grid breathes at
 16 px gaps. The sider is 240 px, the wordmark sits above a hairline rule, and collapsing it leaves the
-monogram — an "L" in Fraunces, not a truncated word.
+monogram — an "L", not a truncated word.
 
 ## 11.16. Open questions
 

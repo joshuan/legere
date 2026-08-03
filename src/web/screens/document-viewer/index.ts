@@ -1,1 +1,1 @@
-export { DocumentViewerScreen } from './document-viewer-screen';
+export { DocumentViewerScreen, isViewerTab, type ViewerTab } from './document-viewer-screen';

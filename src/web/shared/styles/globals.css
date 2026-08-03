@@ -55,7 +55,9 @@ h3,
 h1.ant-typography,
 h2.ant-typography,
 h3.ant-typography {
-  font-family: var(--font-display);
+  /* The same sans as the body: a serif display face reads as decoration in an interface whose job
+     is to show other people's documents (docs/11 §11.15). */
+  font-family: var(--font-sans);
   font-weight: 600;
   letter-spacing: -0.015em;
   font-variant-numeric: lining-nums;
@@ -245,8 +247,26 @@ pre,
   white-space: pre-wrap;
 }
 
-/* An editable field inside a definition row: wide enough to read a category or a country in, and
-   never so wide that the row stops looking like a row. */
+/* Editable fields are one width, whatever they hold: a column of inputs that agree looks like a
+   form, and a column that does not looks like an accident (docs/11 §11.5). */
 .legere-field {
-  min-width: 180px;
+  width: 320px;
+  max-width: 100%;
+}
+
+/* Two controls that together make one field — a city and its country — share that one width. */
+.legere-field-split {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.legere-field-split > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* A form's own controls sit at its edge, not in the flow of what they act on. */
+.legere-form-actions {
+  display: flex;
+  justify-content: flex-end;
 }

@@ -8,6 +8,12 @@ import { createApiMock, envelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { DocumentViewerScreen } from './document-viewer-screen';
 
+// The viewer puts the open tab in the address (docs/11 §11.5), so it needs a router.
+const replace = vi.fn();
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace }),
+}));
+
 const ID = 'aaaaaaaa-1111-4111-8111-111111111111';
 const CATEGORY_ID = 'bbbbbbbb-2222-4222-8222-222222222222';
 
@@ -222,6 +228,53 @@ describe('DocumentViewerScreen', () => {
 
     expect(patched).toBeNull();
     expect(details.queryByRole('textbox', { name: enMessages.viewer.details.city })).toBeNull();
+  });
+
+  it('opens the editor on E, and closes it on Escape', async () => {
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+
+    await userEvent.keyboard('e');
+    expect(details.getByRole('textbox', { name: enMessages.viewer.details.city })).toBeVisible();
+
+    // 🔒 And not while typing: an "e" in a city name must stay an "e" (docs/11 §11.5).
+    await userEvent.type(
+      details.getByRole('textbox', { name: enMessages.viewer.details.city }),
+      'e',
+    );
+    await userEvent.keyboard('{Escape}');
+    expect(details.queryByRole('textbox', { name: enMessages.viewer.details.city })).toBeNull();
+  });
+
+  it('puts a field back to what the pipeline read', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+    serve({ ...detail, city: 'Bar', auto: { city: 'Podgorica' } });
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+    await userEvent.click(details.getByRole('button', { name: enMessages.viewer.details.reset }));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
+
+    // 🔒 A reset travels as a reset, not as the same value typed in: sending the value would mark
+    // it as somebody's choice, which is the opposite of what was asked (docs/03 §3.3.10).
+    await waitFor(() => expect(patched).toEqual({ reset: ['city', 'country'] }));
+  });
+
+  it('keeps the open tab in the address', async () => {
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.text }));
+
+    expect(replace).toHaveBeenCalledWith(`/documents/${ID}/text`);
   });
 
   it('marks a category the classifier chose', async () => {

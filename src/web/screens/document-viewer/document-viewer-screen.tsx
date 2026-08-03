@@ -19,13 +19,15 @@ import {
   Typography,
 } from 'antd';
 import { useTranslations } from 'next-intl';
+import { useRouter } from 'next/navigation';
 import { DefinitionList } from '../../shared/ui/definition-list';
-import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import {
   DOCUMENT_STEPS,
+  type ResettableField,
   type DocumentDetailDto,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
@@ -38,9 +40,31 @@ import { useErrorMessage, formatBytes } from '../../shared/lib';
 // The viewer refreshes while the pipeline is still working on this document (docs/10 §10.5).
 const LIVE_REFRESH_MS = 5000;
 
+// The open tab is the last segment of the address (docs/11 §11.5), so a link to a document can be a
+// link to its text.
+const VIEWER_TABS = ['preview', 'text', 'details'] as const;
+export type ViewerTab = (typeof VIEWER_TABS)[number];
+
+export function isViewerTab(value: string): value is ViewerTab {
+  return VIEWER_TABS.some((tab) => tab === value);
+}
+
 // /documents/:id (docs/11 §11.5): read the document, and manage the little that belongs to it.
-export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAdmin?: boolean }) {
+export function DocumentViewerScreen({
+  id,
+  tab = 'preview',
+  isAdmin = false,
+}: {
+  id: string;
+  tab?: ViewerTab;
+  isAdmin?: boolean;
+}) {
   const t = useTranslations();
+  const router = useRouter();
+  // The address is the source of truth, but the tab switches on the click rather than after the
+  // navigation: a tab that waits for the router to come back feels broken.
+  const [active, setActive] = useState<ViewerTab>(tab);
+  useEffect(() => setActive(tab), [tab]);
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();
@@ -119,6 +143,14 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
 
         <Card>
           <Tabs
+            activeKey={active}
+            // `replace`, not `push`: reading a document is one visit, and three tabs should not cost
+            // three presses of the browser's back button to leave.
+            onChange={(key) => {
+              if (!isViewerTab(key)) return;
+              setActive(key);
+              router.replace(`/documents/${id}/${key}`);
+            }}
             items={[
               {
                 key: 'preview',
@@ -346,6 +378,7 @@ type MetaChange = {
   languages?: string[];
   country?: string | null;
   city?: string | null;
+  reset?: ResettableField[];
 };
 
 // What a person may correct, while they are correcting it. Held apart from the document so that
@@ -374,15 +407,37 @@ function DetailsPane({
   const t = useTranslations();
   const size = useMemo(() => formatBytes(document.sizeBytes), [document.sizeBytes]);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [reset, setReset] = useState<ResettableField[]>([]);
   const editing = draft !== null;
 
-  const startEditing = (): void =>
+  const startEditing = (): void => {
+    setReset([]);
     setDraft({
       categoryId: document.category?.id ?? null,
       languages: document.languages,
       country: document.country,
       city: document.city ?? '',
     });
+  };
+
+  const stopEditing = (): void => {
+    setDraft(null);
+    setReset([]);
+  };
+
+  // "Put it back to what was read." The draft shows the machine's value immediately; the server is
+  // told it was a reset rather than a choice, so a reset category becomes AUTO again and the next
+  // run may classify it (docs/03 §3.3.10).
+  const resetFields = (fields: ResettableField[]): void => {
+    if (draft === null) return;
+    setReset((chosen) => [...new Set([...chosen, ...fields])]);
+    const next = { ...draft };
+    if (fields.includes('category')) next.categoryId = autoCategory?.id ?? null;
+    if (fields.includes('languages')) next.languages = document.auto.languages ?? [];
+    if (fields.includes('country')) next.country = document.auto.country ?? null;
+    if (fields.includes('city')) next.city = document.auto.city ?? '';
+    setDraft(next);
+  };
 
   // Only what actually changed: an untouched field must not be sent, or every save would count as a
   // manual assignment and a category the classifier chose would silently become a person's choice
@@ -390,17 +445,52 @@ function DetailsPane({
   const save = (): void => {
     if (draft === null) return;
     const change: MetaChange = {};
-    if (draft.categoryId !== (document.category?.id ?? null)) change.categoryId = draft.categoryId;
-    if (draft.languages.join('|') !== document.languages.join('|')) {
+    // A field that was reset travels as a reset, never as a value: sending the same value by hand
+    // would mark it as somebody's choice, which is the opposite of what was asked for.
+    if (!reset.includes('category') && draft.categoryId !== (document.category?.id ?? null)) {
+      change.categoryId = draft.categoryId;
+    }
+    if (
+      !reset.includes('languages') &&
+      draft.languages.join('|') !== document.languages.join('|')
+    ) {
       change.languages = draft.languages;
     }
-    if (draft.country !== document.country) change.country = draft.country;
+    if (!reset.includes('country') && draft.country !== document.country) {
+      change.country = draft.country;
+    }
     const city = draft.city.trim() === '' ? null : draft.city.trim();
-    if (city !== document.city) change.city = city;
+    if (!reset.includes('city') && city !== document.city) change.city = city;
+    if (reset.length > 0) change.reset = reset;
 
     if (Object.keys(change).length > 0) onSave(change);
-    setDraft(null);
+    stopEditing();
   };
+
+  // E for edit, Escape to back out. Ignored while a field has focus, or typing an "e" into the city
+  // would turn into a command (docs/11 §11.5).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      const target = event.target;
+      const typing =
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      // Escape works from inside a field: leaving is what it is for. "e" does not — an "e" typed
+      // into a city name has to stay an "e".
+      if (event.key === 'Escape' && draft !== null) {
+        stopEditing();
+        return;
+      }
+      if (!typing && event.key.toLowerCase() === 'e' && draft === null) {
+        event.preventDefault();
+        startEditing();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   // Which step writes which field (docs/05 §5.5): the page count comes with the preview, the text
   // and the languages with the parse, the place and the category with the AI step. A field whose
@@ -419,12 +509,35 @@ function DetailsPane({
       ? undefined
       : t('viewer.details.auto', { value: auto });
 
+  // The control plus, when the pipeline read something this no longer matches, a way back to it.
+  const withReset = (fields: ResettableField[], control: ReactNode, differs: boolean): ReactNode =>
+    differs && !fields.some((field) => reset.includes(field)) ? (
+      <Space size={4} wrap>
+        {control}
+        <Button size="small" type="link" onClick={() => resetFields(fields)}>
+          {t('viewer.details.reset')}
+        </Button>
+      </Space>
+    ) : (
+      control
+    );
+
   const autoCategory = categories.find((category) => category.slug === document.auto.categorySlug);
   const autoLanguages = (document.auto.languages ?? []).map(displayLanguage).join(', ');
   const autoPlace = placeOf(document.auto.city ?? null, document.auto.country ?? null);
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      {/* Above the list and to the right, where a form's own control belongs: it acts on everything
+          below it, and it must not be hunted for at the end of a long list (docs/11 §11.5). */}
+      <div className="legere-form-actions">
+        {!editing && (
+          <Tooltip title={t('viewer.details.editHint')}>
+            <Button onClick={startEditing}>{t('common.actions.edit')}</Button>
+          </Tooltip>
+        )}
+      </div>
+
       <DefinitionList
         items={[
           { label: t('viewer.details.size'), value: size, emphasis: true },
@@ -439,20 +552,26 @@ function DetailsPane({
             label: t('viewer.details.category'),
             value:
               draft !== null ? (
-                <Select
-                  allowClear
-                  className="legere-field"
-                  placeholder={t('viewer.category')}
-                  aria-label={t('viewer.category')}
-                  value={draft.categoryId ?? undefined}
-                  onChange={(categoryId?: string) =>
-                    setDraft({ ...draft, categoryId: categoryId ?? null })
-                  }
-                  options={categories.map((category) => ({
-                    value: category.id,
-                    label: category.name,
-                  }))}
-                />
+                withReset(
+                  ['category'],
+                  <Select
+                    allowClear
+                    className="legere-field"
+                    placeholder={t('viewer.category')}
+                    aria-label={t('viewer.category')}
+                    value={draft.categoryId ?? undefined}
+                    onChange={(categoryId?: string) =>
+                      setDraft({ ...draft, categoryId: categoryId ?? null })
+                    }
+                    options={categories.map((category) => ({
+                      value: category.id,
+                      label: category.name,
+                    }))}
+                  />,
+                  document.auto.categorySlug !== undefined &&
+                    document.auto.categorySlug !== null &&
+                    (autoCategory?.id ?? null) !== draft.categoryId,
+                )
               ) : (
                 <Space size={4} wrap>
                   {document.category?.name ?? ''}
@@ -471,51 +590,58 @@ function DetailsPane({
             // Free-form on purpose: BCP-47 has more tags than any list worth shipping, and the ones
             // already on the document are offered with their names spelled out.
             value:
-              draft !== null ? (
-                <Select
-                  mode="tags"
-                  className="legere-field"
-                  placeholder={t('viewer.details.languagesPlaceholder')}
-                  aria-label={t('viewer.details.languages')}
-                  value={draft.languages}
-                  onChange={(languages: string[]) => setDraft({ ...draft, languages })}
-                  options={languageOptions(document.languages, document.auto.languages ?? [])}
-                />
-              ) : (
-                document.languages.map(displayLanguage).join(', ')
-              ),
+              draft !== null
+                ? withReset(
+                    ['languages'],
+                    <Select
+                      mode="tags"
+                      className="legere-field"
+                      placeholder={t('viewer.details.languagesPlaceholder')}
+                      aria-label={t('viewer.details.languages')}
+                      value={draft.languages}
+                      onChange={(languages: string[]) => setDraft({ ...draft, languages })}
+                      options={languageOptions(document.languages, document.auto.languages ?? [])}
+                    />,
+                    (document.auto.languages ?? []).join('|') !== draft.languages.join('|') &&
+                      (document.auto.languages ?? []).length > 0,
+                  )
+                : document.languages.map(displayLanguage).join(', '),
             pending: state('markdown', 'categorization'),
             note: wasRead(autoLanguages, document.languages.map(displayLanguage).join(', ')),
           },
           {
             label: t('viewer.details.place'),
             value:
-              draft !== null ? (
-                <Space size={8} wrap>
-                  <Input
-                    className="legere-field"
-                    placeholder={t('viewer.details.cityPlaceholder')}
-                    aria-label={t('viewer.details.city')}
-                    value={draft.city}
-                    onChange={(event) => setDraft({ ...draft, city: event.target.value })}
-                  />
-                  <Select
-                    showSearch
-                    allowClear
-                    className="legere-field"
-                    optionFilterProp="label"
-                    placeholder={t('viewer.details.countryPlaceholder')}
-                    aria-label={t('viewer.details.country')}
-                    value={draft.country ?? undefined}
-                    onChange={(country?: string) =>
-                      setDraft({ ...draft, country: country ?? null })
-                    }
-                    options={COUNTRY_OPTIONS}
-                  />
-                </Space>
-              ) : (
-                placeOf(document.city, document.country)
-              ),
+              draft !== null
+                ? withReset(
+                    // A place is one fact written in two boxes: putting it back has to put both
+                    // back, or a reset city would keep somebody's country.
+                    ['city', 'country'],
+                    <span className="legere-field legere-field-split">
+                      <Input
+                        placeholder={t('viewer.details.cityPlaceholder')}
+                        aria-label={t('viewer.details.city')}
+                        value={draft.city}
+                        onChange={(event) => setDraft({ ...draft, city: event.target.value })}
+                      />
+                      <Select
+                        showSearch
+                        allowClear
+                        optionFilterProp="label"
+                        placeholder={t('viewer.details.countryPlaceholder')}
+                        aria-label={t('viewer.details.country')}
+                        value={draft.country ?? undefined}
+                        onChange={(country?: string) =>
+                          setDraft({ ...draft, country: country ?? null })
+                        }
+                        options={COUNTRY_OPTIONS}
+                      />
+                    </span>,
+                    autoPlace !== '' &&
+                      autoPlace !==
+                        placeOf(draft.city.trim() === '' ? null : draft.city.trim(), draft.country),
+                  )
+                : placeOf(document.city, document.country),
             pending: state('categorization'),
             note: wasRead(autoPlace, placeOf(document.city, document.country)),
           },
@@ -563,17 +689,17 @@ function DetailsPane({
         ]}
       />
 
-      {/* One switch for the whole list rather than a control per row: reading is the common case,
-          and a page of inputs invites edits nobody meant to make (docs/11 §11.5). */}
-      {editing ? (
-        <Space>
-          <Button type="primary" loading={saving} onClick={save}>
-            {t('common.actions.save')}
-          </Button>
-          <Button onClick={() => setDraft(null)}>{t('common.actions.cancel')}</Button>
-        </Space>
-      ) : (
-        <Button onClick={startEditing}>{t('common.actions.edit')}</Button>
+      {/* Save ends what Edit started, so it sits at the other end of the same list and on the same
+          side: the eye leaves a form at its bottom-right corner (docs/11 §11.5). */}
+      {editing && (
+        <div className="legere-form-actions">
+          <Space>
+            <Button onClick={stopEditing}>{t('common.actions.cancel')}</Button>
+            <Button type="primary" loading={saving} onClick={save}>
+              {t('common.actions.save')}
+            </Button>
+          </Space>
+        </div>
       )}
     </Space>
   );

@@ -138,12 +138,11 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
         >
           <span
             style={{
-              fontFamily: 'var(--font-display)',
+              fontFamily: 'var(--font-sans)',
               fontSize: collapsed ? 24 : 26,
               fontWeight: 600,
               letterSpacing: '-0.02em',
               color: token.colorText,
-              fontVariationSettings: "'SOFT' 40, 'WONK' 1",
             }}
           >
             {collapsed ? 'L' : t('common.appName')}
