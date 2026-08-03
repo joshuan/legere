@@ -12,14 +12,16 @@ import {
   TeamOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { useQuery } from '@tanstack/react-query';
-import { Input, Layout, Menu, Space, Tag, Typography, theme } from 'antd';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { App, Input, Layout, Menu, Space, Tag, Typography, theme } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import type { UserDto } from '../../../shared/contracts/auth';
 import { libraryApi, libraryKeys } from '../../entities/library';
+import { sessionApi } from '../../entities/session';
+import { useErrorMessage } from '../../shared/lib';
 
 // The authenticated shell (docs/11 §11.1): a collapsible sider with the product's sections, and a
 // top bar carrying the global search box.
@@ -29,6 +31,24 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const { token } = theme.useToken();
+  const queryClient = useQueryClient();
+  const describeError = useErrorMessage();
+  const { message } = App.useApp();
+
+  // Signing out is a POST — the CSRF check is fail-closed and a GET route would let a prefetch end
+  // someone's session (docs/08 §8.4). Hence a menu action rather than a link to a page.
+  const logout = useMutation({
+    mutationFn: sessionApi.logout,
+    onSuccess: () => {
+      // 🔒 Everything cached belongs to the session that just ended; the next person to use this
+      // browser must not see it flash by before their own data loads.
+      queryClient.clear();
+      router.replace('/login');
+    },
+    onError: (error: unknown) => {
+      void message.error(describeError(error));
+    },
+  });
 
   // Browse is a submenu of the libraries this user can actually see (docs/11 §11.1); an empty list
   // simply means no library has been shared with them yet.
@@ -147,7 +167,9 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
             {
               key: 'logout',
               icon: <LogoutOutlined />,
-              label: <Link href="/logout">{t('nav.logout')}</Link>,
+              label: t('nav.logout'),
+              disabled: logout.isPending,
+              onClick: () => logout.mutate(),
             },
           ]}
         />
