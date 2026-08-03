@@ -228,6 +228,34 @@ describe('DocumentViewerScreen', () => {
     expect(screen.getByText(enMessages.viewer.skipReasons.NOT_CONFIGURED)).toBeInTheDocument();
   });
 
+  it('marks the fields whose value the pipeline is still going to write', async () => {
+    serve({
+      ...detail,
+      // The AI step is working; the parse is queued behind it.
+      steps: { ...detail.steps, categorization: 'RUNNING', markdown: 'PENDING' },
+      languages: [],
+      country: null,
+      city: null,
+    });
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+
+    // Place comes from the AI step, which is running now.
+    const place = screen.getByText(enMessages.viewer.details.place).closest('.legere-definition');
+    expect(place?.textContent).toContain('RUNNING');
+    // Languages are written by the parse first and the AI step after it; the parse is queued, so
+    // the field is not empty-and-final, it is not-yet.
+    const languages = screen
+      .getByText(enMessages.viewer.details.languages)
+      .closest('.legere-definition');
+    expect(languages?.textContent).toContain('RUNNING');
+    // 🔒 And a value nothing is going to touch says nothing: the badge is about work, not decoration.
+    const mime = screen.getByText(enMessages.viewer.details.mime).closest('.legere-definition');
+    expect(mime?.textContent).not.toContain('PENDING');
+    expect(mime?.textContent).not.toContain('RUNNING');
+  });
+
   it('offers reprocessing to an admin only, with the chosen steps', async () => {
     let body: unknown = null;
     server.use(

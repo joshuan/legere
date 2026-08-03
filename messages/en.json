@@ -357,6 +357,7 @@
     "addToCollection": "Add to collection",
     "noPreview": "No preview for this document.",
     "noText": "No text extracted yet",
+    "textPending": "Being extracted…",
     "textFailed": "Extraction failed",
     "tabs": {
       "preview": "Preview",

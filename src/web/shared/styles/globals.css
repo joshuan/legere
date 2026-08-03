@@ -200,6 +200,15 @@ pre,
   }
 }
 
+/* A value the pipeline has not finished writing. Small and ahead of the value, so a field that has
+   one already — and is about to have another — reads as "this is provisional" rather than as a
+   second value. */
+.legere-definition-pending {
+  margin-inline-end: 6px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
 /* The processing panel (docs/11 §11.5). Three columns — pick, state, name — so that labels start at
    one x whatever the tag says, and a note about a step sits under that step's own name rather than
    at the bottom of the card where it belongs to nothing in particular. */

@@ -70,12 +70,18 @@ files show as unavailable cards. This is the primary "explore what got mounted" 
 Two-pane layout:
 - **Left (main): tabs** — `Preview` (canonical/source PDF in an `<object>`; for images the
   preview.jpg full-size; for text/markdown sources — rendered markdown), `Text` (rendered Markdown
-  representation; empty state "No text extracted yet" / "Extraction failed"), `Details` (metadata
+  representation; empty state "No text extracted yet" / "Extraction failed" / "Being extracted…"
+  while the step is `PENDING` or `RUNNING`), `Details` (metadata
   table: size, pages, mime, hash (copyable), created, OCR used, **languages** and **place**, file
   locations = visible FileRef paths with library names and MISSING badges, provenance for DERIVED
   docs — link to the scan set). Languages and the country are shown as names in the reader's own
   language (`Intl.DisplayNames`), not as the tags stored — "Serbian (Latin), Montenegro", not
   "sr-Latn, ME"; an em dash where nothing was detected, which is honest and never looks broken.
+  **A field whose step has not settled carries that step's badge** — `RUNNING` or `PENDING`, the same
+  words the processing panel uses — in place of the em dash, or in front of a value that is about to
+  be rewritten. Which step owns which field follows the pipeline (05 §5.5): pages from the preview,
+  text/languages/OCR from the parse, place and category from the AI step. Nothing else gets a badge:
+  size, type and hash are facts about the file, and no step will ever change them.
 - **Right (sidebar):** title (inline-editable when permitted), category select (all users with
   access; shows "auto" tag when `categorySource=AUTO`), Download source button (disabled +
   tooltip when `UNAVAILABLE`), Add-to-collection select, processing status panel: five steps, one row each

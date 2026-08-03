@@ -168,6 +168,14 @@ export function DocumentViewerScreen({ id, isAdmin = false }: { id: string; isAd
                   }))}
                 />
                 {detail.categorySource === 'AUTO' && <Tag color="blue">{t('viewer.auto')}</Tag>}
+                {/* The AI step writes this one too, so it says the same thing the fields in
+                    Details say while that step is outstanding (docs/11 §11.5). */}
+                {(detail.steps.categorization === 'RUNNING' ||
+                  detail.steps.categorization === 'PENDING') && (
+                  <Tag color={detail.steps.categorization === 'RUNNING' ? 'processing' : 'default'}>
+                    {detail.steps.categorization}
+                  </Tag>
+                )}
               </Space>
 
               <Tooltip
@@ -328,7 +336,11 @@ function TextPane({
     return (
       <Empty
         description={
-          document.steps.markdown === 'FAILED' ? t('viewer.textFailed') : t('viewer.noText')
+          document.steps.markdown === 'FAILED'
+            ? t('viewer.textFailed')
+            : document.steps.markdown === 'RUNNING' || document.steps.markdown === 'PENDING'
+              ? t('viewer.textPending')
+              : t('viewer.noText')
         }
       />
     );
@@ -350,24 +362,41 @@ function RenderedMarkdown({ markdown }: { markdown: string }) {
 function DetailsPane({ document }: { document: DocumentDetailDto }) {
   const t = useTranslations();
   const size = useMemo(() => formatBytes(document.sizeBytes), [document.sizeBytes]);
+  // Which step writes which field (docs/05 §5.5): the page count comes with the preview, the text
+  // and the languages with the parse, the place and the category with the AI step. A field whose
+  // step has not settled is a field whose value is provisional, and it says so rather than showing
+  // an em dash that reads as "there is none".
+  const state = (...steps: DocumentStep[]): 'PENDING' | 'RUNNING' | undefined => {
+    const statuses = steps.map((step) => document.steps[step]);
+    if (statuses.includes('RUNNING')) return 'RUNNING';
+    return statuses.includes('PENDING') ? 'PENDING' : undefined;
+  };
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <DefinitionList
         items={[
           { label: t('viewer.details.size'), value: size, emphasis: true },
-          { label: t('viewer.details.pages'), value: document.pageCount, emphasis: true },
+          {
+            label: t('viewer.details.pages'),
+            value: document.pageCount,
+            emphasis: true,
+            pending: state('preview'),
+          },
           { label: t('viewer.details.mime'), value: document.mimeType },
           {
             label: t('viewer.details.languages'),
-            // Empty is honest: there was too little text to tell (docs/03 §3.3.10).
+            // Empty is honest: there was too little text to tell (docs/03 §3.3.10). Two steps write
+            // this one — the parse detects them, the AI step fills them in if it found none.
             value: document.languages.map((language) => displayLanguage(language)).join(', '),
+            pending: state('markdown', 'categorization'),
           },
           {
             label: t('viewer.details.place'),
             value: [document.city, displayCountry(document.country)]
               .filter((part) => part !== null && part !== '')
               .join(', '),
+            pending: state('categorization'),
           },
           {
             label: t('viewer.details.hash'),
@@ -384,6 +413,7 @@ function DetailsPane({ document }: { document: DocumentDetailDto }) {
           {
             label: t('viewer.details.ocr'),
             value: document.ocrUsed ? t('common.yes') : t('common.no'),
+            pending: state('markdown'),
           },
         ]}
       />
