@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Button, Select, Space, Switch, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
+import type { DocumentSource } from '../../../shared/contracts/enums';
 import type { DocumentFilters } from '../../entities/document';
 import { categoryApi, categoryKeys } from '../../entities/category';
 import { libraryApi, libraryKeys } from '../../entities/library';
@@ -70,9 +71,10 @@ export function DocumentFiltersBar({ value, onChange }: DocumentFiltersProps) {
         placeholder={t('documents.filters.source')}
         aria-label={t('documents.filters.source')}
         value={value.source ?? undefined}
-        onChange={(source?: 'LIBRARY' | 'DERIVED') => set({ source })}
+        onChange={(source?: DocumentSource) => set({ source })}
         options={[
           { value: 'LIBRARY', label: t('documents.filters.sourceLibrary') },
+          { value: 'UPLOAD', label: t('documents.filters.sourceUpload') },
           { value: 'DERIVED', label: t('documents.filters.sourceDerived') },
         ]}
       />

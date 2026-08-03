@@ -251,7 +251,7 @@ describe('Document files (e2e)', () => {
         .redirects(0);
 
       expect(res.status).toBe(302);
-      expect(res.headers.location).toContain(artifactKeys.derivedSource(documentId));
+      expect(res.headers.location).toContain(artifactKeys.source(documentId, 'pdf'));
       // 🔒 Short-lived, never a permanent link (docs/08 §8.5).
       expect(res.headers.location).toContain('X-Amz-Expires=300');
     });

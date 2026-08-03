@@ -203,6 +203,50 @@ describe('DocumentsScreen', () => {
     },
   );
 
+  it('uploads a chosen file and refreshes the grid with it', async () => {
+    let uploadedName: string | null = null;
+    server.use(
+      http.post('/api/documents', async ({ request }) => {
+        uploadedName = decodeURIComponent(request.headers.get('x-legere-filename') ?? '');
+        // The body is the file itself, not multipart (docs/07 §7.3).
+        expect(await request.arrayBuffer()).toHaveProperty('byteLength', 5);
+        return HttpResponse.json(
+          envelope({ document: { ...documentAt(9), title: 'Contract' }, created: true }),
+        );
+      }),
+    );
+
+    renderWithProviders(<DocumentsScreen isAdmin={false} />);
+    await screen.findByText('Document 1');
+
+    const input = document.querySelector('input[type="file"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error('no file input rendered');
+    await userEvent.upload(input, new File(['hello'], 'Contract.pdf', { type: 'application/pdf' }));
+
+    await waitFor(() => expect(uploadedName).toBe('Contract.pdf'));
+  });
+
+  it('reports a rejected file by name and keeps the screen usable', async () => {
+    server.use(
+      http.post('/api/documents', () =>
+        HttpResponse.json(
+          { error: { code: 'DOCUMENT_DUPLICATE', message: 'duplicate', details: null } },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    renderWithProviders(<DocumentsScreen isAdmin={false} />);
+    await screen.findByText('Document 1');
+
+    const input = document.querySelector('input[type="file"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error('no file input rendered');
+    await userEvent.upload(input, new File(['x'], 'Twice.pdf', { type: 'application/pdf' }));
+
+    // The name matters: a batch of ten uploads must say which one was refused.
+    await waitFor(() => expect(screen.getByText(/Twice\.pdf/)).toBeInTheDocument());
+  });
+
   describe('building a scan set from the grid (docs/11 §11.8)', () => {
     it('creates a set from the selected images, in selection order', async () => {
       let created: unknown = null;

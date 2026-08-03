@@ -166,7 +166,7 @@ describe('Scan set merge (integration)', () => {
       title: document.title,
     });
     // The merged PDF is the document's source, in the bucket rather than on a volume.
-    expect(files.keys()).toEqual([artifactKeys.derivedSource(document.id)]);
+    expect(files.keys()).toEqual([artifactKeys.source(document.id, 'pdf')]);
     // And it goes through the ordinary pipeline like anything else.
     expect(enqueued).toEqual([{ name: 'document-process', payload: { documentId: document.id } }]);
   });

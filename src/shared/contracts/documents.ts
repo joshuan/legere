@@ -96,6 +96,14 @@ export const listDocumentsQuerySchema = paginationQuerySchema.extend({
 export type ListDocumentsQuery = z.infer<typeof listDocumentsQuerySchema>;
 
 export const listDocumentsResponseSchema = paginatedSchema(documentListDtoSchema);
+
+// POST /api/documents — an upload (docs/05 §5.1a). `created: false` means the content was already
+// here and the caller was allowed to see it, so this is the document it resolved to.
+export const uploadDocumentResponseSchema = z.object({
+  document: documentListDtoSchema,
+  created: z.boolean(),
+});
+export type UploadDocumentResponse = z.infer<typeof uploadDocumentResponseSchema>;
 export type ListDocumentsResponse = z.infer<typeof listDocumentsResponseSchema>;
 
 // `categoryId: null` clears the category; absent leaves it alone (docs/07 §7.4).

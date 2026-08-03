@@ -42,12 +42,12 @@ export class DownloadDocumentSource {
   async execute(detail: DocumentDetail): Promise<Download> {
     const { document } = detail;
 
-    if (document.source === 'DERIVED') {
-      // The merged PDF *is* the source, and it lives in the bucket (docs/09 §9.2).
+    if (document.source !== 'LIBRARY') {
+      // The bytes are ours: a merged scan set, or a file somebody uploaded (docs/09 §9.2).
       return {
         kind: 'redirect',
         url: await this.files.getSignedUrl(
-          artifactKeys.derivedSource(document.id),
+          artifactKeys.source(document.id, document.ext),
           this.settings.signedUrlTtlSec,
         ),
       };

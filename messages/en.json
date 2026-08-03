@@ -52,7 +52,8 @@
       "CAPTCHA_FAILED": "The anti-spam check failed. Please try again.",
       "RATE_LIMITED": "Too many attempts. Please wait a moment and try again.",
       "EMAIL_CODE_TOO_MANY_ATTEMPTS": "Too many wrong codes. Request a new one.",
-      "INTERNAL": "An unexpected server error occurred."
+      "INTERNAL": "An unexpected server error occurred.",
+      "DOCUMENT_DUPLICATE": "This file is already on this instance, in a document you cannot open."
     }
   },
   "auth": {
@@ -320,6 +321,7 @@
       "category": "Category",
       "source": "Source",
       "sourceLibrary": "From libraries",
+      "sourceUpload": "Uploaded",
       "sourceDerived": "Created by me",
       "unavailableOnly": "Missing files only",
       "processingOnly": "Processing only",
@@ -338,6 +340,12 @@
       "create": "Create scan set from selection",
       "created": "Scan set created",
       "defaultName": "New scan set"
+    },
+    "upload": {
+      "action": "Upload",
+      "hint": "Drop files here to add them to your documents",
+      "done": "{name} uploaded",
+      "duplicate": "{name} was already here — opened the existing document"
     }
   },
   "viewer": {

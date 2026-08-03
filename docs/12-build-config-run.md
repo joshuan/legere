@@ -67,6 +67,7 @@ SMTP_FROM="Legere <no-reply@example.com>"
 # --- library volume ---
 LIBRARY_ROOT=./dev-library                   # the folder `npm run dev` reads; the container overrides this with /library
 SCAN_MAX_FILES=50000                         # a scan gives up past this many files (05 §5.2); 0 = no limit
+UPLOAD_MAX_BYTES=104857600                   # 100 MiB: the largest file a user may upload (05 §5.1a)
 
 # --- S3 (derived artifacts; dev values match the compose MinIO) ---
 S3_ENDPOINT=http://localhost:9000

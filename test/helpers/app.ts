@@ -9,6 +9,7 @@ import { wireServer } from '../../server/main';
 import { AppModule } from '../../src/server/app.module';
 import { EmailSender, type EmailMessage } from '../../src/server/application/ports/email-sender';
 import { FileStorage } from '../../src/server/application/ports/file-storage';
+import { AppConfig, loadConfig } from '../../src/server/infrastructure/config/app-config';
 import { PgBossProvider } from '../../src/server/infrastructure/queue/pg-boss.provider';
 import { InMemoryFileStorage } from '../../src/server/infrastructure/storage/in-memory-file-storage';
 
@@ -41,6 +42,9 @@ export class RecordingEmailSender extends EmailSender {
 
 export type TestApp = {
   server: Express;
+  // What the instance under test accepts for an upload, so a size test does not hardcode the
+  // production default (docs/05 §5.1a).
+  uploadMaxBytes: number;
   // Base URL of the one long-lived HTTP server this app listens on (see createTestApp).
   baseUrl: string;
   nestApp: INestApplication;
@@ -50,6 +54,9 @@ export type TestApp = {
 };
 
 export type TestAppOptions = {
+  // Upload tests assert the behaviour at the limit, not the production number: moving 100 MiB
+  // through the process (twice — client and server) exhausts the heap for no benefit.
+  uploadMaxBytes?: number;
   // Per-IP throttle for /api/auth/*. Tests share one source address, so the real production budget
   // would trip in the middle of an unrelated suite; the default is effectively unlimited and the
   // throttling test asks for a small budget explicitly.
@@ -63,11 +70,19 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   // No e2e test may reach a real bucket (docs/14 §14.8): artifacts stay in memory and readable.
   const files = new InMemoryFileStorage();
   const throttle = options.throttle ?? { ttl: 60_000, limit: 100_000 };
+  const config = loadConfig({
+    ...process.env,
+    ...(options.uploadMaxBytes === undefined
+      ? {}
+      : { UPLOAD_MAX_BYTES: String(options.uploadMaxBytes) }),
+  });
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(EmailSender)
     .useValue(emails)
     .overrideProvider(FileStorage)
     .useValue(files)
+    .overrideProvider(AppConfig)
+    .useValue(config)
     .overrideProvider(getOptionsToken())
     .useValue([{ name: 'auth', ...throttle }])
     .compile();
@@ -101,6 +116,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     nestApp,
     emails,
     files,
+    uploadMaxBytes: config.get('UPLOAD_MAX_BYTES'),
     close: async () => {
       await new Promise<void>((resolve, reject) => {
         http.close((error) => (error === undefined ? resolve() : reject(error)));
@@ -131,5 +147,9 @@ export function api(app: TestApp) {
     patch: (path: string, body: object = {}): SupertestRequest =>
       withOrigin(request(app.baseUrl).patch(path)).send(body),
     delete: (path: string): SupertestRequest => withOrigin(request(app.baseUrl).delete(path)),
+    // Raw bytes rather than JSON: the upload endpoint takes the file as the body itself
+    // (docs/07 §7.3), so nothing may serialize it on the way out.
+    postBinary: (path: string, body: Buffer): SupertestRequest =>
+      withOrigin(request(app.baseUrl).post(path)).type('application/octet-stream').send(body),
   };
 }

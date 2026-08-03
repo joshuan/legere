@@ -2,6 +2,8 @@ import {
   documentDetailDtoSchema,
   documentMarkdownResponseSchema,
   listDocumentsResponseSchema,
+  uploadDocumentResponseSchema,
+  type UploadDocumentResponse,
   reprocessResponseSchema,
   type DocumentDetailDto,
   type DocumentMarkdownResponse,
@@ -12,13 +14,17 @@ import {
   type UpdateDocumentRequest,
 } from '../../../shared/contracts/documents';
 import { okResponseSchema, type OkResponse } from '../../../shared/contracts/users';
-import { apiClient } from '../../shared/api';
+import { apiClient, uploadFile } from '../../shared/api';
 
 // Filters as the grid holds them: everything optional, everything mirrored in the URL (docs/11 §11.3).
 export type DocumentFilters = Omit<ListDocumentsQuery, 'limit' | 'cursor'>;
 
 // Document endpoints (docs/07 §7.3).
 export const documentApi = {
+  // The bytes go straight up; the response is the row the grid can show at once (docs/05 §5.1a).
+  upload: (file: File): Promise<UploadDocumentResponse> =>
+    uploadFile('/api/documents', file, { schema: uploadDocumentResponseSchema }),
+
   list: (filters: DocumentFilters, cursor?: string): Promise<ListDocumentsResponse> =>
     apiClient.get('/api/documents', {
       schema: listDocumentsResponseSchema,

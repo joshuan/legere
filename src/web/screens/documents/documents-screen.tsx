@@ -12,6 +12,7 @@ import { documentApi, documentKeys, type DocumentFilters } from '../../entities/
 import { scanSetApi, scanSetKeys } from '../../entities/scan-set';
 import { DocumentFiltersBar } from '../../features/document-filters';
 import { DocumentCard } from '../../widgets/document-card';
+import { UploadButton, UploadDropZone, useDocumentUpload } from '../../features/document-upload';
 import { useErrorMessage } from '../../shared/lib';
 
 // While anything on screen is still being processed the list refreshes, so a document stops saying
@@ -69,6 +70,7 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
   // Multi-select exists for one reason: turning a stack of photographed pages into a scan set
   // (docs/11 §11.8). It stays off until asked for, so an ordinary click still opens a document.
   const [selecting, setSelecting] = useState(false);
+  const upload = useDocumentUpload();
   const [selected, setSelected] = useState<string[]>([]);
   // Mapped over the selection, not filtered from the grid: the order pages were clicked in is the
   // page order of the set (docs/11 §11.8).
@@ -114,9 +116,18 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Typography.Title level={3} style={{ margin: 0 }}>
-        {t('documents.title')}
-      </Typography.Title>
+      <Row align="middle" justify="space-between" gutter={[16, 16]}>
+        <Col>
+          <Typography.Title level={3} style={{ margin: 0 }}>
+            {t('documents.title')}
+          </Typography.Title>
+        </Col>
+        <Col>
+          {/* Anyone may add a document of their own; the library is the admin's business
+              (docs/11 §11.3). */}
+          <UploadButton onFiles={upload.send} />
+        </Col>
+      </Row>
 
       <Space wrap size="middle">
         <DocumentFiltersBar value={filters} onChange={setFilters} />
@@ -169,7 +180,7 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
           )}
         </Empty>
       ) : (
-        <>
+        <UploadDropZone onFiles={upload.send}>
           <Row gutter={[16, 16]}>
             {items.map((document, index) => (
               <Col
@@ -209,7 +220,7 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
           </Row>
           <div ref={sentinel} style={{ height: 1 }} />
           {documents.isFetchingNextPage && <Spin />}
-        </>
+        </UploadDropZone>
       )}
     </Space>
   );

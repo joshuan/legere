@@ -51,6 +51,7 @@ enum FileRefStatus {
 enum DocumentSource {
   LIBRARY
   DERIVED
+  UPLOAD
 }
 
 enum StepStatus {

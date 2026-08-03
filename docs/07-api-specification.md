@@ -10,7 +10,7 @@ human-readable index and must stay in sync with them.
   `code` is a machine string from §7.2; `message` is an English developer hint (the UI localizes by
   `code`, never shows `message`); `details` is `null` or a structured object (e.g. Zod issues).
 - **Status codes:** 200 (read/update), 201 (create), 204 — never used (bodies always present),
-  401/403/404/409/422/429/500 per §7.2. Unknown `/api/*` route → 404 `NOT_FOUND` (JSON, never HTML).
+  401/403/404/409/413/422/429/500 per §7.2 (413 only for an upload over `UPLOAD_MAX_BYTES`). Unknown `/api/*` route → 404 `NOT_FOUND` (JSON, never HTML).
 - **Auth:** session cookie `sid` (httpOnly). 🔒 = requires session; 🔒ᴬ = requires role ADMIN.
   Mutations additionally pass the fail-closed Origin check ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)).
 - **Pagination:** cursor-based: request `?limit=` (default 30, max 100) `&cursor=` (opaque);
@@ -29,6 +29,7 @@ human-readable index and must stay in sync with them.
 | 404 | `USER_NOT_FOUND`, `LIBRARY_NOT_FOUND`, `DOCUMENT_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `COLLECTION_NOT_FOUND`, `SCANSET_NOT_FOUND`, `INVITE_NOT_FOUND` | resource lookups (incl. soft-deleted) |
 | 409 | `EMAIL_ALREADY_REGISTERED` | registration race |
 | 409 | `LAST_ADMIN` | demote/deactivate/delete last admin |
+| 409 | `DOCUMENT_DUPLICATE` | upload whose content already exists as a document the caller may not read |
 | 409 | `LIBRARY_PATH_CONFLICT` | nested/duplicate library path |
 | 409 | `CATEGORY_SLUG_TAKEN`, `COLLECTION_NAME_TAKEN` | uniqueness |
 | 409 | `SCANSET_INVALID_STATE` | editing/merging in a wrong status |
@@ -94,6 +95,7 @@ human-readable index and must stay in sync with them.
 ### Documents
 | Method & path | Auth | Notes |
 |---------------|------|-------|
+| `POST /api/documents` | 🔒 | **upload**: the file as the raw request body, its name in `X-Legere-Filename` (RFC 5987 or plain). Mime detected from content; `UPLOAD_MAX_BYTES` cap → 413. Deduplicated (ADR-009): identical bytes the caller may read resolve to that document (`200`), identical bytes they may not → `409 DOCUMENT_DUPLICATE`. Otherwise `201` with the new `UPLOAD` document, processing already enqueued |
 | `GET /api/documents` | 🔒 | paginated, newest first; filters: `libraryId?`, `categoryId?`, `availability?` (`AVAILABLE`\|`UNAVAILABLE`), `processing?` (bool), `source?`; only documents the caller can read |
 | `GET /api/documents/:id` | 🔒 | → `DocumentDetailDto` |
 | `PATCH /api/documents/:id` | 🔒 | `{ title?, categoryId? }` per canEditDocumentMeta (03 §3.4); setting categoryId flips `categorySource` to MANUAL (null → NONE) |

@@ -41,7 +41,7 @@ Two distinct storages with opposite rules:
 documents/{documentId}/canonical.pdf   # canonicalized PDF (office → PDF); absent when source is PDF/text/image
 documents/{documentId}/preview.jpg     # first page, max dimension 1600 px, quality 80
 documents/{documentId}/thumb.jpg       # first page, max dimension 400 px, quality 75
-documents/{documentId}/source.pdf      # DERIVED documents only: the merged scan-set PDF (the source itself)
+documents/{documentId}/source.{ext}    # DERIVED and UPLOAD: the document's own bytes — a merged scan-set PDF, or the file a user sent
 ```
 
 - Existence of an object ≡ the corresponding step status is `DONE` — the DB status is authoritative;

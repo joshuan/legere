@@ -44,8 +44,17 @@ export async function wireServer(
   // + global prefix + dispatcher; nestjs-pino remains the Nest application logger.
   server.use('/api', pinoHttp(buildPinoHttpOptions(loadConfig())));
   server.use('/api', cookieParser());
-  server.use('/api', express.json({ limit: '1mb' }));
-  server.use('/api', express.urlencoded({ extended: true }));
+  // The upload route takes the file as the body itself (docs/07 §7.3), so no parser may touch it:
+  // urlencoded would swallow the stream whole — curl without an explicit Content-Type sends exactly
+  // that — leaving the handler an empty request, and body-parser's own size limit would answer 500
+  // long before ours answers 413.
+  const isUpload = (req: Request): boolean => req.method === 'POST' && req.path === '/documents';
+  server.use('/api', (req, res, next) =>
+    isUpload(req) ? next() : express.json({ limit: '1mb' })(req, res, next),
+  );
+  server.use('/api', (req, res, next) =>
+    isUpload(req) ? next() : express.urlencoded({ extended: true })(req, res, next),
+  );
   // Fail-closed CSRF origin check on every mutating /api request (docs/08 §8.4), before Nest sees it.
   server.use('/api', csrfOriginCheck(nestApp.get(AppConfig).get('APP_BASE_URL')));
 

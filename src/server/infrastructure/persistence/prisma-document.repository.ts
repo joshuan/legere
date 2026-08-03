@@ -3,7 +3,11 @@ import { Prisma, type Document as PrismaDocument } from '@prisma/client';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Document } from '../../domain/entities/document';
 import type { DocumentStep } from '../../../shared/contracts/documents';
-import { stepStatusSchema, type StepStatus } from '../../../shared/contracts/enums';
+import {
+  stepStatusSchema,
+  type DocumentSource,
+  type StepStatus,
+} from '../../../shared/contracts/enums';
 import {
   DocumentRepository,
   type CreateDocumentInput,
@@ -72,11 +76,16 @@ function toListItem(row: ListRow): DocumentListItem {
   return {
     document,
     category: row.category,
-    // A DERIVED document keeps its source PDF in the bucket, so it is always available.
+    // A document whose bytes are in the bucket — merged or uploaded — is always available.
     availability:
-      document.source === 'DERIVED' || row._count.fileRefs > 0 ? 'AVAILABLE' : 'UNAVAILABLE',
+      document.source !== 'LIBRARY' || row._count.fileRefs > 0 ? 'AVAILABLE' : 'UNAVAILABLE',
   };
 }
+
+// The two kinds whose bytes we hold ourselves: a scan-set result and an upload. They differ in where
+// they came from and in nothing else the access rule cares about (docs/03 §3.4).
+// Not `as const`: Prisma's `in` filter takes a mutable array, and a readonly tuple does not fit.
+const OWNED_SOURCES: DocumentSource[] = ['DERIVED', 'UPLOAD'];
 
 // The access rule of docs/03 §3.4, expressed once, in SQL, so a page of results never has to be
 // filtered afterwards — and no route can forget to apply it.
@@ -92,11 +101,11 @@ function readableBy(viewer: Viewer): Prisma.DocumentWhereInput {
         source: 'LIBRARY',
         fileRefs: { some: { library: { deletedAt: null, ...visibleLibrary(viewer) } } },
       },
-      // A derived document belongs to whoever made it, plus anyone it was shared with through a
-      // collection (docs/08 §8.5).
-      { source: 'DERIVED', createdById: viewer.id },
+      // A document we hold the bytes for — a scan-set result, an upload — belongs to whoever made it,
+      // plus anyone it was shared with through a collection (docs/08 §8.5).
+      { source: { in: OWNED_SOURCES }, createdById: viewer.id },
       {
-        source: 'DERIVED',
+        source: { in: OWNED_SOURCES },
         collectionItems: {
           some: {
             collection: {
@@ -142,7 +151,7 @@ function filters(query: ListDocumentsInput): Prisma.DocumentWhereInput {
     };
     where.AND = [
       query.availability === 'AVAILABLE'
-        ? { OR: [{ source: 'DERIVED' }, { fileRefs: live }] }
+        ? { OR: [{ source: { in: OWNED_SOURCES } }, { fileRefs: live }] }
         : { source: 'LIBRARY', NOT: { fileRefs: live } },
     ];
   }
@@ -188,7 +197,7 @@ function readableSql(viewer: Viewer): Prisma.Sql {
             )
           )
       ))
-      OR (d.source = 'DERIVED' AND (
+      OR (d.source <> 'LIBRARY' AND (
         d.created_by_id = ${viewer.id}::uuid
         OR EXISTS (
           SELECT 1 FROM collection_items ci

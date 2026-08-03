@@ -10,14 +10,14 @@ describe('artifactKeys', () => {
     expect(artifactKeys.canonicalPdf(documentId)).toBe(`documents/${documentId}/canonical.pdf`);
     expect(artifactKeys.preview(documentId)).toBe(`documents/${documentId}/preview.jpg`);
     expect(artifactKeys.thumbnail(documentId)).toBe(`documents/${documentId}/thumb.jpg`);
-    expect(artifactKeys.derivedSource(documentId)).toBe(`documents/${documentId}/source.pdf`);
+    expect(artifactKeys.source(documentId, 'pdf')).toBe(`documents/${documentId}/source.pdf`);
 
     const prefix = artifactKeys.documentPrefix(documentId);
     for (const key of [
       artifactKeys.canonicalPdf(documentId),
       artifactKeys.preview(documentId),
       artifactKeys.thumbnail(documentId),
-      artifactKeys.derivedSource(documentId),
+      artifactKeys.source(documentId, 'pdf'),
     ]) {
       expect(key.startsWith(prefix)).toBe(true);
     }

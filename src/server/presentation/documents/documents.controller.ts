@@ -1,5 +1,15 @@
-import { Controller, Delete, Get, Patch, Post, Res, UseGuards } from '@nestjs/common';
-import type { Response } from 'express';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Patch,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import type { Request, Response } from 'express';
 import type { Envelope } from '../../../shared/contracts/common';
 import {
   listDocumentsQuerySchema,
@@ -11,6 +21,7 @@ import {
   type ReprocessRequest,
   type ReprocessResponse,
   type UpdateDocumentRequest,
+  type UploadDocumentResponse,
   DocumentMarkdownResponse,
 } from '../../../shared/contracts/documents';
 import type { OkResponse } from '../../../shared/contracts/users';
@@ -29,7 +40,9 @@ import {
   type Download,
 } from '../../application/documents/download-document';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
+import { UploadDocument } from '../../application/documents/upload-document';
 import type { DocumentDetail } from '../../domain/repositories/document.repository';
+import { AppConfig } from '../../infrastructure/config/app-config';
 import { CurrentUser } from '../auth/current-user';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
@@ -37,6 +50,7 @@ import { successEnvelope } from '../http/envelope';
 import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
 import { UuidParam } from '../http/uuid-param.pipe';
 import { CurrentDocument, DocumentAccessGuard } from './document-access.guard';
+import { readUploadBody, uploadFileName } from './read-upload-body';
 
 // Documents (docs/07 §7.3). Guard order: SessionGuard → RolesGuard → DocumentAccessGuard
 // (docs/06 §6.4); the access guard loads the document once and hands it to the route.
@@ -52,7 +66,22 @@ export class DocumentsController {
     private readonly download: DownloadDocumentSource,
     private readonly artifactUrl: GetDocumentArtifactUrl,
     private readonly markdown: GetDocumentMarkdown,
+    private readonly upload: UploadDocument,
+    private readonly config: AppConfig,
   ) {}
+
+  // The file itself is the body; its name rides in a header (docs/07 §7.3). No multipart, no new
+  // dependency, and nothing is buffered before the size has been checked.
+  @Post()
+  @HttpCode(201)
+  async uploadDocument(
+    @CurrentUser() user: User,
+    @Req() req: Request,
+  ): Promise<Envelope<UploadDocumentResponse>> {
+    const fileName = uploadFileName(req);
+    const bytes = await readUploadBody(req, this.config.get('UPLOAD_MAX_BYTES'));
+    return successEnvelope(await this.upload.execute(user, { bytes, fileName }));
+  }
 
   @Get()
   async listDocuments(

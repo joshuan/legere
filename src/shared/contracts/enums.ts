@@ -17,7 +17,10 @@ export type LibraryVisibility = z.infer<typeof libraryVisibilitySchema>;
 export const fileRefStatusSchema = z.enum(['DISCOVERED', 'HASHED', 'MISSING']);
 export type FileRefStatus = z.infer<typeof fileRefStatusSchema>;
 
-export const documentSourceSchema = z.enum(['LIBRARY', 'DERIVED']);
+// Where a document's bytes live and where they came from (docs/03 §3.3.10): a file in a read-only
+// library, a scan-set merge, or a file a person sent from their browser. The last two are ours — they
+// sit in S3 — which is why so much of the product treats them alike.
+export const documentSourceSchema = z.enum(['LIBRARY', 'DERIVED', 'UPLOAD']);
 export type DocumentSource = z.infer<typeof documentSourceSchema>;
 
 export const stepStatusSchema = z.enum(['PENDING', 'DONE', 'FAILED', 'SKIPPED']);

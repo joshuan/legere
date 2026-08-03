@@ -41,6 +41,13 @@ export const configSchema = z.object({
   // of it. This is the stop (docs/05 §5.2): the scan gives up past this many files and says so in
   // the journal instead of spending the night hashing. 0 disables the guard.
   SCAN_MAX_FILES: z.coerce.number().int().nonnegative().default(50_000),
+  // The largest file a user may send from the browser (docs/05 §5.1a). Read while the body streams
+  // in, so an oversized upload is refused rather than buffered.
+  UPLOAD_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(100 * 1024 * 1024),
 
   // S3 (derived artifacts)
   S3_ENDPOINT: z.string().url().default('http://localhost:9000'),

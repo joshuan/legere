@@ -418,8 +418,10 @@ export class HandleDocumentProcess extends JobHandler {
   // Where the document's own bytes live: in the library for a scanned file, in the bucket for a
   // scan-set result (docs/09 §9.1–9.2). Each call opens a fresh stream.
   private async sourceOpener(document: Document): Promise<OpenSource> {
-    if (document.source === 'DERIVED') {
-      return () => this.files.getStream(artifactKeys.derivedSource(document.id));
+    // Everything but a library file keeps its bytes in the bucket — a merged scan set, an upload
+    // (docs/09 §9.2). Only a LIBRARY document sends us back to the volume.
+    if (document.source !== 'LIBRARY') {
+      return () => this.files.getStream(artifactKeys.source(document.id, document.ext));
     }
 
     const ref = await this.fileRefs.findLiveRefForDocument(document.id);

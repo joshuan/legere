@@ -17,6 +17,8 @@ import { Clock } from '../../application/ports/clock';
 import { FileStorage } from '../../application/ports/file-storage';
 import { LibraryReader } from '../../application/ports/library-reader';
 import { JobQueue } from '../../application/ports/job-queue';
+import { MimeDetector } from '../../application/ports/mime-detector';
+import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import { CategoryRepository } from '../../domain/repositories/category.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
@@ -27,6 +29,7 @@ import { UserRepository } from '../../domain/repositories/user.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { SessionGuard } from '../auth/session.guard';
 import { DocumentAccessGuard } from './document-access.guard';
+import { UploadDocument } from '../../application/documents/upload-document';
 import { DocumentsController } from './documents.controller';
 
 function downloadSettings(config: AppConfig): DownloadSettings {
@@ -45,6 +48,17 @@ function downloadSettings(config: AppConfig): DownloadSettings {
       inject: [DocumentRepository],
     },
     { provide: GetDocument, useFactory: (): GetDocument => new GetDocument() },
+    {
+      provide: UploadDocument,
+      useFactory: (
+        documents: DocumentRepository,
+        files: FileStorage,
+        mime: MimeDetector,
+        queue: JobQueue,
+        unitOfWork: UnitOfWork,
+      ): UploadDocument => new UploadDocument(documents, files, mime, queue, unitOfWork),
+      inject: [DocumentRepository, FileStorage, MimeDetector, JobQueue, UnitOfWork],
+    },
     {
       provide: UpdateDocumentMeta,
       useFactory: (

@@ -115,7 +115,7 @@ export class HandleScanSetMerge extends JobHandler {
       // Written after the transaction commits: a half-written object with no document pointing at
       // it is easier to sweep than a document pointing at an object that never arrived.
       if (documentId.created) {
-        await this.files.put(artifactKeys.derivedSource(documentId.id), pdf, 'application/pdf');
+        await this.files.put(artifactKeys.source(documentId.id, 'pdf'), pdf, 'application/pdf');
       }
     } catch (error) {
       // The set stays editable: the user fixes what went wrong and merges again (docs/05 §5.6).

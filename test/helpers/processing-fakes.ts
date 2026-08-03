@@ -101,6 +101,7 @@ export class InMemoryDocumentRepository extends DocumentRepository {
   // Every update in order, so a test can assert what the admin panel would have shown while the
   // pipeline ran — not just the final row.
   readonly updates: Array<{ id: string; update: ProcessingUpdate }> = [];
+  private created = 0;
 
   add(document: Document): Document {
     this.documents.set(document.id, document);
@@ -144,8 +145,25 @@ export class InMemoryDocumentRepository extends DocumentRepository {
     );
   }
 
-  findOrCreateByContentHash(_input: CreateDocumentInput): Promise<DocumentUpsert> {
-    return unused('findOrCreateByContentHash');
+  // The dedup primitive, in memory: known content yields the document that already holds it, new
+  // content creates one (ADR-009).
+  findOrCreateByContentHash(input: CreateDocumentInput): Promise<DocumentUpsert> {
+    const existing = [...this.documents.values()].find(
+      (document) => document.contentHash === input.contentHash && document.deletedAt === null,
+    );
+    if (existing !== undefined) return Promise.resolve({ document: existing, created: false });
+
+    this.created += 1;
+    const document = this.add(
+      documentFixture({
+        ...input,
+        id: `created-${this.created}`,
+        pageCount: null,
+        markdown: null,
+        steps: pendingSteps(),
+      }),
+    );
+    return Promise.resolve({ document, created: true });
   }
 
   countByStepStatus(): Promise<StepStatusCounters> {
@@ -154,8 +172,11 @@ export class InMemoryDocumentRepository extends DocumentRepository {
   listReadable(): Promise<DocumentPage> {
     return unused('listReadable');
   }
-  findReadableById(): Promise<DocumentDetail | null> {
-    return unused('findReadableById');
+  // Whatever a test puts here decides what the viewer may read; absent means "not readable".
+  readable = new Map<string, DocumentDetail>();
+
+  findReadableById(id: string): Promise<DocumentDetail | null> {
+    return Promise.resolve(this.readable.get(id) ?? null);
   }
   listInFolder(): Promise<DocumentPage> {
     return unused('listInFolder');

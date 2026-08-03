@@ -37,6 +37,17 @@ export class NotFoundError extends DomainError {
   }
 }
 
+// A request body larger than the instance accepts (413, docs/07 §7.1). Separate from validation
+// because it is decided while reading the stream, before there is anything to validate.
+export class PayloadTooLargeError extends DomainError {
+  readonly code = 'VALIDATION_FAILED';
+  readonly httpStatus = 413;
+
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 // Authorization failure / deactivated user / CSRF failure (403, docs/07 §7.2).
 export class ForbiddenError extends DomainError {
   readonly code = 'FORBIDDEN';

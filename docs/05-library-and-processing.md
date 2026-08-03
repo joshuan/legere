@@ -13,6 +13,27 @@ The data model here is described conceptually; exact fields/indexes — in 03/04
   writing is impossible even with a bug in the code. All paths are validated against the library root
   (path-traversal protection: `..` and symlinks leading outside the volume are ignored).
 
+## 5.1a. Uploads
+
+Not every document arrives through a library. A signed-in user can send a file from the browser
+(`POST /api/documents`, [`07 §7.3`](./07-api-specification.md)); the bytes go to **S3**, never to the
+library volume, which stays read-only for the whole product (ADR-004).
+
+- The mime type is detected from the content, exactly as during ingest — the browser's `Content-Type`
+  and the file name are hints, not evidence.
+- The content is hashed and deduplicated by the same rule as everything else (ADR-009): identical
+  bytes are one document. When the match is a document the uploader may already read, the upload
+  resolves to it and nothing new is created; when it is one they may not, the upload is refused
+  (`409 DOCUMENT_DUPLICATE`) rather than quietly granting access to somebody else's file. On a
+  self-hosted instance this is a deliberate trade: an admin can see that a duplicate exists, and no
+  library document is ever handed to a user through the back door.
+- The document is created with `source = UPLOAD`, `createdById` = the uploader, the file name as its
+  title, and every pipeline step `PENDING`; `document-process` is enqueued in the same transaction.
+- From that point it is an ordinary document: the same five steps, the same viewer, the same search,
+  the same collections and sharing. The only differences are where the bytes live and who owns it.
+- `UPLOAD_MAX_BYTES` (default 100 MiB) caps a single upload; a larger body is refused with
+  `413`/`VALIDATION_FAILED` before anything is stored.
+
 ## 5.2. Scanning and change detection
 
 - A scan is a queue job (`library-scan`): on cron (the library's interval, default 15 min), via the

@@ -51,7 +51,12 @@ Onboarding when already onboarded → 404 page.
   source (All / From libraries / Created by me). Filters reflect in the URL query.
 - Infinite scroll (`useInfiniteQuery`). Card click → viewer. Empty state (fresh instance): "No
   documents yet. Ask your administrator to add a library." — with a CTA to `/admin/libraries` for
-  admins.
+  admins, and the upload affordance below, which any user can act on.
+- **Upload** (header action, and a drop zone over the grid): picks one or more files and sends each to
+  `POST /api/documents`, showing per-file progress. A finished upload appears in the grid immediately,
+  still processing. Failures are reported per file and keep the rest going: too large
+  (`UPLOAD_MAX_BYTES`), or `DOCUMENT_DUPLICATE` — "this file is already on this instance", which is
+  what deduplication means from the outside.
 
 ## 11.4. Browse (`/browse/:libraryId?path=`)
 

@@ -92,6 +92,54 @@ export async function request<T>(
   return parsed.data;
 }
 
+// The one request that is not JSON: the file itself is the body, and its name rides in a header
+// because a body cannot carry both (docs/07 §7.3).
+export async function uploadFile<T>(
+  path: string,
+  file: File,
+  options: { schema: ZodType<T>; signal?: AbortSignal },
+): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': file.type === '' ? 'application/octet-stream' : file.type,
+        // Percent-encoded: headers are Latin-1, and file names are not.
+        'X-Legere-Filename': encodeURIComponent(file.name),
+      },
+      body: file,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+  } catch {
+    throw new ApiError('NETWORK', 0);
+  }
+
+  const payload: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const parsed = errorBodySchema.safeParse(payload);
+    if (parsed.success) {
+      if (parsed.data.error.code === 'UNAUTHENTICATED') redirectToLogin();
+      throw new ApiError(
+        parsed.data.error.code,
+        response.status,
+        parsed.data.error.details ?? null,
+      );
+    }
+    throw new ApiError('INTERNAL', response.status);
+  }
+
+  if (typeof payload !== 'object' || payload === null || !('data' in payload)) {
+    throw new ApiError('INTERNAL', response.status);
+  }
+
+  const parsed = options.schema.safeParse(payload.data);
+  if (!parsed.success) throw new ApiError('INTERNAL', response.status);
+  return parsed.data;
+}
+
 export const apiClient = {
   get: <T>(path: string, options: RequestOptions<T>): Promise<T> => request('GET', path, options),
   post: <T>(path: string, options: RequestOptions<T>): Promise<T> => request('POST', path, options),

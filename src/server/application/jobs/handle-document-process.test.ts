@@ -228,7 +228,7 @@ describe('HandleDocumentProcess', () => {
         documentFixture({ id: DERIVED_ID, source: 'DERIVED', mimeType: 'application/pdf' }),
       );
       await files.put(
-        artifactKeys.derivedSource(DERIVED_ID),
+        artifactKeys.source(DERIVED_ID, 'pdf'),
         Buffer.from('merged'),
         'application/pdf',
       );

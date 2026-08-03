@@ -8,8 +8,10 @@ export const artifactKeys = {
   preview: (documentId: string): string => `documents/${documentId}/preview.jpg`,
   // First page, THUMB_MAX_DIM.
   thumbnail: (documentId: string): string => `documents/${documentId}/thumb.jpg`,
-  // DERIVED documents only: the merged scan-set PDF, which is the source itself.
-  derivedSource: (documentId: string): string => `documents/${documentId}/source.pdf`,
+  // DERIVED and UPLOAD: the document's own bytes. A merged scan set is always a PDF; an upload keeps
+  // the extension it arrived with, so the key says which (docs/09 §9.2).
+  source: (documentId: string, ext: string): string =>
+    `documents/${documentId}/source.${ext === '' ? 'bin' : ext}`,
   // Everything belonging to one document, for maintenance sweeps.
   documentPrefix: (documentId: string): string => `documents/${documentId}/`,
 } as const;

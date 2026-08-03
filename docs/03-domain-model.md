@@ -36,7 +36,7 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `Theme` | `SYSTEM`, `LIGHT`, `DARK` | |
 | `LibraryVisibility` | `ALL_USERS`, `RESTRICTED` | new libraries default to `RESTRICTED` (fail-closed) |
 | `FileRefStatus` | `DISCOVERED`, `HASHED`, `MISSING` | |
-| `DocumentSource` | `LIBRARY`, `DERIVED` | `DERIVED` = produced by a scan-set merge |
+| `DocumentSource` | `LIBRARY`, `DERIVED`, `UPLOAD` | where the bytes live and where they came from: a file in a read-only library, a scan-set merge, or a file a person sent from their browser. `DERIVED` and `UPLOAD` both keep their bytes in S3 |
 | `StepStatus` | `PENDING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step; "running" is a queue state, not persisted |
 | `CategorySource` | `NONE`, `AUTO`, `MANUAL` | |
 | `ScanSetStatus` | `DRAFT`, `QUEUED`, `PROCESSING`, `DONE`, `FAILED` | |
@@ -198,7 +198,7 @@ The logical unit of content (deduplicated).
 | ext | string | lower-cased original extension, e.g. `pdf` |
 | sizeBytes | bigint | |
 | pageCount | int? | for PDFs (source or canonical) |
-| title | string | initial = file name without extension of the first FileRef (for DERIVED — scan-set name); editable |
+| title | string | initial = file name without extension: of the first FileRef (LIBRARY), of the scan set (DERIVED), of the uploaded file (UPLOAD); editable |
 | markdown | text? | the extracted Markdown representation |
 | searchVector | tsvector | generated from title + markdown (see 04) |
 | canonicalStatus / previewStatus / markdownStatus / categorizationStatus / vectorizationStatus | StepStatus | pipeline step statuses |
@@ -207,25 +207,28 @@ The logical unit of content (deduplicated).
 | ocrUsed | bool | whether Markdown came from OCR |
 | categoryId | uuid? | |
 | categorySource | CategorySource | default `NONE`; `MANUAL` is never overwritten by auto |
-| createdById | uuid? | set for DERIVED documents (the owner) |
+| createdById | uuid? | the owner; set for DERIVED and UPLOAD documents |
 | scanSetId | uuid? | provenance for DERIVED documents |
 | createdAt / updatedAt / deletedAt | | |
 
 **Derived state (computed, not stored):**
 - `availability`: a LIBRARY document is `AVAILABLE` if it has ≥1 `FileRef` with status `HASHED` in an
-  active, non-deleted library; otherwise `UNAVAILABLE`. A DERIVED document is always `AVAILABLE`
-  (its source PDF lives in S3).
+  active, non-deleted library; otherwise `UNAVAILABLE`. DERIVED and UPLOAD documents are always
+  `AVAILABLE` — their bytes are in S3, which is ours and does not go missing behind our back.
 - `processing`: `true` while any step is `PENDING` and prerequisites are not `FAILED`.
 
 **Invariants:**
 - One active document per `contentHash`.
 - A DERIVED document has `createdById` and `scanSetId` set and no `FileRef`s.
+- An UPLOAD document has `createdById` set, no `scanSetId` and no `FileRef`s. It is the only kind a
+  non-admin can create directly, and the read-only library volume is untouched by it (ADR-004).
 - Soft delete of a document (admin) hides it everywhere, removes its chunks from search, and detaches
   it from collections/scan sets logically (items referencing it are hidden, not deleted).
 
 **Artifact keys (deterministic, no DB columns — see 09):**
 `documents/{id}/canonical.pdf`, `documents/{id}/preview.jpg`, `documents/{id}/thumb.jpg`,
-`documents/{id}/source.pdf` (DERIVED only).
+`documents/{id}/source.{ext}` (DERIVED and UPLOAD — the bytes themselves; `.pdf` for a scan-set
+merge, the uploaded file's own extension otherwise).
 
 ### 3.3.11. DocumentChunk
 | Field | Type | Notes |
@@ -320,7 +323,7 @@ canReadDocument(user, doc):
   if doc.source == LIBRARY:
       → any active FileRef of doc lies in an active library L where
           L.visibility == ALL_USERS or LibraryAccess(L, user) exists
-  if doc.source == DERIVED:
+  if doc.source == DERIVED or doc.source == UPLOAD:
       → doc.createdById == user.id
         or doc is an item of an active collection C such that
            C.ownerId == user.id
@@ -328,7 +331,7 @@ canReadDocument(user, doc):
 
 canEditDocumentMeta(user, doc):        # title, category
   → canReadDocument via a library (LIBRARY docs)  — collaborative editing
-  → owner or ADMIN (DERIVED docs)
+  → owner or ADMIN (DERIVED and UPLOAD docs)
 
 canManageCollection(user, c):  c.ownerId == user.id or ADMIN
 canReadCollection(user, c):    owner, ADMIN, or active share (user-specific or instance-wide)
