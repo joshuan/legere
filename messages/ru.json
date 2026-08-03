@@ -362,7 +362,8 @@
     "tabs": {
       "preview": "Просмотр",
       "text": "Текст",
-      "details": "Детали"
+      "details": "Детали",
+      "log": "Лог"
     },
     "steps": {
       "canonical": "Канонический PDF",
@@ -406,7 +407,19 @@
       "reset": "сбросить",
       "editHint": "Изменить — или клавиша E"
     },
-    "addedToCollection": "Добавлено в коллекцию"
+    "addedToCollection": "Добавлено в коллекцию",
+    "log": {
+      "empty": "С этим документом пока ничего не происходило",
+      "stepStarted": "{step} — начало",
+      "stepFinished": "{step} — {status}",
+      "queued": "Поставлен в очередь на обработку",
+      "queuedSteps": "В очередь: {steps}",
+      "created": "Добавлен в Legere — {path}",
+      "fileAttached": "Появилась ещё одна копия документа — {path}",
+      "fileMissing": "Файл пропал из библиотеки — {path}",
+      "metaChanged": "Изменены свойства",
+      "change": "{field}: {from} → {to}"
+    }
   },
   "nav": {
     "documents": "Документы",

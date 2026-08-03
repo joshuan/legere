@@ -67,6 +67,8 @@ files show as unavailable cards. This is the primary "explore what got mounted" 
 
 ## 11.5. Document viewer (`/documents/:id/:tab?`)
 
+Tabs: `preview`, `text`, `log`, `details`.
+
 The open tab is the last segment of the address — `/documents/:id/text` — so a link to a document can
 be a link to its text, and a reload lands where it was left. `/documents/:id` opens the preview; an
 unknown tab is a 404 rather than a guess.
@@ -103,6 +105,11 @@ before the metadata of the thing it names.
   be rewritten. Which step owns which field follows the pipeline (05 §5.5): pages from the preview,
   text/languages/OCR from the parse, place and category from the AI step. Nothing else gets a badge:
   size, type and hash are facts about the file, and no step will ever change them.
+- **`Log`** — the document's history as a timeline, newest first (03 §3.3.18): added, queued, each
+  step started and settled, what a person changed and from what. A failed step carries its message,
+  because the log is where somebody goes when something went wrong; a skipped one carries its
+  reason. Entries the pipeline wrote have no author, which is how "the machine did this" is said.
+  Fetched only when the tab is open — most visits never ask.
 - **Right (sidebar):** title (inline-editable when permitted), category select (all users with
   access; shows "auto" tag when `categorySource=AUTO`), Download source button (disabled +
   tooltip when `UNAVAILABLE`), Add-to-collection select, processing status panel: five steps, one row each

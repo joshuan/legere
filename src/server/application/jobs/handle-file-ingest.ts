@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { DocumentRepository } from '../../domain/repositories/document.repository';
+import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
 import { ContentHash } from '../../domain/value-objects/content-hash';
@@ -27,6 +28,7 @@ export class HandleFileIngest extends JobHandler {
   constructor(
     private readonly fileRefs: FileRefRepository,
     private readonly documents: DocumentRepository,
+    private readonly events: DocumentEventRepository,
     private readonly libraries: LibraryRepository,
     private readonly reader: LibraryReader,
     private readonly mime: MimeDetector,
@@ -99,6 +101,26 @@ export class HandleFileIngest extends JobHandler {
       // default to PENDING in the schema (docs/05 §5.5).
       if (created) {
         await this.queue.enqueueAfterTx(tx, 'document-process', { documentId: document.id });
+        await this.events.record(
+          {
+            documentId: document.id,
+            type: 'CREATED',
+            payload: { source: 'LIBRARY', path: ref.path.value },
+          },
+          tx,
+        );
+        await this.events.record({ documentId: document.id, type: 'QUEUED' }, tx);
+      } else {
+        // A renamed or copied file: the document is not new, but this is how it came to have
+        // another place on disk, and the log is where that is written down (docs/03 §3.3.18).
+        await this.events.record(
+          {
+            documentId: document.id,
+            type: 'FILE_ATTACHED',
+            payload: { path: ref.path.value },
+          },
+          tx,
+        );
       }
     });
   }

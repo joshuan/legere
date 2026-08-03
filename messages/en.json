@@ -362,7 +362,8 @@
     "tabs": {
       "preview": "Preview",
       "text": "Text",
-      "details": "Details"
+      "details": "Details",
+      "log": "Log"
     },
     "steps": {
       "canonical": "Canonical PDF",
@@ -406,7 +407,19 @@
       "reset": "reset",
       "editHint": "Edit — or press E"
     },
-    "addedToCollection": "Added to the collection"
+    "addedToCollection": "Added to the collection",
+    "log": {
+      "empty": "Nothing has happened to this document yet",
+      "stepStarted": "{step} started",
+      "stepFinished": "{step} — {status}",
+      "queued": "Queued for processing",
+      "queuedSteps": "Queued: {steps}",
+      "created": "Added to Legere — {path}",
+      "fileAttached": "Another copy of this document appeared — {path}",
+      "fileMissing": "The file is gone from the library — {path}",
+      "metaChanged": "Metadata changed",
+      "change": "{field}: {from} → {to}"
+    }
   },
   "nav": {
     "documents": "Documents",

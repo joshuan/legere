@@ -10,12 +10,17 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import type { Envelope } from '../../../shared/contracts/common';
+import {
+  paginationQuerySchema,
+  type Envelope,
+  type PaginationQuery,
+} from '../../../shared/contracts/common';
 import {
   listDocumentsQuerySchema,
   reprocessRequestSchema,
   updateDocumentRequestSchema,
   type DocumentDetailDto,
+  type DocumentEventPage,
   type ListDocumentsQuery,
   type ListDocumentsResponse,
   type ReprocessRequest,
@@ -29,6 +34,7 @@ import type { User } from '../../domain/entities/user';
 import {
   DeleteDocument,
   GetDocument,
+  ListDocumentEvents,
   ListDocuments,
   UpdateDocumentMeta,
 } from '../../application/documents/manage-documents';
@@ -63,6 +69,7 @@ export class DocumentsController {
     private readonly updateMeta: UpdateDocumentMeta,
     private readonly remove: DeleteDocument,
     private readonly reprocess: ReprocessDocument,
+    private readonly events: ListDocumentEvents,
     private readonly download: DownloadDocumentSource,
     private readonly artifactUrl: GetDocumentArtifactUrl,
     private readonly markdown: GetDocumentMarkdown,
@@ -121,6 +128,22 @@ export class DocumentsController {
     return successEnvelope(this.markdown.execute(document));
   }
 
+  // The document's history (docs/03 §3.3.18). Guarded like the document itself: whoever may read a
+  // document may read how it came to be what it is.
+  @Get(':id/events')
+  @UseGuards(DocumentAccessGuard)
+  async getEvents(
+    @CurrentDocument() document: DocumentDetail,
+    @ZodQuery(paginationQuerySchema) query: PaginationQuery,
+  ): Promise<Envelope<DocumentEventPage>> {
+    return successEnvelope(
+      await this.events.execute(document.document.id, {
+        limit: query.limit,
+        cursor: query.cursor,
+      }),
+    );
+  }
+
   // The original file: streamed for a library document, a signed URL for a derived one
   // (docs/09 §9.1–9.2).
   @Get(':id/source')
@@ -163,10 +186,11 @@ export class DocumentsController {
   @Post(':id/reprocess')
   @Roles('ADMIN')
   async reprocessDocument(
+    @CurrentUser() user: User,
     @UuidParam('id', 'DOCUMENT_NOT_FOUND', 'Document') id: string,
     @ZodBody(reprocessRequestSchema) body: ReprocessRequest,
   ): Promise<Envelope<ReprocessResponse>> {
-    return successEnvelope(await this.reprocess.execute(id, body.steps));
+    return successEnvelope(await this.reprocess.execute(id, body.steps, user.id));
   }
 }
 

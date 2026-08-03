@@ -15,6 +15,7 @@ import {
   Spin,
   Tabs,
   Tag,
+  Timeline,
   Tooltip,
   Typography,
 } from 'antd';
@@ -29,6 +30,7 @@ import {
   DOCUMENT_STEPS,
   type ResettableField,
   type DocumentDetailDto,
+  type DocumentEventDto,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
 import type { StepStatus } from '../../../shared/contracts/enums';
@@ -161,6 +163,11 @@ export function DocumentViewerScreen({
                     loading={markdown.isPending}
                   />
                 ),
+              },
+              {
+                key: 'log',
+                label: t('viewer.tabs.log'),
+                children: <LogPane id={id} active={active === 'log'} />,
               },
               {
                 key: 'details',
@@ -695,6 +702,91 @@ function DetailsPane({
       )}
     </Space>
   );
+}
+
+// The history of the document (docs/03 §3.3.18): who did what to it, and what the pipeline made of
+// it, newest first. Fetched only when the tab is open — most visits never ask.
+function LogPane({ id, active }: { id: string; active: boolean }) {
+  const t = useTranslations();
+  const events = useQuery({
+    queryKey: documentKeys.events(id),
+    queryFn: () => documentApi.events(id),
+    enabled: active,
+  });
+
+  if (events.isPending) return <Spin />;
+  const items = events.data?.items ?? [];
+  if (items.length === 0) return <Empty description={t('viewer.log.empty')} />;
+
+  return (
+    <Timeline
+      items={items.map((event) => ({
+        color: timelineColor(event),
+        children: (
+          <Space direction="vertical" size={0}>
+            <Typography.Text>{describeEvent(event, t)}</Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {new Date(event.at).toLocaleString()}
+              {event.actor === null ? '' : ` · ${event.actor}`}
+            </Typography.Text>
+            {event.payload.error !== undefined && (
+              <Typography.Text type="danger" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
+                {event.payload.error}
+              </Typography.Text>
+            )}
+          </Space>
+        ),
+      }))}
+    />
+  );
+}
+
+// A failure is the one entry worth finding at a glance in a long log.
+function timelineColor(event: DocumentEventDto): string {
+  if (event.payload.status === 'FAILED') return 'red';
+  if (event.payload.status === 'SKIPPED') return 'gray';
+  if (event.type === 'META_CHANGED') return 'blue';
+  return 'green';
+}
+
+// One sentence per entry, built from the payload each type happens to carry. Written here rather
+// than on the server: it is the reader's language, and the server does not know it (docs/10 §10.3).
+function describeEvent(event: DocumentEventDto, t: ReturnType<typeof useTranslations>): string {
+  const { payload } = event;
+  const step = payload.step === undefined ? '' : t(`viewer.steps.${payload.step}`);
+
+  if (event.type === 'STEP_STARTED') return t('viewer.log.stepStarted', { step });
+  if (event.type === 'STEP_FINISHED') {
+    const status = payload.status ?? '';
+    const reason =
+      payload.reason === undefined ? '' : ` — ${t(`viewer.skipReasons.${payload.reason}`)}`;
+    return `${t('viewer.log.stepFinished', { step, status })}${reason}`;
+  }
+  if (event.type === 'QUEUED') {
+    const steps = (payload.steps ?? []).map((one) => t(`viewer.steps.${one}`)).join(', ');
+    return steps === '' ? t('viewer.log.queued') : t('viewer.log.queuedSteps', { steps });
+  }
+  if (event.type === 'CREATED') return t('viewer.log.created', { path: payload.path ?? '' });
+  if (event.type === 'FILE_ATTACHED') {
+    return t('viewer.log.fileAttached', { path: payload.path ?? '' });
+  }
+  if (event.type === 'FILE_MISSING') {
+    return t('viewer.log.fileMissing', { path: payload.path ?? '' });
+  }
+
+  const changes = Object.entries(payload.changes ?? {})
+    .map(([field, change]) =>
+      t('viewer.log.change', {
+        field: t(`viewer.details.${field}`),
+        from:
+          change.from === null || change.from === undefined || change.from === ''
+            ? '—'
+            : change.from,
+        to: change.to === null || change.to === undefined || change.to === '' ? '—' : change.to,
+      }),
+    )
+    .join('; ');
+  return changes === '' ? t('viewer.log.metaChanged') : changes;
 }
 
 function placeOf(city: string | null, country: string | null): string {

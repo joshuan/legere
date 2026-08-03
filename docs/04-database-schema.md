@@ -304,6 +304,21 @@ model Document {
   @@map("documents")
 }
 
+model DocumentEvent {
+  id         String            @id @default(uuid()) @db.Uuid
+  documentId String            @map("document_id") @db.Uuid
+  type       DocumentEventType
+  actorId    String?           @map("actor_id") @db.Uuid
+  payload    Json              @default("{}")
+  at         DateTime          @default(now()) @db.Timestamptz(6)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  actor    User?    @relation(fields: [actorId], references: [id])
+
+  @@index([documentId, at(sort: Desc)])
+  @@map("document_events")
+}
+
 model DocumentChunk {
   id         String                    @id @default(uuid()) @db.Uuid
   documentId String                    @map("document_id") @db.Uuid

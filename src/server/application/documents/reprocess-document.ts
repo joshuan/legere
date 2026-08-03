@@ -4,6 +4,7 @@ import {
   type ReprocessResponse,
 } from '../../../shared/contracts/documents';
 import { NotFoundError } from '../../domain/errors/domain-error';
+import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { DocumentRepository } from '../../domain/repositories/document.repository';
 import type { JobQueue } from '../ports/job-queue';
 
@@ -12,10 +13,15 @@ import type { JobQueue } from '../ports/job-queue';
 export class ReprocessDocument {
   constructor(
     private readonly documents: DocumentRepository,
+    private readonly events: DocumentEventRepository,
     private readonly queue: JobQueue,
   ) {}
 
-  async execute(documentId: string, steps?: readonly DocumentStep[]): Promise<ReprocessResponse> {
+  async execute(
+    documentId: string,
+    steps?: readonly DocumentStep[],
+    actorId?: string,
+  ): Promise<ReprocessResponse> {
     const document = await this.documents.findById(documentId);
     if (document === null || document.deletedAt !== null) {
       throw new NotFoundError('DOCUMENT_NOT_FOUND', 'Document not found');
@@ -32,6 +38,14 @@ export class ReprocessDocument {
     });
 
     await this.queue.enqueue('document-process', { documentId, steps: requested });
+    // Who asked for it and for which steps: a document that was reprocessed three times is a
+    // document somebody was fighting with, and that is worth being able to see (docs/03 §3.3.18).
+    await this.events.record({
+      documentId,
+      type: 'QUEUED',
+      ...(actorId === undefined ? {} : { actorId }),
+      payload: { steps: [...requested] },
+    });
     return { documentId, steps: [...requested] };
   }
 }

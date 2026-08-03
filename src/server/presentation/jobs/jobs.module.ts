@@ -19,6 +19,7 @@ import { PdfToolbox } from '../../application/ports/pdf-toolbox';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { CategoryRepository } from '../../domain/repositories/category.repository';
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
+import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
@@ -87,16 +88,27 @@ function processingSettings(config: AppConfig): ProcessingSettings {
       useFactory: (
         fileRefs: FileRefRepository,
         documents: DocumentRepository,
+        events: DocumentEventRepository,
         libraries: LibraryRepository,
         reader: LibraryReader,
         mime: MimeDetector,
         queue: JobQueue,
         unitOfWork: UnitOfWork,
       ): HandleFileIngest =>
-        new HandleFileIngest(fileRefs, documents, libraries, reader, mime, queue, unitOfWork),
+        new HandleFileIngest(
+          fileRefs,
+          documents,
+          events,
+          libraries,
+          reader,
+          mime,
+          queue,
+          unitOfWork,
+        ),
       inject: [
         FileRefRepository,
         DocumentRepository,
+        DocumentEventRepository,
         LibraryRepository,
         LibraryReader,
         MimeDetector,
@@ -108,6 +120,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
       provide: HandleDocumentProcess,
       useFactory: (
         documents: DocumentRepository,
+        events: DocumentEventRepository,
         fileRefs: FileRefRepository,
         libraries: LibraryRepository,
         reader: LibraryReader,
@@ -124,6 +137,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
       ): HandleDocumentProcess =>
         new HandleDocumentProcess(
           documents,
+          events,
           fileRefs,
           libraries,
           reader,
@@ -140,6 +154,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         ),
       inject: [
         DocumentRepository,
+        DocumentEventRepository,
         FileRefRepository,
         LibraryRepository,
         LibraryReader,

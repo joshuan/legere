@@ -262,6 +262,27 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 `documents/{id}/source.{ext}` (DERIVED and UPLOAD — the bytes themselves; `.pdf` for a scan-set
 merge, the uploaded file's own extension otherwise).
 
+### 3.3.18. DocumentEvent
+
+The history of one document: how it came to be what it is. The `Document` row carries the *current*
+state of every step; this is the only place that says which run failed, what a value was before
+somebody corrected it, and who corrected it.
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid | |
+| documentId | uuid | cascade on physical delete; a soft-deleted document keeps its log (ADR-015) |
+| type | DocumentEventType | `CREATED`, `FILE_ATTACHED`, `FILE_MISSING`, `QUEUED`, `STEP_STARTED`, `STEP_FINISHED`, `META_CHANGED` |
+| actorId | uuid? | who did it; **null is the pipeline acting on its own** |
+| payload | json | what the entry needs to be readable: `step`, `status`, `reason`, `error`, `steps`, `source`, `path`, `changes` (field → `{from, to}`) |
+| at | timestamptz | |
+
+Read newest first, by whoever may read the document itself. Writing an entry must never be the
+reason an operation fails: a document that processed correctly but could not be written about is
+still a processed document. Every step status the pipeline writes produces an entry, routed through
+one method rather than recorded at each call site — a log is only worth reading if nothing is
+missing from it.
+
 ### 3.3.11. DocumentChunk
 | Field | Type | Notes |
 |-------|------|-------|

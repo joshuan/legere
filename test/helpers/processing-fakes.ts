@@ -51,6 +51,11 @@ import {
 } from '../../src/server/application/ports/document-analyst';
 import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
 import {
+  DocumentEventRepository,
+  type DocumentEventView,
+  type NewDocumentEvent,
+} from '../../src/server/domain/repositories/document-event.repository';
+import {
   UnitOfWork,
   type TransactionHandle,
 } from '../../src/server/application/ports/unit-of-work';
@@ -542,6 +547,23 @@ export class InMemoryDocumentChunkRepository extends DocumentChunkRepository {
 export class ImmediateUnitOfWork extends UnitOfWork {
   run<T>(fn: (tx: TransactionHandle) => Promise<T>): Promise<T> {
     return fn({});
+  }
+}
+
+// The log, in memory: tests assert on what was recorded, in order (docs/03 §3.3.18).
+export class FakeDocumentEventRepository extends DocumentEventRepository {
+  readonly events: NewDocumentEvent[] = [];
+
+  record(event: NewDocumentEvent): Promise<void> {
+    this.events.push(event);
+    return Promise.resolve();
+  }
+
+  listForDocument(
+    documentId: string,
+    query: { limit: number },
+  ): Promise<{ items: DocumentEventView[]; nextCursor: string | null }> {
+    return unused(`listForDocument(${documentId}, ${query.limit})`);
   }
 }
 

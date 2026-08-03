@@ -3,6 +3,7 @@ import { AuthenticateSession } from '../../application/auth/authenticate-session
 import {
   DeleteDocument,
   GetDocument,
+  ListDocumentEvents,
   ListDocuments,
   UpdateDocumentMeta,
 } from '../../application/documents/manage-documents';
@@ -21,6 +22,7 @@ import { MimeDetector } from '../../application/ports/mime-detector';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import { CategoryRepository } from '../../domain/repositories/category.repository';
+import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
@@ -52,20 +54,29 @@ function downloadSettings(config: AppConfig): DownloadSettings {
       provide: UploadDocument,
       useFactory: (
         documents: DocumentRepository,
+        events: DocumentEventRepository,
         files: FileStorage,
         mime: MimeDetector,
         queue: JobQueue,
         unitOfWork: UnitOfWork,
-      ): UploadDocument => new UploadDocument(documents, files, mime, queue, unitOfWork),
-      inject: [DocumentRepository, FileStorage, MimeDetector, JobQueue, UnitOfWork],
+      ): UploadDocument => new UploadDocument(documents, events, files, mime, queue, unitOfWork),
+      inject: [
+        DocumentRepository,
+        DocumentEventRepository,
+        FileStorage,
+        MimeDetector,
+        JobQueue,
+        UnitOfWork,
+      ],
     },
     {
       provide: UpdateDocumentMeta,
       useFactory: (
         documents: DocumentRepository,
         categories: CategoryRepository,
-      ): UpdateDocumentMeta => new UpdateDocumentMeta(documents, categories),
-      inject: [DocumentRepository, CategoryRepository],
+        events: DocumentEventRepository,
+      ): UpdateDocumentMeta => new UpdateDocumentMeta(documents, categories, events),
+      inject: [DocumentRepository, CategoryRepository, DocumentEventRepository],
     },
     {
       provide: DeleteDocument,
@@ -118,10 +129,19 @@ function downloadSettings(config: AppConfig): DownloadSettings {
       inject: [SessionRepository, UserRepository, SessionTokens, Clock],
     },
     {
+      provide: ListDocumentEvents,
+      useFactory: (events: DocumentEventRepository): ListDocumentEvents =>
+        new ListDocumentEvents(events),
+      inject: [DocumentEventRepository],
+    },
+    {
       provide: ReprocessDocument,
-      useFactory: (documents: DocumentRepository, queue: JobQueue): ReprocessDocument =>
-        new ReprocessDocument(documents, queue),
-      inject: [DocumentRepository, JobQueue],
+      useFactory: (
+        documents: DocumentRepository,
+        events: DocumentEventRepository,
+        queue: JobQueue,
+      ): ReprocessDocument => new ReprocessDocument(documents, events, queue),
+      inject: [DocumentRepository, DocumentEventRepository, JobQueue],
     },
   ],
 })

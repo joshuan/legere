@@ -15,6 +15,7 @@ import type {
   DocumentRepository,
   ProcessingUpdate,
 } from '../../domain/repositories/document.repository';
+import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
 import { toBuffer, type BinarySource } from '../ports/binary-source';
@@ -66,6 +67,7 @@ type Canonical =
 export class HandleDocumentProcess extends JobHandler {
   constructor(
     private readonly documents: DocumentRepository,
+    private readonly events: DocumentEventRepository,
     private readonly fileRefs: FileRefRepository,
     private readonly libraries: LibraryRepository,
     private readonly reader: LibraryReader,
@@ -100,7 +102,7 @@ export class HandleDocumentProcess extends JobHandler {
       // (docs/05 §5.5: SKIPPED for 1–3 and 5). Categorization still runs — a title is something to
       // classify — and, just as importantly, no step may be left PENDING: a document with a PENDING
       // step reads as "still processing" forever (docs/03 §3.3.10).
-      await this.documents.updateProcessing(documentId, {
+      await this.write(documentId, {
         steps: onlyRequested(
           {
             canonical: 'SKIPPED',
@@ -127,7 +129,7 @@ export class HandleDocumentProcess extends JobHandler {
     }
 
     // A re-run starts from a clean slate: an error from a previous attempt must not outlive it.
-    await this.documents.updateProcessing(documentId, {
+    await this.write(documentId, {
       steps: onlyRequested(
         { canonical: 'PENDING', preview: 'PENDING', markdown: 'PENDING' },
         requested,
@@ -172,6 +174,34 @@ export class HandleDocumentProcess extends JobHandler {
     }
   }
 
+  // Every write of a step's status, and the log entry that goes with it. Routed through one method
+  // rather than recorded at each call site: there are a dozen of those, and a log is only worth
+  // reading if nothing is missing from it (docs/03 §3.3.18).
+  private async write(documentId: string, update: ProcessingUpdate): Promise<void> {
+    await this.documents.updateProcessing(documentId, update);
+
+    const steps = update.steps ?? {};
+    for (const step of DOCUMENT_STEPS) {
+      const status = steps[step];
+      // PENDING is a re-run clearing the slate, which the QUEUED entry already says; undefined is a
+      // step this write did not touch.
+      if (status === undefined || status === 'PENDING') continue;
+      const reason = update.skipReasons?.[step];
+      await this.events.record({
+        documentId,
+        type: status === 'RUNNING' ? 'STEP_STARTED' : 'STEP_FINISHED',
+        payload: {
+          step,
+          ...(status === 'RUNNING' ? {} : { status }),
+          ...(reason === undefined || reason === null ? {} : { reason }),
+          ...(status === 'FAILED' && update.processingError != null
+            ? { error: update.processingError }
+            : {}),
+        },
+      });
+    }
+  }
+
   // Says out loud that this step is being worked on, then lets the step settle its own outcome.
   // Without it a step that takes minutes — parsing with picture captions, OCR over a long scan, a
   // local model thinking — is indistinguishable from one that has not started, and the panel reads
@@ -182,7 +212,7 @@ export class HandleDocumentProcess extends JobHandler {
     work: () => Promise<T>,
   ): Promise<T> {
     const steps: Partial<DocumentSteps> = { [step]: 'RUNNING' };
-    await this.documents.updateProcessing(documentId, { steps });
+    await this.write(documentId, { steps });
     return work();
   }
 
@@ -194,7 +224,7 @@ export class HandleDocumentProcess extends JobHandler {
     openSource: OpenSource,
   ): Promise<Canonical> {
     if (format !== 'OFFICE') {
-      await this.documents.updateProcessing(document.id, {
+      await this.write(document.id, {
         steps: { canonical: 'SKIPPED' },
         skipReasons: { canonical: 'NOT_NEEDED' },
       });
@@ -207,7 +237,7 @@ export class HandleDocumentProcess extends JobHandler {
         fileName: `${document.title}.${document.ext === '' ? 'bin' : document.ext}`,
       });
       await this.files.put(artifactKeys.canonicalPdf(document.id), pdf, 'application/pdf');
-      await this.documents.updateProcessing(document.id, { steps: { canonical: 'DONE' } });
+      await this.write(document.id, { steps: { canonical: 'DONE' } });
       return { kind: 'written' };
     } catch (error) {
       await this.recordFailure(document.id, 'canonical', error);
@@ -225,7 +255,7 @@ export class HandleDocumentProcess extends JobHandler {
     canonical: Canonical,
   ): Promise<number | null> {
     if (canonical.kind === 'noPreview') {
-      await this.documents.updateProcessing(document.id, {
+      await this.write(document.id, {
         steps: { preview: 'SKIPPED' },
         skipReasons: { preview: 'NOT_NEEDED' },
       });
@@ -235,7 +265,7 @@ export class HandleDocumentProcess extends JobHandler {
     if (canonical.kind === 'failed') {
       // Not a failure of its own: the page never existed to be rendered. The recorded error stays
       // the one from step 1 — replacing a root cause with its consequence helps nobody.
-      await this.documents.updateProcessing(document.id, { steps: { preview: 'FAILED' } });
+      await this.write(document.id, { steps: { preview: 'FAILED' } });
       return null;
     }
 
@@ -260,7 +290,7 @@ export class HandleDocumentProcess extends JobHandler {
 
       await this.files.put(artifactKeys.preview(document.id), preview, 'image/jpeg');
       await this.files.put(artifactKeys.thumbnail(document.id), thumb, 'image/jpeg');
-      await this.documents.updateProcessing(document.id, { steps: { preview: 'DONE' } });
+      await this.write(document.id, { steps: { preview: 'DONE' } });
       return rendered.pageCount;
     } catch (error) {
       await this.recordFailure(document.id, 'preview', error);
@@ -280,7 +310,7 @@ export class HandleDocumentProcess extends JobHandler {
   ): Promise<void> {
     if (canonical.kind === 'failed') {
       // The cause is already recorded against step 1; there is no canonical PDF to read.
-      await this.documents.updateProcessing(document.id, { steps: { markdown: 'FAILED' } });
+      await this.write(document.id, { steps: { markdown: 'FAILED' } });
       return;
     }
 
@@ -295,7 +325,7 @@ export class HandleDocumentProcess extends JobHandler {
       // What the document turned out to be written in — the set a later OCR pass is given
       // (docs/03 §3.3.10). Detected here because this is where the text first exists.
       const detected = detectLanguages(markdown);
-      await this.documents.updateProcessing(document.id, {
+      await this.write(document.id, {
         steps: { markdown: 'DONE' },
         // Empty means "nothing to read", which is different from "not extracted yet"; the column
         // stays null so search and the viewer can tell those apart.
@@ -390,7 +420,7 @@ export class HandleDocumentProcess extends JobHandler {
     const openPdf = this.pdfOpener(document, canonical, openSource);
 
     const pageCount = await this.pdfs.pdfPageCount(await openPdf());
-    await this.documents.updateProcessing(document.id, { pageCount });
+    await this.write(document.id, { pageCount });
     return { page: await this.pdfs.pdfFirstPageJpg(await openPdf()), pageCount };
   }
 
@@ -400,14 +430,14 @@ export class HandleDocumentProcess extends JobHandler {
   private async categorize(document: Document): Promise<void> {
     // 🔒 A category a person chose is never overwritten by a machine (docs/03 §3.3.10).
     if (document.categorySource === 'MANUAL') {
-      await this.documents.updateProcessing(document.id, {
+      await this.write(document.id, {
         steps: { categorization: 'SKIPPED' },
         skipReasons: { categorization: 'MANUAL_CATEGORY' },
       });
       return;
     }
     if (!this.analyst.isConfigured) {
-      await this.documents.updateProcessing(document.id, {
+      await this.write(document.id, {
         steps: { categorization: 'SKIPPED' },
         skipReasons: { categorization: 'NOT_CONFIGURED' },
       });
@@ -428,7 +458,7 @@ export class HandleDocumentProcess extends JobHandler {
       // Second guard against a hallucinated slug: whatever came back has to match a category that
       // actually exists, or the document simply has none (docs/05 §5.5 step 4).
       const chosen = categories.find((category) => category.slug === analysis.categorySlug) ?? null;
-      await this.documents.updateProcessing(document.id, {
+      await this.write(document.id, {
         steps: { categorization: 'DONE' },
         categoryId: chosen?.id ?? null,
         categorySource: chosen === null ? 'NONE' : 'AUTO',
@@ -450,7 +480,7 @@ export class HandleDocumentProcess extends JobHandler {
   // Step 5. Chunk the Markdown, embed the chunks, and replace the document's vectors wholesale.
   private async vectorize(document: Document): Promise<void> {
     if (!this.embeddings.isConfigured) {
-      await this.documents.updateProcessing(document.id, {
+      await this.write(document.id, {
         steps: { vectorization: 'SKIPPED' },
         skipReasons: { vectorization: 'NOT_CONFIGURED' },
       });
@@ -462,7 +492,7 @@ export class HandleDocumentProcess extends JobHandler {
       // Nothing to embed. Any vectors from an earlier run go too, so search cannot return a
       // document by text it no longer has.
       await this.replaceChunks(document.id, []);
-      await this.documents.updateProcessing(document.id, {
+      await this.write(document.id, {
         steps: { vectorization: 'SKIPPED' },
         skipReasons: { vectorization: 'NO_TEXT' },
       });
@@ -490,7 +520,7 @@ export class HandleDocumentProcess extends JobHandler {
           embedding: vectors[index] ?? [],
         })),
       );
-      await this.documents.updateProcessing(document.id, { steps: { vectorization: 'DONE' } });
+      await this.write(document.id, { steps: { vectorization: 'DONE' } });
     } catch (error) {
       await this.recordFailure(document.id, 'vectorization', error);
     }
@@ -545,7 +575,7 @@ export class HandleDocumentProcess extends JobHandler {
     step: 'canonical' | 'preview' | 'markdown' | 'categorization' | 'vectorization',
     error: unknown,
   ): Promise<void> {
-    await this.documents.updateProcessing(documentId, {
+    await this.write(documentId, {
       steps: { [step]: 'FAILED' },
       processingError: error instanceof Error ? error.message : String(error),
       failedStep: step,

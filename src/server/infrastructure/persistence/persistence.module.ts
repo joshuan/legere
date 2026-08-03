@@ -3,6 +3,7 @@ import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { CategoryRepository } from '../../domain/repositories/category.repository';
 import { CollectionRepository } from '../../domain/repositories/collection.repository';
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
+import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
@@ -16,6 +17,7 @@ import { UserRepository } from '../../domain/repositories/user.repository';
 import { PrismaCategoryRepository } from './prisma-category.repository';
 import { PrismaCollectionRepository } from './prisma-collection.repository';
 import { PrismaDocumentChunkRepository } from './prisma-document-chunk.repository';
+import { PrismaDocumentEventRepository } from './prisma-document-event.repository';
 import { PrismaDocumentRepository } from './prisma-document.repository';
 import { PrismaEmailVerificationRepository } from './prisma-email-verification.repository';
 import { PrismaFileRefRepository } from './prisma-file-ref.repository';
@@ -42,6 +44,7 @@ const REPOSITORIES = [
   { provide: ScanRunRepository, useClass: PrismaScanRunRepository },
   { provide: FileRefRepository, useClass: PrismaFileRefRepository },
   { provide: DocumentRepository, useClass: PrismaDocumentRepository },
+  { provide: DocumentEventRepository, useClass: PrismaDocumentEventRepository },
   { provide: DocumentChunkRepository, useClass: PrismaDocumentChunkRepository },
   { provide: CategoryRepository, useClass: PrismaCategoryRepository },
   { provide: CollectionRepository, useClass: PrismaCollectionRepository },
@@ -63,6 +66,7 @@ const REPOSITORIES = [
     ScanRunRepository,
     FileRefRepository,
     DocumentRepository,
+    DocumentEventRepository,
     DocumentChunkRepository,
     CategoryRepository,
     CollectionRepository,

@@ -38,6 +38,18 @@ export type DocumentSource = z.infer<typeof documentSourceSchema>;
 export const stepStatusSchema = z.enum(['PENDING', 'RUNNING', 'DONE', 'FAILED', 'SKIPPED']);
 export type StepStatus = z.infer<typeof stepStatusSchema>;
 
+// What can happen to a document, in the order a person would tell it (docs/03 §3.3.18).
+export const documentEventTypeSchema = z.enum([
+  'CREATED',
+  'FILE_ATTACHED',
+  'FILE_MISSING',
+  'QUEUED',
+  'STEP_STARTED',
+  'STEP_FINISHED',
+  'META_CHANGED',
+]);
+export type DocumentEventType = z.infer<typeof documentEventTypeSchema>;
+
 export const categorySourceSchema = z.enum(['NONE', 'AUTO', 'MANUAL']);
 export type CategorySource = z.infer<typeof categorySourceSchema>;
 

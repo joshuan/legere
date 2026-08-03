@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   documentFixture,
+  FakeDocumentEventRepository,
   ImmediateUnitOfWork,
   InMemoryDocumentRepository,
 } from '../../../../test/helpers/processing-fakes';
@@ -38,14 +39,17 @@ describe('UploadDocument', () => {
   let documents: InMemoryDocumentRepository;
   let files: InMemoryFileStorage;
   let queue: RecordingQueue;
+  let events: FakeDocumentEventRepository;
   let upload: UploadDocument;
 
   beforeEach(() => {
     documents = new InMemoryDocumentRepository();
     files = new InMemoryFileStorage();
     queue = new RecordingQueue();
+    events = new FakeDocumentEventRepository();
     upload = new UploadDocument(
       documents,
+      events,
       files,
       new FileTypeMimeDetector(),
       queue,

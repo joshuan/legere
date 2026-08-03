@@ -54,6 +54,17 @@ enum StepStatus {
   SKIPPED
 }
 
+// What can happen to a document, in the order a person would tell it (docs/03 §3.3.18).
+enum DocumentEventType {
+  CREATED
+  FILE_ATTACHED
+  FILE_MISSING
+  QUEUED
+  STEP_STARTED
+  STEP_FINISHED
+  META_CHANGED
+}
+
 enum CategorySource {
   NONE
   AUTO
@@ -107,6 +118,7 @@ model User {
   collectionShares CollectionShare[]
   scanSets         ScanSet[]
   derivedDocuments Document[]
+  documentEvents   DocumentEvent[]
 
   @@map("users")
 }
@@ -288,6 +300,7 @@ model Document {
   createdBy       User?            @relation(fields: [createdById], references: [id])
   fileRefs        FileRef[]
   chunks          DocumentChunk[]
+  events          DocumentEvent[]
   collectionItems CollectionItem[]
   scanSetItems    ScanSetItem[]
   resultOf        ScanSet?         @relation("ScanSetResult")
@@ -295,6 +308,24 @@ model Document {
   @@index([categoryId])
   @@index([createdAt(sort: Desc)])
   @@map("documents")
+}
+
+model DocumentEvent {
+  id         String            @id @default(uuid()) @db.Uuid
+  documentId String            @map("document_id") @db.Uuid
+  type       DocumentEventType
+  // Who did it; null is the pipeline acting on its own.
+  actorId    String?           @map("actor_id") @db.Uuid
+  // What the event needs to be readable: the step, the values that changed, the error.
+  payload    Json              @default("{}")
+  at         DateTime          @default(now()) @db.Timestamptz(6)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  actor    User?    @relation(fields: [actorId], references: [id])
+
+  // The log is always read for one document, newest first.
+  @@index([documentId, at(sort: Desc)])
+  @@map("document_events")
 }
 
 model DocumentChunk {

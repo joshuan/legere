@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { UploadDocumentResponse } from '../../../shared/contracts/documents';
 import { ConflictError, UnprocessableError } from '../../domain/errors/domain-error';
+import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { DocumentRepository, Viewer } from '../../domain/repositories/document.repository';
 import { ContentHash } from '../../domain/value-objects/content-hash';
 import { toListDto } from './manage-documents';
@@ -27,6 +28,7 @@ export type UploadInput = {
 export class UploadDocument {
   constructor(
     private readonly documents: DocumentRepository,
+    private readonly events: DocumentEventRepository,
     private readonly files: FileStorage,
     private readonly mime: MimeDetector,
     private readonly queue: JobQueue,
@@ -76,6 +78,19 @@ export class UploadDocument {
         // The job commits with the row, so a document that exists is always one the pipeline will
         // run (docs/06 §6.3.4).
         await this.queue.enqueueAfterTx(tx, 'document-process', { documentId: document.id });
+        await this.events.record(
+          {
+            documentId: document.id,
+            type: 'CREATED',
+            actorId: viewer.id,
+            payload: { source: 'UPLOAD', path: input.fileName },
+          },
+          tx,
+        );
+        await this.events.record(
+          { documentId: document.id, type: 'QUEUED', actorId: viewer.id },
+          tx,
+        );
       }
       return document;
     });

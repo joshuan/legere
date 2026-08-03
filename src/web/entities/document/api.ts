@@ -4,8 +4,10 @@ import {
   listDocumentsResponseSchema,
   uploadDocumentResponseSchema,
   type UploadDocumentResponse,
+  documentEventPageSchema,
   reprocessResponseSchema,
   type DocumentDetailDto,
+  type DocumentEventPage,
   type DocumentMarkdownResponse,
   type ListDocumentsQuery,
   type ListDocumentsResponse,
@@ -49,6 +51,9 @@ export const documentApi = {
 
   reprocess: (id: string, body: ReprocessRequest = {}): Promise<ReprocessResponse> =>
     apiClient.post(`/api/documents/${id}/reprocess`, { schema: reprocessResponseSchema, body }),
+
+  events: (id: string): Promise<DocumentEventPage> =>
+    apiClient.get(`/api/documents/${id}/events`, { schema: documentEventPageSchema }),
 };
 
 // The bytes are plain URLs, not fetches: an <img> or <object> points straight at them and the
@@ -64,4 +69,5 @@ export const documentKeys = {
   list: (filters: DocumentFilters) => ['documents', filters] as const,
   detail: (id: string) => ['document', id] as const,
   markdown: (id: string) => ['document', id, 'markdown'] as const,
+  events: (id: string) => ['document', id, 'events'] as const,
 };

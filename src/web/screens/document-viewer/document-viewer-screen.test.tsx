@@ -269,6 +269,51 @@ describe('DocumentViewerScreen', () => {
     await waitFor(() => expect(patched).toEqual({ reset: ['city', 'country'] }));
   });
 
+  it('tells the history of the document, newest first', async () => {
+    server.use(
+      http.get(`/api/documents/${ID}/events`, () =>
+        HttpResponse.json(
+          envelope({
+            items: [
+              {
+                id: 'eeeeeeee-3333-4333-8333-333333333333',
+                type: 'META_CHANGED',
+                at: '2026-08-03T12:00:00.000Z',
+                actor: 'Admin',
+                payload: { changes: { city: { from: 'Podgorica', to: 'Bar' } } },
+              },
+              {
+                id: 'eeeeeeee-2222-4222-8222-222222222222',
+                type: 'STEP_FINISHED',
+                at: '2026-08-03T11:00:00.000Z',
+                actor: null,
+                payload: { step: 'markdown', status: 'FAILED', error: 'Docling failed with 404' },
+              },
+              {
+                id: 'eeeeeeee-1111-4111-8111-111111111111',
+                type: 'CREATED',
+                at: '2026-08-03T10:00:00.000Z',
+                actor: null,
+                payload: { source: 'LIBRARY', path: 'contracts/ticket.pdf' },
+              },
+            ],
+            nextCursor: null,
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
+
+    // A correction reads as what it changed, from what to what.
+    expect(await screen.findByText(/City: Podgorica → Bar/)).toBeInTheDocument();
+    // 🔒 A failure carries the message with it: the log is where you go when something went wrong.
+    expect(screen.getByText('Docling failed with 404')).toBeInTheDocument();
+    expect(screen.getByText(/contracts\/ticket.pdf/)).toBeInTheDocument();
+    // Who did it, where somebody did.
+    expect(screen.getByText(/Admin/)).toBeInTheDocument();
+  });
+
   it('keeps the open tab in the address', async () => {
     renderWithProviders(<DocumentViewerScreen id={ID} />);
 

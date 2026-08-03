@@ -1,11 +1,13 @@
 import type {
   DocumentDetailDto,
+  DocumentEventPage,
   DocumentListDto,
   ListDocumentsQuery,
   ListDocumentsResponse,
   UpdateDocumentRequest,
 } from '../../../shared/contracts/documents';
-import { canEditDocumentMeta, isProcessing } from '../../domain/entities/document';
+import { canEditDocumentMeta, isProcessing, type Document } from '../../domain/entities/document';
+import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { ForbiddenError, NotFoundError } from '../../domain/errors/domain-error';
 import type { CategoryRepository } from '../../domain/repositories/category.repository';
 import type {
@@ -36,10 +38,34 @@ export class GetDocument {
 }
 
 // PATCH /api/documents/:id (docs/07 §7.3): title and category, per canEditDocumentMeta.
+// The history of one document (docs/03 §3.3.18). Access is the document's own: whoever may read it
+// may read how it came to be what it is.
+export class ListDocumentEvents {
+  constructor(private readonly events: DocumentEventRepository) {}
+
+  async execute(
+    documentId: string,
+    query: { limit: number; cursor?: string | undefined },
+  ): Promise<DocumentEventPage> {
+    const page = await this.events.listForDocument(documentId, query);
+    return {
+      items: page.items.map((event) => ({
+        id: event.id,
+        type: event.type,
+        at: event.at.toISOString(),
+        actor: event.actorName,
+        payload: event.payload,
+      })),
+      nextCursor: page.nextCursor,
+    };
+  }
+}
+
 export class UpdateDocumentMeta {
   constructor(
     private readonly documents: DocumentRepository,
     private readonly categories: CategoryRepository,
+    private readonly events: DocumentEventRepository,
   ) {}
 
   async execute(
@@ -98,6 +124,18 @@ export class UpdateDocumentMeta {
     }
 
     const updated = await this.documents.updateMeta(detail.document.id, update);
+
+    // What changed, and who changed it. The values are recorded from before and after rather than
+    // from the request, so a reset reads as the value it restored (docs/03 §3.3.18).
+    const changes = describeChanges(detail.document, updated);
+    if (Object.keys(changes).length > 0) {
+      await this.events.record({
+        documentId: detail.document.id,
+        type: 'META_CHANGED',
+        actorId: viewer.id,
+        payload: { changes },
+      });
+    }
     const category =
       update.categoryId === undefined
         ? detail.category
@@ -168,4 +206,24 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     createdBy: detail.createdBy,
     scanSetId: document.scanSetId,
   };
+}
+
+// Before and after, for the fields a person may edit. Only what actually moved: a log full of
+// "title: Ticket → Ticket" is a log nobody reads (docs/03 §3.3.18).
+function describeChanges(
+  before: Document,
+  after: Document,
+): Record<string, { from?: string | null | undefined; to?: string | null | undefined }> {
+  const changes: Record<string, { from?: string | null; to?: string | null }> = {};
+  if (before.title !== after.title) changes.title = { from: before.title, to: after.title };
+  if (before.categoryId !== after.categoryId) {
+    changes.category = { from: before.categoryId, to: after.categoryId };
+  }
+  if (before.languages.join('|') !== after.languages.join('|')) {
+    changes.languages = { from: before.languages.join(', '), to: after.languages.join(', ') };
+  }
+  if (before.country !== after.country)
+    changes.country = { from: before.country, to: after.country };
+  if (before.city !== after.city) changes.city = { from: before.city, to: after.city };
+  return changes;
 }

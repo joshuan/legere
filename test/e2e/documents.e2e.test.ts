@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
 import {
   documentDetailDtoSchema,
+  documentEventPageSchema,
   listDocumentsResponseSchema,
 } from '../../src/shared/contracts/documents';
 import { createInviteResponseSchema, okResponseSchema } from '../../src/shared/contracts/users';
@@ -602,6 +603,28 @@ describe('Documents (e2e)', () => {
       expect(row.categoryId).toBe(category.id);
       // 🔒 AUTO, not MANUAL: a reset document stops claiming a person chose this (docs/03 §3.3.10).
       expect(row.categorySource).toBe('AUTO');
+    });
+
+    it('writes what a person changed into the document log', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open, title: 'Ticket' });
+
+      await api(app)
+        .patch(`/api/documents/${documentId}`, { city: 'Bar', title: 'Train ticket' })
+        .set('Cookie', adminCookie);
+
+      const res = await api(app)
+        .get(`/api/documents/${documentId}/events`)
+        .set('Cookie', adminCookie);
+
+      const [entry] = expectData(res, documentEventPageSchema).items;
+      expect(entry?.type).toBe('META_CHANGED');
+      // Who, and what it was before — the point of a log is the "before" (docs/03 §3.3.18).
+      expect(entry?.actor).not.toBeNull();
+      expect(entry?.payload.changes).toMatchObject({
+        title: { from: 'Ticket', to: 'Train ticket' },
+        city: { to: 'Bar' },
+      });
     });
 
     it('rejects an empty patch', async () => {

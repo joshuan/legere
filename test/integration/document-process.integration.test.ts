@@ -4,6 +4,7 @@ import { HandleDocumentProcess } from '../../src/server/application/jobs/handle-
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
 import { CategoryRepository } from '../../src/server/domain/repositories/category.repository';
 import { DocumentChunkRepository } from '../../src/server/domain/repositories/document-chunk.repository';
+import { DocumentEventRepository } from '../../src/server/domain/repositories/document-event.repository';
 import { DocumentRepository } from '../../src/server/domain/repositories/document.repository';
 import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../src/server/domain/repositories/library.repository';
@@ -60,6 +61,7 @@ describe('Document processing (integration)', () => {
 
     handler = new HandleDocumentProcess(
       moduleRef.get(DocumentRepository),
+      moduleRef.get(DocumentEventRepository),
       moduleRef.get(FileRefRepository),
       moduleRef.get(LibraryRepository),
       reader,

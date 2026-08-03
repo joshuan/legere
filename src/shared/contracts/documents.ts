@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { paginatedSchema, paginationQuerySchema } from './common';
 import {
   categorySourceSchema,
+  documentEventTypeSchema,
   documentSourceSchema,
   fileRefStatusSchema,
   stepSkipReasonSchema,
@@ -159,6 +160,36 @@ export const updateDocumentRequestSchema = z
     message: 'At least one field must be provided',
   });
 export type UpdateDocumentRequest = z.infer<typeof updateDocumentRequestSchema>;
+
+// One entry of a document's history (docs/03 §3.3.18). The payload is deliberately loose: each type
+// uses a different few fields, and a log must never fail to render because one entry is odd.
+export const documentEventDtoSchema = z.object({
+  id: z.string().uuid(),
+  type: documentEventTypeSchema,
+  at: z.string(),
+  // Null is the pipeline acting on its own.
+  actor: z.string().nullable(),
+  payload: z.object({
+    step: z.string().optional(),
+    status: z.string().optional(),
+    reason: z.string().optional(),
+    error: z.string().optional(),
+    steps: z.array(z.string()).optional(),
+    source: z.string().optional(),
+    library: z.string().optional(),
+    path: z.string().optional(),
+    changes: z
+      .record(z.object({ from: z.string().nullish(), to: z.string().nullish() }))
+      .optional(),
+  }),
+});
+export type DocumentEventDto = z.infer<typeof documentEventDtoSchema>;
+
+export const documentEventPageSchema = z.object({
+  items: z.array(documentEventDtoSchema),
+  nextCursor: z.string().nullable(),
+});
+export type DocumentEventPage = z.infer<typeof documentEventPageSchema>;
 
 // An absent or empty list means the whole pipeline (docs/07 §7.3).
 export const reprocessRequestSchema = z.object({

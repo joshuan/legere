@@ -4,6 +4,7 @@ import {
   documentFixture,
   LIBRARY_ID,
   FakeAnalyst,
+  FakeDocumentEventRepository,
   FakeEmbeddingProvider,
   FakeImageTool,
   FakeDocumentParser,
@@ -36,6 +37,7 @@ const GONE_ID = '44444444-4444-4444-8444-444444444444';
 // by their own suites.
 describe('HandleDocumentProcess', () => {
   let documents: InMemoryDocumentRepository;
+  let events: FakeDocumentEventRepository;
   let fileRefs: InMemoryFileRefRepository;
   let libraries: InMemoryLibraryRepository;
   let reader: StubLibraryReader;
@@ -51,6 +53,7 @@ describe('HandleDocumentProcess', () => {
 
   beforeEach(() => {
     documents = new InMemoryDocumentRepository();
+    events = new FakeDocumentEventRepository();
     fileRefs = new InMemoryFileRefRepository();
     libraries = new InMemoryLibraryRepository();
     reader = new StubLibraryReader();
@@ -74,6 +77,7 @@ describe('HandleDocumentProcess', () => {
 
     handler = new HandleDocumentProcess(
       documents,
+      events,
       fileRefs,
       libraries,
       reader,
@@ -394,6 +398,36 @@ describe('HandleDocumentProcess', () => {
       expect(statuses.indexOf('RUNNING')).toBe(statuses.length - 2);
       expect(statuses.at(-1)).not.toBe('RUNNING');
     }
+  });
+
+  it('writes the history of the run: every step started, every step settled', async () => {
+    givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+    reader.put(SOURCE_PATH, 'Amount due: 1200.');
+
+    await run();
+
+    const markdown = events.events.filter((event) => event.payload?.step === 'markdown');
+    expect(markdown.map((event) => event.type)).toEqual(['STEP_STARTED', 'STEP_FINISHED']);
+    expect(markdown[1]?.payload?.status).toBe('DONE');
+
+    // 🔒 A skip carries its reason into the log, or the log says "SKIPPED" as uselessly as the
+    // panel used to (docs/03 §3.3.10).
+    const canonical = events.events.find(
+      (event) => event.payload?.step === 'canonical' && event.type === 'STEP_FINISHED',
+    );
+    expect(canonical?.payload).toMatchObject({ status: 'SKIPPED', reason: 'NOT_NEEDED' });
+  });
+
+  it('records a failure with the message, not just the status', async () => {
+    givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+    reader.put(SOURCE_PATH, 'text');
+    embeddings.failing = true;
+
+    await run();
+
+    const failed = events.events.find((event) => event.payload?.status === 'FAILED');
+    expect(failed?.payload?.step).toBe('vectorization');
+    expect(failed?.payload?.error).toBeDefined();
   });
 
   describe('categorization (docs/05 §5.5 step 4)', () => {

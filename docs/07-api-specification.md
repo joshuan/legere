@@ -101,6 +101,7 @@ human-readable index and must stay in sync with them.
 | `PATCH /api/documents/:id` | 🔒 | `{ title?, languages?, country?, city?, categoryId? }` per canEditDocumentMeta (03 §3.4); setting categoryId flips `categorySource` to MANUAL (null → NONE). `languages` are BCP-47 tags, `country` ISO 3166-1 alpha-2 (upper-cased on the way in), `city` free text; all three are corrections of what detection guessed (03 §3.3.10). `reset: ('category'\|'languages'\|'country'\|'city')[]` puts fields back to what the pipeline read and, for the category, restores `categorySource=AUTO` — it is applied after the explicit values, so a payload carrying both ends with the reset |
 | `DELETE /api/documents/:id` | 🔒ᴬ | soft delete |
 | `POST /api/documents/:id/reprocess` | 🔒ᴬ | `{ steps?: ('canonical'\|'preview'\|'markdown'\|'categorization'\|'vectorization')[] }` → re-enqueues `document-process` |
+| `GET /api/documents/:id/events` | 🔒 | paginated, newest first → `{ items: DocumentEventDto[], nextCursor }` — the document's history (03 §3.3.18). Same access as the document itself |
 | `GET /api/documents/:id/markdown` | 🔒 | → `{ markdown: string \| null }` |
 | `GET /api/documents/:id/source` | 🔒 | LIBRARY: streams the original file (`Content-Type`, `Content-Disposition: attachment`); DERIVED: 302 → signed URL of `source.pdf`; `DOCUMENT_UNAVAILABLE` if no live ref |
 | `GET /api/documents/:id/preview` | 🔒 | 302 → signed URL of `preview.jpg` (404 `NOT_FOUND` if step not DONE) |
