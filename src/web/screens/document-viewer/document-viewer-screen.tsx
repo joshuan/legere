@@ -347,6 +347,11 @@ function DetailsPane({ document }: { document: DocumentDetailDto }) {
           { label: t('viewer.details.pages'), value: document.pageCount, emphasis: true },
           { label: t('viewer.details.mime'), value: document.mimeType },
           {
+            label: t('viewer.details.languages'),
+            // Empty is honest: there was too little text to tell (docs/03 §3.3.10).
+            value: document.languages.map((language) => displayLanguage(language)).join(', '),
+          },
+          {
             label: t('viewer.details.hash'),
             value: (
               <Typography.Text code copyable={{ text: document.contentHash }}>
@@ -395,4 +400,14 @@ function statusColor(status: StepStatus): string {
 
 function isStep(value: unknown): value is DocumentStep {
   return DOCUMENT_STEPS.some((step) => step === value);
+}
+
+// "ru" → "Russian" in the reader's own language, "sr-Latn" → "Serbian (Latin)". Intl does the work;
+// no table of language names to keep up to date.
+function displayLanguage(tag: string): string {
+  try {
+    return new Intl.DisplayNames([navigator.language], { type: 'language' }).of(tag) ?? tag;
+  } catch {
+    return tag;
+  }
 }

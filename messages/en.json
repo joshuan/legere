@@ -388,6 +388,7 @@
       "size": "Size",
       "pages": "Pages",
       "mime": "Type",
+      "languages": "Languages",
       "hash": "Content hash",
       "created": "Added",
       "ocr": "OCR used",

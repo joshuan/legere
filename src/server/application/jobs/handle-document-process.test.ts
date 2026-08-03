@@ -6,6 +6,7 @@ import {
   FakeClassifier,
   FakeEmbeddingProvider,
   FakeImageTool,
+  FakeDocumentParser,
   FakePdfToolbox,
   ImmediateUnitOfWork,
   InMemoryCategoryRepository,
@@ -40,6 +41,7 @@ describe('HandleDocumentProcess', () => {
   let reader: StubLibraryReader;
   let files: InMemoryFileStorage;
   let pdfs: FakePdfToolbox;
+  let parser: FakeDocumentParser;
   let images: FakeImageTool;
   let categories: InMemoryCategoryRepository;
   let classifier: FakeClassifier;
@@ -54,6 +56,7 @@ describe('HandleDocumentProcess', () => {
     reader = new StubLibraryReader();
     files = new InMemoryFileStorage();
     pdfs = new FakePdfToolbox();
+    parser = new FakeDocumentParser();
     images = new FakeImageTool();
     pdfs.defaultMarkdown = TEXT_LAYER;
     // What OCR produces, so an OCR'd document reads differently from one with a text layer.
@@ -76,6 +79,7 @@ describe('HandleDocumentProcess', () => {
       reader,
       files,
       pdfs,
+      parser,
       images,
       categories,
       classifier,
@@ -684,6 +688,49 @@ describe('HandleDocumentProcess', () => {
       // Never asked for, never written.
       expect(document.steps.markdown).toBe('PENDING');
       expect(classifier.calls).toEqual([]);
+    });
+
+    it('parses through Docling when it is configured, and reads its languages back', async () => {
+      givenDocument({ mimeType: 'application/pdf' });
+      parser.configured = true;
+      parser.markdown =
+        '## Договор оказания услуг\n\nНастоящий договор заключён между сторонами третьего ' +
+        'августа две тысячи двадцать шестого года и вступает в силу с момента подписания. ' +
+        'Исполнитель обязуется обеспечить сохранность документов и ежемесячную отчётность.';
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.markdown).toBe('DONE');
+      // The structure the parser recovered survives into the column — headings and all.
+      expect(document.markdown).toContain('## Договор');
+      // 🔒 And the document now knows what it is written in, which is what a later OCR pass is given.
+      expect(document.languages).toEqual(['ru']);
+      // A PDF with its own text is read, never recognised: no OCR languages were asked for.
+      expect(parser.calls).toEqual([{ ocrLanguages: [] }]);
+    });
+
+    it("gives OCR the document's own languages once they are known", async () => {
+      givenDocument({ mimeType: 'image/jpeg', ext: 'jpg', languages: ['ru', 'sr-Latn'] });
+      parser.configured = true;
+      parser.markdown = 'Договор / Ugovor';
+
+      await run();
+
+      // BCP-47 in the row, tesseract codes on the wire — `srp_latn`, not `srp`, or every diacritic
+      // is lost (docs/03 §3.3.10).
+      expect(parser.calls).toEqual([{ ocrLanguages: ['rus', 'srp_latn'] }]);
+    });
+
+    it('falls back to the instance languages when the document has none yet', async () => {
+      givenDocument({ mimeType: 'image/jpeg', ext: 'jpg' });
+      parser.configured = true;
+      parser.markdown = 'x';
+
+      await run();
+
+      // The instance default from ProcessingSettings, exactly as configured.
+      expect(parser.calls).toEqual([{ ocrLanguages: ['rus', 'eng'] }]);
     });
 
     it('rejects a step name the pipeline does not have', async () => {

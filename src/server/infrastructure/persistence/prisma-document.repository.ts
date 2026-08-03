@@ -49,6 +49,7 @@ function toDomain(row: PrismaDocument): Document {
     },
     processingError: row.processingError,
     skipReasons: toSkipReasons(row.skipReasons),
+    languages: row.languages,
     failedStep: row.failedStep,
     ocrUsed: row.ocrUsed,
     categoryId: row.categoryId,
@@ -348,6 +349,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
           : { categorizationStatus: steps.categorization }),
         ...(steps.vectorization === undefined ? {} : { vectorizationStatus: steps.vectorization }),
         ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
+        ...(update.languages === undefined ? {} : { languages: update.languages }),
         ...(update.markdown === undefined ? {} : { markdown: update.markdown }),
         ...(update.ocrUsed === undefined ? {} : { ocrUsed: update.ocrUsed }),
         ...(update.processingError === undefined

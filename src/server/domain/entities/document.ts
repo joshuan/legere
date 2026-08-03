@@ -35,6 +35,8 @@ export type Document = {
   processingError: string | null;
   // Why each SKIPPED step was skipped (docs/03 §3.3.10); a step that ran has no entry.
   skipReasons: SkipReasons;
+  // BCP-47 tags, most likely first; empty when there was too little text to tell (docs/03 §3.3.10).
+  languages: string[];
   failedStep: string | null;
   ocrUsed: boolean;
   categoryId: string | null;

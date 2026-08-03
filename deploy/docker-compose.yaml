@@ -24,6 +24,7 @@ services:
       db: { condition: service_healthy }
       minio-init: { condition: service_completed_successfully }
       stirling: { condition: service_started }
+      docling: { condition: service_started }
     environment:
       NODE_ENV: production
       PORT: 80
@@ -34,6 +35,7 @@ services:
       DATABASE_URL: postgresql://legere:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/legere?schema=public
       LIBRARY_ROOT: /library
       STIRLING_URL: http://stirling:8080
+      DOCLING_URL: ${DOCLING_URL-http://docling:5001}
       # The server reaches MinIO inside this network; the browser reaches it through the published
       # port. A presigned URL is only valid for the host it was signed against, hence both.
       S3_ENDPOINT: http://minio:9000
@@ -91,6 +93,17 @@ services:
     environment:
       SECURITY_ENABLELOGIN: 'false'
       SYSTEM_ENABLEANALYTICS: 'false'
+
+  # Layout-aware parsing: headings, lists and real tables instead of a wall of text, and OCR that
+  # actually reads Cyrillic (docs/05 §5.5). This is the heaviest image in the stack — a few
+  # gigabytes — and the one thing you can drop if disk is scarce: unset DOCLING_URL above and Legere
+  # falls back to Stirling's converter, which reads text but flattens structure.
+  docling:
+    image: ghcr.io/joshuan/legere-docling:${LEGERE_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      # Models are baked into the image; nothing is fetched at runtime.
+      DOCLING_SERVE_ENABLE_UI: 'false'
 
   minio:
     image: minio/minio

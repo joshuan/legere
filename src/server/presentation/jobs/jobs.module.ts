@@ -8,6 +8,7 @@ import type { ProcessingSettings } from '../../application/jobs/processing-setti
 import { Clock } from '../../application/ports/clock';
 import { DocumentClassifier } from '../../application/ports/document-classifier';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
+import { DocumentParser } from '../../application/ports/document-parser';
 import { FileStorage } from '../../application/ports/file-storage';
 import { MetricsCache } from '../../application/ports/metrics-cache';
 import { ImageTool } from '../../application/ports/image-tool';
@@ -112,6 +113,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         reader: LibraryReader,
         files: FileStorage,
         pdfs: PdfToolbox,
+        parser: DocumentParser,
         images: ImageTool,
         categories: CategoryRepository,
         classifier: DocumentClassifier,
@@ -127,6 +129,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           reader,
           files,
           pdfs,
+          parser,
           images,
           categories,
           classifier,
@@ -142,6 +145,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         LibraryReader,
         FileStorage,
         PdfToolbox,
+        DocumentParser,
         ImageTool,
         CategoryRepository,
         DocumentClassifier,
@@ -162,6 +166,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         files: FileStorage,
         images: ImageTool,
         pdfs: PdfToolbox,
+        parser: DocumentParser,
         queue: JobQueue,
         unitOfWork: UnitOfWork,
       ): HandleScanSetMerge =>
@@ -186,6 +191,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         FileStorage,
         ImageTool,
         PdfToolbox,
+        DocumentParser,
         JobQueue,
         UnitOfWork,
       ],

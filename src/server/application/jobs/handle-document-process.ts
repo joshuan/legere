@@ -6,6 +6,7 @@ import {
 } from '../../../shared/contracts/documents';
 import type { Document } from '../../domain/entities/document';
 import { chunkMarkdown } from '../../domain/entities/document-chunks';
+import { detectLanguages } from '../../domain/entities/document-language';
 import { classifyFormat, type DocumentFormat } from '../../domain/entities/document-format';
 import { decodeText, hasUsableTextLayer, tidyMarkdown } from '../../domain/entities/document-text';
 import type { CategoryRepository } from '../../domain/repositories/category.repository';
@@ -19,6 +20,7 @@ import type { EmbeddingProvider } from '../ports/embedding-provider';
 import type { FileStorage } from '../ports/file-storage';
 import type { ImageTool } from '../ports/image-tool';
 import type { LibraryReader } from '../ports/library-reader';
+import type { DocumentParser } from '../ports/document-parser';
 import type { PdfToolbox } from '../ports/pdf-toolbox';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import { artifactKeys } from '../storage/artifact-keys';
@@ -66,6 +68,7 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly reader: LibraryReader,
     private readonly files: FileStorage,
     private readonly pdfs: PdfToolbox,
+    private readonly parser: DocumentParser,
     private readonly images: ImageTool,
     private readonly categories: CategoryRepository,
     private readonly classifier: DocumentClassifier,
@@ -268,6 +271,9 @@ export class HandleDocumentProcess extends JobHandler {
         // stays null so search and the viewer can tell those apart.
         markdown: markdown === '' ? null : markdown,
         ocrUsed,
+        // What the document turned out to be written in — the set a later OCR pass is given
+        // (docs/03 §3.3.10). Detected here because this is where the text first exists.
+        languages: detectLanguages(markdown),
       });
     } catch (error) {
       await this.recordFailure(document.id, 'markdown', error);
@@ -277,6 +283,33 @@ export class HandleDocumentProcess extends JobHandler {
   // A PDF is trusted to carry its own text only when there is enough of it: below
   // PDF_TEXT_MIN_CHARS_PER_PAGE on average the file is a scan wearing a thin text layer, and OCR is
   // what actually makes it readable (docs/05 §5.9).
+  // Docling reads layout — headings, lists, real tables — and is the parser whenever it is
+  // configured; Stirling's converter is the fallback for an instance running without it, and reads
+  // text without structure (docs/05 §5.5).
+  private async parseMarkdown(
+    source: BinarySource,
+    ocrLanguages: readonly string[],
+  ): Promise<string> {
+    if (this.parser.isConfigured) {
+      // Docling recognises and parses in one pass, with the languages it was given.
+      return tidyMarkdown(await this.parser.toMarkdown(source, { ocrLanguages }));
+    }
+
+    // The fallback needs two steps: Stirling OCRs into a searchable PDF, then converts it. Skipping
+    // the first would silently leave every scan without any text at all.
+    const readable =
+      ocrLanguages.length === 0 ? source : await this.pdfs.ocrPdf(source, ocrLanguages);
+    return tidyMarkdown(await this.pdfs.pdfToMarkdown(readable));
+  }
+
+  // Which languages the OCR pass is given: the document's own once they are known, the instance
+  // default before that. A wrong set costs accuracy, so a narrow one beats a broad one
+  // (docs/03 §3.3.10).
+  private ocrLanguagesFor(document: Document): readonly string[] {
+    const own = document.languages.flatMap(toTesseractCodes);
+    return own.length > 0 ? own : this.settings.ocrLanguages;
+  }
+
   private async readPdfText(
     document: Document,
     canonical: Canonical,
@@ -285,7 +318,7 @@ export class HandleDocumentProcess extends JobHandler {
   ): Promise<{ markdown: string; ocrUsed: boolean }> {
     const openPdf = this.pdfOpener(document, canonical, openSource);
 
-    const extracted = tidyMarkdown(await this.pdfs.pdfToMarkdown(await openPdf()));
+    const extracted = await this.parseMarkdown(await openPdf(), []);
     // The preview step has usually recorded the page count by now; when it has not — a preview that
     // failed, a reprocess of this step alone — one more call answers it rather than guessing.
     const pageCount =
@@ -294,9 +327,9 @@ export class HandleDocumentProcess extends JobHandler {
       return { markdown: extracted, ocrUsed: false };
     }
 
-    const searchable = await this.pdfs.ocrPdf(await openPdf(), this.settings.ocrLanguages);
+    // No usable text layer: the parser recognises the page instead of reading it.
     return {
-      markdown: tidyMarkdown(await this.pdfs.pdfToMarkdown(searchable)),
+      markdown: await this.parseMarkdown(await openPdf(), this.ocrLanguagesFor(document)),
       ocrUsed: true,
     };
   }
@@ -310,9 +343,8 @@ export class HandleDocumentProcess extends JobHandler {
     const asPdf = await this.pdfs.imagesToPdf([
       { body: await openSource(), fileName: `${document.title}.${document.ext || 'jpg'}` },
     ]);
-    const searchable = await this.pdfs.ocrPdf(asPdf, this.settings.ocrLanguages);
     return {
-      markdown: tidyMarkdown(await this.pdfs.pdfToMarkdown(searchable)),
+      markdown: await this.parseMarkdown(asPdf, this.ocrLanguagesFor(document)),
       ocrUsed: true,
     };
   }
@@ -517,4 +549,29 @@ function alreadyCanonical(document: Document, format: DocumentFormat): Canonical
   if (format !== 'OFFICE') return { kind: 'sourceIsUsable' };
   // An office document with no canonical PDF has nothing for the later steps to read.
   return document.steps.canonical === 'DONE' ? { kind: 'written' } : { kind: 'failed' };
+}
+
+// BCP-47 as the product stores it → the codes tesseract knows. Serbian is the case that needs the
+// script: `srp` is Cyrillic, `srp_latn` is not, and giving the wrong one costs every diacritic.
+const TESSERACT_CODES: Readonly<Record<string, string>> = {
+  ru: 'rus',
+  en: 'eng',
+  uk: 'ukr',
+  bg: 'bul',
+  de: 'deu',
+  fr: 'fra',
+  es: 'spa',
+  it: 'ita',
+  pl: 'pol',
+  tr: 'tur',
+  'sr-Cyrl': 'srp',
+  'sr-Latn': 'srp_latn',
+  sr: 'srp',
+  hr: 'srp_latn',
+  bs: 'srp_latn',
+};
+
+function toTesseractCodes(language: string): string[] {
+  const code = TESSERACT_CODES[language];
+  return code === undefined ? [] : [code];
 }

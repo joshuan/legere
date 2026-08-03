@@ -66,7 +66,13 @@ export const configSchema = z.object({
   // Stirling-PDF
   STIRLING_URL: z.string().url().default('http://localhost:8080'),
 
+  // Docling: layout-aware parsing (docs/05 §5.5). Empty = the pipeline falls back to Stirling's own
+  // converter, which reads text but flattens structure.
+  DOCLING_URL: z.string().default(''),
+
   // processing
+  // Tesseract codes for the first OCR pass, before a document's own languages are known. Written
+  // the way tesseract takes them on the command line (docs/03 §3.3.10).
   OCR_LANGUAGES: z.string().default('rus+eng'),
   PDF_TEXT_MIN_CHARS_PER_PAGE: z.coerce.number().int().nonnegative().default(32),
   PREVIEW_MAX_DIM: z.coerce.number().int().positive().default(1600),

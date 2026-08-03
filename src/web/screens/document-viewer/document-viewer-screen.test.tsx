@@ -28,6 +28,7 @@ const detail: DocumentDetailDto = {
   ocrUsed: true,
   categorySource: 'NONE',
   skipReasons: {},
+  languages: ['ru', 'sr-Latn'],
   steps: {
     canonical: 'SKIPPED',
     preview: 'DONE',

@@ -17,6 +17,7 @@ import {
   FakeClassifier,
   FakeEmbeddingProvider,
   FakeImageTool,
+  FakeDocumentParser,
   FakePdfToolbox,
   StubLibraryReader,
 } from '../helpers/processing-fakes';
@@ -31,6 +32,7 @@ describe('Document processing (integration)', () => {
   let handler: HandleDocumentProcess;
   let files: InMemoryFileStorage;
   let pdfs: FakePdfToolbox;
+  let parser: FakeDocumentParser;
   let classifier: FakeClassifier;
   let embeddings: FakeEmbeddingProvider;
   let reader: StubLibraryReader;
@@ -46,6 +48,7 @@ describe('Document processing (integration)', () => {
 
     files = new InMemoryFileStorage();
     pdfs = new FakePdfToolbox();
+    parser = new FakeDocumentParser();
     pdfs.defaultMarkdown = 'Invoice 2026-01 for consulting services, payable within thirty days';
     classifier = new FakeClassifier();
     embeddings = new FakeEmbeddingProvider();
@@ -62,6 +65,7 @@ describe('Document processing (integration)', () => {
       reader,
       files,
       pdfs,
+      parser,
       new FakeImageTool(),
       moduleRef.get(CategoryRepository),
       classifier,

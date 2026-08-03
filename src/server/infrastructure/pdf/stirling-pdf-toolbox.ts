@@ -57,7 +57,7 @@ export class StirlingPdfToolbox extends PdfToolbox {
     const form = new FormData();
     form.append('fileInput', await blobOf(source), 'input.pdf');
     const bytes = await this.postForBytes(ENDPOINTS.pdfToMarkdown, form);
-    return stripImagePlaceholders(bytes.toString('utf8'));
+    return unwrapLayoutTables(stripImagePlaceholders(bytes.toString('utf8')));
   }
 
   async ocrPdf(source: BinarySource, languages: readonly string[]): Promise<Buffer> {
@@ -139,4 +139,58 @@ function truncate(text: string, max = 500): string {
 // threshold and the document would never be sent to OCR (docs/05 §5.5).
 function stripImagePlaceholders(markdown: string): string {
   return markdown.replace(/<image redacted:[^>]*>/g, '');
+}
+
+// Beyond this a table cell is not data but a page laid out with table borders — tickets, invoices
+// and forms are routinely built that way, and the converter faithfully reports the whole page as one
+// two-cell table. Real tabular cells are short: a station name, a time, a seat number.
+const MAX_DATA_CELL_CHARS = 160;
+
+// Markdown tables the converter invented for a page whose *layout* is a table become paragraphs
+// again, in reading order. A genuine table — short cells — is left exactly as it is, because that
+// structure is worth keeping (docs/05 §5.5).
+function unwrapLayoutTables(markdown: string): string {
+  const out: string[] = [];
+  let block: string[] = [];
+
+  const flush = (): void => {
+    if (block.length > 0) out.push(...renderTableBlock(block));
+    block = [];
+  };
+
+  for (const line of markdown.split('\n')) {
+    if (line.trimStart().startsWith('|')) block.push(line);
+    else {
+      flush();
+      out.push(line);
+    }
+  }
+  flush();
+
+  return out.join('\n');
+}
+
+function renderTableBlock(rows: string[]): string[] {
+  const cells = rows.filter((row) => !isSeparatorRow(row)).map(splitRow);
+  const longest = Math.max(0, ...cells.flat().map((cell) => cell.length));
+  if (longest <= MAX_DATA_CELL_CHARS) return rows;
+
+  // Row by row, cell by cell — the order the text was read in — with a blank line between, so what
+  // was a wall of table markup reads as paragraphs.
+  return cells
+    .flat()
+    .filter((cell) => cell !== '')
+    .flatMap((cell) => [cell, '']);
+}
+
+function isSeparatorRow(row: string): boolean {
+  return /^\s*\|[\s:|-]+\|?\s*$/.test(row);
+}
+
+function splitRow(row: string): string[] {
+  return row
+    .trim()
+    .replace(/^\||\|$/g, '')
+    .split('|')
+    .map((cell) => cell.trim());
 }

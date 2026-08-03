@@ -276,6 +276,7 @@ model Document {
   vectorizationStatus  StepStatus     @default(PENDING) @map("vectorization_status")
   processingError      String?        @map("processing_error")
   skipReasons          Json           @default("{}") @map("skip_reasons")
+  languages            String[]       @map("languages")
   failedStep           String?        @map("failed_step")
   ocrUsed              Boolean        @default(false) @map("ocr_used")
   categoryId           String?        @map("category_id") @db.Uuid

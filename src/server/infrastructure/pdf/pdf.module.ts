@@ -1,6 +1,8 @@
 import { Global, Module } from '@nestjs/common';
 import { ImageTool } from '../../application/ports/image-tool';
+import { DocumentParser } from '../../application/ports/document-parser';
 import { PdfToolbox } from '../../application/ports/pdf-toolbox';
+import { DoclingParser } from './docling-parser';
 import { SharpImageTool } from './sharp-image-tool';
 import { StirlingPdfToolbox } from './stirling-pdf-toolbox';
 
@@ -12,7 +14,8 @@ import { StirlingPdfToolbox } from './stirling-pdf-toolbox';
   providers: [
     { provide: PdfToolbox, useClass: StirlingPdfToolbox },
     { provide: ImageTool, useClass: SharpImageTool },
+    { provide: DocumentParser, useClass: DoclingParser },
   ],
-  exports: [PdfToolbox, ImageTool],
+  exports: [PdfToolbox, ImageTool, DocumentParser],
 })
 export class PdfModule {}

@@ -133,6 +133,7 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     categorySource: document.categorySource,
     steps: document.steps,
     skipReasons: document.skipReasons,
+    languages: document.languages,
     processingError: document.processingError,
     failedStep: document.failedStep,
     fileRefs: detail.fileRefs,

@@ -1,4 +1,8 @@
 import { Readable } from 'node:stream';
+import {
+  DocumentParser,
+  type ParseOptions,
+} from '../../src/server/application/ports/document-parser';
 import type { Document, DocumentSteps } from '../../src/server/domain/entities/document';
 import { pendingSteps } from '../../src/server/domain/entities/document';
 import type { FileRef } from '../../src/server/domain/entities/file-ref';
@@ -85,6 +89,7 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     processingError: null,
     failedStep: null,
     skipReasons: {},
+    languages: [],
     ocrUsed: false,
     categoryId: null,
     categorySource: 'NONE',
@@ -122,6 +127,7 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       ...existing,
       steps,
       ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
+      ...(update.languages === undefined ? {} : { languages: update.languages }),
       ...(update.markdown === undefined ? {} : { markdown: update.markdown }),
       ...(update.ocrUsed === undefined ? {} : { ocrUsed: update.ocrUsed }),
       ...(update.processingError === undefined ? {} : { processingError: update.processingError }),
@@ -412,6 +418,23 @@ export type ResizeCall = { maxDim: number; quality: number | undefined; input: s
 
 // Reports the resize requests rather than doing image work: the pipeline's job is to ask for the
 // configured dimensions, and sharp itself is covered by its own tests.
+// Not configured by default: the suites that predate Docling describe the fallback path, and the
+// ones that care set `configured` and read `calls`.
+export class FakeDocumentParser extends DocumentParser {
+  configured = false;
+  markdown = '';
+  readonly calls: Array<{ ocrLanguages: readonly string[] }> = [];
+
+  get isConfigured(): boolean {
+    return this.configured;
+  }
+
+  toMarkdown(_source: BinarySource, options: ParseOptions): Promise<string> {
+    this.calls.push({ ocrLanguages: options.ocrLanguages });
+    return Promise.resolve(this.markdown);
+  }
+}
+
 export class FakeImageTool extends ImageTool {
   readonly resizes: ResizeCall[] = [];
   // What was handed to trim(), so a scan set's crop mode is observable.

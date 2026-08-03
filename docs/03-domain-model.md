@@ -204,6 +204,7 @@ The logical unit of content (deduplicated).
 | canonicalStatus / previewStatus / markdownStatus / categorizationStatus / vectorizationStatus | StepStatus | pipeline step statuses |
 | processingError | string? | last error message (truncated to 2000 chars) |
 | skipReasons | json | why a step is `SKIPPED`, per step — see below; empty for steps that ran |
+| languages | string[] | BCP-47 tags of what the document is written in, most likely first — `['ru']`, `['ru','sr-Latn']`. Detected from the extracted text, editable; empty when there was too little text to tell |
 | failedStep | string? | which step produced `processingError` |
 | ocrUsed | bool | whether Markdown came from OCR |
 | categoryId | uuid? | |
@@ -211,6 +212,14 @@ The logical unit of content (deduplicated).
 | createdById | uuid? | the owner; set for DERIVED and UPLOAD documents |
 | scanSetId | uuid? | provenance for DERIVED documents |
 | createdAt / updatedAt / deletedAt | | |
+
+**Languages.** A document may be written in more than one — a bilingual contract has parallel
+columns — so this is an array, most likely first. It is detected from the extracted text (an n-gram
+detector plus the scripts actually present, offline, no model), and the script subtag is carried
+where the same language exists in two of them: Serbian is `sr-Cyrl` or `sr-Latn`, never plain `sr`.
+The set decides which languages OCR is given, and a wrong one costs accuracy — `EUR` read with
+Cyrillic in the set comes back as `ЕОВ` — so below a length threshold the answer is an empty list
+rather than a guess.
 
 **Skip reasons.** `SKIPPED` on its own reads like something went wrong, and three of the five steps
 skip for reasons an operator can act on. Each skipped step records why, from a closed set:

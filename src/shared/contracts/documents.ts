@@ -77,6 +77,8 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   categorySource: categorySourceSchema,
   steps: documentStepsSchema,
   skipReasons: documentSkipReasonsSchema,
+  // BCP-47 tags, most likely first (docs/03 §3.3.10).
+  languages: z.array(z.string()),
   processingError: z.string().nullable(),
   failedStep: z.string().nullable(),
   fileRefs: z.array(documentFileRefSchema),
