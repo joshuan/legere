@@ -136,6 +136,7 @@ describe('OpenAiCompatAnalyst', () => {
       const result = await analyst().analyze('ŽPCG Podgorica', []);
 
       expect(result).toEqual({
+        title: null,
         typeSlug: null,
         languages: [],
         country: 'ME',
@@ -156,6 +157,7 @@ describe('OpenAiCompatAnalyst', () => {
 
       // Each field stands or falls on its own: an invented slug does not discard a good country.
       expect(await analyst().analyze('text', CATEGORIES)).toEqual({
+        title: null,
         typeSlug: null,
         people: [],
         date: null,
@@ -190,6 +192,23 @@ describe('OpenAiCompatAnalyst', () => {
       ] as const) {
         vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers(`{"date":"${answered}"}`));
         expect((await analyst().analyze('text', CATEGORIES)).date).toBe(expected);
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('takes a title as one trimmed line, and refuses a paragraph pretending to be one', async () => {
+      for (const [answered, expected] of [
+        ['Rental agreement, Njegoševa 12', 'Rental agreement, Njegoševa 12'],
+        // A model that wrapped its line still gave a good title.
+        ['Rental agreement,\\n  Njegoševa 12', 'Rental agreement, Njegoševa 12'],
+        ['\\"Rental agreement\\"', 'Rental agreement'],
+        // Asked for a title, answered with the document.
+        [`${'text '.repeat(60)}`, null],
+        ['untitled', null],
+        ['', null],
+      ] as const) {
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers(`{"title":"${answered}"}`));
+        expect((await analyst().analyze('text', CATEGORIES)).title).toBe(expected);
         vi.restoreAllMocks();
       }
     });

@@ -32,6 +32,7 @@ const detail: DocumentDetailDto = {
   createdAt: '2026-01-02T10:00:00.000Z',
   contentHash: 'abc123def456abc123def456abc123def456abc123def456abc123def4561234',
   ocrUsed: true,
+  titleSource: 'NONE',
   typeSource: 'NONE',
   skipReasons: {},
   auto: {},
@@ -332,6 +333,31 @@ describe('DocumentViewerScreen', () => {
     expect(details.queryByRole('button', { name: /read as Russian/ })).toBeNull();
     expect(details.getByText(/read as Russian/)).toBeInTheDocument();
     expect(details.getByRole('button', { name: enMessages.viewer.details.reset })).toBeVisible();
+  });
+
+  it('offers the name the analysis read under the one the document carries', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+    serve({
+      ...detail,
+      title: 'IMG_20260714_113355',
+      auto: { title: 'Rental agreement, Njegoševa 12' },
+    });
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+    // Under the title, where every other correction keeps its provenance — and one click from
+    // being the title (docs/11 §11.5).
+    await userEvent.click(
+      await screen.findByRole('button', { name: /read as Rental agreement, Njegoševa 12/ }),
+    );
+
+    await waitFor(() => expect(patched).toEqual({ reset: ['title'] }));
   });
 
   it('tells the history of the document, newest first', async () => {

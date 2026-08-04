@@ -604,6 +604,37 @@ describe('Documents (e2e)', () => {
       expect(row.typeSource).toBe('AUTO');
     });
 
+    it('marks a title somebody typed as theirs, and gives it back when asked', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open, title: 'IMG_20260714_113355' });
+      await testPrisma().document.update({
+        where: { id: documentId },
+        data: { title: 'Rental agreement, Njegoševa 12', titleSource: 'AUTO' },
+      });
+
+      await api(app)
+        .patch(`/api/documents/${documentId}`, { title: 'The flat, everything about it' })
+        .set('Cookie', adminCookie);
+
+      const named = await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } });
+      // 🔒 MANUAL, so no later analysis renames it (docs/03 §3.3.10).
+      expect(named.titleSource).toBe('MANUAL');
+
+      await testPrisma().document.update({
+        where: { id: documentId },
+        data: { autoValues: { title: 'Rental agreement, Njegoševa 12' } },
+      });
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}`, { reset: ['title'] })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      const back = await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } });
+      expect(back.title).toBe('Rental agreement, Njegoševa 12');
+      // And back to AUTO: the document stops claiming a person chose this.
+      expect(back.titleSource).toBe('AUTO');
+    });
+
     it('writes what a person changed into the document log', async () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open, title: 'Ticket' });

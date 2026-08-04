@@ -15,6 +15,7 @@ const completionResponseSchema = z.object({
 // The answer we ask for. Every field is optional and validated separately, so a model that gets the
 // documentType right and the country wrong still contributes the documentType.
 const answerSchema = z.object({
+  title: z.string().nullish(),
   slug: z.string().optional(),
   languages: z.array(z.string()).optional(),
   country: z.string().nullish(),
@@ -25,8 +26,9 @@ const answerSchema = z.object({
 });
 
 const SYSTEM_PROMPT = [
-  'You read a document and report four things as JSON, nothing else:',
-  '{"slug": "<one of the listed slugs, or none>",',
+  'You read a document and report what it is, as JSON, nothing else:',
+  '{"title": "<what a person would write on the folder, or null>",',
+  '"slug": "<one of the listed slugs, or none>",',
   '"languages": ["<BCP-47 tags of the languages the document is written in>"],',
   '"country": "<ISO 3166-1 alpha-2 code of the country the document belongs to, or null>",',
   '"city": "<the city the document belongs to, as written, or null>",',
@@ -34,6 +36,10 @@ const SYSTEM_PROMPT = [
   '"date": "<the date written on the document, yyyy-mm-dd, or null>",',
   '"subjects": [{"kind": "<apartment, car, country, company…>", "name": "<which one>"}]}.',
   'Never invent a slug that is not on the list.',
+  'The title names this document the way its owner would: what it is, and which one — "Rental',
+  'agreement, Njegoševa 12", "Electricity bill, March 2026". Write it in the language of the',
+  'document, in one line, without the file name and without quotes. Null if the text says too little',
+  'to name it; a file called after a camera is better than a title you invented.',
   'Infer the country and the city from what the document is about — an issuing office, an operator,',
   'a station, a currency, an address, a phone prefix — not only from words naming a country.',
   'When several places appear, name the one the document comes from — the issuer, or the point of',
@@ -58,6 +64,9 @@ const TEMPERATURE = 0;
 const BCP47 = /^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$/;
 const MAX_LANGUAGES = 4;
 const MAX_CITY_CHARS = 100;
+// The contract allows 500; a document title that long is a paragraph, and this is the field a grid
+// of cards is read by.
+const MAX_TITLE_CHARS = 200;
 // A document names a few people; a model that answers with forty has misread a page of text as a
 // guest list, and the catalogue should not grow by forty rows because of it.
 const MAX_PEOPLE = 8;
@@ -154,6 +163,7 @@ function readAnswer(
   const parsed = answerSchema.safeParse(safeJson(extractJson(content)));
   if (!parsed.success) {
     return {
+      title: null,
       typeSlug: null,
       languages: [],
       country: null,
@@ -165,6 +175,7 @@ function readAnswer(
   }
 
   return {
+    title: pickTitle(parsed.data.title),
     typeSlug: pickSlug(parsed.data.slug ?? '', documentTypes),
     languages: pickLanguages(parsed.data.languages ?? []),
     country: pickCountry(parsed.data.country),
@@ -173,6 +184,20 @@ function readAnswer(
     date: pickDate(parsed.data.date),
     subjects: pickSubjects(parsed.data.subjects ?? []),
   };
+}
+
+// One line, trimmed, capped. A model asked for a title sometimes answers with the first paragraph
+// instead, and a "title" of four hundred characters is not one — better the file name than a wall of
+// text on every card. Newlines collapse rather than truncate the answer, since a model that wrapped
+// its line still gave a good title.
+function pickTitle(title: string | null | undefined): string | null {
+  const line = (title ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^["'«»]+|["'«»]+$/g, '')
+    .trim();
+  if (line === '' || line.length > MAX_TITLE_CHARS) return null;
+  return /^(unknown|n\/?a|none|null|untitled)$/i.test(line) ? null : line;
 }
 
 // 🔒 A model that answers with a documentType nobody defined must not create one: only a slug from the

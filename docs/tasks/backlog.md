@@ -278,7 +278,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`03 §3.3.10`](../03-domain-model.md)
   **Acceptance:** the grey "read as …" line is a control in read mode; one click sends the same `reset` the form's reset button sends (never the value typed in, so a document type goes back to `AUTO`); the row settles to the read value without an edit session; nothing else on the document travels with it.
 
-- [ ] **M10.4 — The analysis names the document**
+- [x] **M10.4 — The analysis names the document**
   **Goal:** a title read from the document itself, correctable by hand like every other read field.
   **Docs:** [`03 §3.3.10`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`07`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
   **Acceptance:** the analysis answers a title; it is applied only where nobody has chosen one (a file name is not a choice), recorded in `autoValues.title` either way; `PATCH /api/documents/:id` takes `title` and the viewer shows "read as …" and the reset for it exactly as it does for the document type.

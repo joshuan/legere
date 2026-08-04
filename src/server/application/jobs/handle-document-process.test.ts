@@ -512,6 +512,7 @@ describe('HandleDocumentProcess', () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt' });
       documentTypes.documentTypes.length = 0;
       analyst.answer = {
+        title: null,
         typeSlug: null,
         languages: [],
         country: 'ME',
@@ -535,6 +536,7 @@ describe('HandleDocumentProcess', () => {
       // means to a reader who knows the railway.
       reader.put(SOURCE_PATH, 'ŽPCG · PODGORICA — BAR · 2. razred · 3,20 EUR');
       analyst.answer = {
+        title: null,
         typeSlug: null,
         languages: ['sr-Latn'],
         country: 'ME',
@@ -559,6 +561,7 @@ describe('HandleDocumentProcess', () => {
       reader.put(SOURCE_PATH, 'Ugovor između strana');
       await people.create({ name: 'Evgenii Shershnev' });
       analyst.answer = {
+        title: null,
         typeSlug: null,
         languages: [],
         country: null,
@@ -586,6 +589,7 @@ describe('HandleDocumentProcess', () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt' });
       reader.put(SOURCE_PATH, 'Ugovor o zakupu stana');
       analyst.answer = {
+        title: null,
         typeSlug: null,
         languages: [],
         country: null,
@@ -610,6 +614,7 @@ describe('HandleDocumentProcess', () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt' });
       reader.put(SOURCE_PATH, 'Ugovor');
       analyst.answer = {
+        title: null,
         typeSlug: null,
         languages: [],
         country: null,
@@ -636,6 +641,7 @@ describe('HandleDocumentProcess', () => {
       const chosen = await people.create({ name: 'Somebody Else' });
       await people.setForDocument(DOCUMENT_ID, [chosen.id]);
       analyst.answer = {
+        title: null,
         typeSlug: null,
         languages: [],
         country: null,
@@ -667,6 +673,7 @@ describe('HandleDocumentProcess', () => {
           'сохранность документов и ежемесячную отчётность заказчику.',
       );
       analyst.answer = {
+        title: null,
         typeSlug: null,
         languages: ['en'],
         country: 'ME',
@@ -685,6 +692,54 @@ describe('HandleDocumentProcess', () => {
       expect(document.country).toBe('RS');
       expect(document.city).toBe('Belgrade');
       expect(document.languages).toEqual(['ru']);
+    });
+
+    it('names the document, because a file name is not a title anybody chose', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'IMG_20260714_113355' });
+      reader.put(SOURCE_PATH, 'text');
+      analyst.answer = { ...analyst.answer, title: 'Rental agreement, Njegoševa 12' };
+
+      await run();
+
+      const document = stateOf();
+      expect(document.title).toBe('Rental agreement, Njegoševa 12');
+      // AUTO, so the next run may improve on it and the viewer can say who called it that.
+      expect(document.titleSource).toBe('AUTO');
+      expect(document.auto.title).toBe('Rental agreement, Njegoševa 12');
+    });
+
+    it('never renames a document a person titled, and records what it would have called it', async () => {
+      givenDocument({
+        mimeType: 'text/plain',
+        ext: 'txt',
+        title: 'The flat, everything about it',
+        titleSource: 'MANUAL',
+      });
+      reader.put(SOURCE_PATH, 'text');
+      analyst.answer = { ...analyst.answer, title: 'Rental agreement, Njegoševa 12' };
+
+      await run();
+
+      const document = stateOf();
+      // 🔒 A title somebody typed is theirs (docs/03 §3.3.10).
+      expect(document.title).toBe('The flat, everything about it');
+      expect(document.titleSource).toBe('MANUAL');
+      // And the reader still gets to see what the machine read.
+      expect(document.auto.title).toBe('Rental agreement, Njegoševa 12');
+    });
+
+    it('leaves the file name alone when the analysis has no title to offer', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'IMG_20260714_113355' });
+      reader.put(SOURCE_PATH, 'text');
+      analyst.answer = { ...analyst.answer, title: null };
+
+      await run();
+
+      const document = stateOf();
+      // A file name is better than a title invented out of one.
+      expect(document.title).toBe('IMG_20260714_113355');
+      expect(document.titleSource).toBe('NONE');
+      expect(document.auto.title).toBeUndefined();
     });
 
     it('records a provider failure as a step failure, leaving the rest of the run intact', async () => {

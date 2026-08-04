@@ -38,7 +38,7 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `FileRefStatus` | `DISCOVERED`, `HASHED`, `MISSING` | |
 | `DocumentSource` | `LIBRARY`, `DERIVED`, `UPLOAD` | where the bytes live and where they came from: a file in a read-only library, a scan-set merge, or a file a person sent from their browser. `DERIVED` and `UPLOAD` both keep their bytes in S3 |
 | `StepStatus` | `PENDING`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes `PENDING` reads as "stuck". The mark is best-effort and never the reason a job fails |
-| `TypeSource` | `NONE`, `AUTO`, `MANUAL` | |
+| `ValueSource` | `NONE`, `AUTO`, `MANUAL` | who decided a value: nobody, the pipeline, a person. Carried by `typeSource` and `titleSource` — one vocabulary, because it is one question |
 | `ScanSetStatus` | `DRAFT`, `QUEUED`, `PROCESSING`, `DONE`, `FAILED` | |
 | `ScanRunStatus` | `RUNNING`, `DONE`, `FAILED` | |
 | `VerificationPurpose` | `REGISTRATION`, `PASSWORD_RESET` | on `EmailVerification` |
@@ -198,7 +198,7 @@ The logical unit of content (deduplicated).
 | ext | string | lower-cased original extension, e.g. `pdf` |
 | sizeBytes | bigint | |
 | pageCount | int? | for PDFs (source or canonical) |
-| title | string | initial = file name without extension: of the first FileRef (LIBRARY), of the scan set (DERIVED), of the uploaded file (UPLOAD); editable |
+| title | string | initial = file name without extension: of the first FileRef (LIBRARY), of the scan set (DERIVED), of the uploaded file (UPLOAD). Named by the analysis where nobody has chosen one; editable |
 | markdown | text? | the extracted Markdown representation |
 | searchVector | tsvector | generated from title + markdown (see 04) |
 | canonicalStatus / previewStatus / markdownStatus / analysisStatus / vectorizationStatus | StepStatus | pipeline step statuses |
@@ -211,8 +211,9 @@ The logical unit of content (deduplicated).
 | city | string? | free text, as written in the document |
 | failedStep | string? | which step produced `processingError` |
 | ocrUsed | bool | whether Markdown came from OCR |
+| titleSource | ValueSource | default `NONE` — the file name is not a choice; `MANUAL` is never overwritten by auto |
 | typeId | uuid? | |
-| typeSource | TypeSource | default `NONE`; `MANUAL` is never overwritten by auto |
+| typeSource | ValueSource | default `NONE`; `MANUAL` is never overwritten by auto |
 | createdById | uuid? | the owner; set for DERIVED and UPLOAD documents |
 | scanSetId | uuid? | provenance for DERIVED documents |
 | createdAt / updatedAt / deletedAt | | |
@@ -230,6 +231,21 @@ says. A contract from 2019 scanned yesterday is a 2019 document, and a shelf sor
 got round to scanning is sorted by nothing. The analysis reads it — models are good at dates and bad
 at little else that is this cheap to check — and keeps only a real calendar day in a plausible
 century: `2026-02-31`, `25.07.2026` and "unknown" all come back from models with equal confidence.
+
+**What it is called.** `IMG_20260714_113355.jpg` is not the name of a document; it is the name of a
+file, and a shelf of them is unreadable. So the analysis reads a title off the document — what a
+person would write on the folder — and `titleSource` says who decided:
+
+| `titleSource` | Meaning |
+|---|---|
+| `NONE` | whatever the file was called. Nobody has decided anything; the analysis may name it |
+| `AUTO` | the analysis named it, and may name it again on the next run |
+| `MANUAL` | a person titled this document, and no machine overwrites it |
+
+The same rule as the document type, for the same reason — and the same way back: `reset: ['title']`
+restores what the analysis read and returns the field to `AUTO`, so it stops claiming a person chose
+it. A file name is deliberately `NONE` and not `AUTO`: nothing read it off the document, and the day
+a title is worth having is the day the pipeline can offer a better one.
 
 **Where a document belongs.** `country` and `city` answer "where is this from" — the issuing office
 of a contract, the departure city on a ticket. They are inferred by the AI step when a provider is

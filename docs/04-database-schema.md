@@ -62,7 +62,7 @@ enum StepStatus {
   SKIPPED
 }
 
-enum TypeSource {
+enum ValueSource {
   NONE
   AUTO
   MANUAL
@@ -283,8 +283,9 @@ model Document {
   city                 String?        @map("city")
   failedStep           String?        @map("failed_step")
   ocrUsed              Boolean        @default(false) @map("ocr_used")
+  titleSource      ValueSource @default(NONE) @map("title_source")
   typeId           String?        @map("type_id") @db.Uuid
-  typeSource       TypeSource @default(NONE) @map("type_source")
+  typeSource       ValueSource @default(NONE) @map("type_source")
   createdById          String?        @map("created_by_id") @db.Uuid
   scanSetId            String?        @map("scan_set_id") @db.Uuid
   createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)

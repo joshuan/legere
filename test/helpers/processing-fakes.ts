@@ -95,6 +95,7 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     id: DOCUMENT_ID,
     contentHash: 'a'.repeat(64),
     source: 'LIBRARY',
+    titleSource: 'NONE',
     mimeType: 'application/pdf',
     ext: 'pdf',
     sizeBytes: 1024n,
@@ -159,6 +160,8 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       ...(update.failedStep === undefined ? {} : { failedStep: update.failedStep }),
       ...(update.typeId === undefined ? {} : { typeId: update.typeId }),
       ...(update.typeSource === undefined ? {} : { typeSource: update.typeSource }),
+      ...(update.title === undefined ? {} : { title: update.title }),
+      ...(update.titleSource === undefined ? {} : { titleSource: update.titleSource }),
     };
     this.documents.set(id, updated);
     return Promise.resolve(updated);
@@ -727,6 +730,7 @@ export class InMemorySubjectRepository extends SubjectRepository {
 export class FakeAnalyst extends DocumentAnalyst {
   configured = true;
   answer: DocumentAnalysis = {
+    title: null,
     typeSlug: null,
     languages: [],
     country: null,

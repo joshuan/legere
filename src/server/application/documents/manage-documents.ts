@@ -93,7 +93,12 @@ export class UpdateDocumentMeta {
     }
 
     const update: UpdateDocumentMetaInput = {};
-    if (input.title !== undefined) update.title = input.title;
+    if (input.title !== undefined) {
+      update.title = input.title;
+      // 🔒 A title somebody typed is theirs: the analysis records what it would have called the
+      // document but never renames it again (docs/03 §3.3.10).
+      update.titleSource = 'MANUAL';
+    }
     // Corrections a person makes by hand. The detector is a guess — it cannot tell Serbian from
     // Croatian in Latin script, and it knows nothing about where a document came from — so being
     // able to fix it is part of the feature, not an afterthought (docs/03 §3.3.10).
@@ -125,6 +130,14 @@ export class UpdateDocumentMeta {
     if (input.reset !== undefined) {
       const auto = detail.document.auto;
       for (const field of input.reset) {
+        // Only where the analysis actually read a title: "put it back" with nothing to put back
+        // would blank the name of the document, and a nameless card is worse than a file name.
+        if (field === 'title' && auto.title !== undefined && auto.title !== '') {
+          update.title = auto.title;
+          // 🔒 Back to AUTO for the same reason the document type is: the document stops claiming a
+          // person chose this, and the next run may name it again (docs/03 §3.3.10).
+          update.titleSource = 'AUTO';
+        }
         if (field === 'languages') update.languages = auto.languages ?? [];
         if (field === 'country') update.country = auto.country ?? null;
         if (field === 'city') update.city = auto.city ?? null;
@@ -220,6 +233,7 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     ...toListDto(detail),
     contentHash: document.contentHash,
     ocrUsed: document.ocrUsed,
+    titleSource: document.titleSource,
     typeSource: document.typeSource,
     steps: document.steps,
     skipReasons: document.skipReasons,

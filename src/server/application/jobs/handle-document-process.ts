@@ -470,10 +470,12 @@ export class HandleDocumentProcess extends JobHandler {
         steps: { analysis: 'DONE' },
         typeId: chosen?.id ?? null,
         typeSource: chosen === null ? 'NONE' : 'AUTO',
+        ...titleUpdate(document, analysis),
         ...placeUpdate(document, analysis),
         // Recorded whether or not it was applied: a place somebody filled in by hand stays, and the
         // reader still gets to see what the machine read (docs/03 §3.3.10).
         auto: {
+          ...(analysis.title === null ? {} : { title: analysis.title }),
           ...(analysis.people.length > 0 ? { people: analysis.people } : {}),
           ...(analysis.date === null ? {} : { date: analysis.date }),
           ...(analysis.subjects.length > 0 ? { subjects: analysis.subjects } : {}),
@@ -631,6 +633,16 @@ export class HandleDocumentProcess extends JobHandler {
       failedStep: step,
     });
   }
+}
+
+// The one field with no blank to fill: every document has a file name, so what governs the title is
+// who decided it rather than whether it is empty. NONE is a file name and AUTO is the last run's
+// answer — both may be improved on — and MANUAL is somebody's decision, which no machine touches
+// (docs/03 §3.3.10).
+function titleUpdate(document: Document, analysis: DocumentAnalysis): ProcessingUpdate {
+  if (analysis.title === null || document.titleSource === 'MANUAL') return {};
+  if (analysis.title === document.title) return {};
+  return { title: analysis.title, titleSource: 'AUTO' };
 }
 
 // What the analyst may add, and only that. It fills blanks: the offline detector reads scripts and

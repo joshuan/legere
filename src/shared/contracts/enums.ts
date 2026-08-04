@@ -50,8 +50,10 @@ export const documentEventTypeSchema = z.enum([
 ]);
 export type DocumentEventType = z.infer<typeof documentEventTypeSchema>;
 
-export const typeSourceSchema = z.enum(['NONE', 'AUTO', 'MANUAL']);
-export type TypeSource = z.infer<typeof typeSourceSchema>;
+// Who decided a value: nobody, the pipeline, or a person. One vocabulary for the title and the
+// document type, because it is one question (docs/03 §3.3.10).
+export const valueSourceSchema = z.enum(['NONE', 'AUTO', 'MANUAL']);
+export type ValueSource = z.infer<typeof valueSourceSchema>;
 
 export const scanSetStatusSchema = z.enum(['DRAFT', 'QUEUED', 'PROCESSING', 'DONE', 'FAILED']);
 export type ScanSetStatus = z.infer<typeof scanSetStatusSchema>;

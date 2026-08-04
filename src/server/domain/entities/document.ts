@@ -1,6 +1,6 @@
 import type { AutoValues } from '../../../shared/contracts/documents';
 import type {
-  TypeSource,
+  ValueSource,
   DocumentSource,
   StepSkipReason,
   StepStatus,
@@ -29,6 +29,8 @@ export type Document = {
   sizeBytes: bigint;
   pageCount: number | null;
   title: string;
+  // Who called it that: nobody (the file name), the analysis, or a person (docs/03 §3.3.10).
+  titleSource: ValueSource;
   // The extracted Markdown representation (docs/03 §3.3.10); null until step 3 has run, and also
   // when the step ran and found no text at all.
   markdown: string | null;
@@ -49,7 +51,7 @@ export type Document = {
   failedStep: string | null;
   ocrUsed: boolean;
   typeId: string | null;
-  typeSource: TypeSource;
+  typeSource: ValueSource;
   createdById: string | null;
   scanSetId: string | null;
   createdAt: Date;

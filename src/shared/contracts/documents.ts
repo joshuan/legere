@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { paginatedSchema, paginationQuerySchema } from './common';
 import {
-  typeSourceSchema,
+  valueSourceSchema,
   documentEventTypeSchema,
   documentSourceSchema,
   fileRefStatusSchema,
@@ -108,7 +108,8 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   subjects: z.array(z.object({ id: z.string().uuid(), kind: z.string(), name: z.string() })),
   contentHash: z.string(),
   ocrUsed: z.boolean(),
-  typeSource: typeSourceSchema,
+  titleSource: valueSourceSchema,
+  typeSource: valueSourceSchema,
   steps: documentStepsSchema,
   skipReasons: documentSkipReasonsSchema,
   // BCP-47 tags, most likely first (docs/03 §3.3.10).
@@ -165,6 +166,7 @@ export type ListDocumentsResponse = z.infer<typeof listDocumentsResponseSchema>;
 // `typeId: null` clears the documentType; absent leaves it alone (docs/07 §7.4).
 // The fields a machine fills in and a person may therefore want back the way it had them.
 export const RESETTABLE_FIELDS = [
+  'title',
   'documentType',
   'languages',
   'country',

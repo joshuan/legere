@@ -10,6 +10,10 @@ export type DocumentTypeOption = {
 // a model that recognises an invoice but cannot tell which country it is from should still be able
 // to say so, rather than being pushed into inventing the rest.
 export type DocumentAnalysis = {
+  // What a person would write on the folder, in the document's own language — "Rental agreement,
+  // Njegoševa 12" rather than "IMG_20260714_113355". Null when the excerpt says nothing worth
+  // titling, which is a better answer than a title invented out of a file name (docs/03 §3.3.10).
+  title: string | null;
   // One of the offered slugs, or null when the model picks none of them — or answers with something
   // that was never on the list, which is the same thing as far as the caller is concerned.
   typeSlug: string | null;

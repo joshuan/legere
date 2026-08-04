@@ -159,6 +159,13 @@ not configured, no document types defined, no text to embed, or a document type 
    not a 4000-character excerpt), and a place somebody filled in by hand stays — clearing a field is
    how you ask for it to be inferred again. With no document types defined the step still runs, because
    the place is worth the call.
+   It also answers a **title** — what a person would write on the folder, in the document's own
+   language. `IMG_20260714_113355.jpg` names a file and not a document, and a grid of those is a grid
+   nobody can read. The title is applied wherever `titleSource` is not `MANUAL` and recorded in
+   `autoValues.title` either way, so a name somebody typed is never overwritten and the reader still
+   sees what the machine would have called it (03 §3.3.10). A title is the one field here that has no
+   blank to fill — every document has a file name — which is why it is governed by who decided rather
+   than by whether it is empty.
 5. **Vectorization:** chunking of the Markdown (by headings/paragraphs, with overlap) →
    `EmbeddingProvider` → chunk vectors into pgvector. Provider not configured → `SKIPPED` (graceful
    degradation: semantic search unavailable, everything else works).

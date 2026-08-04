@@ -1,6 +1,6 @@
 import type { AutoValues, Availability, DocumentStep } from '../../../shared/contracts/documents';
 import type {
-  TypeSource,
+  ValueSource,
   DocumentSource,
   FileRefStatus,
   StepSkipReason,
@@ -48,7 +48,9 @@ export type ProcessingUpdate = {
   processingError?: string | null;
   failedStep?: string | null;
   typeId?: string | null;
-  typeSource?: TypeSource;
+  typeSource?: ValueSource;
+  title?: string;
+  titleSource?: ValueSource;
 };
 
 // Documents by pipeline step and status, for the admin overview (docs/05 §5.8).
@@ -114,12 +116,13 @@ export type DocumentPage = {
 
 export type UpdateDocumentMetaInput = {
   title?: string;
+  titleSource?: ValueSource;
   documentDate?: string | null;
   languages?: string[];
   country?: string | null;
   city?: string | null;
   typeId?: string | null;
-  typeSource?: TypeSource;
+  typeSource?: ValueSource;
 };
 
 // One row of a search result before it becomes a DTO (docs/07 §7.3).

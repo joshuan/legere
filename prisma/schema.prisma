@@ -66,7 +66,7 @@ enum DocumentEventType {
 }
 
 // Where a value came from: nobody, the pipeline, or a person (docs/03 §3.3.10).
-enum TypeSource {
+enum ValueSource {
   NONE
   AUTO
   MANUAL
@@ -292,8 +292,11 @@ model Document {
   city                 String?                  @map("city")
   failedStep           String?                  @map("failed_step")
   ocrUsed              Boolean                  @default(false) @map("ocr_used")
+  // A file name is not a title anybody chose, so a fresh document is NONE and the analysis may name
+  // it; a person titling it makes it MANUAL, and no machine touches it again (docs/03 §3.3.10).
+  titleSource          ValueSource              @default(NONE) @map("title_source")
   typeId               String?                  @map("type_id") @db.Uuid
-  typeSource           TypeSource               @default(NONE) @map("type_source")
+  typeSource           ValueSource              @default(NONE) @map("type_source")
   createdById          String?                  @map("created_by_id") @db.Uuid
   scanSetId            String?                  @map("scan_set_id") @db.Uuid
   createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)

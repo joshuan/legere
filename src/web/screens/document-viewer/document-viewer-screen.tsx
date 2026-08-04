@@ -153,6 +153,25 @@ export function DocumentViewerScreen({
           {detail.title}
         </Typography.Title>
 
+        {/* What the analysis would have called it, when somebody has since called it something else
+            — under the name, in the same place every other correction keeps its provenance, and a
+            click away from being the name (docs/11 §11.5). */}
+        {detail.auto.title !== undefined && detail.auto.title !== detail.title && (
+          <div className="legere-definition-note" style={{ marginTop: -12, marginBottom: 16 }}>
+            <Tooltip title={t('viewer.details.applyRead')}>
+              <Button
+                size="small"
+                type="link"
+                className="legere-definition-note-action"
+                disabled={update.isPending}
+                onClick={() => update.mutate({ reset: ['title'] })}
+              >
+                {t('viewer.details.auto', { value: detail.auto.title })}
+              </Button>
+            </Tooltip>
+          </div>
+        )}
+
         <Card>
           <Tabs
             activeKey={active}
