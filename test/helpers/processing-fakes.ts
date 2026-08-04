@@ -101,7 +101,7 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     failedStep: null,
     skipReasons: {},
     auto: {},
-  documentDate: null,
+    documentDate: null,
     languages: [],
     country: null,
     city: null,
