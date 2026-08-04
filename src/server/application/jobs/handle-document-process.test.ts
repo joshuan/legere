@@ -7,6 +7,7 @@ import {
   FakeCallContext,
   FakeDocumentEventRepository,
   InMemoryPersonRepository,
+  InMemorySubjectKindRepository,
   InMemorySubjectRepository,
   FakeEmbeddingProvider,
   FakeImageTool,
@@ -52,6 +53,7 @@ describe('HandleDocumentProcess', () => {
   let analyst: FakeAnalyst;
   let people: InMemoryPersonRepository;
   let subjects: InMemorySubjectRepository;
+  let subjectKinds: InMemorySubjectKindRepository;
   let chunks: InMemoryDocumentChunkRepository;
   let embeddings: FakeEmbeddingProvider;
   let calls: FakeCallContext;
@@ -76,7 +78,8 @@ describe('HandleDocumentProcess', () => {
     documentTypes.add('contract');
     analyst = new FakeAnalyst();
     people = new InMemoryPersonRepository();
-    subjects = new InMemorySubjectRepository();
+    subjectKinds = new InMemorySubjectKindRepository();
+    subjects = new InMemorySubjectRepository(subjectKinds);
     chunks = new InMemoryDocumentChunkRepository();
     embeddings = new FakeEmbeddingProvider();
     calls = new FakeCallContext();
@@ -98,6 +101,7 @@ describe('HandleDocumentProcess', () => {
       analyst,
       people,
       subjects,
+      subjectKinds,
       chunks,
       embeddings,
       new ImmediateUnitOfWork(),

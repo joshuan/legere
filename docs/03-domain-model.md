@@ -330,19 +330,38 @@ and "the papers for the car" is how anybody actually looks for them.
 | Field | Type | Notes |
 |---|---|---|
 | id | uuid | |
-| kind | string | free text, lower-cased: `apartment`, `car`, `country` |
+| kindId | uuid | which `SubjectKind` this is one of |
 | name | string | which one, as the document writes it |
 | note | string? | |
 | createdAt / updatedAt / deletedAt | | soft delete (ADR-015): the links stay |
 
-Unique on `(lower(kind), lower(name))` among living rows: the same flat entered twice is the failure
-this table exists to prevent, and the kind is part of the identity because "Montenegro" the country
-and "Montenegro" the boat are two things.
+Unique on `(kindId, lower(name))` among living rows: the same flat entered twice is the failure this
+table exists to prevent, and the kind is part of the identity because "Montenegro" the country and
+"Montenegro" the boat are two things.
 
-`kind` is **not** a catalogue of its own. Which kinds a household files by is not knowable in advance,
-and a fixed list would be wrong in both directions at once — too long to pick from and missing the one
-thing this person owns. Whether kinds should become a catalogue once there are enough of them is an
-open question in §3.5.
+### 3.3.20a. SubjectKind
+
+What sort of thing a subject is: `apartment`, `car`, `country`. A catalogue of its own, not a string
+repeated on every row — renaming "flat" to "apartment" is then one edit rather than forty, the browse
+screen has something to list, and the same kind cannot exist twice under two spellings.
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid | |
+| name | string | unique among living rows, case-insensitively |
+| note | string? | what this kind is for, in the owner's own words |
+| createdAt / updatedAt / deletedAt | | soft delete (ADR-015) |
+
+It was free text until the catalogue existed, on the argument that the list of kinds a household
+files by is not knowable in advance. That argument was for the *list*, not for the *storage*: the
+list is still open — anyone signed in may add a kind, and the analysis adds the ones it meets — but
+now it is a list, with rows that can be corrected.
+
+**Who may do what**, exactly as for people (§3.3.19): reading and adding are open to anyone signed
+in, because the analysis adds kinds on its own and whoever corrects it must be able to; renaming and
+removing are an admin's. 🔒 **A kind still used by a living subject cannot be removed**
+(`SUBJECT_KIND_IN_USE`): a subject with no kind is not a thing anybody can file by, so the subjects
+go first.
 
 Same access and the same fill-blanks-only rule as people (§3.3.19): the analysis names things and
 creates the ones the catalogue has never seen, matching on `(kind, name)` case-insensitively; a

@@ -10,7 +10,8 @@ import { PrismaService } from './prisma.service';
 
 type SubjectRow = {
   id: string;
-  kind: string;
+  kindId: string;
+  kind: { name: string };
   name: string;
   note: string | null;
   createdAt: Date;
@@ -20,7 +21,8 @@ type SubjectRow = {
 function toSubject(row: SubjectRow): Subject {
   return {
     id: row.id,
-    kind: row.kind,
+    kindId: row.kindId,
+    kind: row.kind.name,
     name: row.name,
     note: row.note,
     createdAt: row.createdAt,
@@ -39,8 +41,8 @@ export class PrismaSubjectRepository extends SubjectRepository {
       where: { deletedAt: null },
       // Grouped by kind on screen, so grouped in the answer: the client should not have to sort a
       // catalogue to show it as one.
-      orderBy: [{ kind: 'asc' }, { name: 'asc' }],
-      include: { _count: { select: { documents: true } } },
+      orderBy: [{ kind: { name: 'asc' } }, { name: 'asc' }],
+      include: { kind: true, _count: { select: { documents: true } } },
     });
     return rows.map((row) => ({ ...toSubject(row), documentCount: row._count.documents }));
   }
@@ -48,51 +50,55 @@ export class PrismaSubjectRepository extends SubjectRepository {
   async findById(id: string, tx?: TransactionHandle): Promise<Subject | null> {
     const row = await clientOf(this.prisma, tx).subject.findFirst({
       where: { id, deletedAt: null },
+      include: { kind: true },
     });
     return row === null ? null : toSubject(row);
   }
 
   async findByKindAndName(
-    kind: string,
+    kindId: string,
     name: string,
     tx?: TransactionHandle,
   ): Promise<Subject | null> {
     const row = await clientOf(this.prisma, tx).subject.findFirst({
       where: {
-        kind: { equals: kind.trim(), mode: 'insensitive' },
+        kindId,
         name: { equals: name.trim(), mode: 'insensitive' },
         deletedAt: null,
       },
+      include: { kind: true },
     });
     return row === null ? null : toSubject(row);
   }
 
   async create(
-    input: { kind: string; name: string; note?: string | null },
+    input: { kindId: string; name: string; note?: string | null },
     tx?: TransactionHandle,
   ): Promise<Subject> {
     const row = await clientOf(this.prisma, tx).subject.create({
       data: {
-        kind: input.kind.trim().toLowerCase(),
+        kindId: input.kindId,
         name: input.name.trim(),
         note: input.note ?? null,
       },
+      include: { kind: true },
     });
     return toSubject(row);
   }
 
   async update(
     id: string,
-    input: { kind?: string; name?: string; note?: string | null },
+    input: { kindId?: string; name?: string; note?: string | null },
     tx?: TransactionHandle,
   ): Promise<Subject> {
     const row = await clientOf(this.prisma, tx).subject.update({
       where: { id },
       data: {
-        ...(input.kind === undefined ? {} : { kind: input.kind.trim().toLowerCase() }),
+        ...(input.kindId === undefined ? {} : { kindId: input.kindId }),
         ...(input.name === undefined ? {} : { name: input.name.trim() }),
         ...(input.note === undefined ? {} : { note: input.note }),
       },
+      include: { kind: true },
     });
     return toSubject(row);
   }
@@ -104,8 +110,8 @@ export class PrismaSubjectRepository extends SubjectRepository {
   async listForDocument(documentId: string, tx?: TransactionHandle): Promise<Subject[]> {
     const rows = await clientOf(this.prisma, tx).documentSubject.findMany({
       where: { documentId, subject: { deletedAt: null } },
-      include: { subject: true },
-      orderBy: [{ subject: { kind: 'asc' } }, { subject: { name: 'asc' } }],
+      include: { subject: { include: { kind: true } } },
+      orderBy: [{ subject: { kind: { name: 'asc' } } }, { subject: { name: 'asc' } }],
     });
     return rows.map((row) => toSubject(row.subject));
   }

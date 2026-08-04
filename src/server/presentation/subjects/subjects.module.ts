@@ -10,6 +10,7 @@ import { Clock } from '../../application/ports/clock';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserRepository } from '../../domain/repositories/user.repository';
+import { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
 import { SubjectRepository } from '../../domain/repositories/subject.repository';
 import { RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
@@ -40,13 +41,15 @@ import { AdminSubjectsController, SubjectsController } from './subjects.controll
     },
     {
       provide: CreateSubject,
-      useFactory: (subjects: SubjectRepository): CreateSubject => new CreateSubject(subjects),
-      inject: [SubjectRepository],
+      useFactory: (subjects: SubjectRepository, kinds: SubjectKindRepository): CreateSubject =>
+        new CreateSubject(subjects, kinds),
+      inject: [SubjectRepository, SubjectKindRepository],
     },
     {
       provide: UpdateSubject,
-      useFactory: (subjects: SubjectRepository): UpdateSubject => new UpdateSubject(subjects),
-      inject: [SubjectRepository],
+      useFactory: (subjects: SubjectRepository, kinds: SubjectKindRepository): UpdateSubject =>
+        new UpdateSubject(subjects, kinds),
+      inject: [SubjectRepository, SubjectKindRepository],
     },
     {
       provide: DeleteSubject,

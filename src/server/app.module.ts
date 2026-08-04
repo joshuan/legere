@@ -14,6 +14,7 @@ import { StorageModule } from './infrastructure/storage/storage.module';
 import { AuthModule } from './presentation/auth/auth.module';
 import { DocumentTypesModule } from './presentation/document-types/document-types.module';
 import { PeopleModule } from './presentation/people/people.module';
+import { SubjectKindsModule } from './presentation/subject-kinds/subject-kinds.module';
 import { SubjectsModule } from './presentation/subjects/subjects.module';
 import { CollectionsModule } from './presentation/collections/collections.module';
 import { DocumentsModule } from './presentation/documents/documents.module';
@@ -50,6 +51,7 @@ import { UsersModule } from './presentation/users/users.module';
     DocumentTypesModule,
     PeopleModule,
     SubjectsModule,
+    SubjectKindsModule,
     SearchModule,
     CollectionsModule,
     ScanSetsModule,

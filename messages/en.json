@@ -57,7 +57,10 @@
       "PERSON_EXISTS": "Somebody with this name is already in the list.",
       "PERSON_NOT_FOUND": "This person is no longer in the list.",
       "SUBJECT_EXISTS": "This thing is already in the list.",
-      "SUBJECT_NOT_FOUND": "This subject is no longer in the list."
+      "SUBJECT_NOT_FOUND": "This subject is no longer in the list.",
+      "SUBJECT_KIND_EXISTS": "This kind is already in the list.",
+      "SUBJECT_KIND_NOT_FOUND": "This kind is no longer in the list.",
+      "SUBJECT_KIND_IN_USE": "This kind still holds things. Remove or move them first."
     }
   },
   "auth": {

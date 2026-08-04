@@ -53,6 +53,11 @@ import { EmbeddingProvider } from '../../src/server/application/ports/embedding-
 import { CallContext } from '../../src/server/application/ports/call-context';
 import type { Person } from '../../src/server/domain/entities/person';
 import type { Subject } from '../../src/server/domain/entities/subject';
+import type { SubjectKind } from '../../src/server/domain/entities/subject-kind';
+import {
+  SubjectKindRepository,
+  type SubjectKindWithCounts,
+} from '../../src/server/domain/repositories/subject-kind.repository';
 import {
   SubjectRepository,
   type SubjectWithCount,
@@ -665,10 +670,68 @@ export class InMemoryPersonRepository extends PersonRepository {
   }
 }
 
+// The kinds catalogue in memory: what sort of thing a subject is, as a row (docs/03 §3.3.20a).
+export class InMemorySubjectKindRepository extends SubjectKindRepository {
+  readonly kinds = new Map<string, SubjectKind>();
+
+  listActive(): Promise<SubjectKindWithCounts[]> {
+    return Promise.resolve(
+      [...this.kinds.values()].map((kind) => ({ ...kind, subjectCount: 0, documentCount: 0 })),
+    );
+  }
+
+  findById(id: string): Promise<SubjectKind | null> {
+    return Promise.resolve(this.kinds.get(id) ?? null);
+  }
+
+  findByName(name: string): Promise<SubjectKind | null> {
+    const wanted = name.trim().toLowerCase();
+    return Promise.resolve(
+      [...this.kinds.values()].find((kind) => kind.name.toLowerCase() === wanted) ?? null,
+    );
+  }
+
+  create(input: { name: string; note?: string | null }): Promise<SubjectKind> {
+    const kind: SubjectKind = {
+      id: `kind-${this.kinds.size + 1}`,
+      name: input.name.trim().toLowerCase(),
+      note: input.note ?? null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      deletedAt: null,
+    };
+    this.kinds.set(kind.id, kind);
+    return Promise.resolve(kind);
+  }
+
+  update(id: string, input: { name?: string; note?: string | null }): Promise<SubjectKind> {
+    const kind = this.kinds.get(id);
+    if (kind === undefined) throw new Error(`No subject kind ${id}`);
+    const updated = { ...kind, ...input };
+    this.kinds.set(id, updated);
+    return Promise.resolve(updated);
+  }
+
+  softDelete(id: string, deletedAt: Date): Promise<void> {
+    const kind = this.kinds.get(id);
+    if (kind !== undefined) this.kinds.set(id, { ...kind, deletedAt });
+    return Promise.resolve();
+  }
+
+  countLivingSubjects(): Promise<number> {
+    return unused('countLivingSubjects');
+  }
+}
+
 // The subjects catalogue in memory (docs/03 §3.3.20).
 export class InMemorySubjectRepository extends SubjectRepository {
   readonly subjects = new Map<string, Subject>();
   readonly links = new Map<string, string[]>();
+
+  // A subject shows its kind by name and stores it by id, so the double needs the catalogue the
+  // handler is writing to (docs/03 §3.3.20a).
+  constructor(private readonly kinds = new InMemorySubjectKindRepository()) {
+    super();
+  }
 
   listActive(): Promise<SubjectWithCount[]> {
     return Promise.resolve(
@@ -683,21 +746,20 @@ export class InMemorySubjectRepository extends SubjectRepository {
     return Promise.resolve(this.subjects.get(id) ?? null);
   }
 
-  findByKindAndName(kind: string, name: string): Promise<Subject | null> {
-    const wantedKind = kind.trim().toLowerCase();
+  findByKindAndName(kindId: string, name: string): Promise<Subject | null> {
     const wantedName = name.trim().toLowerCase();
     return Promise.resolve(
       [...this.subjects.values()].find(
-        (subject) =>
-          subject.kind.toLowerCase() === wantedKind && subject.name.toLowerCase() === wantedName,
+        (subject) => subject.kindId === kindId && subject.name.toLowerCase() === wantedName,
       ) ?? null,
     );
   }
 
-  create(input: { kind: string; name: string; note?: string | null }): Promise<Subject> {
+  create(input: { kindId: string; name: string; note?: string | null }): Promise<Subject> {
     const subject: Subject = {
       id: `subject-${this.subjects.size + 1}`,
-      kind: input.kind.trim().toLowerCase(),
+      kindId: input.kindId,
+      kind: this.kinds.kinds.get(input.kindId)?.name ?? input.kindId,
       name: input.name.trim(),
       note: input.note ?? null,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -707,7 +769,7 @@ export class InMemorySubjectRepository extends SubjectRepository {
     return Promise.resolve(subject);
   }
 
-  update(id: string, input: { kind?: string; name?: string }): Promise<Subject> {
+  update(id: string, input: { kindId?: string; name?: string }): Promise<Subject> {
     const subject = this.subjects.get(id);
     if (subject === undefined) throw new Error(`No subject ${id}`);
     const updated = { ...subject, ...input };

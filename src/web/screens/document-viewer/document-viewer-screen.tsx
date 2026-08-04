@@ -42,6 +42,7 @@ import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
 import { personApi, personKeys } from '../../entities/person';
 import { subjectApi, subjectKeys } from '../../entities/subject';
+import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { useErrorMessage, formatBytes } from '../../shared/lib';
 import { isViewerTab, type ViewerTab } from './viewer-tab';
 
@@ -95,6 +96,7 @@ export function DocumentViewerScreen({
   const collections = useQuery({ queryKey: collectionKeys.all, queryFn: collectionApi.list });
   const people = useQuery({ queryKey: personKeys.all, queryFn: personApi.list });
   const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });
+  const subjectKinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: subjectKindApi.list });
 
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.detail(id) });
@@ -238,9 +240,22 @@ export function DocumentViewerScreen({
                     documentTypes={documentTypes.data?.items ?? []}
                     people={people.data?.items ?? []}
                     subjects={subjects.data?.items ?? []}
+                    subjectKinds={subjectKinds.data?.items ?? []}
+                    // A kind is a row now (docs/03 §3.3.20a), and one the catalogue has never seen
+                    // is created here rather than refused: the person filing a boat should not have
+                    // to go and invent "boat" somewhere else first.
                     onCreateSubject={async (kind, name) => {
-                      const created = await subjectApi.create({ kind, name });
-                      await queryClient.invalidateQueries({ queryKey: subjectKeys.all });
+                      const wanted = kind.trim().toLowerCase();
+                      const known = (subjectKinds.data?.items ?? []).find(
+                        (candidate) => candidate.name.toLowerCase() === wanted,
+                      );
+                      const kindId =
+                        known?.id ?? (await subjectKindApi.create({ name: wanted })).id;
+                      const created = await subjectApi.create({ kindId, name });
+                      await Promise.all([
+                        queryClient.invalidateQueries({ queryKey: subjectKeys.all }),
+                        queryClient.invalidateQueries({ queryKey: subjectKindKeys.all }),
+                      ]);
                       return created.id;
                     }}
                     onCreatePerson={async (name) => {
@@ -481,6 +496,7 @@ function DetailsPane({
   people,
   onCreatePerson,
   subjects,
+  subjectKinds,
   onCreateSubject,
   onSave,
   saving,
@@ -490,6 +506,7 @@ function DetailsPane({
   people: Array<{ id: string; name: string }>;
   onCreatePerson: (name: string) => Promise<string>;
   subjects: Array<{ id: string; kind: string; name: string }>;
+  subjectKinds: Array<{ id: string; name: string }>;
   onCreateSubject: (kind: string, name: string) => Promise<string>;
   onSave: (input: MetaChange) => void;
   saving: boolean;
@@ -789,9 +806,11 @@ function DetailsPane({
                             value={kind}
                             onChange={setKind}
                             placeholder={t('viewer.details.subjectKind')}
-                            options={[...new Set(subjects.map((subject) => subject.kind))].map(
-                              (value) => ({ value }),
-                            )}
+                            // The catalogue of kinds, not the kinds that happen to be in use: a kind
+                            // with nothing in it yet is still one to file under (docs/03 §3.3.20a).
+                            options={subjectKinds.map((subjectKind) => ({
+                              value: subjectKind.name,
+                            }))}
                           />
                           <Button
                             type="primary"

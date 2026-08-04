@@ -23,6 +23,7 @@ import { DocumentTypeRepository } from '../../domain/repositories/document-type.
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { PersonRepository } from '../../domain/repositories/person.repository';
+import { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
 import { SubjectRepository } from '../../domain/repositories/subject.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
@@ -139,6 +140,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         classifier: DocumentAnalyst,
         people: PersonRepository,
         subjects: SubjectRepository,
+        subjectKinds: SubjectKindRepository,
         chunks: DocumentChunkRepository,
         embeddings: EmbeddingProvider,
         unitOfWork: UnitOfWork,
@@ -159,6 +161,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           classifier,
           people,
           subjects,
+          subjectKinds,
           chunks,
           embeddings,
           unitOfWork,
@@ -179,6 +182,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         DocumentAnalyst,
         PersonRepository,
         SubjectRepository,
+        SubjectKindRepository,
         DocumentChunkRepository,
         EmbeddingProvider,
         UnitOfWork,

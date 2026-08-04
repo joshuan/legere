@@ -707,8 +707,8 @@ export class PrismaDocumentRepository implements DocumentRepository {
         // read whatever the catalogue now offers.
         people: { include: { person: true }, orderBy: { person: { name: 'asc' } } },
         subjects: {
-          include: { subject: true },
-          orderBy: [{ subject: { kind: 'asc' } }, { subject: { name: 'asc' } }],
+          include: { subject: { include: { kind: true } } },
+          orderBy: [{ subject: { kind: { name: 'asc' } } }, { subject: { name: 'asc' } }],
         },
       },
     });
@@ -719,7 +719,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
       people: row.people.map((link) => ({ id: link.person.id, name: link.person.name })),
       subjects: row.subjects.map((link) => ({
         id: link.subject.id,
-        kind: link.subject.kind,
+        kind: link.subject.kind.name,
         name: link.subject.name,
       })),
       fileRefs: row.fileRefs.map((ref) => ({

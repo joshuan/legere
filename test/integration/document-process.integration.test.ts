@@ -6,6 +6,7 @@ import { DocumentTypeRepository } from '../../src/server/domain/repositories/doc
 import { DocumentChunkRepository } from '../../src/server/domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../src/server/domain/repositories/document-event.repository';
 import { PersonRepository } from '../../src/server/domain/repositories/person.repository';
+import { SubjectKindRepository } from '../../src/server/domain/repositories/subject-kind.repository';
 import { SubjectRepository } from '../../src/server/domain/repositories/subject.repository';
 import { DocumentRepository } from '../../src/server/domain/repositories/document.repository';
 import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
@@ -76,6 +77,7 @@ describe('Document processing (integration)', () => {
       analyst,
       moduleRef.get(PersonRepository),
       moduleRef.get(SubjectRepository),
+      moduleRef.get(SubjectKindRepository),
       moduleRef.get(DocumentChunkRepository),
       embeddings,
       moduleRef.get(UnitOfWork),

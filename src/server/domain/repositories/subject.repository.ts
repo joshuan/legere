@@ -8,22 +8,22 @@ export abstract class SubjectRepository {
 
   abstract findById(id: string, tx?: TransactionHandle): Promise<Subject | null>;
 
-  // Case-insensitively, and by both halves: the kind is part of the identity, because "Montenegro"
-  // the country and "Montenegro" the boat are two things (docs/04 §4.3).
+  // Case-insensitively on the name, and within one kind: the kind is part of the identity, because
+  // "Montenegro" the country and "Montenegro" the boat are two things (docs/04 §4.3).
   abstract findByKindAndName(
-    kind: string,
+    kindId: string,
     name: string,
     tx?: TransactionHandle,
   ): Promise<Subject | null>;
 
   abstract create(
-    input: { kind: string; name: string; note?: string | null },
+    input: { kindId: string; name: string; note?: string | null },
     tx?: TransactionHandle,
   ): Promise<Subject>;
 
   abstract update(
     id: string,
-    input: { kind?: string; name?: string; note?: string | null },
+    input: { kindId?: string; name?: string; note?: string | null },
     tx?: TransactionHandle,
   ): Promise<Subject>;
 

@@ -293,12 +293,17 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`03 §3.3.10`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`07`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
   **Acceptance:** `Document.description` — a few hundred characters answering what this is, who it is between and what it is for; answered by the analysis, applied only where the field is empty, recorded in `autoValues.description` either way; `PATCH /api/documents/:id` takes it and `reset: ['description']` puts it back; the viewer shows it under the title, editable in place.
 
-- [ ] **M10.7 — Subject kinds become a catalogue**
+- [x] **M10.7 — Subject kinds become a catalogue**
   **Goal:** what sort of thing a subject is stops being free text on every row.
   **Docs:** [`03 §3.3.20`](../03-domain-model.md), [`04`](../04-database-schema.md), [`07`](../07-api-specification.md)
-  **Acceptance:** a `SubjectKind` table with a forward-only migration that backfills one row per living `subjects.kind` and repoints the rows; `Subject.kindId` replaces `Subject.kind`; kinds are read by anyone and written by an admin; the analysis resolves a kind it names and creates the missing one; `/browse/subjects/:kind` keeps working.
+  **Acceptance:** a `SubjectKind` table with a forward-only migration that backfills one row per living `subjects.kind` and repoints the rows; `Subject.kindId` replaces `Subject.kind`; reading and adding a kind are open to anyone, renaming and removing are an admin's, and a kind still used by a living subject cannot be removed; the analysis resolves a kind it names and creates the missing one; browsing by kind keeps working.
 
 - [ ] **M10.8 — Manage people, subjects and kinds outside a document**
   **Goal:** the catalogues have screens of their own, so correcting one is not an edit of some document that happens to name it.
   **Docs:** [`11 §11.12`](../11-ui-ux-spec.md#1112-admin-document-types-admindocument-types)
   **Acceptance:** `/admin/people`, `/admin/subjects` and `/admin/subject-kinds` are tables in the pattern of the document types — create, rename, delete behind a confirmation that says how many documents it reaches — reachable from the admin menu and closed to everyone else.
+
+- [ ] **M10.9 — The text tab is typeset, not just rendered**
+  **Goal:** extracted Markdown reads like a document rather than like unstyled HTML.
+  **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`11 §11.15`](../11-ui-ux-spec.md#1115-visual-identity--the-reading-room)
+  **Acceptance:** headings, paragraphs and lists carry the reading-room rhythm rather than the browser's defaults — no stray leading margin at the top, spacing that groups rather than separates; tables fill the pane with real cell borders, header weight and horizontal scrolling instead of overflowing; code, quotes, links and images are styled to match; long OCR output stays readable at every width.

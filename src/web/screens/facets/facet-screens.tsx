@@ -8,6 +8,7 @@ import { documentApi, documentKeys, type DocumentFilters } from '../../entities/
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
 import { personApi, personKeys } from '../../entities/person';
 import { subjectApi, subjectKeys } from '../../entities/subject';
+import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { DocumentCard } from '../../widgets/document-card';
 
 // Browsing by what a document *is about* rather than where its bytes are (docs/11 §11.4). Every
@@ -118,41 +119,39 @@ export function PeopleFacetScreen() {
 // then which flat (docs/03 §3.3.20).
 export function SubjectKindsFacetScreen() {
   const t = useTranslations();
-  const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });
-  if (subjects.isPending) return <Spin />;
-
-  const byKind = new Map<string, number>();
-  for (const subject of subjects.data?.items ?? []) {
-    byKind.set(subject.kind, (byKind.get(subject.kind) ?? 0) + subject.documentCount);
-  }
+  // The catalogue itself, not the kinds that happen to be in use: an empty folder is a shelf with
+  // nothing on it yet, which is different from a shelf that does not exist (docs/03 §3.3.20a).
+  const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: subjectKindApi.list });
+  if (kinds.isPending) return <Spin />;
 
   return (
     <Card title={t('facets.subjects')}>
       <FolderList
         empty={t('facets.emptySubjects')}
-        items={[...byKind.entries()].map(([kind, count]) => ({
-          href: `/browse/subjects/${encodeURIComponent(kind)}`,
-          title: kind,
-          count,
+        items={(kinds.data?.items ?? []).map((kind) => ({
+          href: `/browse/subjects/${kind.id}`,
+          title: kind.name,
+          note: kind.note ?? undefined,
+          count: kind.documentCount,
         }))}
       />
     </Card>
   );
 }
 
-export function SubjectsOfKindFacetScreen({ kind }: { kind: string }) {
+export function SubjectsOfKindFacetScreen({ kindId, title }: { kindId: string; title: string }) {
   const t = useTranslations();
   const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });
   if (subjects.isPending) return <Spin />;
 
-  const items = (subjects.data?.items ?? []).filter((subject) => subject.kind === kind);
+  const items = (subjects.data?.items ?? []).filter((subject) => subject.kindId === kindId);
 
   return (
-    <Card title={kind}>
+    <Card title={title}>
       <FolderList
         empty={t('facets.emptySubjects')}
         items={items.map((subject) => ({
-          href: `/browse/subjects/${encodeURIComponent(kind)}/${subject.id}`,
+          href: `/browse/subjects/${kindId}/${subject.id}`,
           title: subject.name,
           note: subject.note ?? undefined,
           count: subject.documentCount,

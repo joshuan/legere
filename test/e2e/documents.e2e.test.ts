@@ -696,8 +696,9 @@ describe('Documents (e2e)', () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open, title: 'Lease' });
       const person = await testPrisma().person.create({ data: { name: 'Marija Petrović' } });
+      const subjectKind = await testPrisma().subjectKind.create({ data: { name: 'apartment' } });
       const subject = await testPrisma().subject.create({
-        data: { kind: 'apartment', name: 'Njegoševa 5' },
+        data: { kindId: subjectKind.id, name: 'Njegoševa 5' },
       });
 
       await api(app)

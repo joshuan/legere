@@ -21,6 +21,11 @@ export const ERROR_CODES = [
   'PERSON_NOT_FOUND',
   'SUBJECT_EXISTS',
   'SUBJECT_NOT_FOUND',
+  'SUBJECT_KIND_EXISTS',
+  'SUBJECT_KIND_NOT_FOUND',
+  // 🔒 A subject with no kind is not a thing anybody can file by, so the subjects go first
+  // (docs/03 §3.3.20a).
+  'SUBJECT_KIND_IN_USE',
   'DOCUMENT_DUPLICATE',
   'COLLECTION_NAME_TAKEN',
   'SCANSET_INVALID_STATE',

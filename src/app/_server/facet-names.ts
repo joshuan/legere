@@ -2,6 +2,7 @@ import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { listDocumentTypesResponseSchema } from '../../shared/contracts/document-types';
 import { listPeopleResponseSchema } from '../../shared/contracts/people';
+import { listSubjectKindsResponseSchema } from '../../shared/contracts/subject-kinds';
 import { listSubjectsResponseSchema } from '../../shared/contracts/subjects';
 
 // The name of the folder a browse page is showing, resolved on the server so the heading is right in
@@ -42,4 +43,11 @@ export async function fetchSubjectName(id: string): Promise<string> {
   const found = parsed.success ? parsed.data.items.find((subject) => subject.id === id) : undefined;
   if (found === undefined) notFound();
   return `${found.name} · ${found.kind}`;
+}
+
+export async function fetchSubjectKindName(id: string): Promise<string> {
+  const parsed = listSubjectKindsResponseSchema.safeParse(await fetchJson('/api/subject-kinds'));
+  const found = parsed.success ? parsed.data.items.find((kind) => kind.id === id) : undefined;
+  if (found === undefined) notFound();
+  return found.name;
 }

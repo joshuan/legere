@@ -18,6 +18,7 @@ import type {
 } from '../../domain/repositories/document.repository';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { PersonRepository } from '../../domain/repositories/person.repository';
+import type { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
 import type { SubjectRepository } from '../../domain/repositories/subject.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
@@ -83,6 +84,7 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly analyst: DocumentAnalyst,
     private readonly people: PersonRepository,
     private readonly subjects: SubjectRepository,
+    private readonly subjectKinds: SubjectKindRepository,
     private readonly chunks: DocumentChunkRepository,
     private readonly embeddings: EmbeddingProvider,
     private readonly unitOfWork: UnitOfWork,
@@ -561,8 +563,16 @@ export class HandleDocumentProcess extends JobHandler {
 
     const ids: string[] = [];
     for (const subject of subjects) {
-      const existing = await this.subjects.findByKindAndName(subject.kind, subject.name);
-      ids.push(existing?.id ?? (await this.subjects.create(subject)).id);
+      // The kind is a catalogue row now (docs/03 §3.3.20a), and the analysis creates the one it
+      // meets for the same reason it creates a person: an archive where the machine may only pick
+      // from what somebody already typed would need somebody to type everything first.
+      const kind =
+        (await this.subjectKinds.findByName(subject.kind)) ??
+        (await this.subjectKinds.create({ name: subject.kind }));
+      const existing = await this.subjects.findByKindAndName(kind.id, subject.name);
+      ids.push(
+        existing?.id ?? (await this.subjects.create({ kindId: kind.id, name: subject.name })).id,
+      );
     }
     await this.subjects.setForDocument(document.id, ids);
   }

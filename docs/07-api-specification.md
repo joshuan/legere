@@ -128,10 +128,18 @@ human-readable index and must stay in sync with them.
 ### Subjects
 | Method & path | Auth | Notes |
 |---------------|------|-------|
-| `GET /api/subjects` | 🔒 | the catalogue with a document count each, by kind then name |
-| `POST /api/subjects` | 🔒 | `{ kind, name, note? }` → `SubjectDto`; `409 SUBJECT_EXISTS` on a living `(kind, name)`. Open to any signed-in caller (03 §3.3.20) |
-| `PATCH /api/admin/subjects/:id` | 🔒ᴬ | `{ kind?, name?, note? }` |
+| `GET /api/subjects` | 🔒 | the catalogue with a document count each, by kind then name. Each row carries `kindId` and the kind's `name`, because every screen that shows a subject shows both halves |
+| `POST /api/subjects` | 🔒 | `{ kindId, name, note? }` → `SubjectDto`; `409 SUBJECT_EXISTS` on a living `(kindId, name)`, `404 SUBJECT_KIND_NOT_FOUND` for a kind that is not in the catalogue. Open to any signed-in caller (03 §3.3.20) |
+| `PATCH /api/admin/subjects/:id` | 🔒ᴬ | `{ kindId?, name?, note? }` — moving a thing to another kind is an ordinary correction |
 | `DELETE /api/admin/subjects/:id` | 🔒ᴬ | soft delete; the links on existing documents stay |
+
+### Subject kinds
+| Method & path | Auth | Notes |
+|---------------|------|-------|
+| `GET /api/subject-kinds` | 🔒 | the catalogue by name, each with how many things it holds and how many documents they are on |
+| `POST /api/subject-kinds` | 🔒 | `{ name, note? }` → `SubjectKindDto`; lower-cased on the way in; `409 SUBJECT_KIND_EXISTS`. Open to any signed-in caller, like people and subjects (03 §3.3.20a) |
+| `PATCH /api/admin/subject-kinds/:id` | 🔒ᴬ | `{ name?, note? }` — one edit renames every thing filed under it |
+| `DELETE /api/admin/subject-kinds/:id` | 🔒ᴬ | soft delete; 🔒 `409 SUBJECT_KIND_IN_USE` while a living subject still files under it |
 
 ### Document types
 | Method & path | Auth | Notes |

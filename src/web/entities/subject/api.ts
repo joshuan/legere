@@ -2,10 +2,13 @@ import {
   createSubjectRequestSchema,
   listSubjectsResponseSchema,
   subjectDtoSchema,
+  updateSubjectRequestSchema,
   type CreateSubjectRequest,
   type ListSubjectsResponse,
   type SubjectDto,
+  type UpdateSubjectRequest,
 } from '../../../shared/contracts/subjects';
+import { okResponseSchema, type OkResponse } from '../../../shared/contracts/users';
 import { apiClient } from '../../shared/api';
 
 export const subjectApi = {
@@ -18,6 +21,17 @@ export const subjectApi = {
       schema: subjectDtoSchema,
       body: createSubjectRequestSchema.parse(body),
     }),
+
+  // Renaming and removing reach across every document about that thing, so they are an admin's
+  // (docs/11 §11.12).
+  update: (id: string, body: UpdateSubjectRequest): Promise<SubjectDto> =>
+    apiClient.patch(`/api/admin/subjects/${id}`, {
+      schema: subjectDtoSchema,
+      body: updateSubjectRequestSchema.parse(body),
+    }),
+
+  remove: (id: string): Promise<OkResponse> =>
+    apiClient.delete(`/api/admin/subjects/${id}`, { schema: okResponseSchema }),
 };
 
 export const subjectKeys = {
