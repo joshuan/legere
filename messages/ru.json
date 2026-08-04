@@ -315,6 +315,71 @@
         "description": "Описание",
         "descriptionHint": "Показывается классификатору как подсказка и админам здесь."
       }
+    },
+    "catalogues": {
+      "columns": {
+        "name": "Название",
+        "note": "Заметка",
+        "documents": "Документы",
+        "actions": "Действия"
+      },
+      "fields": {
+        "name": "Название",
+        "nameRequired": "Укажите название",
+        "note": "Заметка"
+      }
+    },
+    "people": {
+      "title": "Люди",
+      "empty": "В каталоге пока никого",
+      "createTitle": "Новый человек",
+      "editTitle": "Изменить человека",
+      "deleted": "Человек удалён",
+      "confirmDelete": "Удалить «{name}»? Он останется в {count} документах, где назван.",
+      "actions": {
+        "create": "Новый человек"
+      },
+      "fields": {
+        "noteHint": "То, что отличает двух людей с одинаковым именем."
+      }
+    },
+    "subjects": {
+      "title": "Объекты",
+      "empty": "В каталоге пока пусто",
+      "createTitle": "Новый объект",
+      "editTitle": "Изменить объект",
+      "deleted": "Объект удалён",
+      "confirmDelete": "Удалить «{name}»? Он останется в {count} документах о нём.",
+      "actions": {
+        "create": "Новый объект"
+      },
+      "columns": {
+        "kind": "Вид"
+      },
+      "fields": {
+        "kind": "Вид",
+        "kindRequired": "Выберите вид",
+        "kindHint": "Виды заводятся на своём экране.",
+        "noteHint": "То, что отличает два объекта с одним названием."
+      }
+    },
+    "subjectKinds": {
+      "title": "Виды объектов",
+      "empty": "Видов пока нет",
+      "createTitle": "Новый вид",
+      "editTitle": "Изменить вид",
+      "deleted": "Вид удалён",
+      "confirmDelete": "Удалить «{name}»?",
+      "confirmDeleteInUse": "В виде «{name}» ещё {count} объектов. Сначала удалите или перенесите их.",
+      "actions": {
+        "create": "Новый вид"
+      },
+      "columns": {
+        "subjects": "Объектов"
+      },
+      "fields": {
+        "nameHint": "Одно слово в нижнем регистре: apartment, car, country."
+      }
     }
   },
   "documents": {
@@ -454,7 +519,10 @@
       "libraries": "Библиотеки",
       "users": "Пользователи",
       "documentTypes": "Типы документов",
-      "queue": "Очередь"
+      "queue": "Очередь",
+      "people": "Люди",
+      "subjects": "Объекты",
+      "subjectKinds": "Виды объектов"
     }
   },
   "browse": {

@@ -298,7 +298,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`03 §3.3.20`](../03-domain-model.md), [`04`](../04-database-schema.md), [`07`](../07-api-specification.md)
   **Acceptance:** a `SubjectKind` table with a forward-only migration that backfills one row per living `subjects.kind` and repoints the rows; `Subject.kindId` replaces `Subject.kind`; reading and adding a kind are open to anyone, renaming and removing are an admin's, and a kind still used by a living subject cannot be removed; the analysis resolves a kind it names and creates the missing one; browsing by kind keeps working.
 
-- [ ] **M10.8 — Manage people, subjects and kinds outside a document**
+- [x] **M10.8 — Manage people, subjects and kinds outside a document**
   **Goal:** the catalogues have screens of their own, so correcting one is not an edit of some document that happens to name it.
   **Docs:** [`11 §11.12`](../11-ui-ux-spec.md#1112-admin-document-types-admindocument-types)
   **Acceptance:** `/admin/people`, `/admin/subjects` and `/admin/subject-kinds` are tables in the pattern of the document types — create, rename, delete behind a confirmation that says how many documents it reaches — reachable from the admin menu and closed to everyone else.

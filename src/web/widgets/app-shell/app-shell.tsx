@@ -127,6 +127,21 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
                 label: <Link href="/admin/document-types">{t('nav.admin.documentTypes')}</Link>,
               },
               {
+                key: '/admin/people',
+                icon: <TeamOutlined />,
+                label: <Link href="/admin/people">{t('nav.admin.people')}</Link>,
+              },
+              {
+                key: '/admin/subjects',
+                icon: <TagsOutlined />,
+                label: <Link href="/admin/subjects">{t('nav.admin.subjects')}</Link>,
+              },
+              {
+                key: '/admin/subject-kinds',
+                icon: <TagsOutlined />,
+                label: <Link href="/admin/subject-kinds">{t('nav.admin.subjectKinds')}</Link>,
+              },
+              {
                 key: '/admin/queue',
                 icon: <ThunderboltOutlined />,
                 label: <Link href="/admin/queue">{t('nav.admin.queue')}</Link>,

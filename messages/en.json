@@ -315,6 +315,71 @@
         "description": "Description",
         "descriptionHint": "Shown to the classifier as guidance, and to admins here."
       }
+    },
+    "catalogues": {
+      "columns": {
+        "name": "Name",
+        "note": "Note",
+        "documents": "Documents",
+        "actions": "Actions"
+      },
+      "fields": {
+        "name": "Name",
+        "nameRequired": "Enter a name",
+        "note": "Note"
+      }
+    },
+    "people": {
+      "title": "People",
+      "empty": "Nobody in the catalogue yet",
+      "createTitle": "New person",
+      "editTitle": "Edit person",
+      "deleted": "Person deleted",
+      "confirmDelete": "Delete “{name}”? They stay on the {count} documents that name them.",
+      "actions": {
+        "create": "New person"
+      },
+      "fields": {
+        "noteHint": "Whatever tells two people of the same name apart."
+      }
+    },
+    "subjects": {
+      "title": "Subjects",
+      "empty": "Nothing in the catalogue yet",
+      "createTitle": "New subject",
+      "editTitle": "Edit subject",
+      "deleted": "Subject deleted",
+      "confirmDelete": "Delete “{name}”? It stays on the {count} documents about it.",
+      "actions": {
+        "create": "New subject"
+      },
+      "columns": {
+        "kind": "Kind"
+      },
+      "fields": {
+        "kind": "Kind",
+        "kindRequired": "Choose a kind",
+        "kindHint": "Kinds are managed on their own screen.",
+        "noteHint": "Anything that tells two things of one name apart."
+      }
+    },
+    "subjectKinds": {
+      "title": "Subject kinds",
+      "empty": "No kinds yet",
+      "createTitle": "New kind",
+      "editTitle": "Edit kind",
+      "deleted": "Kind deleted",
+      "confirmDelete": "Delete “{name}”?",
+      "confirmDeleteInUse": "“{name}” still holds {count} things. Remove or move them first.",
+      "actions": {
+        "create": "New kind"
+      },
+      "columns": {
+        "subjects": "Things"
+      },
+      "fields": {
+        "nameHint": "One lower-case word: apartment, car, country."
+      }
     }
   },
   "documents": {
@@ -454,7 +519,10 @@
       "libraries": "Libraries",
       "users": "Users",
       "documentTypes": "Document types",
-      "queue": "Queue"
+      "queue": "Queue",
+      "people": "People",
+      "subjects": "Subjects",
+      "subjectKinds": "Subject kinds"
     }
   },
   "browse": {
