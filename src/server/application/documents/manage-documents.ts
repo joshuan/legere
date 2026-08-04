@@ -8,6 +8,7 @@ import type {
 } from '../../../shared/contracts/documents';
 import { canEditDocumentMeta, isProcessing, type Document } from '../../domain/entities/document';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
+import type { PersonRepository } from '../../domain/repositories/person.repository';
 import { ForbiddenError, NotFoundError } from '../../domain/errors/domain-error';
 import type { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import type {
@@ -66,6 +67,7 @@ export class UpdateDocumentMeta {
     private readonly documents: DocumentRepository,
     private readonly documentTypes: DocumentTypeRepository,
     private readonly events: DocumentEventRepository,
+    private readonly people: PersonRepository,
   ) {}
 
   async execute(
@@ -121,6 +123,11 @@ export class UpdateDocumentMeta {
           update.typeSource = read === undefined ? 'NONE' : 'AUTO';
         }
       }
+    }
+
+    // People are a set, not a field on the row: sent whole, replaced whole (docs/03 §3.3.19).
+    if (input.peopleIds !== undefined) {
+      await this.people.setForDocument(detail.document.id, input.peopleIds);
     }
 
     const updated = await this.documents.updateMeta(detail.document.id, update);
@@ -200,6 +207,7 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     skipReasons: document.skipReasons,
     languages: document.languages,
     auto: document.auto,
+    people: detail.people,
     country: document.country,
     city: document.city,
     processingError: document.processingError,

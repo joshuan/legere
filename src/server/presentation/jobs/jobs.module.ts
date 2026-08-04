@@ -20,6 +20,7 @@ import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
+import { PersonRepository } from '../../domain/repositories/person.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
@@ -130,6 +131,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         images: ImageTool,
         documentTypes: DocumentTypeRepository,
         classifier: DocumentAnalyst,
+        people: PersonRepository,
         chunks: DocumentChunkRepository,
         embeddings: EmbeddingProvider,
         unitOfWork: UnitOfWork,
@@ -147,6 +149,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           images,
           documentTypes,
           classifier,
+          people,
           chunks,
           embeddings,
           unitOfWork,
@@ -164,6 +167,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         ImageTool,
         DocumentTypeRepository,
         DocumentAnalyst,
+        PersonRepository,
         DocumentChunkRepository,
         EmbeddingProvider,
         UnitOfWork,

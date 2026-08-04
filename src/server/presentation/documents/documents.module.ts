@@ -23,6 +23,7 @@ import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
+import { PersonRepository } from '../../domain/repositories/person.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
@@ -75,8 +76,14 @@ function downloadSettings(config: AppConfig): DownloadSettings {
         documents: DocumentRepository,
         documentTypes: DocumentTypeRepository,
         events: DocumentEventRepository,
-      ): UpdateDocumentMeta => new UpdateDocumentMeta(documents, documentTypes, events),
-      inject: [DocumentRepository, DocumentTypeRepository, DocumentEventRepository],
+        people: PersonRepository,
+      ): UpdateDocumentMeta => new UpdateDocumentMeta(documents, documentTypes, events, people),
+      inject: [
+        DocumentRepository,
+        DocumentTypeRepository,
+        DocumentEventRepository,
+        PersonRepository,
+      ],
     },
     {
       provide: DeleteDocument,

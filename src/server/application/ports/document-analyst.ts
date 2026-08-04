@@ -21,6 +21,9 @@ export type DocumentAnalysis = {
   country: string | null;
   // As written in the document, in whatever language it is written in.
   city: string | null;
+  // The people the document is about, named as it names them: the parties to a contract, the
+  // passenger on a ticket (docs/03 §3.3.19).
+  people: string[];
 };
 
 // The AI step is optional in the same way vectorization is (docs/05 §5.5 step 4): unconfigured

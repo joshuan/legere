@@ -262,6 +262,35 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 `documents/{id}/source.{ext}` (DERIVED and UPLOAD — the bytes themselves; `.pdf` for a scan-set
 merge, the uploaded file's own extension otherwise).
 
+### 3.3.19. Person
+
+Who a document is about: the parties to a contract, the passenger on a ticket, the patient in a
+report. A shared catalogue rather than names written on each document, so the same person on forty
+documents is one row — and correcting a spelling corrects all forty.
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid | |
+| name | string | unique among living rows, case-insensitively |
+| note | string? | whatever tells two people of the same name apart, in the owner's own words |
+| createdAt / updatedAt / deletedAt | | soft delete (ADR-015): the links stay, only new documents stop being able to name them |
+
+`DocumentPerson` links the two, many-to-many, **without a role**. A role — buyer, seller, payer — is
+real and wanted, but what the roles *are* is not knowable yet, and a half-guessed vocabulary is worse
+than none. Open question in §3.5.
+
+**Who may do what.** Reading the catalogue and adding to it are open to anyone signed in, because the
+analysis step adds names on its own and whoever corrects it must be able to add the one it missed
+without waiting for an admin. Renaming and removing are an admin's: both reach across every document
+that names the person.
+
+**The analysis step fills it in.** The model is asked for the people a document is about, named as
+the document names them; each name is matched against the catalogue case-insensitively and created
+when it is missing. Creating is the point — an archive where the machine may only pick from what
+somebody already typed would need somebody to type everything first. Fill-blanks-only, like the rest
+of the analysis: a document that already names people is one where somebody has decided, so the
+answer is recorded in `autoValues.people` and not applied.
+
 ### 3.3.18. DocumentEvent
 
 The history of one document: how it came to be what it is. The `Document` row carries the *current*

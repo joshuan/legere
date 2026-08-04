@@ -53,7 +53,9 @@
       "RATE_LIMITED": "Too many attempts. Please wait a moment and try again.",
       "EMAIL_CODE_TOO_MANY_ATTEMPTS": "Too many wrong codes. Request a new one.",
       "INTERNAL": "An unexpected server error occurred.",
-      "DOCUMENT_DUPLICATE": "This file is already on this instance, in a document you cannot open."
+      "DOCUMENT_DUPLICATE": "This file is already on this instance, in a document you cannot open.",
+      "PERSON_EXISTS": "Somebody with this name is already in the list.",
+      "PERSON_NOT_FOUND": "This person is no longer in the list."
     }
   },
   "auth": {
@@ -404,6 +406,9 @@
       "noLocations": "This document has no files on any library you can see.",
       "auto": "read as {value}",
       "documentType": "Type",
+      "people": "People",
+      "peoplePlaceholder": "Nobody yet",
+      "addPerson": "Add “{name}”",
       "reset": "reset",
       "editHint": "Edit — or press E"
     },

@@ -89,7 +89,9 @@ before the metadata of the thing it names.
   input is one width; a place is two inputs sharing that one width, because it is one fact. A field
   the pipeline read differently carries a **reset** next to it, which puts it back to what was read —
   travelling as a reset rather than as the same value typed in, so a reset document type becomes `AUTO`
-  again instead of claiming somebody chose it.
+  again instead of claiming somebody chose it. **People** is a multi-select over the catalogue with
+  "Add «name»" for anything typed that is not in it yet — the analysis step creates people on its
+  own, so a person correcting it must be able to do the same without an admin (03 §3.3.19).
   Save sends **only the fields that changed** — an untouched document type must not travel, or every save
   would flip `typeSource` to `MANUAL` and a classifier's choice would silently become a person's.
   Cancel drops the draft. What the machine decided is kept: when the two differ, a

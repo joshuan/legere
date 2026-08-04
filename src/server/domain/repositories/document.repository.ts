@@ -84,6 +84,8 @@ export type DocumentFileRefView = {
 };
 
 export type DocumentDetail = DocumentListItem & {
+  // Who the document is about (docs/03 §3.3.19).
+  people: Array<{ id: string; name: string }>;
   // Only refs in libraries the viewer may see; an admin sees them all (docs/07 §7.3).
   fileRefs: DocumentFileRefView[];
   createdBy: { id: string; displayName: string } | null;

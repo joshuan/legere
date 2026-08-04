@@ -16,6 +16,7 @@ import type {
   ProcessingUpdate,
 } from '../../domain/repositories/document.repository';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
+import type { PersonRepository } from '../../domain/repositories/person.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
 import { toBuffer, type BinarySource } from '../ports/binary-source';
@@ -77,6 +78,7 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly images: ImageTool,
     private readonly documentTypes: DocumentTypeRepository,
     private readonly analyst: DocumentAnalyst,
+    private readonly people: PersonRepository,
     private readonly chunks: DocumentChunkRepository,
     private readonly embeddings: EmbeddingProvider,
     private readonly unitOfWork: UnitOfWork,
@@ -455,6 +457,8 @@ export class HandleDocumentProcess extends JobHandler {
         })),
       );
 
+      await this.linkPeople(document, analysis.people);
+
       // Second guard against a hallucinated slug: whatever came back has to match a documentType that
       // actually exists, or the document simply has none (docs/05 §5.5 step 4).
       const chosen =
@@ -467,6 +471,7 @@ export class HandleDocumentProcess extends JobHandler {
         // Recorded whether or not it was applied: a place somebody filled in by hand stays, and the
         // reader still gets to see what the machine read (docs/03 §3.3.10).
         auto: {
+          ...(analysis.people.length > 0 ? { people: analysis.people } : {}),
           typeSlug: analysis.typeSlug,
           ...(analysis.languages.length > 0 ? { languages: analysis.languages } : {}),
           country: analysis.country,
@@ -476,6 +481,26 @@ export class HandleDocumentProcess extends JobHandler {
     } catch (error) {
       await this.recordFailure(document.id, 'analysis', error);
     }
+  }
+
+  // Names the analyst read become links, and a name the catalogue has never seen becomes a row.
+  // Creating is the point: an archive where the machine may only pick from what somebody already
+  // typed would need somebody to type everything first (docs/03 §3.3.19). Matching is by name,
+  // case-insensitively — the only identity a document offers.
+  //
+  // Fill-blanks-only, like the rest of the analysis: a document that already names people is one
+  // where somebody has decided, so the answer is recorded and not applied.
+  private async linkPeople(document: Document, names: readonly string[]): Promise<void> {
+    if (names.length === 0) return;
+    const already = await this.people.listForDocument(document.id);
+    if (already.length > 0) return;
+
+    const ids: string[] = [];
+    for (const name of names) {
+      const existing = await this.people.findByName(name);
+      ids.push(existing?.id ?? (await this.people.create({ name })).id);
+    }
+    await this.people.setForDocument(document.id, ids);
   }
 
   // Step 5. Chunk the Markdown, embed the chunks, and replace the document's vectors wholesale.

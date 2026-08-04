@@ -4,6 +4,7 @@ import { DocumentTypeRepository } from '../../domain/repositories/document-type.
 import { CollectionRepository } from '../../domain/repositories/collection.repository';
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
+import { PersonRepository } from '../../domain/repositories/person.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
@@ -19,6 +20,7 @@ import { PrismaCollectionRepository } from './prisma-collection.repository';
 import { PrismaDocumentChunkRepository } from './prisma-document-chunk.repository';
 import { PrismaDocumentEventRepository } from './prisma-document-event.repository';
 import { PrismaDocumentRepository } from './prisma-document.repository';
+import { PrismaPersonRepository } from './prisma-person.repository';
 import { PrismaEmailVerificationRepository } from './prisma-email-verification.repository';
 import { PrismaFileRefRepository } from './prisma-file-ref.repository';
 import { PrismaLibraryRepository } from './prisma-library.repository';
@@ -45,6 +47,7 @@ const REPOSITORIES = [
   { provide: FileRefRepository, useClass: PrismaFileRefRepository },
   { provide: DocumentRepository, useClass: PrismaDocumentRepository },
   { provide: DocumentEventRepository, useClass: PrismaDocumentEventRepository },
+  { provide: PersonRepository, useClass: PrismaPersonRepository },
   { provide: DocumentChunkRepository, useClass: PrismaDocumentChunkRepository },
   { provide: DocumentTypeRepository, useClass: PrismaCategoryRepository },
   { provide: CollectionRepository, useClass: PrismaCollectionRepository },
@@ -67,6 +70,7 @@ const REPOSITORIES = [
     FileRefRepository,
     DocumentRepository,
     DocumentEventRepository,
+    PersonRepository,
     DocumentChunkRepository,
     DocumentTypeRepository,
     CollectionRepository,

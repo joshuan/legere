@@ -19,6 +19,7 @@ const answerSchema = z.object({
   languages: z.array(z.string()).optional(),
   country: z.string().nullish(),
   city: z.string().nullish(),
+  people: z.array(z.string()).optional(),
 });
 
 const SYSTEM_PROMPT = [
@@ -26,7 +27,8 @@ const SYSTEM_PROMPT = [
   '{"slug": "<one of the listed slugs, or none>",',
   '"languages": ["<BCP-47 tags of the languages the document is written in>"],',
   '"country": "<ISO 3166-1 alpha-2 code of the country the document belongs to, or null>",',
-  '"city": "<the city the document belongs to, as written, or null>"}.',
+  '"city": "<the city the document belongs to, as written, or null>",',
+  '"people": ["<the people this document is about, as it names them>"]}.',
   'Never invent a slug that is not on the list.',
   'Infer the country and the city from what the document is about — an issuing office, an operator,',
   'a station, a currency, an address, a phone prefix — not only from words naming a country.',
@@ -34,6 +36,8 @@ const SYSTEM_PROMPT = [
   'departure — never a destination.',
   'If you name a city, name the country that city is in as well.',
   'Use null when the document gives you no reason to name one; a guess is worse than nothing.',
+  'People are the parties, the holder, the passenger, the patient — not the clerk who stamped it,',
+  'not the company. Give each name once, as written. Empty list if the document names nobody.',
 ].join(' ');
 
 // Deterministic answers: the same document must not land in a different documentType on a reprocess.
@@ -44,6 +48,10 @@ const TEMPERATURE = 0;
 const BCP47 = /^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$/;
 const MAX_LANGUAGES = 4;
 const MAX_CITY_CHARS = 100;
+// A document names a few people; a model that answers with forty has misread a page of text as a
+// guest list, and the catalogue should not grow by forty rows because of it.
+const MAX_PEOPLE = 8;
+const MAX_NAME_CHARS = 200;
 
 @Injectable()
 export class OpenAiCompatAnalyst extends DocumentAnalyst {
@@ -132,13 +140,16 @@ function readAnswer(
   documentTypes: readonly DocumentTypeOption[],
 ): DocumentAnalysis {
   const parsed = answerSchema.safeParse(safeJson(extractJson(content)));
-  if (!parsed.success) return { typeSlug: null, languages: [], country: null, city: null };
+  if (!parsed.success) {
+    return { typeSlug: null, languages: [], country: null, city: null, people: [] };
+  }
 
   return {
     typeSlug: pickSlug(parsed.data.slug ?? '', documentTypes),
     languages: pickLanguages(parsed.data.languages ?? []),
     country: pickCountry(parsed.data.country),
     city: pickCity(parsed.data.city),
+    people: pickPeople(parsed.data.people ?? []),
   };
 }
 
@@ -166,6 +177,23 @@ function pickCity(city: string | null | undefined): string | null {
   if (name === '' || name.length > MAX_CITY_CHARS) return null;
   // Models answer "unknown" instead of null often enough to be worth catching.
   return /^(unknown|n\/?a|none|null)$/i.test(name) ? null : name;
+}
+
+// Trimmed, deduplicated case-insensitively, and capped. Names are free text — there is no shape to
+// validate — so the only defences are length and count.
+function pickPeople(people: string[]): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const raw of people) {
+    const name = raw.trim().replace(/\s+/g, ' ');
+    if (name === '' || name.length > MAX_NAME_CHARS) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+    if (names.length === MAX_PEOPLE) break;
+  }
+  return names;
 }
 
 // Models like to wrap JSON in prose or a ```json fence; take the first object in the answer.

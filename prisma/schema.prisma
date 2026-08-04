@@ -302,6 +302,7 @@ model Document {
   fileRefs        FileRef[]
   chunks          DocumentChunk[]
   events          DocumentEvent[]
+  people          DocumentPerson[]
   collectionItems CollectionItem[]
   scanSetItems    ScanSetItem[]
   resultOf        ScanSet?         @relation("ScanSetResult")
@@ -341,6 +342,36 @@ model DocumentChunk {
 
   @@unique([documentId, index])
   @@map("document_chunks")
+}
+
+// A person a document is about: the parties to a contract, the passenger on a ticket, the patient in
+// a report (docs/03 §3.3.19). A shared catalogue, so the same person on forty documents is one row
+// and renaming them fixes all forty.
+model Person {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String
+  // Anything that tells two people with the same name apart, in whatever words the owner likes.
+  note      String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  documents DocumentPerson[]
+
+  @@map("people")
+}
+
+model DocumentPerson {
+  documentId String   @map("document_id") @db.Uuid
+  personId   String   @map("person_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  person   Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, personId])
+  @@index([personId])
+  @@map("document_people")
 }
 
 model DocumentType {

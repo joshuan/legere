@@ -37,6 +37,7 @@ import type { StepStatus } from '../../../shared/contracts/enums';
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
+import { personApi, personKeys } from '../../entities/person';
 import { useErrorMessage, formatBytes } from '../../shared/lib';
 import { isViewerTab, type ViewerTab } from './viewer-tab';
 
@@ -88,6 +89,7 @@ export function DocumentViewerScreen({
 
   const documentTypes = useQuery({ queryKey: documentTypeKeys.all, queryFn: documentTypeApi.list });
   const collections = useQuery({ queryKey: collectionKeys.all, queryFn: collectionApi.list });
+  const people = useQuery({ queryKey: personKeys.all, queryFn: personApi.list });
 
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.detail(id) });
@@ -189,6 +191,12 @@ export function DocumentViewerScreen({
                   <DetailsPane
                     document={detail}
                     documentTypes={documentTypes.data?.items ?? []}
+                    people={people.data?.items ?? []}
+                    onCreatePerson={async (name) => {
+                      const created = await personApi.create({ name });
+                      await queryClient.invalidateQueries({ queryKey: personKeys.all });
+                      return created.id;
+                    }}
                     onSave={(input) => update.mutate(input)}
                     saving={update.isPending}
                   />
@@ -394,6 +402,7 @@ type MetaChange = {
   languages?: string[];
   country?: string | null;
   city?: string | null;
+  peopleIds?: string[];
   reset?: ResettableField[];
 };
 
@@ -401,6 +410,7 @@ type MetaChange = {
 // nothing is sent until Save: a select that writes on every keystroke turns a glance into an edit.
 type Draft = {
   typeId: string | null;
+  peopleIds: string[];
   languages: string[];
   country: string | null;
   city: string;
@@ -412,17 +422,22 @@ type Draft = {
 function DetailsPane({
   document,
   documentTypes,
+  people,
+  onCreatePerson,
   onSave,
   saving,
 }: {
   document: DocumentDetailDto;
   documentTypes: Array<{ id: string; slug: string; name: string }>;
+  people: Array<{ id: string; name: string }>;
+  onCreatePerson: (name: string) => Promise<string>;
   onSave: (input: MetaChange) => void;
   saving: boolean;
 }) {
   const t = useTranslations();
   const size = useMemo(() => formatBytes(document.sizeBytes), [document.sizeBytes]);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [search, setSearch] = useState('');
   const [reset, setReset] = useState<ResettableField[]>([]);
   const editing = draft !== null;
 
@@ -430,6 +445,7 @@ function DetailsPane({
     setReset([]);
     setDraft({
       typeId: document.documentType?.id ?? null,
+      peopleIds: document.people.map((person) => person.id),
       languages: document.languages,
       country: document.country,
       city: document.city ?? '',
@@ -599,6 +615,57 @@ function DetailsPane({
             note: wasRead(
               autoType?.name ?? document.auto.typeSlug,
               document.documentType?.name ?? '',
+            ),
+          },
+          {
+            label: t('viewer.details.people'),
+            value:
+              draft !== null ? (
+                <Select
+                  mode="multiple"
+                  className="legere-field"
+                  optionFilterProp="label"
+                  placeholder={t('viewer.details.peoplePlaceholder')}
+                  aria-label={t('viewer.details.people')}
+                  value={draft.peopleIds}
+                  searchValue={search}
+                  onSearch={setSearch}
+                  onChange={(peopleIds: string[]) => setDraft({ ...draft, peopleIds })}
+                  options={people.map((person) => ({ value: person.id, label: person.name }))}
+                  // A name the catalogue does not have yet is added to it: the analyst does exactly
+                  // that on its own, and whoever corrects it must not need an admin (03 §3.3.19).
+                  dropdownRender={(menu) => (
+                    <>
+                      {menu}
+                      {isNewName(search, people) && (
+                        <Button
+                          type="link"
+                          block
+                          onClick={() => {
+                            const name = search.trim();
+                            setSearch('');
+                            void onCreatePerson(name).then((personId) =>
+                              setDraft((current) =>
+                                current === null
+                                  ? current
+                                  : { ...current, peopleIds: [...current.peopleIds, personId] },
+                              ),
+                            );
+                          }}
+                        >
+                          {t('viewer.details.addPerson', { name: search.trim() })}
+                        </Button>
+                      )}
+                    </>
+                  )}
+                />
+              ) : (
+                document.people.map((person) => person.name).join(', ')
+              ),
+            pending: state('analysis'),
+            note: wasRead(
+              (document.auto.people ?? []).join(', '),
+              document.people.map((person) => person.name).join(', '),
             ),
           },
           {
@@ -823,6 +890,13 @@ function describeEvent(event: DocumentEventDto, t: ReturnType<typeof useTranslat
     )
     .join('; ');
   return changes === '' ? t('viewer.log.metaChanged') : changes;
+}
+
+// Something typed that is not already in the catalogue — the only case where offering to add a
+// person is useful rather than noise.
+function isNewName(search: string, people: Array<{ name: string }>): boolean {
+  const name = search.trim().toLowerCase();
+  return name !== '' && !people.some((person) => person.name.toLowerCase() === name);
 }
 
 function placeOf(city: string | null, country: string | null): string {

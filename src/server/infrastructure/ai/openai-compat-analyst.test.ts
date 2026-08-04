@@ -135,7 +135,13 @@ describe('OpenAiCompatAnalyst', () => {
 
       const result = await analyst().analyze('ŽPCG Podgorica', []);
 
-      expect(result).toEqual({ typeSlug: null, languages: [], country: 'ME', city: null });
+      expect(result).toEqual({
+        typeSlug: null,
+        languages: [],
+        country: 'ME',
+        city: null,
+        people: [],
+      });
       expect(spy).toHaveBeenCalledTimes(1);
     });
 
@@ -149,11 +155,24 @@ describe('OpenAiCompatAnalyst', () => {
       // Each field stands or falls on its own: an invented slug does not discard a good country.
       expect(await analyst().analyze('text', CATEGORIES)).toEqual({
         typeSlug: null,
+        people: [],
         languages: ['sr-Latn', 'en'],
         // 🔒 Upper-cased: a stored 'me' would never match a lookup for 'ME'.
         country: 'ME',
         city: 'Podgorica',
       });
+    });
+
+    it('reads the people a document is about, once each and trimmed', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        answers('{"people":["  Evgenii   Shershnev ","EVGENII SHERSHNEV","Marija Petrović",""]}'),
+      );
+
+      const result = await analyst().analyze('text', CATEGORIES);
+
+      // The same person written twice is one name: the catalogue must not gain a row because a
+      // model changed its capitalisation (docs/03 §3.3.19).
+      expect(result.people).toEqual(['Evgenii Shershnev', 'Marija Petrović']);
     });
 
     it('drops language tags that are not tags and places that are not places', async () => {

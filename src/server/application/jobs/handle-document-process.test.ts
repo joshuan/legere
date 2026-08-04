@@ -5,6 +5,7 @@ import {
   LIBRARY_ID,
   FakeAnalyst,
   FakeDocumentEventRepository,
+  InMemoryPersonRepository,
   FakeEmbeddingProvider,
   FakeImageTool,
   FakeDocumentParser,
@@ -47,6 +48,7 @@ describe('HandleDocumentProcess', () => {
   let images: FakeImageTool;
   let documentTypes: InMemoryCategoryRepository;
   let analyst: FakeAnalyst;
+  let people: InMemoryPersonRepository;
   let chunks: InMemoryDocumentChunkRepository;
   let embeddings: FakeEmbeddingProvider;
   let handler: HandleDocumentProcess;
@@ -69,6 +71,7 @@ describe('HandleDocumentProcess', () => {
     documentTypes.add('invoice', 'Bills and payment requests.');
     documentTypes.add('contract');
     analyst = new FakeAnalyst();
+    people = new InMemoryPersonRepository();
     chunks = new InMemoryDocumentChunkRepository();
     embeddings = new FakeEmbeddingProvider();
 
@@ -87,6 +90,7 @@ describe('HandleDocumentProcess', () => {
       images,
       documentTypes,
       analyst,
+      people,
       chunks,
       embeddings,
       new ImmediateUnitOfWork(),
@@ -508,6 +512,7 @@ describe('HandleDocumentProcess', () => {
         languages: [],
         country: 'ME',
         city: 'Podgorica',
+        people: [],
       };
 
       await run();
@@ -528,6 +533,7 @@ describe('HandleDocumentProcess', () => {
         languages: ['sr-Latn'],
         country: 'ME',
         city: 'Podgorica',
+        people: [],
       };
 
       await run();
@@ -538,6 +544,53 @@ describe('HandleDocumentProcess', () => {
       // Too little text for the offline detector to have found anything, so the analyst's answer
       // is what the document ends up with.
       expect(document.languages).toEqual(['sr-Latn']);
+    });
+
+    it('adds the people it read, creating the ones the catalogue has never seen', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      reader.put(SOURCE_PATH, 'Ugovor između strana');
+      await people.create({ name: 'Evgenii Shershnev' });
+      analyst.answer = {
+        typeSlug: null,
+        languages: [],
+        country: null,
+        city: null,
+        // One the catalogue has, spelled differently, and one it has never seen.
+        people: ['evgenii shershnev', 'Marija Petrović'],
+      };
+
+      await run();
+
+      // 🔒 Matched case-insensitively, so a document does not double the catalogue every time the
+      // model changes its capitalisation (docs/03 §3.3.19).
+      expect(people.people.size).toBe(2);
+      const linked = await people.listForDocument(DOCUMENT_ID);
+      expect(linked.map((person) => person.name).sort()).toEqual([
+        'Evgenii Shershnev',
+        'Marija Petrović',
+      ]);
+      expect(stateOf().auto.people).toEqual(['evgenii shershnev', 'Marija Petrović']);
+    });
+
+    it('leaves the people a person chose, and records what it read instead', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      reader.put(SOURCE_PATH, 'text');
+      const chosen = await people.create({ name: 'Somebody Else' });
+      await people.setForDocument(DOCUMENT_ID, [chosen.id]);
+      analyst.answer = {
+        typeSlug: null,
+        languages: [],
+        country: null,
+        city: null,
+        people: ['Marija Petrović'],
+      };
+
+      await run();
+
+      // Fill-blanks-only, the rule the rest of the analysis follows (docs/03 §3.3.10).
+      const linked = await people.listForDocument(DOCUMENT_ID);
+      expect(linked.map((person) => person.name)).toEqual(['Somebody Else']);
+      expect(stateOf().auto.people).toEqual(['Marija Petrović']);
     });
 
     it('leaves alone every field that already has an answer', async () => {
@@ -558,6 +611,7 @@ describe('HandleDocumentProcess', () => {
         languages: ['en'],
         country: 'ME',
         city: 'Podgorica',
+        people: [],
       };
 
       await run();

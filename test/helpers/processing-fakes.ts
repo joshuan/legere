@@ -50,6 +50,11 @@ import {
   type DocumentAnalysis,
 } from '../../src/server/application/ports/document-analyst';
 import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
+import type { Person } from '../../src/server/domain/entities/person';
+import {
+  PersonRepository,
+  type PersonWithCount,
+} from '../../src/server/domain/repositories/person.repository';
 import {
   DocumentEventRepository,
   type DocumentEventView,
@@ -137,6 +142,8 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       steps,
       ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
       ...(update.languages === undefined ? {} : { languages: update.languages }),
+      // Merged, like the column: each step adds what it worked out (docs/03 §3.3.10).
+      ...(update.auto === undefined ? {} : { auto: { ...existing.auto, ...update.auto } }),
       ...(update.country === undefined ? {} : { country: update.country }),
       ...(update.city === undefined ? {} : { city: update.city }),
       ...(update.markdown === undefined ? {} : { markdown: update.markdown }),
@@ -573,9 +580,81 @@ export class FakeDocumentEventRepository extends DocumentEventRepository {
   }
 }
 
+// The people catalogue in memory: a name is one row, and the analyst may add to it (docs/03 §3.3.19).
+export class InMemoryPersonRepository extends PersonRepository {
+  readonly people = new Map<string, Person>();
+  readonly links = new Map<string, string[]>();
+
+  listActive(): Promise<PersonWithCount[]> {
+    return Promise.resolve(
+      [...this.people.values()].map((person) => ({
+        ...person,
+        documentCount: [...this.links.values()].filter((ids) => ids.includes(person.id)).length,
+      })),
+    );
+  }
+
+  findById(id: string): Promise<Person | null> {
+    return Promise.resolve(this.people.get(id) ?? null);
+  }
+
+  findByIds(ids: string[]): Promise<Person[]> {
+    return Promise.resolve(ids.map((id) => this.people.get(id)).filter((p) => p !== undefined));
+  }
+
+  findByName(name: string): Promise<Person | null> {
+    const wanted = name.trim().toLowerCase();
+    return Promise.resolve(
+      [...this.people.values()].find((person) => person.name.toLowerCase() === wanted) ?? null,
+    );
+  }
+
+  create(input: { name: string; note?: string | null }): Promise<Person> {
+    const person: Person = {
+      id: `person-${this.people.size + 1}`,
+      name: input.name,
+      note: input.note ?? null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      deletedAt: null,
+    };
+    this.people.set(person.id, person);
+    return Promise.resolve(person);
+  }
+
+  update(id: string, input: { name?: string; note?: string | null }): Promise<Person> {
+    const person = this.people.get(id);
+    if (person === undefined) throw new Error(`No person ${id}`);
+    const updated = { ...person, ...(input.name === undefined ? {} : { name: input.name }) };
+    this.people.set(id, updated);
+    return Promise.resolve(updated);
+  }
+
+  softDelete(id: string, deletedAt: Date): Promise<void> {
+    const person = this.people.get(id);
+    if (person !== undefined) this.people.set(id, { ...person, deletedAt });
+    return Promise.resolve();
+  }
+
+  listForDocument(documentId: string): Promise<Person[]> {
+    const ids = this.links.get(documentId) ?? [];
+    return Promise.resolve(ids.map((id) => this.people.get(id)).filter((p) => p !== undefined));
+  }
+
+  setForDocument(documentId: string, personIds: string[]): Promise<void> {
+    this.links.set(documentId, personIds);
+    return Promise.resolve();
+  }
+}
+
 export class FakeAnalyst extends DocumentAnalyst {
   configured = true;
-  answer: DocumentAnalysis = { typeSlug: null, languages: [], country: null, city: null };
+  answer: DocumentAnalysis = {
+    typeSlug: null,
+    languages: [],
+    country: null,
+    city: null,
+    people: [],
+  };
   failing = false;
   readonly calls: Array<{ excerpt: string; documentTypes: readonly DocumentTypeOption[] }> = [];
 

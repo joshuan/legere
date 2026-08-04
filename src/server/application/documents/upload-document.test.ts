@@ -99,6 +99,7 @@ describe('UploadDocument', () => {
       }),
       documentType: null,
       availability: 'AVAILABLE',
+      people: [],
       fileRefs: [],
       createdBy: { id: VIEWER.id, displayName: 'the uploader' },
     });

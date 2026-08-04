@@ -77,6 +77,8 @@ export type DocumentSkipReasons = z.infer<typeof documentSkipReasonsSchema>;
 // and a wrong correction is never a dead end (docs/03 §3.3.10).
 export const autoValuesSchema = z.object({
   title: z.string().optional(),
+  // Names as the analyst read them, whether or not they became links (docs/03 §3.3.10).
+  people: z.array(z.string()).optional(),
   typeSlug: z.string().nullish(),
   languages: z.array(z.string()).optional(),
   country: z.string().nullish(),
@@ -86,6 +88,8 @@ export type AutoValues = z.infer<typeof autoValuesSchema>;
 
 export const documentDetailDtoSchema = documentListDtoSchema.extend({
   auto: autoValuesSchema,
+  // Who the document is about (docs/03 §3.3.19), in catalogue order.
+  people: z.array(z.object({ id: z.string().uuid(), name: z.string() })),
   contentHash: z.string(),
   ocrUsed: z.boolean(),
   typeSource: typeSourceSchema,
@@ -152,6 +156,9 @@ export const updateDocumentRequestSchema = z
       .nullable()
       .optional(),
     city: z.string().trim().min(1).max(120).nullable().optional(),
+    // The whole set, not a diff: the form sends what the document should end up with. A document
+    // rarely names more than a few people, so a cap that low is a typo detector, not a limit.
+    peopleIds: z.array(z.string().uuid()).max(20).optional(),
     // Put a field back to what the pipeline read. Not the same as sending that value by hand: a
     // reset documentType becomes AUTO again, so it stops claiming a person chose it (docs/03 §3.3.10).
     reset: z.array(resettableFieldSchema).min(1).max(4).optional(),

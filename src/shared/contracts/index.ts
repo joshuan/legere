@@ -7,6 +7,7 @@ export * from './auth';
 export * from './users';
 export * from './libraries';
 export * from './documents';
+export * from './people';
 export * from './queue';
 export * from './document-types';
 export * from './search';

@@ -35,6 +35,7 @@ const detail: DocumentDetailDto = {
   typeSource: 'NONE',
   skipReasons: {},
   auto: {},
+  people: [],
   languages: ['ru', 'sr-Latn'],
   country: 'ME',
   city: 'Podgorica',
