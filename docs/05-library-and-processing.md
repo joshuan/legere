@@ -159,7 +159,10 @@ not configured, no document types defined, no text to embed, or a document type 
    not a 4000-character excerpt), and a place somebody filled in by hand stays — clearing a field is
    how you ask for it to be inferred again. With no document types defined the step still runs, because
    the place is worth the call.
-   It also answers a **title** — what a person would write on the folder, in the document's own
+   It also answers a **description** — what this is, between whom and what for, in a few hundred
+   characters, so an unfamiliar document can be judged without being read. Blank-fill like the place:
+   a description somebody wrote stays, and clearing it asks for a new one.
+   And a **title** — what a person would write on the folder, in the document's own
    language. `IMG_20260714_113355.jpg` names a file and not a document, and a grid of those is a grid
    nobody can read. The title is applied wherever `titleSource` is not `MANUAL` and recorded in
    `autoValues.title` either way, so a name somebody typed is never overwritten and the reader still

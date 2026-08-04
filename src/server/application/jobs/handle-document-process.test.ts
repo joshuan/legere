@@ -517,6 +517,7 @@ describe('HandleDocumentProcess', () => {
       documentTypes.documentTypes.length = 0;
       analyst.answer = {
         title: null,
+        description: null,
         typeSlug: null,
         languages: [],
         country: 'ME',
@@ -541,6 +542,7 @@ describe('HandleDocumentProcess', () => {
       reader.put(SOURCE_PATH, 'ŽPCG · PODGORICA — BAR · 2. razred · 3,20 EUR');
       analyst.answer = {
         title: null,
+        description: null,
         typeSlug: null,
         languages: ['sr-Latn'],
         country: 'ME',
@@ -566,6 +568,7 @@ describe('HandleDocumentProcess', () => {
       await people.create({ name: 'Evgenii Shershnev' });
       analyst.answer = {
         title: null,
+        description: null,
         typeSlug: null,
         languages: [],
         country: null,
@@ -594,6 +597,7 @@ describe('HandleDocumentProcess', () => {
       reader.put(SOURCE_PATH, 'Ugovor o zakupu stana');
       analyst.answer = {
         title: null,
+        description: null,
         typeSlug: null,
         languages: [],
         country: null,
@@ -619,6 +623,7 @@ describe('HandleDocumentProcess', () => {
       reader.put(SOURCE_PATH, 'Ugovor');
       analyst.answer = {
         title: null,
+        description: null,
         typeSlug: null,
         languages: [],
         country: null,
@@ -646,6 +651,7 @@ describe('HandleDocumentProcess', () => {
       await people.setForDocument(DOCUMENT_ID, [chosen.id]);
       analyst.answer = {
         title: null,
+        description: null,
         typeSlug: null,
         languages: [],
         country: null,
@@ -678,6 +684,7 @@ describe('HandleDocumentProcess', () => {
       );
       analyst.answer = {
         title: null,
+        description: null,
         typeSlug: null,
         languages: ['en'],
         country: 'ME',
@@ -744,6 +751,25 @@ describe('HandleDocumentProcess', () => {
       expect(document.title).toBe('IMG_20260714_113355');
       expect(document.titleSource).toBe('NONE');
       expect(document.auto.title).toBeUndefined();
+    });
+
+    it('describes what the document is, and leaves a description somebody wrote', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      reader.put(SOURCE_PATH, 'text');
+      analyst.answer = {
+        ...analyst.answer,
+        description: 'A one-year lease of a flat in Podgorica.',
+      };
+
+      await run();
+      expect(stateOf().description).toBe('A one-year lease of a flat in Podgorica.');
+
+      // A second run over a document that now has one leaves it alone — a blank is what gets filled
+      // (docs/03 §3.3.10) — while still recording what was read.
+      analyst.answer = { ...analyst.answer, description: 'Something else entirely.' };
+      await run();
+      expect(stateOf().description).toBe('A one-year lease of a flat in Podgorica.');
+      expect(stateOf().auto.description).toBe('Something else entirely.');
     });
 
     it('records a provider failure as a step failure, leaving the rest of the run intact', async () => {

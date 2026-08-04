@@ -105,6 +105,7 @@ export class UpdateDocumentMeta {
     // Corrections a person makes by hand. The detector is a guess — it cannot tell Serbian from
     // Croatian in Latin script, and it knows nothing about where a document came from — so being
     // able to fix it is part of the feature, not an afterthought (docs/03 §3.3.10).
+    if (input.description !== undefined) update.description = input.description;
     if (input.languages !== undefined) update.languages = input.languages;
     if (input.country !== undefined) update.country = input.country;
     if (input.city !== undefined) update.city = input.city;
@@ -141,6 +142,7 @@ export class UpdateDocumentMeta {
           // person chose this, and the next run may name it again (docs/03 §3.3.10).
           update.titleSource = 'AUTO';
         }
+        if (field === 'description') update.description = auto.description ?? null;
         if (field === 'languages') update.languages = auto.languages ?? [];
         if (field === 'country') update.country = auto.country ?? null;
         if (field === 'city') update.city = auto.city ?? null;
@@ -236,6 +238,7 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     ...toListDto(detail),
     contentHash: document.contentHash,
     ocrUsed: document.ocrUsed,
+    description: document.description,
     titleSource: document.titleSource,
     typeSource: document.typeSource,
     steps: document.steps,

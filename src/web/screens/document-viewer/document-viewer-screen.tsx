@@ -153,6 +153,27 @@ export function DocumentViewerScreen({
           {detail.title}
         </Typography.Title>
 
+        {/* What this document is, for somebody who has never seen it — under the name, before the
+            tabs, because it is the thing that decides whether the rest is worth opening
+            (docs/11 §11.5). Written by the analysis where nobody has written one, and editable in
+            place like the title. */}
+        {(detail.description !== null || update.isPending) && (
+          <Typography.Paragraph
+            type="secondary"
+            style={{ maxWidth: '60ch' }}
+            editable={{
+              onChange: (description) => {
+                const next = description.trim() === '' ? null : description.trim();
+                if (next !== detail.description) update.mutate({ description: next });
+              },
+              triggerType: ['icon', 'text'],
+              autoSize: { minRows: 2, maxRows: 8 },
+            }}
+          >
+            {detail.description ?? ''}
+          </Typography.Paragraph>
+        )}
+
         {/* What the analysis would have called it, when somebody has since called it something else
             — under the name, in the same place every other correction keeps its provenance, and a
             click away from being the name (docs/11 §11.5). */}
@@ -428,6 +449,7 @@ function RenderedMarkdown({ markdown }: { markdown: string }) {
 
 type MetaChange = {
   title?: string;
+  description?: string | null;
   typeId?: string | null;
   languages?: string[];
   country?: string | null;

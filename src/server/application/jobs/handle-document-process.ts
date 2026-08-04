@@ -513,6 +513,7 @@ export class HandleDocumentProcess extends JobHandler {
         // reader still gets to see what the machine read (docs/03 §3.3.10).
         auto: {
           ...(analysis.title === null ? {} : { title: analysis.title }),
+          ...(analysis.description === null ? {} : { description: analysis.description }),
           ...(analysis.people.length > 0 ? { people: analysis.people } : {}),
           ...(analysis.date === null ? {} : { date: analysis.date }),
           ...(analysis.subjects.length > 0 ? { subjects: analysis.subjects } : {}),
@@ -697,6 +698,12 @@ function placeUpdate(document: Document, analysis: DocumentAnalysis): Processing
     ...(document.city === null && analysis.city !== null ? { city: analysis.city } : {}),
     ...(document.documentDate === null && analysis.date !== null
       ? { documentDate: analysis.date }
+      : {}),
+    // A real blank, unlike the title: nobody writes one by accident, and clearing it is how you ask
+    // for a new one (docs/03 §3.3.10).
+    ...((document.description === null || document.description === '') &&
+    analysis.description !== null
+      ? { description: analysis.description }
       : {}),
   };
 }

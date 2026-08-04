@@ -288,12 +288,17 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`03 §3.3.18`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
   **Acceptance:** every `STEP_STARTED`/`STEP_FINISHED` carries the service it talks to and a request id shared by the pair; the id travels to the external service as `X-Request-Id` and appears in this instance's own log lines for that step; the host is shown to an admin only, and stripped from the payload for everyone else.
 
-- [ ] **M10.6 — Subject kinds become a catalogue**
+- [x] **M10.6 — The analysis says what a document is, in a sentence**
+  **Goal:** an unfamiliar document can be judged without opening it.
+  **Docs:** [`03 §3.3.10`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`07`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
+  **Acceptance:** `Document.description` — a few hundred characters answering what this is, who it is between and what it is for; answered by the analysis, applied only where the field is empty, recorded in `autoValues.description` either way; `PATCH /api/documents/:id` takes it and `reset: ['description']` puts it back; the viewer shows it under the title, editable in place.
+
+- [ ] **M10.7 — Subject kinds become a catalogue**
   **Goal:** what sort of thing a subject is stops being free text on every row.
   **Docs:** [`03 §3.3.20`](../03-domain-model.md), [`04`](../04-database-schema.md), [`07`](../07-api-specification.md)
   **Acceptance:** a `SubjectKind` table with a forward-only migration that backfills one row per living `subjects.kind` and repoints the rows; `Subject.kindId` replaces `Subject.kind`; kinds are read by anyone and written by an admin; the analysis resolves a kind it names and creates the missing one; `/browse/subjects/:kind` keeps working.
 
-- [ ] **M10.7 — Manage people, subjects and kinds outside a document**
+- [ ] **M10.8 — Manage people, subjects and kinds outside a document**
   **Goal:** the catalogues have screens of their own, so correcting one is not an edit of some document that happens to name it.
   **Docs:** [`11 §11.12`](../11-ui-ux-spec.md#1112-admin-document-types-admindocument-types)
   **Acceptance:** `/admin/people`, `/admin/subjects` and `/admin/subject-kinds` are tables in the pattern of the document types — create, rename, delete behind a confirmation that says how many documents it reaches — reachable from the admin menu and closed to everyone else.

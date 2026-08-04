@@ -199,12 +199,13 @@ The logical unit of content (deduplicated).
 | sizeBytes | bigint | |
 | pageCount | int? | for PDFs (source or canonical) |
 | title | string | initial = file name without extension: of the first FileRef (LIBRARY), of the scan set (DERIVED), of the uploaded file (UPLOAD). Named by the analysis where nobody has chosen one; editable |
+| description | text? | a few hundred characters answering "what is this": what the document is, between whom, what for. Read by the analysis where the field is empty; editable |
 | markdown | text? | the extracted Markdown representation |
 | searchVector | tsvector | generated from title + markdown (see 04) |
 | canonicalStatus / previewStatus / markdownStatus / analysisStatus / vectorizationStatus | StepStatus | pipeline step statuses |
 | processingError | string? | last error message (truncated to 2000 chars) |
 | skipReasons | json | why a step is `SKIPPED`, per step — see below; empty for steps that ran |
-| autoValues | json | what the pipeline decided — `{title?, typeSlug?, languages?, country?, city?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction |
+| autoValues | json | what the pipeline decided — `{title?, description?, typeSlug?, languages?, country?, city?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction |
 | documentDate | date? | the date written on the document — signed, issued, departing. A date, not a timestamp: a signing has no clock, and midnight in some zone would invent a precision the paper does not have. Read by the analysis, editable |
 | languages | string[] | BCP-47 tags of what the document is written in, most likely first — `['ru']`, `['ru','sr-Latn']`. Detected from the extracted text, editable; empty when there was too little text to tell |
 | country | string? | ISO 3166-1 alpha-2 of where the document belongs — the issuer's country, the place of an event |
@@ -231,6 +232,12 @@ says. A contract from 2019 scanned yesterday is a 2019 document, and a shelf sor
 got round to scanning is sorted by nothing. The analysis reads it — models are good at dates and bad
 at little else that is this cheap to check — and keeps only a real calendar day in a plausible
 century: `2026-02-31`, `25.07.2026` and "unknown" all come back from models with equal confidence.
+
+**What it says it is.** `description` is the answer to "what is this" for somebody who has never
+seen the document: what it is, between whom, what for, in a few hundred characters. The analysis
+writes it where the field is empty and records it in `autoValues.description` either way — the
+fill-blanks rule the rest of the step follows, because unlike a title a description has a real blank
+to fill. It is what makes an unfamiliar document judgeable without opening it.
 
 **What it is called.** `IMG_20260714_113355.jpg` is not the name of a document; it is the name of a
 file, and a shelf of them is unreadable. So the analysis reads a title off the document — what a

@@ -63,6 +63,7 @@ function toDomain(row: PrismaDocument): Document {
     city: row.city,
     failedStep: row.failedStep,
     ocrUsed: row.ocrUsed,
+    description: row.description,
     titleSource: row.titleSource,
     typeId: row.typeId,
     typeSource: row.typeSource,
@@ -407,6 +408,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ...(update.typeSource === undefined ? {} : { typeSource: update.typeSource }),
         ...(update.title === undefined ? {} : { title: update.title }),
         ...(update.titleSource === undefined ? {} : { titleSource: update.titleSource }),
+        ...(update.description === undefined ? {} : { description: update.description }),
       },
     });
     return toDomain(row);
@@ -748,6 +750,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
           : { documentDate: toDateColumn(input.documentDate) }),
         ...(input.typeSource === undefined ? {} : { typeSource: input.typeSource }),
         ...(input.titleSource === undefined ? {} : { titleSource: input.titleSource }),
+        ...(input.description === undefined ? {} : { description: input.description }),
       },
     });
     return toDomain(row);

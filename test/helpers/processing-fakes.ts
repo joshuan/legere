@@ -96,6 +96,7 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     id: DOCUMENT_ID,
     contentHash: 'a'.repeat(64),
     source: 'LIBRARY',
+    description: null,
     titleSource: 'NONE',
     mimeType: 'application/pdf',
     ext: 'pdf',
@@ -163,6 +164,7 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       ...(update.typeSource === undefined ? {} : { typeSource: update.typeSource }),
       ...(update.title === undefined ? {} : { title: update.title }),
       ...(update.titleSource === undefined ? {} : { titleSource: update.titleSource }),
+      ...(update.description === undefined ? {} : { description: update.description }),
     };
     this.documents.set(id, updated);
     return Promise.resolve(updated);
@@ -735,6 +737,7 @@ export class FakeAnalyst extends DocumentAnalyst {
   readonly endpoint = 'http://classifier.test';
   answer: DocumentAnalysis = {
     title: null,
+    description: null,
     typeSlug: null,
     languages: [],
     country: null,

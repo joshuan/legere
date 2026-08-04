@@ -17,6 +17,7 @@ const completionResponseSchema = z.object({
 // documentType right and the country wrong still contributes the documentType.
 const answerSchema = z.object({
   title: z.string().nullish(),
+  description: z.string().nullish(),
   slug: z.string().optional(),
   languages: z.array(z.string()).optional(),
   country: z.string().nullish(),
@@ -29,6 +30,7 @@ const answerSchema = z.object({
 const SYSTEM_PROMPT = [
   'You read a document and report what it is, as JSON, nothing else:',
   '{"title": "<what a person would write on the folder, or null>",',
+  '"description": "<what this document is, in 2-4 sentences, or null>",',
   '"slug": "<one of the listed slugs, or none>",',
   '"languages": ["<BCP-47 tags of the languages the document is written in>"],',
   '"country": "<ISO 3166-1 alpha-2 code of the country the document belongs to, or null>",',
@@ -41,6 +43,10 @@ const SYSTEM_PROMPT = [
   'agreement, Njegoševa 12", "Electricity bill, March 2026". Write it in the language of the',
   'document, in one line, without the file name and without quotes. Null if the text says too little',
   'to name it; a file called after a camera is better than a title you invented.',
+  'The description answers "what is this" for somebody who has never seen it: what the document is,',
+  'between whom, what for, and anything that dates or identifies it — amounts, terms, numbers. Two to',
+  'four sentences, in the language of the document, under 500 characters. Do not repeat the title and',
+  'do not quote the document at length. Null if the text says too little to describe.',
   'Infer the country and the city from what the document is about — an issuing office, an operator,',
   'a station, a currency, an address, a phone prefix — not only from words naming a country.',
   'When several places appear, name the one the document comes from — the issuer, or the point of',
@@ -68,6 +74,8 @@ const MAX_CITY_CHARS = 100;
 // The contract allows 500; a document title that long is a paragraph, and this is the field a grid
 // of cards is read by.
 const MAX_TITLE_CHARS = 200;
+// The prompt asks for under 500; this is where an answer that ignored it is cut.
+const MAX_DESCRIPTION_CHARS = 600;
 // A document names a few people; a model that answers with forty has misread a page of text as a
 // guest list, and the catalogue should not grow by forty rows because of it.
 const MAX_PEOPLE = 8;
@@ -170,6 +178,7 @@ function readAnswer(
   if (!parsed.success) {
     return {
       title: null,
+      description: null,
       typeSlug: null,
       languages: [],
       country: null,
@@ -182,6 +191,7 @@ function readAnswer(
 
   return {
     title: pickTitle(parsed.data.title),
+    description: pickDescription(parsed.data.description),
     typeSlug: pickSlug(parsed.data.slug ?? '', documentTypes),
     languages: pickLanguages(parsed.data.languages ?? []),
     country: pickCountry(parsed.data.country),
@@ -204,6 +214,19 @@ function pickTitle(title: string | null | undefined): string | null {
     .trim();
   if (line === '' || line.length > MAX_TITLE_CHARS) return null;
   return /^(unknown|n\/?a|none|null|untitled)$/i.test(line) ? null : line;
+}
+
+// A paragraph, whitespace collapsed. Too long is cut at a sentence boundary rather than dropped: a
+// model that wrote six sentences still described the document correctly in its first three, and
+// nothing here is worth losing over length (docs/03 §3.3.10).
+function pickDescription(description: string | null | undefined): string | null {
+  const text = (description ?? '').replace(/\s+/g, ' ').trim();
+  if (text === '' || /^(unknown|n\/?a|none|null)$/i.test(text)) return null;
+  if (text.length <= MAX_DESCRIPTION_CHARS) return text;
+
+  const cut = text.slice(0, MAX_DESCRIPTION_CHARS);
+  const lastStop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('! '), cut.lastIndexOf('? '));
+  return lastStop > MAX_DESCRIPTION_CHARS / 2 ? cut.slice(0, lastStop + 1) : `${cut.trimEnd()}…`;
 }
 
 // 🔒 A model that answers with a documentType nobody defined must not create one: only a slug from the

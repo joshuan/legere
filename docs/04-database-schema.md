@@ -268,6 +268,7 @@ model Document {
   sizeBytes            BigInt         @map("size_bytes")
   pageCount            Int?           @map("page_count")
   title                String
+  description          String?        @map("description")
   markdown             String?
   searchVector         Unsupported("tsvector")? @map("search_vector")
   canonicalStatus      StepStatus     @default(PENDING) @map("canonical_status")

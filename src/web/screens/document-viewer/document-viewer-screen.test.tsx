@@ -32,6 +32,7 @@ const detail: DocumentDetailDto = {
   createdAt: '2026-01-02T10:00:00.000Z',
   contentHash: 'abc123def456abc123def456abc123def456abc123def456abc123def4561234',
   ocrUsed: true,
+  description: null,
   titleSource: 'NONE',
   typeSource: 'NONE',
   skipReasons: {},

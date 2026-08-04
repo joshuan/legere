@@ -29,6 +29,8 @@ export type Document = {
   sizeBytes: bigint;
   pageCount: number | null;
   title: string;
+  // What this document is, for somebody who has never seen it (docs/03 §3.3.10).
+  description: string | null;
   // Who called it that: nobody (the file name), the analysis, or a person (docs/03 §3.3.10).
   titleSource: ValueSource;
   // The extracted Markdown representation (docs/03 §3.3.10); null until step 3 has run, and also

@@ -137,6 +137,7 @@ describe('OpenAiCompatAnalyst', () => {
 
       expect(result).toEqual({
         title: null,
+        description: null,
         typeSlug: null,
         languages: [],
         country: 'ME',
@@ -158,6 +159,7 @@ describe('OpenAiCompatAnalyst', () => {
       // Each field stands or falls on its own: an invented slug does not discard a good country.
       expect(await analyst().analyze('text', CATEGORIES)).toEqual({
         title: null,
+        description: null,
         typeSlug: null,
         people: [],
         date: null,
@@ -211,6 +213,19 @@ describe('OpenAiCompatAnalyst', () => {
         expect((await analyst().analyze('text', CATEGORIES)).title).toBe(expected);
         vi.restoreAllMocks();
       }
+    });
+
+    it('takes a description as a paragraph, cutting an essay at a sentence', async () => {
+      const long = 'This is a lease. '.repeat(60);
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers(`{"description":"${long}"}`));
+
+      const result = await analyst().analyze('text', CATEGORIES);
+
+      // Cut, not dropped: a model that wrote six paragraphs still described the document in its
+      // first sentences, and nothing there is worth losing over length.
+      expect(result.description?.length).toBeLessThanOrEqual(600);
+      expect(result.description?.startsWith('This is a lease.')).toBe(true);
+      expect(result.description?.endsWith('.')).toBe(true);
     });
 
     it('drops language tags that are not tags and places that are not places', async () => {

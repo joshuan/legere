@@ -274,6 +274,9 @@ model Document {
   sizeBytes            BigInt                   @map("size_bytes")
   pageCount            Int?                     @map("page_count")
   title                String
+  // What this document is, for somebody who has never seen it (docs/03 §3.3.10). Null until the
+  // analysis writes it, or where nobody has.
+  description          String?
   markdown             String?
   searchVector         Unsupported("tsvector")? @map("search_vector")
   canonicalStatus      StepStatus               @default(PENDING) @map("canonical_status")

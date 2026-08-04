@@ -14,6 +14,9 @@ export type DocumentAnalysis = {
   // Njegoševa 12" rather than "IMG_20260714_113355". Null when the excerpt says nothing worth
   // titling, which is a better answer than a title invented out of a file name (docs/03 §3.3.10).
   title: string | null;
+  // What the document is, between whom and what for, in a few hundred characters — enough to judge
+  // an unfamiliar document without reading it (docs/03 §3.3.10).
+  description: string | null;
   // One of the offered slugs, or null when the model picks none of them — or answers with something
   // that was never on the list, which is the same thing as far as the caller is concerned.
   typeSlug: string | null;

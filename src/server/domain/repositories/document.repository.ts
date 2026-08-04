@@ -51,6 +51,7 @@ export type ProcessingUpdate = {
   typeSource?: ValueSource;
   title?: string;
   titleSource?: ValueSource;
+  description?: string | null;
 };
 
 // Documents by pipeline step and status, for the admin overview (docs/05 §5.8).
@@ -117,6 +118,7 @@ export type DocumentPage = {
 export type UpdateDocumentMetaInput = {
   title?: string;
   titleSource?: ValueSource;
+  description?: string | null;
   documentDate?: string | null;
   languages?: string[];
   country?: string | null;

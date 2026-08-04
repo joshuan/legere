@@ -86,6 +86,7 @@ const isoDateSchema = z
 
 export const autoValuesSchema = z.object({
   title: z.string().optional(),
+  description: z.string().optional(),
   date: z.string().optional(),
   // What the analysis read a document to be about, whether or not it became a link.
   subjects: z.array(z.object({ kind: z.string(), name: z.string() })).optional(),
@@ -108,6 +109,8 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   subjects: z.array(z.object({ id: z.string().uuid(), kind: z.string(), name: z.string() })),
   contentHash: z.string(),
   ocrUsed: z.boolean(),
+  // What this document is, in a few hundred characters (docs/03 §3.3.10).
+  description: z.string().nullable(),
   titleSource: valueSourceSchema,
   typeSource: valueSourceSchema,
   steps: documentStepsSchema,
@@ -167,6 +170,7 @@ export type ListDocumentsResponse = z.infer<typeof listDocumentsResponseSchema>;
 // The fields a machine fills in and a person may therefore want back the way it had them.
 export const RESETTABLE_FIELDS = [
   'title',
+  'description',
   'documentType',
   'languages',
   'country',
@@ -179,6 +183,9 @@ export type ResettableField = z.infer<typeof resettableFieldSchema>;
 export const updateDocumentRequestSchema = z
   .object({
     title: z.string().trim().min(1).max(500).optional(),
+    // A paragraph, not an essay: this is read at a glance, and null clears it so the analysis may
+    // answer again (docs/03 §3.3.10).
+    description: z.string().trim().max(1000).nullable().optional(),
     typeId: z.string().uuid().nullable().optional(),
     // BCP-47, loosely: `ru`, `en`, `sr-Latn`. Kept short so a typo cannot become a novel.
     languages: z.array(z.string().trim().min(2).max(12)).max(5).optional(),
