@@ -132,6 +132,20 @@ describe('DocumentViewerScreen', () => {
     expect(document.querySelector('script')).toBeNull();
   });
 
+  it('typesets the text rather than dropping it into the browser defaults', async () => {
+    serve(detail, '# Terms\n\n| Item | Amount |\n| --- | --- |\n| Rent | 500 |\n\nBody');
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.text }));
+    await screen.findByRole('heading', { name: 'Terms' });
+
+    // The pane carries the reading-room typesetting (docs/11 §11.5)…
+    expect(document.querySelector('.legere-prose')).not.toBeNull();
+    // …and a table gets a scroller of its own, so a wide invoice cannot widen the pane.
+    const table = screen.getByRole('table');
+    expect(table.parentElement?.className).toContain('legere-prose-table');
+  });
+
   it('says plainly when there is no text, and when extraction failed', async () => {
     serve(detail, null);
     const first = renderWithProviders(<DocumentViewerScreen id={ID} />);

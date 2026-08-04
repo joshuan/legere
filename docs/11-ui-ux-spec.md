@@ -100,7 +100,16 @@ before the metadata of the thing it names.
 - **Left (main): tabs** — `Preview` (canonical/source PDF in an `<object>`; for images the
   preview.jpg full-size; for text/markdown sources — rendered markdown), `Text` (rendered Markdown
   representation; empty state "No text extracted yet" / "Extraction failed" / "Being extracted…"
-  while the step is `PENDING` or `RUNNING`), `Details` (metadata
+  while the step is `PENDING` or `RUNNING`). **The text is typeset, not merely rendered:** what the
+  parser hands over is Markdown, and the browser's defaults make it a web page from 1996 — a heading
+  shoved against the tab above it, a table collapsed to the width of its longest word, code the size
+  of prose. It is set in the reading room's own rhythm instead: a measure of about 74 characters
+  because an OCR'd page is long and prose past 80 loses the eye; headings with more air above than
+  below, so a section reads as a section; no margin on the first or last block, since the pane
+  already spaces itself; tables at the full width of the pane with real cell rules, a weighted
+  header and a scroller of their own, because a fourteen-column invoice must widen nothing; code and
+  quotations in the faces §11.15 gives them. Restrained on purpose — the document is the thing being
+  read, and this is only how it is set, `Details` (metadata
   table: size, pages, mime, hash (copyable), created, OCR used, **languages** and **place**, file
   locations = visible FileRef paths with library names and MISSING badges, provenance for DERIVED
   docs — link to the scan set). Everything a machine decided is **editable here and only here** —

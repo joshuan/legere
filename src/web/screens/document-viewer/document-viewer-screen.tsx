@@ -452,10 +452,25 @@ function TextPane({
 }
 
 // 🔒 Extracted text is untrusted content: raw HTML never passes through (docs/10 §10.8).
+//
+// Typeset rather than merely rendered (docs/11 §11.5): the rhythm, the tables and the code all come
+// from `.legere-prose`, so this stays a document being read rather than a browser's idea of one.
 function RenderedMarkdown({ markdown }: { markdown: string }) {
   return (
-    <Typography>
-      <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
+    <Typography className="legere-prose">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeSanitize]}
+        components={{
+          // A table gets a scroller of its own: a fourteen-column invoice must not widen the pane,
+          // and the columns must not be squeezed into it either.
+          table: ({ node: _node, ...props }) => (
+            <div className="legere-prose-table">
+              <table {...props} />
+            </div>
+          ),
+        }}
+      >
         {markdown}
       </Markdown>
     </Typography>

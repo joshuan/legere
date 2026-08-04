@@ -303,7 +303,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`11 §11.12`](../11-ui-ux-spec.md#1112-admin-document-types-admindocument-types)
   **Acceptance:** `/admin/people`, `/admin/subjects` and `/admin/subject-kinds` are tables in the pattern of the document types — create, rename, delete behind a confirmation that says how many documents it reaches — reachable from the admin menu and closed to everyone else.
 
-- [ ] **M10.9 — The text tab is typeset, not just rendered**
+- [x] **M10.9 — The text tab is typeset, not just rendered**
   **Goal:** extracted Markdown reads like a document rather than like unstyled HTML.
   **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`11 §11.15`](../11-ui-ux-spec.md#1115-visual-identity--the-reading-room)
   **Acceptance:** headings, paragraphs and lists carry the reading-room rhythm rather than the browser's defaults — no stray leading margin at the top, spacing that groups rather than separates; tables fill the pane with real cell borders, header weight and horizontal scrolling instead of overflowing; code, quotes, links and images are styled to match; long OCR output stays readable at every width.

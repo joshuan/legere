@@ -282,3 +282,177 @@ pre,
   display: flex;
   justify-content: flex-end;
 }
+
+/* The extracted text of a document (docs/11 §11.5). What the parser hands over is Markdown, and
+   rendered with the browser's defaults it reads as a web page from 1996: a heading shoved against
+   the tab above it, tables collapsed to the width of their longest word, code the same size as
+   prose. This is the reading room's own typesetting for somebody else's document — restrained,
+   because the document is the thing being read and this is only how it is set. */
+.legere-prose {
+  /* A measure, not the width of the pane: prose past ~80 characters is prose the eye loses its
+     place in, and an OCR'd page is long. */
+  max-width: 74ch;
+  /* Lining figures: an invoice is read column by column, and old-style digits fight that. */
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+/* The tab already spaces the pane; a heading that arrives with a margin of its own doubles it and
+   reads as a gap nobody meant. */
+.legere-prose > :first-child {
+  margin-top: 0;
+}
+
+.legere-prose > :last-child {
+  margin-bottom: 0;
+}
+
+/* Headings group with what follows them: more air above than below, which is what makes a section
+   look like a section rather than a line of bold text. */
+.legere-prose h1,
+.legere-prose h2,
+.legere-prose h3,
+.legere-prose h4,
+.legere-prose h5,
+.legere-prose h6 {
+  margin: 1.6em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.legere-prose h1 {
+  font-size: 1.5em;
+}
+
+.legere-prose h2 {
+  font-size: 1.3em;
+}
+
+.legere-prose h3 {
+  font-size: 1.13em;
+}
+
+.legere-prose h4,
+.legere-prose h5,
+.legere-prose h6 {
+  font-size: 1em;
+  color: var(--ant-color-text-secondary);
+}
+
+.legere-prose p,
+.legere-prose ul,
+.legere-prose ol,
+.legere-prose blockquote {
+  margin: 0 0 0.85em;
+  line-height: 1.7;
+}
+
+.legere-prose ul,
+.legere-prose ol {
+  /* Enough for two-digit numbering without the markers hanging off the measure. */
+  padding-inline-start: 1.6em;
+}
+
+.legere-prose li + li {
+  margin-top: 0.25em;
+}
+
+.legere-prose li > ul,
+.legere-prose li > ol {
+  margin-block: 0.25em;
+}
+
+/* A quotation in a scanned document is usually a cited clause; a rule and a shift of colour say so
+   without a box. */
+.legere-prose blockquote {
+  padding-inline-start: 1em;
+  border-inline-start: 3px solid var(--ant-color-border);
+  color: var(--ant-color-text-secondary);
+}
+
+.legere-prose a {
+  color: var(--ant-color-link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+/* Values to be compared character by character, in the face that is for exactly that
+   (docs/11 §11.15). */
+.legere-prose code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--legere-well);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.legere-prose pre {
+  margin: 0 0 0.85em;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 8px;
+  background: var(--legere-well);
+}
+
+.legere-prose pre code {
+  padding: 0;
+  background: none;
+  font-size: 0.85em;
+}
+
+/* A table in a document is data, and data needs its cells. Full width because a table that shrinks
+   to its content sits in the middle of a page looking like a mistake; scrollable because a
+   fourteen-column invoice must not push the pane wider than the window. */
+.legere-prose table {
+  width: 100%;
+  margin: 0 0 1em;
+  border-collapse: collapse;
+  font-size: 0.95em;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.legere-prose th,
+.legere-prose td {
+  padding: 0.45em 0.7em;
+  border: 1px solid var(--ant-color-border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.legere-prose thead th {
+  background: var(--legere-well);
+  font-weight: 600;
+}
+
+/* Zebra striping over a rule grid would be two answers to one question; the grid is the answer. */
+.legere-prose tbody tr:hover > td {
+  background: var(--ant-color-fill-quaternary);
+}
+
+/* The wrapper the renderer puts around a table: the scroll lives here, so the table itself can stay
+   the full width of the pane. A table is the one block allowed past the measure — its columns are
+   what they are. */
+.legere-prose .legere-prose-table {
+  max-width: none;
+  margin-bottom: 1em;
+  overflow-x: auto;
+}
+
+.legere-prose .legere-prose-table > table {
+  margin-bottom: 0;
+  /* Wide enough that narrow columns stop collapsing onto themselves, and free to grow past it. */
+  min-width: min(100%, 32rem);
+}
+
+/* A picture inside a document is part of the document, not a hero image. */
+.legere-prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+.legere-prose hr {
+  margin: 1.6em 0;
+  border: 0;
+  border-top: 1px solid var(--ant-color-border);
+}
