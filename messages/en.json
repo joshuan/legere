@@ -409,6 +409,7 @@
       "people": "People",
       "peoplePlaceholder": "Nobody yet",
       "addPerson": "Add “{name}”",
+      "documentDate": "Date",
       "reset": "reset",
       "editHint": "Edit — or press E"
     },

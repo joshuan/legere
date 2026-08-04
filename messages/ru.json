@@ -409,6 +409,7 @@
       "people": "Люди",
       "peoplePlaceholder": "Пока никого",
       "addPerson": "Добавить «{name}»",
+      "documentDate": "Дата документа",
       "reset": "сбросить",
       "editHint": "Изменить — или клавиша E"
     },

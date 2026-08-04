@@ -141,6 +141,7 @@ describe('OpenAiCompatAnalyst', () => {
         country: 'ME',
         city: null,
         people: [],
+        date: null,
       });
       expect(spy).toHaveBeenCalledTimes(1);
     });
@@ -156,6 +157,7 @@ describe('OpenAiCompatAnalyst', () => {
       expect(await analyst().analyze('text', CATEGORIES)).toEqual({
         typeSlug: null,
         people: [],
+        date: null,
         languages: ['sr-Latn', 'en'],
         // 🔒 Upper-cased: a stored 'me' would never match a lookup for 'ME'.
         country: 'ME',
@@ -173,6 +175,21 @@ describe('OpenAiCompatAnalyst', () => {
       // The same person written twice is one name: the catalogue must not gain a row because a
       // model changed its capitalisation (docs/03 §3.3.19).
       expect(result.people).toEqual(['Evgenii Shershnev', 'Marija Petrović']);
+    });
+
+    it('keeps a date only when it is a calendar day in a plausible century', async () => {
+      for (const [answered, expected] of [
+        ['2026-07-25', '2026-07-25'],
+        // A day that does not exist, a format nobody asked for, a year nobody files.
+        ['2026-02-31', null],
+        ['25.07.2026', null],
+        ['1723-01-01', null],
+        ['unknown', null],
+      ] as const) {
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers(`{"date":"${answered}"}`));
+        expect((await analyst().analyze('text', CATEGORIES)).date).toBe(expected);
+        vi.restoreAllMocks();
+      }
     });
 
     it('drops language tags that are not tags and places that are not places', async () => {

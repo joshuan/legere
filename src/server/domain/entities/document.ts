@@ -40,6 +40,9 @@ export type Document = {
   languages: string[];
   // What the pipeline decided, before anybody corrected it (docs/03 §3.3.10).
   auto: AutoValues;
+  // The date written on the document — signed, issued, departed — as yyyy-mm-dd. Not a timestamp:
+  // a signing has no clock.
+  documentDate: string | null;
   // Where the document belongs: ISO 3166-1 alpha-2, and the city as it is written (docs/03 §3.3.10).
   country: string | null;
   city: string | null;

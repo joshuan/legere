@@ -285,6 +285,9 @@ model Document {
   skipReasons          Json                     @default("{}") @map("skip_reasons")
   languages            String[]                 @map("languages")
   autoValues           Json                     @default("{}") @map("auto_values")
+  // The date written on the document, not the day it was filed. A date, not a timestamp: a signing
+  // has no clock (docs/03 §3.3.10).
+  documentDate         DateTime?                @map("document_date") @db.Date
   country              String?                  @map("country")
   city                 String?                  @map("city")
   failedStep           String?                  @map("failed_step")

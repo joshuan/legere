@@ -472,6 +472,7 @@ export class HandleDocumentProcess extends JobHandler {
         // reader still gets to see what the machine read (docs/03 §3.3.10).
         auto: {
           ...(analysis.people.length > 0 ? { people: analysis.people } : {}),
+          ...(analysis.date === null ? {} : { date: analysis.date }),
           typeSlug: analysis.typeSlug,
           ...(analysis.languages.length > 0 ? { languages: analysis.languages } : {}),
           country: analysis.country,
@@ -622,6 +623,9 @@ function placeUpdate(document: Document, analysis: DocumentAnalysis): Processing
       ? { country: analysis.country }
       : {}),
     ...(document.city === null && analysis.city !== null ? { city: analysis.city } : {}),
+    ...(document.documentDate === null && analysis.date !== null
+      ? { documentDate: analysis.date }
+      : {}),
   };
 }
 

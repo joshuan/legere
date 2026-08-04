@@ -56,6 +56,9 @@ function toDomain(row: PrismaDocument): Document {
     skipReasons: toSkipReasons(row.skipReasons),
     languages: row.languages,
     auto: toAutoValues(row.autoValues),
+    // A DATE column comes back as a Date at UTC midnight; the domain speaks yyyy-mm-dd, which is
+    // what the paper says and what no time zone can shift.
+    documentDate: row.documentDate === null ? null : row.documentDate.toISOString().slice(0, 10),
     country: row.country,
     city: row.city,
     failedStep: row.failedStep,
@@ -98,6 +101,12 @@ function toListItem(row: ListRow): DocumentListItem {
 // trusting it, and treat anything unrecognised as "no reason recorded".
 // Anything unreadable is treated as "nothing was recorded": the auto values are an explanation, and
 // an explanation that cannot be parsed must never take a document down with it.
+// yyyy-mm-dd → the DATE column. Parsed as UTC so the stored day is the day that was written, not
+// the day it happened to be wherever the server stands.
+function toDateColumn(value: string | null): Date | null {
+  return value === null ? null : new Date(`${value}T00:00:00.000Z`);
+}
+
 function toAutoValues(value: unknown): AutoValues {
   const parsed = autoValuesSchema.safeParse(value);
   return parsed.success ? parsed.data : {};
@@ -373,6 +382,9 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ...(steps.vectorization === undefined ? {} : { vectorizationStatus: steps.vectorization }),
         ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
         ...(update.languages === undefined ? {} : { languages: update.languages }),
+        ...(update.documentDate === undefined
+          ? {}
+          : { documentDate: toDateColumn(update.documentDate) }),
         ...(update.country === undefined ? {} : { country: update.country }),
         ...(update.city === undefined ? {} : { city: update.city }),
         ...(update.markdown === undefined ? {} : { markdown: update.markdown }),
@@ -687,6 +699,9 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ...(input.country === undefined ? {} : { country: input.country }),
         ...(input.city === undefined ? {} : { city: input.city }),
         ...(input.typeId === undefined ? {} : { typeId: input.typeId }),
+        ...(input.documentDate === undefined
+          ? {}
+          : { documentDate: toDateColumn(input.documentDate) }),
         ...(input.typeSource === undefined ? {} : { typeSource: input.typeSource }),
       },
     });

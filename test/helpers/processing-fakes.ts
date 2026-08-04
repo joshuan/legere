@@ -101,6 +101,7 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     failedStep: null,
     skipReasons: {},
     auto: {},
+  documentDate: null,
     languages: [],
     country: null,
     city: null,
@@ -144,6 +145,7 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       ...(update.languages === undefined ? {} : { languages: update.languages }),
       // Merged, like the column: each step adds what it worked out (docs/03 §3.3.10).
       ...(update.auto === undefined ? {} : { auto: { ...existing.auto, ...update.auto } }),
+      ...(update.documentDate === undefined ? {} : { documentDate: update.documentDate }),
       ...(update.country === undefined ? {} : { country: update.country }),
       ...(update.city === undefined ? {} : { city: update.city }),
       ...(update.markdown === undefined ? {} : { markdown: update.markdown }),
@@ -654,6 +656,7 @@ export class FakeAnalyst extends DocumentAnalyst {
     country: null,
     city: null,
     people: [],
+    date: null,
   };
   failing = false;
   readonly calls: Array<{ excerpt: string; documentTypes: readonly DocumentTypeOption[] }> = [];

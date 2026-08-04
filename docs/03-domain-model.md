@@ -205,6 +205,7 @@ The logical unit of content (deduplicated).
 | processingError | string? | last error message (truncated to 2000 chars) |
 | skipReasons | json | why a step is `SKIPPED`, per step — see below; empty for steps that ran |
 | autoValues | json | what the pipeline decided — `{title?, typeSlug?, languages?, country?, city?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction |
+| documentDate | date? | the date written on the document — signed, issued, departing. A date, not a timestamp: a signing has no clock, and midnight in some zone would invent a precision the paper does not have. Read by the analysis, editable |
 | languages | string[] | BCP-47 tags of what the document is written in, most likely first — `['ru']`, `['ru','sr-Latn']`. Detected from the extracted text, editable; empty when there was too little text to tell |
 | country | string? | ISO 3166-1 alpha-2 of where the document belongs — the issuer's country, the place of an event |
 | city | string? | free text, as written in the document |
@@ -223,6 +224,12 @@ where the same language exists in two of them: Serbian is `sr-Cyrl` or `sr-Latn`
 The set decides which languages OCR is given, and a wrong one costs accuracy — `EUR` read with
 Cyrillic in the set comes back as `ЕОВ` — so below a length threshold the answer is an empty list
 rather than a guess.
+
+**The date on it.** `createdAt` is when Legere first saw the file; `documentDate` is what the paper
+says. A contract from 2019 scanned yesterday is a 2019 document, and a shelf sorted by when somebody
+got round to scanning is sorted by nothing. The analysis reads it — models are good at dates and bad
+at little else that is this cheap to check — and keeps only a real calendar day in a plausible
+century: `2026-02-31`, `25.07.2026` and "unknown" all come back from models with equal confidence.
 
 **Where a document belongs.** `country` and `city` answer "where is this from" — the issuing office
 of a contract, the departure city on a ticket. They are inferred by the AI step when a provider is

@@ -20,6 +20,7 @@ const answerSchema = z.object({
   country: z.string().nullish(),
   city: z.string().nullish(),
   people: z.array(z.string()).optional(),
+  date: z.string().nullish(),
 });
 
 const SYSTEM_PROMPT = [
@@ -28,7 +29,8 @@ const SYSTEM_PROMPT = [
   '"languages": ["<BCP-47 tags of the languages the document is written in>"],',
   '"country": "<ISO 3166-1 alpha-2 code of the country the document belongs to, or null>",',
   '"city": "<the city the document belongs to, as written, or null>",',
-  '"people": ["<the people this document is about, as it names them>"]}.',
+  '"people": ["<the people this document is about, as it names them>"],',
+  '"date": "<the date written on the document, yyyy-mm-dd, or null>"}.',
   'Never invent a slug that is not on the list.',
   'Infer the country and the city from what the document is about — an issuing office, an operator,',
   'a station, a currency, an address, a phone prefix — not only from words naming a country.',
@@ -38,6 +40,8 @@ const SYSTEM_PROMPT = [
   'Use null when the document gives you no reason to name one; a guess is worse than nothing.',
   'People are the parties, the holder, the passenger, the patient — not the clerk who stamped it,',
   'not the company. Give each name once, as written. Empty list if the document names nobody.',
+  'The date is the one the document is *about* — signed, issued, valid from, departing — not the day',
+  'it was printed or scanned. When several appear, take the one that dates the document itself.',
 ].join(' ');
 
 // Deterministic answers: the same document must not land in a different documentType on a reprocess.
@@ -141,7 +145,7 @@ function readAnswer(
 ): DocumentAnalysis {
   const parsed = answerSchema.safeParse(safeJson(extractJson(content)));
   if (!parsed.success) {
-    return { typeSlug: null, languages: [], country: null, city: null, people: [] };
+    return { typeSlug: null, languages: [], country: null, city: null, people: [], date: null };
   }
 
   return {
@@ -150,6 +154,7 @@ function readAnswer(
     country: pickCountry(parsed.data.country),
     city: pickCity(parsed.data.city),
     people: pickPeople(parsed.data.people ?? []),
+    date: pickDate(parsed.data.date),
   };
 }
 
@@ -194,6 +199,17 @@ function pickPeople(people: string[]): string[] {
     if (names.length === MAX_PEOPLE) break;
   }
   return names;
+}
+
+// A calendar date in a plausible century, or nothing. Models answer "2026-13-45", "n/a" and
+// "25.07.2026" with equal confidence; only the first form, and only if it is a real day, is kept.
+function pickDate(date: string | null | undefined): string | null {
+  const value = (date ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) return null;
+  const year = parsed.getUTCFullYear();
+  return year >= 1900 && year <= 2100 ? value : null;
 }
 
 // Models like to wrap JSON in prose or a ```json fence; take the first object in the answer.

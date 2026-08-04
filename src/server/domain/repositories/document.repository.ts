@@ -42,6 +42,7 @@ export type ProcessingUpdate = {
   // Merged into what is already recorded, one step at a time: the parse contributes the languages
   // it detected, the AI step the rest (docs/03 §3.3.10).
   auto?: AutoValues;
+  documentDate?: string | null;
   markdown?: string | null;
   ocrUsed?: boolean;
   processingError?: string | null;
@@ -108,6 +109,7 @@ export type DocumentPage = {
 
 export type UpdateDocumentMetaInput = {
   title?: string;
+  documentDate?: string | null;
   languages?: string[];
   country?: string | null;
   city?: string | null;

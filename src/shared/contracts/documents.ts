@@ -75,8 +75,18 @@ export type DocumentSkipReasons = z.infer<typeof documentSkipReasonsSchema>;
 // What the pipeline worked out, kept beside what the document now says. A person may correct any of
 // it; the machine's answer is not thrown away, so the viewer can show "we read X, you made it Y"
 // and a wrong correction is never a dead end (docs/03 §3.3.10).
+// yyyy-mm-dd, and a real date: 2026-02-31 parses as a string and means nothing.
+const isoDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, 'Not a calendar date');
+
 export const autoValuesSchema = z.object({
   title: z.string().optional(),
+  date: z.string().optional(),
   // Names as the analyst read them, whether or not they became links (docs/03 §3.3.10).
   people: z.array(z.string()).optional(),
   typeSlug: z.string().nullish(),
@@ -90,6 +100,8 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   auto: autoValuesSchema,
   // Who the document is about (docs/03 §3.3.19), in catalogue order.
   people: z.array(z.object({ id: z.string().uuid(), name: z.string() })),
+  // The date on the document, yyyy-mm-dd. Null when it has none, or none was found.
+  documentDate: z.string().nullable(),
   contentHash: z.string(),
   ocrUsed: z.boolean(),
   typeSource: typeSourceSchema,
@@ -137,7 +149,13 @@ export type ListDocumentsResponse = z.infer<typeof listDocumentsResponseSchema>;
 
 // `typeId: null` clears the documentType; absent leaves it alone (docs/07 §7.4).
 // The fields a machine fills in and a person may therefore want back the way it had them.
-export const RESETTABLE_FIELDS = ['documentType', 'languages', 'country', 'city'] as const;
+export const RESETTABLE_FIELDS = [
+  'documentType',
+  'languages',
+  'country',
+  'city',
+  'documentDate',
+] as const;
 export const resettableFieldSchema = z.enum(RESETTABLE_FIELDS);
 export type ResettableField = z.infer<typeof resettableFieldSchema>;
 
@@ -159,9 +177,10 @@ export const updateDocumentRequestSchema = z
     // The whole set, not a diff: the form sends what the document should end up with. A document
     // rarely names more than a few people, so a cap that low is a typo detector, not a limit.
     peopleIds: z.array(z.string().uuid()).max(20).optional(),
+    documentDate: isoDateSchema.nullable().optional(),
     // Put a field back to what the pipeline read. Not the same as sending that value by hand: a
     // reset documentType becomes AUTO again, so it stops claiming a person chose it (docs/03 §3.3.10).
-    reset: z.array(resettableFieldSchema).min(1).max(4).optional(),
+    reset: z.array(resettableFieldSchema).min(1).max(RESETTABLE_FIELDS.length).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: 'At least one field must be provided',

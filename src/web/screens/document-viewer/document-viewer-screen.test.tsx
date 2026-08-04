@@ -36,6 +36,7 @@ const detail: DocumentDetailDto = {
   skipReasons: {},
   auto: {},
   people: [],
+  documentDate: null,
   languages: ['ru', 'sr-Latn'],
   country: 'ME',
   city: 'Podgorica',

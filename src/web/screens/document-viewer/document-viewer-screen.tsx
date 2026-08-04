@@ -7,6 +7,7 @@ import {
   Card,
   Checkbox,
   Col,
+  DatePicker,
   Empty,
   Input,
   Row,
@@ -19,6 +20,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
+import dayjs from 'dayjs';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { DefinitionList } from '../../shared/ui/definition-list';
@@ -403,6 +405,7 @@ type MetaChange = {
   country?: string | null;
   city?: string | null;
   peopleIds?: string[];
+  documentDate?: string | null;
   reset?: ResettableField[];
 };
 
@@ -411,6 +414,7 @@ type MetaChange = {
 type Draft = {
   typeId: string | null;
   peopleIds: string[];
+  documentDate: string | null;
   languages: string[];
   country: string | null;
   city: string;
@@ -446,6 +450,7 @@ function DetailsPane({
     setDraft({
       typeId: document.documentType?.id ?? null,
       peopleIds: document.people.map((person) => person.id),
+      documentDate: document.documentDate,
       languages: document.languages,
       country: document.country,
       city: document.city ?? '',
@@ -468,6 +473,7 @@ function DetailsPane({
     if (fields.includes('languages')) next.languages = document.auto.languages ?? [];
     if (fields.includes('country')) next.country = document.auto.country ?? null;
     if (fields.includes('city')) next.city = document.auto.city ?? '';
+    if (fields.includes('documentDate')) next.documentDate = document.auto.date ?? null;
     setDraft(next);
   };
 
@@ -667,6 +673,31 @@ function DetailsPane({
               (document.auto.people ?? []).join(', '),
               document.people.map((person) => person.name).join(', '),
             ),
+          },
+          {
+            label: t('viewer.details.documentDate'),
+            value:
+              draft !== null
+                ? withReset(
+                    ['documentDate'],
+                    <DatePicker
+                      className="legere-field"
+                      aria-label={t('viewer.details.documentDate')}
+                      // The value is a calendar day, so it is held as yyyy-mm-dd and only becomes a
+                      // dayjs on the way into the picker: a Date would drag a time zone in with it.
+                      value={draft.documentDate === null ? null : dayjs(draft.documentDate)}
+                      onChange={(value) =>
+                        setDraft({
+                          ...draft,
+                          documentDate: value === null ? null : value.format('YYYY-MM-DD'),
+                        })
+                      }
+                    />,
+                    document.auto.date !== undefined && document.auto.date !== draft.documentDate,
+                  )
+                : formatDate(document.documentDate),
+            pending: state('analysis'),
+            note: wasRead(document.auto.date, document.documentDate ?? ''),
           },
           {
             label: t('viewer.details.languages'),
@@ -897,6 +928,17 @@ function describeEvent(event: DocumentEventDto, t: ReturnType<typeof useTranslat
 function isNewName(search: string, people: Array<{ name: string }>): boolean {
   const name = search.trim().toLowerCase();
   return name !== '' && !people.some((person) => person.name.toLowerCase() === name);
+}
+
+// A calendar day in the reader's own format. Rendered from the parts rather than by parsing into a
+// Date: "2019-03-01" is a day, and a Date would make it a moment somewhere.
+function formatDate(date: string | null): string {
+  if (date === null) return '';
+  const [year, month, day] = date.split('-');
+  if (year === undefined || month === undefined || day === undefined) return date;
+  return new Intl.DateTimeFormat(navigator.language).format(
+    new Date(Number(year), Number(month) - 1, Number(day)),
+  );
 }
 
 function placeOf(city: string | null, country: string | null): string {

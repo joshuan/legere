@@ -87,6 +87,7 @@ export class UpdateDocumentMeta {
     if (input.languages !== undefined) update.languages = input.languages;
     if (input.country !== undefined) update.country = input.country;
     if (input.city !== undefined) update.city = input.city;
+    if (input.documentDate !== undefined) update.documentDate = input.documentDate;
 
     if (input.typeId !== undefined) {
       if (input.typeId === null) {
@@ -114,6 +115,7 @@ export class UpdateDocumentMeta {
         if (field === 'languages') update.languages = auto.languages ?? [];
         if (field === 'country') update.country = auto.country ?? null;
         if (field === 'city') update.city = auto.city ?? null;
+        if (field === 'documentDate') update.documentDate = auto.date ?? null;
         if (field === 'documentType') {
           const documentTypes = await this.documentTypes.listActive();
           const read = documentTypes.find((documentType) => documentType.slug === auto.typeSlug);
@@ -208,6 +210,7 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     languages: document.languages,
     auto: document.auto,
     people: detail.people,
+    documentDate: document.documentDate,
     country: document.country,
     city: document.city,
     processingError: document.processingError,
@@ -235,5 +238,8 @@ function describeChanges(
   if (before.country !== after.country)
     changes.country = { from: before.country, to: after.country };
   if (before.city !== after.city) changes.city = { from: before.city, to: after.city };
+  if (before.documentDate !== after.documentDate) {
+    changes.documentDate = { from: before.documentDate, to: after.documentDate };
+  }
   return changes;
 }

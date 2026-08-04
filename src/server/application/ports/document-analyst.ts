@@ -24,6 +24,8 @@ export type DocumentAnalysis = {
   // The people the document is about, named as it names them: the parties to a contract, the
   // passenger on a ticket (docs/03 §3.3.19).
   people: string[];
+  // The date written on the document — signed, issued, departed — as yyyy-mm-dd.
+  date: string | null;
 };
 
 // The AI step is optional in the same way vectorization is (docs/05 §5.5 step 4): unconfigured

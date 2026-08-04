@@ -513,6 +513,7 @@ describe('HandleDocumentProcess', () => {
         country: 'ME',
         city: 'Podgorica',
         people: [],
+        date: null,
       };
 
       await run();
@@ -534,6 +535,7 @@ describe('HandleDocumentProcess', () => {
         country: 'ME',
         city: 'Podgorica',
         people: [],
+        date: null,
       };
 
       await run();
@@ -557,6 +559,7 @@ describe('HandleDocumentProcess', () => {
         city: null,
         // One the catalogue has, spelled differently, and one it has never seen.
         people: ['evgenii shershnev', 'Marija Petrović'],
+        date: null,
       };
 
       await run();
@@ -572,6 +575,29 @@ describe('HandleDocumentProcess', () => {
       expect(stateOf().auto.people).toEqual(['evgenii shershnev', 'Marija Petrović']);
     });
 
+    it('takes the date the document carries, and leaves one that was set by hand', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      reader.put(SOURCE_PATH, 'Ugovor');
+      analyst.answer = {
+        typeSlug: null,
+        languages: [],
+        country: null,
+        city: null,
+        people: [],
+        date: '2026-07-25',
+      };
+
+      await run();
+      expect(stateOf().documentDate).toBe('2026-07-25');
+
+      // A second run over a document that now has a date leaves it alone and records the answer,
+      // like every other field the analysis fills (docs/03 §3.3.10).
+      analyst.answer = { ...analyst.answer, date: '2019-01-01' };
+      await run();
+      expect(stateOf().documentDate).toBe('2026-07-25');
+      expect(stateOf().auto.date).toBe('2019-01-01');
+    });
+
     it('leaves the people a person chose, and records what it read instead', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt' });
       reader.put(SOURCE_PATH, 'text');
@@ -583,6 +609,7 @@ describe('HandleDocumentProcess', () => {
         country: null,
         city: null,
         people: ['Marija Petrović'],
+        date: null,
       };
 
       await run();
@@ -612,6 +639,7 @@ describe('HandleDocumentProcess', () => {
         country: 'ME',
         city: 'Podgorica',
         people: [],
+        date: null,
       };
 
       await run();
