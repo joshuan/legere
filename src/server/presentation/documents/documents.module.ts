@@ -24,6 +24,7 @@ import { SessionTokens } from '../../application/ports/session-tokens';
 import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { PersonRepository } from '../../domain/repositories/person.repository';
+import { SubjectRepository } from '../../domain/repositories/subject.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
@@ -77,12 +78,15 @@ function downloadSettings(config: AppConfig): DownloadSettings {
         documentTypes: DocumentTypeRepository,
         events: DocumentEventRepository,
         people: PersonRepository,
-      ): UpdateDocumentMeta => new UpdateDocumentMeta(documents, documentTypes, events, people),
+        subjects: SubjectRepository,
+      ): UpdateDocumentMeta =>
+        new UpdateDocumentMeta(documents, documentTypes, events, people, subjects),
       inject: [
         DocumentRepository,
         DocumentTypeRepository,
         DocumentEventRepository,
         PersonRepository,
+        SubjectRepository,
       ],
     },
     {

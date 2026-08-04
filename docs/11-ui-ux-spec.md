@@ -92,6 +92,9 @@ before the metadata of the thing it names.
   again instead of claiming somebody chose it. **People** is a multi-select over the catalogue with
   "Add «name»" for anything typed that is not in it yet — the analysis step creates people on its
   own, so a person correcting it must be able to do the same without an admin (03 §3.3.19).
+  **Subject** works the same way, except that adding one takes both halves — the dropdown footer asks
+  for the kind before it offers to add, because a name with no kind is not a thing anybody can file
+  by (03 §3.3.20).
   Save sends **only the fields that changed** — an untouched document type must not travel, or every save
   would flip `typeSource` to `MANUAL` and a classifier's choice would silently become a person's.
   Cancel drops the draft. What the machine decided is kept: when the two differ, a

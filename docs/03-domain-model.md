@@ -298,6 +298,39 @@ somebody already typed would need somebody to type everything first. Fill-blanks
 of the analysis: a document that already names people is one where somebody has decided, so the
 answer is recorded in `autoValues.people` and not applied.
 
+### 3.3.20. Subject
+
+What a document is *about*: a flat, a car, a country, a company. The **kind** says what sort of thing
+it is, the **name** says which one — a lease is about *that* flat, a tax return about *that* country,
+and "the papers for the car" is how anybody actually looks for them.
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid | |
+| kind | string | free text, lower-cased: `apartment`, `car`, `country` |
+| name | string | which one, as the document writes it |
+| note | string? | |
+| createdAt / updatedAt / deletedAt | | soft delete (ADR-015): the links stay |
+
+Unique on `(lower(kind), lower(name))` among living rows: the same flat entered twice is the failure
+this table exists to prevent, and the kind is part of the identity because "Montenegro" the country
+and "Montenegro" the boat are two things.
+
+`kind` is **not** a catalogue of its own. Which kinds a household files by is not knowable in advance,
+and a fixed list would be wrong in both directions at once — too long to pick from and missing the one
+thing this person owns. Whether kinds should become a catalogue once there are enough of them is an
+open question in §3.5.
+
+Same access and the same fill-blanks-only rule as people (§3.3.19): the analysis names things and
+creates the ones the catalogue has never seen, matching on `(kind, name)` case-insensitively; a
+document that already says what it is about is left alone and the answer recorded in
+`autoValues.subjects`.
+
+**Measured limitation.** A 12B local model answers this field with the document itself — a train
+ticket "about" that ticket's number — even when the prompt says in as many words not to. The prompt
+says it anyway, because a stronger model obeys it; the field is corrected by hand meanwhile, and a
+correction is never overwritten.
+
 ### 3.3.18. DocumentEvent
 
 The history of one document: how it came to be what it is. The `Document` row carries the *current*

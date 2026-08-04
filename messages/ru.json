@@ -55,7 +55,9 @@
       "INTERNAL": "Непредвиденная ошибка сервера.",
       "DOCUMENT_DUPLICATE": "Этот файл уже есть на сервере — в документе, который вам недоступен.",
       "PERSON_EXISTS": "Человек с таким именем уже есть в списке.",
-      "PERSON_NOT_FOUND": "Этого человека больше нет в списке."
+      "PERSON_NOT_FOUND": "Этого человека больше нет в списке.",
+      "SUBJECT_EXISTS": "Такой объект уже есть в списке.",
+      "SUBJECT_NOT_FOUND": "Этого объекта больше нет в списке."
     }
   },
   "auth": {
@@ -410,6 +412,10 @@
       "peoplePlaceholder": "Пока никого",
       "addPerson": "Добавить «{name}»",
       "documentDate": "Дата документа",
+      "subjects": "Объект",
+      "subjectsPlaceholder": "Пока ничего",
+      "subjectKind": "Вид",
+      "addSubject": "Добавить «{name}»",
       "reset": "сбросить",
       "editHint": "Изменить — или клавиша E"
     },

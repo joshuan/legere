@@ -26,6 +26,8 @@ export type DocumentAnalysis = {
   people: string[];
   // The date written on the document — signed, issued, departed — as yyyy-mm-dd.
   date: string | null;
+  // What the document is about: the kind of thing and which one (docs/03 §3.3.20).
+  subjects: Array<{ kind: string; name: string }>;
 };
 
 // The AI step is optional in the same way vectorization is (docs/05 §5.5 step 4): unconfigured

@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   App,
+  AutoComplete,
   Button,
   Card,
   Checkbox,
@@ -40,6 +41,7 @@ import { documentTypeApi, documentTypeKeys } from '../../entities/document-type'
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
 import { personApi, personKeys } from '../../entities/person';
+import { subjectApi, subjectKeys } from '../../entities/subject';
 import { useErrorMessage, formatBytes } from '../../shared/lib';
 import { isViewerTab, type ViewerTab } from './viewer-tab';
 
@@ -92,6 +94,7 @@ export function DocumentViewerScreen({
   const documentTypes = useQuery({ queryKey: documentTypeKeys.all, queryFn: documentTypeApi.list });
   const collections = useQuery({ queryKey: collectionKeys.all, queryFn: collectionApi.list });
   const people = useQuery({ queryKey: personKeys.all, queryFn: personApi.list });
+  const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });
 
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.detail(id) });
@@ -194,6 +197,12 @@ export function DocumentViewerScreen({
                     document={detail}
                     documentTypes={documentTypes.data?.items ?? []}
                     people={people.data?.items ?? []}
+                    subjects={subjects.data?.items ?? []}
+                    onCreateSubject={async (kind, name) => {
+                      const created = await subjectApi.create({ kind, name });
+                      await queryClient.invalidateQueries({ queryKey: subjectKeys.all });
+                      return created.id;
+                    }}
                     onCreatePerson={async (name) => {
                       const created = await personApi.create({ name });
                       await queryClient.invalidateQueries({ queryKey: personKeys.all });
@@ -405,6 +414,7 @@ type MetaChange = {
   country?: string | null;
   city?: string | null;
   peopleIds?: string[];
+  subjectIds?: string[];
   documentDate?: string | null;
   reset?: ResettableField[];
 };
@@ -414,6 +424,7 @@ type MetaChange = {
 type Draft = {
   typeId: string | null;
   peopleIds: string[];
+  subjectIds: string[];
   documentDate: string | null;
   languages: string[];
   country: string | null;
@@ -428,6 +439,8 @@ function DetailsPane({
   documentTypes,
   people,
   onCreatePerson,
+  subjects,
+  onCreateSubject,
   onSave,
   saving,
 }: {
@@ -435,6 +448,8 @@ function DetailsPane({
   documentTypes: Array<{ id: string; slug: string; name: string }>;
   people: Array<{ id: string; name: string }>;
   onCreatePerson: (name: string) => Promise<string>;
+  subjects: Array<{ id: string; kind: string; name: string }>;
+  onCreateSubject: (kind: string, name: string) => Promise<string>;
   onSave: (input: MetaChange) => void;
   saving: boolean;
 }) {
@@ -442,6 +457,8 @@ function DetailsPane({
   const size = useMemo(() => formatBytes(document.sizeBytes), [document.sizeBytes]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [search, setSearch] = useState('');
+  const [subjectSearch, setSubjectSearch] = useState('');
+  const [kind, setKind] = useState('');
   const [reset, setReset] = useState<ResettableField[]>([]);
   const editing = draft !== null;
 
@@ -450,6 +467,7 @@ function DetailsPane({
     setDraft({
       typeId: document.documentType?.id ?? null,
       peopleIds: document.people.map((person) => person.id),
+      subjectIds: document.subjects.map((subject) => subject.id),
       documentDate: document.documentDate,
       languages: document.languages,
       country: document.country,
@@ -672,6 +690,78 @@ function DetailsPane({
             note: wasRead(
               (document.auto.people ?? []).join(', '),
               document.people.map((person) => person.name).join(', '),
+            ),
+          },
+          {
+            label: t('viewer.details.subjects'),
+            value:
+              draft !== null ? (
+                <Select
+                  mode="multiple"
+                  className="legere-field"
+                  optionFilterProp="label"
+                  placeholder={t('viewer.details.subjectsPlaceholder')}
+                  aria-label={t('viewer.details.subjects')}
+                  value={draft.subjectIds}
+                  searchValue={subjectSearch}
+                  onSearch={setSubjectSearch}
+                  onChange={(subjectIds: string[]) => setDraft({ ...draft, subjectIds })}
+                  options={subjects.map((subject) => ({
+                    value: subject.id,
+                    label: `${subject.name} · ${subject.kind}`,
+                  }))}
+                  // Adding one takes both halves — a name with no kind is not a thing anybody can
+                  // file by — so the footer asks for the kind before it offers to add (03 §3.3.20).
+                  dropdownRender={(menu) => (
+                    <>
+                      {menu}
+                      {subjectSearch.trim() !== '' && (
+                        <Space.Compact style={{ width: '100%', padding: 4 }}>
+                          <AutoComplete
+                            style={{ width: '45%' }}
+                            value={kind}
+                            onChange={setKind}
+                            placeholder={t('viewer.details.subjectKind')}
+                            options={[...new Set(subjects.map((subject) => subject.kind))].map(
+                              (value) => ({ value }),
+                            )}
+                          />
+                          <Button
+                            type="primary"
+                            disabled={kind.trim() === ''}
+                            onClick={() => {
+                              const name = subjectSearch.trim();
+                              const chosenKind = kind.trim();
+                              setSubjectSearch('');
+                              setKind('');
+                              void onCreateSubject(chosenKind, name).then((subjectId) =>
+                                setDraft((current) =>
+                                  current === null
+                                    ? current
+                                    : {
+                                        ...current,
+                                        subjectIds: [...current.subjectIds, subjectId],
+                                      },
+                                ),
+                              );
+                            }}
+                          >
+                            {t('viewer.details.addSubject', { name: subjectSearch.trim() })}
+                          </Button>
+                        </Space.Compact>
+                      )}
+                    </>
+                  )}
+                />
+              ) : (
+                document.subjects.map((subject) => `${subject.name} · ${subject.kind}`).join(', ')
+              ),
+            pending: state('analysis'),
+            note: wasRead(
+              (document.auto.subjects ?? [])
+                .map((subject) => `${subject.name} · ${subject.kind}`)
+                .join(', '),
+              document.subjects.map((subject) => `${subject.name} · ${subject.kind}`).join(', '),
             ),
           },
           {

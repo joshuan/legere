@@ -8,6 +8,7 @@ export * from './users';
 export * from './libraries';
 export * from './documents';
 export * from './people';
+export * from './subjects';
 export * from './queue';
 export * from './document-types';
 export * from './search';

@@ -14,6 +14,7 @@ import { StorageModule } from './infrastructure/storage/storage.module';
 import { AuthModule } from './presentation/auth/auth.module';
 import { DocumentTypesModule } from './presentation/document-types/document-types.module';
 import { PeopleModule } from './presentation/people/people.module';
+import { SubjectsModule } from './presentation/subjects/subjects.module';
 import { CollectionsModule } from './presentation/collections/collections.module';
 import { DocumentsModule } from './presentation/documents/documents.module';
 import { DomainExceptionFilter } from './presentation/http/domain-exception.filter';
@@ -48,6 +49,7 @@ import { UsersModule } from './presentation/users/users.module';
     DocumentsModule,
     DocumentTypesModule,
     PeopleModule,
+    SubjectsModule,
     SearchModule,
     CollectionsModule,
     ScanSetsModule,

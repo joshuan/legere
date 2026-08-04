@@ -17,6 +17,7 @@ import type {
 } from '../../domain/repositories/document.repository';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { PersonRepository } from '../../domain/repositories/person.repository';
+import type { SubjectRepository } from '../../domain/repositories/subject.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
 import { toBuffer, type BinarySource } from '../ports/binary-source';
@@ -79,6 +80,7 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly documentTypes: DocumentTypeRepository,
     private readonly analyst: DocumentAnalyst,
     private readonly people: PersonRepository,
+    private readonly subjects: SubjectRepository,
     private readonly chunks: DocumentChunkRepository,
     private readonly embeddings: EmbeddingProvider,
     private readonly unitOfWork: UnitOfWork,
@@ -458,6 +460,7 @@ export class HandleDocumentProcess extends JobHandler {
       );
 
       await this.linkPeople(document, analysis.people);
+      await this.linkSubjects(document, analysis.subjects);
 
       // Second guard against a hallucinated slug: whatever came back has to match a documentType that
       // actually exists, or the document simply has none (docs/05 §5.5 step 4).
@@ -473,6 +476,7 @@ export class HandleDocumentProcess extends JobHandler {
         auto: {
           ...(analysis.people.length > 0 ? { people: analysis.people } : {}),
           ...(analysis.date === null ? {} : { date: analysis.date }),
+          ...(analysis.subjects.length > 0 ? { subjects: analysis.subjects } : {}),
           typeSlug: analysis.typeSlug,
           ...(analysis.languages.length > 0 ? { languages: analysis.languages } : {}),
           country: analysis.country,
@@ -502,6 +506,25 @@ export class HandleDocumentProcess extends JobHandler {
       ids.push(existing?.id ?? (await this.people.create({ name })).id);
     }
     await this.people.setForDocument(document.id, ids);
+  }
+
+  // The same rule as people: what the analysis read becomes rows and links when the document has
+  // none, and is only recorded when somebody has already decided (docs/03 §3.3.20). Matching is on
+  // (kind, name) case-insensitively, because that pair is what identifies a thing.
+  private async linkSubjects(
+    document: Document,
+    subjects: readonly { kind: string; name: string }[],
+  ): Promise<void> {
+    if (subjects.length === 0) return;
+    const already = await this.subjects.listForDocument(document.id);
+    if (already.length > 0) return;
+
+    const ids: string[] = [];
+    for (const subject of subjects) {
+      const existing = await this.subjects.findByKindAndName(subject.kind, subject.name);
+      ids.push(existing?.id ?? (await this.subjects.create(subject)).id);
+    }
+    await this.subjects.setForDocument(document.id, ids);
   }
 
   // Step 5. Chunk the Markdown, embed the chunks, and replace the document's vectors wholesale.

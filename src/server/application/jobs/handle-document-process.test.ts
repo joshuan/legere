@@ -6,6 +6,7 @@ import {
   FakeAnalyst,
   FakeDocumentEventRepository,
   InMemoryPersonRepository,
+  InMemorySubjectRepository,
   FakeEmbeddingProvider,
   FakeImageTool,
   FakeDocumentParser,
@@ -49,6 +50,7 @@ describe('HandleDocumentProcess', () => {
   let documentTypes: InMemoryCategoryRepository;
   let analyst: FakeAnalyst;
   let people: InMemoryPersonRepository;
+  let subjects: InMemorySubjectRepository;
   let chunks: InMemoryDocumentChunkRepository;
   let embeddings: FakeEmbeddingProvider;
   let handler: HandleDocumentProcess;
@@ -72,6 +74,7 @@ describe('HandleDocumentProcess', () => {
     documentTypes.add('contract');
     analyst = new FakeAnalyst();
     people = new InMemoryPersonRepository();
+    subjects = new InMemorySubjectRepository();
     chunks = new InMemoryDocumentChunkRepository();
     embeddings = new FakeEmbeddingProvider();
 
@@ -91,6 +94,7 @@ describe('HandleDocumentProcess', () => {
       documentTypes,
       analyst,
       people,
+      subjects,
       chunks,
       embeddings,
       new ImmediateUnitOfWork(),
@@ -514,6 +518,7 @@ describe('HandleDocumentProcess', () => {
         city: 'Podgorica',
         people: [],
         date: null,
+        subjects: [],
       };
 
       await run();
@@ -536,6 +541,7 @@ describe('HandleDocumentProcess', () => {
         city: 'Podgorica',
         people: [],
         date: null,
+        subjects: [],
       };
 
       await run();
@@ -560,6 +566,7 @@ describe('HandleDocumentProcess', () => {
         // One the catalogue has, spelled differently, and one it has never seen.
         people: ['evgenii shershnev', 'Marija Petrović'],
         date: null,
+        subjects: [],
       };
 
       await run();
@@ -575,6 +582,30 @@ describe('HandleDocumentProcess', () => {
       expect(stateOf().auto.people).toEqual(['evgenii shershnev', 'Marija Petrović']);
     });
 
+    it('files the document under what it is about, creating the thing when it is new', async () => {
+      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      reader.put(SOURCE_PATH, 'Ugovor o zakupu stana');
+      analyst.answer = {
+        typeSlug: null,
+        languages: [],
+        country: null,
+        city: null,
+        people: [],
+        date: null,
+        subjects: [
+          { kind: 'apartment', name: 'Njegoševa 5, ap. 12' },
+          // The same thing said twice, differently cased: one row, not two.
+          { kind: 'Apartment', name: 'njegoševa 5, AP. 12' },
+        ],
+      };
+
+      await run();
+
+      expect(subjects.subjects.size).toBe(1);
+      const linked = await subjects.listForDocument(DOCUMENT_ID);
+      expect(linked[0]).toMatchObject({ kind: 'apartment', name: 'Njegoševa 5, ap. 12' });
+    });
+
     it('takes the date the document carries, and leaves one that was set by hand', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt' });
       reader.put(SOURCE_PATH, 'Ugovor');
@@ -585,6 +616,7 @@ describe('HandleDocumentProcess', () => {
         city: null,
         people: [],
         date: '2026-07-25',
+        subjects: [],
       };
 
       await run();
@@ -610,6 +642,7 @@ describe('HandleDocumentProcess', () => {
         city: null,
         people: ['Marija Petrović'],
         date: null,
+        subjects: [],
       };
 
       await run();
@@ -640,6 +673,7 @@ describe('HandleDocumentProcess', () => {
         city: 'Podgorica',
         people: [],
         date: null,
+        subjects: [],
       };
 
       await run();

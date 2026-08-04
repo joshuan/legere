@@ -5,6 +5,7 @@ import { CollectionRepository } from '../../domain/repositories/collection.repos
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { PersonRepository } from '../../domain/repositories/person.repository';
+import { SubjectRepository } from '../../domain/repositories/subject.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
@@ -21,6 +22,7 @@ import { PrismaDocumentChunkRepository } from './prisma-document-chunk.repositor
 import { PrismaDocumentEventRepository } from './prisma-document-event.repository';
 import { PrismaDocumentRepository } from './prisma-document.repository';
 import { PrismaPersonRepository } from './prisma-person.repository';
+import { PrismaSubjectRepository } from './prisma-subject.repository';
 import { PrismaEmailVerificationRepository } from './prisma-email-verification.repository';
 import { PrismaFileRefRepository } from './prisma-file-ref.repository';
 import { PrismaLibraryRepository } from './prisma-library.repository';
@@ -48,6 +50,7 @@ const REPOSITORIES = [
   { provide: DocumentRepository, useClass: PrismaDocumentRepository },
   { provide: DocumentEventRepository, useClass: PrismaDocumentEventRepository },
   { provide: PersonRepository, useClass: PrismaPersonRepository },
+  { provide: SubjectRepository, useClass: PrismaSubjectRepository },
   { provide: DocumentChunkRepository, useClass: PrismaDocumentChunkRepository },
   { provide: DocumentTypeRepository, useClass: PrismaCategoryRepository },
   { provide: CollectionRepository, useClass: PrismaCollectionRepository },
@@ -71,6 +74,7 @@ const REPOSITORIES = [
     DocumentRepository,
     DocumentEventRepository,
     PersonRepository,
+    SubjectRepository,
     DocumentChunkRepository,
     DocumentTypeRepository,
     CollectionRepository,

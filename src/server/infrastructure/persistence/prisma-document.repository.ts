@@ -669,6 +669,10 @@ export class PrismaDocumentRepository implements DocumentRepository {
         // A soft-deleted person stays on the documents that named them (ADR-015), so the link is
         // read whatever the catalogue now offers.
         people: { include: { person: true }, orderBy: { person: { name: 'asc' } } },
+        subjects: {
+          include: { subject: true },
+          orderBy: [{ subject: { kind: 'asc' } }, { subject: { name: 'asc' } }],
+        },
       },
     });
     if (row === null) return null;
@@ -676,6 +680,11 @@ export class PrismaDocumentRepository implements DocumentRepository {
     return {
       ...toListItem(row),
       people: row.people.map((link) => ({ id: link.person.id, name: link.person.name })),
+      subjects: row.subjects.map((link) => ({
+        id: link.subject.id,
+        kind: link.subject.kind,
+        name: link.subject.name,
+      })),
       fileRefs: row.fileRefs.map((ref) => ({
         libraryId: ref.libraryId,
         libraryName: ref.library.name,

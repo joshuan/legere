@@ -51,6 +51,11 @@ import {
 } from '../../src/server/application/ports/document-analyst';
 import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
 import type { Person } from '../../src/server/domain/entities/person';
+import type { Subject } from '../../src/server/domain/entities/subject';
+import {
+  SubjectRepository,
+  type SubjectWithCount,
+} from '../../src/server/domain/repositories/subject.repository';
 import {
   PersonRepository,
   type PersonWithCount,
@@ -648,6 +653,73 @@ export class InMemoryPersonRepository extends PersonRepository {
   }
 }
 
+// The subjects catalogue in memory (docs/03 §3.3.20).
+export class InMemorySubjectRepository extends SubjectRepository {
+  readonly subjects = new Map<string, Subject>();
+  readonly links = new Map<string, string[]>();
+
+  listActive(): Promise<SubjectWithCount[]> {
+    return Promise.resolve(
+      [...this.subjects.values()].map((subject) => ({
+        ...subject,
+        documentCount: [...this.links.values()].filter((ids) => ids.includes(subject.id)).length,
+      })),
+    );
+  }
+
+  findById(id: string): Promise<Subject | null> {
+    return Promise.resolve(this.subjects.get(id) ?? null);
+  }
+
+  findByKindAndName(kind: string, name: string): Promise<Subject | null> {
+    const wantedKind = kind.trim().toLowerCase();
+    const wantedName = name.trim().toLowerCase();
+    return Promise.resolve(
+      [...this.subjects.values()].find(
+        (subject) =>
+          subject.kind.toLowerCase() === wantedKind && subject.name.toLowerCase() === wantedName,
+      ) ?? null,
+    );
+  }
+
+  create(input: { kind: string; name: string; note?: string | null }): Promise<Subject> {
+    const subject: Subject = {
+      id: `subject-${this.subjects.size + 1}`,
+      kind: input.kind.trim().toLowerCase(),
+      name: input.name.trim(),
+      note: input.note ?? null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      deletedAt: null,
+    };
+    this.subjects.set(subject.id, subject);
+    return Promise.resolve(subject);
+  }
+
+  update(id: string, input: { kind?: string; name?: string }): Promise<Subject> {
+    const subject = this.subjects.get(id);
+    if (subject === undefined) throw new Error(`No subject ${id}`);
+    const updated = { ...subject, ...input };
+    this.subjects.set(id, updated);
+    return Promise.resolve(updated);
+  }
+
+  softDelete(id: string, deletedAt: Date): Promise<void> {
+    const subject = this.subjects.get(id);
+    if (subject !== undefined) this.subjects.set(id, { ...subject, deletedAt });
+    return Promise.resolve();
+  }
+
+  listForDocument(documentId: string): Promise<Subject[]> {
+    const ids = this.links.get(documentId) ?? [];
+    return Promise.resolve(ids.map((id) => this.subjects.get(id)).filter((s) => s !== undefined));
+  }
+
+  setForDocument(documentId: string, subjectIds: string[]): Promise<void> {
+    this.links.set(documentId, subjectIds);
+    return Promise.resolve();
+  }
+}
+
 export class FakeAnalyst extends DocumentAnalyst {
   configured = true;
   answer: DocumentAnalysis = {
@@ -657,6 +729,7 @@ export class FakeAnalyst extends DocumentAnalyst {
     city: null,
     people: [],
     date: null,
+    subjects: [],
   };
   failing = false;
   readonly calls: Array<{ excerpt: string; documentTypes: readonly DocumentTypeOption[] }> = [];

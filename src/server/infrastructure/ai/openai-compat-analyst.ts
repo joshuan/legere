@@ -21,6 +21,7 @@ const answerSchema = z.object({
   city: z.string().nullish(),
   people: z.array(z.string()).optional(),
   date: z.string().nullish(),
+  subjects: z.array(z.object({ kind: z.string(), name: z.string() })).optional(),
 });
 
 const SYSTEM_PROMPT = [
@@ -30,7 +31,8 @@ const SYSTEM_PROMPT = [
   '"country": "<ISO 3166-1 alpha-2 code of the country the document belongs to, or null>",',
   '"city": "<the city the document belongs to, as written, or null>",',
   '"people": ["<the people this document is about, as it names them>"],',
-  '"date": "<the date written on the document, yyyy-mm-dd, or null>"}.',
+  '"date": "<the date written on the document, yyyy-mm-dd, or null>",',
+  '"subjects": [{"kind": "<apartment, car, country, company…>", "name": "<which one>"}]}.',
   'Never invent a slug that is not on the list.',
   'Infer the country and the city from what the document is about — an issuing office, an operator,',
   'a station, a currency, an address, a phone prefix — not only from words naming a country.',
@@ -42,6 +44,10 @@ const SYSTEM_PROMPT = [
   'not the company. Give each name once, as written. Empty list if the document names nobody.',
   'The date is the one the document is *about* — signed, issued, valid from, departing — not the day',
   'it was printed or scanned. When several appear, take the one that dates the document itself.',
+  'A subject is the thing the document concerns: the flat a lease is for, the car an insurance',
+  'policy covers, the country a tax return is filed in. The kind is one lower-case English word;',
+  'the name is what identifies that one thing, as the document writes it. Empty list if there is',
+  'no such thing — a bank statement is about an account, a birthday card about nothing.',
 ].join(' ');
 
 // Deterministic answers: the same document must not land in a different documentType on a reprocess.
@@ -56,6 +62,8 @@ const MAX_CITY_CHARS = 100;
 // guest list, and the catalogue should not grow by forty rows because of it.
 const MAX_PEOPLE = 8;
 const MAX_NAME_CHARS = 200;
+const MAX_SUBJECTS = 5;
+const MAX_KIND_CHARS = 40;
 
 @Injectable()
 export class OpenAiCompatAnalyst extends DocumentAnalyst {
@@ -145,7 +153,15 @@ function readAnswer(
 ): DocumentAnalysis {
   const parsed = answerSchema.safeParse(safeJson(extractJson(content)));
   if (!parsed.success) {
-    return { typeSlug: null, languages: [], country: null, city: null, people: [], date: null };
+    return {
+      typeSlug: null,
+      languages: [],
+      country: null,
+      city: null,
+      people: [],
+      date: null,
+      subjects: [],
+    };
   }
 
   return {
@@ -155,6 +171,7 @@ function readAnswer(
     city: pickCity(parsed.data.city),
     people: pickPeople(parsed.data.people ?? []),
     date: pickDate(parsed.data.date),
+    subjects: pickSubjects(parsed.data.subjects ?? []),
   };
 }
 
@@ -199,6 +216,27 @@ function pickPeople(people: string[]): string[] {
     if (names.length === MAX_PEOPLE) break;
   }
   return names;
+}
+
+// Kinds are lower-cased so "Apartment" and "apartment" are one kind; pairs are deduplicated for the
+// same reason names are. Both halves must be there — a thing with no kind is not a thing we can file.
+function pickSubjects(
+  subjects: Array<{ kind: string; name: string }>,
+): Array<{ kind: string; name: string }> {
+  const seen = new Set<string>();
+  const kept: Array<{ kind: string; name: string }> = [];
+  for (const raw of subjects) {
+    const kind = raw.kind.trim().toLowerCase().replace(/\s+/g, ' ');
+    const name = raw.name.trim().replace(/\s+/g, ' ');
+    if (kind === '' || name === '' || kind.length > MAX_KIND_CHARS) continue;
+    if (name.length > MAX_NAME_CHARS) continue;
+    const key = `${kind}|${name.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push({ kind, name });
+    if (kept.length === MAX_SUBJECTS) break;
+  }
+  return kept;
 }
 
 // A calendar date in a plausible century, or nothing. Models answer "2026-13-45", "n/a" and

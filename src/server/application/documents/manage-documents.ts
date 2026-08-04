@@ -9,6 +9,7 @@ import type {
 import { canEditDocumentMeta, isProcessing, type Document } from '../../domain/entities/document';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { PersonRepository } from '../../domain/repositories/person.repository';
+import type { SubjectRepository } from '../../domain/repositories/subject.repository';
 import { ForbiddenError, NotFoundError } from '../../domain/errors/domain-error';
 import type { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import type {
@@ -68,6 +69,7 @@ export class UpdateDocumentMeta {
     private readonly documentTypes: DocumentTypeRepository,
     private readonly events: DocumentEventRepository,
     private readonly people: PersonRepository,
+    private readonly subjects: SubjectRepository,
   ) {}
 
   async execute(
@@ -130,6 +132,9 @@ export class UpdateDocumentMeta {
     // People are a set, not a field on the row: sent whole, replaced whole (docs/03 §3.3.19).
     if (input.peopleIds !== undefined) {
       await this.people.setForDocument(detail.document.id, input.peopleIds);
+    }
+    if (input.subjectIds !== undefined) {
+      await this.subjects.setForDocument(detail.document.id, input.subjectIds);
     }
 
     const updated = await this.documents.updateMeta(detail.document.id, update);
@@ -210,6 +215,7 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     languages: document.languages,
     auto: document.auto,
     people: detail.people,
+    subjects: detail.subjects,
     documentDate: document.documentDate,
     country: document.country,
     city: document.city,

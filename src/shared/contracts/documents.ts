@@ -87,6 +87,8 @@ const isoDateSchema = z
 export const autoValuesSchema = z.object({
   title: z.string().optional(),
   date: z.string().optional(),
+  // What the analysis read a document to be about, whether or not it became a link.
+  subjects: z.array(z.object({ kind: z.string(), name: z.string() })).optional(),
   // Names as the analyst read them, whether or not they became links (docs/03 §3.3.10).
   people: z.array(z.string()).optional(),
   typeSlug: z.string().nullish(),
@@ -102,6 +104,8 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   people: z.array(z.object({ id: z.string().uuid(), name: z.string() })),
   // The date on the document, yyyy-mm-dd. Null when it has none, or none was found.
   documentDate: z.string().nullable(),
+  // What the document is about (docs/03 §3.3.20).
+  subjects: z.array(z.object({ id: z.string().uuid(), kind: z.string(), name: z.string() })),
   contentHash: z.string(),
   ocrUsed: z.boolean(),
   typeSource: typeSourceSchema,
@@ -178,6 +182,7 @@ export const updateDocumentRequestSchema = z
     // rarely names more than a few people, so a cap that low is a typo detector, not a limit.
     peopleIds: z.array(z.string().uuid()).max(20).optional(),
     documentDate: isoDateSchema.nullable().optional(),
+    subjectIds: z.array(z.string().uuid()).max(20).optional(),
     // Put a field back to what the pipeline read. Not the same as sending that value by hand: a
     // reset documentType becomes AUTO again, so it stops claiming a person chose it (docs/03 §3.3.10).
     reset: z.array(resettableFieldSchema).min(1).max(RESETTABLE_FIELDS.length).optional(),

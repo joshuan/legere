@@ -55,7 +55,9 @@
       "INTERNAL": "An unexpected server error occurred.",
       "DOCUMENT_DUPLICATE": "This file is already on this instance, in a document you cannot open.",
       "PERSON_EXISTS": "Somebody with this name is already in the list.",
-      "PERSON_NOT_FOUND": "This person is no longer in the list."
+      "PERSON_NOT_FOUND": "This person is no longer in the list.",
+      "SUBJECT_EXISTS": "This thing is already in the list.",
+      "SUBJECT_NOT_FOUND": "This subject is no longer in the list."
     }
   },
   "auth": {
@@ -410,6 +412,10 @@
       "peoplePlaceholder": "Nobody yet",
       "addPerson": "Add “{name}”",
       "documentDate": "Date",
+      "subjects": "About",
+      "subjectsPlaceholder": "Nothing yet",
+      "subjectKind": "Kind",
+      "addSubject": "Add “{name}”",
       "reset": "reset",
       "editHint": "Edit — or press E"
     },

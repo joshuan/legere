@@ -142,6 +142,7 @@ describe('OpenAiCompatAnalyst', () => {
         city: null,
         people: [],
         date: null,
+        subjects: [],
       });
       expect(spy).toHaveBeenCalledTimes(1);
     });
@@ -158,6 +159,7 @@ describe('OpenAiCompatAnalyst', () => {
         typeSlug: null,
         people: [],
         date: null,
+        subjects: [],
         languages: ['sr-Latn', 'en'],
         // 🔒 Upper-cased: a stored 'me' would never match a lookup for 'ME'.
         country: 'ME',

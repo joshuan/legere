@@ -306,6 +306,7 @@ model Document {
   chunks          DocumentChunk[]
   events          DocumentEvent[]
   people          DocumentPerson[]
+  subjects        DocumentSubject[]
   collectionItems CollectionItem[]
   scanSetItems    ScanSetItem[]
   resultOf        ScanSet?         @relation("ScanSetResult")
@@ -375,6 +376,38 @@ model DocumentPerson {
   @@id([documentId, personId])
   @@index([personId])
   @@map("document_people")
+}
+
+// What a document is about: a flat, a car, a country (docs/03 §3.3.20). The kind says what sort of
+// thing it is; the name says which one. A tax return is about a country, an insurance policy about a
+// car — and both are the thing you want the document by.
+model Subject {
+  id        String    @id @default(uuid()) @db.Uuid
+  // "apartment", "car", "country" — free text, because the list of kinds a person files by is not
+  // knowable in advance (docs/03 §3.5).
+  kind      String
+  name      String
+  note      String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  documents DocumentSubject[]
+
+  @@map("subjects")
+}
+
+model DocumentSubject {
+  documentId String   @map("document_id") @db.Uuid
+  subjectId  String   @map("subject_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  subject  Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, subjectId])
+  @@index([subjectId])
+  @@map("document_subjects")
 }
 
 model DocumentType {
