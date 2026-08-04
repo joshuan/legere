@@ -158,6 +158,23 @@ describe('StirlingPdfToolbox', () => {
     ).rejects.toThrow(/422.*Unsupported file type/s);
   });
 
+  it('names the languages when the container has no data for them', async () => {
+    mockStirling(
+      new Response(
+        '{"error":"Job failed: java.io.IOException: Invalid OCR languages format: none of the ' +
+          'selected languages are valid"}',
+        { status: 500 },
+      ),
+    );
+
+    // 🔒 The request was not malformed — the recognizer simply never had Russian. The message has to
+    // say which languages were asked for and where they come from, or the only clue is a Java stack
+    // trace about a "format" (ADR-018).
+    await expect(toolbox().ocrPdf(Buffer.from('%PDF-'), ['rus'])).rejects.toThrow(
+      /no tesseract data for rus.*deploy\/stirling/s,
+    );
+  });
+
   it('lets a transport failure through, so the job retries with backoff', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
 

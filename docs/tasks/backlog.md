@@ -267,7 +267,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
   **Acceptance:** the picker lists every language `Intl` can name, searched by that name ("Rus" finds "Russian (ru)"); tags the document already carries that no two-letter sweep finds (`sr-Latn`) stay on the list; a typed tag is still accepted.
 
-- [ ] **M10.2 — OCR asks for a language the recognizer has**
+- [x] **M10.2 — OCR asks for a language the recognizer has**
   **Goal:** a Russian scan stops failing the text step on an instance whose Stirling never had `rus`.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [ADR-018](../02-architecture-overview.md), [`12 §12.5–12.6`](../12-build-config-run.md)
   **Bug:** a JPEG whose languages are known to be `ru` sends `rus` to Stirling, whose stock image carries `chi_sim deu eng fra osd por` only, and the step dies on `Invalid OCR languages format: none of the selected languages are valid`. The same instance's Docling has the languages, because only Docling was ever given an image of its own.

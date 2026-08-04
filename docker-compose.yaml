@@ -7,7 +7,12 @@ services:
     ports: ['5432:5432']
     volumes: ['db-data:/var/lib/postgresql/data']
   stirling:
-    image: stirlingtools/stirling-pdf:latest
+    # Built rather than pulled, for the same reason Docling is: the upstream image carries six
+    # tesseract languages and Cyrillic is not among them, so a Russian scan fails the text step
+    # outright (ADR-018, docs/05 §5.5). Build it by hand once if your buildx is older than 0.17:
+    # `docker build -t legere-stirling:dev deploy/stirling`.
+    image: legere-stirling:dev
+    build: ./deploy/stirling
     ports: ['8080:8080']
     # Stirling 2.x requires a login by default and answers `401 Authentication required` to every
     # API call; Legere talks to it over the internal network without credentials (ADR-012), so the

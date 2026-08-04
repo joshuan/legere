@@ -265,7 +265,11 @@ The application lives and ships as a whole; isomorphic contracts are a plain fol
   as for reading; and `ocr_preset=tesseract` with explicit `ocr_lang`, because the default engine has
   no Cyrillic model and, asked for Russian, silently falls back to its Chinese model set and returns
   confident-looking nonsense. The image is built from `deploy/docling/Dockerfile` with tessdata for
-  the languages a document archive actually meets.
+  the languages a document archive actually meets. **Stirling is built from
+  `deploy/stirling/Dockerfile` for the same reason and with the same list:** it runs the OCR of the
+  fallback path and of every image, its stock image carries `chi_sim deu eng fra osd por`, and asked
+  for a language it does not have it recognises nothing at all — the step fails on "none of the
+  selected languages are valid" rather than reading what it can.
 - **Alternatives:** pdfjs in-process — dropped, it extracts text spans and has no idea what a table
   is; Stirling only — the measurement above; Docling with no fallback — rejected, the container is
   several gigabytes and an instance should be able to run without it.

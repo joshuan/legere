@@ -85,8 +85,11 @@ services:
       timeout: 5s
       retries: 20
 
+  # Stirling with tesseract languages added (ADR-018): it runs the OCR of every image and of the
+  # no-Docling path, and the stock image has no Cyrillic data at all. Build it yourself from
+  # `deploy/stirling` if you would rather not pull ours.
   stirling:
-    image: stirlingtools/stirling-pdf:latest
+    image: ghcr.io/joshuan/legere-stirling:${LEGERE_VERSION:-latest}
     restart: unless-stopped
     # Stirling 2.x demands a login by default and answers 401 to every API call; Legere talks to it
     # over the internal network without credentials (ADR-012), so the login is off and the container

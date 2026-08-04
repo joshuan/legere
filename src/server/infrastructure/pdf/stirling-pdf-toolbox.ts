@@ -71,7 +71,12 @@ export class StirlingPdfToolbox extends PdfToolbox {
     // The recognized text goes underneath the page image, so the scan still looks like the original.
     form.append('ocrRenderType', 'sandwich');
     form.append('sidecar', 'false');
-    return this.postForBytes(ENDPOINTS.ocr, form);
+
+    try {
+      return await this.postForBytes(ENDPOINTS.ocr, form);
+    } catch (error) {
+      throw missingLanguageData(error, languages) ?? error;
+    }
   }
 
   async imagesToPdf(images: readonly NamedBinary[]): Promise<Buffer> {
@@ -131,6 +136,20 @@ async function blobOf(source: BinarySource): Promise<Blob> {
 
 function truncate(text: string, max = 500): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`;
+}
+
+// A Stirling without the tesseract data for a language answers one line about the format of the
+// request, which is the one thing that was not wrong with it. Say what was actually asked for and
+// where the data comes from: the instance recognises nothing in that language until its image
+// carries it (deploy/stirling, ADR-018).
+function missingLanguageData(error: unknown, languages: readonly string[]): Error | null {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!message.includes('Invalid OCR languages format')) return null;
+
+  return new Error(
+    `Stirling has no tesseract data for ${languages.join(', ')} — rebuild it from deploy/stirling ` +
+      `so it carries the languages this archive meets (${message})`,
+  );
 }
 
 // Stirling describes every embedded image in place — `<image redacted: 596x842px, ~72dpi, JPG, …>`.

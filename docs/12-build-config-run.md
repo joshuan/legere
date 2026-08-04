@@ -210,7 +210,10 @@ services:
     ports: ['5432:5432']
     volumes: ['db-data:/var/lib/postgresql/data']
   stirling:
-    image: stirlingtools/stirling-pdf:latest
+    # Our own build too: the upstream image carries six tesseract languages, none of them
+    # Cyrillic (ADR-018).
+    image: legere-stirling:dev
+    build: ./deploy/stirling
     ports: ['8080:8080']
     # Stirling 2.x requires a login by default and answers 401 to every API call.
     environment: { SECURITY_ENABLELOGIN: 'false', SYSTEM_ENABLEANALYTICS: 'false' }
