@@ -58,7 +58,29 @@ Onboarding when already onboarded → 404 page.
   (`UPLOAD_MAX_BYTES`), or `DOCUMENT_DUPLICATE` — "this file is already on this instance", which is
   what deduplication means from the outside.
 
-## 11.4. Browse (`/browse/:libraryId?path=`)
+## 11.4. Browse (`/browse/…`)
+
+Browsing is by **what a document is about**, not only by where its bytes are — that is how a person
+looks for a paper, and which folder on which disk it happens to sit in is the last thing they think
+of. Each facet is two screens, folders then contents, and the contents are the same card grid the
+documents screen uses, because a document should look the same wherever it is found:
+
+| Address | Folders | Contents |
+|---|---|---|
+| `/browse/types` → `/browse/types/:id` | document types, with counts | documents of that type |
+| `/browse/people` → `/browse/people/:id` | people | documents about that person |
+| `/browse/subjects` → `/browse/subjects/:kind` → `/browse/subjects/:kind/:id` | kinds, then the things of that kind | documents about that thing |
+| `/browse/years` → `/browse/years/:year` | the years documents carry, newest first | documents dated in that year |
+
+Folders are a list, not cards: a folder is a word, and a word does not need a picture. The heading of
+a contents page is resolved on the server, so it is right in the first paint rather than after a
+fetch; a folder that does not exist answers 404, because a wrong address is not an empty shelf.
+
+Counts are per facet value and come from the catalogue endpoints; the years come from
+`GET /api/documents/years`, which is scoped by what the viewer may read — a year holding one document
+they cannot see is not a year that exists for them.
+
+## 11.4a. Browse a library (`/browse/:libraryId?path=`)
 
 Folder-tree navigation over the library's real directory structure (any nesting):
 **Breadcrumb** (`Library name / sub / folder`), folder list (name + document count), then a document

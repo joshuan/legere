@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
 import {
   documentTypeDtoSchema,
-  listCategoriesResponseSchema,
+  listDocumentTypesResponseSchema,
 } from '../../src/shared/contracts/document-types';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { api, createTestApp, type TestApp } from '../helpers/app';
@@ -85,7 +85,7 @@ describe('DocumentTypes (e2e)', () => {
       documentCount: 0,
     });
 
-    const page = expectData(await list(adminCookie), listCategoriesResponseSchema);
+    const page = expectData(await list(adminCookie), listDocumentTypesResponseSchema);
     expect(page.items.map((item) => item.slug)).toEqual(['invoice']);
   });
 
@@ -129,7 +129,7 @@ describe('DocumentTypes (e2e)', () => {
     await givenDocumentWithCategory(documentType.id);
     await givenDocumentWithCategory(documentType.id);
 
-    const page = expectData(await list(adminCookie), listCategoriesResponseSchema);
+    const page = expectData(await list(adminCookie), listDocumentTypesResponseSchema);
 
     expect(page.items[0]?.documentCount).toBe(2);
   });
@@ -151,7 +151,7 @@ describe('DocumentTypes (e2e)', () => {
     expect(row.typeId).toBeNull();
     expect(row.typeSource).toBe('NONE');
 
-    const page = expectData(await list(adminCookie), listCategoriesResponseSchema);
+    const page = expectData(await list(adminCookie), listDocumentTypesResponseSchema);
     expect(page.items).toEqual([]);
   });
 
@@ -181,7 +181,7 @@ describe('DocumentTypes (e2e)', () => {
     await create({ slug: 'letter', name: 'Letter' });
     const user = await inviteUser(`catuser${seq}@legere.local`);
 
-    const read = expectData(await list(user.cookie), listCategoriesResponseSchema);
+    const read = expectData(await list(user.cookie), listDocumentTypesResponseSchema);
     expect(read.items).toHaveLength(1);
 
     const write = await api(app)

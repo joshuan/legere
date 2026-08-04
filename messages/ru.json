@@ -516,5 +516,16 @@
     "movePageLeft": "Сдвинуть страницу {position} раньше",
     "movePageRight": "Сдвинуть страницу {position} позже",
     "removePage": "Убрать страницу {position}"
+  },
+  "facets": {
+    "types": "По типу",
+    "people": "По человеку",
+    "subjects": "По объекту",
+    "years": "По году",
+    "emptyTypes": "Типов пока нет",
+    "emptyPeople": "Пока никого",
+    "emptySubjects": "Пока ничего",
+    "emptyYears": "Документов с датой пока нет",
+    "emptyDocuments": "Здесь пока пусто"
   }
 }

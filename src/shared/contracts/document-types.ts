@@ -21,8 +21,8 @@ export const documentTypeDtoSchema = z.object({
 });
 export type DocumentTypeDto = z.infer<typeof documentTypeDtoSchema>;
 
-export const listCategoriesResponseSchema = z.object({ items: z.array(documentTypeDtoSchema) });
-export type ListDocumentTypesResponse = z.infer<typeof listCategoriesResponseSchema>;
+export const listDocumentTypesResponseSchema = z.object({ items: z.array(documentTypeDtoSchema) });
+export type ListDocumentTypesResponse = z.infer<typeof listDocumentTypesResponseSchema>;
 
 export const createCategoryRequestSchema = z.object({
   slug: typeSlugSchema,

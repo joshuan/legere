@@ -42,6 +42,10 @@ class StubSearchRepository extends DocumentRepository {
   updateProcessing() {
     return notUsed();
   }
+  listYears(): Promise<Array<{ year: number; count: number }>> {
+    throw new Error('listYears is not part of search');
+  }
+
   countByStepStatus() {
     return notUsed();
   }

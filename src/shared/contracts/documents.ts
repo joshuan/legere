@@ -134,6 +134,10 @@ const queryBoolean = z
 export const listDocumentsQuerySchema = paginationQuerySchema.extend({
   libraryId: z.string().uuid().optional(),
   typeId: z.string().uuid().optional(),
+  personId: z.string().uuid().optional(),
+  subjectId: z.string().uuid().optional(),
+  // The year on the document, not the year it was filed (docs/03 §3.3.10).
+  year: z.coerce.number().int().min(1900).max(2100).optional(),
   availability: availabilitySchema.optional(),
   processing: queryBoolean,
   source: documentSourceSchema.optional(),
@@ -141,6 +145,13 @@ export const listDocumentsQuerySchema = paginationQuerySchema.extend({
 export type ListDocumentsQuery = z.infer<typeof listDocumentsQuerySchema>;
 
 export const listDocumentsResponseSchema = paginatedSchema(documentListDtoSchema);
+
+// The years documents carry, newest first, with how many each holds — the folders of a shelf
+// arranged by date (docs/07 §7.3).
+export const documentYearsResponseSchema = z.object({
+  items: z.array(z.object({ year: z.number().int(), count: z.number().int().nonnegative() })),
+});
+export type DocumentYearsResponse = z.infer<typeof documentYearsResponseSchema>;
 
 // POST /api/documents — an upload (docs/05 §5.1a). `created: false` means the content was already
 // here and the caller was allowed to see it, so this is the document it resolved to.

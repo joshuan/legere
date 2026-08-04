@@ -4,6 +4,7 @@ import {
   DeleteDocument,
   GetDocument,
   ListDocumentEvents,
+  ListDocumentYears,
   ListDocuments,
   UpdateDocumentMeta,
 } from '../../application/documents/manage-documents';
@@ -144,6 +145,12 @@ function downloadSettings(config: AppConfig): DownloadSettings {
       useFactory: (events: DocumentEventRepository): ListDocumentEvents =>
         new ListDocumentEvents(events),
       inject: [DocumentEventRepository],
+    },
+    {
+      provide: ListDocumentYears,
+      useFactory: (documents: DocumentRepository): ListDocumentYears =>
+        new ListDocumentYears(documents),
+      inject: [DocumentRepository],
     },
     {
       provide: ReprocessDocument,

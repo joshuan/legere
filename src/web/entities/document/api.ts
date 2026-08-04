@@ -5,9 +5,11 @@ import {
   uploadDocumentResponseSchema,
   type UploadDocumentResponse,
   documentEventPageSchema,
+  documentYearsResponseSchema,
   reprocessResponseSchema,
   type DocumentDetailDto,
   type DocumentEventPage,
+  type DocumentYearsResponse,
   type DocumentMarkdownResponse,
   type ListDocumentsQuery,
   type ListDocumentsResponse,
@@ -52,6 +54,9 @@ export const documentApi = {
   reprocess: (id: string, body: ReprocessRequest = {}): Promise<ReprocessResponse> =>
     apiClient.post(`/api/documents/${id}/reprocess`, { schema: reprocessResponseSchema, body }),
 
+  years: (): Promise<DocumentYearsResponse> =>
+    apiClient.get('/api/documents/years', { schema: documentYearsResponseSchema }),
+
   events: (id: string): Promise<DocumentEventPage> =>
     apiClient.get(`/api/documents/${id}/events`, { schema: documentEventPageSchema }),
 };
@@ -70,4 +75,5 @@ export const documentKeys = {
   detail: (id: string) => ['document', id] as const,
   markdown: (id: string) => ['document', id, 'markdown'] as const,
   events: (id: string) => ['document', id, 'events'] as const,
+  years: ['documents', 'years'] as const,
 };

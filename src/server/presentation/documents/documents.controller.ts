@@ -21,6 +21,7 @@ import {
   updateDocumentRequestSchema,
   type DocumentDetailDto,
   type DocumentEventPage,
+  type DocumentYearsResponse,
   type ListDocumentsQuery,
   type ListDocumentsResponse,
   type ReprocessRequest,
@@ -35,6 +36,7 @@ import {
   DeleteDocument,
   GetDocument,
   ListDocumentEvents,
+  ListDocumentYears,
   ListDocuments,
   UpdateDocumentMeta,
 } from '../../application/documents/manage-documents';
@@ -70,6 +72,7 @@ export class DocumentsController {
     private readonly remove: DeleteDocument,
     private readonly reprocess: ReprocessDocument,
     private readonly events: ListDocumentEvents,
+    private readonly years: ListDocumentYears,
     private readonly download: DownloadDocumentSource,
     private readonly artifactUrl: GetDocumentArtifactUrl,
     private readonly markdown: GetDocumentMarkdown,
@@ -96,6 +99,13 @@ export class DocumentsController {
     @ZodQuery(listDocumentsQuerySchema) query: ListDocumentsQuery,
   ): Promise<Envelope<ListDocumentsResponse>> {
     return successEnvelope(await this.list.execute(user, query));
+  }
+
+  // The years documents carry, for browsing by date (docs/11 §11.4). Before `:id`, or the router
+  // would read "years" as a document id.
+  @Get('years')
+  async getYears(@CurrentUser() user: User): Promise<Envelope<DocumentYearsResponse>> {
+    return successEnvelope(await this.years.execute({ id: user.id, role: user.role }));
   }
 
   @Get(':id')

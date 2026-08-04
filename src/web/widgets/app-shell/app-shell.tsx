@@ -64,10 +64,30 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
       key: '/browse',
       icon: <FolderOpenOutlined />,
       label: t('nav.browse'),
-      children: (libraries.data?.items ?? []).map((library) => ({
-        key: `/browse/${library.id}`,
-        label: <Link href={`/browse/${library.id}`}>{library.name}</Link>,
-      })),
+      // The facets first: what a document is about is how a person looks for it, and where its bytes
+      // happen to live is the last thing they think of (docs/11 §11.4).
+      children: [
+        {
+          key: '/browse/types',
+          label: <Link href="/browse/types">{t('facets.types')}</Link>,
+        },
+        {
+          key: '/browse/people',
+          label: <Link href="/browse/people">{t('facets.people')}</Link>,
+        },
+        {
+          key: '/browse/subjects',
+          label: <Link href="/browse/subjects">{t('facets.subjects')}</Link>,
+        },
+        {
+          key: '/browse/years',
+          label: <Link href="/browse/years">{t('facets.years')}</Link>,
+        },
+        ...(libraries.data?.items ?? []).map((library) => ({
+          key: `/browse/${library.id}`,
+          label: <Link href={`/browse/${library.id}`}>{library.name}</Link>,
+        })),
+      ],
     },
     {
       key: '/search',

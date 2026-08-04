@@ -197,6 +197,10 @@ export class InMemoryDocumentRepository extends DocumentRepository {
     return Promise.resolve({ document, created: true });
   }
 
+  listYears(): Promise<Array<{ year: number; count: number }>> {
+    return unused('listYears');
+  }
+
   countByStepStatus(): Promise<StepStatusCounters> {
     return unused('countByStepStatus');
   }

@@ -3,6 +3,7 @@ import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/co
 import {
   documentDetailDtoSchema,
   documentEventPageSchema,
+  documentYearsResponseSchema,
   listDocumentsResponseSchema,
 } from '../../src/shared/contracts/documents';
 import { createInviteResponseSchema, okResponseSchema } from '../../src/shared/contracts/users';
@@ -622,6 +623,36 @@ describe('Documents (e2e)', () => {
       expect(entry?.payload.changes).toMatchObject({
         title: { from: 'Ticket', to: 'Train ticket' },
         city: { to: 'Bar' },
+      });
+    });
+
+    it('finds a document by who and what it is about, and by the year it carries', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open, title: 'Lease' });
+      const person = await testPrisma().person.create({ data: { name: 'Marija Petrović' } });
+      const subject = await testPrisma().subject.create({
+        data: { kind: 'apartment', name: 'Njegoševa 5' },
+      });
+
+      await api(app)
+        .patch(`/api/documents/${documentId}`, {
+          peopleIds: [person.id],
+          subjectIds: [subject.id],
+          documentDate: '2019-03-01',
+        })
+        .set('Cookie', adminCookie);
+
+      for (const query of [`personId=${person.id}`, `subjectId=${subject.id}`, 'year=2019']) {
+        const res = await api(app).get(`/api/documents?${query}`).set('Cookie', adminCookie);
+        const page = expectData(res, listDocumentsResponseSchema);
+        expect(page.items.map((item) => item.id)).toEqual([documentId]);
+      }
+
+      // The years a shelf actually has, newest first — the folders of a cabinet by date.
+      const years = await api(app).get('/api/documents/years').set('Cookie', adminCookie);
+      expect(expectData(years, documentYearsResponseSchema).items).toContainEqual({
+        year: 2019,
+        count: 1,
       });
     });
 

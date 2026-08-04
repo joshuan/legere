@@ -183,6 +183,15 @@ function filters(query: ListDocumentsInput): Prisma.DocumentWhereInput {
     where.fileRefs = { some: { libraryId: query.libraryId, library: { deletedAt: null } } };
   }
   if (query.typeId !== undefined) where.typeId = query.typeId;
+  if (query.personId !== undefined) where.people = { some: { personId: query.personId } };
+  if (query.subjectId !== undefined) where.subjects = { some: { subjectId: query.subjectId } };
+  if (query.year !== undefined) {
+    // A calendar year in UTC, which is the zone the DATE column is read and written in.
+    where.documentDate = {
+      gte: new Date(Date.UTC(query.year, 0, 1)),
+      lt: new Date(Date.UTC(query.year + 1, 0, 1)),
+    };
+  }
   if (query.source !== undefined) where.source = query.source;
 
   if (query.availability !== undefined) {
@@ -402,6 +411,29 @@ export class PrismaDocumentRepository implements DocumentRepository {
 
   // One pass over the table rather than twenty count queries: every step column is aggregated in
   // the same scan (docs/05 §5.8).
+  async listYears(
+    viewer: Viewer,
+    tx?: TransactionHandle,
+  ): Promise<Array<{ year: number; count: number }>> {
+    // 🔒 The same access rule as every list: a year is only a year if this viewer has a document in
+    // it (docs/03 §3.4).
+    const rows = await clientOf(this.prisma, tx).document.groupBy({
+      by: ['documentDate'],
+      where: { deletedAt: null, documentDate: { not: null }, ...readableBy(viewer) },
+      _count: { _all: true },
+    });
+
+    const years = new Map<number, number>();
+    for (const row of rows) {
+      if (row.documentDate === null) continue;
+      const year = row.documentDate.getUTCFullYear();
+      years.set(year, (years.get(year) ?? 0) + row._count._all);
+    }
+    return [...years.entries()]
+      .map(([year, count]) => ({ year, count }))
+      .sort((a, b) => b.year - a.year);
+  }
+
   async countByStepStatus(tx?: TransactionHandle): Promise<StepStatusCounters> {
     const rows = await clientOf(this.prisma, tx).$queryRaw<CounterRow[]>`
       SELECT canonical_status, preview_status, markdown_status,

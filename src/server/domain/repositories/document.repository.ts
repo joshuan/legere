@@ -102,6 +102,9 @@ export type ListDocumentsInput = {
   availability?: Availability | undefined;
   processing?: boolean | undefined;
   source?: DocumentSource | undefined;
+  personId?: string | undefined;
+  subjectId?: string | undefined;
+  year?: number | undefined;
 };
 
 export type DocumentPage = {
@@ -145,6 +148,13 @@ export abstract class DocumentRepository {
   ): Promise<Document>;
 
   abstract countByStepStatus(tx?: TransactionHandle): Promise<StepStatusCounters>;
+
+  // 🔒 Only the years this viewer can see documents in: a year with one document they may not read
+  // is not a year that exists for them (docs/03 §3.4).
+  abstract listYears(
+    viewer: Viewer,
+    tx?: TransactionHandle,
+  ): Promise<Array<{ year: number; count: number }>>;
 
   // The read model, newest first, filtered by what the viewer may read (docs/03 §3.4).
   abstract listReadable(

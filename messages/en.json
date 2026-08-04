@@ -516,5 +516,16 @@
     "movePageLeft": "Move page {position} earlier",
     "movePageRight": "Move page {position} later",
     "removePage": "Remove page {position}"
+  },
+  "facets": {
+    "types": "By type",
+    "people": "By person",
+    "subjects": "By subject",
+    "years": "By year",
+    "emptyTypes": "No types yet",
+    "emptyPeople": "Nobody yet",
+    "emptySubjects": "Nothing yet",
+    "emptyYears": "No dated documents yet",
+    "emptyDocuments": "Nothing here yet"
   }
 }

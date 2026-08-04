@@ -1,6 +1,6 @@
 import {
   documentTypeDtoSchema,
-  listCategoriesResponseSchema,
+  listDocumentTypesResponseSchema,
   type DocumentTypeDto,
   type CreateDocumentTypeRequest,
   type ListDocumentTypesResponse,
@@ -12,7 +12,7 @@ import { apiClient } from '../../shared/api';
 // DocumentType endpoints (docs/07 §7.3).
 export const documentTypeApi = {
   list: (): Promise<ListDocumentTypesResponse> =>
-    apiClient.get('/api/document-types', { schema: listCategoriesResponseSchema }),
+    apiClient.get('/api/document-types', { schema: listDocumentTypesResponseSchema }),
 
   create: (body: CreateDocumentTypeRequest): Promise<DocumentTypeDto> =>
     apiClient.post('/api/admin/document-types', { schema: documentTypeDtoSchema, body }),

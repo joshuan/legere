@@ -1,6 +1,7 @@
 import type {
   DocumentDetailDto,
   DocumentEventPage,
+  DocumentYearsResponse,
   DocumentListDto,
   ListDocumentsQuery,
   ListDocumentsResponse,
@@ -60,6 +61,16 @@ export class ListDocumentEvents {
       })),
       nextCursor: page.nextCursor,
     };
+  }
+}
+
+// The years a shelf has documents in, newest first: the folders of a cabinet arranged by date
+// (docs/11 §11.4).
+export class ListDocumentYears {
+  constructor(private readonly documents: DocumentRepository) {}
+
+  async execute(viewer: Viewer): Promise<DocumentYearsResponse> {
+    return { items: await this.documents.listYears(viewer) };
   }
 }
 
