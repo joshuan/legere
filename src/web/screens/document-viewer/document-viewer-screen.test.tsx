@@ -297,6 +297,43 @@ describe('DocumentViewerScreen', () => {
     await waitFor(() => expect(patched).toEqual({ reset: ['city', 'country'] }));
   });
 
+  it('puts a field back to what was read in one click, without opening the form', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+    serve({ ...detail, languages: ['en'], auto: { languages: ['ru'] } });
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+
+    // No Edit: reading "English, read as Russian" and agreeing with the machine is one gesture
+    // (docs/11 §11.5).
+    await userEvent.click(details.getByRole('button', { name: /read as Russian/ }));
+
+    // 🔒 And it travels as a reset, not as the value: sending `ru` back would claim somebody chose
+    // it (docs/03 §3.3.10).
+    await waitFor(() => expect(patched).toEqual({ reset: ['languages'] }));
+  });
+
+  it('leaves the line as plain text inside the form, where the reset button already answers', async () => {
+    serve({ ...detail, languages: ['en'], auto: { languages: ['ru'] } });
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+
+    // Two ways back from one row would be two answers to the same question.
+    expect(details.queryByRole('button', { name: /read as Russian/ })).toBeNull();
+    expect(details.getByText(/read as Russian/)).toBeInTheDocument();
+    expect(details.getByRole('button', { name: enMessages.viewer.details.reset })).toBeVisible();
+  });
+
   it('tells the history of the document, newest first', async () => {
     server.use(
       http.get(`/api/documents/${ID}/events`, () =>

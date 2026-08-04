@@ -273,7 +273,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Bug:** a JPEG whose languages are known to be `ru` sends `rus` to Stirling, whose stock image carries `chi_sim deu eng fra osd por` only, and the step dies on `Invalid OCR languages format: none of the selected languages are valid`. The same instance's Docling has the languages, because only Docling was ever given an image of its own.
   **Acceptance:** Stirling is built from a `deploy/stirling` image carrying the same tesseract languages as `deploy/docling`, in dev compose and in the deployment example; the step no longer fails on a recognizer missing a language — the failure names the codes asked for and the service asked, rather than passing on a Java stack trace.
 
-- [ ] **M10.3 — Apply what the pipeline read in one click**
+- [x] **M10.3 — Apply what the pipeline read in one click**
   **Goal:** "read as Russian" under a corrected field is the way to put it back, without opening the form.
   **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`03 §3.3.10`](../03-domain-model.md)
   **Acceptance:** the grey "read as …" line is a control in read mode; one click sends the same `reset` the form's reset button sends (never the value typed in, so a document type goes back to `AUTO`); the row settles to the read value without an edit session; nothing else on the document travels with it.

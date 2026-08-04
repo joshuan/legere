@@ -211,6 +211,18 @@ pre,
   line-height: 16px;
 }
 
+/* The same line when it is the way back to what was read (docs/11 §11.5). It keeps the size and the
+   quiet of the note it replaces — it is still provenance, and the only thing a button would add by
+   shouting is a second value fighting the first — and takes the link colour on hover, which is where
+   the click announces itself. */
+.legere-definition-note-action.ant-btn {
+  height: auto;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
 /* A value the pipeline has not finished writing. Small and ahead of the value, so a field that has
    one already — and is about to have another — reads as "this is provisional" rather than as a
    second value. */

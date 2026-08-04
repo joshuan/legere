@@ -560,10 +560,35 @@ function DetailsPane({
 
   // "read as X" — shown only where the machine's answer and the current one differ, because
   // repeating a value that nobody changed is noise (docs/03 §3.3.10).
-  const wasRead = (auto: string | null | undefined, current: string): ReactNode =>
-    auto === null || auto === undefined || auto === '' || auto === current
-      ? undefined
-      : t('viewer.details.auto', { value: auto });
+  //
+  // Outside the form it is also the way back: one click resets the field to what was read, without
+  // an edit session around it (docs/11 §11.5). Only where a reset exists — a person the analysis
+  // named is a link, and PATCH has no reset for one — and only outside the form, where the control
+  // beside the input already answers this.
+  const wasRead = (
+    auto: string | null | undefined,
+    current: string,
+    fields: ResettableField[] = [],
+  ): ReactNode => {
+    if (auto === null || auto === undefined || auto === '' || auto === current) return undefined;
+
+    const text = t('viewer.details.auto', { value: auto });
+    if (editing || fields.length === 0) return text;
+
+    return (
+      <Tooltip title={t('viewer.details.applyRead')}>
+        <Button
+          size="small"
+          type="link"
+          className="legere-definition-note-action"
+          disabled={saving}
+          onClick={() => onSave({ reset: fields })}
+        >
+          {text}
+        </Button>
+      </Tooltip>
+    );
+  };
 
   // The control plus, when the pipeline read something this no longer matches, a way back to it.
   const withReset = (fields: ResettableField[], control: ReactNode, differs: boolean): ReactNode =>
@@ -639,6 +664,7 @@ function DetailsPane({
             note: wasRead(
               autoType?.name ?? document.auto.typeSlug,
               document.documentType?.name ?? '',
+              ['documentType'],
             ),
           },
           {
@@ -787,7 +813,7 @@ function DetailsPane({
                   )
                 : formatDate(document.documentDate),
             pending: state('analysis'),
-            note: wasRead(document.auto.date, document.documentDate ?? ''),
+            note: wasRead(document.auto.date, document.documentDate ?? '', ['documentDate']),
           },
           {
             label: t('viewer.details.languages'),
@@ -814,7 +840,9 @@ function DetailsPane({
                   )
                 : document.languages.map(displayLanguage).join(', '),
             pending: state('markdown', 'analysis'),
-            note: wasRead(autoLanguages, document.languages.map(displayLanguage).join(', ')),
+            note: wasRead(autoLanguages, document.languages.map(displayLanguage).join(', '), [
+              'languages',
+            ]),
           },
           {
             label: t('viewer.details.place'),
@@ -850,7 +878,9 @@ function DetailsPane({
                   )
                 : placeOf(document.city, document.country),
             pending: state('analysis'),
-            note: wasRead(autoPlace, placeOf(document.city, document.country)),
+            // One fact in two boxes, so putting it back puts both back — a reset city that kept
+            // somebody's country would be a place that was never read anywhere.
+            note: wasRead(autoPlace, placeOf(document.city, document.country), ['city', 'country']),
           },
           {
             label: t('viewer.details.hash'),

@@ -407,6 +407,7 @@
       "locations": "File locations",
       "noLocations": "This document has no files on any library you can see.",
       "auto": "read as {value}",
+      "applyRead": "Put it back to what was read",
       "documentType": "Type",
       "people": "People",
       "peoplePlaceholder": "Nobody yet",

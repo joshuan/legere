@@ -121,7 +121,16 @@ before the metadata of the thing it names.
   would flip `typeSource` to `MANUAL` and a classifier's choice would silently become a person's.
   Cancel drops the draft. What the machine decided is kept: when the two differ, a
   quiet grey line under the value says "read as …". A correction is then never a dead end, and the
-  question "did it get this wrong, or did somebody change it?" has an answer on the page. File
+  question "did it get this wrong, or did somebody change it?" has an answer on the page.
+  **That line is also the way back.** Outside the form it is a control: one click puts the field back
+  to what was read and saves it, with no edit session around it — reading "Language: English, read as
+  Russian" and agreeing with the machine is one gesture, and opening a form to change a field to a
+  value already printed on the page is a form nobody needed. It travels as the same `reset` the form's
+  own button sends, never as the value typed in, so a document type goes back to `AUTO` rather than
+  becoming somebody's choice. Only the fields a rerun could write carry it — a person or a subject
+  the analysis named is a link, not a value, and `PATCH` has no reset for either. Inside the form the
+  line stays plain text: the control next to the input is the reset there, and two of them would be
+  two answers to the same question. File
   locations are rows of this same list, one per library, rather than a card of their own — where the
   bytes live is one more fact about the document, not a section of it. Languages and the country are
   shown as names in the reader's own
