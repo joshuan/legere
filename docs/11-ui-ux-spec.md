@@ -127,6 +127,12 @@ before the metadata of the thing it names.
   shown as names in the reader's own
   language (`Intl.DisplayNames`), not as the tags stored — "Serbian (Latin), Montenegro", not
   "sr-Latn, ME"; an em dash where nothing was detected, which is honest and never looks broken.
+  **Editing them offers those same names.** Both pickers are searched by name rather than by code —
+  a person adding Russian to a document types "Rus", not `ru`, because the code is a thing the
+  machine needs and the name is the thing they know. The country picker lists every region `Intl` can
+  name; the languages picker every language it can, plus whatever tags the document already carries.
+  It still takes a typed tag for anything not on that list, because BCP-47 has more of them
+  (`sr-Latn`) than a list worth shipping — but nobody should have to reach for that to say "Russian".
   **A field whose step has not settled carries that step's badge** — `RUNNING` or `PENDING`, the same
   words the processing panel uses — in place of the em dash, or in front of a value that is about to
   be rewritten. Which step owns which field follows the pipeline (05 §5.5): pages from the preview,

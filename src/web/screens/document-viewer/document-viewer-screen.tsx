@@ -800,6 +800,9 @@ function DetailsPane({
                     <Select
                       mode="tags"
                       className="legere-field"
+                      // Searched by the name, not by the value: "Rus" has to find "Russian (ru)",
+                      // which is the whole point of offering the list (docs/11 §11.5).
+                      optionFilterProp="label"
                       placeholder={t('viewer.details.languagesPlaceholder')}
                       aria-label={t('viewer.details.languages')}
                       value={draft.languages}
@@ -1035,16 +1038,19 @@ function placeOf(city: string | null, country: string | null): string {
   return [city, displayCountry(country)].filter((part) => part !== null && part !== '').join(', ');
 }
 
-// The tags already on the document, plus whatever the pipeline read, each with its name spelled
-// out. Anything else can still be typed — the field takes free tags.
+// Every language Intl can name, plus the tags already on the document that are not among them —
+// `sr-Latn` is a real answer and no two-letter sweep will find it. Offered rather than left to be
+// typed because a person adding Russian knows the word and not the code (docs/11 §11.5); the field
+// still takes free tags for what neither list has.
 function languageOptions(
   current: string[],
   auto: string[],
 ): Array<{ value: string; label: string }> {
-  return [...new Set([...current, ...auto])].map((tag) => ({
-    value: tag,
-    label: `${displayLanguage(tag)} (${tag})`,
-  }));
+  const listed = new Set(LANGUAGE_OPTIONS.map((option) => option.value));
+  const carried = [...new Set([...current, ...auto])]
+    .filter((tag) => !listed.has(tag))
+    .map((tag) => ({ value: tag, label: `${displayLanguage(tag)} (${tag})` }));
+  return [...carried, ...LANGUAGE_OPTIONS];
 }
 
 function statusColor(status: StepStatus): string {
@@ -1055,21 +1061,43 @@ function statusColor(status: StepStatus): string {
   return 'default';
 }
 
-// Every ISO 3166-1 alpha-2 code that Intl recognises, named in the reader's own language. Built by
-// asking Intl about all 676 two-letter combinations and keeping the ones it has a name for: a list
-// of countries is data that goes out of date, and this one cannot.
-const COUNTRY_OPTIONS: Array<{ value: string; label: string }> = (() => {
-  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+// Every two-letter code Intl can put a name to, sorted by that name. Built by asking about all 676
+// combinations and keeping the ones it answers: a list of countries or of languages is data that
+// goes out of date, and one asked of Intl cannot.
+function namedCodes(
+  alphabet: string,
+  describe: (code: string) => string,
+  label: (code: string, name: string) => string,
+): Array<{ value: string; label: string }> {
+  const letters = alphabet.split('');
   const options: Array<{ value: string; label: string }> = [];
   for (const first of letters) {
     for (const second of letters) {
       const code = `${first}${second}`;
-      const name = displayCountry(code);
-      if (name !== null && name !== code) options.push({ value: code, label: name });
+      const name = describe(code);
+      // Intl answers an unknown code with the code itself, which is how a non-country is told from a
+      // country without keeping a list of either.
+      if (name !== code) options.push({ value: code, label: label(code, name) });
     }
   }
   return options.sort((a, b) => a.label.localeCompare(b.label));
-})();
+}
+
+// ISO 3166-1 alpha-2, named: "Montenegro", not "ME".
+const COUNTRY_OPTIONS: Array<{ value: string; label: string }> = namedCodes(
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  (code) => displayCountry(code) ?? code,
+  (_code, name) => name,
+);
+
+// ISO 639-1, named and with the tag in tow: "Russian (ru)". The tag is shown because it is what
+// travels and what the pipeline reads, and a person correcting a language should be able to see the
+// two agree.
+const LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = namedCodes(
+  'abcdefghijklmnopqrstuvwxyz',
+  displayLanguage,
+  (code, name) => `${name} (${code})`,
+);
 
 // "ME" → "Montenegro", in the reader's own language. Intl knows the list; we do not keep one.
 function displayCountry(code: string | null): string | null {

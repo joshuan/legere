@@ -210,6 +210,31 @@ describe('DocumentViewerScreen', () => {
     await waitFor(() => expect(patched).toEqual({ city: 'Bar' }));
   });
 
+  it('offers a language by its name, not only the ones already on the document', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+
+    const languages = details.getByRole('combobox', { name: enMessages.viewer.details.languages });
+    await userEvent.click(languages);
+    // 🔒 Searched by the name: German is on no list this document carries, and nobody should have to
+    // know it is `de` to say it (docs/11 §11.5).
+    await userEvent.type(languages, 'German');
+    await userEvent.click(await screen.findByTitle('German (de)'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
+
+    await waitFor(() => expect(patched).toEqual({ languages: ['ru', 'sr-Latn', 'de'] }));
+  });
+
   it('drops an edit that is cancelled', async () => {
     let patched: unknown = null;
     server.use(
