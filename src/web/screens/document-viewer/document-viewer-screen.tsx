@@ -34,7 +34,7 @@ import {
   type DocumentStep,
 } from '../../../shared/contracts/documents';
 import type { StepStatus } from '../../../shared/contracts/enums';
-import { categoryApi, categoryKeys } from '../../entities/category';
+import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
 import { useErrorMessage, formatBytes } from '../../shared/lib';
@@ -86,7 +86,7 @@ export function DocumentViewerScreen({
     void queryClient.invalidateQueries({ queryKey: documentKeys.events(id) });
   }, [stepsKey, id, queryClient]);
 
-  const categories = useQuery({ queryKey: categoryKeys.all, queryFn: categoryApi.list });
+  const documentTypes = useQuery({ queryKey: documentTypeKeys.all, queryFn: documentTypeApi.list });
   const collections = useQuery({ queryKey: collectionKeys.all, queryFn: collectionApi.list });
 
   const refresh = (): void => {
@@ -188,7 +188,7 @@ export function DocumentViewerScreen({
                 children: (
                   <DetailsPane
                     document={detail}
-                    categories={categories.data?.items ?? []}
+                    documentTypes={documentTypes.data?.items ?? []}
                     onSave={(input) => update.mutate(input)}
                     saving={update.isPending}
                   />
@@ -390,7 +390,7 @@ function RenderedMarkdown({ markdown }: { markdown: string }) {
 
 type MetaChange = {
   title?: string;
-  categoryId?: string | null;
+  typeId?: string | null;
   languages?: string[];
   country?: string | null;
   city?: string | null;
@@ -400,7 +400,7 @@ type MetaChange = {
 // What a person may correct, while they are correcting it. Held apart from the document so that
 // nothing is sent until Save: a select that writes on every keystroke turns a glance into an edit.
 type Draft = {
-  categoryId: string | null;
+  typeId: string | null;
   languages: string[];
   country: string | null;
   city: string;
@@ -411,12 +411,12 @@ type Draft = {
 // a machine guessed (docs/11 §11.5).
 function DetailsPane({
   document,
-  categories,
+  documentTypes,
   onSave,
   saving,
 }: {
   document: DocumentDetailDto;
-  categories: Array<{ id: string; slug: string; name: string }>;
+  documentTypes: Array<{ id: string; slug: string; name: string }>;
   onSave: (input: MetaChange) => void;
   saving: boolean;
 }) {
@@ -429,7 +429,7 @@ function DetailsPane({
   const startEditing = (): void => {
     setReset([]);
     setDraft({
-      categoryId: document.category?.id ?? null,
+      typeId: document.documentType?.id ?? null,
       languages: document.languages,
       country: document.country,
       city: document.city ?? '',
@@ -442,13 +442,13 @@ function DetailsPane({
   };
 
   // "Put it back to what was read." The draft shows the machine's value immediately; the server is
-  // told it was a reset rather than a choice, so a reset category becomes AUTO again and the next
+  // told it was a reset rather than a choice, so a reset documentType becomes AUTO again and the next
   // run may classify it (docs/03 §3.3.10).
   const resetFields = (fields: ResettableField[]): void => {
     if (draft === null) return;
     setReset((chosen) => [...new Set([...chosen, ...fields])]);
     const next = { ...draft };
-    if (fields.includes('category')) next.categoryId = autoCategory?.id ?? null;
+    if (fields.includes('documentType')) next.typeId = autoType?.id ?? null;
     if (fields.includes('languages')) next.languages = document.auto.languages ?? [];
     if (fields.includes('country')) next.country = document.auto.country ?? null;
     if (fields.includes('city')) next.city = document.auto.city ?? '';
@@ -456,15 +456,15 @@ function DetailsPane({
   };
 
   // Only what actually changed: an untouched field must not be sent, or every save would count as a
-  // manual assignment and a category the classifier chose would silently become a person's choice
+  // manual assignment and a documentType the classifier chose would silently become a person's choice
   // (docs/03 §3.3.10).
   const save = (): void => {
     if (draft === null) return;
     const change: MetaChange = {};
     // A field that was reset travels as a reset, never as a value: sending the same value by hand
     // would mark it as somebody's choice, which is the opposite of what was asked for.
-    if (!reset.includes('category') && draft.categoryId !== (document.category?.id ?? null)) {
-      change.categoryId = draft.categoryId;
+    if (!reset.includes('documentType') && draft.typeId !== (document.documentType?.id ?? null)) {
+      change.typeId = draft.typeId;
     }
     if (
       !reset.includes('languages') &&
@@ -509,7 +509,7 @@ function DetailsPane({
   });
 
   // Which step writes which field (docs/05 §5.5): the page count comes with the preview, the text
-  // and the languages with the parse, the place and the category with the AI step. A field whose
+  // and the languages with the parse, the place and the documentType with the AI step. A field whose
   // step has not settled is a field whose value is provisional, and it says so rather than showing
   // an em dash that reads as "there is none".
   const state = (...steps: DocumentStep[]): 'PENDING' | 'RUNNING' | undefined => {
@@ -538,7 +538,9 @@ function DetailsPane({
       control
     );
 
-  const autoCategory = categories.find((category) => category.slug === document.auto.categorySlug);
+  const autoType = documentTypes.find(
+    (documentType) => documentType.slug === document.auto.typeSlug,
+  );
   const autoLanguages = (document.auto.languages ?? []).map(displayLanguage).join(', ');
   const autoPlace = placeOf(document.auto.city ?? null, document.auto.country ?? null);
 
@@ -565,40 +567,38 @@ function DetailsPane({
           },
           { label: t('viewer.details.mime'), value: document.mimeType },
           {
-            label: t('viewer.details.category'),
+            label: t('viewer.details.documentType'),
             value:
               draft !== null ? (
                 withReset(
-                  ['category'],
+                  ['documentType'],
                   <Select
                     allowClear
                     className="legere-field"
-                    placeholder={t('viewer.category')}
-                    aria-label={t('viewer.category')}
-                    value={draft.categoryId ?? undefined}
-                    onChange={(categoryId?: string) =>
-                      setDraft({ ...draft, categoryId: categoryId ?? null })
-                    }
-                    options={categories.map((category) => ({
-                      value: category.id,
-                      label: category.name,
+                    placeholder={t('viewer.documentType')}
+                    aria-label={t('viewer.documentType')}
+                    value={draft.typeId ?? undefined}
+                    onChange={(typeId?: string) => setDraft({ ...draft, typeId: typeId ?? null })}
+                    options={documentTypes.map((documentType) => ({
+                      value: documentType.id,
+                      label: documentType.name,
                     }))}
                   />,
-                  document.auto.categorySlug !== undefined &&
-                    document.auto.categorySlug !== null &&
-                    (autoCategory?.id ?? null) !== draft.categoryId,
+                  document.auto.typeSlug !== undefined &&
+                    document.auto.typeSlug !== null &&
+                    (autoType?.id ?? null) !== draft.typeId,
                 )
               ) : (
                 <Space size={4} wrap>
-                  {document.category?.name ?? ''}
+                  {document.documentType?.name ?? ''}
                   {/* Chosen by the classifier and not confirmed by anybody since (03 §3.3.10). */}
-                  {document.categorySource === 'AUTO' && <Tag color="blue">{t('viewer.auto')}</Tag>}
+                  {document.typeSource === 'AUTO' && <Tag color="blue">{t('viewer.auto')}</Tag>}
                 </Space>
               ),
-            pending: state('categorization'),
+            pending: state('analysis'),
             note: wasRead(
-              autoCategory?.name ?? document.auto.categorySlug,
-              document.category?.name ?? '',
+              autoType?.name ?? document.auto.typeSlug,
+              document.documentType?.name ?? '',
             ),
           },
           {
@@ -622,7 +622,7 @@ function DetailsPane({
                       (document.auto.languages ?? []).length > 0,
                   )
                 : document.languages.map(displayLanguage).join(', '),
-            pending: state('markdown', 'categorization'),
+            pending: state('markdown', 'analysis'),
             note: wasRead(autoLanguages, document.languages.map(displayLanguage).join(', ')),
           },
           {
@@ -658,7 +658,7 @@ function DetailsPane({
                         placeOf(draft.city.trim() === '' ? null : draft.city.trim(), draft.country),
                   )
                 : placeOf(document.city, document.country),
-            pending: state('categorization'),
+            pending: state('analysis'),
             note: wasRead(autoPlace, placeOf(document.city, document.country)),
           },
           {

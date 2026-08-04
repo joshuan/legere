@@ -89,7 +89,7 @@ describe('Search (e2e)', () => {
     libraryId: string,
     title: string,
     markdown: string | null,
-    options: { categoryId?: string; chunk?: number[] } = {},
+    options: { typeId?: string; chunk?: number[] } = {},
   ): Promise<string> {
     contentSeq += 1;
     const hash = `${contentSeq}`.padStart(64, '9');
@@ -105,9 +105,9 @@ describe('Search (e2e)', () => {
         canonicalStatus: 'SKIPPED',
         previewStatus: 'DONE',
         markdownStatus: 'DONE',
-        categorizationStatus: 'DONE',
+        analysisStatus: 'DONE',
         vectorizationStatus: 'DONE',
-        ...(options.categoryId === undefined ? {} : { categoryId: options.categoryId }),
+        ...(options.typeId === undefined ? {} : { typeId: options.typeId }),
       },
     });
     await testPrisma().fileRef.create({
@@ -201,14 +201,14 @@ describe('Search (e2e)', () => {
   });
 
   describe('filters', () => {
-    it('narrows by library and by category', async () => {
+    it('narrows by library and by documentType', async () => {
       const one = await givenLibrary();
       const two = await givenLibrary();
-      const category = await testPrisma().category.create({
+      const documentType = await testPrisma().documentType.create({
         data: { slug: 'invoice', name: 'Invoice' },
       });
       const inOne = await givenDocument(one, 'Invoice one', 'payment terms apply', {
-        categoryId: category.id,
+        typeId: documentType.id,
       });
       await givenDocument(two, 'Invoice two', 'payment terms apply');
 
@@ -217,7 +217,7 @@ describe('Search (e2e)', () => {
         searchResponseSchema,
       );
       const byCategory = expectData(
-        await search(adminCookie, `?q=payment&categoryId=${category.id}`),
+        await search(adminCookie, `?q=payment&typeId=${documentType.id}`),
         searchResponseSchema,
       );
 

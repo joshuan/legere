@@ -9,7 +9,7 @@ export type SearchInput = {
   q: string;
   mode: SearchMode;
   libraryId?: string | undefined;
-  categoryId?: string | undefined;
+  typeId?: string | undefined;
 };
 
 // GET /api/search (docs/07 §7.3).

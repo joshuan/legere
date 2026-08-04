@@ -17,7 +17,7 @@ import { LibraryReader } from '../../application/ports/library-reader';
 import { MimeDetector } from '../../application/ports/mime-detector';
 import { PdfToolbox } from '../../application/ports/pdf-toolbox';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
-import { CategoryRepository } from '../../domain/repositories/category.repository';
+import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
@@ -128,7 +128,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         pdfs: PdfToolbox,
         parser: DocumentParser,
         images: ImageTool,
-        categories: CategoryRepository,
+        documentTypes: DocumentTypeRepository,
         classifier: DocumentAnalyst,
         chunks: DocumentChunkRepository,
         embeddings: EmbeddingProvider,
@@ -145,7 +145,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           pdfs,
           parser,
           images,
-          categories,
+          documentTypes,
           classifier,
           chunks,
           embeddings,
@@ -162,7 +162,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         PdfToolbox,
         DocumentParser,
         ImageTool,
-        CategoryRepository,
+        DocumentTypeRepository,
         DocumentAnalyst,
         DocumentChunkRepository,
         EmbeddingProvider,

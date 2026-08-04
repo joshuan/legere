@@ -100,10 +100,10 @@ export class UploadDocument {
     // cannot outrun this — its first act is to read the row it was given.
     await this.files.put(artifactKeys.source(created.id, ext), input.bytes, detected.mime);
 
-    // Freshly created: nothing is processed yet, no category, no preview — but the grid can show it
+    // Freshly created: nothing is processed yet, no documentType, no preview — but the grid can show it
     // straight away, marked as processing.
     return {
-      document: toListDto({ document: created, category: null, availability: 'AVAILABLE' }),
+      document: toListDto({ document: created, documentType: null, availability: 'AVAILABLE' }),
       created: true,
     };
   }

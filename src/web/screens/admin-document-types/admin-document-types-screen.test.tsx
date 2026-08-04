@@ -5,9 +5,9 @@ import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope, errorEnvelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
-import { AdminCategoriesScreen } from './admin-categories-screen';
+import { AdminDocumentTypesScreen } from './admin-document-types-screen';
 
-const category = {
+const documentType = {
   id: 'aaaaaaaa-1111-4111-8111-111111111111',
   slug: 'invoice',
   name: 'Invoice',
@@ -19,7 +19,9 @@ const server = createApiMock();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
-  server.use(http.get('/api/categories', () => HttpResponse.json(envelope({ items: [category] }))));
+  server.use(
+    http.get('/api/document-types', () => HttpResponse.json(envelope({ items: [documentType] }))),
+  );
 });
 afterEach(() => {
   server.resetHandlers();
@@ -27,9 +29,9 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-describe('AdminCategoriesScreen', () => {
+describe('AdminDocumentTypesScreen', () => {
   it('shows the list with slugs and document counts', async () => {
-    renderWithProviders(<AdminCategoriesScreen />);
+    renderWithProviders(<AdminDocumentTypesScreen />);
 
     expect(await screen.findByText('invoice')).toBeInTheDocument();
     expect(screen.getByText('Invoice')).toBeInTheDocument();
@@ -37,27 +39,27 @@ describe('AdminCategoriesScreen', () => {
     expect(screen.getByText('7')).toBeInTheDocument();
   });
 
-  it('creates a category', async () => {
+  it('creates a documentType', async () => {
     let created: unknown = null;
     server.use(
-      http.post('/api/admin/categories', async ({ request }) => {
+      http.post('/api/admin/document-types', async ({ request }) => {
         created = await request.json();
-        return HttpResponse.json(envelope(category), { status: 201 });
+        return HttpResponse.json(envelope(documentType), { status: 201 });
       }),
     );
 
-    renderWithProviders(<AdminCategoriesScreen />);
+    renderWithProviders(<AdminDocumentTypesScreen />);
     await userEvent.click(
-      await screen.findByRole('button', { name: enMessages.admin.categories.actions.create }),
+      await screen.findByRole('button', { name: enMessages.admin.documentTypes.actions.create }),
     );
 
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(
-      within(dialog).getByLabelText(enMessages.admin.categories.fields.slug),
+      within(dialog).getByLabelText(enMessages.admin.documentTypes.fields.slug),
       'contract',
     );
     await userEvent.type(
-      within(dialog).getByLabelText(enMessages.admin.categories.fields.name),
+      within(dialog).getByLabelText(enMessages.admin.documentTypes.fields.name),
       'Contract',
     );
     await userEvent.click(
@@ -70,22 +72,22 @@ describe('AdminCategoriesScreen', () => {
 
   it('reports a slug that is already taken instead of failing quietly', async () => {
     server.use(
-      http.post('/api/admin/categories', () =>
-        HttpResponse.json(errorEnvelope('CATEGORY_SLUG_TAKEN'), { status: 409 }),
+      http.post('/api/admin/document-types', () =>
+        HttpResponse.json(errorEnvelope('DOCUMENT_TYPE_SLUG_TAKEN'), { status: 409 }),
       ),
     );
 
-    renderWithProviders(<AdminCategoriesScreen />);
+    renderWithProviders(<AdminDocumentTypesScreen />);
     await userEvent.click(
-      await screen.findByRole('button', { name: enMessages.admin.categories.actions.create }),
+      await screen.findByRole('button', { name: enMessages.admin.documentTypes.actions.create }),
     );
     const dialog = await screen.findByRole('dialog');
     await userEvent.type(
-      within(dialog).getByLabelText(enMessages.admin.categories.fields.slug),
+      within(dialog).getByLabelText(enMessages.admin.documentTypes.fields.slug),
       'invoice',
     );
     await userEvent.type(
-      within(dialog).getByLabelText(enMessages.admin.categories.fields.name),
+      within(dialog).getByLabelText(enMessages.admin.documentTypes.fields.name),
       'Invoice',
     );
     await userEvent.click(
@@ -93,40 +95,40 @@ describe('AdminCategoriesScreen', () => {
     );
 
     expect(
-      await screen.findByText(enMessages.errors.codes.CATEGORY_SLUG_TAKEN),
+      await screen.findByText(enMessages.errors.codes.DOCUMENT_TYPE_SLUG_TAKEN),
     ).toBeInTheDocument();
   });
 
   it('locks the slug when editing, since it cannot be changed', async () => {
-    renderWithProviders(<AdminCategoriesScreen />);
+    renderWithProviders(<AdminDocumentTypesScreen />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.edit }),
     );
 
     const dialog = await screen.findByRole('dialog');
-    const slug = within(dialog).getByLabelText(enMessages.admin.categories.fields.slug);
+    const slug = within(dialog).getByLabelText(enMessages.admin.documentTypes.fields.slug);
     expect(slug).toBeDisabled();
     expect(slug).toHaveValue('invoice');
     expect(
-      within(dialog).getByText(enMessages.admin.categories.fields.slugImmutable),
+      within(dialog).getByText(enMessages.admin.documentTypes.fields.slugImmutable),
     ).toBeInTheDocument();
   });
 
   it('sends only name and description when editing', async () => {
     let patched: unknown = null;
     server.use(
-      http.patch('/api/admin/categories/:id', async ({ request }) => {
+      http.patch('/api/admin/document-types/:id', async ({ request }) => {
         patched = await request.json();
-        return HttpResponse.json(envelope({ ...category, name: 'Invoices' }));
+        return HttpResponse.json(envelope({ ...documentType, name: 'Invoices' }));
       }),
     );
 
-    renderWithProviders(<AdminCategoriesScreen />);
+    renderWithProviders(<AdminDocumentTypesScreen />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.edit }),
     );
     const dialog = await screen.findByRole('dialog');
-    const name = within(dialog).getByLabelText(enMessages.admin.categories.fields.name);
+    const name = within(dialog).getByLabelText(enMessages.admin.documentTypes.fields.name);
     await userEvent.clear(name);
     await userEvent.type(name, 'Invoices');
     await userEvent.click(
@@ -137,15 +139,15 @@ describe('AdminCategoriesScreen', () => {
     expect(patched).toEqual({ name: 'Invoices', description: 'Bills and payment requests.' });
   });
 
-  it('names the category and the cost in the delete confirmation', async () => {
-    renderWithProviders(<AdminCategoriesScreen />);
+  it('names the documentType and the cost in the delete confirmation', async () => {
+    renderWithProviders(<AdminDocumentTypesScreen />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.delete }),
     );
 
     // 🔒 A destructive action says what it will do (docs/11 §11.14).
     expect(
-      await screen.findByText(/Delete “Invoice”\? 7 documents will lose this category\./),
+      await screen.findByText(/Delete “Invoice”\? 7 documents will lose this type\./),
     ).toBeInTheDocument();
   });
 });

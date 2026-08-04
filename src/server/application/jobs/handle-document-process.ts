@@ -9,7 +9,7 @@ import { chunkMarkdown } from '../../domain/entities/document-chunks';
 import { detectLanguages } from '../../domain/entities/document-language';
 import { classifyFormat, type DocumentFormat } from '../../domain/entities/document-format';
 import { decodeText, hasUsableTextLayer, tidyMarkdown } from '../../domain/entities/document-text';
-import type { CategoryRepository } from '../../domain/repositories/category.repository';
+import type { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import type { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import type {
   DocumentRepository,
@@ -42,7 +42,7 @@ export type DocumentProcessPayload = z.infer<typeof documentProcessPayloadSchema
 const PREVIEW_QUALITY = 80;
 const THUMB_QUALITY = 75;
 
-// How much of a document the analyst is shown. A category is decided by what a document is, which
+// How much of a document the analyst is shown. A documentType is decided by what a document is, which
 // is visible in its first page or two — sending a 200-page contract would cost tokens for nothing.
 const ANALYST_EXCERPT_CHARS = 4000;
 
@@ -58,7 +58,7 @@ type Canonical =
   | { kind: 'noPreview' }; // text: there is nothing to render
 
 // `document-process`, all five steps (docs/05 §5.5): canonicalization to PDF, the JPG previews, the
-// Markdown that makes a document searchable, and — when a provider is configured — its category and
+// Markdown that makes a document searchable, and — when a provider is configured — its documentType and
 // its vectors.
 //
 // Each step records its own status, so a failure is contained: a preview that cannot be rendered
@@ -75,7 +75,7 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly pdfs: PdfToolbox,
     private readonly parser: DocumentParser,
     private readonly images: ImageTool,
-    private readonly categories: CategoryRepository,
+    private readonly documentTypes: DocumentTypeRepository,
     private readonly analyst: DocumentAnalyst,
     private readonly chunks: DocumentChunkRepository,
     private readonly embeddings: EmbeddingProvider,
@@ -99,7 +99,7 @@ export class HandleDocumentProcess extends JobHandler {
     const format = classifyFormat(document.mimeType);
     if (format === 'UNSUPPORTED') {
       // No representation can be built, so the steps that would build one are settled here
-      // (docs/05 §5.5: SKIPPED for 1–3 and 5). Categorization still runs — a title is something to
+      // (docs/05 §5.5: SKIPPED for 1–3 and 5). Analysis still runs — a title is something to
       // classify — and, just as importantly, no step may be left PENDING: a document with a PENDING
       // step reads as "still processing" forever (docs/03 §3.3.10).
       await this.write(documentId, {
@@ -124,7 +124,7 @@ export class HandleDocumentProcess extends JobHandler {
         processingError: null,
         failedStep: null,
       });
-      if (requested.has('categorization')) await this.categorize(document);
+      if (requested.has('analysis')) await this.analyse(document);
       return;
     }
 
@@ -166,8 +166,8 @@ export class HandleDocumentProcess extends JobHandler {
     // Steps 4 and 5 read what step 3 wrote, so the document is re-read rather than reusing the
     // stale copy this handler started with.
     const extracted = (await this.documents.findById(document.id)) ?? document;
-    if (requested.has('categorization')) {
-      await this.running(document.id, 'categorization', () => this.categorize(extracted));
+    if (requested.has('analysis')) {
+      await this.running(document.id, 'analysis', () => this.analyse(extracted));
     }
     if (requested.has('vectorization')) {
       await this.running(document.id, 'vectorization', () => this.vectorize(extracted));
@@ -424,56 +424,57 @@ export class HandleDocumentProcess extends JobHandler {
     return { page: await this.pdfs.pdfFirstPageJpg(await openPdf()), pageCount };
   }
 
-  // Step 4. One look at the document: which of the active categories it belongs to, and where it is
+  // Step 4. One look at the document: which of the active documentTypes it belongs to, and where it is
   // from. An unconfigured provider is not a failure — it is an instance that runs without AI at all
   // (docs/05 §5.5).
-  private async categorize(document: Document): Promise<void> {
-    // 🔒 A category a person chose is never overwritten by a machine (docs/03 §3.3.10).
-    if (document.categorySource === 'MANUAL') {
+  private async analyse(document: Document): Promise<void> {
+    // 🔒 A documentType a person chose is never overwritten by a machine (docs/03 §3.3.10).
+    if (document.typeSource === 'MANUAL') {
       await this.write(document.id, {
-        steps: { categorization: 'SKIPPED' },
-        skipReasons: { categorization: 'MANUAL_CATEGORY' },
+        steps: { analysis: 'SKIPPED' },
+        skipReasons: { analysis: 'MANUAL_TYPE' },
       });
       return;
     }
     if (!this.analyst.isConfigured) {
       await this.write(document.id, {
-        steps: { categorization: 'SKIPPED' },
-        skipReasons: { categorization: 'NOT_CONFIGURED' },
+        steps: { analysis: 'SKIPPED' },
+        skipReasons: { analysis: 'NOT_CONFIGURED' },
       });
       return;
     }
 
     try {
-      const categories = await this.categories.listActive();
+      const documentTypes = await this.documentTypes.listActive();
       const analysis = await this.analyst.analyze(
         analystExcerpt(document),
-        categories.map(({ slug: value, name, description }) => ({
+        documentTypes.map(({ slug: value, name, description }) => ({
           slug: value,
           name,
           description,
         })),
       );
 
-      // Second guard against a hallucinated slug: whatever came back has to match a category that
+      // Second guard against a hallucinated slug: whatever came back has to match a documentType that
       // actually exists, or the document simply has none (docs/05 §5.5 step 4).
-      const chosen = categories.find((category) => category.slug === analysis.categorySlug) ?? null;
+      const chosen =
+        documentTypes.find((documentType) => documentType.slug === analysis.typeSlug) ?? null;
       await this.write(document.id, {
-        steps: { categorization: 'DONE' },
-        categoryId: chosen?.id ?? null,
-        categorySource: chosen === null ? 'NONE' : 'AUTO',
+        steps: { analysis: 'DONE' },
+        typeId: chosen?.id ?? null,
+        typeSource: chosen === null ? 'NONE' : 'AUTO',
         ...placeUpdate(document, analysis),
         // Recorded whether or not it was applied: a place somebody filled in by hand stays, and the
         // reader still gets to see what the machine read (docs/03 §3.3.10).
         auto: {
-          categorySlug: analysis.categorySlug,
+          typeSlug: analysis.typeSlug,
           ...(analysis.languages.length > 0 ? { languages: analysis.languages } : {}),
           country: analysis.country,
           city: analysis.city,
         },
       });
     } catch (error) {
-      await this.recordFailure(document.id, 'categorization', error);
+      await this.recordFailure(document.id, 'analysis', error);
     }
   }
 
@@ -572,7 +573,7 @@ export class HandleDocumentProcess extends JobHandler {
   // other steps keep their own outcomes (docs/05 §5.5).
   private async recordFailure(
     documentId: string,
-    step: 'canonical' | 'preview' | 'markdown' | 'categorization' | 'vectorization',
+    step: 'canonical' | 'preview' | 'markdown' | 'analysis' | 'vectorization',
     error: unknown,
   ): Promise<void> {
     await this.write(documentId, {

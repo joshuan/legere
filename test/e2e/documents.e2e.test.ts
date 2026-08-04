@@ -95,7 +95,7 @@ describe('Documents (e2e)', () => {
     title?: string;
     libraryId?: string;
     refStatus?: 'HASHED' | 'MISSING';
-    categoryId?: string;
+    typeId?: string;
     previewStatus?: 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
     markdownStatus?: 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
     createdAt?: Date;
@@ -115,11 +115,9 @@ describe('Documents (e2e)', () => {
         canonicalStatus: 'SKIPPED',
         previewStatus: options.previewStatus ?? 'DONE',
         markdownStatus: options.markdownStatus ?? 'DONE',
-        categorizationStatus: 'DONE',
+        analysisStatus: 'DONE',
         vectorizationStatus: 'SKIPPED',
-        ...(options.categoryId === undefined
-          ? {}
-          : { categoryId: options.categoryId, categorySource: 'AUTO' }),
+        ...(options.typeId === undefined ? {} : { typeId: options.typeId, typeSource: 'AUTO' }),
         ...(options.createdAt === undefined ? {} : { createdAt: options.createdAt }),
       },
     });
@@ -291,22 +289,22 @@ describe('Documents (e2e)', () => {
         expect(page.items.map((item) => item.id)).toEqual([inOne]);
       });
 
-      it('filters by category', async () => {
-        const category = await testPrisma().category.create({
+      it('filters by documentType', async () => {
+        const documentType = await testPrisma().documentType.create({
           data: { slug: 'invoice', name: 'Invoice' },
         });
         const open = await givenLibrary('ALL_USERS');
-        const categorized = await givenDocument({ libraryId: open, categoryId: category.id });
+        const categorized = await givenDocument({ libraryId: open, typeId: documentType.id });
         await givenDocument({ libraryId: open });
 
         const page = expectData(
-          await listAs(adminCookie, `?categoryId=${category.id}`),
+          await listAs(adminCookie, `?typeId=${documentType.id}`),
           listDocumentsResponseSchema,
         );
 
         expect(page.items.map((item) => item.id)).toEqual([categorized]);
-        expect(page.items[0]?.category).toEqual({
-          id: category.id,
+        expect(page.items[0]?.documentType).toEqual({
+          id: documentType.id,
           slug: 'invoice',
           name: 'Invoice',
         });
@@ -392,7 +390,7 @@ describe('Documents (e2e)', () => {
       expect(detail).toMatchObject({
         id: documentId,
         title: 'Contract',
-        categorySource: 'NONE',
+        typeSource: 'NONE',
         ocrUsed: false,
         createdBy: null,
         scanSetId: null,
@@ -472,51 +470,51 @@ describe('Documents (e2e)', () => {
       expect(expectData(res, documentDetailDtoSchema).title).toBe('Rental agreement');
     });
 
-    it('marks a chosen category MANUAL, so the classifier stops overruling it', async () => {
-      const category = await testPrisma().category.create({
+    it('marks a chosen documentType MANUAL, so the classifier stops overruling it', async () => {
+      const documentType = await testPrisma().documentType.create({
         data: { slug: 'contract', name: 'Contract' },
       });
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open });
 
       const res = await api(app)
-        .patch(`/api/documents/${documentId}`, { categoryId: category.id })
+        .patch(`/api/documents/${documentId}`, { typeId: documentType.id })
         .set('Cookie', adminCookie);
 
       const detail = expectData(res, documentDetailDtoSchema);
-      expect(detail.category).toMatchObject({ id: category.id, slug: 'contract' });
+      expect(detail.documentType).toMatchObject({ id: documentType.id, slug: 'contract' });
       // 🔒 docs/03 §3.3.10: MANUAL is never overwritten by the pipeline.
-      expect(detail.categorySource).toBe('MANUAL');
+      expect(detail.typeSource).toBe('MANUAL');
     });
 
-    it('clearing the category records a decision rather than "never classified"', async () => {
-      const category = await testPrisma().category.create({
+    it('clearing the documentType records a decision rather than "never classified"', async () => {
+      const documentType = await testPrisma().documentType.create({
         data: { slug: 'receipt', name: 'Receipt' },
       });
       const open = await givenLibrary('ALL_USERS');
-      const documentId = await givenDocument({ libraryId: open, categoryId: category.id });
+      const documentId = await givenDocument({ libraryId: open, typeId: documentType.id });
 
       const res = await api(app)
-        .patch(`/api/documents/${documentId}`, { categoryId: null })
+        .patch(`/api/documents/${documentId}`, { typeId: null })
         .set('Cookie', adminCookie);
 
       const detail = expectData(res, documentDetailDtoSchema);
-      expect(detail.category).toBeNull();
-      expect(detail.categorySource).toBe('NONE');
+      expect(detail.documentType).toBeNull();
+      expect(detail.typeSource).toBe('NONE');
     });
 
-    it('refuses a category that does not exist', async () => {
+    it('refuses a documentType that does not exist', async () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open });
 
       const res = await api(app)
         .patch(`/api/documents/${documentId}`, {
-          categoryId: '11111111-1111-4111-8111-111111111111',
+          typeId: '11111111-1111-4111-8111-111111111111',
         })
         .set('Cookie', adminCookie);
 
       expect(res.status).toBe(404);
-      expect(expectError(res).code).toBe('CATEGORY_NOT_FOUND');
+      expect(expectError(res).code).toBe('DOCUMENT_TYPE_NOT_FOUND');
     });
 
     it('refuses to edit a derived document owned by someone else', async () => {
@@ -580,29 +578,29 @@ describe('Documents (e2e)', () => {
     it('puts a field back to what the pipeline read, and stops calling it a choice', async () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open, title: 'Ticket' });
-      const category = await testPrisma().category.create({
+      const documentType = await testPrisma().documentType.create({
         data: { slug: 'ticket', name: 'Ticket' },
       });
       await testPrisma().document.update({
         where: { id: documentId },
         data: {
           city: 'Bar',
-          categoryId: null,
-          categorySource: 'NONE',
-          autoValues: { categorySlug: category.slug, city: 'Podgorica', country: 'ME' },
+          typeId: null,
+          typeSource: 'NONE',
+          autoValues: { typeSlug: documentType.slug, city: 'Podgorica', country: 'ME' },
         },
       });
 
       const res = await api(app)
-        .patch(`/api/documents/${documentId}`, { reset: ['city', 'category'] })
+        .patch(`/api/documents/${documentId}`, { reset: ['city', 'documentType'] })
         .set('Cookie', adminCookie);
 
       expect(res.status).toBe(200);
       const row = await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } });
       expect(row.city).toBe('Podgorica');
-      expect(row.categoryId).toBe(category.id);
+      expect(row.typeId).toBe(documentType.id);
       // 🔒 AUTO, not MANUAL: a reset document stops claiming a person chose this (docs/03 §3.3.10).
-      expect(row.categorySource).toBe('AUTO');
+      expect(row.typeSource).toBe('AUTO');
     });
 
     it('writes what a person changed into the document log', async () => {

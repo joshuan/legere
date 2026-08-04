@@ -102,7 +102,7 @@ EMBEDDINGS_API_BASE_URL=                     # OpenAI-compatible, e.g. https://a
 EMBEDDINGS_API_KEY=
 EMBEDDINGS_MODEL=text-embedding-3-small
 EMBEDDING_DIMENSIONS=1536                    # must match the DB vector(1536); changing requires migration + re-vectorization
-CLASSIFIER_API_BASE_URL=                     # empty = reuse EMBEDDINGS_API_BASE_URL; both empty = categorization SKIPPED
+CLASSIFIER_API_BASE_URL=                     # empty = reuse EMBEDDINGS_API_BASE_URL; both empty = analysis SKIPPED
 CLASSIFIER_API_KEY=
 CLASSIFIER_MODEL=
 ```
@@ -181,8 +181,8 @@ by ŽPCG, with no country named anywhere in its text:
 
 | model | answer |
 |---|---|
-| `qwen2.5:7b` | category right, city `Podgorica` right, country **`RS`** — it named the city and then placed it in the wrong country |
-| `mistral-nemo:12b` | category right, city `Podgorica`, country **`ME`** — right |
+| `qwen2.5:7b` | document type right, city `Podgorica` right, country **`RS`** — it named the city and then placed it in the wrong country |
+| `mistral-nemo:12b` | document type right, city `Podgorica`, country **`ME`** — right |
 | `qwen2.5:14b` | never answered: 9 GB of weights do not load in a 12 GB Docker VM |
 
 Memory is the constraint worth planning for: the 12B needs ~7 GB resident *while Docling holds its

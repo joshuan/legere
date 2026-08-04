@@ -62,7 +62,7 @@ enum StepStatus {
   SKIPPED
 }
 
-enum CategorySource {
+enum TypeSource {
   NONE
   AUTO
   MANUAL
@@ -273,7 +273,7 @@ model Document {
   canonicalStatus      StepStatus     @default(PENDING) @map("canonical_status")
   previewStatus        StepStatus     @default(PENDING) @map("preview_status")
   markdownStatus       StepStatus     @default(PENDING) @map("markdown_status")
-  categorizationStatus StepStatus     @default(PENDING) @map("categorization_status")
+  analysisStatus StepStatus     @default(PENDING) @map("analysis_status")
   vectorizationStatus  StepStatus     @default(PENDING) @map("vectorization_status")
   processingError      String?        @map("processing_error")
   skipReasons          Json           @default("{}") @map("skip_reasons")
@@ -283,15 +283,15 @@ model Document {
   city                 String?        @map("city")
   failedStep           String?        @map("failed_step")
   ocrUsed              Boolean        @default(false) @map("ocr_used")
-  categoryId           String?        @map("category_id") @db.Uuid
-  categorySource       CategorySource @default(NONE) @map("category_source")
+  typeId           String?        @map("type_id") @db.Uuid
+  typeSource       TypeSource @default(NONE) @map("type_source")
   createdById          String?        @map("created_by_id") @db.Uuid
   scanSetId            String?        @map("scan_set_id") @db.Uuid
   createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt            DateTime?      @map("deleted_at") @db.Timestamptz(6)
 
-  category        Category?        @relation(fields: [categoryId], references: [id])
+  document type        Document type?        @relation(fields: [typeId], references: [id])
   createdBy       User?            @relation(fields: [createdById], references: [id])
   fileRefs        FileRef[]
   chunks          DocumentChunk[]
@@ -299,7 +299,7 @@ model Document {
   scanSetItems    ScanSetItem[]
   resultOf        ScanSet?         @relation("ScanSetResult")
 
-  @@index([categoryId])
+  @@index([typeId])
   @@index([createdAt(sort: Desc)])
   @@map("documents")
 }
@@ -333,7 +333,7 @@ model DocumentChunk {
   @@map("document_chunks")
 }
 
-model Category {
+model Document type {
   id          String    @id @default(uuid()) @db.Uuid
   slug        String
   name        String
@@ -344,7 +344,7 @@ model Category {
 
   documents Document[]
 
-  @@map("categories")
+  @@map("document_types")
 }
 
 model Collection {
@@ -467,7 +467,7 @@ CREATE INDEX document_chunks_embedding_idx ON document_chunks
 CREATE UNIQUE INDEX users_email_active_uq        ON users (email)        WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX libraries_root_path_active_uq ON libraries (root_path) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX documents_content_hash_active_uq ON documents (content_hash) WHERE deleted_at IS NULL;
-CREATE UNIQUE INDEX categories_slug_active_uq    ON categories (slug)    WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX document_types_slug_active_uq    ON document_types (slug)    WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX collections_owner_name_active_uq ON collections (owner_id, name) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX collection_shares_grantee_active_uq
   ON collection_shares (collection_id, grantee_user_id) WHERE revoked_at IS NULL;
@@ -489,7 +489,7 @@ indexes. `prisma migrate dev` generates the base DDL; the raw statements are app
 |-------|-----------|
 | scan: lookup by `(libraryId, path)` | `file_refs` unique index |
 | dedup: `Document` by `contentHash` | partial unique index |
-| document list, newest first, filtered by category/library | `documents(created_at DESC)`, `documents(category_id)`, `file_refs(library_id, status)` + join |
+| document list, newest first, filtered by document type/library | `documents(created_at DESC)`, `documents(type_id)`, `file_refs(library_id, status)` + join |
 | availability check for a document | `file_refs(document_id)` index |
 | FTS | GIN on `search_vector`, query via `websearch_to_tsquery('simple', $1)` |
 | semantic search | HNSW cosine on `document_chunks.embedding`, `ORDER BY embedding <=> $1 LIMIT k` |
@@ -513,8 +513,8 @@ indexes. `prisma migrate dev` generates the base DDL; the raw statements are app
 `prisma/seed.ts` (dev/test only, idempotent):
 - admin user `admin@legere.local` / password `password` (role ADMIN, language EN);
 - regular user `user@legere.local` / password `password`;
-- the default category set (03 §3.3.12) — the same list is also inserted by production migration 1,
-  so a fresh prod instance has categories out of the box;
+- the default document type set (03 §3.3.12) — the same list is also inserted by production migration 1,
+  so a fresh prod instance has document types out of the box;
 - one library pointing at `LIBRARY_ROOT` (rootPath `""`, visibility ALL_USERS, enabled) — dev
   compose mounts `./dev-library` there;
 - no documents — they appear via a real scan, which keeps the seed honest.

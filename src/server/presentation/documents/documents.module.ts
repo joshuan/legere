@@ -21,7 +21,7 @@ import { JobQueue } from '../../application/ports/job-queue';
 import { MimeDetector } from '../../application/ports/mime-detector';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { SessionTokens } from '../../application/ports/session-tokens';
-import { CategoryRepository } from '../../domain/repositories/category.repository';
+import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
@@ -73,10 +73,10 @@ function downloadSettings(config: AppConfig): DownloadSettings {
       provide: UpdateDocumentMeta,
       useFactory: (
         documents: DocumentRepository,
-        categories: CategoryRepository,
+        documentTypes: DocumentTypeRepository,
         events: DocumentEventRepository,
-      ): UpdateDocumentMeta => new UpdateDocumentMeta(documents, categories, events),
-      inject: [DocumentRepository, CategoryRepository, DocumentEventRepository],
+      ): UpdateDocumentMeta => new UpdateDocumentMeta(documents, documentTypes, events),
+      inject: [DocumentRepository, DocumentTypeRepository, DocumentEventRepository],
     },
     {
       provide: DeleteDocument,

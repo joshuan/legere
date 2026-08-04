@@ -8,7 +8,7 @@ export * from './users';
 export * from './libraries';
 export * from './documents';
 export * from './queue';
-export * from './categories';
+export * from './document-types';
 export * from './search';
 export * from './collections';
 export * from './scan-sets';

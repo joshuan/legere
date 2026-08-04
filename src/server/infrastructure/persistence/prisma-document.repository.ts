@@ -49,7 +49,7 @@ function toDomain(row: PrismaDocument): Document {
       canonical: row.canonicalStatus,
       preview: row.previewStatus,
       markdown: row.markdownStatus,
-      categorization: row.categorizationStatus,
+      analysis: row.analysisStatus,
       vectorization: row.vectorizationStatus,
     },
     processingError: row.processingError,
@@ -60,8 +60,8 @@ function toDomain(row: PrismaDocument): Document {
     city: row.city,
     failedStep: row.failedStep,
     ocrUsed: row.ocrUsed,
-    categoryId: row.categoryId,
-    categorySource: row.categorySource,
+    typeId: row.typeId,
+    typeSource: row.typeSource,
     createdById: row.createdById,
     scanSetId: row.scanSetId,
     createdAt: row.createdAt,
@@ -69,17 +69,17 @@ function toDomain(row: PrismaDocument): Document {
   };
 }
 
-// What a list row needs beyond its own columns: the category, and how many of its files are still
+// What a list row needs beyond its own columns: the documentType, and how many of its files are still
 // live on a mounted volume (docs/03 §3.3.10). A filtered relation count keeps that to one query for
 // the whole page — and, unlike including the refs themselves, it counts every library rather than
 // only the ones this viewer can see.
 const LIST_INCLUDE = {
-  category: { select: { id: true, slug: true, name: true } },
+  documentType: { select: { id: true, slug: true, name: true } },
   _count: { select: { fileRefs: { where: { status: 'HASHED', library: { deletedAt: null } } } } },
 } as const;
 
 type ListRow = PrismaDocument & {
-  category: { id: string; slug: string; name: string } | null;
+  documentType: { id: string; slug: string; name: string } | null;
   _count: { fileRefs: number };
 };
 
@@ -87,7 +87,7 @@ function toListItem(row: ListRow): DocumentListItem {
   const document = toDomain(row);
   return {
     document,
-    category: row.category,
+    documentType: row.documentType,
     // A document whose bytes are in the bucket — merged or uploaded — is always available.
     availability:
       document.source !== 'LIBRARY' || row._count.fileRefs > 0 ? 'AVAILABLE' : 'UNAVAILABLE',
@@ -173,7 +173,7 @@ function filters(query: ListDocumentsInput): Prisma.DocumentWhereInput {
   if (query.libraryId !== undefined) {
     where.fileRefs = { some: { libraryId: query.libraryId, library: { deletedAt: null } } };
   }
-  if (query.categoryId !== undefined) where.categoryId = query.categoryId;
+  if (query.typeId !== undefined) where.typeId = query.typeId;
   if (query.source !== undefined) where.source = query.source;
 
   if (query.availability !== undefined) {
@@ -194,7 +194,7 @@ function filters(query: ListDocumentsInput): Prisma.DocumentWhereInput {
       { canonicalStatus: 'PENDING' },
       { previewStatus: 'PENDING' },
       { markdownStatus: 'PENDING' },
-      { categorizationStatus: 'PENDING' },
+      { analysisStatus: 'PENDING' },
       { vectorizationStatus: 'PENDING' },
     ];
     where.AND = [
@@ -254,8 +254,8 @@ function readableSql(viewer: Viewer): Prisma.Sql {
 function filtersSql(filters: SearchFilters): Prisma.Sql {
   const clauses: Prisma.Sql[] = [Prisma.sql`TRUE`];
 
-  if (filters.categoryId !== undefined) {
-    clauses.push(Prisma.sql`d.category_id = ${filters.categoryId}::uuid`);
+  if (filters.typeId !== undefined) {
+    clauses.push(Prisma.sql`d.type_id = ${filters.typeId}::uuid`);
   }
   if (filters.libraryId !== undefined) {
     clauses.push(Prisma.sql`EXISTS (
@@ -282,7 +282,7 @@ type CounterRow = {
   canonical_status: string;
   preview_status: string;
   markdown_status: string;
-  categorization_status: string;
+  analysis_status: string;
   vectorization_status: string;
   count: bigint;
 };
@@ -303,7 +303,7 @@ function emptyCounters(): StepStatusCounters {
       canonical: zeroes(),
       preview: zeroes(),
       markdown: zeroes(),
-      categorization: zeroes(),
+      analysis: zeroes(),
       vectorization: zeroes(),
     },
   };
@@ -369,9 +369,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ...(steps.canonical === undefined ? {} : { canonicalStatus: steps.canonical }),
         ...(steps.preview === undefined ? {} : { previewStatus: steps.preview }),
         ...(steps.markdown === undefined ? {} : { markdownStatus: steps.markdown }),
-        ...(steps.categorization === undefined
-          ? {}
-          : { categorizationStatus: steps.categorization }),
+        ...(steps.analysis === undefined ? {} : { analysisStatus: steps.analysis }),
         ...(steps.vectorization === undefined ? {} : { vectorizationStatus: steps.vectorization }),
         ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
         ...(update.languages === undefined ? {} : { languages: update.languages }),
@@ -383,8 +381,8 @@ export class PrismaDocumentRepository implements DocumentRepository {
           ? {}
           : { processingError: truncate(update.processingError) }),
         ...(update.failedStep === undefined ? {} : { failedStep: update.failedStep }),
-        ...(update.categoryId === undefined ? {} : { categoryId: update.categoryId }),
-        ...(update.categorySource === undefined ? {} : { categorySource: update.categorySource }),
+        ...(update.typeId === undefined ? {} : { typeId: update.typeId }),
+        ...(update.typeSource === undefined ? {} : { typeSource: update.typeSource }),
       },
     });
     return toDomain(row);
@@ -395,7 +393,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
   async countByStepStatus(tx?: TransactionHandle): Promise<StepStatusCounters> {
     const rows = await clientOf(this.prisma, tx).$queryRaw<CounterRow[]>`
       SELECT canonical_status, preview_status, markdown_status,
-             categorization_status, vectorization_status, count(*) AS count
+             analysis_status, vectorization_status, count(*) AS count
       FROM documents
       WHERE deleted_at IS NULL
       GROUP BY 1, 2, 3, 4, 5
@@ -408,7 +406,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
       add(counters, 'canonical', row.canonical_status, count);
       add(counters, 'preview', row.preview_status, count);
       add(counters, 'markdown', row.markdown_status, count);
-      add(counters, 'categorization', row.categorization_status, count);
+      add(counters, 'analysis', row.analysis_status, count);
       add(counters, 'vectorization', row.vectorization_status, count);
     }
     return counters;
@@ -684,8 +682,8 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ...(input.languages === undefined ? {} : { languages: input.languages }),
         ...(input.country === undefined ? {} : { country: input.country }),
         ...(input.city === undefined ? {} : { city: input.city }),
-        ...(input.categoryId === undefined ? {} : { categoryId: input.categoryId }),
-        ...(input.categorySource === undefined ? {} : { categorySource: input.categorySource }),
+        ...(input.typeId === undefined ? {} : { typeId: input.typeId }),
+        ...(input.typeSource === undefined ? {} : { typeSource: input.typeSource }),
       },
     });
     return toDomain(row);

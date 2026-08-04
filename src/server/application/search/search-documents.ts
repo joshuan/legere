@@ -27,7 +27,7 @@ export class SearchDocuments {
 
     const filters: SearchFilters = {
       ...(query.libraryId === undefined ? {} : { libraryId: query.libraryId }),
-      ...(query.categoryId === undefined ? {} : { categoryId: query.categoryId }),
+      ...(query.typeId === undefined ? {} : { typeId: query.typeId }),
     };
 
     // Hybrid without a provider is text: a mode that would silently return nothing is worse than

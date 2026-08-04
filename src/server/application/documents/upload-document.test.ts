@@ -97,7 +97,7 @@ describe('UploadDocument', () => {
         source: 'UPLOAD',
         createdById: VIEWER.id,
       }),
-      category: null,
+      documentType: null,
       availability: 'AVAILABLE',
       fileRefs: [],
       createdBy: { id: VIEWER.id, displayName: 'the uploader' },

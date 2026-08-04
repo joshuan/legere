@@ -42,8 +42,8 @@ describe.runIf(configured)('OpenAiCompatAnalyst against a live model', () => {
     // Reported so a run tells you what the model you configured actually said.
     console.info(`[analyst] ${config.get('CLASSIFIER_MODEL')} → ${JSON.stringify(analysis)}`);
 
-    if (analysis.categorySlug !== null) {
-      expect(CATEGORIES.map((category) => category.slug)).toContain(analysis.categorySlug);
+    if (analysis.typeSlug !== null) {
+      expect(CATEGORIES.map((documentType) => documentType.slug)).toContain(analysis.typeSlug);
     }
     for (const tag of analysis.languages) expect(tag).toMatch(/^[a-z]{2,3}(-[A-Z][a-z]{3})?/);
     if (analysis.country !== null) expect(analysis.country).toMatch(/^[A-Z]{2}$/);

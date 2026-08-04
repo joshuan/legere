@@ -31,7 +31,7 @@ function documentAt(index: number, overrides: Partial<DocumentListDto> = {}): Do
     mimeType: 'application/pdf',
     sizeBytes: '2048',
     pageCount: 1,
-    category: null,
+    documentType: null,
     availability: 'AVAILABLE',
     processing: false,
     source: 'LIBRARY',
@@ -55,7 +55,7 @@ beforeEach(() => {
         envelope({ items: [{ id: 'cccccccc-3333-4333-8333-333333333333', name: 'Invoices' }] }),
       ),
     ),
-    http.get('/api/categories', () =>
+    http.get('/api/document-types', () =>
       HttpResponse.json(
         envelope({
           items: [

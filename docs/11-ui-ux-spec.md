@@ -15,7 +15,7 @@ Authenticated layout: left **Sider** (collapsible) + content. Menu:
 | Search | `/search` | all |
 | Collections | `/collections` | all |
 | Scan sets | `/scan-sets` | all |
-| Administration ▸ Libraries / Users / Categories / Queue | `/admin/*` | ADMIN |
+| Administration ▸ Libraries / Users / Document types / Queue | `/admin/*` | ADMIN |
 | (footer) Settings, user avatar + name, Logout | `/settings` | all |
 
 Top bar of content area: screen title, contextual actions, a global search input (submits to
@@ -45,9 +45,9 @@ Onboarding when already onboarded → 404 page.
 ## 11.3. Documents (`/documents`) — the home screen
 
 - **Grid of cards** (responsive, 2–6 columns): thumbnail (`/thumb`; file-type icon fallback while
-  `previewStatus != DONE`), title (2-line ellipsis), category tag, extension badge, and status badges:
+  `previewStatus != DONE`), title (2-line ellipsis), document type tag, extension badge, and status badges:
   `processing` (spinner tag "Processing"), `UNAVAILABLE` (grey "File missing" tag).
-- **Filter bar:** library select, category select, availability toggle, "processing only" toggle,
+- **Filter bar:** library select, document type select, availability toggle, "processing only" toggle,
   source (All / From libraries / Created by me). Filters reflect in the URL query.
 - Infinite scroll (`useInfiniteQuery`). Card click → viewer. Empty state (fresh instance): "No
   documents yet. Ask your administrator to add a library." — with a CTA to `/admin/libraries` for
@@ -82,16 +82,16 @@ before the metadata of the thing it names.
   table: size, pages, mime, hash (copyable), created, OCR used, **languages** and **place**, file
   locations = visible FileRef paths with library names and MISSING badges, provenance for DERIVED
   docs — link to the scan set). Everything a machine decided is **editable here and only here** —
-  category, languages, country, city — behind one **Edit** button (top right of the pane,
+  document type, languages, country, city — behind one **Edit** button (top right of the pane,
   or the **E** key; **Escape** leaves) that turns those rows into ordinary inputs, and **Save** at
   the bottom right that turns them back — rather than controls sitting in the page all the time:
   reading is the common case, and a page of live selects invites edits nobody meant to make. Every
   input is one width; a place is two inputs sharing that one width, because it is one fact. A field
   the pipeline read differently carries a **reset** next to it, which puts it back to what was read —
-  travelling as a reset rather than as the same value typed in, so a reset category becomes `AUTO`
+  travelling as a reset rather than as the same value typed in, so a reset document type becomes `AUTO`
   again instead of claiming somebody chose it.
-  Save sends **only the fields that changed** — an untouched category must not travel, or every save
-  would flip `categorySource` to `MANUAL` and a classifier's choice would silently become a person's.
+  Save sends **only the fields that changed** — an untouched document type must not travel, or every save
+  would flip `typeSource` to `MANUAL` and a classifier's choice would silently become a person's.
   Cancel drops the draft. What the machine decided is kept: when the two differ, a
   quiet grey line under the value says "read as …". A correction is then never a dead end, and the
   question "did it get this wrong, or did somebody change it?" has an answer on the page. File
@@ -103,7 +103,7 @@ before the metadata of the thing it names.
   **A field whose step has not settled carries that step's badge** — `RUNNING` or `PENDING`, the same
   words the processing panel uses — in place of the em dash, or in front of a value that is about to
   be rewritten. Which step owns which field follows the pipeline (05 §5.5): pages from the preview,
-  text/languages/OCR from the parse, place and category from the AI step. Nothing else gets a badge:
+  text/languages/OCR from the parse, place and document type from the AI step. Nothing else gets a badge:
   size, type and hash are facts about the file, and no step will ever change them.
 - **`Log`** — the document's history as a table — when, what happened, who — newest first
   (03 §3.3.18): added, queued, each
@@ -113,8 +113,8 @@ before the metadata of the thing it names.
   "the machine did this" is said. A table rather than a timeline: a log is scanned for the one row
   that matters, and columns that line up are what makes scanning possible.
   Fetched only when the tab is open — most visits never ask.
-- **Right (sidebar):** title (inline-editable when permitted), category select (all users with
-  access; shows "auto" tag when `categorySource=AUTO`), Download source button (disabled +
+- **Right (sidebar):** title (inline-editable when permitted), document type select (all users with
+  access; shows "auto" tag when `typeSource=AUTO`), Download source button (disabled +
   tooltip when `UNAVAILABLE`), Add-to-collection select, processing status panel: five steps, one row each
   (`RUNNING` in the panel means the pipeline is on that step right now — the viewer polls every 5 s
   while the document is processing, so a long step shows its progress by moving on, not by a bar),
@@ -131,8 +131,8 @@ before the metadata of the thing it names.
 ## 11.6. Search (`/search?q=`)
 
 Search input + mode toggle (`Hybrid | Text | Semantic`; semantic disabled with a tooltip when
-`semanticAvailable=false`), filter bar (library, category). Results: list rows — thumbnail, title,
-highlighted snippet (`<mark>`), category, score-ordered. Empty query → recent documents. No results →
+`semanticAvailable=false`), filter bar (library, document type). Results: list rows — thumbnail, title,
+highlighted snippet (`<mark>`), document type, score-ordered. Empty query → recent documents. No results →
 suggestions ("check spelling, try semantic mode").
 
 ## 11.7. Collections (`/collections`, `/collections/:id`)
@@ -153,7 +153,7 @@ suggestions ("check spelling, try semantic mode").
   picker (documents grid filtered to images, multi-select, appends in selection order). Primary
   action **Merge into PDF** (requires ≥1 item) → status becomes Queued → live status via polling;
   Failed shows the error and keeps the builder editable; Done shows a success panel linking to the
-  result document (which then behaves like any document: preview, OCR text, category, collections).
+  result document (which then behaves like any document: preview, OCR text, document type, collections).
 - Entry point besides the section: in the documents grid, multi-select mode (checkbox on hover) with
   a bulk action "Create scan set from selection" (images only; mixed selection → non-images are
   skipped with a notice).
@@ -183,10 +183,10 @@ reset link (modal shows the URL once with a copy button and expiry). Header acti
 modal (role select, optional email hint) → result modal with the invite URL (copy button, "shown only
 once" warning) + the active invites list below the table with revoke actions.
 
-## 11.12. Admin: Categories (`/admin/categories`)
+## 11.12. Admin: Document types (`/admin/document-types`)
 
 Simple CRUD table: slug (immutable after create), name, description, documents count. Delete confirm
-warns that documents will lose the category.
+warns that documents will lose the document type.
 
 ## 11.13. Admin: Queue (`/admin/queue`)
 

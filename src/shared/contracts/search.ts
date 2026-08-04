@@ -13,7 +13,7 @@ export const searchQuerySchema = z.object({
   mode: searchModeSchema.default('hybrid'),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   libraryId: z.string().uuid().optional(),
-  categoryId: z.string().uuid().optional(),
+  typeId: z.string().uuid().optional(),
 });
 export type SearchQuery = z.infer<typeof searchQuerySchema>;
 

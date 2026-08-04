@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { HandleDocumentProcess } from '../../src/server/application/jobs/handle-document-process';
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
-import { CategoryRepository } from '../../src/server/domain/repositories/category.repository';
+import { DocumentTypeRepository } from '../../src/server/domain/repositories/document-type.repository';
 import { DocumentChunkRepository } from '../../src/server/domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../src/server/domain/repositories/document-event.repository';
 import { DocumentRepository } from '../../src/server/domain/repositories/document.repository';
@@ -69,7 +69,7 @@ describe('Document processing (integration)', () => {
       pdfs,
       parser,
       new FakeImageTool(),
-      moduleRef.get(CategoryRepository),
+      moduleRef.get(DocumentTypeRepository),
       analyst,
       moduleRef.get(DocumentChunkRepository),
       embeddings,
@@ -266,8 +266,8 @@ describe('Document processing (integration)', () => {
     expect(nearest[0]?.document_id).toBe(documentId);
   });
 
-  it('assigns the category the analyst chose, and never overwrites a manual one', async () => {
-    const category = await prisma.category.create({
+  it('assigns the documentType the analyst chose, and never overwrites a manual one', async () => {
+    const documentType = await prisma.documentType.create({
       data: { slug: 'invoice', name: 'Invoice', description: 'Bills and payment requests.' },
     });
     const documentId = await givenLibraryDocument('text/plain');
@@ -277,21 +277,21 @@ describe('Document processing (integration)', () => {
     await handler.handle({ documentId });
 
     const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
-    expect(row.categoryId).toBe(category.id);
-    expect(row.categorySource).toBe('AUTO');
-    expect(row.categorizationStatus).toBe('DONE');
+    expect(row.typeId).toBe(documentType.id);
+    expect(row.typeSource).toBe('AUTO');
+    expect(row.analysisStatus).toBe('DONE');
 
     // A person moves it elsewhere; the next run must leave that alone.
     await prisma.document.update({
       where: { id: documentId },
-      data: { categoryId: null, categorySource: 'MANUAL' },
+      data: { typeId: null, typeSource: 'MANUAL' },
     });
     await handler.handle({ documentId });
 
     const after = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
-    expect(after.categorySource).toBe('MANUAL');
-    expect(after.categoryId).toBeNull();
-    expect(after.categorizationStatus).toBe('SKIPPED');
+    expect(after.typeSource).toBe('MANUAL');
+    expect(after.typeId).toBeNull();
+    expect(after.analysisStatus).toBe('SKIPPED');
   });
 
   it('skips both AI steps, without error, when no provider is configured', async () => {
@@ -303,14 +303,14 @@ describe('Document processing (integration)', () => {
     await handler.handle({ documentId });
 
     const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
-    expect(row.categorizationStatus).toBe('SKIPPED');
+    expect(row.analysisStatus).toBe('SKIPPED');
     expect(row.vectorizationStatus).toBe('SKIPPED');
     expect(row.processingError).toBeNull();
     expect(await prisma.documentChunk.count({ where: { documentId } })).toBe(0);
   });
 
   it('leaves an unsupported format settled without any artifact', async () => {
-    await prisma.category.create({ data: { slug: 'other', name: 'Other' } });
+    await prisma.documentType.create({ data: { slug: 'other', name: 'Other' } });
     const documentId = await givenLibraryDocument('application/x-executable');
 
     await handler.handle({ documentId });
@@ -321,7 +321,7 @@ describe('Document processing (integration)', () => {
     expect(row.markdownStatus).toBe('SKIPPED');
     expect(row.vectorizationStatus).toBe('SKIPPED');
     // Nothing is left PENDING: the document is finished, not forever in progress.
-    expect(row.categorizationStatus).toBe('DONE');
+    expect(row.analysisStatus).toBe('DONE');
     expect(files.keys()).toEqual([]);
   });
 });

@@ -233,8 +233,8 @@ function parseFilters(params: URLSearchParams): DocumentFilters {
   const libraryId = params.get('libraryId');
   if (libraryId !== null) filters.libraryId = libraryId;
 
-  const categoryId = params.get('categoryId');
-  if (categoryId !== null) filters.categoryId = categoryId;
+  const typeId = params.get('typeId');
+  if (typeId !== null) filters.typeId = typeId;
 
   const availability = availabilitySchema.safeParse(params.get('availability'));
   if (availability.success) filters.availability = availability.data;

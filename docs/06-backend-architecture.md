@@ -41,7 +41,7 @@ Dependencies point inward only: `presentation → application → domain`;
 - **Repository ports** (abstract classes) — one per aggregate: `UserRepository`, `SessionRepository`,
   `EmailVerificationRepository`, `UserInviteRepository`, `PasswordResetRepository`,
   `LibraryRepository`, `FileRefRepository`, `ScanRunRepository`, `DocumentRepository`,
-  `DocumentChunkRepository`, `CategoryRepository`, `CollectionRepository`, `ScanSetRepository`.
+  `DocumentChunkRepository`, `DocumentTypeRepository`, `CollectionRepository`, `ScanSetRepository`.
   Repositories accept/return domain entities, never Prisma types.
 
 ## 6.3. Application layer
@@ -58,7 +58,7 @@ only. Inventory (module → use cases):
 | libraries | `CreateLibrary`ᴬ, `UpdateLibrary`ᴬ, `DeleteLibrary`ᴬ, `ListLibrariesAdmin`ᴬ, `ListVisibleLibraries`, `TriggerScan`ᴬ, `ListScanRuns`ᴬ, `BrowseLibrary`, `ListLibraryPathCandidates`ᴬ |
 | documents | `ListDocuments`, `GetDocument`, `UpdateDocumentMeta`, `SoftDeleteDocument`ᴬ, `ReprocessDocument`ᴬ, `GetDocumentMarkdown`, `OpenSourceStream`, `GetArtifactUrl` |
 | search | `SearchDocuments` |
-| categories | `ListCategories`, `CreateCategory`ᴬ, `UpdateCategory`ᴬ, `DeleteCategory`ᴬ |
+| document types | `ListCategories`, `CreateCategory`ᴬ, `UpdateCategory`ᴬ, `DeleteCategory`ᴬ |
 | collections | `CreateCollection`, `ListMyCollections`, `GetCollection`, `UpdateCollection`, `DeleteCollection`, `AddCollectionItem`, `RemoveCollectionItem`, `ShareCollection`, `RevokeCollectionShare`, `ListCollectionShares` |
 | scan-sets | `CreateScanSet`, `ListMyScanSets`, `GetScanSet`, `UpdateScanSet`, `DeleteScanSet`, `EnqueueScanSetMerge` |
 | queue-admin | `GetQueueOverview`ᴬ, `ListFailedJobs`ᴬ, `RetryFailedJob`ᴬ |
@@ -95,7 +95,7 @@ re-delivery (pg-boss is at-least-once).
 | `PdfToolbox` | `officeToPdf({body, fileName})`, `pdfFirstPageJpg(source, {dpi?})`, `ocrPdf(source, langs)`, `imagesToPdf([{body, fileName}])`, `pdfPageCount(source)`, `pdfToMarkdown(source)` — a source is a stream or a buffer; the file name travels with office/image input because the converter picks its filter from the extension | `StirlingPdfToolbox` (HTTP client, `STIRLING_URL`) |
 | `ImageTool` | `toJpegPreview(stream, {maxDim})`, `trim(stream, threshold)` | `SharpImageTool` |
 | `EmbeddingProvider` | `embed(texts[]): number[][]`, `isConfigured` | `OpenAiCompatEmbeddings` (fetch, `EMBEDDINGS_*` env) |
-| `DocumentAnalyst` | `analyze(markdownExcerpt, categories[]): { categorySlug, languages, country, city }`, `isConfigured` | `OpenAiCompatAnalyst` (chat-completions JSON answer) |
+| `DocumentAnalyst` | `analyze(markdownExcerpt, document types[]): { typeSlug, languages, country, city }`, `isConfigured` | `OpenAiCompatAnalyst` (chat-completions JSON answer) |
 | `JobQueue` | `enqueue(name, payload, opts?)`, `enqueueAfterTx(...)`, `scheduleCron(name, cron)` | `PgBossJobQueue` |
 | `QueueMonitor` | `overview()`, `failedJobs(cursor)`, `retry(jobId)` | `PgBossQueueMonitor` (raw SQL over the `pgboss` schema) |
 | `UnitOfWork` | `run<T>(fn: (tx) => Promise<T>)` | `PrismaUnitOfWork` (`$transaction`; repositories accept the tx handle) |
@@ -135,7 +135,7 @@ atomically.
 LibraryReader), `PdfModule` (PdfToolbox, ImageTool), `AiModule` (EmbeddingProvider,
 DocumentAnalyst), `QueueModule` (JobQueue, QueueMonitor, worker bootstrap), and the feature
 modules: `AuthModule`, `UsersModule`, `LibrariesModule`, `DocumentsModule`, `SearchModule`,
-`CategoriesModule`, `CollectionsModule`, `ScanSetsModule`, `QueueAdminModule`, `HealthModule`.
+`DocumentTypesModule`, `CollectionsModule`, `ScanSetsModule`, `QueueAdminModule`, `HealthModule`.
 
 ## 6.6. Configuration
 

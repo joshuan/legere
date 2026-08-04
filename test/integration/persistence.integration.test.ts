@@ -39,11 +39,11 @@ describe('Persistence (integration)', () => {
   });
 
   it('round-trips a row through the injected client', async () => {
-    const created = await prisma.category.create({
+    const created = await prisma.documentType.create({
       data: { slug: 'round-trip', name: 'Round trip', description: 'example' },
     });
 
-    const loaded = await prisma.category.findFirst({ where: { slug: 'round-trip' } });
+    const loaded = await prisma.documentType.findFirst({ where: { slug: 'round-trip' } });
 
     expect(loaded?.id).toBe(created.id);
     expect(loaded?.name).toBe('Round trip');
@@ -51,18 +51,18 @@ describe('Persistence (integration)', () => {
   });
 
   it('starts each test with an empty database (truncation between tests)', async () => {
-    const count = await prisma.category.count();
+    const count = await prisma.documentType.count();
     expect(count).toBe(0);
   });
 
   it('commits every write of a UnitOfWork run together', async () => {
     await unitOfWork.run(async (tx) => {
       const client = asClient(tx);
-      await client.category.create({ data: { slug: 'first', name: 'First' } });
-      await client.category.create({ data: { slug: 'second', name: 'Second' } });
+      await client.documentType.create({ data: { slug: 'first', name: 'First' } });
+      await client.documentType.create({ data: { slug: 'second', name: 'Second' } });
     });
 
-    const slugs = await prisma.category.findMany({
+    const slugs = await prisma.documentType.findMany({
       select: { slug: true },
       orderBy: { slug: 'asc' },
     });
@@ -73,28 +73,28 @@ describe('Persistence (integration)', () => {
     await expect(
       unitOfWork.run(async (tx) => {
         const client = asClient(tx);
-        await client.category.create({ data: { slug: 'kept-if-committed', name: 'Doomed' } });
+        await client.documentType.create({ data: { slug: 'kept-if-committed', name: 'Doomed' } });
         throw new Error('boom');
       }),
     ).rejects.toThrow('boom');
 
-    expect(await prisma.category.count()).toBe(0);
+    expect(await prisma.documentType.count()).toBe(0);
   });
 
   it('enforces the soft-delete-aware partial unique index on active rows', async () => {
-    await prisma.category.create({ data: { slug: 'unique-me', name: 'One' } });
+    await prisma.documentType.create({ data: { slug: 'unique-me', name: 'One' } });
 
     await expect(
-      prisma.category.create({ data: { slug: 'unique-me', name: 'Two' } }),
+      prisma.documentType.create({ data: { slug: 'unique-me', name: 'Two' } }),
     ).rejects.toThrow();
 
     // The same slug is allowed again once the previous row is soft-deleted.
-    await prisma.category.updateMany({
+    await prisma.documentType.updateMany({
       where: { slug: 'unique-me' },
       data: { deletedAt: new Date() },
     });
     await expect(
-      prisma.category.create({ data: { slug: 'unique-me', name: 'Three' } }),
+      prisma.documentType.create({ data: { slug: 'unique-me', name: 'Three' } }),
     ).resolves.toMatchObject({ slug: 'unique-me' });
   });
 });

@@ -65,7 +65,8 @@ enum DocumentEventType {
   META_CHANGED
 }
 
-enum CategorySource {
+// Where a value came from: nobody, the pipeline, or a person (docs/03 §3.3.10).
+enum TypeSource {
   NONE
   AUTO
   MANUAL
@@ -278,7 +279,7 @@ model Document {
   canonicalStatus      StepStatus               @default(PENDING) @map("canonical_status")
   previewStatus        StepStatus               @default(PENDING) @map("preview_status")
   markdownStatus       StepStatus               @default(PENDING) @map("markdown_status")
-  categorizationStatus StepStatus               @default(PENDING) @map("categorization_status")
+  analysisStatus       StepStatus               @default(PENDING) @map("analysis_status")
   vectorizationStatus  StepStatus               @default(PENDING) @map("vectorization_status")
   processingError      String?                  @map("processing_error")
   skipReasons          Json                     @default("{}") @map("skip_reasons")
@@ -288,15 +289,15 @@ model Document {
   city                 String?                  @map("city")
   failedStep           String?                  @map("failed_step")
   ocrUsed              Boolean                  @default(false) @map("ocr_used")
-  categoryId           String?                  @map("category_id") @db.Uuid
-  categorySource       CategorySource           @default(NONE) @map("category_source")
+  typeId               String?                  @map("type_id") @db.Uuid
+  typeSource           TypeSource               @default(NONE) @map("type_source")
   createdById          String?                  @map("created_by_id") @db.Uuid
   scanSetId            String?                  @map("scan_set_id") @db.Uuid
   createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt            DateTime?                @map("deleted_at") @db.Timestamptz(6)
 
-  category        Category?        @relation(fields: [categoryId], references: [id])
+  documentType    DocumentType?    @relation(fields: [typeId], references: [id])
   createdBy       User?            @relation(fields: [createdById], references: [id])
   fileRefs        FileRef[]
   chunks          DocumentChunk[]
@@ -305,7 +306,7 @@ model Document {
   scanSetItems    ScanSetItem[]
   resultOf        ScanSet?         @relation("ScanSetResult")
 
-  @@index([categoryId])
+  @@index([typeId])
   @@index([createdAt(sort: Desc)])
   @@map("documents")
 }
@@ -342,7 +343,7 @@ model DocumentChunk {
   @@map("document_chunks")
 }
 
-model Category {
+model DocumentType {
   id          String    @id @default(uuid()) @db.Uuid
   slug        String
   name        String
@@ -353,7 +354,7 @@ model Category {
 
   documents Document[]
 
-  @@map("categories")
+  @@map("document_types")
 }
 
 model Collection {

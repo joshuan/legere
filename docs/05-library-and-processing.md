@@ -61,8 +61,8 @@ A two-level model (consequence of ADR-009):
 - **`FileRef`** — a physical file: `libraryId`, `path` (relative to the library root), `size`,
   `mtime`, `contentHash`, status (`DISCOVERED → HASHED → MISSING?`). A file is only a "pointer".
 - **`Document`** — a logical unit of content: `contentHash` (unique), format, processing statuses,
-  derived artifacts, category, Markdown, vectors. Everything user-facing (folders/collections, sharing,
-  category) hangs off the document, not the file.
+  derived artifacts, document type, Markdown, vectors. Everything user-facing (folders/collections, sharing,
+  document type) hangs off the document, not the file.
 
 The `file-ingest` job computes SHA-256 of the file stream:
 - the hash already exists in the DB → attach the `FileRef` to the existing `Document` (**dedup**:
@@ -105,7 +105,7 @@ Steps run sequentially for a document; each step records its status
 not block steps independent of it (no preview — text is still extracted, and vice versa).
 
 ```
-source ──► (1) PDF canonicalization ──► (2) JPG preview ──► (3) Markdown ──► (4) categorization ──► (5) vectorization
+source ──► (1) PDF canonicalization ──► (2) JPG preview ──► (3) Markdown ──► (4) analysis ──► (5) vectorization
 ```
 
 All derived artifacts (the canonical PDF, previews, Markdown files) are saved to the private S3 bucket
@@ -144,27 +144,27 @@ a long step is visibly alive rather than indistinguishable from a queued one (03
 
 Every `SKIPPED` step records **why** (docs/03 §3.3.10), because "skipped" alone cannot be told apart
 from "broken" by the person looking at it: not needed for this format, format unsupported, provider
-not configured, no categories defined, no text to embed, or a category a person set by hand.
+not configured, no document types defined, no text to embed, or a document type a person set by hand.
 
-4. **Categorization:** one look at the document by the `DocumentAnalyst` (LLM via the same
+4. **Analysis:** one look at the document by the `DocumentAnalyst` (LLM via the same
    configurable API as embeddings — open question
-   [`01 §1.7`](./01-vision-and-scope.md#17-open-questions)), which answers with a category *and*
-   with where the document is from. An auto-assigned category is marked as auto; the user may
+   [`01 §1.7`](./01-vision-and-scope.md#17-open-questions)), which answers with a document type *and*
+   with where the document is from. An auto-assigned document type is marked as auto; the user may
    correct it (a manual assignment is never overwritten by auto again). The place — `country`,
    `city` — is asked for in the same call because the excerpt is the same and one round trip is
    cheaper than two, and because it needs exactly what a model has and a detector has not: a train
    ticket that says `ŽPCG` and `PODGORICA` is Montenegrin, and nothing in its text says so. Each
-   field is validated on its own, so an invented category slug does not discard a good country. The
+   field is validated on its own, so an invented document type slug does not discard a good country. The
    step **fills blanks only**: languages the offline detector found stand (it read the whole text,
    not a 4000-character excerpt), and a place somebody filled in by hand stays — clearing a field is
-   how you ask for it to be inferred again. With no categories defined the step still runs, because
+   how you ask for it to be inferred again. With no document types defined the step still runs, because
    the place is worth the call.
 5. **Vectorization:** chunking of the Markdown (by headings/paragraphs, with overlap) →
    `EmbeddingProvider` → chunk vectors into pgvector. Provider not configured → `SKIPPED` (graceful
    degradation: semantic search unavailable, everything else works).
 
 **Search** (details — in 07): hybrid — PostgreSQL FTS over the Markdown + pgvector cosine similarity,
-merged results; filters by category/library/dates.
+merged results; filters by document type/library/dates.
 
 ## 5.6. Scan sets: merging into a PDF on explicit request
 
@@ -178,7 +178,7 @@ Scenario: a physical document scanned into dozens of JPGs with large margins (a 
   positions) → the result is uploaded to S3.
 - The result is a **new derived `Document`** (its source PDF lives in S3 as
   `documents/{id}/source.pdf`; it has no `FileRef` in the library; provenance is recorded via
-  `scanSetId`). It goes through the regular §5.5 pipeline (preview/OCR/categorization/vectorization)
+  `scanSetId`). It goes through the regular §5.5 pipeline (preview/OCR/analysis/vectorization)
   and belongs to the user who created it ([`08 §8.5`](./08-auth-and-authorization.md)).
   Edge case: if the merged PDF's content hash matches an existing active document, that document is
   **reused** (attached as the scan set's result) instead of creating a duplicate.

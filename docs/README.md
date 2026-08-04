@@ -53,7 +53,7 @@ Take the first unchecked task; one task = one PR; tick it off in the same PR.
 - **Job queue — pg-boss** on top of the same PostgreSQL, workers in the same process. No Redis.
 - **Deduplication** — by SHA-256 of content: one content = one document, no matter how many files contain it.
 - **Processing pipeline:** canonicalization to PDF → first-page JPG preview → Markdown extraction (OCR
-  when needed) → categorization → vectorization (embeddings in pgvector).
+  when needed) → analysis → vectorization (embeddings in pgvector).
 - **PDF tooling lives outside:** a sibling **Stirling-PDF** container (conversion to PDF, OCR, scan-set
   merging, margin cropping). The app talks to it over an internal HTTP API.
 - **Derived artifacts** (previews, md, merged PDFs) — in **S3** (private bucket; viewing and downloading —

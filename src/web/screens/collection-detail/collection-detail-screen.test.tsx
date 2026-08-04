@@ -22,7 +22,7 @@ const document1 = {
   mimeType: 'application/pdf',
   sizeBytes: '2048',
   pageCount: 1,
-  category: null,
+  documentType: null,
   availability: 'AVAILABLE',
   processing: false,
   source: 'LIBRARY',

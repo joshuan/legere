@@ -317,7 +317,7 @@ texts — it returns machine `code`s; the client assembles human-readable text.
 3. **file-ingest:** computes SHA-256 → finds/creates a `Document` (dedup); for a new document enqueues
    the `document-process` chain.
 4. **document-process:** canonicalization to PDF (Stirling when needed) → first-page JPG preview →
-   Markdown extraction (text layer or OCR) → categorization → chunking + embeddings into pgvector.
+   Markdown extraction (text layer or OCR) → analysis → chunking + embeddings into pgvector.
    Each step's artifacts are saved to S3; each step's status is recorded on the document — progress is
    visible in the admin panel.
 5. **web:** the user sees the document in the list (preview), opens the viewer, searches by text and by

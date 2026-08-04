@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import type { CategoryOption } from '../../application/ports/document-analyst';
+import type { DocumentTypeOption } from '../../application/ports/document-analyst';
 import { loadConfig } from '../config/app-config';
 import { OpenAiCompatAnalyst } from './openai-compat-analyst';
 
 type FetchSpy = MockInstance<typeof fetch>;
 
-const CATEGORIES: CategoryOption[] = [
+const CATEGORIES: DocumentTypeOption[] = [
   { slug: 'invoice', name: 'Invoice', description: 'Bills and payment requests.' },
   { slug: 'contract', name: 'Contract', description: null },
 ];
@@ -75,7 +75,7 @@ describe('OpenAiCompatAnalyst', () => {
       const { url, body } = requestOf(spy);
       expect(url).toBe('https://llm.example.com/v1/chat/completions');
       expect(body.model).toBe('gpt-4o-mini');
-      // Deterministic, so a reprocess does not silently move a document to another category.
+      // Deterministic, so a reprocess does not silently move a document to another documentType.
       expect(body.temperature).toBe(0);
 
       const messages = body.messages;
@@ -90,7 +90,7 @@ describe('OpenAiCompatAnalyst', () => {
     it('accepts a slug from the list', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('{"slug":"contract"}'));
 
-      expect((await analyst().analyze('text', CATEGORIES)).categorySlug).toBe('contract');
+      expect((await analyst().analyze('text', CATEGORIES)).typeSlug).toBe('contract');
     });
 
     it('reads JSON out of a fenced or chatty answer', async () => {
@@ -98,48 +98,48 @@ describe('OpenAiCompatAnalyst', () => {
         answers('Sure!\n```json\n{"slug": "invoice"}\n```'),
       );
 
-      expect((await analyst().analyze('text', CATEGORIES)).categorySlug).toBe('invoice');
+      expect((await analyst().analyze('text', CATEGORIES)).typeSlug).toBe('invoice');
     });
 
     it('refuses a slug that was never offered', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('{"slug":"tax-return"}'));
 
-      // 🔒 The model does not get to invent categories (docs/05 §5.5 step 4).
-      expect((await analyst().analyze('text', CATEGORIES)).categorySlug).toBeNull();
+      // 🔒 The model does not get to invent documentTypes (docs/05 §5.5 step 4).
+      expect((await analyst().analyze('text', CATEGORIES)).typeSlug).toBeNull();
     });
 
-    it('reads an explicit "none" as no category', async () => {
+    it('reads an explicit "none" as no documentType', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('{"slug":"none"}'));
 
-      expect((await analyst().analyze('text', CATEGORIES)).categorySlug).toBeNull();
+      expect((await analyst().analyze('text', CATEGORIES)).typeSlug).toBeNull();
     });
 
-    it('treats prose with no JSON in it as no category', async () => {
+    it('treats prose with no JSON in it as no documentType', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
         answers('I think this document is an invoice.'),
       );
 
-      expect((await analyst().analyze('text', CATEGORIES)).categorySlug).toBeNull();
+      expect((await analyst().analyze('text', CATEGORIES)).typeSlug).toBeNull();
     });
 
     it('ignores case and stray spacing in the slug', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('{"slug":" Invoice "}'));
 
-      expect((await analyst().analyze('text', CATEGORIES)).categorySlug).toBe('invoice');
+      expect((await analyst().analyze('text', CATEGORIES)).typeSlug).toBe('invoice');
     });
 
-    it('still asks when no categories are defined — the place is worth the call', async () => {
+    it('still asks when no documentTypes are defined — the place is worth the call', async () => {
       const spy = vi
         .spyOn(globalThis, 'fetch')
         .mockResolvedValue(answers('{"slug":"none","country":"ME"}'));
 
       const result = await analyst().analyze('ŽPCG Podgorica', []);
 
-      expect(result).toEqual({ categorySlug: null, languages: [], country: 'ME', city: null });
+      expect(result).toEqual({ typeSlug: null, languages: [], country: 'ME', city: null });
       expect(spy).toHaveBeenCalledTimes(1);
     });
 
-    it('takes the place from an answer that got the category wrong', async () => {
+    it('takes the place from an answer that got the documentType wrong', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
         answers(
           '{"slug":"tax-return","languages":["sr-Latn","en"],"country":"me","city":"Podgorica"}',
@@ -148,7 +148,7 @@ describe('OpenAiCompatAnalyst', () => {
 
       // Each field stands or falls on its own: an invented slug does not discard a good country.
       expect(await analyst().analyze('text', CATEGORIES)).toEqual({
-        categorySlug: null,
+        typeSlug: null,
         languages: ['sr-Latn', 'en'],
         // 🔒 Upper-cased: a stored 'me' would never match a lookup for 'ME'.
         country: 'ME',

@@ -26,9 +26,9 @@ export const stepSkipReasonSchema = z.enum([
   'NOT_NEEDED',
   'UNSUPPORTED_FORMAT',
   'NOT_CONFIGURED',
-  'NO_CATEGORIES',
+  'NO_TYPES',
   'NO_TEXT',
-  'MANUAL_CATEGORY',
+  'MANUAL_TYPE',
 ]);
 export type StepSkipReason = z.infer<typeof stepSkipReasonSchema>;
 
@@ -50,8 +50,8 @@ export const documentEventTypeSchema = z.enum([
 ]);
 export type DocumentEventType = z.infer<typeof documentEventTypeSchema>;
 
-export const categorySourceSchema = z.enum(['NONE', 'AUTO', 'MANUAL']);
-export type CategorySource = z.infer<typeof categorySourceSchema>;
+export const typeSourceSchema = z.enum(['NONE', 'AUTO', 'MANUAL']);
+export type TypeSource = z.infer<typeof typeSourceSchema>;
 
 export const scanSetStatusSchema = z.enum(['DRAFT', 'QUEUED', 'PROCESSING', 'DONE', 'FAILED']);
 export type ScanSetStatus = z.infer<typeof scanSetStatusSchema>;

@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
 import {
-  categoryDtoSchema,
+  documentTypeDtoSchema,
   listCategoriesResponseSchema,
-} from '../../src/shared/contracts/categories';
+} from '../../src/shared/contracts/document-types';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
@@ -11,8 +11,8 @@ import { cookieNamed, expectData, expectError } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
 
-// Categories (docs/07 §7.3, docs/03 §3.3.12, docs/11 §11.12): the managed reference list.
-describe('Categories (e2e)', () => {
+// DocumentTypes (docs/07 §7.3, docs/03 §3.3.12, docs/11 §11.12): the managed reference list.
+describe('DocumentTypes (e2e)', () => {
   let app: TestApp;
   let adminCookie: string;
   let seq = 0;
@@ -70,15 +70,15 @@ describe('Categories (e2e)', () => {
   }
 
   const create = (body: Record<string, unknown>) =>
-    api(app).post('/api/admin/categories', body).set('Cookie', adminCookie);
+    api(app).post('/api/admin/document-types', body).set('Cookie', adminCookie);
 
-  const list = (cookie: string) => api(app).get('/api/categories').set('Cookie', cookie);
+  const list = (cookie: string) => api(app).get('/api/document-types').set('Cookie', cookie);
 
-  it('creates a category and lists it with a document count', async () => {
+  it('creates a documentType and lists it with a document count', async () => {
     const created = await create({ slug: 'invoice', name: 'Invoice', description: 'Bills.' });
 
     expect(created.status).toBe(201);
-    expect(expectData(created, categoryDtoSchema)).toMatchObject({
+    expect(expectData(created, documentTypeDtoSchema)).toMatchObject({
       slug: 'invoice',
       name: 'Invoice',
       description: 'Bills.',
@@ -95,7 +95,7 @@ describe('Categories (e2e)', () => {
     const again = await create({ slug: 'invoice', name: 'Invoices' });
 
     expect(again.status).toBe(409);
-    expect(expectError(again).code).toBe('CATEGORY_SLUG_TAKEN');
+    expect(expectError(again).code).toBe('DOCUMENT_TYPE_SLUG_TAKEN');
   });
 
   it('refuses a slug that is not kebab-case', async () => {
@@ -105,76 +105,76 @@ describe('Categories (e2e)', () => {
     expect(expectError(res).code).toBe('VALIDATION_FAILED');
   });
 
-  it('renames a category but never its slug', async () => {
-    const category = expectData(
+  it('renames a documentType but never its slug', async () => {
+    const documentType = expectData(
       await create({ slug: 'receipt', name: 'Receipt' }),
-      categoryDtoSchema,
+      documentTypeDtoSchema,
     );
 
     const res = await api(app)
-      .patch(`/api/admin/categories/${category.id}`, { name: 'Receipts', slug: 'renamed' })
+      .patch(`/api/admin/document-types/${documentType.id}`, { name: 'Receipts', slug: 'renamed' })
       .set('Cookie', adminCookie);
 
-    const updated = expectData(res, categoryDtoSchema);
+    const updated = expectData(res, documentTypeDtoSchema);
     expect(updated.name).toBe('Receipts');
     // 🔒 The slug is immutable: the classifier answers with it and filters are bookmarked by it.
     expect(updated.slug).toBe('receipt');
   });
 
-  it('counts the documents that carry a category', async () => {
-    const category = expectData(
+  it('counts the documents that carry a documentType', async () => {
+    const documentType = expectData(
       await create({ slug: 'contract', name: 'Contract' }),
-      categoryDtoSchema,
+      documentTypeDtoSchema,
     );
-    await givenDocumentWithCategory(category.id);
-    await givenDocumentWithCategory(category.id);
+    await givenDocumentWithCategory(documentType.id);
+    await givenDocumentWithCategory(documentType.id);
 
     const page = expectData(await list(adminCookie), listCategoriesResponseSchema);
 
     expect(page.items[0]?.documentCount).toBe(2);
   });
 
-  it('resets the documents to NONE when the category is deleted', async () => {
-    const category = expectData(
+  it('resets the documents to NONE when the documentType is deleted', async () => {
+    const documentType = expectData(
       await create({ slug: 'medical', name: 'Medical' }),
-      categoryDtoSchema,
+      documentTypeDtoSchema,
     );
-    const documentId = await givenDocumentWithCategory(category.id, 'MANUAL');
+    const documentId = await givenDocumentWithCategory(documentType.id, 'MANUAL');
 
     const res = await api(app)
-      .delete(`/api/admin/categories/${category.id}`)
+      .delete(`/api/admin/document-types/${documentType.id}`)
       .set('Cookie', adminCookie);
 
     expect(res.status).toBe(200);
     const row = await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } });
-    // Both AUTO and MANUAL go: neither claim is true once the category is gone (docs/03 §3.3.12).
-    expect(row.categoryId).toBeNull();
-    expect(row.categorySource).toBe('NONE');
+    // Both AUTO and MANUAL go: neither claim is true once the documentType is gone (docs/03 §3.3.12).
+    expect(row.typeId).toBeNull();
+    expect(row.typeSource).toBe('NONE');
 
     const page = expectData(await list(adminCookie), listCategoriesResponseSchema);
     expect(page.items).toEqual([]);
   });
 
-  it('404s an unknown category on update and delete', async () => {
+  it('404s an unknown documentType on update and delete', async () => {
     const unknown = '11111111-1111-4111-8111-111111111111';
 
     const patched = await api(app)
-      .patch(`/api/admin/categories/${unknown}`, { name: 'x' })
+      .patch(`/api/admin/document-types/${unknown}`, { name: 'x' })
       .set('Cookie', adminCookie);
     const deleted = await api(app)
-      .delete(`/api/admin/categories/${unknown}`)
+      .delete(`/api/admin/document-types/${unknown}`)
       .set('Cookie', adminCookie);
 
     expect(patched.status).toBe(404);
-    expect(expectError(patched).code).toBe('CATEGORY_NOT_FOUND');
+    expect(expectError(patched).code).toBe('DOCUMENT_TYPE_NOT_FOUND');
     expect(deleted.status).toBe(404);
 
     // The same answer for an id that is not even a UUID (docs/07 §7.1).
     const malformed = await api(app)
-      .patch('/api/admin/categories/not-a-uuid', { name: 'x' })
+      .patch('/api/admin/document-types/not-a-uuid', { name: 'x' })
       .set('Cookie', adminCookie);
     expect(malformed.status).toBe(404);
-    expect(expectError(malformed).code).toBe('CATEGORY_NOT_FOUND');
+    expect(expectError(malformed).code).toBe('DOCUMENT_TYPE_NOT_FOUND');
   });
 
   it('lets any signed-in user read the list but only an admin change it', async () => {
@@ -185,16 +185,16 @@ describe('Categories (e2e)', () => {
     expect(read.items).toHaveLength(1);
 
     const write = await api(app)
-      .post('/api/admin/categories', { slug: 'nope', name: 'Nope' })
+      .post('/api/admin/document-types', { slug: 'nope', name: 'Nope' })
       .set('Cookie', user.cookie);
     expect(write.status).toBe(403);
-    expect((await api(app).get('/api/categories')).status).toBe(401);
+    expect((await api(app).get('/api/document-types')).status).toBe(401);
   });
 
   let contentSeq = 0;
 
   async function givenDocumentWithCategory(
-    categoryId: string,
+    typeId: string,
     source: 'AUTO' | 'MANUAL' = 'AUTO',
   ): Promise<string> {
     contentSeq += 1;
@@ -206,8 +206,8 @@ describe('Categories (e2e)', () => {
         ext: 'pdf',
         sizeBytes: 10n,
         title: `Doc ${contentSeq}`,
-        categoryId,
-        categorySource: source,
+        typeId,
+        typeSource: source,
       },
     });
     return document.id;

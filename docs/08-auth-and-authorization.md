@@ -92,7 +92,7 @@ seed creates an admin and a user with the password `password`.
 | Viewing/searching documents of accessible libraries, folders/collections, sharing, scan sets | ✅ | ✅ |
 | Library management (creation, paths, intervals, visibility, rescan) | — | ✅ |
 | User invites, role changes, deactivation, session revocation | — | ✅ |
-| Category reference list | — | ✅ |
+| Document type reference list | — | ✅ |
 | Queue monitoring, retrying FAILED jobs, scan journals | — | ✅ |
 | Document deletion (soft delete) | — | ✅ |
 

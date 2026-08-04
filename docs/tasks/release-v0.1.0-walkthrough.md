@@ -40,7 +40,7 @@ sees only what is under the volume. Creating a library at the volume root return
 | canonical | DONE 1 (the RTF), SKIPPED 7 |
 | preview | DONE 6, SKIPPED 2 (the two Markdown files) |
 | markdown | DONE 8 |
-| categorization | SKIPPED 8 (no classifier configured) |
+| analysis | SKIPPED 8 (no classifier configured) |
 | vectorization | SKIPPED 8 (no embeddings provider configured) |
 
 Exactly the format matrix of `docs/05 §5.5`: PDFs need no canonicalization, the RTF was converted and

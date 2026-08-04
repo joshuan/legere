@@ -12,7 +12,7 @@ function match(id: string, rank: number, snippet: string | null): SearchMatch {
   return {
     item: {
       document: { ...documentFixture(), id, title: `Document ${id}` },
-      category: null,
+      documentType: null,
       availability: 'AVAILABLE',
     },
     rank,

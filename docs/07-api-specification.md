@@ -26,12 +26,12 @@ human-readable index and must stay in sync with them.
 | 401 | `INVALID_CREDENTIALS` | login |
 | 403 | `FORBIDDEN` | authz failure, CSRF failure, deactivated user |
 | 404 | `NOT_FOUND` | unknown route/malformed id |
-| 404 | `USER_NOT_FOUND`, `LIBRARY_NOT_FOUND`, `DOCUMENT_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `COLLECTION_NOT_FOUND`, `SCANSET_NOT_FOUND`, `INVITE_NOT_FOUND` | resource lookups (incl. soft-deleted) |
+| 404 | `USER_NOT_FOUND`, `LIBRARY_NOT_FOUND`, `DOCUMENT_NOT_FOUND`, `DOCUMENT_TYPE_NOT_FOUND`, `COLLECTION_NOT_FOUND`, `SCANSET_NOT_FOUND`, `INVITE_NOT_FOUND` | resource lookups (incl. soft-deleted) |
 | 409 | `EMAIL_ALREADY_REGISTERED` | registration race |
 | 409 | `LAST_ADMIN` | demote/deactivate/delete last admin |
 | 409 | `DOCUMENT_DUPLICATE` | upload whose content already exists as a document the caller may not read |
 | 409 | `LIBRARY_PATH_CONFLICT` | nested/duplicate library path |
-| 409 | `CATEGORY_SLUG_TAKEN`, `COLLECTION_NAME_TAKEN` | uniqueness |
+| 409 | `DOCUMENT_TYPE_SLUG_TAKEN`, `COLLECTION_NAME_TAKEN` | uniqueness |
 | 409 | `SCANSET_INVALID_STATE` | editing/merging in a wrong status |
 | 409 | `DOCUMENT_UNAVAILABLE` | source download when all refs MISSING |
 | 410 | `ONBOARDING_CLOSED` | onboarding after first user exists |
@@ -96,11 +96,11 @@ human-readable index and must stay in sync with them.
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `POST /api/documents` | 🔒 | **upload**: the file as the raw request body, its name in `X-Legere-Filename` (RFC 5987 or plain). Mime detected from content; `UPLOAD_MAX_BYTES` cap → 413. Deduplicated (ADR-009): identical bytes the caller may read resolve to that document (`200`), identical bytes they may not → `409 DOCUMENT_DUPLICATE`. Otherwise `201` with the new `UPLOAD` document, processing already enqueued |
-| `GET /api/documents` | 🔒 | paginated, newest first; filters: `libraryId?`, `categoryId?`, `availability?` (`AVAILABLE`\|`UNAVAILABLE`), `processing?` (bool), `source?`; only documents the caller can read |
+| `GET /api/documents` | 🔒 | paginated, newest first; filters: `libraryId?`, `typeId?`, `availability?` (`AVAILABLE`\|`UNAVAILABLE`), `processing?` (bool), `source?`; only documents the caller can read |
 | `GET /api/documents/:id` | 🔒 | → `DocumentDetailDto`, including `auto` — what the pipeline decided before anybody corrected it (03 §3.3.10) |
-| `PATCH /api/documents/:id` | 🔒 | `{ title?, languages?, country?, city?, categoryId? }` per canEditDocumentMeta (03 §3.4); setting categoryId flips `categorySource` to MANUAL (null → NONE). `languages` are BCP-47 tags, `country` ISO 3166-1 alpha-2 (upper-cased on the way in), `city` free text; all three are corrections of what detection guessed (03 §3.3.10). `reset: ('category'\|'languages'\|'country'\|'city')[]` puts fields back to what the pipeline read and, for the category, restores `categorySource=AUTO` — it is applied after the explicit values, so a payload carrying both ends with the reset |
+| `PATCH /api/documents/:id` | 🔒 | `{ title?, languages?, country?, city?, typeId? }` per canEditDocumentMeta (03 §3.4); setting typeId flips `typeSource` to MANUAL (null → NONE). `languages` are BCP-47 tags, `country` ISO 3166-1 alpha-2 (upper-cased on the way in), `city` free text; all three are corrections of what detection guessed (03 §3.3.10). `reset: ('documentType'\|'languages'\|'country'\|'city')[]` puts fields back to what the pipeline read and, for the document type, restores `typeSource=AUTO` — it is applied after the explicit values, so a payload carrying both ends with the reset |
 | `DELETE /api/documents/:id` | 🔒ᴬ | soft delete |
-| `POST /api/documents/:id/reprocess` | 🔒ᴬ | `{ steps?: ('canonical'\|'preview'\|'markdown'\|'categorization'\|'vectorization')[] }` → re-enqueues `document-process` |
+| `POST /api/documents/:id/reprocess` | 🔒ᴬ | `{ steps?: ('canonical'\|'preview'\|'markdown'\|'analysis'\|'vectorization')[] }` → re-enqueues `document-process` |
 | `GET /api/documents/:id/events` | 🔒 | paginated, newest first → `{ items: DocumentEventDto[], nextCursor }` — the document's history (03 §3.3.18). Same access as the document itself |
 | `GET /api/documents/:id/markdown` | 🔒 | → `{ markdown: string \| null }` |
 | `GET /api/documents/:id/source` | 🔒 | LIBRARY: streams the original file (`Content-Type`, `Content-Disposition: attachment`); DERIVED: 302 → signed URL of `source.pdf`; `DOCUMENT_UNAVAILABLE` if no live ref |
@@ -108,21 +108,21 @@ human-readable index and must stay in sync with them.
 | `GET /api/documents/:id/thumb` | 🔒 | 302 → signed URL of `thumb.jpg` |
 | `GET /api/documents/:id/canonical` | 🔒 | 302 → signed URL of `canonical.pdf`; for PDF sources equals `/source` |
 
-`DocumentListDto`: `{ id, title, ext, mimeType, sizeBytes(string), pageCount, category: {id,slug,name}|null, availability, processing, source, hasPreview, createdAt }`.
-`DocumentDetailDto` = list dto + `{ contentHash, ocrUsed, categorySource, steps: {canonical, preview, markdown, categorization, vectorization}, processingError, failedStep, fileRefs: [{ libraryId, libraryName, path, status }] (only refs in libraries visible to the caller; ADMIN sees all), createdBy?, scanSetId? }`.
+`DocumentListDto`: `{ id, title, ext, mimeType, sizeBytes(string), pageCount, type: {id,slug,name}|null, availability, processing, source, hasPreview, createdAt }`.
+`DocumentDetailDto` = list dto + `{ contentHash, ocrUsed, typeSource, steps: {canonical, preview, markdown, analysis, vectorization}, processingError, failedStep, fileRefs: [{ libraryId, libraryName, path, status }] (only refs in libraries visible to the caller; ADMIN sees all), createdBy?, scanSetId? }`.
 
 ### Search
 | Method & path | Auth | Notes |
 |---------------|------|-------|
-| `GET /api/search?q=&mode=&limit=&libraryId?=&categoryId?=` | 🔒 | `mode`: `hybrid` (default) \| `text` \| `semantic`. → `{ items: [{ document: DocumentListDto, score, snippet }], semanticAvailable: boolean }`. Text: FTS `websearch_to_tsquery('simple')` over `search_vector`, snippet via `ts_headline`. Semantic: embed `q`, top-k chunks by cosine, group by document (best chunk wins; snippet = chunk excerpt). Hybrid: Reciprocal Rank Fusion (k = 60) over both lists. Access filter applied **in SQL** before limit. Provider unconfigured → `semanticAvailable: false`, hybrid silently = text |
+| `GET /api/search?q=&mode=&limit=&libraryId?=&typeId?=` | 🔒 | `mode`: `hybrid` (default) \| `text` \| `semantic`. → `{ items: [{ document: DocumentListDto, score, snippet }], semanticAvailable: boolean }`. Text: FTS `websearch_to_tsquery('simple')` over `search_vector`, snippet via `ts_headline`. Semantic: embed `q`, top-k chunks by cosine, group by document (best chunk wins; snippet = chunk excerpt). Hybrid: Reciprocal Rank Fusion (k = 60) over both lists. Access filter applied **in SQL** before limit. Provider unconfigured → `semanticAvailable: false`, hybrid silently = text |
 
-### Categories
+### Document types
 | Method & path | Auth | Notes |
 |---------------|------|-------|
-| `GET /api/categories` | 🔒 | active, sorted by name |
-| `POST /api/admin/categories` | 🔒ᴬ | `{ slug, name, description? }` |
-| `PATCH /api/admin/categories/:id` | 🔒ᴬ | `{ name?, description? }` (slug immutable) |
-| `DELETE /api/admin/categories/:id` | 🔒ᴬ | soft delete; resets documents to NONE |
+| `GET /api/document-types` | 🔒 | active, sorted by name |
+| `POST /api/admin/document-types` | 🔒ᴬ | `{ slug, name, description? }` |
+| `PATCH /api/admin/document-types/:id` | 🔒ᴬ | `{ name?, description? }` (slug immutable) |
+| `DELETE /api/admin/document-types/:id` | 🔒ᴬ | soft delete; resets documents to NONE |
 
 ### Collections & sharing
 | Method & path | Auth | Notes |
@@ -173,7 +173,7 @@ human-readable index and must stay in sync with them.
 ## 7.5. Contracts package layout
 
 `src/shared/contracts/` — one file per resource (`auth.ts`, `users.ts`, `libraries.ts`,
-`documents.ts`, `search.ts`, `categories.ts`, `collections.ts`, `scan-sets.ts`, `queue.ts`,
+`documents.ts`, `search.ts`, `document types.ts`, `collections.ts`, `scan-sets.ts`, `queue.ts`,
 `common.ts` — envelope, pagination, error codes enum, shared enums). Each file exports request
 schemas, response schemas, and inferred types. The server validates requests with them; the client
 validates responses with them (fail loudly on drift).

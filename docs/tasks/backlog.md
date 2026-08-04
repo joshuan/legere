@@ -52,10 +52,10 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 ## M1 — Persistence
 
 - [x] **M1.1 — Prisma schema, first migration, seed**
-  **Goal:** the full physical schema exists and migrates; seed provides dev users/categories/library.
+  **Goal:** the full physical schema exists and migrates; seed provides dev users/document types/library.
   **Docs:** [`04`](../04-database-schema.md) (entire), [`03`](../03-domain-model.md)
   **Acceptance:**
-  - `schema.prisma` matches 04 §4.1; migration 1 includes all raw SQL of 04 §4.3 **and** the default-category inserts (04 §4.6).
+  - `schema.prisma` matches 04 §4.1; migration 1 includes all raw SQL of 04 §4.3 **and** the default-document type inserts (04 §4.6).
   - `prisma migrate deploy` on a fresh pgvector DB succeeds; re-running is a no-op.
   - `db:seed` idempotently creates `admin@legere.local`/`user@legere.local` (password `password`) and the dev library; running twice creates no dupes.
 
@@ -160,10 +160,10 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process) (step 3), [`05 §5.9`](../05-library-and-processing.md#59-open-questions) (threshold), [`12 §12.4`](../12-build-config-run.md#124-envexample)
   **Acceptance:** text-layer PDFs below `PDF_TEXT_MIN_CHARS_PER_PAGE` go to OCR (`ocrUsed=true`); images OCR'd directly; txt/md normalized passthrough; markdown persisted (FTS picks it up via the generated column — verify with a query); encoding normalization test (utf-8 with BOM, cp1251 fallback → replacement, not crash).
 
-- [x] **M4.5 — Categorization + vectorization**
+- [x] **M4.5 — Analysis + vectorization**
   **Goal:** steps 4–5; AI-optional enrichment.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md) (steps 4–5), [`06 §6.3.3`](../06-backend-architecture.md) (EmbeddingProvider, DocumentClassifier), [`04`](../04-database-schema.md) (chunks)
-  **Acceptance:** classifier prompt gets category slugs+descriptions, answer validated against active slugs (invalid → NONE); `MANUAL` never overwritten; chunking per configured target/overlap splitting on headings/paragraphs (unit-tested edge cases: huge paragraph, empty doc); chunks+embeddings replaced wholesale in a transaction; unconfigured providers → steps SKIPPED, no error; provider HTTP failure → step FAILED, retryable.
+  **Acceptance:** classifier prompt gets document type slugs+descriptions, answer validated against active slugs (invalid → NONE); `MANUAL` never overwritten; chunking per configured target/overlap splitting on headings/paragraphs (unit-tested edge cases: huge paragraph, empty doc); chunks+embeddings replaced wholesale in a transaction; unconfigured providers → steps SKIPPED, no error; provider HTTP failure → step FAILED, retryable.
 
 - [x] **M4.6 — Reprocess + queue administration**
   **Goal:** operational control over the pipeline.
@@ -175,7 +175,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 - [x] **M5.1 — Documents API + access guards**
   **Goal:** the read model of the product, correctly authorized.
   **Docs:** [`07`](../07-api-specification.md) (documents), [`03 §3.4`](../03-domain-model.md#34-access-model-authoritative-summary), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model)
-  **Acceptance (e2e):** list with all filters + cursor pagination, only readable docs (RESTRICTED library invisible to outsiders — 404 on detail too); availability computed per 03 §3.3.10; detail exposes fileRefs only from caller-visible libraries (admin sees all); PATCH meta per canEditDocumentMeta incl. `categorySource` transitions; admin soft delete → 404 everywhere; `DocumentAccessGuard` attaches the loaded doc (no double fetch).
+  **Acceptance (e2e):** list with all filters + cursor pagination, only readable docs (RESTRICTED library invisible to outsiders — 404 on detail too); availability computed per 03 §3.3.10; detail exposes fileRefs only from caller-visible libraries (admin sees all); PATCH meta per canEditDocumentMeta incl. `typeSource` transitions; admin soft delete → 404 everywhere; `DocumentAccessGuard` attaches the loaded doc (no double fetch).
 
 - [x] **M5.2 — File endpoints**
   **Goal:** bytes flow: source streaming + signed-URL redirects.
@@ -187,10 +187,10 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`07`](../07-api-specification.md) (browse), [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browselibraryidpath)
   **Acceptance (e2e):** folders derived from FileRef paths with document counts; nested paths of arbitrary depth; documents of the exact folder paginated; path validated (no traversal); RESTRICTED enforcement.
 
-- [x] **M5.4 — Categories: API + admin UI**
+- [x] **M5.4 — Document types: API + admin UI**
   **Goal:** the reference list is manageable.
-  **Docs:** [`07`](../07-api-specification.md) (categories), [`03 §3.3.12`](../03-domain-model.md#3312-category), [`11 §11.12`](../11-ui-ux-spec.md#1112-admin-categories-admincategories)
-  **Acceptance:** CRUD with slug immutability + `CATEGORY_SLUG_TAKEN`; delete resets documents to NONE in one transaction (e2e); admin table UI with counts and confirms.
+  **Docs:** [`07`](../07-api-specification.md) (document types), [`03 §3.3.12`](../03-domain-model.md#3312-document type), [`11 §11.12`](../11-ui-ux-spec.md#1112-admin-document types-admincategories)
+  **Acceptance:** CRUD with slug immutability + `DOCUMENT_TYPE_SLUG_TAKEN`; delete resets documents to NONE in one transaction (e2e); admin table UI with counts and confirms.
 
 - [x] **M5.5 — UI: documents grid**
   **Goal:** the home screen.
@@ -200,7 +200,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 - [x] **M5.6 — UI: document viewer**
   **Goal:** read and manage a single document.
   **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsid), [`10 §10.8`](../10-frontend-architecture.md#108-media-in-the-ui)
-  **Acceptance:** Preview/Text/Details tabs per spec (PDF `<object>`, sanitized markdown render, metadata incl. copyable hash and file locations with MISSING badges); sidebar: inline title edit, category select with auto tag, download (disabled tooltip when unavailable), add-to-collection stub until M7, processing panel with per-step states + admin Reprocess with step checkboxes.
+  **Acceptance:** Preview/Text/Details tabs per spec (PDF `<object>`, sanitized markdown render, metadata incl. copyable hash and file locations with MISSING badges); sidebar: inline title edit, document type select with auto tag, download (disabled tooltip when unavailable), add-to-collection stub until M7, processing panel with per-step states + admin Reprocess with step checkboxes.
 
 - [x] **M5.7 — UI: browse**
   **Goal:** folder navigation UI.
@@ -212,7 +212,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 - [x] **M6.1 — Search API (FTS + semantic + hybrid)**
   **Goal:** find by words and by meaning.
   **Docs:** [`07`](../07-api-specification.md) (search), [`04 §4.3–4.4`](../04-database-schema.md)
-  **Acceptance (e2e):** text mode: `websearch_to_tsquery('simple')` + `ts_headline` snippet, finds title and body matches; semantic mode: query embedding → HNSW top-k → grouped by document; hybrid: RRF (k=60) merge, deterministic order; access filtering inside SQL (RESTRICTED docs never surface — test with two users); provider unset → `semanticAvailable:false`, hybrid falls back to text; filters (library/category) apply.
+  **Acceptance (e2e):** text mode: `websearch_to_tsquery('simple')` + `ts_headline` snippet, finds title and body matches; semantic mode: query embedding → HNSW top-k → grouped by document; hybrid: RRF (k=60) merge, deterministic order; access filtering inside SQL (RESTRICTED docs never surface — test with two users); provider unset → `semanticAvailable:false`, hybrid falls back to text; filters (library/document type) apply.
 
 - [x] **M6.2 — UI: search**
   **Goal:** the search screen + global search input.

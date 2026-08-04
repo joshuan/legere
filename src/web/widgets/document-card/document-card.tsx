@@ -79,7 +79,7 @@ export function DocumentCard({ document }: { document: DocumentListDto }) {
               {document.ext.toUpperCase()}
             </Tag>
           )}
-          {document.category !== null && <Tag color="blue">{document.category.name}</Tag>}
+          {document.documentType !== null && <Tag color="blue">{document.documentType.name}</Tag>}
           {document.processing && (
             <Tag icon={<LoadingOutlined />} color="processing">
               {t('documents.badges.processing')}

@@ -47,8 +47,8 @@ disagree, the doc wins — and report the discrepancy.
 | M1 | Persistence | schema, migrations, seed, test DB harness |
 | M2 | Auth & users | onboarding, login, invites, resets, sessions, admin users, auth UI |
 | M3 | Libraries & scanning | libraries CRUD, queue, scan → FileRefs → Documents (dedup) |
-| M4 | Processing pipeline | canonical PDF, previews, Markdown/OCR, categories, vectors, queue admin |
-| M5 | Documents UX | documents/files/browse APIs, categories, grid, viewer, browse UI |
+| M4 | Processing pipeline | canonical PDF, previews, Markdown/OCR, document types, vectors, queue admin |
+| M5 | Documents UX | documents/files/browse APIs, document types, grid, viewer, browse UI |
 | M6 | Search | hybrid FTS + semantic search, search UI |
 | M7 | Collections | collections, sharing, collections UI |
 | M8 | Scan sets | merge-to-PDF flow end to end |

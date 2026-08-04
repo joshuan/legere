@@ -26,8 +26,8 @@ export function SearchScreen() {
     const next: DocumentFilters = {};
     const libraryId = params.get('libraryId');
     if (libraryId !== null) next.libraryId = libraryId;
-    const categoryId = params.get('categoryId');
-    if (categoryId !== null) next.categoryId = categoryId;
+    const typeId = params.get('typeId');
+    if (typeId !== null) next.typeId = typeId;
     return next;
   }, [params]);
 
@@ -52,7 +52,7 @@ export function SearchScreen() {
     q,
     mode: mode.success ? mode.data : 'hybrid',
     libraryId: filters.libraryId,
-    categoryId: filters.categoryId,
+    typeId: filters.typeId,
   };
 
   const results = useQuery({
@@ -122,8 +122,8 @@ export function SearchScreen() {
                 title={
                   <Space>
                     <Link href={`/documents/${hit.document.id}`}>{hit.document.title}</Link>
-                    {hit.document.category !== null && (
-                      <Tag color="blue">{hit.document.category.name}</Tag>
+                    {hit.document.documentType !== null && (
+                      <Tag color="blue">{hit.document.documentType.name}</Tag>
                     )}
                   </Space>
                 }

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { paginatedSchema, paginationQuerySchema } from './common';
 import {
-  categorySourceSchema,
+  typeSourceSchema,
   documentEventTypeSchema,
   documentSourceSchema,
   fileRefStatusSchema,
@@ -16,7 +16,7 @@ export const documentStepSchema = z.enum([
   'canonical',
   'preview',
   'markdown',
-  'categorization',
+  'analysis',
   'vectorization',
 ]);
 export type DocumentStep = z.infer<typeof documentStepSchema>;
@@ -42,7 +42,7 @@ export const documentListDtoSchema = z.object({
   // BigInt travels as a decimal string (docs/07 §7.4).
   sizeBytes: z.string(),
   pageCount: z.number().int().nullable(),
-  category: documentCategorySchema.nullable(),
+  documentType: documentCategorySchema.nullable(),
   availability: availabilitySchema,
   processing: z.boolean(),
   source: documentSourceSchema,
@@ -55,7 +55,7 @@ export const documentStepsSchema = z.object({
   canonical: stepStatusSchema,
   preview: stepStatusSchema,
   markdown: stepStatusSchema,
-  categorization: stepStatusSchema,
+  analysis: stepStatusSchema,
   vectorization: stepStatusSchema,
 });
 
@@ -77,7 +77,7 @@ export type DocumentSkipReasons = z.infer<typeof documentSkipReasonsSchema>;
 // and a wrong correction is never a dead end (docs/03 §3.3.10).
 export const autoValuesSchema = z.object({
   title: z.string().optional(),
-  categorySlug: z.string().nullish(),
+  typeSlug: z.string().nullish(),
   languages: z.array(z.string()).optional(),
   country: z.string().nullish(),
   city: z.string().nullish(),
@@ -88,7 +88,7 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   auto: autoValuesSchema,
   contentHash: z.string(),
   ocrUsed: z.boolean(),
-  categorySource: categorySourceSchema,
+  typeSource: typeSourceSchema,
   steps: documentStepsSchema,
   skipReasons: documentSkipReasonsSchema,
   // BCP-47 tags, most likely first (docs/03 §3.3.10).
@@ -113,7 +113,7 @@ const queryBoolean = z
 
 export const listDocumentsQuerySchema = paginationQuerySchema.extend({
   libraryId: z.string().uuid().optional(),
-  categoryId: z.string().uuid().optional(),
+  typeId: z.string().uuid().optional(),
   availability: availabilitySchema.optional(),
   processing: queryBoolean,
   source: documentSourceSchema.optional(),
@@ -131,16 +131,16 @@ export const uploadDocumentResponseSchema = z.object({
 export type UploadDocumentResponse = z.infer<typeof uploadDocumentResponseSchema>;
 export type ListDocumentsResponse = z.infer<typeof listDocumentsResponseSchema>;
 
-// `categoryId: null` clears the category; absent leaves it alone (docs/07 §7.4).
+// `typeId: null` clears the documentType; absent leaves it alone (docs/07 §7.4).
 // The fields a machine fills in and a person may therefore want back the way it had them.
-export const RESETTABLE_FIELDS = ['category', 'languages', 'country', 'city'] as const;
+export const RESETTABLE_FIELDS = ['documentType', 'languages', 'country', 'city'] as const;
 export const resettableFieldSchema = z.enum(RESETTABLE_FIELDS);
 export type ResettableField = z.infer<typeof resettableFieldSchema>;
 
 export const updateDocumentRequestSchema = z
   .object({
     title: z.string().trim().min(1).max(500).optional(),
-    categoryId: z.string().uuid().nullable().optional(),
+    typeId: z.string().uuid().nullable().optional(),
     // BCP-47, loosely: `ru`, `en`, `sr-Latn`. Kept short so a typo cannot become a novel.
     languages: z.array(z.string().trim().min(2).max(12)).max(5).optional(),
     // ISO 3166-1 alpha-2, upper-cased; null clears it.
@@ -153,7 +153,7 @@ export const updateDocumentRequestSchema = z
       .optional(),
     city: z.string().trim().min(1).max(120).nullable().optional(),
     // Put a field back to what the pipeline read. Not the same as sending that value by hand: a
-    // reset category becomes AUTO again, so it stops claiming a person chose it (docs/03 §3.3.10).
+    // reset documentType becomes AUTO again, so it stops claiming a person chose it (docs/03 §3.3.10).
     reset: z.array(resettableFieldSchema).min(1).max(4).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {

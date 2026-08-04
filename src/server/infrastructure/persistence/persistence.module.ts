@@ -1,6 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
-import { CategoryRepository } from '../../domain/repositories/category.repository';
+import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { CollectionRepository } from '../../domain/repositories/collection.repository';
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
@@ -14,7 +14,7 @@ import { ScanSetRepository } from '../../domain/repositories/scan-set.repository
 import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
 import { UserRepository } from '../../domain/repositories/user.repository';
-import { PrismaCategoryRepository } from './prisma-category.repository';
+import { PrismaCategoryRepository } from './prisma-document-type.repository';
 import { PrismaCollectionRepository } from './prisma-collection.repository';
 import { PrismaDocumentChunkRepository } from './prisma-document-chunk.repository';
 import { PrismaDocumentEventRepository } from './prisma-document-event.repository';
@@ -46,7 +46,7 @@ const REPOSITORIES = [
   { provide: DocumentRepository, useClass: PrismaDocumentRepository },
   { provide: DocumentEventRepository, useClass: PrismaDocumentEventRepository },
   { provide: DocumentChunkRepository, useClass: PrismaDocumentChunkRepository },
-  { provide: CategoryRepository, useClass: PrismaCategoryRepository },
+  { provide: DocumentTypeRepository, useClass: PrismaCategoryRepository },
   { provide: CollectionRepository, useClass: PrismaCollectionRepository },
   { provide: ScanSetRepository, useClass: PrismaScanSetRepository },
 ];
@@ -68,7 +68,7 @@ const REPOSITORIES = [
     DocumentRepository,
     DocumentEventRepository,
     DocumentChunkRepository,
-    CategoryRepository,
+    DocumentTypeRepository,
     CollectionRepository,
     ScanSetRepository,
   ],

@@ -44,7 +44,11 @@ const DEFAULT_CATEGORIES: ReadonlyArray<{ slug: string; name: string; descriptio
     description: 'Manuals, instructions, technical documentation.',
   },
   { slug: 'letter', name: 'Letter', description: 'Letters and official correspondence.' },
-  { slug: 'other', name: 'Other', description: 'Documents that do not fit any other category.' },
+  {
+    slug: 'other',
+    name: 'Other',
+    description: 'Documents that do not fit any other documentType.',
+  },
 ];
 
 // Uniqueness for soft-deletable models lives in partial unique indexes (docs/04 §4.3), which Prisma
@@ -63,12 +67,12 @@ async function ensureUser(
 }
 
 async function ensureCategories(): Promise<void> {
-  for (const category of DEFAULT_CATEGORIES) {
-    const existing = await prisma.category.findFirst({
-      where: { slug: category.slug, deletedAt: null },
+  for (const documentType of DEFAULT_CATEGORIES) {
+    const existing = await prisma.documentType.findFirst({
+      where: { slug: documentType.slug, deletedAt: null },
     });
     if (existing) continue;
-    await prisma.category.create({ data: category });
+    await prisma.documentType.create({ data: documentType });
   }
 }
 
@@ -96,13 +100,13 @@ async function main(): Promise<void> {
   await ensureCategories();
   await ensureDevLibrary();
 
-  const [users, categories, libraries] = await Promise.all([
+  const [users, documentTypes, libraries] = await Promise.all([
     prisma.user.count({ where: { deletedAt: null } }),
-    prisma.category.count({ where: { deletedAt: null } }),
+    prisma.documentType.count({ where: { deletedAt: null } }),
     prisma.library.count({ where: { deletedAt: null } }),
   ]);
   process.stdout.write(
-    `Seed complete: ${users} users, ${categories} categories, ${libraries} libraries.\n`,
+    `Seed complete: ${users} users, ${documentTypes} documentTypes, ${libraries} libraries.\n`,
   );
 }
 

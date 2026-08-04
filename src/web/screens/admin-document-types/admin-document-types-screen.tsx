@@ -4,8 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Form, Input, Modal, Popconfirm, Space, Table, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useCallback, useState } from 'react';
-import type { CategoryDto } from '../../../shared/contracts/categories';
-import { categoryApi, categoryKeys } from '../../entities/category';
+import type { DocumentTypeDto } from '../../../shared/contracts/document-types';
+import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
 import { useErrorMessage } from '../../shared/lib';
 
 type FormValues = {
@@ -14,22 +14,22 @@ type FormValues = {
   description: string;
 };
 
-// /admin/categories (docs/11 §11.12): the reference list the classifier chooses from and the
+// /admin/document-types (docs/11 §11.12): the reference list the classifier chooses from and the
 // filters are built on.
-export function AdminCategoriesScreen() {
+export function AdminDocumentTypesScreen() {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();
   const [form] = Form.useForm<FormValues>();
 
-  const [editing, setEditing] = useState<CategoryDto | null>(null);
+  const [editing, setEditing] = useState<DocumentTypeDto | null>(null);
   const [open, setOpen] = useState(false);
 
-  const categories = useQuery({ queryKey: categoryKeys.all, queryFn: categoryApi.list });
+  const documentTypes = useQuery({ queryKey: documentTypeKeys.all, queryFn: documentTypeApi.list });
 
   const refresh = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: categoryKeys.all });
+    void queryClient.invalidateQueries({ queryKey: documentTypeKeys.all });
   }, [queryClient]);
 
   const onError = useCallback(
@@ -43,8 +43,8 @@ export function AdminCategoriesScreen() {
     mutationFn: (values: FormValues) => {
       const description = values.description.trim() === '' ? null : values.description.trim();
       return editing === null
-        ? categoryApi.create({ slug: values.slug, name: values.name, description })
-        : categoryApi.update(editing.id, { name: values.name, description });
+        ? documentTypeApi.create({ slug: values.slug, name: values.name, description })
+        : documentTypeApi.update(editing.id, { name: values.name, description });
     },
     onSuccess: () => {
       setOpen(false);
@@ -56,9 +56,9 @@ export function AdminCategoriesScreen() {
   });
 
   const remove = useMutation({
-    mutationFn: (id: string) => categoryApi.remove(id),
+    mutationFn: (id: string) => documentTypeApi.remove(id),
     onSuccess: () => {
-      void message.success(t('admin.categories.deleted'), 2);
+      void message.success(t('admin.documentTypes.deleted'), 2);
       refresh();
     },
     onError,
@@ -70,56 +70,56 @@ export function AdminCategoriesScreen() {
     setOpen(true);
   };
 
-  const openEdit = (category: CategoryDto): void => {
-    setEditing(category);
+  const openEdit = (documentType: DocumentTypeDto): void => {
+    setEditing(documentType);
     form.setFieldsValue({
-      slug: category.slug,
-      name: category.name,
-      description: category.description ?? '',
+      slug: documentType.slug,
+      name: documentType.name,
+      description: documentType.description ?? '',
     });
     setOpen(true);
   };
 
   const columns = [
     {
-      title: t('admin.categories.columns.slug'),
+      title: t('admin.documentTypes.columns.slug'),
       key: 'slug',
-      render: (_: unknown, category: CategoryDto) => (
-        <Typography.Text code>{category.slug}</Typography.Text>
+      render: (_: unknown, documentType: DocumentTypeDto) => (
+        <Typography.Text code>{documentType.slug}</Typography.Text>
       ),
     },
     {
-      title: t('admin.categories.columns.name'),
+      title: t('admin.documentTypes.columns.name'),
       key: 'name',
-      render: (_: unknown, category: CategoryDto) => category.name,
+      render: (_: unknown, documentType: DocumentTypeDto) => documentType.name,
     },
     {
-      title: t('admin.categories.columns.description'),
+      title: t('admin.documentTypes.columns.description'),
       key: 'description',
-      render: (_: unknown, category: CategoryDto) =>
-        category.description ?? <Typography.Text type="secondary">—</Typography.Text>,
+      render: (_: unknown, documentType: DocumentTypeDto) =>
+        documentType.description ?? <Typography.Text type="secondary">—</Typography.Text>,
     },
     {
-      title: t('admin.categories.columns.documents'),
+      title: t('admin.documentTypes.columns.documents'),
       key: 'documents',
-      render: (_: unknown, category: CategoryDto) => category.documentCount,
+      render: (_: unknown, documentType: DocumentTypeDto) => documentType.documentCount,
     },
     {
-      title: t('admin.categories.columns.actions'),
+      title: t('admin.documentTypes.columns.actions'),
       key: 'actions',
-      render: (_: unknown, category: CategoryDto) => (
+      render: (_: unknown, documentType: DocumentTypeDto) => (
         <Space>
-          <Button size="small" onClick={() => openEdit(category)}>
+          <Button size="small" onClick={() => openEdit(documentType)}>
             {t('common.actions.edit')}
           </Button>
           <Popconfirm
-            title={t('admin.categories.confirmDelete', {
-              name: category.name,
-              count: category.documentCount,
+            title={t('admin.documentTypes.confirmDelete', {
+              name: documentType.name,
+              count: documentType.documentCount,
             })}
             okText={t('common.yes')}
             cancelText={t('common.actions.cancel')}
-            onConfirm={() => remove.mutate(category.id)}
+            onConfirm={() => remove.mutate(documentType.id)}
           >
             <Button size="small" danger>
               {t('common.actions.delete')}
@@ -132,26 +132,28 @@ export function AdminCategoriesScreen() {
 
   return (
     <Card
-      title={t('admin.categories.title')}
+      title={t('admin.documentTypes.title')}
       extra={
         <Button type="primary" onClick={openCreate}>
-          {t('admin.categories.actions.create')}
+          {t('admin.documentTypes.actions.create')}
         </Button>
       }
     >
       <Table
         rowKey="id"
-        loading={categories.isPending}
-        dataSource={categories.data?.items ?? []}
+        loading={documentTypes.isPending}
+        dataSource={documentTypes.data?.items ?? []}
         columns={columns}
         pagination={false}
-        locale={{ emptyText: t('admin.categories.empty') }}
+        locale={{ emptyText: t('admin.documentTypes.empty') }}
       />
 
       <Modal
         open={open}
         title={
-          editing === null ? t('admin.categories.createTitle') : t('admin.categories.editTitle')
+          editing === null
+            ? t('admin.documentTypes.createTitle')
+            : t('admin.documentTypes.editTitle')
         }
         okText={t('common.actions.save')}
         cancelText={t('common.actions.cancel')}
@@ -168,31 +170,31 @@ export function AdminCategoriesScreen() {
         >
           <Form.Item
             name="slug"
-            label={t('admin.categories.fields.slug')}
+            label={t('admin.documentTypes.fields.slug')}
             rules={[
-              { required: true, message: t('admin.categories.fields.slugRequired') },
+              { required: true, message: t('admin.documentTypes.fields.slugRequired') },
               {
                 pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-                message: t('admin.categories.fields.slugFormat'),
+                message: t('admin.documentTypes.fields.slugFormat'),
               },
             ]}
             // 🔒 Immutable after creation: documents, the classifier and bookmarked filters all
             // refer to it (docs/07 §7.3).
-            extra={editing === null ? undefined : t('admin.categories.fields.slugImmutable')}
+            extra={editing === null ? undefined : t('admin.documentTypes.fields.slugImmutable')}
           >
             <Input disabled={editing !== null} placeholder="invoice" />
           </Form.Item>
           <Form.Item
             name="name"
-            label={t('admin.categories.fields.name')}
-            rules={[{ required: true, message: t('admin.categories.fields.nameRequired') }]}
+            label={t('admin.documentTypes.fields.name')}
+            rules={[{ required: true, message: t('admin.documentTypes.fields.nameRequired') }]}
           >
             <Input />
           </Form.Item>
           <Form.Item
             name="description"
-            label={t('admin.categories.fields.description')}
-            extra={t('admin.categories.fields.descriptionHint')}
+            label={t('admin.documentTypes.fields.description')}
+            extra={t('admin.documentTypes.fields.descriptionHint')}
           >
             <Input.TextArea rows={3} />
           </Form.Item>

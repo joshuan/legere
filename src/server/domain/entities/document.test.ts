@@ -28,7 +28,7 @@ describe('isProcessing (docs/03 §3.3.10)', () => {
         canonical: 'DONE',
         preview: 'DONE',
         markdown: 'FAILED',
-        categorization: 'SKIPPED',
+        analysis: 'SKIPPED',
         vectorization: 'SKIPPED',
       }),
     ).toBe(false);
@@ -41,7 +41,7 @@ describe('pendingSteps', () => {
       canonical: 'PENDING',
       preview: 'PENDING',
       markdown: 'PENDING',
-      categorization: 'PENDING',
+      analysis: 'PENDING',
       vectorization: 'PENDING',
     });
   });

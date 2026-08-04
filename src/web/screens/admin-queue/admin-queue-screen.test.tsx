@@ -23,7 +23,7 @@ const overview = {
       { step: 'canonical', counts: { DONE: 5, SKIPPED: 7, PENDING: 0, FAILED: 0 } },
       { step: 'preview', counts: { DONE: 10, FAILED: 2, PENDING: 0, SKIPPED: 0 } },
       { step: 'markdown', counts: { DONE: 12, PENDING: 0, FAILED: 0, SKIPPED: 0 } },
-      { step: 'categorization', counts: { SKIPPED: 12, PENDING: 0, DONE: 0, FAILED: 0 } },
+      { step: 'analysis', counts: { SKIPPED: 12, PENDING: 0, DONE: 0, FAILED: 0 } },
       { step: 'vectorization', counts: { SKIPPED: 12, PENDING: 0, DONE: 0, FAILED: 0 } },
     ],
   },

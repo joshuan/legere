@@ -100,7 +100,7 @@ describe('Browse (e2e)', () => {
         canonicalStatus: 'SKIPPED',
         previewStatus: 'DONE',
         markdownStatus: 'DONE',
-        categorizationStatus: 'DONE',
+        analysisStatus: 'DONE',
         vectorizationStatus: 'SKIPPED',
       },
     });

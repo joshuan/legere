@@ -24,7 +24,7 @@ const detail: DocumentDetailDto = {
   mimeType: 'application/pdf',
   sizeBytes: '2097152',
   pageCount: 4,
-  category: null,
+  documentType: null,
   availability: 'AVAILABLE',
   processing: false,
   source: 'LIBRARY',
@@ -32,7 +32,7 @@ const detail: DocumentDetailDto = {
   createdAt: '2026-01-02T10:00:00.000Z',
   contentHash: 'abc123def456abc123def456abc123def456abc123def456abc123def4561234',
   ocrUsed: true,
-  categorySource: 'NONE',
+  typeSource: 'NONE',
   skipReasons: {},
   auto: {},
   languages: ['ru', 'sr-Latn'],
@@ -42,7 +42,7 @@ const detail: DocumentDetailDto = {
     canonical: 'SKIPPED',
     preview: 'DONE',
     markdown: 'DONE',
-    categorization: 'DONE',
+    analysis: 'DONE',
     vectorization: 'SKIPPED',
   },
   processingError: null,
@@ -74,7 +74,7 @@ function serve(
   server.use(
     http.get(`/api/documents/${ID}`, () => HttpResponse.json(envelope(document))),
     http.get(`/api/documents/${ID}/markdown`, () => HttpResponse.json(envelope({ markdown }))),
-    http.get('/api/categories', () =>
+    http.get('/api/document-types', () =>
       HttpResponse.json(
         envelope({
           items: [
@@ -155,12 +155,12 @@ describe('DocumentViewerScreen', () => {
     expect(screen.getByText(enMessages.documents.badges.unavailable)).toBeInTheDocument();
   });
 
-  it('assigns a category', async () => {
+  it('assigns a documentType', async () => {
     let patched: unknown = null;
     server.use(
       http.patch(`/api/documents/${ID}`, async ({ request }) => {
         patched = await request.json();
-        return HttpResponse.json(envelope({ ...detail, categorySource: 'MANUAL' }));
+        return HttpResponse.json(envelope({ ...detail, typeSource: 'MANUAL' }));
       }),
     );
 
@@ -170,7 +170,7 @@ describe('DocumentViewerScreen', () => {
     const details = within(screen.getByRole('tabpanel'));
     await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
 
-    const select = await screen.findByRole('combobox', { name: enMessages.viewer.category });
+    const select = await screen.findByRole('combobox', { name: enMessages.viewer.documentType });
     await userEvent.click(select);
     await userEvent.click(await screen.findByTitle('Contract'));
 
@@ -179,7 +179,7 @@ describe('DocumentViewerScreen', () => {
     expect(patched).toBeNull();
 
     await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
-    await waitFor(() => expect(patched).toEqual({ categoryId: CATEGORY_ID }));
+    await waitFor(() => expect(patched).toEqual({ typeId: CATEGORY_ID }));
   });
 
   it('sends only the fields that changed, so a save is not a manual assignment of everything', async () => {
@@ -201,8 +201,8 @@ describe('DocumentViewerScreen', () => {
     await userEvent.type(city, 'Bar');
     await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
 
-    // 🔒 The category was not touched, so it is not in the payload: sending it would flip
-    // categorySource to MANUAL and a classifier's choice would silently become a person's
+    // 🔒 The documentType was not touched, so it is not in the payload: sending it would flip
+    // typeSource to MANUAL and a classifier's choice would silently become a person's
     // (docs/03 §3.3.10).
     await waitFor(() => expect(patched).toEqual({ city: 'Bar' }));
   });
@@ -352,11 +352,11 @@ describe('DocumentViewerScreen', () => {
     expect(replace).toHaveBeenCalledWith(`/documents/${ID}/text`);
   });
 
-  it('marks a category the classifier chose', async () => {
+  it('marks a documentType the classifier chose', async () => {
     serve({
       ...detail,
-      category: { id: CATEGORY_ID, slug: 'contract', name: 'Contract' },
-      categorySource: 'AUTO',
+      documentType: { id: CATEGORY_ID, slug: 'contract', name: 'Contract' },
+      typeSource: 'AUTO',
     });
 
     renderWithProviders(<DocumentViewerScreen id={ID} />);
@@ -368,19 +368,19 @@ describe('DocumentViewerScreen', () => {
   it('keeps what the pipeline read under what a person made of it', async () => {
     serve({
       ...detail,
-      category: { id: CATEGORY_ID, slug: 'contract', name: 'Contract' },
-      categorySource: 'MANUAL',
+      documentType: { id: CATEGORY_ID, slug: 'contract', name: 'Contract' },
+      typeSource: 'MANUAL',
       languages: ['sr-Latn'],
       city: 'Bar',
       country: 'ME',
       // 🔒 The machine's answer survives the correction (docs/03 §3.3.10).
-      auto: { categorySlug: 'invoice', languages: ['hr'], city: 'Podgorica', country: 'ME' },
+      auto: { typeSlug: 'invoice', languages: ['hr'], city: 'Podgorica', country: 'ME' },
     });
 
     renderWithProviders(<DocumentViewerScreen id={ID} />);
     await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
 
-    // The catalogue here holds only "contract", so the category it read is named by its slug —
+    // The catalogue here holds only "contract", so the documentType it read is named by its slug —
     // which is still the answer, and better than hiding it.
     expect(await screen.findByText(/read as invoice/)).toBeInTheDocument();
     expect(screen.getByText(/read as Podgorica, Montenegro/)).toBeInTheDocument();
@@ -444,7 +444,7 @@ describe('DocumentViewerScreen', () => {
     serve({
       ...detail,
       // The AI step is working; the parse is queued behind it.
-      steps: { ...detail.steps, categorization: 'RUNNING', markdown: 'PENDING' },
+      steps: { ...detail.steps, analysis: 'RUNNING', markdown: 'PENDING' },
       languages: [],
       country: null,
       city: null,

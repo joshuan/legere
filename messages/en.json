@@ -30,14 +30,14 @@
       "USER_NOT_FOUND": "This user no longer exists.",
       "LIBRARY_NOT_FOUND": "This library no longer exists.",
       "DOCUMENT_NOT_FOUND": "This document no longer exists.",
-      "CATEGORY_NOT_FOUND": "This category no longer exists.",
+      "DOCUMENT_TYPE_NOT_FOUND": "This document type no longer exists.",
       "COLLECTION_NOT_FOUND": "This collection no longer exists.",
       "SCANSET_NOT_FOUND": "This scan set no longer exists.",
       "INVITE_NOT_FOUND": "This invite no longer exists.",
       "EMAIL_ALREADY_REGISTERED": "An account with this email already exists.",
       "LAST_ADMIN": "The last administrator cannot be demoted or deactivated.",
       "LIBRARY_PATH_CONFLICT": "This folder overlaps another library.",
-      "CATEGORY_SLUG_TAKEN": "A category with this slug already exists.",
+      "DOCUMENT_TYPE_SLUG_TAKEN": "A document type with this slug already exists.",
       "COLLECTION_NAME_TAKEN": "You already have a collection with this name.",
       "SCANSET_INVALID_STATE": "This scan set cannot be changed in its current state.",
       "DOCUMENT_UNAVAILABLE": "The original file is currently unavailable.",
@@ -257,7 +257,7 @@
         "canonical": "Canonical PDF",
         "preview": "Preview",
         "markdown": "Markdown",
-        "categorization": "Category",
+        "analysis": "Type",
         "vectorization": "Vectors"
       },
       "pipeline": {
@@ -281,15 +281,15 @@
         "actions": "Actions"
       }
     },
-    "categories": {
-      "title": "Categories",
-      "empty": "No categories yet",
-      "createTitle": "New category",
-      "editTitle": "Edit category",
-      "deleted": "Category deleted",
-      "confirmDelete": "Delete “{name}”? {count} documents will lose this category.",
+    "documentTypes": {
+      "title": "Document types",
+      "empty": "No document types yet",
+      "createTitle": "New document type",
+      "editTitle": "Edit document type",
+      "deleted": "Document type deleted",
+      "confirmDelete": "Delete “{name}”? {count} documents will lose this type.",
       "actions": {
-        "create": "New category"
+        "create": "New document type"
       },
       "columns": {
         "slug": "Slug",
@@ -318,7 +318,7 @@
     },
     "filters": {
       "library": "Library",
-      "category": "Category",
+      "documentType": "Type",
       "source": "Source",
       "sourceLibrary": "From libraries",
       "sourceUpload": "Uploaded",
@@ -350,7 +350,7 @@
   },
   "viewer": {
     "saved": "Saved",
-    "category": "Category",
+    "documentType": "Type",
     "auto": "auto",
     "download": "Download",
     "downloadUnavailable": "The file is missing from the library volume.",
@@ -369,16 +369,16 @@
       "canonical": "Canonical PDF",
       "preview": "Preview",
       "markdown": "Text",
-      "categorization": "Categorization",
+      "analysis": "Analysis",
       "vectorization": "Vectors"
     },
     "skipReasons": {
       "NOT_NEEDED": "Not needed for this file type",
       "UNSUPPORTED_FORMAT": "This format cannot be processed",
       "NOT_CONFIGURED": "No AI provider configured on this instance",
-      "NO_CATEGORIES": "No categories to choose from yet",
+      "NO_TYPES": "No document types to choose from yet",
       "NO_TEXT": "No text was extracted to work with",
-      "MANUAL_CATEGORY": "The category was set by hand and is left alone"
+      "MANUAL_TYPE": "The type was set by hand and is left alone"
     },
     "processing": {
       "title": "Processing",
@@ -389,7 +389,7 @@
     "details": {
       "size": "Size",
       "pages": "Pages",
-      "mime": "Type",
+      "mime": "File type",
       "languages": "Languages",
       "languagesPlaceholder": "Add a language tag",
       "place": "Place",
@@ -403,7 +403,7 @@
       "locations": "File locations",
       "noLocations": "This document has no files on any library you can see.",
       "auto": "read as {value}",
-      "category": "Category",
+      "documentType": "Type",
       "reset": "reset",
       "editHint": "Edit — or press E"
     },
@@ -437,7 +437,7 @@
     "admin": {
       "libraries": "Libraries",
       "users": "Users",
-      "categories": "Categories",
+      "documentTypes": "Document types",
       "queue": "Queue"
     }
   },

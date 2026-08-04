@@ -5,7 +5,7 @@ import { Button, Select, Space, Switch, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import type { DocumentSource } from '../../../shared/contracts/enums';
 import type { DocumentFilters } from '../../entities/document';
-import { categoryApi, categoryKeys } from '../../entities/category';
+import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
 import { libraryApi, libraryKeys } from '../../entities/library';
 
 export type DocumentFiltersProps = {
@@ -19,14 +19,14 @@ export function DocumentFiltersBar({ value, onChange }: DocumentFiltersProps) {
   const t = useTranslations();
 
   const libraries = useQuery({ queryKey: libraryKeys.visible, queryFn: libraryApi.listVisible });
-  const categories = useQuery({ queryKey: categoryKeys.all, queryFn: categoryApi.list });
+  const documentTypes = useQuery({ queryKey: documentTypeKeys.all, queryFn: documentTypeApi.list });
 
   const set = (patch: Partial<DocumentFilters>): void => {
     // An unset filter leaves no trace in the URL rather than sitting there as an empty parameter.
     const merged = { ...value, ...patch };
     const next: DocumentFilters = {};
     if (merged.libraryId !== undefined) next.libraryId = merged.libraryId;
-    if (merged.categoryId !== undefined) next.categoryId = merged.categoryId;
+    if (merged.typeId !== undefined) next.typeId = merged.typeId;
     if (merged.availability !== undefined) next.availability = merged.availability;
     if (merged.processing !== undefined) next.processing = merged.processing;
     if (merged.source !== undefined) next.source = merged.source;
@@ -54,14 +54,14 @@ export function DocumentFiltersBar({ value, onChange }: DocumentFiltersProps) {
       <Select
         allowClear
         style={{ minWidth: 180 }}
-        placeholder={t('documents.filters.category')}
-        aria-label={t('documents.filters.category')}
-        loading={categories.isPending}
-        value={value.categoryId ?? undefined}
-        onChange={(categoryId?: string) => set({ categoryId })}
-        options={(categories.data?.items ?? []).map((category) => ({
-          value: category.id,
-          label: category.name,
+        placeholder={t('documents.filters.documentType')}
+        aria-label={t('documents.filters.documentType')}
+        loading={documentTypes.isPending}
+        value={value.typeId ?? undefined}
+        onChange={(typeId?: string) => set({ typeId })}
+        options={(documentTypes.data?.items ?? []).map((documentType) => ({
+          value: documentType.id,
+          label: documentType.name,
         }))}
       />
 

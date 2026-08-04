@@ -87,7 +87,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         canonicalStatus: 'SKIPPED',
         previewStatus: 'DONE',
         markdownStatus: 'DONE',
-        categorizationStatus: 'DONE',
+        analysisStatus: 'DONE',
         vectorizationStatus: 'DONE',
         processingError: 'preview failed once',
         failedStep: 'preview',
@@ -114,7 +114,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         'canonical',
         'preview',
         'markdown',
-        'categorization',
+        'analysis',
         'vectorization',
       ]);
 
@@ -145,7 +145,7 @@ describe('Reprocess and queue administration (e2e)', () => {
       expect(row.vectorizationStatus).toBe('PENDING');
       // 🔒 Untouched steps keep the state they had (docs/07 §7.3).
       expect(row.markdownStatus).toBe('DONE');
-      expect(row.categorizationStatus).toBe('DONE');
+      expect(row.analysisStatus).toBe('DONE');
 
       const [job] = await processJobs();
       expect(job?.data.steps).toEqual(['preview', 'vectorization']);
@@ -204,7 +204,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         'canonical',
         'preview',
         'markdown',
-        'categorization',
+        'analysis',
         'vectorization',
       ]);
       const preview = overview.documents.steps.find((entry) => entry.step === 'preview');

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import {
   DocumentAnalyst,
-  type CategoryOption,
+  type DocumentTypeOption,
   type DocumentAnalysis,
 } from '../../application/ports/document-analyst';
 import { AppConfig } from '../config/app-config';
@@ -13,7 +13,7 @@ const completionResponseSchema = z.object({
 });
 
 // The answer we ask for. Every field is optional and validated separately, so a model that gets the
-// category right and the country wrong still contributes the category.
+// documentType right and the country wrong still contributes the documentType.
 const answerSchema = z.object({
   slug: z.string().optional(),
   languages: z.array(z.string()).optional(),
@@ -36,7 +36,7 @@ const SYSTEM_PROMPT = [
   'Use null when the document gives you no reason to name one; a guess is worse than nothing.',
 ].join(' ');
 
-// Deterministic answers: the same document must not land in a different category on a reprocess.
+// Deterministic answers: the same document must not land in a different documentType on a reprocess.
 const TEMPERATURE = 0;
 
 // "ru", "sr-Latn", "pt-BR" — a language subtag, optionally a script, optionally a region. Anything
@@ -72,7 +72,10 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     return this.baseUrl !== '' && this.model !== '';
   }
 
-  async analyze(excerpt: string, categories: readonly CategoryOption[]): Promise<DocumentAnalysis> {
+  async analyze(
+    excerpt: string,
+    documentTypes: readonly DocumentTypeOption[],
+  ): Promise<DocumentAnalysis> {
     if (!this.isConfigured) throw new Error('No document analyst is configured');
 
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -89,7 +92,7 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt(excerpt, categories) },
+          { role: 'user', content: userPrompt(excerpt, documentTypes) },
         ],
       }),
     });
@@ -102,45 +105,48 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     const parsed = completionResponseSchema.safeParse(await response.json());
     if (!parsed.success) throw new Error('Analyst returned an unreadable response');
 
-    return readAnswer(parsed.data.choices[0]?.message.content ?? '', categories);
+    return readAnswer(parsed.data.choices[0]?.message.content ?? '', documentTypes);
   }
 }
 
 // The catalogue as the model sees it: slug, name, and the description an admin wrote as guidance
-// (docs/03 §3.3.12). With no categories defined there is still a place to read — the list is simply
+// (docs/03 §3.3.12). With no documentTypes defined there is still a place to read — the list is simply
 // empty and "none" is the only honest slug.
-function userPrompt(excerpt: string, categories: readonly CategoryOption[]): string {
+function userPrompt(excerpt: string, documentTypes: readonly DocumentTypeOption[]): string {
   const list =
-    categories.length === 0
+    documentTypes.length === 0
       ? '(none defined — answer "none")'
-      : categories
-          .map((category) =>
-            category.description === null || category.description === ''
-              ? `- ${category.slug}: ${category.name}`
-              : `- ${category.slug}: ${category.name} — ${category.description}`,
+      : documentTypes
+          .map((documentType) =>
+            documentType.description === null || documentType.description === ''
+              ? `- ${documentType.slug}: ${documentType.name}`
+              : `- ${documentType.slug}: ${documentType.name} — ${documentType.description}`,
           )
           .join('\n');
 
-  return `Categories:\n${list}\n\nDocument:\n"""\n${excerpt}\n"""`;
+  return `DocumentTypes:\n${list}\n\nDocument:\n"""\n${excerpt}\n"""`;
 }
 
-function readAnswer(content: string, categories: readonly CategoryOption[]): DocumentAnalysis {
+function readAnswer(
+  content: string,
+  documentTypes: readonly DocumentTypeOption[],
+): DocumentAnalysis {
   const parsed = answerSchema.safeParse(safeJson(extractJson(content)));
-  if (!parsed.success) return { categorySlug: null, languages: [], country: null, city: null };
+  if (!parsed.success) return { typeSlug: null, languages: [], country: null, city: null };
 
   return {
-    categorySlug: pickSlug(parsed.data.slug ?? '', categories),
+    typeSlug: pickSlug(parsed.data.slug ?? '', documentTypes),
     languages: pickLanguages(parsed.data.languages ?? []),
     country: pickCountry(parsed.data.country),
     city: pickCity(parsed.data.city),
   };
 }
 
-// 🔒 A model that answers with a category nobody defined must not create one: only a slug from the
+// 🔒 A model that answers with a documentType nobody defined must not create one: only a slug from the
 // list we sent is accepted, anything else is "none" (docs/05 §5.5 step 4).
-function pickSlug(slug: string, categories: readonly CategoryOption[]): string | null {
+function pickSlug(slug: string, documentTypes: readonly DocumentTypeOption[]): string | null {
   const answer = slug.trim().toLowerCase();
-  return categories.some((category) => category.slug === answer) ? answer : null;
+  return documentTypes.some((documentType) => documentType.slug === answer) ? answer : null;
 }
 
 function pickLanguages(languages: string[]): string[] {

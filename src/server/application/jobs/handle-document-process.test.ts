@@ -45,7 +45,7 @@ describe('HandleDocumentProcess', () => {
   let pdfs: FakePdfToolbox;
   let parser: FakeDocumentParser;
   let images: FakeImageTool;
-  let categories: InMemoryCategoryRepository;
+  let documentTypes: InMemoryCategoryRepository;
   let analyst: FakeAnalyst;
   let chunks: InMemoryDocumentChunkRepository;
   let embeddings: FakeEmbeddingProvider;
@@ -65,9 +65,9 @@ describe('HandleDocumentProcess', () => {
     // What OCR produces, so an OCR'd document reads differently from one with a text layer.
     pdfs.markdownByContent.set('ocr-pdf', 'Recognized text from the scan');
 
-    categories = new InMemoryCategoryRepository();
-    categories.add('invoice', 'Bills and payment requests.');
-    categories.add('contract');
+    documentTypes = new InMemoryCategoryRepository();
+    documentTypes.add('invoice', 'Bills and payment requests.');
+    documentTypes.add('contract');
     analyst = new FakeAnalyst();
     chunks = new InMemoryDocumentChunkRepository();
     embeddings = new FakeEmbeddingProvider();
@@ -85,7 +85,7 @@ describe('HandleDocumentProcess', () => {
       pdfs,
       parser,
       images,
-      categories,
+      documentTypes,
       analyst,
       chunks,
       embeddings,
@@ -217,7 +217,7 @@ describe('HandleDocumentProcess', () => {
       });
       // A title is still something to classify, and 🔒 no step may be left PENDING — the document
       // would read as "still processing" for the rest of its life (docs/03 §3.3.10).
-      expect(document.steps.categorization).toBe('DONE');
+      expect(document.steps.analysis).toBe('DONE');
       expect(analyst.calls[0]?.excerpt).toBe('Invoice 2026-01');
       expect(pdfs.calls).toEqual([]);
       expect(files.keys()).toEqual([]);
@@ -388,7 +388,7 @@ describe('HandleDocumentProcess', () => {
     // The order matters, not the count: every step is announced before it is settled (docs/03
     // §3.3.10). Parsing with picture captions takes minutes — for those minutes PENDING would read
     // as "nothing is happening".
-    for (const step of ['preview', 'markdown', 'categorization', 'vectorization'] as const) {
+    for (const step of ['preview', 'markdown', 'analysis', 'vectorization'] as const) {
       const statuses = documents.updates
         .map((entry) => entry.update.steps?.[step])
         .filter((status) => status !== undefined);
@@ -430,8 +430,8 @@ describe('HandleDocumentProcess', () => {
     expect(failed?.payload?.error).toBeDefined();
   });
 
-  describe('categorization (docs/05 §5.5 step 4)', () => {
-    it('assigns the category the analyst chose, marked as automatic', async () => {
+  describe('analysis (docs/05 §5.5 step 4)', () => {
+    it('assigns the documentType the analyst chose, marked as automatic', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'March invoice' });
       reader.put(SOURCE_PATH, 'Amount due: 1200. Payable within 30 days.');
       analyst.slug = 'invoice';
@@ -439,9 +439,9 @@ describe('HandleDocumentProcess', () => {
       await run();
 
       const document = stateOf();
-      expect(document.steps.categorization).toBe('DONE');
-      expect(document.categoryId).toBe('category-1');
-      expect(document.categorySource).toBe('AUTO');
+      expect(document.steps.analysis).toBe('DONE');
+      expect(document.typeId).toBe('documentType-1');
+      expect(document.typeSource).toBe('AUTO');
     });
 
     it('offers the analyst the slugs and the descriptions an admin wrote', async () => {
@@ -451,7 +451,7 @@ describe('HandleDocumentProcess', () => {
       await run();
 
       const call = analyst.calls[0];
-      expect(call?.categories).toEqual([
+      expect(call?.documentTypes).toEqual([
         { slug: 'invoice', name: 'invoice', description: 'Bills and payment requests.' },
         { slug: 'contract', name: 'contract', description: null },
       ]);
@@ -459,34 +459,34 @@ describe('HandleDocumentProcess', () => {
       expect(call?.excerpt).toBe('March invoice\n\nAmount due: 1200.');
     });
 
-    it('records no category when the model answers with a slug nobody defined', async () => {
+    it('records no documentType when the model answers with a slug nobody defined', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      // 🔒 A hallucinated category must not become a real one (docs/05 §5.5 step 4).
+      // 🔒 A hallucinated documentType must not become a real one (docs/05 §5.5 step 4).
       analyst.slug = 'tax-return-2019';
 
       await run();
 
       const document = stateOf();
-      expect(document.steps.categorization).toBe('DONE');
-      expect(document.categoryId).toBeNull();
-      expect(document.categorySource).toBe('NONE');
+      expect(document.steps.analysis).toBe('DONE');
+      expect(document.typeId).toBeNull();
+      expect(document.typeSource).toBe('NONE');
     });
 
-    it('never overwrites a category a person chose', async () => {
+    it('never overwrites a documentType a person chose', async () => {
       givenDocument({
         mimeType: 'text/plain',
         ext: 'txt',
-        categoryId: 'category-2',
-        categorySource: 'MANUAL',
+        typeId: 'documentType-2',
+        typeSource: 'MANUAL',
       });
       analyst.slug = 'invoice';
 
       await run();
 
       const document = stateOf();
-      expect(document.steps.categorization).toBe('SKIPPED');
-      expect(document.categoryId).toBe('category-2');
-      expect(document.categorySource).toBe('MANUAL');
+      expect(document.steps.analysis).toBe('SKIPPED');
+      expect(document.typeId).toBe('documentType-2');
+      expect(document.typeSource).toBe('MANUAL');
       expect(analyst.calls).toEqual([]);
     });
 
@@ -496,15 +496,15 @@ describe('HandleDocumentProcess', () => {
 
       await run();
 
-      expect(stateOf().steps.categorization).toBe('SKIPPED');
+      expect(stateOf().steps.analysis).toBe('SKIPPED');
       expect(stateOf().processingError).toBeNull();
     });
 
-    it('still runs with no categories defined, because it also reads where the document is from', async () => {
+    it('still runs with no documentTypes defined, because it also reads where the document is from', async () => {
       givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      categories.categories.length = 0;
+      documentTypes.documentTypes.length = 0;
       analyst.answer = {
-        categorySlug: null,
+        typeSlug: null,
         languages: [],
         country: 'ME',
         city: 'Podgorica',
@@ -513,8 +513,8 @@ describe('HandleDocumentProcess', () => {
       await run();
 
       const document = stateOf();
-      expect(document.steps.categorization).toBe('DONE');
-      expect(document.categoryId).toBeNull();
+      expect(document.steps.analysis).toBe('DONE');
+      expect(document.typeId).toBeNull();
       expect(document.country).toBe('ME');
     });
 
@@ -524,7 +524,7 @@ describe('HandleDocumentProcess', () => {
       // means to a reader who knows the railway.
       reader.put(SOURCE_PATH, 'ŽPCG · PODGORICA — BAR · 2. razred · 3,20 EUR');
       analyst.answer = {
-        categorySlug: null,
+        typeSlug: null,
         languages: ['sr-Latn'],
         country: 'ME',
         city: 'Podgorica',
@@ -554,7 +554,7 @@ describe('HandleDocumentProcess', () => {
           'сохранность документов и ежемесячную отчётность заказчику.',
       );
       analyst.answer = {
-        categorySlug: null,
+        typeSlug: null,
         languages: ['en'],
         country: 'ME',
         city: 'Podgorica',
@@ -578,8 +578,8 @@ describe('HandleDocumentProcess', () => {
       await run();
 
       const document = stateOf();
-      expect(document.steps.categorization).toBe('FAILED');
-      expect(document.failedStep).toBe('categorization');
+      expect(document.steps.analysis).toBe('FAILED');
+      expect(document.failedStep).toBe('analysis');
       expect(document.processingError).toContain('503');
       // The document is still readable and still gets its vectors.
       expect(document.steps.markdown).toBe('DONE');

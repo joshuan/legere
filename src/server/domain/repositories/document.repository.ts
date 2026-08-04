@@ -1,6 +1,6 @@
 import type { AutoValues, Availability, DocumentStep } from '../../../shared/contracts/documents';
 import type {
-  CategorySource,
+  TypeSource,
   DocumentSource,
   FileRefStatus,
   StepSkipReason,
@@ -46,8 +46,8 @@ export type ProcessingUpdate = {
   ocrUsed?: boolean;
   processingError?: string | null;
   failedStep?: string | null;
-  categoryId?: string | null;
-  categorySource?: CategorySource;
+  typeId?: string | null;
+  typeSource?: TypeSource;
 };
 
 // Documents by pipeline step and status, for the admin overview (docs/05 §5.8).
@@ -72,7 +72,7 @@ export type DocumentCategory = {
 // A document plus what the list DTO needs and the row itself does not carry (docs/07 §7.3).
 export type DocumentListItem = {
   document: Document;
-  category: DocumentCategory | null;
+  documentType: DocumentCategory | null;
   availability: Availability;
 };
 
@@ -93,7 +93,7 @@ export type ListDocumentsInput = {
   limit: number;
   cursor?: string | undefined;
   libraryId?: string | undefined;
-  categoryId?: string | undefined;
+  typeId?: string | undefined;
   availability?: Availability | undefined;
   processing?: boolean | undefined;
   source?: DocumentSource | undefined;
@@ -109,8 +109,8 @@ export type UpdateDocumentMetaInput = {
   languages?: string[];
   country?: string | null;
   city?: string | null;
-  categoryId?: string | null;
-  categorySource?: CategorySource;
+  typeId?: string | null;
+  typeSource?: TypeSource;
 };
 
 // One row of a search result before it becomes a DTO (docs/07 §7.3).
@@ -124,7 +124,7 @@ export type SearchMatch = {
 
 export type SearchFilters = {
   libraryId?: string | undefined;
-  categoryId?: string | undefined;
+  typeId?: string | undefined;
 };
 
 export abstract class DocumentRepository {

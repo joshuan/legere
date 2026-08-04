@@ -9,7 +9,7 @@ import type {
 import { canEditDocumentMeta, isProcessing, type Document } from '../../domain/entities/document';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { ForbiddenError, NotFoundError } from '../../domain/errors/domain-error';
-import type { CategoryRepository } from '../../domain/repositories/category.repository';
+import type { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import type {
   DocumentDetail,
   DocumentListItem,
@@ -37,7 +37,7 @@ export class GetDocument {
   }
 }
 
-// PATCH /api/documents/:id (docs/07 §7.3): title and category, per canEditDocumentMeta.
+// PATCH /api/documents/:id (docs/07 §7.3): title and documentType, per canEditDocumentMeta.
 // The history of one document (docs/03 §3.3.18). Access is the document's own: whoever may read it
 // may read how it came to be what it is.
 export class ListDocumentEvents {
@@ -64,7 +64,7 @@ export class ListDocumentEvents {
 export class UpdateDocumentMeta {
   constructor(
     private readonly documents: DocumentRepository,
-    private readonly categories: CategoryRepository,
+    private readonly documentTypes: DocumentTypeRepository,
     private readonly events: DocumentEventRepository,
   ) {}
 
@@ -86,21 +86,21 @@ export class UpdateDocumentMeta {
     if (input.country !== undefined) update.country = input.country;
     if (input.city !== undefined) update.city = input.city;
 
-    if (input.categoryId !== undefined) {
-      if (input.categoryId === null) {
-        // Clearing a category is a decision too: it must not read as "never classified", or the
+    if (input.typeId !== undefined) {
+      if (input.typeId === null) {
+        // Clearing a documentType is a decision too: it must not read as "never classified", or the
         // next pipeline run would put the old one straight back (docs/03 §3.3.10).
-        update.categoryId = null;
-        update.categorySource = 'NONE';
+        update.typeId = null;
+        update.typeSource = 'NONE';
       } else {
-        const categories = await this.categories.listActive();
-        const chosen = categories.find((category) => category.id === input.categoryId);
+        const documentTypes = await this.documentTypes.listActive();
+        const chosen = documentTypes.find((documentType) => documentType.id === input.typeId);
         if (chosen === undefined) {
-          throw new NotFoundError('CATEGORY_NOT_FOUND', 'Category not found');
+          throw new NotFoundError('DOCUMENT_TYPE_NOT_FOUND', 'DocumentType not found');
         }
-        update.categoryId = chosen.id;
+        update.typeId = chosen.id;
         // 🔒 A person's choice is MANUAL, and the classifier never overwrites it (docs/05 §5.5).
-        update.categorySource = 'MANUAL';
+        update.typeSource = 'MANUAL';
       }
     }
 
@@ -112,13 +112,13 @@ export class UpdateDocumentMeta {
         if (field === 'languages') update.languages = auto.languages ?? [];
         if (field === 'country') update.country = auto.country ?? null;
         if (field === 'city') update.city = auto.city ?? null;
-        if (field === 'category') {
-          const categories = await this.categories.listActive();
-          const read = categories.find((category) => category.slug === auto.categorySlug);
-          update.categoryId = read?.id ?? null;
+        if (field === 'documentType') {
+          const documentTypes = await this.documentTypes.listActive();
+          const read = documentTypes.find((documentType) => documentType.slug === auto.typeSlug);
+          update.typeId = read?.id ?? null;
           // 🔒 Back to AUTO, not MANUAL: the point of a reset is that the document stops claiming a
           // person chose this, so the next run may classify it again (docs/03 §3.3.10).
-          update.categorySource = read === undefined ? 'NONE' : 'AUTO';
+          update.typeSource = read === undefined ? 'NONE' : 'AUTO';
         }
       }
     }
@@ -136,18 +136,20 @@ export class UpdateDocumentMeta {
         payload: { changes },
       });
     }
-    const category =
-      update.categoryId === undefined
-        ? detail.category
-        : ((await this.categories.listActive()).find(
-            (candidate) => candidate.id === updated.categoryId,
+    const documentType =
+      update.typeId === undefined
+        ? detail.documentType
+        : ((await this.documentTypes.listActive()).find(
+            (candidate) => candidate.id === updated.typeId,
           ) ?? null);
 
     return toDetailDto({
       ...detail,
       document: updated,
-      category:
-        category === null ? null : { id: category.id, slug: category.slug, name: category.name },
+      documentType:
+        documentType === null
+          ? null
+          : { id: documentType.id, slug: documentType.slug, name: documentType.name },
     });
   }
 }
@@ -178,7 +180,7 @@ export function toListDto(item: DocumentListItem): DocumentListDto {
     mimeType: document.mimeType,
     sizeBytes: document.sizeBytes.toString(),
     pageCount: document.pageCount,
-    category: item.category,
+    documentType: item.documentType,
     availability: item.availability,
     processing: isProcessing(document.steps),
     source: document.source,
@@ -193,7 +195,7 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     ...toListDto(detail),
     contentHash: document.contentHash,
     ocrUsed: document.ocrUsed,
-    categorySource: document.categorySource,
+    typeSource: document.typeSource,
     steps: document.steps,
     skipReasons: document.skipReasons,
     languages: document.languages,
@@ -216,8 +218,8 @@ function describeChanges(
 ): Record<string, { from?: string | null | undefined; to?: string | null | undefined }> {
   const changes: Record<string, { from?: string | null; to?: string | null }> = {};
   if (before.title !== after.title) changes.title = { from: before.title, to: after.title };
-  if (before.categoryId !== after.categoryId) {
-    changes.category = { from: before.categoryId, to: after.categoryId };
+  if (before.typeId !== after.typeId) {
+    changes.documentType = { from: before.typeId, to: after.typeId };
   }
   if (before.languages.join('|') !== after.languages.join('|')) {
     changes.languages = { from: before.languages.join(', '), to: after.languages.join(', ') };

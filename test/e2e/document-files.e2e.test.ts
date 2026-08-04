@@ -132,7 +132,7 @@ describe('Document files (e2e)', () => {
         canonicalStatus: overrides.canonicalStatus ?? 'SKIPPED',
         previewStatus: overrides.previewStatus ?? 'DONE',
         markdownStatus: 'DONE',
-        categorizationStatus: 'DONE',
+        analysisStatus: 'DONE',
         vectorizationStatus: 'SKIPPED',
       },
     });
@@ -166,7 +166,7 @@ describe('Document files (e2e)', () => {
         canonicalStatus: 'SKIPPED',
         previewStatus: 'DONE',
         markdownStatus: 'DONE',
-        categorizationStatus: 'DONE',
+        analysisStatus: 'DONE',
         vectorizationStatus: 'SKIPPED',
       },
     });

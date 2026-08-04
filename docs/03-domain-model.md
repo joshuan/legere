@@ -22,7 +22,7 @@ Library ─┬─< FileRef >── Document (n:1, by contentHash)
          └─< ScanRun
 
 Document ─┬─< DocumentChunk (embeddings)
-          └── Category (n:1)
+          └── Document type (n:1)
 
 EmailVerification (standalone, keyed by email; used by registration & password reset)
 ```
@@ -38,7 +38,7 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `FileRefStatus` | `DISCOVERED`, `HASHED`, `MISSING` | |
 | `DocumentSource` | `LIBRARY`, `DERIVED`, `UPLOAD` | where the bytes live and where they came from: a file in a read-only library, a scan-set merge, or a file a person sent from their browser. `DERIVED` and `UPLOAD` both keep their bytes in S3 |
 | `StepStatus` | `PENDING`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes `PENDING` reads as "stuck". The mark is best-effort and never the reason a job fails |
-| `CategorySource` | `NONE`, `AUTO`, `MANUAL` | |
+| `TypeSource` | `NONE`, `AUTO`, `MANUAL` | |
 | `ScanSetStatus` | `DRAFT`, `QUEUED`, `PROCESSING`, `DONE`, `FAILED` | |
 | `ScanRunStatus` | `RUNNING`, `DONE`, `FAILED` | |
 | `VerificationPurpose` | `REGISTRATION`, `PASSWORD_RESET` | on `EmailVerification` |
@@ -201,17 +201,17 @@ The logical unit of content (deduplicated).
 | title | string | initial = file name without extension: of the first FileRef (LIBRARY), of the scan set (DERIVED), of the uploaded file (UPLOAD); editable |
 | markdown | text? | the extracted Markdown representation |
 | searchVector | tsvector | generated from title + markdown (see 04) |
-| canonicalStatus / previewStatus / markdownStatus / categorizationStatus / vectorizationStatus | StepStatus | pipeline step statuses |
+| canonicalStatus / previewStatus / markdownStatus / analysisStatus / vectorizationStatus | StepStatus | pipeline step statuses |
 | processingError | string? | last error message (truncated to 2000 chars) |
 | skipReasons | json | why a step is `SKIPPED`, per step — see below; empty for steps that ran |
-| autoValues | json | what the pipeline decided — `{title?, categorySlug?, languages?, country?, city?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction |
+| autoValues | json | what the pipeline decided — `{title?, typeSlug?, languages?, country?, city?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction |
 | languages | string[] | BCP-47 tags of what the document is written in, most likely first — `['ru']`, `['ru','sr-Latn']`. Detected from the extracted text, editable; empty when there was too little text to tell |
 | country | string? | ISO 3166-1 alpha-2 of where the document belongs — the issuer's country, the place of an event |
 | city | string? | free text, as written in the document |
 | failedStep | string? | which step produced `processingError` |
 | ocrUsed | bool | whether Markdown came from OCR |
-| categoryId | uuid? | |
-| categorySource | CategorySource | default `NONE`; `MANUAL` is never overwritten by auto |
+| typeId | uuid? | |
+| typeSource | TypeSource | default `NONE`; `MANUAL` is never overwritten by auto |
 | createdById | uuid? | the owner; set for DERIVED and UPLOAD documents |
 | scanSetId | uuid? | provenance for DERIVED documents |
 | createdAt / updatedAt / deletedAt | | |
@@ -229,7 +229,7 @@ of a contract, the departure city on a ticket. They are inferred by the AI step 
 configured, because the evidence is rarely literal: a Montenegrin train ticket says `ŽPCG` and
 `Podgorica`, never "Montenegro", and the operator's full name lives in the logo, which is a picture.
 Without a provider both stay empty until somebody fills them in; both are editable either way, and a
-value a person set is never overwritten (the rule that already governs the category).
+value a person set is never overwritten (the rule that already governs the document type).
 
 **Skip reasons.** `SKIPPED` on its own reads like something went wrong, and three of the five steps
 skip for reasons an operator can act on. Each skipped step records why, from a closed set:
@@ -239,9 +239,9 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 | `NOT_NEEDED` | nothing to do for this format — a PDF needs no canonicalization, text has no page to render |
 | `UNSUPPORTED_FORMAT` | the format has no representation the product can build |
 | `NOT_CONFIGURED` | the instance has no classifier / embeddings provider (docs/05 §5.5) |
-| `NO_CATEGORIES` | retained for documents processed before step 4 became a full analysis; no longer produced — with no categories defined the step still runs, because it also reads where the document is from |
+| `NO_TYPES` | retained for documents processed before step 4 became a full analysis; no longer produced — with no document types defined the step still runs, because it also reads where the document is from |
 | `NO_TEXT` | the document yielded no text to embed |
-| `MANUAL_CATEGORY` | a person chose the category, and a machine never overwrites that |
+| `MANUAL_TYPE` | a person chose the document type, and a machine never overwrites that |
 
 **Derived state (computed, not stored):**
 - `availability`: a LIBRARY document is `AVAILABLE` if it has ≥1 `FileRef` with status `HASHED` in an
@@ -295,7 +295,7 @@ missing from it.
 
 Chunks are replaced wholesale on (re)vectorization: delete all → insert all (in one transaction).
 
-### 3.3.12. Category
+### 3.3.12. Document type
 Admin-managed reference list.
 
 | Field | Type | Notes |
@@ -306,7 +306,7 @@ Admin-managed reference list.
 | description | string? | shown to the classifier as guidance and to admins |
 | createdAt / updatedAt / deletedAt | | |
 
-Soft-deleting a category sets `categoryId = NULL`, `categorySource = NONE` on its documents
+Soft-deleting a document type sets `typeId = NULL`, `typeSource = NONE` on its documents
 (application-level cascade inside the same transaction).
 
 **Seeded defaults** (created by the first migration's seed, editable later): `passport`, `id-card`,
@@ -382,7 +382,7 @@ canReadDocument(user, doc):
            C.ownerId == user.id
            or an active CollectionShare(C, user) or CollectionShare(C, NULL) exists
 
-canEditDocumentMeta(user, doc):        # title, category
+canEditDocumentMeta(user, doc):        # title, document type
   → canReadDocument via a library (LIBRARY docs)  — collaborative editing
   → owner or ADMIN (DERIVED and UPLOAD docs)
 
@@ -397,7 +397,7 @@ canReadCollection(user, c):    owner, ADMIN, or active share (user-specific or i
 | File gone from disk | `FileRef.MISSING`; document possibly `UNAVAILABLE`; nothing deleted |
 | Library soft-deleted | its documents disappear from all listings; artifacts/data retained |
 | Document soft-deleted (admin) | hidden everywhere; chunks excluded from search; artifacts retained in S3 (cleaned by a later `maintenance` policy only if ever specified) |
-| Category soft-deleted | documents' category reset to NONE |
+| Document type soft-deleted | documents' document type reset to NONE |
 | Collection soft-deleted | hidden for everyone incl. shares |
 | User soft-deleted | sessions revoked; their collections/scan sets hidden; their DERIVED documents remain visible to users they were shared with? — **No:** shares die with the collection; DERIVED docs of a deleted user stay accessible to ADMIN only |
 

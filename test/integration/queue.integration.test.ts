@@ -153,7 +153,7 @@ describe('Queue (integration)', () => {
   describe('enqueueAfterTx', () => {
     it('commits the job together with the entity write', async () => {
       await unitOfWork.run(async (tx) => {
-        await categoryWriter(tx).category.create({
+        await categoryWriter(tx).documentType.create({
           data: { slug: 'queued-together', name: 'Together' },
         });
         await queue.enqueueAfterTx(tx, 'document-process', { documentId: 'doc-1' });
@@ -164,14 +164,14 @@ describe('Queue (integration)', () => {
       // The payload has to survive the transactional path intact: a handler that receives an empty
       // object cannot tell which document it was sent for.
       expect(rows[0]?.data).toEqual({ documentId: 'doc-1' });
-      expect(await prisma.category.count({ where: { slug: 'queued-together' } })).toBe(1);
+      expect(await prisma.documentType.count({ where: { slug: 'queued-together' } })).toBe(1);
     });
 
     it('keeps the payload when the send also carries queue options', async () => {
       // What "Scan now" does (docs/05 §5.2): one keyed job, at user priority, in the same
       // transaction as the ScanRun row.
       await unitOfWork.run(async (tx) => {
-        await categoryWriter(tx).category.create({ data: { slug: 'keyed', name: 'Keyed' } });
+        await categoryWriter(tx).documentType.create({ data: { slug: 'keyed', name: 'Keyed' } });
         await queue.enqueueAfterTx(
           tx,
           'library-scan',
@@ -189,7 +189,7 @@ describe('Queue (integration)', () => {
     it('discards the job when the transaction rolls back', async () => {
       await expect(
         unitOfWork.run(async (tx) => {
-          await categoryWriter(tx).category.create({
+          await categoryWriter(tx).documentType.create({
             data: { slug: 'rolled-back', name: 'Rollback' },
           });
           await queue.enqueueAfterTx(tx, 'document-process', { documentId: 'doc-2' });
@@ -199,7 +199,7 @@ describe('Queue (integration)', () => {
 
       // 🔒 The core guarantee of docs/06 §6.3.4: no orphan job for an entity that never existed.
       expect(await jobs()).toHaveLength(0);
-      expect(await prisma.category.count({ where: { slug: 'rolled-back' } })).toBe(0);
+      expect(await prisma.documentType.count({ where: { slug: 'rolled-back' } })).toBe(0);
     });
   });
 

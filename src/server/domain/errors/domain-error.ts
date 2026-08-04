@@ -78,7 +78,7 @@ export class InvalidCredentialsError extends DomainError {
   }
 }
 
-// 409 conflicts: EMAIL_ALREADY_REGISTERED, LAST_ADMIN, LIBRARY_PATH_CONFLICT, CATEGORY_SLUG_TAKEN,
+// 409 conflicts: EMAIL_ALREADY_REGISTERED, LAST_ADMIN, LIBRARY_PATH_CONFLICT, DOCUMENT_TYPE_SLUG_TAKEN,
 // COLLECTION_NAME_TAKEN, SCANSET_INVALID_STATE, DOCUMENT_UNAVAILABLE.
 export class ConflictError extends DomainError {
   readonly httpStatus = 409;

@@ -46,7 +46,7 @@ import {
 } from '../../src/server/application/ports/pdf-toolbox';
 import {
   DocumentAnalyst,
-  type CategoryOption,
+  type DocumentTypeOption,
   type DocumentAnalysis,
 } from '../../src/server/application/ports/document-analyst';
 import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
@@ -60,10 +60,10 @@ import {
   type TransactionHandle,
 } from '../../src/server/application/ports/unit-of-work';
 import {
-  CategoryRepository,
-  type Category,
-  type CategoryWithCount,
-} from '../../src/server/domain/repositories/category.repository';
+  DocumentTypeRepository,
+  type DocumentType,
+  type DocumentTypeWithCount,
+} from '../../src/server/domain/repositories/document-type.repository';
 import {
   DocumentChunkRepository,
   type NewDocumentChunk,
@@ -100,8 +100,8 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     country: null,
     city: null,
     ocrUsed: false,
-    categoryId: null,
-    categorySource: 'NONE',
+    typeId: null,
+    typeSource: 'NONE',
     createdById: null,
     scanSetId: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -143,8 +143,8 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       ...(update.ocrUsed === undefined ? {} : { ocrUsed: update.ocrUsed }),
       ...(update.processingError === undefined ? {} : { processingError: update.processingError }),
       ...(update.failedStep === undefined ? {} : { failedStep: update.failedStep }),
-      ...(update.categoryId === undefined ? {} : { categoryId: update.categoryId }),
-      ...(update.categorySource === undefined ? {} : { categorySource: update.categorySource }),
+      ...(update.typeId === undefined ? {} : { typeId: update.typeId }),
+      ...(update.typeSource === undefined ? {} : { typeSource: update.typeSource }),
     };
     this.documents.set(id, updated);
     return Promise.resolve(updated);
@@ -479,40 +479,46 @@ async function describe(source: BinarySource): Promise<string> {
 // Returns whatever text the test says the PDF in front of it holds, keyed by the bytes it receives,
 // so the OCR branch can be told apart from the text-layer one.
 
-// The categories the classifier is offered (docs/03 §3.3.12).
-export class InMemoryCategoryRepository extends CategoryRepository {
-  readonly categories: Category[] = [];
+// The documentTypes the classifier is offered (docs/03 §3.3.12).
+export class InMemoryCategoryRepository extends DocumentTypeRepository {
+  readonly documentTypes: DocumentType[] = [];
 
-  add(slug: string, description: string | null = null): Category {
-    const category: Category = {
-      id: `category-${this.categories.length + 1}`,
+  add(slug: string, description: string | null = null): DocumentType {
+    const documentType: DocumentType = {
+      id: `documentType-${this.documentTypes.length + 1}`,
       slug,
       name: slug,
       description,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       deletedAt: null,
     };
-    this.categories.push(category);
-    return category;
+    this.documentTypes.push(documentType);
+    return documentType;
   }
 
-  listActive(): Promise<Category[]> {
-    return Promise.resolve(this.categories.filter((category) => category.deletedAt === null));
+  listActive(): Promise<DocumentType[]> {
+    return Promise.resolve(
+      this.documentTypes.filter((documentType) => documentType.deletedAt === null),
+    );
   }
 
-  listActiveWithCounts(): Promise<CategoryWithCount[]> {
+  listActiveWithCounts(): Promise<DocumentTypeWithCount[]> {
     return unused('listActiveWithCounts');
   }
-  findById(id: string): Promise<Category | null> {
-    return Promise.resolve(this.categories.find((category) => category.id === id) ?? null);
+  findById(id: string): Promise<DocumentType | null> {
+    return Promise.resolve(
+      this.documentTypes.find((documentType) => documentType.id === id) ?? null,
+    );
   }
-  findActiveBySlug(slug: string): Promise<Category | null> {
-    return Promise.resolve(this.categories.find((category) => category.slug === slug) ?? null);
+  findActiveBySlug(slug: string): Promise<DocumentType | null> {
+    return Promise.resolve(
+      this.documentTypes.find((documentType) => documentType.slug === slug) ?? null,
+    );
   }
-  create(): Promise<Category> {
+  create(): Promise<DocumentType> {
     return unused('create');
   }
-  update(): Promise<Category> {
+  update(): Promise<DocumentType> {
     return unused('update');
   }
   softDelete(): Promise<void> {
@@ -569,9 +575,9 @@ export class FakeDocumentEventRepository extends DocumentEventRepository {
 
 export class FakeAnalyst extends DocumentAnalyst {
   configured = true;
-  answer: DocumentAnalysis = { categorySlug: null, languages: [], country: null, city: null };
+  answer: DocumentAnalysis = { typeSlug: null, languages: [], country: null, city: null };
   failing = false;
-  readonly calls: Array<{ excerpt: string; categories: readonly CategoryOption[] }> = [];
+  readonly calls: Array<{ excerpt: string; documentTypes: readonly DocumentTypeOption[] }> = [];
 
   get isConfigured(): boolean {
     return this.configured;
@@ -579,11 +585,14 @@ export class FakeAnalyst extends DocumentAnalyst {
 
   // The slug alone is what most tests care about; the place is opt-in via `answer`.
   set slug(value: string | null) {
-    this.answer = { ...this.answer, categorySlug: value };
+    this.answer = { ...this.answer, typeSlug: value };
   }
 
-  analyze(excerpt: string, categories: readonly CategoryOption[]): Promise<DocumentAnalysis> {
-    this.calls.push({ excerpt, categories });
+  analyze(
+    excerpt: string,
+    documentTypes: readonly DocumentTypeOption[],
+  ): Promise<DocumentAnalysis> {
+    this.calls.push({ excerpt, documentTypes });
     if (this.failing) return Promise.reject(new Error('Analyst request failed with 503'));
     return Promise.resolve(this.answer);
   }

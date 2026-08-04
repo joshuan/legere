@@ -28,7 +28,11 @@ const hit = {
     mimeType: 'application/pdf',
     sizeBytes: '2048',
     pageCount: 2,
-    category: { id: 'bbbbbbbb-2222-4222-8222-222222222222', slug: 'contract', name: 'Contract' },
+    documentType: {
+      id: 'bbbbbbbb-2222-4222-8222-222222222222',
+      slug: 'contract',
+      name: 'Contract',
+    },
     availability: 'AVAILABLE',
     processing: false,
     source: 'LIBRARY',
@@ -45,7 +49,7 @@ function serve(body: { items: unknown[]; semanticAvailable: boolean }): void {
   server.use(
     http.get('/api/search', () => HttpResponse.json(envelope(body))),
     http.get('/api/libraries', () => HttpResponse.json(envelope({ items: [] }))),
-    http.get('/api/categories', () => HttpResponse.json(envelope({ items: [] }))),
+    http.get('/api/document-types', () => HttpResponse.json(envelope({ items: [] }))),
   );
 }
 

@@ -30,14 +30,14 @@
       "USER_NOT_FOUND": "Этого пользователя больше не существует.",
       "LIBRARY_NOT_FOUND": "Этой библиотеки больше не существует.",
       "DOCUMENT_NOT_FOUND": "Этого документа больше не существует.",
-      "CATEGORY_NOT_FOUND": "Этой категории больше не существует.",
+      "DOCUMENT_TYPE_NOT_FOUND": "Этой категории больше не существует.",
       "COLLECTION_NOT_FOUND": "Этой коллекции больше не существует.",
       "SCANSET_NOT_FOUND": "Этого набора сканов больше не существует.",
       "INVITE_NOT_FOUND": "Этого приглашения больше не существует.",
       "EMAIL_ALREADY_REGISTERED": "Аккаунт с такой почтой уже существует.",
       "LAST_ADMIN": "Нельзя понизить или отключить последнего администратора.",
       "LIBRARY_PATH_CONFLICT": "Эта папка пересекается с другой библиотекой.",
-      "CATEGORY_SLUG_TAKEN": "Категория с таким слагом уже существует.",
+      "DOCUMENT_TYPE_SLUG_TAKEN": "Тип документа с таким слагом уже существует.",
       "COLLECTION_NAME_TAKEN": "У вас уже есть коллекция с таким названием.",
       "SCANSET_INVALID_STATE": "Набор сканов нельзя изменить в текущем состоянии.",
       "DOCUMENT_UNAVAILABLE": "Исходный файл сейчас недоступен.",
@@ -257,7 +257,7 @@
         "canonical": "Канонический PDF",
         "preview": "Превью",
         "markdown": "Markdown",
-        "categorization": "Категория",
+        "analysis": "Тип",
         "vectorization": "Векторы"
       },
       "pipeline": {
@@ -281,15 +281,15 @@
         "actions": "Действия"
       }
     },
-    "categories": {
-      "title": "Категории",
-      "empty": "Категорий пока нет",
-      "createTitle": "Новая категория",
-      "editTitle": "Изменить категорию",
-      "deleted": "Категория удалена",
+    "documentTypes": {
+      "title": "Типы документов",
+      "empty": "Типов документов пока нет",
+      "createTitle": "Новый тип",
+      "editTitle": "Изменить тип",
+      "deleted": "Тип удалён",
       "confirmDelete": "Удалить «{name}»? Документов потеряют категорию: {count}.",
       "actions": {
-        "create": "Новая категория"
+        "create": "Новый тип"
       },
       "columns": {
         "slug": "Слаг",
@@ -318,7 +318,7 @@
     },
     "filters": {
       "library": "Библиотека",
-      "category": "Категория",
+      "documentType": "Тип",
       "source": "Источник",
       "sourceLibrary": "Из библиотек",
       "sourceUpload": "Загруженные",
@@ -350,7 +350,7 @@
   },
   "viewer": {
     "saved": "Сохранено",
-    "category": "Категория",
+    "documentType": "Тип",
     "auto": "авто",
     "download": "Скачать",
     "downloadUnavailable": "Файла нет на подключённом томе.",
@@ -369,16 +369,16 @@
       "canonical": "Канонический PDF",
       "preview": "Превью",
       "markdown": "Текст",
-      "categorization": "Категоризация",
+      "analysis": "Анализ",
       "vectorization": "Векторы"
     },
     "skipReasons": {
       "NOT_NEEDED": "Для этого типа файла не требуется",
       "UNSUPPORTED_FORMAT": "Этот формат обработать нельзя",
       "NOT_CONFIGURED": "На этом сервере не настроен AI-провайдер",
-      "NO_CATEGORIES": "Пока не из чего выбирать — нет категорий",
+      "NO_TYPES": "Пока не из чего выбирать — нет типов",
       "NO_TEXT": "Не извлечён текст, работать не с чем",
-      "MANUAL_CATEGORY": "Категория выставлена вручную и не перезаписывается"
+      "MANUAL_TYPE": "Тип выставлен вручную и не перезаписывается"
     },
     "processing": {
       "title": "Обработка",
@@ -389,7 +389,7 @@
     "details": {
       "size": "Размер",
       "pages": "Страниц",
-      "mime": "Тип",
+      "mime": "Тип файла",
       "languages": "Языки",
       "languagesPlaceholder": "Добавить код языка",
       "place": "Место",
@@ -403,7 +403,7 @@
       "locations": "Расположение файлов",
       "noLocations": "У этого документа нет файлов в доступных вам библиотеках.",
       "auto": "определено как {value}",
-      "category": "Категория",
+      "documentType": "Тип",
       "reset": "сбросить",
       "editHint": "Изменить — или клавиша E"
     },
@@ -437,7 +437,7 @@
     "admin": {
       "libraries": "Библиотеки",
       "users": "Пользователи",
-      "categories": "Категории",
+      "documentTypes": "Типы документов",
       "queue": "Очередь"
     }
   },

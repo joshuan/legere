@@ -132,7 +132,7 @@ describe('AppShell', () => {
       '/settings',
       '/admin/libraries',
       '/admin/users',
-      '/admin/categories',
+      '/admin/document-types',
       '/admin/queue',
     ];
     for (const link of screen.getAllByRole('link')) {

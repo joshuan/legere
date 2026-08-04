@@ -16,7 +16,7 @@ const base: DocumentListDto = {
   mimeType: 'application/pdf',
   sizeBytes: '2048',
   pageCount: 3,
-  category: { id: 'bbbbbbbb-2222-4222-8222-222222222222', slug: 'contract', name: 'Contract' },
+  documentType: { id: 'bbbbbbbb-2222-4222-8222-222222222222', slug: 'contract', name: 'Contract' },
   availability: 'AVAILABLE',
   processing: false,
   source: 'LIBRARY',
@@ -25,7 +25,7 @@ const base: DocumentListDto = {
 };
 
 describe('DocumentCard', () => {
-  it('shows the thumbnail, title, extension and category', () => {
+  it('shows the thumbnail, title, extension and documentType', () => {
     renderWithProviders(<DocumentCard document={base} />);
 
     const image = screen.getByRole('presentation', { hidden: true });

@@ -1,6 +1,6 @@
 import type { AutoValues } from '../../../shared/contracts/documents';
 import type {
-  CategorySource,
+  TypeSource,
   DocumentSource,
   StepSkipReason,
   StepStatus,
@@ -13,7 +13,7 @@ export type DocumentSteps = {
   canonical: StepStatus;
   preview: StepStatus;
   markdown: StepStatus;
-  categorization: StepStatus;
+  analysis: StepStatus;
   vectorization: StepStatus;
 };
 
@@ -45,8 +45,8 @@ export type Document = {
   city: string | null;
   failedStep: string | null;
   ocrUsed: boolean;
-  categoryId: string | null;
-  categorySource: CategorySource;
+  typeId: string | null;
+  typeSource: TypeSource;
   createdById: string | null;
   scanSetId: string | null;
   createdAt: Date;
@@ -75,12 +75,12 @@ export function pendingSteps(): DocumentSteps {
     canonical: 'PENDING',
     preview: 'PENDING',
     markdown: 'PENDING',
-    categorization: 'PENDING',
+    analysis: 'PENDING',
     vectorization: 'PENDING',
   };
 }
 
-// Who may change a document's title or category (docs/03 §3.4). Read access is decided by the
+// Who may change a document's title or documentType (docs/03 §3.4). Read access is decided by the
 // repository query; this is the extra rule on top of it.
 export function canEditDocumentMeta(
   user: { id: string; role: UserRole },
@@ -88,7 +88,7 @@ export function canEditDocumentMeta(
 ): boolean {
   if (user.role === 'ADMIN') return true;
   // Library documents are shared property: anyone who can read one can correct its title or
-  // category — the alternative is a library nobody may tidy up.
+  // documentType — the alternative is a library nobody may tidy up.
   if (document.source === 'LIBRARY') return true;
   // A derived document is its creator's; a share grants reading, not editing (docs/08 §8.5).
   return document.createdById === user.id;
