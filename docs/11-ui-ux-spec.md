@@ -154,6 +154,11 @@ before the metadata of the thing it names.
   reason. Entries the pipeline wrote have no author — an em dash in the Who column, which is how
   "the machine did this" is said. A table rather than a timeline: a log is scanned for the one row
   that matters, and columns that line up are what makes scanning possible.
+  **A step also says who did the work:** the service it went to, and the id it was asked under, in
+  monospace under the sentence — values to be copied into a `grep`, not read (03 §3.3.18). The same
+  id is on the started and the finished entry, and on the request the service itself logged, so
+  "analysis failed" stops being a dead end. An admin additionally sees the host, which nobody else
+  can act on and nobody else is shown.
   Fetched only when the tab is open — most visits never ask.
 - **Right (sidebar):** title (inline-editable when permitted), document type select (all users with
   access; shows "auto" tag when `typeSource=AUTO`), Download source button (disabled +

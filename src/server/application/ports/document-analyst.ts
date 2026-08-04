@@ -39,6 +39,9 @@ export type DocumentAnalysis = {
 export abstract class DocumentAnalyst {
   abstract get isConfigured(): boolean;
 
+  // Which host the work goes to (docs/03 §3.3.18); empty when unconfigured.
+  abstract get endpoint(): string;
+
   abstract analyze(
     excerpt: string,
     documentTypes: readonly DocumentTypeOption[],

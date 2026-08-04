@@ -5,6 +5,8 @@ import { HandleLibraryScan } from '../../application/jobs/handle-library-scan';
 import { HandleMaintenance } from '../../application/jobs/handle-maintenance';
 import { HandleScanSetMerge } from '../../application/jobs/handle-scanset-merge';
 import type { ProcessingSettings } from '../../application/jobs/processing-settings';
+import { CallContext } from '../../application/ports/call-context';
+import { AsyncLocalCallContext } from '../../infrastructure/logging/async-call-context';
 import { Clock } from '../../application/ports/clock';
 import { DocumentAnalyst } from '../../application/ports/document-analyst';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
@@ -55,6 +57,9 @@ function processingSettings(config: AppConfig): ProcessingSettings {
 // whole container is ready.
 @Module({
   providers: [
+    // The correlation id a pipeline step is run under (docs/03 §3.3.18). Bound here because the
+    // jobs are what open a call; an HTTP request already has an id of its own (docs/06 §6.7).
+    { provide: CallContext, useClass: AsyncLocalCallContext },
     {
       provide: HandleLibraryScan,
       useFactory: (
@@ -137,6 +142,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         chunks: DocumentChunkRepository,
         embeddings: EmbeddingProvider,
         unitOfWork: UnitOfWork,
+        calls: CallContext,
         config: AppConfig,
       ): HandleDocumentProcess =>
         new HandleDocumentProcess(
@@ -156,6 +162,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           chunks,
           embeddings,
           unitOfWork,
+          calls,
           processingSettings(config),
         ),
       inject: [
@@ -175,6 +182,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         DocumentChunkRepository,
         EmbeddingProvider,
         UnitOfWork,
+        CallContext,
         AppConfig,
       ],
     },

@@ -13,5 +13,8 @@ export abstract class DocumentParser {
   // Empty when the parser is not configured; the pipeline then falls back to PdfToolbox.
   abstract readonly isConfigured: boolean;
 
+  // Which host the work goes to (docs/03 §3.3.18); empty when unconfigured.
+  abstract readonly endpoint: string;
+
   abstract toMarkdown(source: BinarySource, options: ParseOptions): Promise<string>;
 }

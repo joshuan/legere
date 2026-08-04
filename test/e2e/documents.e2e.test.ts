@@ -635,6 +635,41 @@ describe('Documents (e2e)', () => {
       expect(back.titleSource).toBe('AUTO');
     });
 
+    it('tells an admin which host a step ran against, and tells nobody else', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open, title: 'Ticket' });
+      await testPrisma().documentEvent.create({
+        data: {
+          documentId,
+          type: 'STEP_FINISHED',
+          payload: {
+            step: 'markdown',
+            status: 'DONE',
+            service: 'docling',
+            endpoint: 'http://docling:5001',
+            requestId: '11111111-1111-4111-8111-111111111111',
+          },
+        },
+      });
+
+      const asAdmin = await api(app)
+        .get(`/api/documents/${documentId}/events`)
+        .set('Cookie', adminCookie);
+      const [adminEntry] = expectData(asAdmin, documentEventPageSchema).items;
+      expect(adminEntry?.payload.endpoint).toBe('http://docling:5001');
+
+      const reader = await inviteUser(`logreader${seq}@legere.local`);
+      const asUser = await api(app)
+        .get(`/api/documents/${documentId}/events`)
+        .set('Cookie', reader.cookie);
+      const [userEntry] = expectData(asUser, documentEventPageSchema).items;
+      // 🔒 A host on an internal network is operational detail, and only an admin can act on it
+      // (docs/03 §3.3.18). The service and the id still travel: they say who did the work.
+      expect(userEntry?.payload.endpoint).toBeUndefined();
+      expect(userEntry?.payload.service).toBe('docling');
+      expect(userEntry?.payload.requestId).toBe('11111111-1111-4111-8111-111111111111');
+    });
+
     it('writes what a person changed into the document log', async () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open, title: 'Ticket' });

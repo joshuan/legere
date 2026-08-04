@@ -21,6 +21,10 @@ export type DocumentEventPayload = {
   reason?: string | undefined;
   error?: string | undefined;
   steps?: string[] | undefined;
+  // Which service did a step, where it lives, and the id it was asked under (docs/03 §3.3.18).
+  service?: string | undefined;
+  endpoint?: string | undefined;
+  requestId?: string | undefined;
   source?: string | undefined;
   library?: string | undefined;
   path?: string | undefined;

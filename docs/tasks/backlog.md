@@ -283,7 +283,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`03 §3.3.10`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`07`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
   **Acceptance:** the analysis answers a title; it is applied only where nobody has chosen one (a file name is not a choice), recorded in `autoValues.title` either way; `PATCH /api/documents/:id` takes `title` and the viewer shows "read as …" and the reset for it exactly as it does for the document type.
 
-- [ ] **M10.5 — The log says which service did the work**
+- [x] **M10.5 — The log says which service did the work**
   **Goal:** a step in the log can be followed into the service that ran it.
   **Docs:** [`03 §3.3.18`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
   **Acceptance:** every `STEP_STARTED`/`STEP_FINISHED` carries the service it talks to and a request id shared by the pair; the id travels to the external service as `X-Request-Id` and appears in this instance's own log lines for that step; the host is shown to an admin only, and stripped from the payload for everyone else.

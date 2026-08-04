@@ -48,7 +48,7 @@ export class ListDocumentEvents {
 
   async execute(
     documentId: string,
-    query: { limit: number; cursor?: string | undefined },
+    query: { limit: number; cursor?: string | undefined; withEndpoints?: boolean },
   ): Promise<DocumentEventPage> {
     const page = await this.events.listForDocument(documentId, query);
     return {
@@ -57,7 +57,10 @@ export class ListDocumentEvents {
         type: event.type,
         at: event.at.toISOString(),
         actor: event.actorName,
-        payload: event.payload,
+        // The service and the id are everybody's — they say who did the work and under what name.
+        // The host it lives on is stripped for anyone who cannot act on it (docs/03 §3.3.18).
+        payload:
+          query.withEndpoints === true ? event.payload : { ...event.payload, endpoint: undefined },
       })),
       nextCursor: page.nextCursor,
     };

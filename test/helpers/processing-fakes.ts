@@ -50,6 +50,7 @@ import {
   type DocumentAnalysis,
 } from '../../src/server/application/ports/document-analyst';
 import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
+import { CallContext } from '../../src/server/application/ports/call-context';
 import type { Person } from '../../src/server/domain/entities/person';
 import type { Subject } from '../../src/server/domain/entities/subject';
 import {
@@ -386,6 +387,7 @@ export type PdfToolboxCall = { method: string; fileName?: string };
 
 // Records what the pipeline asked of the container, and can be told to fail a given call.
 export class FakePdfToolbox extends PdfToolbox {
+  readonly endpoint = 'http://stirling.test';
   readonly calls: PdfToolboxCall[] = [];
   failures = new Set<string>();
   pageCount = 1;
@@ -453,6 +455,7 @@ export type ResizeCall = { maxDim: number; quality: number | undefined; input: s
 // Not configured by default: the suites that predate Docling describe the fallback path, and the
 // ones that care set `configured` and read `calls`.
 export class FakeDocumentParser extends DocumentParser {
+  readonly endpoint = 'http://docling.test';
   configured = false;
   markdown = '';
   readonly calls: Array<{ ocrLanguages: readonly string[] }> = [];
@@ -729,6 +732,7 @@ export class InMemorySubjectRepository extends SubjectRepository {
 
 export class FakeAnalyst extends DocumentAnalyst {
   configured = true;
+  readonly endpoint = 'http://classifier.test';
   answer: DocumentAnalysis = {
     title: null,
     typeSlug: null,
@@ -762,6 +766,7 @@ export class FakeAnalyst extends DocumentAnalyst {
 }
 
 export class FakeEmbeddingProvider extends EmbeddingProvider {
+  readonly endpoint = 'http://embeddings.test';
   configured = true;
   failing = false;
   // Vectors are padded to this width; the real column is vector(1536), so anything writing to a
@@ -784,5 +789,26 @@ export class FakeEmbeddingProvider extends EmbeddingProvider {
         ),
       ),
     );
+  }
+}
+
+// The correlation id of one step, kept in a field rather than in AsyncLocalStorage: a test wants to
+// know what the step was run under, and the production implementation is tested on its own.
+export class FakeCallContext extends CallContext {
+  private id: string | null = null;
+  readonly ids: string[] = [];
+
+  async run<T>(requestId: string, work: () => Promise<T>): Promise<T> {
+    this.ids.push(requestId);
+    this.id = requestId;
+    try {
+      return await work();
+    } finally {
+      this.id = null;
+    }
+  }
+
+  get current(): string | null {
+    return this.id;
   }
 }

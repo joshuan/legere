@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
 import { AppConfig } from '../config/app-config';
+import { callHeaders } from '../logging/async-call-context';
 
 // The OpenAI embeddings shape, which Ollama, LM Studio, vLLM and the rest implement too
 // (docs/12 §12.4: any OpenAI-compatible base URL). `index` is read rather than trusted to be in
@@ -31,6 +32,10 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
     return this.baseUrl !== '';
   }
 
+  get endpoint(): string {
+    return this.baseUrl;
+  }
+
   async embed(texts: readonly string[]): Promise<number[][]> {
     if (!this.isConfigured) throw new Error('No embeddings provider is configured');
     if (texts.length === 0) return [];
@@ -40,6 +45,7 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
       headers: {
         'content-type': 'application/json',
         ...(this.apiKey === '' ? {} : { authorization: `Bearer ${this.apiKey}` }),
+        ...callHeaders(),
       },
       body: JSON.stringify({ model: this.model, input: texts }),
     });

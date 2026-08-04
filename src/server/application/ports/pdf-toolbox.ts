@@ -16,6 +16,10 @@ export type FirstPageOptions = {
 // LibreOffice and tesseract inside our own image would add gigabytes to it. Results come back as
 // buffers — page-sized artifacts, immediately handed to FileStorage.
 export abstract class PdfToolbox {
+  // Which host the work goes to. Recorded on every step that uses it, so a failure in the log can be
+  // followed into the container that produced it (docs/03 §3.3.18).
+  abstract readonly endpoint: string;
+
   // Office formats (DOCX/XLSX/PPTX/ODT/…) → the canonical PDF of docs/05 §5.5 step 1.
   abstract officeToPdf(source: NamedBinary): Promise<Buffer>;
 

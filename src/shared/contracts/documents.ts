@@ -219,6 +219,11 @@ export const documentEventDtoSchema = z.object({
     reason: z.string().optional(),
     error: z.string().optional(),
     steps: z.array(z.string()).optional(),
+    // Which service did the step, and the id it was asked under — both entries of a started/finished
+    // pair carry the same one (docs/03 §3.3.18). The host is an admin's to see.
+    service: z.string().optional(),
+    endpoint: z.string().optional(),
+    requestId: z.string().optional(),
     source: z.string().optional(),
     library: z.string().optional(),
     path: z.string().optional(),

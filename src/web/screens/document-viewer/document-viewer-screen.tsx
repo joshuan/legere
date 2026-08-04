@@ -1009,6 +1009,16 @@ function LogPane({ id, active, processing }: { id: string; active: boolean; proc
                   {event.payload.error}
                 </Typography.Text>
               )}
+              {/* Who did the work and under what id — the thread from this line into the log of the
+                  container that produced it. Monospace, because these are values to be compared and
+                  copied rather than read (docs/11 §11.15). The host is only ever sent to an admin. */}
+              {event.payload.service !== undefined && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }} code>
+                  {[event.payload.service, event.payload.endpoint, event.payload.requestId]
+                    .filter((part) => part !== undefined && part !== '')
+                    .join(' · ')}
+                </Typography.Text>
+              )}
             </Space>
           ),
         },

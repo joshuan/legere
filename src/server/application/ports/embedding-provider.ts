@@ -4,6 +4,9 @@
 export abstract class EmbeddingProvider {
   abstract get isConfigured(): boolean;
 
+  // Which host the work goes to (docs/03 §3.3.18); empty when unconfigured.
+  abstract get endpoint(): string;
+
   // One vector per input text, in the same order. The dimension is fixed by the column type
   // (vector(1536), docs/04 §4.3), so a model that returns something else is a configuration error.
   abstract embed(texts: readonly string[]): Promise<number[][]>;

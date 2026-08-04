@@ -7,6 +7,7 @@ import {
   type NamedBinary,
 } from '../../application/ports/pdf-toolbox';
 import { AppConfig } from '../config/app-config';
+import { callHeaders } from '../logging/async-call-context';
 
 // Stirling's REST surface (ADR-012). One endpoint per port method; the container is reached over the
 // internal network and is never exposed.
@@ -31,6 +32,10 @@ export class StirlingPdfToolbox extends PdfToolbox {
   constructor(config: AppConfig) {
     super();
     this.baseUrl = config.get('STIRLING_URL').replace(/\/+$/, '');
+  }
+
+  get endpoint(): string {
+    return this.baseUrl;
   }
 
   async officeToPdf(source: NamedBinary): Promise<Buffer> {
@@ -109,7 +114,13 @@ export class StirlingPdfToolbox extends PdfToolbox {
   }
 
   private async post(path: string, form: FormData): Promise<Response> {
-    const response = await fetch(`${this.baseUrl}${path}`, { method: 'POST', body: form });
+    // The id of the step this call belongs to travels with it, so the same line can be found in
+    // Stirling's log and in the document's (docs/03 §3.3.18).
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: 'POST',
+      body: form,
+      headers: callHeaders(),
+    });
     if (!response.ok) {
       // The body carries Stirling's own message; it goes into the job error so the failure is
       // diagnosable from the admin panel instead of being just a status code.

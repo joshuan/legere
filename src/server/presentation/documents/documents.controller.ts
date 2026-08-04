@@ -143,6 +143,7 @@ export class DocumentsController {
   @Get(':id/events')
   @UseGuards(DocumentAccessGuard)
   async getEvents(
+    @CurrentUser() user: User,
     @CurrentDocument() document: DocumentDetail,
     @ZodQuery(paginationQuerySchema) query: PaginationQuery,
   ): Promise<Envelope<DocumentEventPage>> {
@@ -150,6 +151,9 @@ export class DocumentsController {
       await this.events.execute(document.document.id, {
         limit: query.limit,
         cursor: query.cursor,
+        // The host a step ran against is operational detail: it names a container on an internal
+        // network, and only the person who administers it has any use for it (docs/03 §3.3.18).
+        withEndpoints: user.role === 'ADMIN',
       }),
     );
   }

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { toBuffer, type BinarySource } from '../../application/ports/binary-source';
 import { DocumentParser, type ParseOptions } from '../../application/ports/document-parser';
 import { AppConfig } from '../config/app-config';
+import { callHeaders } from '../logging/async-call-context';
 
 // Submit, wait, collect. The synchronous endpoint exists and is simpler, but it cannot be used for
 // the work that takes long enough to care about: docling-serve answers 504 after 120 s, and Node's
@@ -51,6 +52,10 @@ export class DoclingParser extends DocumentParser {
     return this.baseUrl !== '';
   }
 
+  get endpoint(): string {
+    return this.baseUrl;
+  }
+
   async toMarkdown(source: BinarySource, options: ParseOptions): Promise<string> {
     if (!this.isConfigured) throw new Error('DOCLING_URL is not configured');
 
@@ -92,7 +97,12 @@ export class DoclingParser extends DocumentParser {
   }
 
   private async submit(form: FormData): Promise<string> {
-    const response = await fetch(`${this.baseUrl}${CONVERT}`, { method: 'POST', body: form });
+    // The id of the step this conversion belongs to, so docling-serve logs the same one.
+    const response = await fetch(`${this.baseUrl}${CONVERT}`, {
+      method: 'POST',
+      body: form,
+      headers: callHeaders(),
+    });
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       // The one failure worth spelling out: captions need a model that is not in the stock image,
@@ -135,7 +145,7 @@ export class DoclingParser extends DocumentParser {
   }
 
   private async get(path: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}${path}`);
+    const response = await fetch(`${this.baseUrl}${path}`, { headers: callHeaders() });
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       throw new Error(`Docling ${path} failed with ${response.status}: ${detail.slice(0, 500)}`);

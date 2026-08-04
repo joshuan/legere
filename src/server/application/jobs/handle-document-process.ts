@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
   DOCUMENT_STEPS,
@@ -21,6 +22,7 @@ import type { SubjectRepository } from '../../domain/repositories/subject.reposi
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
 import { toBuffer, type BinarySource } from '../ports/binary-source';
+import type { CallContext } from '../ports/call-context';
 import type { DocumentAnalysis, DocumentAnalyst } from '../ports/document-analyst';
 import type { EmbeddingProvider } from '../ports/embedding-provider';
 import type { FileStorage } from '../ports/file-storage';
@@ -84,6 +86,7 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly chunks: DocumentChunkRepository,
     private readonly embeddings: EmbeddingProvider,
     private readonly unitOfWork: UnitOfWork,
+    private readonly calls: CallContext,
     private readonly settings: ProcessingSettings,
   ) {
     super();
@@ -191,6 +194,11 @@ export class HandleDocumentProcess extends JobHandler {
       // step this write did not touch.
       if (status === undefined || status === 'PENDING') continue;
       const reason = update.skipReasons?.[step];
+      // Which service is doing this step, and the id it was asked under. Both entries of a pair
+      // carry the same id, because the id is read from the call in progress rather than passed
+      // down: the frame that settles a step is a long way from the one that started it
+      // (docs/03 §3.3.18).
+      const requestId = this.calls.current;
       await this.events.record({
         documentId,
         type: status === 'RUNNING' ? 'STEP_STARTED' : 'STEP_FINISHED',
@@ -201,9 +209,33 @@ export class HandleDocumentProcess extends JobHandler {
           ...(status === 'FAILED' && update.processingError != null
             ? { error: update.processingError }
             : {}),
+          ...this.serviceOf(step),
+          ...(requestId === null ? {} : { requestId }),
         },
       });
     }
+  }
+
+  // Which service does a step, and where it lives. A step the pipeline does by itself — resizing an
+  // image, chunking text — names none, because there is no other log to go and read
+  // (docs/03 §3.3.18).
+  private serviceOf(step: DocumentStep): { service?: string; endpoint?: string } {
+    const stirling = { service: 'stirling', endpoint: this.pdfs.endpoint };
+    if (step === 'canonical' || step === 'preview') return stirling;
+    // Whichever one this instance actually parses with (docs/05 §5.5 step 3).
+    if (step === 'markdown') {
+      return this.parser.isConfigured
+        ? { service: 'docling', endpoint: this.parser.endpoint }
+        : stirling;
+    }
+    if (step === 'analysis') {
+      return this.analyst.isConfigured
+        ? { service: 'classifier', endpoint: this.analyst.endpoint }
+        : {};
+    }
+    return this.embeddings.isConfigured
+      ? { service: 'embeddings', endpoint: this.embeddings.endpoint }
+      : {};
   }
 
   // Says out loud that this step is being worked on, then lets the step settle its own outcome.
@@ -215,9 +247,14 @@ export class HandleDocumentProcess extends JobHandler {
     step: DocumentStep,
     work: () => Promise<T>,
   ): Promise<T> {
-    const steps: Partial<DocumentSteps> = { [step]: 'RUNNING' };
-    await this.write(documentId, { steps });
-    return work();
+    // One id per step, generated here and carried by every request the step makes, so the entry in
+    // the document's log can be looked up in the log of the service that did the work
+    // (docs/03 §3.3.18).
+    return this.calls.run(randomUUID(), async () => {
+      const steps: Partial<DocumentSteps> = { [step]: 'RUNNING' };
+      await this.write(documentId, { steps });
+      return work();
+    });
   }
 
   // Step 1. Only office formats need converting; a PDF already is one, and images and text are

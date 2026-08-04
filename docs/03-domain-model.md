@@ -359,8 +359,18 @@ somebody corrected it, and who corrected it.
 | documentId | uuid | cascade on physical delete; a soft-deleted document keeps its log (ADR-015) |
 | type | DocumentEventType | `CREATED`, `FILE_ATTACHED`, `FILE_MISSING`, `QUEUED`, `STEP_STARTED`, `STEP_FINISHED`, `META_CHANGED` |
 | actorId | uuid? | who did it; **null is the pipeline acting on its own** |
-| payload | json | what the entry needs to be readable: `step`, `status`, `reason`, `error`, `steps`, `source`, `path`, `changes` (field → `{from, to}`) |
+| payload | json | what the entry needs to be readable: `step`, `status`, `reason`, `error`, `steps`, `source`, `path`, `changes` (field → `{from, to}`), and for a step: `service`, `endpoint`, `requestId` |
 | at | timestamptz | |
+
+**Which service did it.** A step that talks to a container records which one (`service`), where it
+lives (`endpoint`) and the id it was asked under (`requestId`). The id is generated per step and
+carried by every request that step makes, as `X-Request-Id` — the header this instance answers its
+own callers with — so a failed step in this log can be found in Stirling's or Docling's. Both entries
+of a started/finished pair carry the same id, because the id is read from the call in progress rather
+than passed from one frame to the next. A step the pipeline does by itself — resizing an image,
+chunking text — names no service, since there is no other log to go and read. `endpoint` names a
+container on an internal network: it is recorded for everybody and returned only to an admin, who is
+the only one who can act on it.
 
 Read newest first, by whoever may read the document itself. Writing an entry must never be the
 reason an operation fails: a document that processed correctly but could not be written about is

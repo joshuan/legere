@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { loadConfig } from '../config/app-config';
+import { AsyncLocalCallContext } from '../logging/async-call-context';
 import { StirlingPdfToolbox } from './stirling-pdf-toolbox';
 
 // What the container is asked to do, with the container itself mocked (the acceptance of M4.2:
@@ -173,6 +174,29 @@ describe('StirlingPdfToolbox', () => {
     await expect(toolbox().ocrPdf(Buffer.from('%PDF-'), ['rus'])).rejects.toThrow(
       /no tesseract data for rus.*deploy\/stirling/s,
     );
+  });
+
+  it('carries the id of the step it is doing, so both logs name the same call', async () => {
+    const spy = mockStirling(pdfResponse());
+    const context = new AsyncLocalCallContext();
+
+    await context.run('11111111-1111-4111-8111-111111111111', () =>
+      toolbox().pdfFirstPageJpg(Buffer.from('%PDF-')),
+    );
+
+    const [, init] = spy.mock.calls[0] ?? [];
+    const headers = init instanceof Object && 'headers' in init ? init.headers : undefined;
+    expect(headers).toEqual({ 'X-Request-Id': '11111111-1111-4111-8111-111111111111' });
+  });
+
+  it('sends no id outside a call, rather than inventing one', async () => {
+    const spy = mockStirling(pdfResponse());
+
+    await toolbox().pdfFirstPageJpg(Buffer.from('%PDF-'));
+
+    const [, init] = spy.mock.calls[0] ?? [];
+    const headers = init instanceof Object && 'headers' in init ? init.headers : undefined;
+    expect(headers).toEqual({});
   });
 
   it('lets a transport failure through, so the job retries with backoff', async () => {

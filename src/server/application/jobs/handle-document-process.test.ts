@@ -4,6 +4,7 @@ import {
   documentFixture,
   LIBRARY_ID,
   FakeAnalyst,
+  FakeCallContext,
   FakeDocumentEventRepository,
   InMemoryPersonRepository,
   InMemorySubjectRepository,
@@ -53,6 +54,7 @@ describe('HandleDocumentProcess', () => {
   let subjects: InMemorySubjectRepository;
   let chunks: InMemoryDocumentChunkRepository;
   let embeddings: FakeEmbeddingProvider;
+  let calls: FakeCallContext;
   let handler: HandleDocumentProcess;
 
   beforeEach(() => {
@@ -77,6 +79,7 @@ describe('HandleDocumentProcess', () => {
     subjects = new InMemorySubjectRepository();
     chunks = new InMemoryDocumentChunkRepository();
     embeddings = new FakeEmbeddingProvider();
+    calls = new FakeCallContext();
 
     libraries.add(libraryFixture());
     reader.put(SOURCE_PATH, 'source-bytes');
@@ -98,6 +101,7 @@ describe('HandleDocumentProcess', () => {
       chunks,
       embeddings,
       new ImmediateUnitOfWork(),
+      calls,
       {
         previewMaxDim: PREVIEW_MAX_DIM,
         thumbMaxDim: THUMB_MAX_DIM,
@@ -1018,6 +1022,42 @@ describe('HandleDocumentProcess', () => {
 
       // The instance default from ProcessingSettings, exactly as configured.
       expect(parser.calls).toEqual([{ ocrLanguages: ['rus', 'eng'] }]);
+    });
+
+    it('says which service did a step, and ties both entries to one request id', async () => {
+      givenDocument({ mimeType: 'application/pdf', ext: 'pdf' });
+      parser.configured = true;
+
+      await run();
+
+      const markdown = events.events.filter((event) => event.payload?.step === 'markdown');
+      expect(markdown.map((event) => event.type)).toEqual(['STEP_STARTED', 'STEP_FINISHED']);
+      // Whichever parser this instance actually runs (docs/05 §5.5 step 3).
+      expect(markdown[0]?.payload?.service).toBe('docling');
+      expect(markdown[0]?.payload?.endpoint).toBe('http://docling.test');
+      // 🔒 One id for the pair: a started entry nobody can match to its outcome is no thread at all
+      // (docs/03 §3.3.18).
+      expect(markdown[0]?.payload?.requestId).toBe(markdown[1]?.payload?.requestId);
+      expect(calls.ids).toContain(markdown[0]?.payload?.requestId);
+
+      const analysis = events.events.filter((event) => event.payload?.step === 'analysis');
+      expect(analysis[0]?.payload?.service).toBe('classifier');
+    });
+
+    it('names Stirling when there is no Docling, and nothing where there is no service at all', async () => {
+      givenDocument({ mimeType: 'application/pdf', ext: 'pdf' });
+      parser.configured = false;
+      embeddings.configured = false;
+
+      await run();
+
+      const markdown = events.events.filter((event) => event.payload?.step === 'markdown');
+      expect(markdown[0]?.payload?.service).toBe('stirling');
+      expect(markdown[0]?.payload?.endpoint).toBe('http://stirling.test');
+      // A step this instance does not send anywhere names nobody: there is no other log to read.
+      const vectors = events.events.filter((event) => event.payload?.step === 'vectorization');
+      expect(vectors[0]?.payload?.service).toBeUndefined();
+      expect(vectors[0]?.payload?.endpoint).toBeUndefined();
     });
 
     it('rejects a step name the pipeline does not have', async () => {

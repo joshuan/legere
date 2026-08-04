@@ -6,6 +6,7 @@ import {
   type DocumentAnalysis,
 } from '../../application/ports/document-analyst';
 import { AppConfig } from '../config/app-config';
+import { callHeaders } from '../logging/async-call-context';
 
 // Chat-completions, the shape every OpenAI-compatible runtime implements (docs/06 §6.3.3).
 const completionResponseSchema = z.object({
@@ -101,6 +102,10 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     return this.baseUrl !== '' && this.model !== '';
   }
 
+  get endpoint(): string {
+    return this.baseUrl;
+  }
+
   async analyze(
     excerpt: string,
     documentTypes: readonly DocumentTypeOption[],
@@ -112,6 +117,7 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
       headers: {
         'content-type': 'application/json',
         ...(this.apiKey === '' ? {} : { authorization: `Bearer ${this.apiKey}` }),
+        ...callHeaders(),
       },
       body: JSON.stringify({
         model: this.model,

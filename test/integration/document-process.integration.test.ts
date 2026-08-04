@@ -18,6 +18,7 @@ import { InMemoryFileStorage } from '../../src/server/infrastructure/storage/in-
 import { disconnectTestPrisma, truncateAll } from '../helpers/db';
 import {
   FakeAnalyst,
+  FakeCallContext,
   FakeEmbeddingProvider,
   FakeImageTool,
   FakeDocumentParser,
@@ -78,6 +79,7 @@ describe('Document processing (integration)', () => {
       moduleRef.get(DocumentChunkRepository),
       embeddings,
       moduleRef.get(UnitOfWork),
+      new FakeCallContext(),
       {
         previewMaxDim: 1600,
         thumbMaxDim: 400,
