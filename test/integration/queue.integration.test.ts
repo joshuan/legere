@@ -93,7 +93,6 @@ describe('Queue (integration)', () => {
       'file-ingest',
       'library-scan',
       'maintenance',
-      'scanset-merge',
     ]);
   });
 
@@ -107,8 +106,9 @@ describe('Queue (integration)', () => {
     // 🔒 The singleton queues are the ones that hurt: an abandoned job keeps its key, so this is how
     // long a library stays unscannable after a restart mid-scan (docs/06 §6.8).
     expect(byName.get('library-scan')).toBe(15 * 60);
-    expect(byName.get('scanset-merge')).toBe(30 * 60);
-    // OCR through Stirling is the slow one and gets room; nothing gets the old blanket two hours.
+    expect(byName.get('file-ingest')).toBe(10 * 60);
+    // Assembling and OCR'ing a whole document through Stirling is the slow one and gets room;
+    // nothing gets the old blanket two hours.
     expect(byName.get('document-process')).toBe(60 * 60);
     for (const seconds of byName.values()) expect(seconds).toBeLessThanOrEqual(60 * 60);
   });
@@ -226,34 +226,34 @@ describe('Queue (integration)', () => {
   it('reports per-queue depths and a healthy queue', async () => {
     await queue.enqueue('file-ingest', { fileRefId: 'x' });
     await queue.enqueue('file-ingest', { fileRefId: 'y' });
-    await queue.enqueue('scanset-merge', { scanSetId: 'z' });
+    await queue.enqueue('document-process', { documentId: 'z' });
 
     const depths = await monitor.depths();
     const ingest = depths.find((depth) => depth.name === 'file-ingest');
-    const merge = depths.find((depth) => depth.name === 'scanset-merge');
+    const process = depths.find((depth) => depth.name === 'document-process');
 
     expect(ingest?.queued).toBe(2);
-    expect(merge?.queued).toBe(1);
+    expect(process?.queued).toBe(1);
     // Every known queue appears, even with nothing in it.
-    expect(depths).toHaveLength(5);
+    expect(depths).toHaveLength(4);
     expect(await monitor.isHealthy()).toBe(true);
   });
 
   it('lists failed jobs with their payload and error, and retries one', async () => {
-    const id = await queue.enqueue('scanset-merge', { scanSetId: 'fails' });
+    const id = await queue.enqueue('document-process', { documentId: 'fails' });
     // Mark it failed the way pg-boss records an exhausted job.
     await prisma.$executeRawUnsafe(
       `UPDATE pgboss.job SET state = 'failed', completed_on = now(),
-       output = '{"message":"merge exploded"}'::jsonb WHERE id = $1::uuid`,
+       output = '{"message":"the canonical exploded"}'::jsonb WHERE id = $1::uuid`,
       id,
     );
 
     const page = await monitor.failedJobs();
     expect(page.items).toHaveLength(1);
     expect(page.items[0]).toMatchObject({
-      queue: 'scanset-merge',
-      error: 'merge exploded',
-      payload: { scanSetId: 'fails' },
+      queue: 'document-process',
+      error: 'the canonical exploded',
+      payload: { documentId: 'fails' },
     });
 
     // Retrying re-enqueues a copy and leaves the original failure in the journal.

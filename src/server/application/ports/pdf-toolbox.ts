@@ -12,6 +12,14 @@ export type FirstPageOptions = {
   dpi?: number;
 };
 
+// What a canonical PDF says about itself once it is assembled (docs/05 §5.5 step 1): the title
+// somebody reads it under, and the date the paper carries — or, failing that, the day this instance
+// first saw it.
+export type PdfMetadata = {
+  title: string;
+  date: Date | null;
+};
+
 // Every operation on a binary format is delegated to the sibling Stirling-PDF container (ADR-012):
 // LibreOffice and tesseract inside our own image would add gigabytes to it. Results come back as
 // buffers — page-sized artifacts, immediately handed to FileStorage.
@@ -20,8 +28,10 @@ export abstract class PdfToolbox {
   // followed into the container that produced it (docs/03 §3.3.18).
   abstract readonly endpoint: string;
 
-  // Office formats (DOCX/XLSX/PPTX/ODT/…) → the canonical PDF of docs/05 §5.5 step 1.
-  abstract officeToPdf(source: NamedBinary): Promise<Buffer>;
+  // Anything with a printed form — DOCX/XLSX/PPTX/ODT/…, plain text, Markdown — into the one page
+  // shape everything else in the pipeline reads (docs/05 §5.5 step 1). Not just office formats:
+  // a document is a PDF whatever it arrived as, so text goes through here too.
+  abstract toPdf(source: NamedBinary): Promise<Buffer>;
 
   // First page of a PDF as a JPEG — the raw material for preview.jpg and thumb.jpg (step 2).
   abstract pdfFirstPageJpg(source: BinarySource, options?: FirstPageOptions): Promise<Buffer>;
@@ -29,8 +39,18 @@ export abstract class PdfToolbox {
   // Adds a text layer to a scanned PDF (step 3), with tesseract language codes such as ['rus','eng'].
   abstract ocrPdf(source: BinarySource, languages: readonly string[]): Promise<Buffer>;
 
-  // Scan-set merge (docs/05 §5.6): one page per image, in the order given.
+  // One page per image, in the order given (docs/05 §5.5 step 1): this is how a photographed page
+  // becomes a page of the canonical PDF.
   abstract imagesToPdf(images: readonly NamedBinary[]): Promise<Buffer>;
+
+  // The parts of a document, in position order, into one PDF (docs/05 §5.5 step 1). A single-part
+  // document never gets here — its part already is the canonical.
+  abstract mergePdfs(parts: readonly BinarySource[]): Promise<Buffer>;
+
+  // The document's title and date written into the PDF's own metadata (docs/05 §5.5 step 1). The
+  // caller treats a failure as harmless — a PDF with the wrong /Title is still the document — but
+  // this port says what happened rather than swallowing it here.
+  abstract stampMetadata(source: BinarySource, metadata: PdfMetadata): Promise<Buffer>;
 
   abstract pdfPageCount(source: BinarySource): Promise<number>;
 

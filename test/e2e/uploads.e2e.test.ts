@@ -94,22 +94,31 @@ describe('Uploads (e2e)', () => {
     // The file name becomes the title, minus its extension (docs/03 §3.3.10).
     expect(document).toMatchObject({
       title: 'Contract 2026',
-      ext: 'pdf',
-      mimeType: 'application/pdf',
-      source: 'UPLOAD',
+      fileCount: 1,
+      primaryExt: 'pdf',
+      // The bytes are ours, so the document is managed and can never be "missing" the way a library
+      // file can (docs/03 §3.3.10).
+      origin: 'MANAGED',
       availability: 'AVAILABLE',
       processing: true,
       sizeBytes: String(PDF.byteLength),
     });
 
-    // 🔒 The library volume is read-only and stays untouched: the bytes are in the bucket.
-    expect(app.files.get(artifactKeys.source(document.id, 'pdf')).body).toEqual(PDF);
+    // 🔒 The library volume is read-only and stays untouched: the bytes are in the bucket, under the
+    // file's own key (docs/09 §9.2).
+    const file = await testPrisma().file.findFirstOrThrow({
+      where: { contentHash: createHash('sha256').update(PDF).digest('hex') },
+    });
+    expect(file.origin).toBe('MANAGED');
+    expect(file.mimeType).toBe('application/pdf');
+    expect(app.files.get(artifactKeys.fileOriginal(file.id, 'pdf')).body).toEqual(PDF);
     expect((await processJobs())[0]?.data.documentId).toBe(document.id);
 
     const row = await testPrisma().document.findUniqueOrThrow({ where: { id: document.id } });
-    expect(row.contentHash).toBe(createHash('sha256').update(PDF).digest('hex'));
     expect(row.createdById).not.toBeNull();
-    expect(row.scanSetId).toBeNull();
+    // The document holds exactly that one file (docs/03 §3.3.17).
+    const held = await testPrisma().documentFile.findMany({ where: { documentId: document.id } });
+    expect(held).toMatchObject([{ position: 0, fileId: file.id }]);
   });
 
   it('detects the format from the content, not from the name it was given', async () => {
@@ -123,8 +132,10 @@ describe('Uploads (e2e)', () => {
     const res = await upload(adminCookie, png, 'invoice.pdf');
 
     const { document } = expectData(res, uploadDocumentResponseSchema);
-    expect(document.mimeType).toBe('image/png');
-    expect(document.ext).toBe('png');
+    expect(document.primaryExt).toBe('png');
+    const file = await testPrisma().file.findFirstOrThrow({ where: { name: 'invoice.pdf' } });
+    expect(file.mimeType).toBe('image/png');
+    expect(file.ext).toBe('png');
   });
 
   it('appears in the listing like any other document, and only to its owner', async () => {
@@ -135,12 +146,13 @@ describe('Uploads (e2e)', () => {
     const otherCookie = await inviteUser(`nosy${seq}@legere.local`);
 
     const mine = expectData(
-      await api(app).get('/api/documents?source=UPLOAD').set('Cookie', adminCookie),
+      await api(app).get('/api/documents?origin=MANAGED').set('Cookie', adminCookie),
       listDocumentsResponseSchema,
     );
     expect(mine.items.map((item) => item.id)).toEqual([uploaded.id]);
 
-    // 🔒 An upload belongs to whoever made it — the same rule as a scan-set result (docs/03 §3.4).
+    // 🔒 An upload belongs to whoever made it: a document with no library file is its creator's
+    // (docs/03 §3.4).
     const theirs = expectData(
       await api(app).get('/api/documents').set('Cookie', otherCookie),
       listDocumentsResponseSchema,
@@ -162,10 +174,12 @@ describe('Uploads (e2e)', () => {
       uploadDocumentResponseSchema,
     );
 
-    // Deduplication is the whole point of ADR-009: one content, one document.
+    // Deduplication is the whole point of ADR-009, one level down (ADR-021): one content, one file,
+    // and the document that already holds it.
     expect(second.created).toBe(false);
     expect(second.document.id).toBe(first.document.id);
     expect(await testPrisma().document.count()).toBe(1);
+    expect(await testPrisma().file.count()).toBe(1);
     // And the pipeline ran once, not twice.
     expect(await processJobs()).toHaveLength(1);
   });

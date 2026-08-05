@@ -11,10 +11,10 @@ import { SubjectRepository } from '../../domain/repositories/subject.repository'
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
+import { FileRepository } from '../../domain/repositories/file.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
 import { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
 import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
-import { ScanSetRepository } from '../../domain/repositories/scan-set.repository';
 import { ApiTokenRepository } from '../../domain/repositories/api-token.repository';
 import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
@@ -30,10 +30,10 @@ import { PrismaSubjectKindRepository } from './prisma-subject-kind.repository';
 import { PrismaSubjectRepository } from './prisma-subject.repository';
 import { PrismaEmailVerificationRepository } from './prisma-email-verification.repository';
 import { PrismaFileRefRepository } from './prisma-file-ref.repository';
+import { PrismaFileRepository } from './prisma-file.repository';
 import { PrismaLibraryRepository } from './prisma-library.repository';
 import { PrismaPasswordResetRepository } from './prisma-password-reset.repository';
 import { PrismaScanRunRepository } from './prisma-scan-run.repository';
-import { PrismaScanSetRepository } from './prisma-scan-set.repository';
 import { PrismaApiTokenRepository } from './prisma-api-token.repository';
 import { PrismaSessionRepository } from './prisma-session.repository';
 import { PrismaUnitOfWork } from './prisma-unit-of-work';
@@ -54,6 +54,7 @@ const REPOSITORIES = [
   { provide: LibraryRepository, useClass: PrismaLibraryRepository },
   { provide: ScanRunRepository, useClass: PrismaScanRunRepository },
   { provide: FileRefRepository, useClass: PrismaFileRefRepository },
+  { provide: FileRepository, useClass: PrismaFileRepository },
   { provide: DocumentRepository, useClass: PrismaDocumentRepository },
   { provide: DocumentEventRepository, useClass: PrismaDocumentEventRepository },
   { provide: PersonRepository, useClass: PrismaPersonRepository },
@@ -63,7 +64,6 @@ const REPOSITORIES = [
   { provide: DocumentChunkRepository, useClass: PrismaDocumentChunkRepository },
   { provide: DocumentTypeRepository, useClass: PrismaCategoryRepository },
   { provide: CollectionRepository, useClass: PrismaCollectionRepository },
-  { provide: ScanSetRepository, useClass: PrismaScanSetRepository },
 ];
 
 @Global()
@@ -81,6 +81,7 @@ const REPOSITORIES = [
     LibraryRepository,
     ScanRunRepository,
     FileRefRepository,
+    FileRepository,
     DocumentRepository,
     DocumentEventRepository,
     PersonRepository,
@@ -90,7 +91,6 @@ const REPOSITORIES = [
     DocumentChunkRepository,
     DocumentTypeRepository,
     CollectionRepository,
-    ScanSetRepository,
   ],
 })
 export class PersistenceModule {}

@@ -1,7 +1,9 @@
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { BuildCanonical } from '../../src/server/application/documents/build-canonical';
 import { HandleDocumentProcess } from '../../src/server/application/jobs/handle-document-process';
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
+import { QueueSettings } from '../../src/server/application/queue/queue-settings';
 import { DocumentTypeRepository } from '../../src/server/domain/repositories/document-type.repository';
 import { DocumentChunkRepository } from '../../src/server/domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../src/server/domain/repositories/document-event.repository';
@@ -9,8 +11,10 @@ import { PersonRepository } from '../../src/server/domain/repositories/person.re
 import { SubjectKindRepository } from '../../src/server/domain/repositories/subject-kind.repository';
 import { SubjectRepository } from '../../src/server/domain/repositories/subject.repository';
 import { DocumentRepository } from '../../src/server/domain/repositories/document.repository';
+import { FileRepository } from '../../src/server/domain/repositories/file.repository';
 import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../src/server/domain/repositories/library.repository';
+import { SettingsRepository } from '../../src/server/domain/repositories/settings.repository';
 import { UnitOfWork } from '../../src/server/application/ports/unit-of-work';
 import { AnalysisSettings } from '../../src/server/application/settings/analysis-settings';
 import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
@@ -31,9 +35,13 @@ import {
 
 const SOURCE_PATH = 'a.pdf';
 
+// What the canonical reads as unless a test says otherwise: comfortably over the per-page threshold,
+// so the default path is "this PDF carries its own text".
+const DEFAULT_TEXT = 'Invoice 2026-01 for consulting services, payable within thirty days';
+
 // The pipeline against the real database (docs/14 §14.8): what the unit suite asserts in memory has
-// to survive the round trip through Prisma — the step columns, the page count and the error column
-// with its 2000-character cap (docs/03 §3.3.10).
+// to survive the round trip through Prisma — the step columns, the page count of the canonical and
+// the error column with its 2000-character cap (docs/03 §3.3.10).
 describe('Document processing (integration)', () => {
   let prisma: PrismaService;
   let handler: HandleDocumentProcess;
@@ -56,7 +64,6 @@ describe('Document processing (integration)', () => {
     files = new InMemoryFileStorage();
     pdfs = new FakePdfToolbox();
     parser = new FakeDocumentParser();
-    pdfs.defaultMarkdown = 'Invoice 2026-01 for consulting services, payable within thirty days';
     analyst = new FakeAnalyst();
     embeddings = new FakeEmbeddingProvider();
     // The column is vector(1536) (docs/04 §4.3); a provider of another width is a configuration
@@ -65,12 +72,37 @@ describe('Document processing (integration)', () => {
     reader = new StubLibraryReader();
     reader.put(SOURCE_PATH, 'source-bytes');
 
+    const settings = {
+      previewMaxDim: 1600,
+      thumbMaxDim: 400,
+      ocrLanguages: ['eng'],
+      pdfTextMinCharsPerPage: 32,
+      chunkTargetChars: 200,
+      chunkOverlapChars: 40,
+    };
+
     handler = new HandleDocumentProcess(
       moduleRef.get(DocumentRepository),
       moduleRef.get(DocumentEventRepository),
-      moduleRef.get(FileRefRepository),
-      moduleRef.get(LibraryRepository),
-      reader,
+      new BuildCanonical(
+        moduleRef.get(FileRepository),
+        moduleRef.get(FileRefRepository),
+        moduleRef.get(LibraryRepository),
+        reader,
+        files,
+        new FakeImageTool(),
+        pdfs,
+        new QueueSettings(moduleRef.get(SettingsRepository), {
+          concurrency: {
+            'library-scan': 1,
+            'file-ingest': 1,
+            'document-process': 1,
+            maintenance: 1,
+          },
+          unitConcurrency: 4,
+        }),
+        settings,
+      ),
       files,
       pdfs,
       parser,
@@ -85,14 +117,7 @@ describe('Document processing (integration)', () => {
       moduleRef.get(UnitOfWork),
       new FakeCallContext(),
       new AnalysisSettings(new InMemorySettingsRepository()),
-      {
-        previewMaxDim: 1600,
-        thumbMaxDim: 400,
-        ocrLanguages: ['eng'],
-        pdfTextMinCharsPerPage: 32,
-        chunkTargetChars: 200,
-        chunkOverlapChars: 40,
-      },
+      settings,
     );
 
     await truncateAll();
@@ -106,6 +131,10 @@ describe('Document processing (integration)', () => {
     pdfs.failureDetail = '';
     pdfs.markdownFailing = false;
     pdfs.markdownReads.length = 0;
+    pdfs.markdownByContent.clear();
+    // Reset per test: what the canonical is read as decides both the OCR branch and the chunks, so
+    // text left behind by an earlier test would quietly become the next document's body.
+    pdfs.defaultMarkdown = DEFAULT_TEXT;
     // The page count decides the OCR threshold now, so a count left behind by an earlier test would
     // silently turn the next document into a "scan".
     pdfs.pageCount = 1;
@@ -121,6 +150,8 @@ describe('Document processing (integration)', () => {
     await disconnectTestPrisma();
   });
 
+  // A document of one library file: the row, the file it holds, and the ref that says where the
+  // bytes are (docs/03 §3.3.16–3.3.17).
   async function givenLibraryDocument(mimeType = 'application/pdf'): Promise<string> {
     const library = await prisma.library.create({
       data: {
@@ -131,20 +162,24 @@ describe('Document processing (integration)', () => {
         scanIntervalMinutes: 15,
       },
     });
-    const document = await prisma.document.create({
+    const document = await prisma.document.create({ data: { title: 'Invoice' } });
+    const file = await prisma.file.create({
       data: {
         contentHash: 'b'.repeat(64),
-        source: 'LIBRARY',
+        origin: 'LIBRARY',
         mimeType,
         ext: 'pdf',
         sizeBytes: 12n,
-        title: 'Invoice',
+        name: SOURCE_PATH,
       },
+    });
+    await prisma.documentFile.create({
+      data: { documentId: document.id, position: 0, fileId: file.id },
     });
     await prisma.fileRef.create({
       data: {
         libraryId: library.id,
-        documentId: document.id,
+        fileId: file.id,
         path: SOURCE_PATH,
         size: 12n,
         mtime: new Date('2026-01-01T00:00:00.000Z'),
@@ -155,18 +190,21 @@ describe('Document processing (integration)', () => {
     return document.id;
   }
 
-  it('writes the step statuses and the page count to the document row', async () => {
+  it('writes the step statuses and the page count of the canonical to the document row', async () => {
     const documentId = await givenLibraryDocument();
     pdfs.pageCount = 42;
+    pdfs.defaultMarkdown = 'Long enough to read as a text layer over forty-two pages. '.repeat(60);
 
     await handler.handle({ documentId });
 
     const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
-    expect(row.canonicalStatus).toBe('SKIPPED');
+    expect(row.canonicalStatus).toBe('DONE');
     expect(row.previewStatus).toBe('DONE');
     expect(row.pageCount).toBe(42);
     expect(row.processingError).toBeNull();
+    // 🔒 Every document has a canonical PDF, and the previews are rendered from it (ADR-021).
     expect(files.keys()).toEqual([
+      artifactKeys.canonicalPdf(documentId),
       artifactKeys.preview(documentId),
       artifactKeys.thumbnail(documentId),
     ]);
@@ -187,7 +225,7 @@ describe('Document processing (integration)', () => {
     expect(row.processingError?.endsWith('…')).toBe(true);
   });
 
-  it('finds the file to read through the live ref of the document', async () => {
+  it('finds the bytes of each file through its own live ref', async () => {
     const documentId = await givenLibraryDocument();
 
     await handler.handle({ documentId });
@@ -223,17 +261,17 @@ describe('Document processing (integration)', () => {
 
   it('stores text with characters no single-byte encoding could carry', async () => {
     const documentId = await givenLibraryDocument('text/plain');
-    reader.put(SOURCE_PATH, Buffer.from('Счёт за январь — 1 200 ₽', 'utf8'));
+    pdfs.defaultMarkdown = 'Счёт за январь — 1 200 ₽ по договору оказания услуг за отчётный период';
 
     await handler.handle({ documentId });
 
     const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
-    expect(row.markdown).toBe('Счёт за январь — 1 200 ₽');
+    expect(row.markdown).toContain('Счёт за январь — 1 200 ₽');
   });
 
   it('writes chunks with their vectors into pgvector, replacing them wholesale on a re-run', async () => {
     const documentId = await givenLibraryDocument('text/plain');
-    reader.put(SOURCE_PATH, 'The first body of this document, long enough to be worth embedding.');
+    pdfs.defaultMarkdown = 'The first body of this document, long enough to be worth embedding.';
 
     await handler.handle({ documentId });
 
@@ -250,7 +288,7 @@ describe('Document processing (integration)', () => {
     ).toBe('DONE');
 
     // A re-run with different text replaces the set rather than adding to it (docs/03 §3.3.11).
-    reader.put(SOURCE_PATH, 'A completely different body.\n\nWith a second paragraph in it.');
+    pdfs.defaultMarkdown = 'A completely different body, with quite enough words to be a chunk.';
     await handler.handle({ documentId });
 
     const second = await prisma.$queryRawUnsafe<{ content: string }[]>(
@@ -263,7 +301,7 @@ describe('Document processing (integration)', () => {
 
   it('finds a chunk by cosine distance, which is what semantic search will do', async () => {
     const documentId = await givenLibraryDocument('text/plain');
-    reader.put(SOURCE_PATH, 'Searchable body text.');
+    pdfs.defaultMarkdown = 'Searchable body text, long enough to survive the text-layer threshold.';
 
     await handler.handle({ documentId });
 
@@ -282,7 +320,6 @@ describe('Document processing (integration)', () => {
       data: { slug: 'invoice', name: 'Invoice', description: 'Bills and payment requests.' },
     });
     const documentId = await givenLibraryDocument('text/plain');
-    reader.put(SOURCE_PATH, 'Amount due: 1200.');
     analyst.slug = 'invoice';
 
     await handler.handle({ documentId });
@@ -307,7 +344,6 @@ describe('Document processing (integration)', () => {
 
   it('skips both AI steps, without error, when no provider is configured', async () => {
     const documentId = await givenLibraryDocument('text/plain');
-    reader.put(SOURCE_PATH, 'Body text.');
     analyst.configured = false;
     embeddings.configured = false;
 
@@ -320,7 +356,7 @@ describe('Document processing (integration)', () => {
     expect(await prisma.documentChunk.count({ where: { documentId } })).toBe(0);
   });
 
-  it('leaves an unsupported format settled without any artifact', async () => {
+  it('leaves a document nothing can render settled, without any artifact', async () => {
     await prisma.documentType.create({ data: { slug: 'other', name: 'Other' } });
     const documentId = await givenLibraryDocument('application/x-executable');
 
@@ -333,6 +369,47 @@ describe('Document processing (integration)', () => {
     expect(row.vectorizationStatus).toBe('SKIPPED');
     // Nothing is left PENDING: the document is finished, not forever in progress.
     expect(row.analysisStatus).toBe('DONE');
+    // And the reason is on the row, so the panel can say why rather than only that (docs/03 §3.3.10).
+    expect(row.skipReasons).toMatchObject({ canonical: 'UNSUPPORTED_FORMAT' });
     expect(files.keys()).toEqual([]);
+  });
+
+  it('builds one canonical out of several files, in position order', async () => {
+    const documentId = await givenLibraryDocument();
+    const second = await prisma.file.create({
+      data: {
+        contentHash: 'c'.repeat(64),
+        origin: 'LIBRARY',
+        mimeType: 'application/pdf',
+        ext: 'pdf',
+        sizeBytes: 12n,
+        name: 'b.pdf',
+      },
+    });
+    await prisma.documentFile.create({
+      data: { documentId, position: 1, fileId: second.id },
+    });
+    const library = await prisma.library.findFirstOrThrow();
+    await prisma.fileRef.create({
+      data: {
+        libraryId: library.id,
+        fileId: second.id,
+        path: 'b.pdf',
+        size: 12n,
+        mtime: new Date('2026-01-01T00:00:00.000Z'),
+        status: 'HASHED',
+        contentHash: 'c'.repeat(64),
+      },
+    });
+    reader.put('b.pdf', 'second-bytes');
+
+    await handler.handle({ documentId });
+
+    const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    expect(row.canonicalStatus).toBe('DONE');
+    // 🔒 Page order is position order (docs/05 §5.5 step 1).
+    expect(files.get(artifactKeys.canonicalPdf(documentId)).body.toString()).toBe(
+      'merged(source-bytes,second-bytes)',
+    );
   });
 });

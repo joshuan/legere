@@ -5,6 +5,7 @@ import {
   HttpCode,
   Patch,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -30,6 +31,17 @@ import {
   type UploadDocumentResponse,
   DocumentMarkdownResponse,
 } from '../../../shared/contracts/documents';
+import {
+  combineDocumentsRequestSchema,
+  reorderDocumentFilesRequestSchema,
+  updateDocumentFileRequestSchema,
+  type CombineDocumentsRequest,
+  type CropSuggestionResponse,
+  type GroupingSuggestionsResponse,
+  type ReorderDocumentFilesRequest,
+  type SplitDocumentFileResponse,
+  type UpdateDocumentFileRequest,
+} from '../../../shared/contracts/files';
 import type { OkResponse } from '../../../shared/contracts/users';
 import type { User } from '../../domain/entities/user';
 import {
@@ -41,13 +53,23 @@ import {
   UpdateDocumentMeta,
 } from '../../application/documents/manage-documents';
 import {
-  DownloadDocumentSource,
+  AddDocumentFile,
+  CombineDocuments,
+  ReorderDocumentFiles,
+  SetDocumentFileCrop,
+  SplitDocumentFile,
+  SuggestDocumentFileCrop,
+} from '../../application/documents/compose-document';
+import {
+  DownloadDocumentCanonical,
+  DownloadDocumentFile,
   GetDocumentArtifactUrl,
   GetDocumentMarkdown,
   type ArtifactKind,
   type Download,
 } from '../../application/documents/download-document';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
+import { SuggestGroupings } from '../../application/documents/suggest-groupings';
 import { UploadDocument } from '../../application/documents/upload-document';
 import type { DocumentDetail } from '../../domain/repositories/document.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
@@ -58,7 +80,7 @@ import { successEnvelope } from '../http/envelope';
 import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
 import { UuidParam } from '../http/uuid-param.pipe';
 import { CurrentDocument, DocumentAccessGuard } from './document-access.guard';
-import { readUploadBody, uploadFileName } from './read-upload-body';
+import { attachedFileName, readUploadBody, uploadFileName } from './read-upload-body';
 
 // Documents (docs/07 §7.3). Guard order: SessionGuard → RolesGuard → DocumentAccessGuard
 // (docs/06 §6.4); the access guard loads the document once and hands it to the route.
@@ -73,10 +95,18 @@ export class DocumentsController {
     private readonly reprocess: ReprocessDocument,
     private readonly events: ListDocumentEvents,
     private readonly years: ListDocumentYears,
-    private readonly download: DownloadDocumentSource,
+    private readonly canonical: DownloadDocumentCanonical,
+    private readonly fileContent: DownloadDocumentFile,
     private readonly artifactUrl: GetDocumentArtifactUrl,
     private readonly markdown: GetDocumentMarkdown,
     private readonly upload: UploadDocument,
+    private readonly addFile: AddDocumentFile,
+    private readonly reorderFiles: ReorderDocumentFiles,
+    private readonly setCrop: SetDocumentFileCrop,
+    private readonly suggestCrop: SuggestDocumentFileCrop,
+    private readonly splitFile: SplitDocumentFile,
+    private readonly combine: CombineDocuments,
+    private readonly groupings: SuggestGroupings,
     private readonly config: AppConfig,
   ) {}
 
@@ -106,6 +136,15 @@ export class DocumentsController {
   @Get('years')
   async getYears(@CurrentUser() user: User): Promise<Envelope<DocumentYearsResponse>> {
     return successEnvelope(await this.years.execute({ id: user.id, role: user.role }));
+  }
+
+  // "These look like one document" (docs/05 §5.6a): computed on every request, never stored. Before
+  // `:id` for the same reason as the years.
+  @Get('grouping-suggestions')
+  async getGroupingSuggestions(
+    @CurrentUser() user: User,
+  ): Promise<Envelope<GroupingSuggestionsResponse>> {
+    return successEnvelope(await this.groupings.execute({ id: user.id, role: user.role }));
   }
 
   @Get(':id')
@@ -158,16 +197,90 @@ export class DocumentsController {
     );
   }
 
-  // The original file: streamed for a library document, a signed URL for a derived one
-  // (docs/09 §9.1–9.2).
-  @Get(':id/source')
+  // --- what the document is made of (docs/07 §7.3, docs/05 §5.6) -------------------------------
+
+  // The file is the body, its name in a header, and it is appended last. Every composition route
+  // answers with the whole document: a change to one file is never local to it.
+  @Post(':id/files')
   @UseGuards(DocumentAccessGuard)
-  async getSource(
+  async postFile(
+    @CurrentUser() user: User,
     @CurrentDocument() document: DocumentDetail,
+    @Req() req: Request,
+  ): Promise<Envelope<DocumentDetailDto>> {
+    const fileName = attachedFileName(req);
+    const bytes = await readUploadBody(req, this.config.get('UPLOAD_MAX_BYTES'));
+    return successEnvelope(await this.addFile.execute(user, document, { bytes, fileName }));
+  }
+
+  @Patch(':id/files')
+  @UseGuards(DocumentAccessGuard)
+  async patchFiles(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @ZodBody(reorderDocumentFilesRequestSchema) body: ReorderDocumentFilesRequest,
+  ): Promise<Envelope<DocumentDetailDto>> {
+    return successEnvelope(await this.reorderFiles.execute(user, document, body));
+  }
+
+  @Patch(':id/files/:fileId')
+  @UseGuards(DocumentAccessGuard)
+  async patchFile(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @UuidParam('fileId', 'FILE_NOT_FOUND', 'File') fileId: string,
+    @ZodBody(updateDocumentFileRequestSchema) body: UpdateDocumentFileRequest,
+  ): Promise<Envelope<DocumentDetailDto>> {
+    return successEnvelope(await this.setCrop.execute(user, document, fileId, body));
+  }
+
+  // The file leaves and becomes a document of its own — never nothing (docs/05 §5.6).
+  @Delete(':id/files/:fileId')
+  @UseGuards(DocumentAccessGuard)
+  async deleteFile(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @UuidParam('fileId', 'FILE_NOT_FOUND', 'File') fileId: string,
+  ): Promise<Envelope<SplitDocumentFileResponse>> {
+    return successEnvelope(await this.splitFile.execute(user, document, fileId));
+  }
+
+  // A proposal, not a change: nothing is stored until the client saves it (docs/05 §5.6).
+  @Get(':id/files/:fileId/crop-suggestion')
+  @UseGuards(DocumentAccessGuard)
+  async getCropSuggestion(
+    @CurrentDocument() document: DocumentDetail,
+    @UuidParam('fileId', 'FILE_NOT_FOUND', 'File') fileId: string,
+  ): Promise<Envelope<CropSuggestionResponse>> {
+    return successEnvelope(await this.suggestCrop.execute(document, fileId));
+  }
+
+  // One original, exactly as it arrived: streamed from the volume, or a signed URL for a managed
+  // file (docs/09 §9.1–9.2).
+  @Get(':id/files/:fileId/content')
+  @UseGuards(DocumentAccessGuard)
+  async getFileContent(
+    @CurrentDocument() document: DocumentDetail,
+    @UuidParam('fileId', 'FILE_NOT_FOUND', 'File') fileId: string,
     @Res() res: Response,
   ): Promise<void> {
-    send(res, await this.download.execute(document), 'attachment');
+    send(res, await this.fileContent.execute(document, fileId), 'attachment');
   }
+
+  // An update rather than a creation: nothing new appears, several documents become one
+  // (docs/07 §7.1).
+  @Post(':id/combine')
+  @HttpCode(200)
+  @UseGuards(DocumentAccessGuard)
+  async postCombine(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @ZodBody(combineDocumentsRequestSchema) body: CombineDocumentsRequest,
+  ): Promise<Envelope<DocumentDetailDto>> {
+    return successEnvelope(await this.combine.execute(user, document, body));
+  }
+
+  // --- what a document looks like (docs/09 §9.2) -----------------------------------------------
 
   @Get(':id/preview')
   @UseGuards(DocumentAccessGuard)
@@ -181,10 +294,17 @@ export class DocumentsController {
     return this.sendArtifact(document, 'thumb', res);
   }
 
+  // The document itself, as one PDF (docs/05 §5.5): read inline in the viewer, saved under the
+  // document's own title when `?download=1` (docs/11 §11.5b).
   @Get(':id/canonical')
   @UseGuards(DocumentAccessGuard)
-  getCanonical(@CurrentDocument() document: DocumentDetail, @Res() res: Response): Promise<void> {
-    return this.sendArtifact(document, 'canonical', res);
+  async getCanonical(
+    @CurrentDocument() document: DocumentDetail,
+    @Query('download') download: string | undefined,
+    @Res() res: Response,
+  ): Promise<void> {
+    const asAttachment = download === '1' || download === 'true';
+    send(res, await this.canonical.execute(document, asAttachment), 'attachment');
   }
 
   private async sendArtifact(
@@ -217,7 +337,11 @@ function send(res: Response, download: Download, disposition: 'attachment' | 'in
   }
 
   res.setHeader('Content-Type', download.contentType);
-  res.setHeader('Content-Length', download.contentLength.toString());
+  // Absent for the canonical PDF: only the bucket knows how big it is, and asking would cost a round
+  // trip to save the client a progress bar.
+  if (download.contentLength !== undefined) {
+    res.setHeader('Content-Length', download.contentLength.toString());
+  }
   res.setHeader('Content-Disposition', contentDisposition(disposition, download.fileName));
   // 🔒 A library file is user content served from our own origin: nothing here may be sniffed into
   // something the browser decides to execute.

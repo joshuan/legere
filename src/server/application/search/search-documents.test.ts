@@ -13,6 +13,11 @@ function match(id: string, rank: number, snippet: string | null): SearchMatch {
     item: {
       document: { ...documentFixture(), id, title: `Document ${id}` },
       documentType: null,
+      // What a list row derives from the files a document holds (docs/07 §7.3).
+      fileCount: 1,
+      primaryExt: 'pdf',
+      sizeBytes: 1024n,
+      origin: 'LIBRARY',
       availability: 'AVAILABLE',
     },
     rank,
@@ -70,10 +75,7 @@ class StubSearchRepository extends DocumentRepository {
   filterExistingIds() {
     return notUsed();
   }
-  findActiveByContentHash() {
-    return notUsed();
-  }
-  findOrCreateByContentHash() {
+  create() {
     return notUsed();
   }
 }

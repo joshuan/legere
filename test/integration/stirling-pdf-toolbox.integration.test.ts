@@ -37,7 +37,7 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
   itWithStirling(
     'converts an office document to a PDF that still holds its text',
     async () => {
-      const pdf = await pdfs.officeToPdf({
+      const pdf = await pdfs.toPdf({
         body: rtfWithText('Quarterly report for Legere'),
         fileName: 'report.rtf',
       });
@@ -80,6 +80,31 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
 
     expect(merged.subarray(0, 5).toString()).toBe('%PDF-');
     expect(await pdfs.pdfPageCount(merged)).toBe(2);
+  });
+
+  itWithStirling('merges the parts of a document into one PDF, in the order given', async () => {
+    // What step 1 does with a document of several files (docs/05 §5.5 step 1).
+    const merged = await pdfs.mergePdfs([
+      pdfWithText(['First part, page one', 'First part, page two']),
+      pdfWithText(['Second part']),
+    ]);
+
+    expect(await pdfs.pdfPageCount(merged)).toBe(3);
+    const text = await pdfs.pdfToMarkdown(merged);
+    expect(text.indexOf('First part, page one')).toBeLessThan(text.indexOf('Second part'));
+  });
+
+  itWithStirling('stamps the title and the date into the metadata', async () => {
+    const stamped = await pdfs.stampMetadata(pdfWithText(['A page']), {
+      title: 'Lease agreement',
+      date: new Date('2019-07-14T08:30:00.000Z'),
+    });
+
+    expect(stamped.subarray(0, 5).toString()).toBe('%PDF-');
+    // The PDF still reads: metadata is written beside the pages, never instead of them. The title
+    // itself lands in a compressed object stream, so what is checked here is that the container
+    // accepted the fields and gave back a document — a wrong date format is a 500, not a silent no-op.
+    expect(await pdfs.pdfPageCount(stamped)).toBe(1);
   });
 
   itWithStirling(

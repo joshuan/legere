@@ -234,7 +234,7 @@ function toFileRef(snapshot: FileRefSnapshot) {
     mtimeMs: snapshot.mtimeMs,
     status: snapshot.status,
     contentHash: snapshot.contentHash,
-    documentId: snapshot.documentId,
+    fileId: snapshot.fileId,
     missingSince: null,
     firstSeenAt: new Date(0),
     lastSeenAt: new Date(0),

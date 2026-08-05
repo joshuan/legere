@@ -22,14 +22,14 @@ vi.mock('next/navigation', () => ({
 const document1 = {
   id: 'bbbbbbbb-2222-4222-8222-222222222222',
   title: 'January invoice',
-  ext: 'pdf',
-  mimeType: 'application/pdf',
+  fileCount: 1,
+  primaryExt: 'pdf',
   sizeBytes: '2048',
   pageCount: 1,
   documentType: null,
   availability: 'AVAILABLE',
   processing: false,
-  source: 'LIBRARY',
+  origin: 'LIBRARY',
   hasPreview: false,
   createdAt: '2026-01-01T00:00:00.000Z',
 };

@@ -18,14 +18,14 @@ const ID = 'aaaaaaaa-1111-4111-8111-111111111111';
 const document1 = {
   id: 'eeeeeeee-5555-4555-8555-555555555555',
   title: 'Rental agreement',
-  ext: 'pdf',
-  mimeType: 'application/pdf',
+  fileCount: 1,
+  primaryExt: 'pdf',
   sizeBytes: '2048',
   pageCount: 1,
   documentType: null,
   availability: 'AVAILABLE',
   processing: false,
-  source: 'LIBRARY',
+  origin: 'LIBRARY',
   hasPreview: false,
   createdAt: '2026-01-01T00:00:00.000Z',
 };

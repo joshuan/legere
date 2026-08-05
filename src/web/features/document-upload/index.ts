@@ -4,5 +4,6 @@ export {
   UploadButton,
   UploadDropZone,
   UploadingCard,
+  UploadingRow,
   type QueuedUpload,
 } from './document-upload';

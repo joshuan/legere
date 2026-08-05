@@ -11,7 +11,9 @@ export type FileRef = {
   mtimeMs: number;
   status: FileRefStatus;
   contentHash: string | null;
-  documentId: string | null;
+  // The file these bytes are, set when HASHED (docs/03 §3.3.9). A ref points at a file, and the
+  // file is what a document holds.
+  fileId: string | null;
   missingSince: Date | null;
   firstSeenAt: Date;
   lastSeenAt: Date;
@@ -22,7 +24,7 @@ export type FileRef = {
 // is stored, so an unchanged file never looks changed.
 export function needsRehash(ref: FileRef, size: bigint, mtimeMs: number): boolean {
   if (ref.status !== 'HASHED') return true;
-  if (ref.contentHash === null || ref.documentId === null) return true;
+  if (ref.contentHash === null || ref.fileId === null) return true;
   return ref.size !== size || Math.trunc(ref.mtimeMs) !== Math.trunc(mtimeMs);
 }
 
@@ -40,8 +42,8 @@ export function canTransition(from: FileRefStatus, to: FileRefStatus): boolean {
   return allowed[from].includes(to);
 }
 
-// A ref points at real, readable content only while it is HASHED and attached to a document; this is
-// what document availability is computed from (docs/03 §3.3.10).
+// A ref points at real, readable content only while it is HASHED and attached to a file; this is what
+// a document's availability is computed from, one file at a time (docs/03 §3.3.10).
 export function isLive(ref: FileRef): boolean {
-  return ref.status === 'HASHED' && ref.documentId !== null;
+  return ref.status === 'HASHED' && ref.fileId !== null;
 }

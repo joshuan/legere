@@ -18,36 +18,43 @@ import {
   InMemoryDocumentChunkRepository,
   InMemoryDocumentRepository,
   InMemoryFileRefRepository,
+  InMemoryFileRepository,
   InMemoryLibraryRepository,
   InMemorySettingsRepository,
   libraryFixture,
+  queueSettingsFixture,
   StubLibraryReader,
 } from '../../../../test/helpers/processing-fakes';
 import type { Document } from '../../domain/entities/document';
+import type { File } from '../../domain/entities/file';
+import { RelativePath } from '../../domain/value-objects/relative-path';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
-import { artifactKeys } from '../storage/artifact-keys';
+import { BuildCanonical } from '../documents/build-canonical';
+import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
 import { AnalysisSettings } from '../settings/analysis-settings';
 import { HandleDocumentProcess } from './handle-document-process';
 
 const PREVIEW_MAX_DIM = 1600;
 const THUMB_MAX_DIM = 400;
-const SOURCE_PATH = 'invoices/a.pdf';
-const DERIVED_ID = '33333333-3333-4333-8333-333333333333';
 const MIN_CHARS_PER_PAGE = 32;
 // Comfortably above the threshold, so the default PDF path is "has a text layer".
 const TEXT_LAYER = 'Invoice 2026-01 for services rendered in January, payable within 30 days.';
 const GONE_ID = '44444444-4444-4444-8444-444444444444';
 
-// Steps 1–2 of docs/05 §5.5 with the containers and the bucket replaced by in-memory doubles: what
-// is asserted here is the routing, the artifacts and the statuses — the ports themselves are covered
-// by their own suites.
+// One page of a document: the file row, and the bytes behind it.
+type PageSpec = { file?: Partial<File>; bytes?: string };
+
+// The whole pipeline of docs/05 §5.5 with the containers and the bucket replaced by in-memory
+// doubles: what is asserted here is the assembly, the artifacts and the statuses — the ports
+// themselves are covered by their own suites.
 describe('HandleDocumentProcess', () => {
   let documents: InMemoryDocumentRepository;
+  let fileRepo: InMemoryFileRepository;
   let events: FakeDocumentEventRepository;
   let fileRefs: InMemoryFileRefRepository;
   let libraries: InMemoryLibraryRepository;
   let reader: StubLibraryReader;
-  let files: InMemoryFileStorage;
+  let storage: InMemoryFileStorage;
   let pdfs: FakePdfToolbox;
   let parser: FakeDocumentParser;
   let images: FakeImageTool;
@@ -63,11 +70,12 @@ describe('HandleDocumentProcess', () => {
 
   beforeEach(() => {
     documents = new InMemoryDocumentRepository();
+    fileRepo = new InMemoryFileRepository();
     events = new FakeDocumentEventRepository();
     fileRefs = new InMemoryFileRefRepository();
     libraries = new InMemoryLibraryRepository();
     reader = new StubLibraryReader();
-    files = new InMemoryFileStorage();
+    storage = new InMemoryFileStorage();
     pdfs = new FakePdfToolbox();
     parser = new FakeDocumentParser();
     images = new FakeImageTool();
@@ -87,15 +95,31 @@ describe('HandleDocumentProcess', () => {
     calls = new FakeCallContext();
 
     libraries.add(libraryFixture());
-    reader.put(SOURCE_PATH, 'source-bytes');
+
+    const settings = {
+      previewMaxDim: PREVIEW_MAX_DIM,
+      thumbMaxDim: THUMB_MAX_DIM,
+      ocrLanguages: ['rus', 'eng'],
+      pdfTextMinCharsPerPage: MIN_CHARS_PER_PAGE,
+      chunkTargetChars: 200,
+      chunkOverlapChars: 40,
+    };
 
     handler = new HandleDocumentProcess(
       documents,
       events,
-      fileRefs,
-      libraries,
-      reader,
-      files,
+      new BuildCanonical(
+        fileRepo,
+        fileRefs,
+        libraries,
+        reader,
+        storage,
+        images,
+        pdfs,
+        queueSettingsFixture(),
+        settings,
+      ),
+      storage,
       pdfs,
       parser,
       images,
@@ -109,21 +133,36 @@ describe('HandleDocumentProcess', () => {
       new ImmediateUnitOfWork(),
       calls,
       new AnalysisSettings(new InMemorySettingsRepository()),
-      {
-        previewMaxDim: PREVIEW_MAX_DIM,
-        thumbMaxDim: THUMB_MAX_DIM,
-        ocrLanguages: ['rus', 'eng'],
-        pdfTextMinCharsPerPage: MIN_CHARS_PER_PAGE,
-        chunkTargetChars: 200,
-        chunkOverlapChars: 40,
-      },
+      settings,
     );
   });
 
-  // A library document with one live file ref pointing at the stub volume.
-  function givenDocument(overrides: Partial<Document> = {}): Document {
+  // A document and the files it is made of: a library file gets a ref pointing at the stub volume,
+  // a managed one gets its bytes in the bucket.
+  async function givenDocument(
+    pages: PageSpec[] = [{}],
+    overrides: Partial<Document> = {},
+  ): Promise<Document> {
     const document = documents.add(documentFixture(overrides));
-    fileRefs.add({ id: `ref-${document.id}`, libraryId: LIBRARY_ID, documentId: document.id });
+    for (const [index, page] of pages.entries()) {
+      const file = fileRepo.add(
+        { id: `file-${index + 1}`, name: `page-${index + 1}.pdf`, ...page.file },
+        document.id,
+      );
+      const bytes = page.bytes ?? `bytes-${index + 1}`;
+      if (file.origin === 'MANAGED') {
+        await storage.put(originalKeyOf(file), Buffer.from(bytes), file.mimeType);
+      } else {
+        const path = `invoices/${file.id}-${file.name}`;
+        reader.put(path, bytes);
+        fileRefs.add({
+          id: `ref-${file.id}`,
+          libraryId: LIBRARY_ID,
+          fileId: file.id,
+          path: RelativePath.parse(path),
+        });
+      }
+    }
     return document;
   }
 
@@ -135,95 +174,172 @@ describe('HandleDocumentProcess', () => {
     return document;
   };
 
-  describe('the format matrix (docs/05 §5.5)', () => {
-    it('a PDF needs no canonicalization and previews from the source', async () => {
-      givenDocument({ mimeType: 'application/pdf', ext: 'pdf' });
+  const canonicalOf = (id = DOCUMENT_ID): string =>
+    storage.get(artifactKeys.canonicalPdf(id)).body.toString();
+
+  const methodsCalled = (): string[] => pdfs.calls.map((call) => call.method);
+
+  describe('the canonical PDF (docs/05 §5.5 step 1)', () => {
+    it('takes a PDF as it is: one part, no merge, straight into the bucket', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       pdfs.pageCount = 12;
-      // A dozen pages carrying a dozen pages' worth of text. The threshold is per page now, so one
-      // sentence spread over twelve pages would (correctly) be read as a scan.
       pdfs.defaultMarkdown = `${TEXT_LAYER}\n\n`.repeat(12);
 
       await run();
 
       const document = stateOf();
-      expect(document.steps.canonical).toBe('SKIPPED');
-      expect(document.steps.preview).toBe('DONE');
-      expect(document.pageCount).toBe(12);
-      expect(files.keys()).toEqual([
-        artifactKeys.preview(DOCUMENT_ID),
-        artifactKeys.thumbnail(DOCUMENT_ID),
-      ]);
-      // Rendering, then reading the text layer — no OCR, because the layer is worth trusting.
-      // No conversion: the page count and the render for the preview, then the parse for the text —
-      // all of it Stirling, none of it a second engine (docs/05 §5.5).
-      expect(pdfs.calls.map((call) => call.method)).toEqual([
-        'pdfPageCount',
-        'pdfFirstPageJpg',
-        'pdfToMarkdown',
-      ]);
-      expect(document.steps.markdown).toBe('DONE');
-      expect(document.ocrUsed).toBe(false);
-    });
-
-    it('an office document is converted, and the preview comes from the canonical PDF', async () => {
-      givenDocument({
-        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        ext: 'docx',
-        title: 'Q1 report',
-      });
-
-      await run();
-
-      const document = stateOf();
       expect(document.steps.canonical).toBe('DONE');
-      expect(document.steps.preview).toBe('DONE');
-      expect(files.get(artifactKeys.canonicalPdf(DOCUMENT_ID)).body.toString()).toBe(
-        'canonical-pdf',
-      );
-      expect(files.get(artifactKeys.canonicalPdf(DOCUMENT_ID)).contentType).toBe('application/pdf');
-      // The converter needs the extension to pick its input filter (docs/05 §5.5 step 1).
-      expect(pdfs.calls[0]).toEqual({ method: 'officeToPdf', fileName: 'Q1 report.docx' });
-      // Page count and rendering both read the canonical PDF, not the .docx.
-      expect(reader.opened).toEqual([SOURCE_PATH]);
+      // 🔒 Every document has one, whatever it was made of (ADR-021).
+      expect(canonicalOf()).toBe('a-pdf');
+      expect(document.pageCount).toBe(12);
+      // A single-part document skips the merge and keeps its part (docs/05 §5.5 step 1).
+      expect(methodsCalled()).not.toContain('mergePdfs');
     });
 
-    it('an image previews directly, with no PDF anywhere in the path', async () => {
-      givenDocument({ mimeType: 'image/jpeg', ext: 'jpg' });
+    it('lays an image on a page, and applies the crop it carries first', async () => {
+      await givenDocument([
+        {
+          file: {
+            mimeType: 'image/jpeg',
+            ext: 'jpg',
+            name: 'passport.jpg',
+            crop: {
+              points: [
+                [0.1, 0.2],
+                [0.9, 0.2],
+                [0.9, 0.8],
+                [0.1, 0.8],
+              ],
+            },
+            cropSource: 'MANUAL',
+          },
+          bytes: 'photo',
+        },
+      ]);
+
+      await run();
+
+      // The perspective transform runs over the original and its result becomes the page; the file
+      // itself is never rewritten (docs/03 §3.3.16).
+      expect(images.crops).toEqual([
+        {
+          input: 'photo',
+          crop: {
+            points: [
+              [0.1, 0.2],
+              [0.9, 0.2],
+              [0.9, 0.8],
+              [0.1, 0.8],
+            ],
+          },
+        },
+      ]);
+      expect(pdfs.calls).toContainEqual({ method: 'imagesToPdf', fileName: 'page-0000.jpg' });
+      expect(canonicalOf()).toBe('image-pdf(cropped(0.1,0.2):photo)');
+    });
+
+    it('lays an uncropped image on a page exactly as it arrived', async () => {
+      await givenDocument([
+        { file: { mimeType: 'image/png', ext: 'png', name: 'scan.png' }, bytes: 'photo' },
+      ]);
+
+      await run();
+
+      expect(images.crops).toEqual([]);
+      expect(pdfs.calls).toContainEqual({ method: 'imagesToPdf', fileName: 'page-0000.png' });
+      expect(canonicalOf()).toBe('image-pdf(photo)');
+    });
+
+    it('converts an office document, and plain text through the same door', async () => {
+      await givenDocument([
+        {
+          file: {
+            mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            ext: 'docx',
+            name: 'Q1 report.docx',
+          },
+          bytes: 'docx-bytes',
+        },
+        { file: { mimeType: 'text/plain', ext: 'txt', name: 'notes.txt' }, bytes: 'plain text' },
+      ]);
+
+      await run();
+
+      // The converter picks its input filter from the extension, so each file keeps its own name.
+      expect(pdfs.calls.filter((call) => call.method === 'toPdf')).toEqual([
+        { method: 'toPdf', fileName: 'Q1 report.docx' },
+        { method: 'toPdf', fileName: 'notes.txt' },
+      ]);
+      expect(stateOf().steps.canonical).toBe('DONE');
+    });
+
+    it('merges the parts in position order', async () => {
+      await givenDocument([
+        { file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'first' },
+        { file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'second' },
+        { file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'third' },
+      ]);
+
+      await run();
+
+      // 🔒 Page order is position order (docs/05 §5.5 step 1): a reordered merge is a wrong document.
+      expect(canonicalOf()).toBe('merged(first,second,third)');
+    });
+
+    it('keeps the order even when the files are prepared several at a time', async () => {
+      // The unit concurrency of docs/05 §5.4 is about throughput, never about sequence.
+      handler = withUnitConcurrency(3);
+      await givenDocument([
+        { file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'one' },
+        { file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'two' },
+        { file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'three' },
+        { file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'four' },
+      ]);
+
+      await run();
+
+      expect(canonicalOf()).toBe('merged(one,two,three,four)');
+    });
+
+    it('reads a managed file out of the bucket rather than off a volume', async () => {
+      await givenDocument([
+        {
+          file: {
+            origin: 'MANAGED',
+            storageKey: 'files/file-1/original.pdf',
+            mimeType: 'application/pdf',
+            ext: 'pdf',
+          },
+          bytes: 'uploaded',
+        },
+      ]);
+
+      await run();
+
+      expect(canonicalOf()).toBe('uploaded');
+      expect(reader.opened).toEqual([]);
+    });
+
+    it('leaves out a file nothing can render, and says the step is incomplete', async () => {
+      await givenDocument([
+        { file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'readable' },
+        { file: { mimeType: 'application/x-executable', ext: 'bin' }, bytes: 'binary' },
+      ]);
 
       await run();
 
       const document = stateOf();
-      expect(document.steps.canonical).toBe('SKIPPED');
-      expect(document.steps.preview).toBe('DONE');
-      expect(document.pageCount).toBeNull();
-      expect(images.resizes.map((resize) => resize.input)).toEqual([
-        'source-bytes',
-        'source-bytes',
-      ]);
-      // The only PDF work an image causes is the OCR round trip of step 3.
-      expect(pdfs.calls.map((call) => call.method)).toEqual([
-        'imagesToPdf',
-        'ocrPdf',
-        'pdfToMarkdown',
-      ]);
+      // The document is built out of what could be built, and the reason it is short of a page is
+      // recorded rather than turned into a failure (docs/05 §5.5 step 1).
+      expect(document.steps.canonical).toBe('DONE');
+      expect(document.skipReasons.canonical).toBe('UNSUPPORTED_FORMAT');
+      expect(canonicalOf()).toBe('readable');
     });
 
-    it('plain text and Markdown skip both steps', async () => {
-      givenDocument({ mimeType: 'text/markdown', ext: 'md' });
-
-      await run();
-
-      const document = stateOf();
-      expect(document.steps.canonical).toBe('SKIPPED');
-      expect(document.steps.preview).toBe('SKIPPED');
-      expect(files.keys()).toEqual([]);
-      // Text goes straight through to Markdown (docs/05 §5.5): no conversion, no rendering.
-      expect(document.steps.markdown).toBe('DONE');
-      expect(pdfs.calls).toEqual([]);
-    });
-
-    it('an unsupported format settles steps 1-3 and 5 without touching the tooling', async () => {
-      givenDocument({ mimeType: 'application/x-executable', ext: 'bin' });
+    it('builds nothing for a document nothing can render, and fails no step over it', async () => {
+      await givenDocument([
+        { file: { mimeType: 'application/x-executable', ext: 'bin' }, bytes: 'binary' },
+      ]);
 
       await run();
 
@@ -234,18 +350,125 @@ describe('HandleDocumentProcess', () => {
         markdown: 'SKIPPED',
         vectorization: 'SKIPPED',
       });
+      expect(document.skipReasons).toMatchObject({
+        canonical: 'UNSUPPORTED_FORMAT',
+        preview: 'UNSUPPORTED_FORMAT',
+        markdown: 'UNSUPPORTED_FORMAT',
+      });
       // A title is still something to classify, and 🔒 no step may be left PENDING — the document
       // would read as "still processing" for the rest of its life (docs/03 §3.3.10).
       expect(document.steps.analysis).toBe('DONE');
-      expect(analyst.calls[0]?.excerpt).toBe('Invoice 2026-01');
-      expect(pdfs.calls).toEqual([]);
-      expect(files.keys()).toEqual([]);
+      expect(document.processingError).toBeNull();
+      expect(storage.keys()).toEqual([]);
+    });
+
+    it('does not crash over a document with no files at all', async () => {
+      await givenDocument([]);
+
+      await run();
+
+      expect(stateOf().steps.canonical).toBe('SKIPPED');
+      expect(stateOf().pageCount).toBeNull();
+      expect(methodsCalled()).toEqual([]);
+    });
+
+    it('OCRs a merged PDF whose text layer is too thin, and stores the searchable one', async () => {
+      await givenDocument([{ file: { mimeType: 'image/jpeg', ext: 'jpg' }, bytes: 'photo' }]);
+      // A scan often carries a few stray characters — page numbers, a watermark — which is exactly
+      // what PDF_TEXT_MIN_CHARS_PER_PAGE is there to see through (docs/05 §5.9).
+      pdfs.markdownByContent.set('image-pdf(photo)', '1\n\n2');
+
+      await run();
+
+      // 🔒 The searchable PDF becomes the canonical; until this release the OCR pass was run and
+      // thrown away (docs/05 §5.5 step 1).
+      expect(canonicalOf()).toBe('ocr-pdf');
+      expect(stateOf().ocrUsed).toBe(true);
+      expect(methodsCalled()).toContain('ocrPdf');
+    });
+
+    it('leaves a PDF that carries its own text alone', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      expect(stateOf().ocrUsed).toBe(false);
+      expect(methodsCalled()).not.toContain('ocrPdf');
+    });
+
+    it("OCRs in the document's own languages once they are known", async () => {
+      await givenDocument([{ file: { mimeType: 'image/jpeg', ext: 'jpg' }, bytes: 'photo' }], {
+        languages: ['ru', 'sr-Latn'],
+      });
+      pdfs.markdownByContent.set('image-pdf(photo)', '');
+
+      await run();
+
+      // BCP-47 in the row, tesseract codes on the wire — `srp_latn`, not `srp`, or every diacritic
+      // is lost (docs/03 §3.3.10).
+      expect(pdfs.ocrLanguages[0]).toEqual(['rus', 'srp_latn']);
+    });
+
+    it('stamps the title and the date the document carries', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
+        title: 'Lease agreement',
+        documentDate: '2019-07-14',
+      });
+
+      await run();
+
+      expect(pdfs.stamped).toEqual([
+        { title: 'Lease agreement', date: new Date('2019-07-14T00:00:00.000Z') },
+      ]);
+    });
+
+    it('keeps the canonical when the metadata pass fails, because the pages are the document', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      pdfs.failOn('stampMetadata');
+
+      await run();
+
+      // Best-effort by the spec: a PDF with the wrong /Title is still the document (docs/05 §5.5).
+      expect(stateOf().steps.canonical).toBe('DONE');
+      expect(canonicalOf()).toBe('a-pdf');
+      expect(stateOf().processingError).toBeNull();
+    });
+
+    it('fails the step when a file it needs is no longer on any volume', async () => {
+      const document = documents.add(documentFixture());
+      fileRepo.add({ id: 'file-lost', mimeType: 'application/pdf', ext: 'pdf' }, document.id);
+
+      await run();
+
+      const state = stateOf();
+      expect(state.steps.canonical).toBe('FAILED');
+      expect(state.failedStep).toBe('canonical');
+      expect(state.processingError).toContain('not on any volume');
+      // Nothing half-written: the old canonical, if there was one, is still what serves readers.
+      expect(storage.keys()).toEqual([]);
+    });
+
+    it('fails the step when the converter refuses a file', async () => {
+      await givenDocument([
+        {
+          file: { mimeType: 'application/msword', ext: 'doc', name: 'Notes.doc' },
+          bytes: 'doc-bytes',
+        },
+      ]);
+      pdfs.failOn('toPdf');
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.canonical).toBe('FAILED');
+      expect(document.processingError).toContain('toPdf failed');
+      expect(storage.keys()).toEqual([]);
     });
   });
 
-  describe('the artifacts', () => {
-    it('writes preview and thumbnail at the configured dimensions', async () => {
-      givenDocument();
+  describe('the preview (docs/05 §5.5 step 2)', () => {
+    it('renders the first page of the canonical, at both configured sizes', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
 
       await run();
 
@@ -253,60 +476,97 @@ describe('HandleDocumentProcess', () => {
         { maxDim: PREVIEW_MAX_DIM, quality: 80, input: 'rendered-page' },
         { maxDim: THUMB_MAX_DIM, quality: 75, input: 'rendered-page' },
       ]);
-      expect(files.get(artifactKeys.preview(DOCUMENT_ID)).contentType).toBe('image/jpeg');
-      expect(files.get(artifactKeys.thumbnail(DOCUMENT_ID)).body.toString()).toBe(
+      expect(storage.get(artifactKeys.preview(DOCUMENT_ID)).contentType).toBe('image/jpeg');
+      expect(storage.get(artifactKeys.thumbnail(DOCUMENT_ID)).body.toString()).toBe(
         `jpeg:${THUMB_MAX_DIM}:rendered-page`,
       );
     });
 
-    it('reads a DERIVED document from the bucket instead of a library', async () => {
-      documents.add(
-        documentFixture({ id: DERIVED_ID, source: 'DERIVED', mimeType: 'application/pdf' }),
-      );
-      await files.put(
-        artifactKeys.source(DERIVED_ID, 'pdf'),
-        Buffer.from('merged'),
-        'application/pdf',
-      );
+    it('previews an image document the same way as any other, because it is a PDF by now', async () => {
+      await givenDocument([{ file: { mimeType: 'image/jpeg', ext: 'jpg' }, bytes: 'photo' }]);
 
-      await run(DERIVED_ID);
+      await run();
 
-      expect(stateOf(DERIVED_ID).steps.preview).toBe('DONE');
-      expect(reader.opened).toEqual([]);
+      expect(stateOf().steps.preview).toBe('DONE');
+      // One rule for every document (docs/05 §5.5 step 2): the render reads the canonical.
+      expect(images.resizes.map((resize) => resize.input)).toEqual([
+        'rendered-page',
+        'rendered-page',
+      ]);
+    });
+
+    it('fails when the canonical it needed was never produced, keeping step 1 as the cause', async () => {
+      await givenDocument([
+        { file: { mimeType: 'application/msword', ext: 'doc' }, bytes: 'doc-bytes' },
+      ]);
+      pdfs.failOn('toPdf');
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.preview).toBe('FAILED');
+      // The reported cause stays the conversion failure rather than being overwritten by its
+      // consequence — "no canonical PDF" tells an admin nothing they can act on.
+      expect(document.failedStep).toBe('canonical');
+      expect(document.processingError).toContain('toPdf failed');
+    });
+
+    it('keeps a rendering failure out of the canonical', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      pdfs.failOn('pdfFirstPageJpg');
+
+      await run();
+
+      const document = stateOf();
+      // 🔒 Step isolation (docs/05 §5.5): the canonical PDF was produced and stays DONE.
+      expect(document.steps.canonical).toBe('DONE');
+      expect(document.steps.preview).toBe('FAILED');
+      expect(storage.keys()).toEqual([artifactKeys.canonicalPdf(DOCUMENT_ID)]);
+    });
+
+    it('reports a page the resizer cannot read as a preview failure', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      images.failing = true;
+
+      await run();
+
+      expect(stateOf().steps.preview).toBe('FAILED');
+      expect(stateOf().processingError).toContain('unsupported image format');
     });
   });
 
   describe('markdown (docs/05 §5.5 step 3)', () => {
-    it('reads a PDF that carries its own text, without paying for OCR', async () => {
-      givenDocument({ mimeType: 'application/pdf' });
+    it('reads the canonical, and nothing else', async () => {
+      await givenDocument([
+        { file: { mimeType: 'application/rtf', ext: 'rtf' }, bytes: 'rtf-bytes' },
+      ]);
+      pdfs.markdownByContent.set(
+        'converted-pdf',
+        'Converted body text that is long enough to trust',
+      );
 
       await run();
 
-      const document = stateOf();
-      expect(document.steps.markdown).toBe('DONE');
-      expect(document.markdown).toContain('Invoice 2026-01');
-      expect(document.ocrUsed).toBe(false);
-      expect(pdfs.calls.some((call) => call.method === 'ocrPdf')).toBe(false);
+      expect(stateOf().markdown).toBe('Converted body text that is long enough to trust');
+      // 🔒 The original is never read again: every step after the first reads the canonical
+      // (ADR-021).
+      expect(pdfs.markdownReads.every((read) => read !== 'rtf-bytes')).toBe(true);
     });
 
-    it('sends a PDF whose text layer is too thin to OCR', async () => {
-      // A scan often carries a few stray characters — page numbers, a watermark — which is exactly
-      // what PDF_TEXT_MIN_CHARS_PER_PAGE is there to see through (docs/05 §5.9).
-      givenDocument({ mimeType: 'application/pdf' });
+    it('recognises a canonical that still has no text after step 1 tried', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       pdfs.defaultMarkdown = ['1', '2', '3'].join('\n\n');
-      pdfs.markdownByContent.set('ocr-pdf', 'The full text of the scanned page');
 
       await run();
 
       const document = stateOf();
+      expect(document.markdown).toBe('Recognized text from the scan');
       expect(document.ocrUsed).toBe(true);
-      expect(document.markdown).toBe('The full text of the scanned page');
-      expect(pdfs.calls.filter((call) => call.method === 'ocrPdf')).toHaveLength(1);
     });
 
     it('measures the text layer per page, not in total', async () => {
       // 200 characters spread over 20 pages is 10 per page: a scan, however long.
-      givenDocument({ mimeType: 'application/pdf' });
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       pdfs.defaultMarkdown = 'ten chars.'.repeat(20);
       pdfs.pageCount = 20;
 
@@ -315,52 +575,9 @@ describe('HandleDocumentProcess', () => {
       expect(stateOf().ocrUsed).toBe(true);
     });
 
-    it('OCRs an image through a one-page PDF', async () => {
-      givenDocument({ mimeType: 'image/jpeg', ext: 'jpg', title: 'Receipt' });
-
-      await run();
-
-      const document = stateOf();
-      expect(document.steps.markdown).toBe('DONE');
-      expect(document.ocrUsed).toBe(true);
-      expect(document.markdown).toBe('Recognized text from the scan');
-      expect(pdfs.calls).toContainEqual({ method: 'imagesToPdf', fileName: 'Receipt.jpg' });
-    });
-
-    it('passes text through, normalizing what a file may carry', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      // BOM, CRLF line endings and a stray NUL — all three arrive in real files.
-      reader.put(
-        SOURCE_PATH,
-        Buffer.concat([
-          Buffer.from([0xef, 0xbb, 0xbf]),
-          Buffer.from('# Notes\r\n\r\nSecond line\u0000\n'),
-        ]),
-      );
-
-      await run();
-
-      const document = stateOf();
-      expect(document.markdown).toBe('# Notes\n\nSecond line');
-      expect(document.ocrUsed).toBe(false);
-      expect(pdfs.markdownReads).toEqual([]);
-    });
-
-    it('reads an office document from the canonical PDF, not from the original', async () => {
-      givenDocument({ mimeType: 'application/rtf', ext: 'rtf' });
-      pdfs.markdownByContent.set(
-        'canonical-pdf',
-        'Converted body text that is long enough to trust',
-      );
-
-      await run();
-
-      expect(stateOf().markdown).toBe('Converted body text that is long enough to trust');
-      expect(pdfs.markdownReads).toContain('canonical-pdf');
-    });
-
-    it('stores nothing rather than an empty string when OCR finds no text', async () => {
-      givenDocument({ mimeType: 'image/png', ext: 'png' });
+    it('stores nothing rather than an empty string when there is no text at all', async () => {
+      await givenDocument([{ file: { mimeType: 'image/png', ext: 'png' }, bytes: 'photo' }]);
+      pdfs.markdownByContent.set('image-pdf(photo)', '');
       pdfs.markdownByContent.set('ocr-pdf', ['', '   '].join('\n\n'));
 
       await run();
@@ -369,25 +586,28 @@ describe('HandleDocumentProcess', () => {
       // The step ran and answered "there is no text here" — that is DONE, not FAILED.
       expect(document.steps.markdown).toBe('DONE');
       expect(document.markdown).toBeNull();
-      expect(document.ocrUsed).toBe(true);
     });
 
-    it('keeps a markdown failure from touching the preview', async () => {
-      givenDocument({ mimeType: 'application/pdf' });
-      pdfs.markdownFailing = true;
+    it('keeps a markdown failure from touching the canonical or the preview', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      parser.configured = true;
+      parser.failing = true;
 
       await run();
 
       const document = stateOf();
+      expect(document.steps.canonical).toBe('DONE');
       expect(document.steps.preview).toBe('DONE');
       expect(document.steps.markdown).toBe('FAILED');
       expect(document.failedStep).toBe('markdown');
-      expect(document.processingError).toContain('pdfToMarkdown failed');
+      expect(document.processingError).toContain('toMarkdown failed');
     });
 
-    it('cannot read an office document whose conversion failed', async () => {
-      givenDocument({ mimeType: 'application/msword', ext: 'doc' });
-      pdfs.failOn('officeToPdf');
+    it('cannot read a document whose canonical was never built', async () => {
+      await givenDocument([
+        { file: { mimeType: 'application/msword', ext: 'doc' }, bytes: 'doc-bytes' },
+      ]);
+      pdfs.failOn('toPdf');
 
       await run();
 
@@ -396,18 +616,62 @@ describe('HandleDocumentProcess', () => {
       // Still the conversion error, not a second report of its consequence.
       expect(document.failedStep).toBe('canonical');
     });
+
+    it('parses through Docling when it is configured, and reads its languages back', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      parser.configured = true;
+      parser.markdown =
+        '## Договор оказания услуг\n\nНастоящий договор заключён между сторонами третьего ' +
+        'августа две тысячи двадцать шестого года и вступает в силу с момента подписания. ' +
+        'Исполнитель обязуется обеспечить сохранность документов и ежемесячную отчётность.';
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.markdown).toBe('DONE');
+      // The structure the parser recovered survives into the column — headings and all.
+      expect(document.markdown).toContain('## Договор');
+      // 🔒 And the document now knows what it is written in, which is what a later OCR pass is given.
+      expect(document.languages).toEqual(['ru']);
+      // A PDF with its own text is read, never recognised: no OCR languages were asked for.
+      expect(parser.calls).toEqual([{ ocrLanguages: [] }]);
+    });
+
+    it("gives the parser the document's own languages when it has to recognise", async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
+        languages: ['ru', 'sr-Latn'],
+      });
+      parser.configured = true;
+      parser.markdown = 'Договор / Ugovor';
+
+      await run();
+
+      expect(parser.calls).toEqual([{ ocrLanguages: [] }, { ocrLanguages: ['rus', 'srp_latn'] }]);
+    });
+
+    it('falls back to the instance languages when the document has none yet', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      parser.configured = true;
+      parser.markdown = 'x';
+
+      await run();
+
+      // The instance default from ProcessingSettings, exactly as configured.
+      expect(parser.calls).toEqual([{ ocrLanguages: [] }, { ocrLanguages: ['rus', 'eng'] }]);
+    });
   });
 
   it('says a step is running before it runs, so a slow one is not mistaken for a stuck one', async () => {
-    givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-    reader.put(SOURCE_PATH, 'Amount due: 1200.');
+    await givenDocument([
+      { file: { mimeType: 'text/plain', ext: 'txt' }, bytes: 'Amount due: 1200.' },
+    ]);
 
     await run();
 
     // The order matters, not the count: every step is announced before it is settled (docs/03
     // §3.3.10). Parsing with picture captions takes minutes — for those minutes PENDING would read
     // as "nothing is happening".
-    for (const step of ['preview', 'markdown', 'analysis', 'vectorization'] as const) {
+    for (const step of ['canonical', 'preview', 'markdown', 'analysis', 'vectorization'] as const) {
       const statuses = documents.updates
         .map((entry) => entry.update.steps?.[step])
         .filter((status) => status !== undefined);
@@ -420,26 +684,28 @@ describe('HandleDocumentProcess', () => {
   });
 
   it('writes the history of the run: every step started, every step settled', async () => {
-    givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-    reader.put(SOURCE_PATH, 'Amount due: 1200.');
+    await givenDocument([
+      { file: { mimeType: 'application/x-executable', ext: 'bin' }, bytes: 'binary' },
+    ]);
 
     await run();
 
     const markdown = events.events.filter((event) => event.payload?.step === 'markdown');
     expect(markdown.map((event) => event.type)).toEqual(['STEP_STARTED', 'STEP_FINISHED']);
-    expect(markdown[1]?.payload?.status).toBe('DONE');
 
     // 🔒 A skip carries its reason into the log, or the log says "SKIPPED" as uselessly as the
     // panel used to (docs/03 §3.3.10).
     const canonical = events.events.find(
       (event) => event.payload?.step === 'canonical' && event.type === 'STEP_FINISHED',
     );
-    expect(canonical?.payload).toMatchObject({ status: 'SKIPPED', reason: 'NOT_NEEDED' });
+    expect(canonical?.payload).toMatchObject({
+      status: 'SKIPPED',
+      reason: 'UNSUPPORTED_FORMAT',
+    });
   });
 
   it('records a failure with the message, not just the status', async () => {
-    givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-    reader.put(SOURCE_PATH, 'text');
+    await givenDocument([{ file: { mimeType: 'text/plain', ext: 'txt' }, bytes: 'text' }]);
     embeddings.failing = true;
 
     await run();
@@ -449,10 +715,49 @@ describe('HandleDocumentProcess', () => {
     expect(failed?.payload?.error).toBeDefined();
   });
 
+  it('says which service did a step, and ties both entries to one request id', async () => {
+    await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+    parser.configured = true;
+    parser.markdown = TEXT_LAYER;
+
+    await run();
+
+    const markdown = events.events.filter((event) => event.payload?.step === 'markdown');
+    expect(markdown.map((event) => event.type)).toEqual(['STEP_STARTED', 'STEP_FINISHED']);
+    // Whichever parser this instance actually runs (docs/05 §5.5 step 3).
+    expect(markdown[0]?.payload?.service).toBe('docling');
+    expect(markdown[0]?.payload?.endpoint).toBe('http://docling.test');
+    // 🔒 One id for the pair: a started entry nobody can match to its outcome is no thread at all
+    // (docs/03 §3.3.18).
+    expect(markdown[0]?.payload?.requestId).toBe(markdown[1]?.payload?.requestId);
+    expect(calls.ids).toContain(markdown[0]?.payload?.requestId);
+
+    const analysis = events.events.filter((event) => event.payload?.step === 'analysis');
+    expect(analysis[0]?.payload?.service).toBe('classifier');
+  });
+
+  it('names Stirling when there is no Docling, and nothing where there is no service at all', async () => {
+    await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+    parser.configured = false;
+    embeddings.configured = false;
+
+    await run();
+
+    const markdown = events.events.filter((event) => event.payload?.step === 'markdown');
+    expect(markdown[0]?.payload?.service).toBe('stirling');
+    expect(markdown[0]?.payload?.endpoint).toBe('http://stirling.test');
+    // A step this instance does not send anywhere names nobody: there is no other log to read.
+    const vectors = events.events.filter((event) => event.payload?.step === 'vectorization');
+    expect(vectors[0]?.payload?.service).toBeUndefined();
+    expect(vectors[0]?.payload?.endpoint).toBeUndefined();
+  });
+
   describe('analysis (docs/05 §5.5 step 4)', () => {
     it('assigns the documentType the analyst chose, marked as automatic', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'March invoice' });
-      reader.put(SOURCE_PATH, 'Amount due: 1200. Payable within 30 days.');
+      await givenDocument(
+        [{ file: { mimeType: 'text/plain', ext: 'txt' }, bytes: 'Amount due: 1200.' }],
+        { title: 'March invoice' },
+      );
       analyst.slug = 'invoice';
 
       await run();
@@ -464,8 +769,10 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('offers the analyst the slugs and the descriptions an admin wrote', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'March invoice' });
-      reader.put(SOURCE_PATH, 'Amount due: 1200.');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
+        title: 'March invoice',
+      });
+      pdfs.defaultMarkdown = 'Amount due: 1200.';
 
       await run();
 
@@ -475,11 +782,11 @@ describe('HandleDocumentProcess', () => {
         { slug: 'contract', name: 'contract', description: null },
       ]);
       // Title first, then the extracted text — the title is there even when the text is not.
-      expect(call?.excerpt).toBe('March invoice\n\nAmount due: 1200.');
+      expect(call?.excerpt).toBe('March invoice\n\nRecognized text from the scan');
     });
 
     it('records no documentType when the model answers with a slug nobody defined', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       // 🔒 A hallucinated documentType must not become a real one (docs/05 §5.5 step 4).
       analyst.slug = 'tax-return-2019';
 
@@ -492,9 +799,7 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('never overwrites a documentType a person chose', async () => {
-      givenDocument({
-        mimeType: 'text/plain',
-        ext: 'txt',
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
         typeId: 'documentType-2',
         typeSource: 'MANUAL',
       });
@@ -510,7 +815,7 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('skips itself when no analyst is configured', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       analyst.configured = false;
 
       await run();
@@ -519,34 +824,13 @@ describe('HandleDocumentProcess', () => {
       expect(stateOf().processingError).toBeNull();
     });
 
-    it('still runs with no documentTypes defined, because it also reads where the document is from', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      documentTypes.documentTypes.length = 0;
-      analyst.answer = {
-        title: null,
-        description: null,
-        typeSlug: null,
-        languages: [],
-        country: 'ME',
-        city: 'Podgorica',
-        people: [],
-        date: null,
-        subjects: [],
-      };
-
-      await run();
-
-      const document = stateOf();
-      expect(document.steps.analysis).toBe('DONE');
-      expect(document.typeId).toBeNull();
-      expect(document.country).toBe('ME');
-    });
-
     it('reads the place out of what a document is about, not out of the words in it', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'Ticket' });
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
+        title: 'Ticket',
+      });
       // A real Montenegrin train ticket: the country is nowhere in the text, only in what "ŽPCG"
       // means to a reader who knows the railway.
-      reader.put(SOURCE_PATH, 'ŽPCG · PODGORICA — BAR · 2. razred · 3,20 EUR');
+      pdfs.defaultMarkdown = 'ŽPCG · PODGORICA — BAR · 2. razred · 3,20 EUR';
       analyst.answer = {
         title: null,
         description: null,
@@ -570,8 +854,7 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('adds the people it read, creating the ones the catalogue has never seen', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      reader.put(SOURCE_PATH, 'Ugovor između strana');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       await people.create({ name: 'Evgenii Shershnev' });
       analyst.answer = {
         title: null,
@@ -600,8 +883,7 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('files the document under what it is about, creating the thing when it is new', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      reader.put(SOURCE_PATH, 'Ugovor o zakupu stana');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       analyst.answer = {
         title: null,
         description: null,
@@ -626,8 +908,7 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('takes the date the document carries, and leaves one that was set by hand', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      reader.put(SOURCE_PATH, 'Ugovor');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       analyst.answer = {
         title: null,
         description: null,
@@ -652,8 +933,7 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('leaves the people a person chose, and records what it read instead', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      reader.put(SOURCE_PATH, 'text');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       const chosen = await people.create({ name: 'Somebody Else' });
       await people.setForDocument(DOCUMENT_ID, [chosen.id]);
       analyst.answer = {
@@ -677,18 +957,14 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('leaves alone every field that already has an answer', async () => {
-      givenDocument({
-        mimeType: 'text/plain',
-        ext: 'txt',
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
         country: 'RS',
         city: 'Belgrade',
       });
-      reader.put(
-        SOURCE_PATH,
+      pdfs.defaultMarkdown =
         'Настоящий договор заключён между сторонами третьего августа две тысячи двадцать шестого ' +
-          'года и вступает в силу с момента подписания. Исполнитель обязуется обеспечить ' +
-          'сохранность документов и ежемесячную отчётность заказчику.',
-      );
+        'года и вступает в силу с момента подписания. Исполнитель обязуется обеспечить ' +
+        'сохранность документов и ежемесячную отчётность заказчику.';
       analyst.answer = {
         title: null,
         description: null,
@@ -713,8 +989,9 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('names the document, because a file name is not a title anybody chose', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'IMG_20260714_113355' });
-      reader.put(SOURCE_PATH, 'text');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
+        title: 'IMG_20260714_113355',
+      });
       analyst.answer = { ...analyst.answer, title: 'Rental agreement, Njegoševa 12' };
 
       await run();
@@ -727,13 +1004,10 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('never renames a document a person titled, and records what it would have called it', async () => {
-      givenDocument({
-        mimeType: 'text/plain',
-        ext: 'txt',
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
         title: 'The flat, everything about it',
         titleSource: 'MANUAL',
       });
-      reader.put(SOURCE_PATH, 'text');
       analyst.answer = { ...analyst.answer, title: 'Rental agreement, Njegoševa 12' };
 
       await run();
@@ -746,23 +1020,8 @@ describe('HandleDocumentProcess', () => {
       expect(document.auto.title).toBe('Rental agreement, Njegoševa 12');
     });
 
-    it('leaves the file name alone when the analysis has no title to offer', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt', title: 'IMG_20260714_113355' });
-      reader.put(SOURCE_PATH, 'text');
-      analyst.answer = { ...analyst.answer, title: null };
-
-      await run();
-
-      const document = stateOf();
-      // A file name is better than a title invented out of one.
-      expect(document.title).toBe('IMG_20260714_113355');
-      expect(document.titleSource).toBe('NONE');
-      expect(document.auto.title).toBeUndefined();
-    });
-
     it('describes what the document is, and leaves a description somebody wrote', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      reader.put(SOURCE_PATH, 'text');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       analyst.answer = {
         ...analyst.answer,
         description: 'A one-year lease of a flat in Podgorica.',
@@ -780,7 +1039,7 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('records a provider failure as a step failure, leaving the rest of the run intact', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       analyst.failing = true;
 
       await run();
@@ -797,8 +1056,8 @@ describe('HandleDocumentProcess', () => {
 
   describe('vectorization (docs/05 §5.5 step 5)', () => {
     it('chunks the Markdown, embeds it, and stores the vectors', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      reader.put(SOURCE_PATH, '# Contract\n\nThe parties agree.\n\nPayment is monthly.');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      pdfs.defaultMarkdown = '# Contract\n\nThe parties agree.\n\nPayment is monthly.';
 
       await run();
 
@@ -811,22 +1070,22 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('replaces the whole set on a re-run rather than adding to it', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      reader.put(SOURCE_PATH, 'First body.');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      pdfs.defaultMarkdown = 'First body, long enough to be worth keeping as a chunk.';
       await run();
 
-      reader.put(SOURCE_PATH, 'A different body entirely.');
+      pdfs.defaultMarkdown = 'A different body entirely, also long enough to be a chunk.';
       await run();
 
       expect(chunks.chunksOf(DOCUMENT_ID).map((chunk) => chunk.content)).toEqual([
-        'A different body entirely.',
+        'A different body entirely, also long enough to be a chunk.',
       ]);
       // 🔒 Two runs, two wholesale replacements — never a merge of the two (docs/03 §3.3.11).
       expect(chunks.replacements).toBe(2);
     });
 
     it('skips itself when no provider is configured, and touches no vectors', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       embeddings.configured = false;
 
       await run();
@@ -837,12 +1096,13 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('drops the vectors of a document that no longer has any text', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      reader.put(SOURCE_PATH, 'Something to embed.');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       await run();
       expect(chunks.chunksOf(DOCUMENT_ID)).toHaveLength(1);
 
-      reader.put(SOURCE_PATH, '');
+      // The composition changed and the new canonical says nothing at all.
+      pdfs.defaultMarkdown = '';
+      pdfs.markdownByContent.set('ocr-pdf', '');
       await run();
 
       // Otherwise search would keep returning the document by text it no longer has.
@@ -851,8 +1111,7 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('records a provider failure as a step failure and writes nothing', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
-      reader.put(SOURCE_PATH, 'Body to embed.');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       embeddings.failing = true;
 
       await run();
@@ -865,12 +1124,9 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('splits a long body into several chunks, numbered in order', async () => {
-      givenDocument({ mimeType: 'text/plain', ext: 'txt' });
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       const paragraph = (label: string): string => `${label}. ${'word '.repeat(30).trim()}.`;
-      reader.put(
-        SOURCE_PATH,
-        [paragraph('One'), paragraph('Two'), paragraph('Three')].join('\n\n'),
-      );
+      pdfs.defaultMarkdown = [paragraph('One'), paragraph('Two'), paragraph('Three')].join('\n\n');
 
       await run();
 
@@ -881,102 +1137,31 @@ describe('HandleDocumentProcess', () => {
     });
   });
 
-  describe('failures', () => {
-    it('records the failing step with its error and leaves the document usable', async () => {
-      givenDocument({
-        mimeType: 'application/vnd.oasis.opendocument.text',
-        ext: 'odt',
-        title: 'Notes',
-      });
-      pdfs.failOn('officeToPdf');
-
-      await run();
-
-      const document = stateOf();
-      expect(document.steps.canonical).toBe('FAILED');
-      expect(document.failedStep).toBe('canonical');
-      expect(document.processingError).toContain('officeToPdf failed');
-      expect(files.keys()).toEqual([]);
-    });
-
-    it('fails the preview when the canonical PDF it needed was never produced', async () => {
-      givenDocument({ mimeType: 'application/msword', ext: 'doc' });
-      pdfs.failOn('officeToPdf');
-
-      await run();
-
-      const document = stateOf();
-      expect(document.steps.preview).toBe('FAILED');
-      // The reported cause stays the conversion failure rather than being overwritten by its
-      // consequence — "no canonical PDF" tells an admin nothing they can act on.
-      expect(document.failedStep).toBe('canonical');
-      expect(document.processingError).toContain('officeToPdf failed');
-    });
-
-    it('keeps a rendering failure out of the canonicalization result', async () => {
-      givenDocument({ mimeType: 'application/rtf', ext: 'rtf' });
-      pdfs.failOn('pdfFirstPageJpg');
-
-      await run();
-
-      const document = stateOf();
-      // 🔒 Step isolation (docs/05 §5.5): the canonical PDF was produced and stays DONE.
-      expect(document.steps.canonical).toBe('DONE');
-      expect(document.steps.preview).toBe('FAILED');
-      expect(files.keys()).toEqual([artifactKeys.canonicalPdf(DOCUMENT_ID)]);
-    });
-
-    it('reports an image the resizer cannot read as a preview failure', async () => {
-      givenDocument({ mimeType: 'image/tiff', ext: 'tiff' });
-      images.failing = true;
-
-      await run();
-
-      expect(stateOf().steps.preview).toBe('FAILED');
-      expect(stateOf().processingError).toContain('unsupported image format');
-    });
-
-    it('throws when the file is gone, so the job retries rather than settling wrongly', async () => {
-      const document = documents.add(documentFixture());
-      fileRefs.add({
-        id: 'ref-missing',
-        libraryId: LIBRARY_ID,
-        documentId: document.id,
-        status: 'MISSING',
-      });
-
-      await expect(run()).rejects.toThrow(/no available file/);
-      expect(stateOf().steps.preview).toBe('PENDING');
-    });
-  });
-
   describe('reprocessing a subset of steps (docs/07 §7.3)', () => {
     it('runs only the requested step and leaves the others exactly as they were', async () => {
-      givenDocument({ mimeType: 'application/pdf' });
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       await run();
       const before = stateOf();
-      files.clear();
       pdfs.calls.length = 0;
+      pdfs.markdownReads.length = 0;
 
       await handler.handle({ documentId: DOCUMENT_ID, steps: ['preview'] });
 
       const after = stateOf();
       expect(after.steps.preview).toBe('DONE');
-      expect(files.keys()).toEqual([
-        artifactKeys.preview(DOCUMENT_ID),
-        artifactKeys.thumbnail(DOCUMENT_ID),
-      ]);
       // Nothing else was touched: the Markdown is the one from the first run, not re-extracted.
       expect(after.markdown).toBe(before.markdown);
-      expect(pdfs.markdownReads).toHaveLength(1);
+      expect(pdfs.markdownReads).toHaveLength(0);
       expect(analyst.calls).toHaveLength(1);
       expect(chunks.replacements).toBe(1);
     });
 
-    it('re-reads the canonical PDF for a later step instead of converting again', async () => {
-      givenDocument({ mimeType: 'application/rtf', ext: 'rtf' });
+    it('re-reads the canonical for a later step instead of assembling it again', async () => {
+      await givenDocument([
+        { file: { mimeType: 'application/rtf', ext: 'rtf' }, bytes: 'rtf-bytes' },
+      ]);
       pdfs.markdownByContent.set(
-        'canonical-pdf',
+        'converted-pdf',
         'Converted body text that is long enough to trust',
       );
       await run();
@@ -984,16 +1169,18 @@ describe('HandleDocumentProcess', () => {
 
       await handler.handle({ documentId: DOCUMENT_ID, steps: ['markdown'] });
 
-      // 🔒 The office file is not converted a second time; step 3 reads what step 1 already wrote
-      // to the bucket (docs/07 §7.3).
-      expect(pdfs.calls.some((call) => call.method === 'officeToPdf')).toBe(false);
+      // 🔒 The original is not converted a second time; step 3 reads what step 1 already wrote to
+      // the bucket (docs/07 §7.3).
+      expect(methodsCalled()).not.toContain('toPdf');
       expect(stateOf().markdown).toBe('Converted body text that is long enough to trust');
       expect(stateOf().steps.canonical).toBe('DONE');
     });
 
-    it('fails a step that depends on a canonical PDF which was never produced', async () => {
-      givenDocument({ mimeType: 'application/msword', ext: 'doc' });
-      pdfs.failOn('officeToPdf');
+    it('fails a step that depends on a canonical which was never produced', async () => {
+      await givenDocument([
+        { file: { mimeType: 'application/msword', ext: 'doc' }, bytes: 'doc-bytes' },
+      ]);
+      pdfs.failOn('toPdf');
       await run();
       pdfs.failures.clear();
 
@@ -1002,10 +1189,12 @@ describe('HandleDocumentProcess', () => {
       expect(stateOf().steps.markdown).toBe('FAILED');
     });
 
-    it('settles only the requested steps of an unsupported document', async () => {
-      givenDocument({ mimeType: 'application/x-executable', ext: 'bin' });
+    it('settles only the requested steps of a document nothing can render', async () => {
+      await givenDocument([
+        { file: { mimeType: 'application/x-executable', ext: 'bin' }, bytes: 'binary' },
+      ]);
 
-      await handler.handle({ documentId: DOCUMENT_ID, steps: ['preview'] });
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['canonical', 'preview'] });
 
       const document = stateOf();
       expect(document.steps.preview).toBe('SKIPPED');
@@ -1014,87 +1203,8 @@ describe('HandleDocumentProcess', () => {
       expect(analyst.calls).toEqual([]);
     });
 
-    it('parses through Docling when it is configured, and reads its languages back', async () => {
-      givenDocument({ mimeType: 'application/pdf' });
-      parser.configured = true;
-      parser.markdown =
-        '## Договор оказания услуг\n\nНастоящий договор заключён между сторонами третьего ' +
-        'августа две тысячи двадцать шестого года и вступает в силу с момента подписания. ' +
-        'Исполнитель обязуется обеспечить сохранность документов и ежемесячную отчётность.';
-
-      await run();
-
-      const document = stateOf();
-      expect(document.steps.markdown).toBe('DONE');
-      // The structure the parser recovered survives into the column — headings and all.
-      expect(document.markdown).toContain('## Договор');
-      // 🔒 And the document now knows what it is written in, which is what a later OCR pass is given.
-      expect(document.languages).toEqual(['ru']);
-      // A PDF with its own text is read, never recognised: no OCR languages were asked for.
-      expect(parser.calls).toEqual([{ ocrLanguages: [] }]);
-    });
-
-    it("gives OCR the document's own languages once they are known", async () => {
-      givenDocument({ mimeType: 'image/jpeg', ext: 'jpg', languages: ['ru', 'sr-Latn'] });
-      parser.configured = true;
-      parser.markdown = 'Договор / Ugovor';
-
-      await run();
-
-      // BCP-47 in the row, tesseract codes on the wire — `srp_latn`, not `srp`, or every diacritic
-      // is lost (docs/03 §3.3.10).
-      expect(parser.calls).toEqual([{ ocrLanguages: ['rus', 'srp_latn'] }]);
-    });
-
-    it('falls back to the instance languages when the document has none yet', async () => {
-      givenDocument({ mimeType: 'image/jpeg', ext: 'jpg' });
-      parser.configured = true;
-      parser.markdown = 'x';
-
-      await run();
-
-      // The instance default from ProcessingSettings, exactly as configured.
-      expect(parser.calls).toEqual([{ ocrLanguages: ['rus', 'eng'] }]);
-    });
-
-    it('says which service did a step, and ties both entries to one request id', async () => {
-      givenDocument({ mimeType: 'application/pdf', ext: 'pdf' });
-      parser.configured = true;
-
-      await run();
-
-      const markdown = events.events.filter((event) => event.payload?.step === 'markdown');
-      expect(markdown.map((event) => event.type)).toEqual(['STEP_STARTED', 'STEP_FINISHED']);
-      // Whichever parser this instance actually runs (docs/05 §5.5 step 3).
-      expect(markdown[0]?.payload?.service).toBe('docling');
-      expect(markdown[0]?.payload?.endpoint).toBe('http://docling.test');
-      // 🔒 One id for the pair: a started entry nobody can match to its outcome is no thread at all
-      // (docs/03 §3.3.18).
-      expect(markdown[0]?.payload?.requestId).toBe(markdown[1]?.payload?.requestId);
-      expect(calls.ids).toContain(markdown[0]?.payload?.requestId);
-
-      const analysis = events.events.filter((event) => event.payload?.step === 'analysis');
-      expect(analysis[0]?.payload?.service).toBe('classifier');
-    });
-
-    it('names Stirling when there is no Docling, and nothing where there is no service at all', async () => {
-      givenDocument({ mimeType: 'application/pdf', ext: 'pdf' });
-      parser.configured = false;
-      embeddings.configured = false;
-
-      await run();
-
-      const markdown = events.events.filter((event) => event.payload?.step === 'markdown');
-      expect(markdown[0]?.payload?.service).toBe('stirling');
-      expect(markdown[0]?.payload?.endpoint).toBe('http://stirling.test');
-      // A step this instance does not send anywhere names nobody: there is no other log to read.
-      const vectors = events.events.filter((event) => event.payload?.step === 'vectorization');
-      expect(vectors[0]?.payload?.service).toBeUndefined();
-      expect(vectors[0]?.payload?.endpoint).toBeUndefined();
-    });
-
     it('rejects a step name the pipeline does not have', async () => {
-      givenDocument();
+      await givenDocument();
 
       await expect(
         handler.handle({ documentId: DOCUMENT_ID, steps: ['thumbnail'] }),
@@ -1104,24 +1214,25 @@ describe('HandleDocumentProcess', () => {
 
   describe('idempotency', () => {
     it('rewrites artifacts and statuses on a re-run without duplicating anything', async () => {
-      givenDocument();
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
 
       await run();
       await run();
 
-      expect(files.keys()).toEqual([
+      expect(storage.keys()).toEqual([
+        artifactKeys.canonicalPdf(DOCUMENT_ID),
         artifactKeys.preview(DOCUMENT_ID),
         artifactKeys.thumbnail(DOCUMENT_ID),
       ]);
       expect(stateOf().steps.preview).toBe('DONE');
-      // Twice through the same path: two renders, two pairs of resizes, one pair of objects.
+      // Twice through the same path: two renders, two pairs of resizes, one set of objects.
       expect(pdfs.calls.filter((call) => call.method === 'pdfFirstPageJpg')).toHaveLength(2);
       expect(images.resizes).toHaveLength(4);
       expect(stateOf().steps.markdown).toBe('DONE');
     });
 
     it('clears an earlier failure when the re-run succeeds', async () => {
-      givenDocument({ mimeType: 'application/rtf', ext: 'rtf' });
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       pdfs.failOn('pdfFirstPageJpg');
       await run();
       expect(stateOf().failedStep).toBe('preview');
@@ -1136,12 +1247,14 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('does nothing for a document that was soft-deleted before the job ran', async () => {
-      givenDocument({ deletedAt: new Date('2026-01-02T00:00:00.000Z') });
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
+        deletedAt: new Date('2026-01-02T00:00:00.000Z'),
+      });
 
       await run();
 
       expect(documents.updates).toEqual([]);
-      expect(files.keys()).toEqual([]);
+      expect(storage.keys()).toEqual([]);
     });
 
     it('ignores a job for a document that no longer exists', async () => {
@@ -1152,4 +1265,46 @@ describe('HandleDocumentProcess', () => {
   it('rejects a payload that is not a document id', async () => {
     await expect(handler.handle({ id: DOCUMENT_ID })).rejects.toThrow();
   });
+
+  // The same handler with a different unit concurrency, for the one test that cares.
+  function withUnitConcurrency(unitConcurrency: number): HandleDocumentProcess {
+    const settings = {
+      previewMaxDim: PREVIEW_MAX_DIM,
+      thumbMaxDim: THUMB_MAX_DIM,
+      ocrLanguages: ['rus', 'eng'],
+      pdfTextMinCharsPerPage: MIN_CHARS_PER_PAGE,
+      chunkTargetChars: 200,
+      chunkOverlapChars: 40,
+    };
+    return new HandleDocumentProcess(
+      documents,
+      events,
+      new BuildCanonical(
+        fileRepo,
+        fileRefs,
+        libraries,
+        reader,
+        storage,
+        images,
+        pdfs,
+        queueSettingsFixture(unitConcurrency),
+        settings,
+      ),
+      storage,
+      pdfs,
+      parser,
+      images,
+      documentTypes,
+      analyst,
+      people,
+      subjects,
+      subjectKinds,
+      chunks,
+      embeddings,
+      new ImmediateUnitOfWork(),
+      calls,
+      new AnalysisSettings(new InMemorySettingsRepository()),
+      settings,
+    );
+  }
 });

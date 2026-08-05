@@ -56,24 +56,32 @@ library volume, which stays read-only for the whole product (ADR-004).
 
 ## 5.3. Files, documents, deduplication
 
-A two-level model (consequence of ADR-009):
+A three-level model (ADR-009, ADR-021):
 
-- **`FileRef`** — a physical file: `libraryId`, `path` (relative to the library root), `size`,
-  `mtime`, `contentHash`, status (`DISCOVERED → HASHED → MISSING?`). A file is only a "pointer".
-- **`Document`** — a logical unit of content: `contentHash` (unique), format, processing statuses,
-  derived artifacts, document type, Markdown, vectors. Everything user-facing (folders/collections, sharing,
-  document type) hangs off the document, not the file.
+- **`FileRef`** — a path on a volume: `libraryId`, `path`, `size`, `mtime`, `contentHash`, status
+  (`DISCOVERED → HASHED → MISSING?`). A ref is where bytes were seen, not the bytes.
+- **`File`** — the bytes themselves, once: `contentHash` (unique among live files), `mimeType`,
+  `ext`, `sizeBytes`, the name it arrived under, and — for images — the crop somebody chose. The same
+  content on three volumes and in one upload is **one file with four homes**.
+- **`Document`** — what a person reads: an **ordered list of files** plus one **canonical PDF** built
+  from them, and everything anybody said about the whole: title, description, type, people, subjects,
+  Markdown, vectors, collections.
 
-The `file-ingest` job computes SHA-256 of the file stream:
-- the hash already exists in the DB → attach the `FileRef` to the existing `Document` (**dedup**:
-  processing is not repeated);
-- the hash is new → create a `Document`, enqueue `document-process`.
+The `file-ingest` job computes SHA-256 of the file stream and then asks two questions in order:
+
+1. **Are these bytes already a file?** Yes → attach the `FileRef` to it (**dedup**: nothing is
+   processed twice, and the file keeps the document it already belongs to). No → create the file.
+2. **Does that file have a document?** No — it is new — → create a document holding exactly it and
+   enqueue `document-process`. Yes → nothing else happens; the bytes turned up in one more place,
+   which is a fact about paths and not about documents.
 
 **Invariants:**
-- One `Document` per `contentHash` (unique index).
-- A document has ≥ 0 live `FileRef`s (0 — when all copies are gone, §5.7).
-- Renaming/moving a file without changing its content = a `path` change on the `FileRef` (the document
-  and its processing are untouched; the old path is marked MISSING, the new one is attached by hash).
+- One live `File` per `contentHash`.
+- A file belongs to exactly one live document; a live document holds ≥1 file.
+- Renaming or moving a file without changing its content is a `path` change on a `FileRef`: the file,
+  its document and its processing are untouched.
+- The scan never guesses. Every file it finds already has a home or gets one; nothing on a volume is
+  left dangling, and nothing that already belongs somewhere is quietly moved.
 
 ## 5.4. Job queue (pg-boss)
 
@@ -82,7 +90,6 @@ The `file-ingest` job computes SHA-256 of the file stream:
 | `library-scan` | incremental library walk | 1 per library |
 | `file-ingest` | SHA-256, attach/create document | 4 |
 | `document-process` | orchestrates the §5.5 steps for a document | 2 |
-| `scanset-merge` | merges a scan set (§5.6) | 1 |
 | `maintenance` | cleanup of expired verifications/invites, orphaned artifacts | cron |
 
 Rules:
@@ -91,13 +98,13 @@ Rules:
   at-least-once, not exactly-once.
 - **Retries:** exponential backoff (e.g. 5 attempts); exhaustion — a `FAILED` status on the entity + an
   entry in the error journal (admin panel) with a manual "Retry".
-- **Priorities:** actions explicitly requested by a user (`scanset-merge`, manual rescan) rank above
-  background work.
+- **Priorities:** actions explicitly requested by a user (a rebuild after re-cropping, a manual
+  rescan) rank above background work.
 - Per-type concurrency is env-configured **and admin-tunable at runtime** ([`11 §11.13`](./11-ui-ux-spec.md)):
   the env values are the defaults, a stored setting overrides them, and changing one re-registers the
   workers rather than waiting for the container to be bounced. Two knobs, not one:
   **how many jobs of a queue run at once**, and **how many independent units inside a single job**
-  do — the pages of a scan set being read and cropped, say. The second is one number because those
+  do — the files of one document being read and cropped into pages, say. The second is one number because those
   units are all the same shape of work.
   The batch a worker takes is run **in parallel**, which is what a concurrency of four has always
   meant; it used to be awaited one job at a time, so the setting fetched four jobs and then ran them
@@ -113,7 +120,9 @@ Steps run sequentially for a document; each step records its status
 not block steps independent of it (no preview — text is still extracted, and vice versa).
 
 ```
-source ──► (1) PDF canonicalization ──► (2) JPG preview ──► (3) Markdown ──► (4) analysis ──► (5) vectorization
+files ──► (1) canonical PDF ──► (2) JPG preview ──► (3) Markdown ──► (4) analysis ──► (5) vectorization
+            │
+            └─ per file: crop (images) → to PDF → merge in order → text layer → metadata
 ```
 
 All derived artifacts (the canonical PDF, previews, Markdown files) are saved to the private S3 bucket
@@ -121,18 +130,31 @@ through the `FileStorage` port
 ([ADR-010](./02-architecture-overview.md#adr-010-derived-artifacts--s3-private-bucket-filestorage-port));
 they are served to the client via short-lived signed URLs after an access check.
 
-1. **Canonicalization to PDF** (for uniform previews and OCR):
-   - PDF → no canonicalization needed (the source already is a PDF);
-   - office formats (DOCX/XLSX/PPTX/ODT/…) → Stirling-PDF: conversion to PDF → a `canonical.pdf`
-     artifact;
-   - images → no canonicalization (preview and OCR work with the image directly);
-   - plain text / Markdown → no canonicalization;
-   - an unsupported format → `SKIPPED` for steps 1–3 and 5, the document remains "without a
-     representation".
-2. **First-page JPG preview:** PDF (source or canonical) → Stirling-PDF (PDF→IMG, first page); an
-   image → `sharp` (resize/EXIF orientation/JPEG). Artifacts `preview.jpg` (+ a smaller `thumb.jpg`
-   for lists).
-3. **Markdown extraction** — every PDF goes through **Docling** (ADR-018), which has a layout model:
+1. **Canonical PDF — for every document, always** (ADR-021). One artifact, `canonical.pdf`, built
+   from the document's files in their order, rebuildable from them at any time. Four passes:
+   1. **Each file becomes a PDF part**, `unitConcurrency` of them at a time (§5.4):
+      - an image → its crop applied when it has one (a perspective transform of the stored
+        quadrilateral, §5.6), then one page via Stirling `img → pdf`;
+      - a PDF → itself, as is; its pages are the part;
+      - an office format, plain text or Markdown → Stirling `file → pdf`;
+      - a format nothing can render → the file contributes no page, and the step records
+        `UNSUPPORTED_FORMAT` as the reason it is incomplete rather than failing the whole document.
+   2. **The parts are merged in position order** into one PDF. A single-part document skips the
+      merge and keeps its part.
+   3. **A text layer is ensured.** The merged PDF is measured against the same threshold step 3 uses
+      (`PDF_TEXT_MIN_CHARS_PER_PAGE` over its page count); below it, Stirling OCRs the whole thing in
+      the document's own languages and the **searchable** PDF becomes the canonical. This is where
+      `ocrUsed` is decided, and it is why a scan is a text-selectable PDF rather than a picture of
+      one. Until this release that OCR pass was run and thrown away.
+   4. **Metadata is stamped**: the document's title and its creation date, best-effort — a failure
+      here is logged and does not fail the step, because a PDF with the wrong `/Title` is still the
+      document.
+   The result is written to `documents/{id}/canonical.pdf` and its page count onto the document.
+   Rebuilding is a normal operation, not a repair: any change to the composition (§5.6) enqueues it.
+2. **First-page JPG preview:** the canonical PDF → Stirling-PDF (PDF→IMG, first page) → `sharp`
+   (resize/JPEG). Artifacts `preview.jpg` (+ a smaller `thumb.jpg` for lists). One rule for every
+   document, because by this point every document is a PDF.
+3. **Markdown extraction** — the canonical PDF goes through **Docling** (ADR-018), which has a layout model:
    headings stay headings and tables stay tables, instead of being flattened into a wall of text.
    With `DOCLING_URL` empty the step falls back to Stirling's converter, which reads the text and
    loses that structure. Docling can also write a caption under every picture — off by default,
@@ -142,10 +164,11 @@ they are served to the client via short-lived signed URLs after an access check.
    - the languages of the result are detected from it and stored on the document (03 §3.3.10); on a
      re-run they are what OCR is given, so a scan of a Russian page is OCR'd as Russian rather than
      as whatever the instance defaults to
-   - no text layer / it is an image (a scan) → **OCR** with tesseract in the document's own
-     languages, falling back to `OCR_LANGUAGES` (default `rus+eng`) while it has none. Docling does
-     this itself; on the fallback path Stirling OCRs into a searchable PDF and that is converted;
-   - plain text / Markdown → as is (encoding normalization).
+   - no text layer even after step 1 tried (a scan whose OCR found nothing to read) → Docling is
+     asked to OCR in the document's own languages, falling back to `OCR_LANGUAGES` (default
+     `rus+eng`) while it has none;
+   - a document whose canonical could not be built at all → `FAILED`, with step 1's error kept as
+     the reason rather than replaced by a second, less useful one.
    The Markdown is stored with the document and indexed by PostgreSQL FTS.
 A step is marked `RUNNING` when the pipeline starts it and settles to its outcome when it ends, so
 a long step is visibly alive rather than indistinguishable from a queued one (03 §3.3.10).
@@ -189,32 +212,77 @@ not configured, no document types defined, no text to embed, or a document type 
 **Search** (details — in 07): hybrid — PostgreSQL FTS over the Markdown + pgvector cosine similarity,
 merged results; filters by document type/library/dates.
 
-## 5.6. Scan sets: merging into a PDF on explicit request
+## 5.6. Composing a document out of files
 
-Scenario: a physical document scanned into dozens of JPGs with large margins (a passport ≈ 40 files).
+Scenario: a passport photographed into forty images with a phone, at an angle, on a kitchen table.
+Forty files, one document — and the person who took them should be able to say so, put them in
+order, straighten each one, and end up with a PDF they would print.
 
-- In the UI the user selects the image files (in page order) and triggers "Merge into PDF" — a
-  `ScanSet` is created along with a `scanset-merge` job.
-- `scanset-merge` pipeline: for each item, read the source image → **margin trimming** via `sharp`'s
-  `trim()` (content bounding-box detection; applied when `cropMode = TRIM`, skipped for `NONE`) →
-  Stirling-PDF assembles the trimmed images into a PDF (one page per image, page order = item
-  positions) → the result is uploaded to S3.
-- The result is a **new derived `Document`** (its source PDF lives in S3 as
-  `documents/{id}/source.pdf`; it has no `FileRef` in the library; provenance is recorded via
-  `scanSetId`). It goes through the regular §5.5 pipeline (preview/OCR/analysis/vectorization)
-  and belongs to the user who created it ([`08 §8.5`](./08-auth-and-authorization.md)).
-  Edge case: if the merged PDF's content hash matches an existing active document, that document is
-  **reused** (attached as the scan set's result) instead of creating a duplicate.
-- The source files are not modified and do not disappear from the library. A failed merge — a FAILED
-  status on the `ScanSet` (with the error text); the user may edit the set and retry.
+Every operation below changes only the **composition**: which files, in what order, cropped how.
+Nothing rewrites a file, and every one of them ends by enqueueing a canonical rebuild (§5.5 step 1)
+followed by the rest of the pipeline — because a document whose pages changed is a different
+document to read, search and categorize.
+
+- **Add by upload.** Files sent to an existing document are stored, deduplicated and appended in the
+  order they arrive. A file that already belongs to another document is refused
+  (`FILE_ALREADY_IN_DOCUMENT`) — it has a home, and moving it is `combine`, below.
+- **Combine.** Several documents become one: the files of the others are appended to the target in
+  the order the user chose, and the emptied documents are soft-deleted. Their titles, types, people
+  and collections stay with the rows that are going away — the target keeps what it had, and the
+  analysis is re-run over the whole. This is what "these two scans are one document" means, and it
+  replaces the scan sets of earlier releases.
+- **Split.** A file removed from a document becomes a document of its own — never nothing. The new
+  document is titled after the file, inherits nothing else, and is processed from scratch. Removing
+  the only file of a document is refused (`DOCUMENT_LAST_FILE`): a document is emptied by deleting
+  it, not by taking its parts away one at a time.
+- **Reorder.** Positions are rewritten wholesale from the order the client sends; the order is the
+  page order of the canonical PDF and nothing else depends on it.
+- **Crop.** An image file carries a quadrilateral in normalized coordinates (03 §3.3.16) — four
+  points, not a rectangle, because a photograph taken at an angle has none. Building the canonical
+  applies it as a **perspective transform**: the quad is mapped onto a rectangle whose size is
+  derived from the quad's own edge lengths, so a page shot from the side comes out flat and
+  rectangular. `cropSource` records who chose it, and a crop somebody dragged is never replaced by a
+  machine.
+- **Auto-detect corners.** On request the server finds the page in the photograph: the image is
+  downscaled, converted to grayscale, differentiated (Sobel), and the dominant near-horizontal and
+  near-vertical lines are found by a Hough transform; the four intersections of the two strongest
+  well-separated pairs are the quad. When nothing convincing is found — a page filling the frame
+  edge to edge, a photograph of nothing — the answer is the content bounding box (`sharp`'s trim
+  box), which is exactly what earlier releases applied unconditionally. The result is a **proposal**:
+  it lands in the editor for the person to accept or drag, and is only stored when they save.
+
+**What a change costs.** A rebuild re-runs every step, so a re-crop of one page of a forty-page
+document re-OCRs the lot. That is the honest price of one canonical artifact per document, and it
+is paid in the background: the document stays readable — its old canonical, preview and text remain
+until the new ones are written — and is marked processing while it happens.
+
+## 5.6a. Noticing that files belong together
+
+Forty scans of one passport arrive on the volume as forty documents, and the person who scanned them
+should not have to find them by hand. Legere therefore **suggests** groupings and never performs
+them: a suggestion is a question, and the answer is a click on Combine (§11.3).
+
+A group is proposed when several single-file documents share all of:
+- the same library folder;
+- an image file each;
+- names that agree — a common prefix with a numeric tail (`passport-01…passport-07`,
+  `IMG_0042…IMG_0048`), whose numbers are consecutive with no more than one gap;
+- modification times inside one window (`GROUPING_WINDOW_MINUTES`, default 10) — one sitting at the
+  scanner.
+
+Groups of one are not suggestions. A document a person has already touched — titled, typed, filed
+into a collection — is never suggested for absorption, because a suggestion that undoes somebody's
+work is worse than no suggestion. Nothing about a suggestion is stored: it is computed from what is
+already known, so dismissing one is a client-side act and the list is always current.
 
 ## 5.7. Files disappearing and returning
 
 - A file vanished from disk → `FileRef.status = MISSING` (+`missingSince`). Document data is **not
   deleted**.
-- All of a document's `FileRef`s are MISSING → the document is marked "unavailable" (visible in lists
-  with a badge; preview/md/search still work — they live in S3 and the DB; downloading the source is
-  unavailable).
+- Some of a document's files are unreadable → the document is `PARTIAL`; all of them → `UNAVAILABLE`.
+  Either way it stays in the lists with a badge, and its **canonical PDF, preview, text and search
+  keep working** — they live in S3 and the DB. What is unavailable is exactly what is missing: the
+  originals behind those files.
 - The file came back (same hash at the same or another path) → the link is restored, the document is
   available again.
 - There is no physical cleanup of MISSING records in the MVP (only manual document deletion by an
@@ -238,7 +306,8 @@ None. Previously open items — resolved:
    spike task.
 2. **OCR threshold:** a PDF goes to OCR when its average extracted text is below
    `PDF_TEXT_MIN_CHARS_PER_PAGE` (default 32) characters per page.
-3. **Margin cropping:** per-image `sharp.trim()` before PDF assembly (§5.6); no crop preview in MVP.
+3. **Margin cropping:** superseded by the per-file crop of §5.6 — a quadrilateral a person can see
+   and drag, with the trim box as the fallback proposal.
 4. **Chunking:** split on headings/paragraph boundaries targeting `CHUNK_TARGET_CHARS` (1000) with
    `CHUNK_OVERLAP_CHARS` (200) overlap.
 5. **HEIC:** attempt `sharp` decode; if the runtime build lacks HEIC support, preview/markdown steps

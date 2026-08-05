@@ -60,7 +60,7 @@ the file on the volume; `/markdown` returned the extracted text.
 **second page** of the contract PDF — each with the term wrapped in `<mark>`, and
 `semanticAvailable: false`, which is the honest answer for an instance with no embeddings provider.
 
-**Scan set.** Two of the scans were made into a set with `cropMode: TRIM`, merged, and the set went
+**Scan set** (the v0.1.0 feature, replaced in v0.4 by editing a document's files — 02 ADR-021).** Two of the scans were made into a set with `cropMode: TRIM`, merged, and the set went
 `DRAFT → QUEUED → DONE` with a `resultDocumentId`. The result is a `DERIVED` document, 2 pages,
 93 305 bytes, carrying its `scanSetId`, processed like any other document (preview and markdown
 DONE). `pdfjs` reads it as two A4 pages. The three source JPEGs on the volume were untouched.

@@ -88,13 +88,16 @@ export class PrismaLibraryRepository implements LibraryRepository {
     const rows = await clientOf(this.prisma, tx).$queryRaw<
       { library_id: string; files: bigint; documents: bigint; missing: bigint }[]
     >`
-      SELECT library_id,
-             count(*) FILTER (WHERE status <> 'MISSING')            AS files,
-             count(DISTINCT document_id) FILTER (WHERE document_id IS NOT NULL) AS documents,
-             count(*) FILTER (WHERE status = 'MISSING')             AS missing
-      FROM file_refs
-      WHERE library_id = ANY(${libraryIds}::uuid[])
-      GROUP BY library_id
+      SELECT fr.library_id,
+             count(*) FILTER (WHERE fr.status <> 'MISSING')              AS files,
+             -- A ref points at a file, and the file is what a document holds (docs/03 §3.3.9), so
+             -- "documents in this library" is one join further out than it used to be.
+             count(DISTINCT df.document_id) FILTER (WHERE df.document_id IS NOT NULL) AS documents,
+             count(*) FILTER (WHERE fr.status = 'MISSING')               AS missing
+      FROM file_refs fr
+      LEFT JOIN document_files df ON df.file_id = fr.file_id
+      WHERE fr.library_id = ANY(${libraryIds}::uuid[])
+      GROUP BY fr.library_id
     `;
 
     return rows.map((row) => ({

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { DocumentRepository } from '../../domain/repositories/document.repository';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
+import type { FileRepository } from '../../domain/repositories/file.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
 import { ContentHash } from '../../domain/value-objects/content-hash';
@@ -18,15 +19,17 @@ export type FileIngestPayload = z.infer<typeof fileIngestPayloadSchema>;
 const HEAD_BYTES = 4100;
 
 // `file-ingest` (docs/05 §5.3). Streams the file once to compute its SHA-256 — the content identity
-// that drives deduplication (ADR-009) — then either attaches the ref to the document that already has
-// that content or creates a new document and starts the pipeline.
+// that drives deduplication (ADR-009, one level down since ADR-021) — and then asks two questions in
+// order: are these bytes already a file, and does that file already have a document? A ref is where
+// bytes were seen; the file is the bytes; the document is what a person reads.
 //
 // Idempotent (docs/05 §5.4): a re-delivered job for a ref that is already HASHED at the same
-// size/mtime returns immediately, and hashing the same bytes twice yields the same document either
-// way, so even a duplicate that slips through attaches rather than duplicating.
+// size/mtime returns immediately, and hashing the same bytes twice yields the same file either way,
+// so even a duplicate that slips through attaches rather than duplicating.
 export class HandleFileIngest extends JobHandler {
   constructor(
     private readonly fileRefs: FileRefRepository,
+    private readonly files: FileRepository,
     private readonly documents: DocumentRepository,
     private readonly events: DocumentEventRepository,
     private readonly libraries: LibraryRepository,
@@ -44,7 +47,7 @@ export class HandleFileIngest extends JobHandler {
     const ref = await this.fileRefs.findById(fileRefId);
     // The ref may have been superseded by a later scan, or its library deleted.
     if (ref === null) return;
-    if (ref.status === 'HASHED' && ref.contentHash !== null && ref.documentId !== null) return;
+    if (ref.status === 'HASHED' && ref.contentHash !== null && ref.fileId !== null) return;
 
     const library = await this.libraries.findById(ref.libraryId);
     if (library === null || library.deletedAt !== null) return;
@@ -74,54 +77,71 @@ export class HandleFileIngest extends JobHandler {
     const detected = await this.mime.detect(Buffer.concat(headChunks), ref.path.name);
 
     await this.unitOfWork.run(async (tx) => {
-      // One call expresses the dedup rule: known content yields the existing document, new content
-      // creates one, and a concurrent ingest of identical bytes still converges on a single document.
-      const { document, created } = await this.documents.findOrCreateByContentHash(
+      // Question one: are these bytes already a file? Known content yields the file that already
+      // holds it — the same content on three volumes and in one upload is one file with four homes
+      // — and a concurrent ingest of identical bytes still converges on a single row (docs/05 §5.3).
+      const { file, created } = await this.files.findOrCreateByContentHash(
         {
           contentHash: contentHash.value,
-          source: 'LIBRARY',
+          // Its bytes stay on the read-only volume; nothing is copied into our bucket (docs/09 §9.2).
+          origin: 'LIBRARY',
+          storageKey: null,
           mimeType: detected.mime,
           // The detected extension wins over the file name's, since content decides the format;
-          // fall back to the name's extension when there are no magic bytes (docs/03 §3.3.10).
+          // fall back to the name's extension when there are no magic bytes (docs/03 §3.3.16).
           ext: detected.ext === '' ? ref.path.extension : detected.ext,
           sizeBytes: size,
-          // Initial title is the file name without its extension (docs/03 §3.3.10); editable later.
-          title: ref.path.stem,
+          name: ref.path.name,
         },
         tx,
       );
 
-      // A renamed or copied file takes this same path: it simply becomes another ref to the document
+      // A renamed or copied file takes this same path: it simply becomes another ref to the file
       // that already holds its content (docs/05 §5.3).
-      await this.fileRefs.markHashed(ref.id, contentHash.value, document.id, size, ref.mtimeMs, tx);
+      await this.fileRefs.markHashed(ref.id, contentHash.value, file.id, size, ref.mtimeMs, tx);
 
-      // Only the ingest that created the document starts the pipeline — known content is never
-      // reprocessed, which is the point of deduplication. The job commits with the document, so a
-      // document that exists is always one the pipeline will run (docs/06 §6.3.4). Step statuses
-      // default to PENDING in the schema (docs/05 §5.5).
-      if (created) {
-        await this.queue.enqueueAfterTx(tx, 'document-process', { documentId: document.id });
+      // Question two: does that file have a document? A file that was just created cannot have one,
+      // which saves the query in the common case.
+      const home = created ? null : await this.files.findDocumentIdForFile(file.id, tx);
+      if (home !== null) {
+        // Nothing else happens. The bytes turned up in one more place, which is a fact about paths
+        // and not about documents — and the log is where that is written down (docs/03 §3.3.18).
         await this.events.record(
           {
-            documentId: document.id,
-            type: 'CREATED',
+            documentId: home,
+            type: 'FILE_ATTACHED',
             payload: { source: 'LIBRARY', path: ref.path.value },
           },
           tx,
         );
-        await this.events.record({ documentId: document.id, type: 'QUEUED' }, tx);
-      } else {
-        // A renamed or copied file: the document is not new, but this is how it came to have
-        // another place on disk, and the log is where that is written down (docs/03 §3.3.18).
-        await this.events.record(
-          {
-            documentId: document.id,
-            type: 'FILE_ATTACHED',
-            payload: { path: ref.path.value },
-          },
-          tx,
-        );
+        return;
       }
+
+      // New content: a document holding exactly this file, and the pipeline that builds its
+      // canonical PDF (docs/05 §5.3). The job commits with the rows, so a document that exists is
+      // always one the pipeline will run (docs/06 §6.3.4). Step statuses default to PENDING in the
+      // schema (docs/05 §5.5).
+      const document = await this.documents.create({ title: ref.path.stem }, tx);
+      await this.files.attach(document.id, file.id, tx);
+      await this.queue.enqueueAfterTx(tx, 'document-process', { documentId: document.id });
+
+      await this.events.record(
+        {
+          documentId: document.id,
+          type: 'CREATED',
+          payload: { source: 'LIBRARY', path: ref.path.value },
+        },
+        tx,
+      );
+      await this.events.record(
+        {
+          documentId: document.id,
+          type: 'FILE_ATTACHED',
+          payload: { source: 'LIBRARY', path: ref.path.value },
+        },
+        tx,
+      );
+      await this.events.record({ documentId: document.id, type: 'QUEUED' }, tx);
     });
   }
 }

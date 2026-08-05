@@ -9,6 +9,7 @@ import { listSubjectsResponseSchema, subjectDtoSchema } from '../../src/shared/c
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
+import { seedDocument } from '../helpers/documents';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
@@ -108,19 +109,8 @@ describe('Catalogues (e2e)', () => {
         .set('Cookie', userCookie);
       const subjectId = expectData(subject, subjectDtoSchema).id;
 
-      const document = await testPrisma().document.create({
-        data: {
-          contentHash: 'd'.repeat(64),
-          source: 'UPLOAD',
-          mimeType: 'application/pdf',
-          ext: 'pdf',
-          sizeBytes: 10n,
-          title: 'Lease',
-        },
-      });
-      await testPrisma().documentSubject.create({
-        data: { documentId: document.id, subjectId },
-      });
+      const document = await seedDocument({ document: { title: 'Lease' } });
+      await testPrisma().documentSubject.create({ data: { documentId: document.id, subjectId } });
 
       const [kind] = expectData(
         await api(app).get('/api/subject-kinds').set('Cookie', userCookie),
@@ -239,17 +229,8 @@ describe('Catalogues (e2e)', () => {
   describe('merging', () => {
     // A document keeps naming the same thing whichever row it happened to be linked to: that is the
     // whole promise of a merge (docs/03 §3.3.20).
-    async function givenDocumentAbout(subjectIds: string[], hash: string): Promise<string> {
-      const document = await testPrisma().document.create({
-        data: {
-          contentHash: hash.padStart(64, 'e'),
-          source: 'UPLOAD',
-          mimeType: 'application/pdf',
-          ext: 'pdf',
-          sizeBytes: 10n,
-          title: `Doc ${hash}`,
-        },
-      });
+    async function givenDocumentAbout(subjectIds: string[], name: string): Promise<string> {
+      const document = await seedDocument({ document: { title: `Doc ${name}` } });
       await testPrisma().documentSubject.createMany({
         data: subjectIds.map((subjectId) => ({ documentId: document.id, subjectId })),
       });

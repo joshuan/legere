@@ -22,7 +22,7 @@ function toDomain(row: PrismaFileRef): FileRef {
     mtimeMs: row.mtime.getTime(),
     status: row.status,
     contentHash: row.contentHash,
-    documentId: row.documentId,
+    fileId: row.fileId,
     missingSince: row.missingSince,
     firstSeenAt: row.firstSeenAt,
     lastSeenAt: row.lastSeenAt,
@@ -59,7 +59,7 @@ export class PrismaFileRefRepository implements FileRefRepository {
         mtime: true,
         status: true,
         contentHash: true,
-        documentId: true,
+        fileId: true,
       },
     });
 
@@ -70,7 +70,7 @@ export class PrismaFileRefRepository implements FileRefRepository {
       mtimeMs: row.mtime.getTime(),
       status: row.status,
       contentHash: row.contentHash,
-      documentId: row.documentId,
+      fileId: row.fileId,
     }));
   }
 
@@ -89,7 +89,7 @@ export class PrismaFileRefRepository implements FileRefRepository {
     return toDomain(row);
   }
 
-  // Back to DISCOVERED with the new size/mtime; the previous hash and document stay until ingest
+  // Back to DISCOVERED with the new size/mtime; the previous hash and file stay until ingest
   // replaces them, so the document remains reachable while the re-hash is pending.
   async markDiscovered(
     id: string,
@@ -114,7 +114,7 @@ export class PrismaFileRefRepository implements FileRefRepository {
   async markHashed(
     id: string,
     contentHash: string,
-    documentId: string,
+    fileId: string,
     size: bigint,
     mtimeMs: number,
     tx?: TransactionHandle,
@@ -124,7 +124,7 @@ export class PrismaFileRefRepository implements FileRefRepository {
       data: {
         status: 'HASHED',
         contentHash,
-        documentId,
+        fileId,
         size,
         mtime: new Date(mtimeMs),
         missingSince: null,
@@ -152,8 +152,9 @@ export class PrismaFileRefRepository implements FileRefRepository {
   }
 
   // Folders are derived, not stored (docs/11 §11.4): the distinct next path segment of every ref
-  // below `folder`, counted by the documents underneath. Raw SQL because the shape of the answer is
-  // a string operation on the path, which the query builder cannot express.
+  // below `folder`, counted by the documents underneath. A ref points at a file and the file at a
+  // document (docs/03 §3.3.16), so the count travels through `document_files`. Raw SQL because the
+  // shape of the answer is a string operation on the path, which the query builder cannot express.
   async listFoldersUnder(
     libraryId: string,
     folder: string,
@@ -161,13 +162,14 @@ export class PrismaFileRefRepository implements FileRefRepository {
   ): Promise<FolderSummary[]> {
     const rows = await clientOf(this.prisma, tx).$queryRaw<{ name: string; count: bigint }[]>`
       WITH below AS (
-        SELECT f.document_id,
+        SELECT df.document_id,
                CASE
                  WHEN ${folder} = '' THEN f.path
                  ELSE substring(f.path from char_length(${folder}) + 2)
                END AS rel
         FROM file_refs f
-        JOIN documents d ON d.id = f.document_id AND d.deleted_at IS NULL
+        JOIN document_files df ON df.file_id = f.file_id
+        JOIN documents d ON d.id = df.document_id AND d.deleted_at IS NULL
         WHERE f.library_id = ${libraryId}::uuid
           AND (${folder} = '' OR f.path LIKE ${folder} || '/%')
       )
@@ -181,25 +183,12 @@ export class PrismaFileRefRepository implements FileRefRepository {
     return rows.map((row) => ({ name: row.name, documentCount: Number(row.count) }));
   }
 
-  async findLiveRefForDocument(
-    documentId: string,
-    tx?: TransactionHandle,
-  ): Promise<FileRef | null> {
+  async findLiveRefForFile(fileId: string, tx?: TransactionHandle): Promise<FileRef | null> {
     const row = await clientOf(this.prisma, tx).fileRef.findFirst({
-      where: { documentId, status: 'HASHED', library: { deletedAt: null } },
+      where: { fileId, status: 'HASHED', library: { deletedAt: null } },
       // Oldest first, so repeated runs read the same copy of duplicated content.
       orderBy: { firstSeenAt: 'asc' },
     });
     return row === null ? null : toDomain(row);
-  }
-
-  countLiveRefsInActiveLibraries(documentId: string, tx?: TransactionHandle): Promise<number> {
-    return clientOf(this.prisma, tx).fileRef.count({
-      where: {
-        documentId,
-        status: 'HASHED',
-        library: { deletedAt: null },
-      },
-    });
   }
 }

@@ -14,7 +14,6 @@ Authenticated layout: left **Sider** (collapsible) + content. Menu:
 | Browse | `/browse/:libraryId` (submenu listing visible libraries) | all |
 | Search | `/search` | all |
 | Collections | `/collections` | all |
-| Scan sets | `/scan-sets` | all |
 | Catalogues ▸ People / Subjects / Subject kinds / Document types | `/people`, `/subjects`, `/subject-kinds`, `/document-types` | all |
 | Administration ▸ Libraries / Users / Queue | `/admin/*` | ADMIN |
 | (footer) Settings, user avatar + name, Logout | `/settings` | all |
@@ -46,10 +45,19 @@ Onboarding when already onboarded → 404 page.
 ## 11.3. Documents (`/documents`) — the home screen
 
 - **Grid of cards** (responsive, 2–6 columns): thumbnail (`/thumb`; file-type icon fallback while
-  `previewStatus != DONE`), title (2-line ellipsis), document type tag, extension badge, and status badges:
-  `processing` (spinner tag "Processing"), `UNAVAILABLE` (grey "File missing" tag).
+  `previewStatus != DONE`), title (2-line ellipsis), document type tag, extension badge, a **file
+  count** when the document is made of more than one ("7 files"), and status badges: `processing`
+  (spinner tag "Processing"), `PARTIAL` ("Some files missing"), `UNAVAILABLE` (grey "Files missing").
 - **Filter bar:** library select, document type select, availability toggle, "processing only" toggle,
-  source (All / From libraries / Created by me). Filters reflect in the URL query.
+  origin (All / From libraries / Added here). Filters reflect in the URL query.
+- **Selection → Combine.** The multi-select that used to build a scan set now says what it means:
+  tick documents in page order and press **Combine into one document**. Their files move into the
+  first-picked document in that order, the emptied documents go away, and the viewer opens on the
+  result while it rebuilds (`05 §5.6`). Any documents can be combined, not only images.
+- **"These look like one document."** Above the grid, at most three suggestion cards
+  (`GET /api/documents/grouping-suggestions`, `05 §5.6a`): the thumbnails of the group, "7 scans in
+  `passports/2026`, one after another", **Combine** and **Dismiss**. Dismissing is client-side and
+  lasts the session — the server proposes, it never remembers being refused.
 - Infinite scroll (`useInfiniteQuery`). Card click → viewer. Empty state (fresh instance): "No
   documents yet. Ask your administrator to add a library." — with a CTA to `/admin/libraries` for
   admins, and the upload affordance below, which any user can act on.
@@ -107,8 +115,10 @@ unknown tab is a 404 rather than a guess.
 
 Two-pane layout, with the **title above the tabs**: it names what is on the page, and a name is read
 before the metadata of the thing it names.
-- **Left (main): tabs** — `Preview` (canonical/source PDF in an `<object>`; for images the
-  preview.jpg full-size; for text/markdown sources — rendered markdown), `Text` (rendered Markdown
+- **Left (main): tabs** — `Preview` (**the canonical PDF** in an `<object>`, for every document
+  whatever it is made of, because by the time it is readable it is a PDF (`05 §5.5`); while the step
+  has not finished, the preview image if there is one and a "Being assembled…" panel if there is
+  not), `Text` (rendered Markdown
   representation; empty state "No text extracted yet" / "Extraction failed" / "Being extracted…"
   while the step is `PENDING` or `RUNNING`). **The text is typeset, not merely rendered:** what the
   parser hands over is Markdown, and the browser's defaults make it a web page from 1996 — a heading
@@ -119,10 +129,8 @@ before the metadata of the thing it names.
   already spaces itself; tables at the full width of the pane with real cell rules, a weighted
   header and a scroller of their own, because a fourteen-column invoice must widen nothing; code and
   quotations in the faces §11.15 gives them. Restrained on purpose — the document is the thing being
-  read, and this is only how it is set, `Details` (metadata
-  table: size, pages, mime, hash (copyable), created, OCR used, **languages** and **place**, file
-  locations = visible FileRef paths with library names and MISSING badges, provenance for DERIVED
-  docs — link to the scan set). Everything a machine decided is **editable here and only here** —
+  read, and this is only how it is set, `Details` (metadata table: pages, size, created, OCR used,
+  **languages** and **place**, plus the **Files** section of §11.5a). Everything a machine decided is **editable here and only here** —
   document type, languages, country, city — behind one **Edit** button (top right of the pane,
   or the **E** key; **Escape** leaves) that turns those rows into ordinary inputs, and **Save** at
   the bottom right that turns them back — rather than controls sitting in the page all the time:
@@ -149,9 +157,7 @@ before the metadata of the thing it names.
   becoming somebody's choice. Only the fields a rerun could write carry it — a person or a subject
   the analysis named is a link, not a value, and `PATCH` has no reset for either. Inside the form the
   line stays plain text: the control next to the input is the reset there, and two of them would be
-  two answers to the same question. File
-  locations are rows of this same list, one per library, rather than a card of their own — where the
-  bytes live is one more fact about the document, not a section of it. Languages and the country are
+  two answers to the same question. Languages and the country are
   shown as names in the reader's own
   language (`Intl.DisplayNames`), not as the tags stored — "Serbian (Latin), Montenegro", not
   "sr-Latn, ME"; an em dash where nothing was detected, which is honest and never looks broken.
@@ -180,8 +186,8 @@ before the metadata of the thing it names.
   can act on and nobody else is shown.
   Fetched only when the tab is open — most visits never ask.
 - **Right (sidebar):** title (inline-editable when permitted), document type select (all users with
-  access; shows "auto" tag when `typeSource=AUTO`), Download source button (disabled +
-  tooltip when `UNAVAILABLE`), Add-to-collection select, processing status panel: five steps, one row each
+  access; shows "auto" tag when `typeSource=AUTO`), the **Download split button** of §11.5b,
+  Add-to-collection select, processing status panel: five steps, one row each
   (`RUNNING` in the panel means the pipeline is on that step right now — the viewer polls every 5 s
   while the document is processing, so a long step shows its progress by moving on, not by a bar),
   laid out as a grid — select, state, name — so every name starts at the same x whatever width the
@@ -193,6 +199,55 @@ before the metadata of the thing it names.
   nothing. ADMIN gets a checkbox at the start of each row and one "Reprocess" button below — the
   step names are already on screen, so a second list of them to tick would be the same five words
   twice. An error the server could not attribute to any step still renders under the list.
+
+## 11.5a. The Files section (Details tab)
+
+A document is an ordered list of files (`03 §3.3.10`), and this is where that list is visible and
+editable. One row per file, in page order: a thumbnail of the file, its name, kind and size, a
+`MISSING` tag when the volume no longer has it, and the library path underneath when it has one —
+where the bytes live is a fact about the file, and it belongs beside the file rather than in a
+section of its own.
+
+Per row: **Download** (this original alone), **Crop** for an image (§11.5c), **Move up / Move down**,
+and **Split off** — which says plainly what it does, "this file becomes its own document", because
+"remove" would promise a deletion that never happens (`05 §5.6`). Splitting off the only file is not
+offered at all rather than refused after the fact. Above the list: **Add files**, the same upload
+queue as the grid (§11.3) pointed at this document, appending in the order chosen.
+
+Every one of these rebuilds the document — the canonical PDF, the preview, the text, the analysis —
+so the section says so once, quietly, under its heading: "Changing the files rebuilds the document."
+While that happens the rows stay usable and the document keeps showing what it had.
+
+## 11.5b. Download: the document, or what it was made of
+
+**Download** is a split button. Its main half hands over the **canonical PDF** — the document as one
+piece, searchable, straightened, in page order — because that is what somebody asking for "the
+document" means. Its dropdown lists the originals, one entry per file, named as they arrived, each
+downloading exactly those bytes; a file the volume has lost is listed disabled with the reason.
+
+The default is never silently the original: a document made of forty photographs downloads as one
+PDF, and a person who wants photograph 23 asks for photograph 23. Until the canonical has been
+built the main half is disabled with "Being assembled…", and the originals remain available
+throughout — the dropdown is the answer to "I need the raw file", and it should work on the worst
+day, when the pipeline is broken.
+
+## 11.5c. The crop editor
+
+Opened from a file row of §11.5a for an image. A modal over the image at the largest size that fits,
+with **four draggable corner handles** joined by a polygon and the outside dimmed — a quadrilateral,
+not a rectangle, because a page photographed at an angle is not a rectangle and forcing one either
+cuts the corner off or keeps the table it is lying on.
+
+- **Auto-detect corners** asks the server (`GET …/crop-suggestion`) and drops the answer into the
+  editor for the person to accept or drag. It is a proposal and says so; it never saves by itself.
+- **Reset** clears the crop entirely — the file goes back into the canonical whole.
+- **Save** stores the quadrilateral and rebuilds the document; the modal closes on the answer, not
+  on the click, so a failure is visible where it happened.
+- Handles are draggable with a pointer and nudgeable with the arrow keys once focused (1 px, 10 px
+  with Shift), because the last two pixels of a corner are not a mouse gesture.
+- The preview inside the modal shows the source image as it is; the perspective correction happens
+  when the canonical is built, and the modal says what the result will be ("the page will be
+  straightened to a rectangle") rather than pretending to render it.
 
 ## 11.6. Search (`/search?q=`)
 
@@ -210,19 +265,6 @@ suggestions ("check spelling, try semantic mode").
   (`/api/users/lookup`), an "Everyone on this instance" switch, and the current share list with
   revoke buttons.
 - Non-owner viewers see the intersection they're allowed to see; no edit affordances.
-
-## 11.8. Scan sets (`/scan-sets`, `/scan-sets/:id`)
-
-- List: name, status tag (Draft/Queued/Processing/Done/Failed), items count, result link when Done.
-- **Builder** (detail in DRAFT/FAILED): name input, crop toggle ("Trim margins" default on),
-  **orderable item strip** — thumbnails with drag-and-drop reorder and remove; "Add pages" opens a
-  picker (documents grid filtered to images, multi-select, appends in selection order). Primary
-  action **Merge into PDF** (requires ≥1 item) → status becomes Queued → live status via polling;
-  Failed shows the error and keeps the builder editable; Done shows a success panel linking to the
-  result document (which then behaves like any document: preview, OCR text, document type, collections).
-- Entry point besides the section: in the documents grid, multi-select mode (checkbox on hover) with
-  a bulk action "Create scan set from selection" (images only; mixed selection → non-images are
-  skipped with a notice).
 
 ## 11.9. Settings (`/settings`)
 

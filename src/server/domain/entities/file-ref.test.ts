@@ -10,7 +10,7 @@ const ref = (overrides: Partial<FileRef> = {}): FileRef => ({
   mtimeMs: 1_700_000_000_000,
   status: 'HASHED',
   contentHash: 'a'.repeat(64),
-  documentId: 'doc-1',
+  fileId: 'file-1',
   missingSince: null,
   firstSeenAt: new Date(0),
   lastSeenAt: new Date(0),
@@ -39,9 +39,9 @@ describe('needsRehash (docs/05 §5.2)', () => {
   it('re-hashes anything not already fully ingested', () => {
     expect(needsRehash(ref({ status: 'DISCOVERED' }), 100n, 1_700_000_000_000)).toBe(true);
     expect(needsRehash(ref({ status: 'MISSING' }), 100n, 1_700_000_000_000)).toBe(true);
-    // HASHED but never attached — an interrupted ingest.
+    // HASHED but never attached to a file — an interrupted ingest.
     expect(needsRehash(ref({ contentHash: null }), 100n, 1_700_000_000_000)).toBe(true);
-    expect(needsRehash(ref({ documentId: null }), 100n, 1_700_000_000_000)).toBe(true);
+    expect(needsRehash(ref({ fileId: null }), 100n, 1_700_000_000_000)).toBe(true);
   });
 });
 
@@ -61,10 +61,10 @@ describe('canTransition (docs/03 §3.3.9)', () => {
 });
 
 describe('isLive', () => {
-  it('is true only for a hashed ref attached to a document', () => {
+  it('is true only for a hashed ref attached to a file', () => {
     expect(isLive(ref())).toBe(true);
     expect(isLive(ref({ status: 'MISSING' }))).toBe(false);
     expect(isLive(ref({ status: 'DISCOVERED' }))).toBe(false);
-    expect(isLive(ref({ documentId: null }))).toBe(false);
+    expect(isLive(ref({ fileId: null }))).toBe(false);
   });
 });

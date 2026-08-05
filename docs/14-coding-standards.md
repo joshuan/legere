@@ -85,7 +85,7 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
 
 | Level | Scope | How |
 |-------|-------|-----|
-| Unit (domain) | value objects (`RelativePath` traversal cases!), entity state machines (FileRef, ScanSet), access predicates (03 §3.4), chunking, hybrid-merge (RRF) | pure, no I/O |
+| Unit (domain) | value objects (`RelativePath` traversal cases!), entity state machines (FileRef), access predicates (03 §3.4), chunking, hybrid-merge (RRF), the crop geometry (homography, edge detection) | pure, no I/O |
 | Unit (application) | every use case and job handler with in-memory ports/repositories | orchestration, idempotency, error codes |
 | Integration (infrastructure) | Prisma repositories against test Postgres (pgvector); `FsLibraryReader` against tmp fixtures; `S3FileStorage` against MinIO (local; optional in CI) | truncate between tests |
 | E2E (HTTP) | full flows with mocked `FileStorage`/`PdfToolbox`/`EmailSender`/`CaptchaVerifier`/AI ports + real DB | supertest |
@@ -111,9 +111,12 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
   access; collection item filtering per viewer; admin sees everything.
 - Search: FTS finds title & body; access filtering inside search; hybrid = text when no provider;
   RRF merge ordering deterministic.
-- Scan sets: non-image item rejected; edit in QUEUED → `SCANSET_INVALID_STATE`; merge produces
-  DERIVED doc with provenance and enqueues processing; result dedup (identical result reuses
-  document); FAILED retry after edit.
+- Files and documents: a canonical PDF is built for every document whatever it is made of; adding,
+  reordering, cropping and splitting each rebuild it; splitting off a file yields a document of its
+  own and refuses to empty the last one (`DOCUMENT_LAST_FILE`); combining moves files in the chosen
+  order and soft-deletes the emptied documents; a file belongs to exactly one document
+  (`FILE_ALREADY_IN_DOCUMENT`); the crop is a quadrilateral applied as a perspective transform and a
+  `MANUAL` one survives a rebuild; a document with a missing original still serves its canonical.
 - API: unknown `/api/*` → JSON `NOT_FOUND` (not HTML); envelope shape on success and error; BigInt as
   string; soft-deleted → 404 everywhere.
 

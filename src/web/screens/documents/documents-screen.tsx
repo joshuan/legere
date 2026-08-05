@@ -1,15 +1,20 @@
 'use client';
 
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Checkbox, Col, Empty, Row, Space, Spin, Typography } from 'antd';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { App, Button, Card, Checkbox, Col, Empty, Row, Space, Spin, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { availabilitySchema, type DocumentListDto } from '../../../shared/contracts/documents';
-import { documentSourceSchema } from '../../../shared/contracts/enums';
-import { documentApi, documentKeys, type DocumentFilters } from '../../entities/document';
-import { scanSetApi, scanSetKeys } from '../../entities/scan-set';
+import { availabilitySchema } from '../../../shared/contracts/documents';
+import { fileOriginSchema } from '../../../shared/contracts/enums';
+import type { GroupingSuggestion } from '../../../shared/contracts/files';
+import {
+  documentApi,
+  documentFiles,
+  documentKeys,
+  type DocumentFilters,
+} from '../../entities/document';
 import { DocumentFiltersBar } from '../../features/document-filters';
 import { DocumentCard } from '../../widgets/document-card';
 import {
@@ -72,34 +77,28 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
     [documents.data],
   );
 
-  // Multi-select exists for one reason: turning a stack of photographed pages into a scan set
-  // (docs/11 §11.8). It stays off until asked for, so an ordinary click still opens a document.
+  // Multi-select exists for one reason: making one document out of several (docs/11 §11.3). It stays
+  // off until asked for, so an ordinary click still opens a document.
   const [selecting, setSelecting] = useState(false);
   const upload = useDocumentUpload();
+  // Selection order is page order — the order they were ticked in is the order their files end up
+  // in, so this is a list rather than a set (docs/11 §11.3).
   const [selected, setSelected] = useState<string[]>([]);
-  // Mapped over the selection, not filtered from the grid: the order pages were clicked in is the
-  // page order of the set (docs/11 §11.8).
-  const selectedDocuments = selected.flatMap((id) => {
-    const found = items.find((item) => item.id === id);
-    return found === undefined ? [] : [found];
-  });
-  const images = selectedDocuments.filter(isImage);
-  const skipped = selectedDocuments.length - images.length;
 
-  const createScanSet = useMutation({
-    mutationFn: () =>
-      scanSetApi.create({
-        name: t('documents.selection.defaultName'),
-        cropMode: 'TRIM',
-        // Selection order is page order; the builder is where it gets rearranged.
-        items: images.map((item) => item.id),
-      }),
-    onSuccess: (created) => {
-      void message.success(t('documents.selection.created'), 2);
-      void queryClient.invalidateQueries({ queryKey: scanSetKeys.all });
+  const combine = useMutation({
+    mutationFn: (documentIds: string[]) => {
+      const [survivor, ...rest] = documentIds;
+      if (survivor === undefined) throw new Error('nothing selected');
+      return documentApi.combine(survivor, { documentIds: rest });
+    },
+    onSuccess: (result) => {
+      void message.success(t('documents.selection.combined'), 2);
+      void queryClient.invalidateQueries({ queryKey: ['documents'] });
       setSelecting(false);
       setSelected([]);
-      router.push(`/scan-sets/${created.id}`);
+      // The result is what the person asked for, and it is rebuilding — so the viewer is where they
+      // should be watching it (docs/11 §11.3).
+      router.push(`/documents/${result.id}`);
     },
     onError: (error: unknown) => void message.error(describeError(error)),
   });
@@ -147,25 +146,29 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
         {selecting && (
           <Space>
             <Typography.Text type="secondary">
-              {t('documents.selection.count', { count: images.length })}
+              {t('documents.selection.count', { count: selected.length })}
             </Typography.Text>
-            {skipped > 0 && (
-              // Mixed selections are allowed; the non-images are simply not pages (docs/11 §11.8).
-              <Typography.Text type="warning">
-                {t('documents.selection.skipped', { count: skipped })}
-              </Typography.Text>
-            )}
             <Button
               type="primary"
-              disabled={images.length === 0}
-              loading={createScanSet.isPending}
-              onClick={() => createScanSet.mutate()}
+              // One document combined with nothing is the document it already was.
+              disabled={selected.length < 2}
+              loading={combine.isPending}
+              onClick={() => combine.mutate(selected)}
             >
-              {t('documents.selection.create')}
+              {t('documents.selection.combine')}
             </Button>
           </Space>
         )}
       </Space>
+
+      {/* Above the grid, and only while nothing is being looked for in particular: a proposal about
+          the whole shelf makes no sense over a filtered view of it (docs/11 §11.3). */}
+      {Object.keys(filters).length === 0 && (
+        <GroupingSuggestions
+          onCombine={(documentIds) => combine.mutate(documentIds)}
+          combining={combine.isPending}
+        />
+      )}
 
       {documents.isPending ? (
         <Spin />
@@ -213,7 +216,6 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
                   {selecting && (
                     <Checkbox
                       checked={selected.includes(document.id)}
-                      disabled={!isImage(document)}
                       onChange={(event) =>
                         setSelected((current) =>
                           event.target.checked
@@ -251,8 +253,8 @@ function parseFilters(params: URLSearchParams): DocumentFilters {
   const availability = availabilitySchema.safeParse(params.get('availability'));
   if (availability.success) filters.availability = availability.data;
 
-  const source = documentSourceSchema.safeParse(params.get('source'));
-  if (source.success) filters.source = source.data;
+  const origin = fileOriginSchema.safeParse(params.get('origin'));
+  if (origin.success) filters.origin = origin.data;
 
   const processing = params.get('processing');
   if (processing === 'true') filters.processing = true;
@@ -261,9 +263,108 @@ function parseFilters(params: URLSearchParams): DocumentFilters {
   return filters;
 }
 
-// Only images can be pages of a scan set (docs/03 §3.3.17).
-function isImage(document: DocumentListDto): boolean {
-  return document.mimeType.startsWith('image/');
+// Dismissing a suggestion lasts the session and nothing longer: the server proposes, and it never
+// remembers being refused (docs/11 §11.3). A module-level set is exactly that lifetime — it survives
+// walking into a document and back, and dies with the tab.
+const DISMISSED_SUGGESTIONS = new Set<string>();
+
+// At most three, because this is a hint above the shelf and not a second screen (docs/11 §11.3).
+const MAX_SUGGESTIONS = 3;
+
+// How many of a group's pages are shown as thumbnails before it stops being a glance.
+const SUGGESTION_THUMBS = 6;
+
+// "These look like one document." Single-file image documents that arrived one after another in the
+// same folder, offered as one document rather than found later by hand (docs/05 §5.6a).
+function GroupingSuggestions({
+  onCombine,
+  combining,
+}: {
+  onCombine: (documentIds: string[]) => void;
+  combining: boolean;
+}) {
+  const t = useTranslations();
+  const [dismissed, setDismissed] = useState<string[]>(() => [...DISMISSED_SUGGESTIONS]);
+
+  const suggestions = useQuery({
+    queryKey: documentKeys.groupingSuggestions,
+    queryFn: documentApi.groupingSuggestions,
+  });
+
+  const visible = (suggestions.data?.items ?? [])
+    .filter((suggestion) => !dismissed.includes(keyOf(suggestion)))
+    .slice(0, MAX_SUGGESTIONS);
+  if (visible.length === 0) return null;
+
+  return (
+    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+      <Typography.Text type="secondary">{t('documents.suggestions.title')}</Typography.Text>
+      <Row gutter={[16, 16]}>
+        {visible.map((suggestion) => (
+          <Col key={keyOf(suggestion)} xs={24} md={12} xl={8}>
+            <Card size="small">
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <Space size={4} wrap>
+                  {suggestion.documentIds.slice(0, SUGGESTION_THUMBS).map((documentId) => (
+                    // An API route that 302s to a signed URL (docs/10 §10.8).
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      key={documentId}
+                      src={documentFiles.thumb(documentId)}
+                      alt=""
+                      loading="lazy"
+                      style={{ height: 56, width: 42, objectFit: 'cover' }}
+                    />
+                  ))}
+                </Space>
+                <Typography.Text>
+                  {t(
+                    suggestion.reason === 'NAME_SEQUENCE'
+                      ? 'documents.suggestions.nameSequence'
+                      : 'documents.suggestions.sameSitting',
+                    { count: suggestion.documentIds.length, folder: folderOf(suggestion) },
+                  )}
+                </Typography.Text>
+                <Space>
+                  <Button
+                    type="primary"
+                    size="small"
+                    loading={combining}
+                    onClick={() => onCombine(suggestion.documentIds)}
+                  >
+                    {t('documents.suggestions.combine')}
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      const key = keyOf(suggestion);
+                      DISMISSED_SUGGESTIONS.add(key);
+                      setDismissed((current) => [...current, key]);
+                    }}
+                  >
+                    {t('documents.suggestions.dismiss')}
+                  </Button>
+                </Space>
+              </Space>
+            </Card>
+          </Col>
+        ))}
+      </Row>
+    </Space>
+  );
+}
+
+// A suggestion is computed and never stored, so it has no id of its own: the documents it names are
+// what identifies it.
+function keyOf(suggestion: GroupingSuggestion): string {
+  return suggestion.documentIds.join(':');
+}
+
+// The library and the folder inside it, as a person would say where something is.
+function folderOf(suggestion: GroupingSuggestion): string {
+  return suggestion.folder === ''
+    ? suggestion.libraryName
+    : `${suggestion.libraryName}/${suggestion.folder}`;
 }
 
 // `--legere-index` drives the animation delay in CSS. React types style as CSSProperties, which has

@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Button, Select, Space, Switch, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
-import type { DocumentSource } from '../../../shared/contracts/enums';
+import type { FileOrigin } from '../../../shared/contracts/enums';
 import type { DocumentFilters } from '../../entities/document';
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
 import { libraryApi, libraryKeys } from '../../entities/library';
@@ -29,7 +29,7 @@ export function DocumentFiltersBar({ value, onChange }: DocumentFiltersProps) {
     if (merged.typeId !== undefined) next.typeId = merged.typeId;
     if (merged.availability !== undefined) next.availability = merged.availability;
     if (merged.processing !== undefined) next.processing = merged.processing;
-    if (merged.source !== undefined) next.source = merged.source;
+    if (merged.origin !== undefined) next.origin = merged.origin;
     onChange(next);
   };
 
@@ -65,17 +65,18 @@ export function DocumentFiltersBar({ value, onChange }: DocumentFiltersProps) {
         }))}
       />
 
+      {/* Where the document's files came from, and nothing finer: a document that absorbed an
+          upload does not change kind, so there are two answers, not three (docs/03 §3.3.16). */}
       <Select
         allowClear
         style={{ minWidth: 180 }}
-        placeholder={t('documents.filters.source')}
-        aria-label={t('documents.filters.source')}
-        value={value.source ?? undefined}
-        onChange={(source?: DocumentSource) => set({ source })}
+        placeholder={t('documents.filters.origin')}
+        aria-label={t('documents.filters.origin')}
+        value={value.origin ?? undefined}
+        onChange={(origin?: FileOrigin) => set({ origin })}
         options={[
-          { value: 'LIBRARY', label: t('documents.filters.sourceLibrary') },
-          { value: 'UPLOAD', label: t('documents.filters.sourceUpload') },
-          { value: 'DERIVED', label: t('documents.filters.sourceDerived') },
+          { value: 'LIBRARY', label: t('documents.filters.originLibrary') },
+          { value: 'MANAGED', label: t('documents.filters.originManaged') },
         ]}
       />
 

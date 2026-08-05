@@ -17,9 +17,6 @@ export type LibraryVisibility = z.infer<typeof libraryVisibilitySchema>;
 export const fileRefStatusSchema = z.enum(['DISCOVERED', 'HASHED', 'MISSING']);
 export type FileRefStatus = z.infer<typeof fileRefStatusSchema>;
 
-// Where a document's bytes live and where they came from (docs/03 §3.3.10): a file in a read-only
-// library, a scan-set merge, or a file a person sent from their browser. The last two are ours — they
-// sit in S3 — which is why so much of the product treats them alike.
 // Why a step is SKIPPED (docs/03 §3.3.10). "Skipped" on its own reads like a failure; these say
 // which of the harmless reasons it was, and which of them an operator can act on.
 export const stepSkipReasonSchema = z.enum([
@@ -32,8 +29,11 @@ export const stepSkipReasonSchema = z.enum([
 ]);
 export type StepSkipReason = z.infer<typeof stepSkipReasonSchema>;
 
-export const documentSourceSchema = z.enum(['LIBRARY', 'DERIVED', 'UPLOAD']);
-export type DocumentSource = z.infer<typeof documentSourceSchema>;
+// Where a file's bytes live (docs/03 §3.3.16): on the read-only volume, or in our own bucket. A
+// document has no origin of its own — it is derived from the files it holds, because a document that
+// absorbs an upload does not change kind.
+export const fileOriginSchema = z.enum(['LIBRARY', 'MANAGED']);
+export type FileOrigin = z.infer<typeof fileOriginSchema>;
 
 export const stepStatusSchema = z.enum(['PENDING', 'RUNNING', 'DONE', 'FAILED', 'SKIPPED']);
 export type StepStatus = z.infer<typeof stepStatusSchema>;
@@ -55,11 +55,5 @@ export type DocumentEventType = z.infer<typeof documentEventTypeSchema>;
 export const valueSourceSchema = z.enum(['NONE', 'AUTO', 'MANUAL']);
 export type ValueSource = z.infer<typeof valueSourceSchema>;
 
-export const scanSetStatusSchema = z.enum(['DRAFT', 'QUEUED', 'PROCESSING', 'DONE', 'FAILED']);
-export type ScanSetStatus = z.infer<typeof scanSetStatusSchema>;
-
 export const scanRunStatusSchema = z.enum(['RUNNING', 'DONE', 'FAILED']);
 export type ScanRunStatus = z.infer<typeof scanRunStatusSchema>;
-
-export const scanSetCropModeSchema = z.enum(['TRIM', 'NONE']);
-export type ScanSetCropMode = z.infer<typeof scanSetCropModeSchema>;

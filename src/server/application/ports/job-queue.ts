@@ -6,15 +6,14 @@ export const QUEUE_NAMES = [
   'library-scan',
   'file-ingest',
   'document-process',
-  'scanset-merge',
   'maintenance',
 ] as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[number];
 
 export type EnqueueOptions = {
-  // pg-boss singleton key: at most one queued job per key, used for one-scan-per-library and
-  // one-merge-per-scan-set (docs/06 §6.8).
+  // pg-boss singleton key: at most one queued job per key, used for one scan per library
+  // (docs/06 §6.8).
   singletonKey?: string;
   // Higher runs first; user-triggered work outranks background work (docs/05 §5.4).
   priority?: number;

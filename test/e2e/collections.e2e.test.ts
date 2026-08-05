@@ -13,6 +13,7 @@ import {
 } from '../../src/shared/contracts/users';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
+import { seedDocument, seedLibrary } from '../helpers/documents';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
@@ -81,54 +82,28 @@ describe('Collections (e2e)', () => {
     visibility: 'ALL_USERS' | 'RESTRICTED' = 'ALL_USERS',
   ): Promise<{ documentId: string; libraryId: string }> {
     contentSeq += 1;
-    const library = await testPrisma().library.create({
-      data: {
-        name: `Collections ${contentSeq}`,
-        rootPath: `coll-${contentSeq}`,
-        visibility,
-        excludeGlobs: [],
-        scanIntervalMinutes: 15,
-      },
+    const libraryId = await seedLibrary({
+      visibility,
+      name: `Collections ${contentSeq}`,
+      rootPath: `coll-${contentSeq}`,
     });
-    const hash = `${contentSeq}`.padStart(64, '7');
-    const document = await testPrisma().document.create({
-      data: {
-        contentHash: hash,
-        source: 'LIBRARY',
-        mimeType: 'application/pdf',
-        ext: 'pdf',
-        sizeBytes: 100n,
-        title: `Library document ${contentSeq}`,
-      },
+    const seeded = await seedDocument({
+      document: { title: `Library document ${contentSeq}` },
+      libraryId,
+      files: [{ sizeBytes: 100n }],
     });
-    await testPrisma().fileRef.create({
-      data: {
-        libraryId: library.id,
-        documentId: document.id,
-        path: `file-${contentSeq}.pdf`,
-        size: 100n,
-        mtime: new Date('2026-01-01T00:00:00.000Z'),
-        status: 'HASHED',
-        contentHash: hash,
-      },
-    });
-    return { documentId: document.id, libraryId: library.id };
+    return { documentId: seeded.id, libraryId };
   }
 
+  // A document made of our own bytes: no file of it lies on a volume, so it belongs to whoever made
+  // it (docs/03 §3.3.10).
   async function givenDerivedDocument(ownerId: string): Promise<string> {
     contentSeq += 1;
-    const document = await testPrisma().document.create({
-      data: {
-        contentHash: `${contentSeq}`.padStart(64, '8'),
-        source: 'DERIVED',
-        mimeType: 'application/pdf',
-        ext: 'pdf',
-        sizeBytes: 100n,
-        title: `Merged scan ${contentSeq}`,
-        createdById: ownerId,
-      },
+    const seeded = await seedDocument({
+      document: { title: `Uploaded ${contentSeq}`, createdById: ownerId },
+      files: [{ sizeBytes: 100n }],
     });
-    return document.id;
+    return seeded.id;
   }
 
   const asUser = (cookie: string) => ({

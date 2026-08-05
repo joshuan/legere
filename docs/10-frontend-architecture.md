@@ -11,8 +11,8 @@ Next owns `src/app` (routing only, thin files); all UI code lives in `src/web` b
 src/web/
 ├── screens/      # top-level screen compositions, one slice per route (FSD "pages", renamed)
 ├── widgets/      # self-contained UI blocks (document-grid, viewer-panel, queue-dashboard, app-sidebar)
-├── features/     # user actions (login-form, invite-wizard, scanset-builder, share-collection, document type-picker)
-├── entities/     # domain UI + api hooks (document, library, collection, scan-set, document type, user)
+├── features/     # user actions (login-form, invite-wizard, crop-editor, document-upload, share-collection)
+├── entities/     # domain UI + api hooks (document, library, collection, document type, user)
 └── shared/       # ui-kit wrappers, api client, i18n utils, config, lib (format, hooks)
 ```
 
@@ -42,8 +42,6 @@ src/app/
 │   ├── search/page.tsx
 │   ├── collections/page.tsx
 │   ├── collections/[id]/page.tsx
-│   ├── scan-sets/page.tsx
-│   ├── scan-sets/[id]/page.tsx
 │   ├── settings/page.tsx
 │   └── admin/                       # role-guarded (ADMIN)
 │       ├── libraries/page.tsx  ├── libraries/[id]/page.tsx

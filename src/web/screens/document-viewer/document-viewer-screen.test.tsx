@@ -3,34 +3,57 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DocumentDetailDto } from '../../../shared/contracts/documents';
+import type { DocumentDetailDto, DocumentFileDto } from '../../../shared/contracts/documents';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { DocumentViewerScreen } from './document-viewer-screen';
 
 // The viewer puts the open tab in the address (docs/11 §11.5), so it needs a router.
 const replace = vi.fn();
+const push = vi.fn();
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace }),
+  useRouter: () => ({ replace, push }),
 }));
 
 const ID = 'aaaaaaaa-1111-4111-8111-111111111111';
 const CATEGORY_ID = 'bbbbbbbb-2222-4222-8222-222222222222';
+const LIBRARY_ID = 'cccccccc-3333-4333-8333-333333333333';
+const FIRST_FILE = 'ffffffff-1111-4111-8111-111111111111';
+const SECOND_FILE = 'ffffffff-2222-4222-8222-222222222222';
+
+function fileOf(id: string, overrides: Partial<DocumentFileDto> = {}): DocumentFileDto {
+  return {
+    id,
+    position: 0,
+    name: 'rental.pdf',
+    mimeType: 'application/pdf',
+    ext: 'pdf',
+    sizeBytes: '2097152',
+    origin: 'LIBRARY',
+    available: true,
+    isImage: false,
+    crop: null,
+    cropSource: 'NONE',
+    refs: [
+      { libraryId: LIBRARY_ID, libraryName: 'Invoices', path: 'a/rental.pdf', status: 'HASHED' },
+    ],
+    ...overrides,
+  };
+}
 
 const detail: DocumentDetailDto = {
   id: ID,
   title: 'Rental agreement',
-  ext: 'pdf',
-  mimeType: 'application/pdf',
+  fileCount: 1,
+  primaryExt: 'pdf',
   sizeBytes: '2097152',
   pageCount: 4,
   documentType: null,
   availability: 'AVAILABLE',
   processing: false,
-  source: 'LIBRARY',
+  origin: 'LIBRARY',
   hasPreview: true,
   createdAt: '2026-01-02T10:00:00.000Z',
-  contentHash: 'abc123def456abc123def456abc123def456abc123def456abc123def4561234',
   ocrUsed: true,
   description: null,
   titleSource: 'NONE',
@@ -44,7 +67,7 @@ const detail: DocumentDetailDto = {
   country: 'ME',
   city: 'Podgorica',
   steps: {
-    canonical: 'SKIPPED',
+    canonical: 'DONE',
     preview: 'DONE',
     markdown: 'DONE',
     analysis: 'DONE',
@@ -52,22 +75,33 @@ const detail: DocumentDetailDto = {
   },
   processingError: null,
   failedStep: null,
-  fileRefs: [
-    {
-      libraryId: 'cccccccc-3333-4333-8333-333333333333',
-      libraryName: 'Invoices',
-      path: 'a/rental.pdf',
-      status: 'HASHED',
-    },
-    {
-      libraryId: 'cccccccc-3333-4333-8333-333333333333',
-      libraryName: 'Invoices',
-      path: 'old/rental.pdf',
-      status: 'MISSING',
-    },
-  ],
+  files: [fileOf(FIRST_FILE)],
   createdBy: null,
-  scanSetId: null,
+};
+
+// A document made of two scans, which is what everything about composition is really about.
+const twoFiles: DocumentDetailDto = {
+  ...detail,
+  fileCount: 2,
+  files: [
+    fileOf(FIRST_FILE, { name: 'page-1.jpg', ext: 'jpg', mimeType: 'image/jpeg', isImage: true }),
+    fileOf(SECOND_FILE, {
+      position: 1,
+      name: 'page-2.jpg',
+      ext: 'jpg',
+      mimeType: 'image/jpeg',
+      isImage: true,
+      refs: [
+        {
+          libraryId: LIBRARY_ID,
+          libraryName: 'Invoices',
+          path: 'old/page-2.jpg',
+          status: 'MISSING',
+        },
+      ],
+      available: false,
+    }),
+  ],
 };
 
 const server = createApiMock();
@@ -106,19 +140,31 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('DocumentViewerScreen', () => {
-  it('embeds the PDF and offers a download', async () => {
+  it('embeds the canonical PDF, whatever the document is made of', async () => {
+    // Two photographs, and still a PDF by the time it is readable (docs/05 §5.5, docs/11 §11.5).
+    serve(twoFiles);
     renderWithProviders(<DocumentViewerScreen id={ID} />);
 
     expect(await screen.findByText('Rental agreement')).toBeInTheDocument();
     const embed = document.querySelector('object');
     expect(embed).toHaveAttribute('data', `/api/documents/${ID}/canonical`);
-    // Both the sidebar button and the <object> fallback point at the source; either is a real way
-    // to get the file.
+    // Both the sidebar button and the <object> fallback hand over the same one piece.
     const downloads = screen.getAllByRole('link', { name: enMessages.viewer.download });
     expect(downloads.length).toBeGreaterThan(0);
     for (const link of downloads) {
-      expect(link).toHaveAttribute('href', `/api/documents/${ID}/source`);
+      expect(link).toHaveAttribute('href', `/api/documents/${ID}/canonical?download=1`);
     }
+  });
+
+  it('says the document is being assembled instead of passing off page one as the whole of it', async () => {
+    serve({ ...twoFiles, steps: { ...detail.steps, canonical: 'RUNNING' }, processing: true });
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+    expect(await screen.findByText(enMessages.viewer.canonical.assembling)).toBeInTheDocument();
+    // The first page is honest company for that line; an <object> pointing at a PDF that does not
+    // exist yet is a dead embed the browser never retries (docs/10 §10.5).
+    expect(document.querySelector('object')).toBeNull();
+    expect(document.querySelector('img')).toHaveAttribute('src', `/api/documents/${ID}/preview`);
   });
 
   it('renders the extracted text, without letting raw HTML through', async () => {
@@ -159,19 +205,24 @@ describe('DocumentViewerScreen', () => {
     expect(await screen.findByText(enMessages.viewer.textFailed)).toBeInTheDocument();
   });
 
-  it('shows the metadata with a copyable hash and the file locations', async () => {
+  it('shows the metadata and what the document is made of', async () => {
+    serve(twoFiles);
     renderWithProviders(<DocumentViewerScreen id={ID} />);
 
     await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
 
     expect(await screen.findByText('2.0 MB')).toBeInTheDocument();
     expect(screen.getByText('4')).toBeInTheDocument();
-    expect(screen.getByText(/abc123def456…/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument();
-    expect(screen.getByText('a/rental.pdf')).toBeInTheDocument();
-    // A file that vanished is still shown, badged for what it is.
-    expect(screen.getByText('old/rental.pdf')).toBeInTheDocument();
-    expect(screen.getByText(enMessages.documents.badges.unavailable)).toBeInTheDocument();
+
+    // One row per file, in page order, each with where its bytes live (docs/11 §11.5a).
+    expect(screen.getByText('page-1.jpg')).toBeInTheDocument();
+    expect(screen.getByText('Invoices: a/rental.pdf')).toBeInTheDocument();
+    expect(screen.getByText('page-2.jpg')).toBeInTheDocument();
+    expect(screen.getByText('Invoices: old/page-2.jpg')).toBeInTheDocument();
+    // A file the volume has lost is still listed, badged for what it is.
+    expect(screen.getByText(enMessages.viewer.files.missing)).toBeInTheDocument();
+    // And it says once, quietly, what changing any of this costs.
+    expect(screen.getByText(enMessages.viewer.files.rebuildNote)).toBeInTheDocument();
   });
 
   it('assigns a documentType', async () => {
@@ -495,17 +546,38 @@ describe('DocumentViewerScreen', () => {
     expect(screen.queryByText(/read as Croatian/)).toBeInTheDocument();
   });
 
-  it('disables the download of a document whose file is gone', async () => {
-    serve({ ...detail, availability: 'UNAVAILABLE' });
+  describe('Download: the document, or what it was made of (docs/11 §11.5b)', () => {
+    it('lists the originals under the one piece, one entry per file', async () => {
+      serve(twoFiles);
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
 
-    renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('button', { name: enMessages.viewer.downloadOriginals }),
+      );
 
-    // antd renders a link when `href` is set; a disabled one drops the href entirely, so there is
-    // nothing left to click through to.
-    const download = await screen.findByText(enMessages.viewer.download);
-    const control = download.closest('a, button');
-    expect(control).not.toBeNull();
-    expect(control?.getAttribute('href')).toBeNull();
+      const first = await screen.findByRole('link', { name: 'page-1.jpg' });
+      expect(first).toHaveAttribute('href', `/api/documents/${ID}/files/${FIRST_FILE}/content`);
+      // A file the volume has lost is listed with the reason rather than quietly dropped.
+      expect(screen.queryByRole('link', { name: 'page-2.jpg' })).toBeNull();
+      expect(screen.getByText(enMessages.viewer.files.missingReason)).toBeInTheDocument();
+    });
+
+    it('keeps the originals reachable while the one piece is not built yet', async () => {
+      serve({ ...twoFiles, steps: { ...detail.steps, canonical: 'FAILED' } });
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+      // 🔒 antd drops the href of a disabled button, so the main half leads nowhere…
+      const download = await screen.findByText(enMessages.viewer.download);
+      const control = download.closest('a, button');
+      expect(control).not.toBeNull();
+      expect(control?.getAttribute('href')).toBeNull();
+
+      // …and the dropdown still works, because it is the answer on the worst day (docs/11 §11.5b).
+      await userEvent.click(
+        screen.getByRole('button', { name: enMessages.viewer.downloadOriginals }),
+      );
+      expect(await screen.findByRole('link', { name: 'page-1.jpg' })).toBeInTheDocument();
+    });
   });
 
   it('shows the per-step states and the error behind a failure', async () => {
@@ -569,9 +641,9 @@ describe('DocumentViewerScreen', () => {
       .closest('.legere-definition');
     expect(languages?.textContent).toContain('RUNNING');
     // 🔒 And a value nothing is going to touch says nothing: the badge is about work, not decoration.
-    const mime = screen.getByText(enMessages.viewer.details.mime).closest('.legere-definition');
-    expect(mime?.textContent).not.toContain('PENDING');
-    expect(mime?.textContent).not.toContain('RUNNING');
+    const size = screen.getByText(enMessages.viewer.details.size).closest('.legere-definition');
+    expect(size?.textContent).not.toContain('PENDING');
+    expect(size?.textContent).not.toContain('RUNNING');
   });
 
   it('offers reprocessing to an admin only, with the chosen steps', async () => {
@@ -601,5 +673,108 @@ describe('DocumentViewerScreen', () => {
     await userEvent.click(within(card).getByRole('button', { name: /Reprocess 1 steps/ }));
 
     await waitFor(() => expect(body).toEqual({ steps: ['preview'] }));
+  });
+
+  describe('the Files section (docs/11 §11.5a)', () => {
+    async function openFiles(document: DocumentDetailDto = twoFiles): Promise<void> {
+      serve(document);
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+      await screen.findByText('page-1.jpg');
+    }
+
+    it('sends the whole new order when a file is moved', async () => {
+      let reordered: unknown = null;
+      server.use(
+        http.patch(`/api/documents/${ID}/files`, async ({ request }) => {
+          reordered = await request.json();
+          return HttpResponse.json(envelope(twoFiles));
+        }),
+      );
+      await openFiles();
+
+      await userEvent.click(screen.getByRole('button', { name: /Move page-2\.jpg up/ }));
+
+      // The complete order, every file exactly once (docs/07 §7.3) — not "this one moved".
+      await waitFor(() => expect(reordered).toEqual({ order: [SECOND_FILE, FIRST_FILE] }));
+      // The first row cannot go higher, and the last cannot go lower.
+      expect(screen.getByRole('button', { name: /Move page-1\.jpg up/ })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /Move page-2\.jpg down/ })).toBeDisabled();
+    });
+
+    it('splits a file off into a document of its own', async () => {
+      let split = '';
+      server.use(
+        http.delete(`/api/documents/${ID}/files/:fileId`, ({ params }) => {
+          split = String(params.fileId);
+          return HttpResponse.json(
+            envelope({ document: detail, splitDocumentId: '99999999-9999-4999-8999-999999999999' }),
+          );
+        }),
+      );
+      await openFiles();
+
+      const [, second] = screen.getAllByRole('button', {
+        name: enMessages.viewer.files.splitOff,
+      });
+      if (second === undefined) throw new Error('expected a Split off on every row');
+      await userEvent.click(second);
+
+      await waitFor(() => expect(split).toBe(SECOND_FILE));
+      expect(await screen.findByText(enMessages.viewer.files.splitDone)).toBeInTheDocument();
+    });
+
+    it('does not offer to split off the only file a document has', async () => {
+      serve(detail);
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+
+      await screen.findByText('rental.pdf');
+      // 🔒 Not offered at all rather than refused after the fact: a document is emptied by deleting
+      // it, not by taking its parts away (docs/11 §11.5a).
+      expect(screen.queryByRole('button', { name: enMessages.viewer.files.splitOff })).toBeNull();
+    });
+
+    it('appends a chosen file to this document rather than making a new one', async () => {
+      let appended: string | null = null;
+      server.use(
+        http.post(`/api/documents/${ID}/files`, ({ request }) => {
+          appended = decodeURIComponent(request.headers.get('x-legere-filename') ?? '');
+          return HttpResponse.json(envelope(twoFiles), { status: 201 });
+        }),
+      );
+      await openFiles();
+
+      const input = document.querySelector('input[type="file"]');
+      if (!(input instanceof HTMLInputElement)) throw new Error('no file input rendered');
+      await userEvent.upload(input, new File(['x'], 'page-3.jpg', { type: 'image/jpeg' }));
+
+      await waitFor(() => expect(appended).toBe('page-3.jpg'));
+    });
+
+    it('opens the crop editor on an image, and offers it on nothing else', async () => {
+      await openFiles();
+
+      const [first] = screen.getAllByRole('button', { name: enMessages.viewer.files.crop });
+      if (first === undefined) throw new Error('expected a Crop on every image row');
+      await userEvent.click(first);
+
+      expect(await screen.findByText(enMessages.viewer.crop.title)).toBeInTheDocument();
+    });
+
+    it('offers no crop for a file that is not an image', async () => {
+      serve(detail);
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+
+      await screen.findByText('rental.pdf');
+      expect(screen.queryByRole('button', { name: enMessages.viewer.files.crop })).toBeNull();
+    });
   });
 });

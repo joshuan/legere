@@ -3,8 +3,8 @@ import { HandleDocumentProcess } from '../../application/jobs/handle-document-pr
 import { HandleFileIngest } from '../../application/jobs/handle-file-ingest';
 import { HandleLibraryScan } from '../../application/jobs/handle-library-scan';
 import { HandleMaintenance } from '../../application/jobs/handle-maintenance';
-import { HandleScanSetMerge } from '../../application/jobs/handle-scanset-merge';
 import type { ProcessingSettings } from '../../application/jobs/processing-settings';
+import { BuildCanonical } from '../../application/documents/build-canonical';
 import { CallContext } from '../../application/ports/call-context';
 import { AsyncLocalCallContext } from '../../infrastructure/logging/async-call-context';
 import { Clock } from '../../application/ports/clock';
@@ -34,8 +34,8 @@ import { PasswordResetRepository } from '../../domain/repositories/password-rese
 import { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
+import { FileRepository } from '../../domain/repositories/file.repository';
 import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
-import { ScanSetRepository } from '../../domain/repositories/scan-set.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { WorkerRegistry } from '../../infrastructure/queue/worker-registry';
 
@@ -105,6 +105,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
       provide: HandleFileIngest,
       useFactory: (
         fileRefs: FileRefRepository,
+        files: FileRepository,
         documents: DocumentRepository,
         events: DocumentEventRepository,
         libraries: LibraryRepository,
@@ -115,6 +116,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
       ): HandleFileIngest =>
         new HandleFileIngest(
           fileRefs,
+          files,
           documents,
           events,
           libraries,
@@ -125,6 +127,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         ),
       inject: [
         FileRefRepository,
+        FileRepository,
         DocumentRepository,
         DocumentEventRepository,
         LibraryRepository,
@@ -134,14 +137,50 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         UnitOfWork,
       ],
     },
+    // Step 1 on its own: what a document is made of, assembled into the one artifact every other
+    // step reads (docs/05 §5.5 step 1).
+    {
+      provide: BuildCanonical,
+      useFactory: (
+        files: FileRepository,
+        fileRefs: FileRefRepository,
+        libraries: LibraryRepository,
+        reader: LibraryReader,
+        storage: FileStorage,
+        images: ImageTool,
+        pdfs: PdfToolbox,
+        queueSettings: QueueSettings,
+        config: AppConfig,
+      ): BuildCanonical =>
+        new BuildCanonical(
+          files,
+          fileRefs,
+          libraries,
+          reader,
+          storage,
+          images,
+          pdfs,
+          queueSettings,
+          processingSettings(config),
+        ),
+      inject: [
+        FileRepository,
+        FileRefRepository,
+        LibraryRepository,
+        LibraryReader,
+        FileStorage,
+        ImageTool,
+        PdfToolbox,
+        QueueSettings,
+        AppConfig,
+      ],
+    },
     {
       provide: HandleDocumentProcess,
       useFactory: (
         documents: DocumentRepository,
         events: DocumentEventRepository,
-        fileRefs: FileRefRepository,
-        libraries: LibraryRepository,
-        reader: LibraryReader,
+        canonical: BuildCanonical,
         files: FileStorage,
         pdfs: PdfToolbox,
         parser: DocumentParser,
@@ -161,9 +200,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         new HandleDocumentProcess(
           documents,
           events,
-          fileRefs,
-          libraries,
-          reader,
+          canonical,
           files,
           pdfs,
           parser,
@@ -183,9 +220,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
       inject: [
         DocumentRepository,
         DocumentEventRepository,
-        FileRefRepository,
-        LibraryRepository,
-        LibraryReader,
+        BuildCanonical,
         FileStorage,
         PdfToolbox,
         DocumentParser,
@@ -201,50 +236,6 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         CallContext,
         AnalysisSettings,
         AppConfig,
-      ],
-    },
-    {
-      provide: HandleScanSetMerge,
-      useFactory: (
-        scanSets: ScanSetRepository,
-        documents: DocumentRepository,
-        fileRefs: FileRefRepository,
-        libraries: LibraryRepository,
-        reader: LibraryReader,
-        files: FileStorage,
-        images: ImageTool,
-        pdfs: PdfToolbox,
-        parser: DocumentParser,
-        queue: JobQueue,
-        unitOfWork: UnitOfWork,
-        queueSettings: QueueSettings,
-      ): HandleScanSetMerge =>
-        new HandleScanSetMerge(
-          scanSets,
-          documents,
-          fileRefs,
-          libraries,
-          reader,
-          files,
-          images,
-          pdfs,
-          queue,
-          unitOfWork,
-          queueSettings,
-        ),
-      inject: [
-        ScanSetRepository,
-        DocumentRepository,
-        FileRefRepository,
-        LibraryRepository,
-        LibraryReader,
-        FileStorage,
-        ImageTool,
-        PdfToolbox,
-        DocumentParser,
-        JobQueue,
-        UnitOfWork,
-        QueueSettings,
       ],
     },
     {
@@ -270,13 +261,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
       ],
     },
   ],
-  exports: [
-    HandleLibraryScan,
-    HandleFileIngest,
-    HandleDocumentProcess,
-    HandleScanSetMerge,
-    HandleMaintenance,
-  ],
+  exports: [HandleLibraryScan, HandleFileIngest, HandleDocumentProcess, HandleMaintenance],
 })
 export class JobsModule implements OnModuleInit {
   constructor(private readonly workers: WorkerRegistry) {}
@@ -287,11 +272,9 @@ export class JobsModule implements OnModuleInit {
       { queue: 'library-scan', handler: HandleLibraryScan, concurrency: 1 },
       // Concurrency from QUEUE_CONCURRENCY_INGEST (docs/12 §12.4).
       { queue: 'file-ingest', handler: HandleFileIngest },
-      // Concurrency from QUEUE_CONCURRENCY_PROCESS: these jobs hold whole files in memory and lean
-      // on the Stirling container, so they are deliberately the least parallel of the three.
+      // Concurrency from QUEUE_CONCURRENCY_PROCESS: these jobs hold whole documents in memory and
+      // lean on the Stirling container, so they are deliberately the least parallel of the three.
       { queue: 'document-process', handler: HandleDocumentProcess },
-      // One merge per scan set at a time, enforced by the queue's stately policy (docs/06 §6.8).
-      { queue: 'scanset-merge', handler: HandleScanSetMerge, concurrency: 1 },
       // Hourly housekeeping (docs/06 §6.8): expired credentials out, bucket usage measured.
       { queue: 'maintenance', handler: HandleMaintenance, concurrency: 1 },
     );

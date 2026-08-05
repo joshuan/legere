@@ -40,6 +40,10 @@ export const configSchema = z.object({
 
   // library volume
   LIBRARY_ROOT: z.string().min(1).default('/library'),
+  // How close in time two scans must sit to be read as one sitting at the scanner, and therefore
+  // suggested as one document (docs/05 §5.6a). Nothing is grouped automatically; this only decides
+  // what is offered.
+  GROUPING_WINDOW_MINUTES: z.coerce.number().int().positive().default(10),
   // A scan that walks into the wrong tree — a home directory, a whole disk — will happily ingest all
   // of it. This is the stop (docs/05 §5.2): the scan gives up past this many files and says so in
   // the journal instead of spending the night hashing. 0 disables the guard.

@@ -7,9 +7,8 @@ import {
 } from '../../../shared/contracts/documents';
 import type { Document, DocumentSteps } from '../../domain/entities/document';
 import { chunkMarkdown } from '../../domain/entities/document-chunks';
-import { detectLanguages } from '../../domain/entities/document-language';
-import { classifyFormat, type DocumentFormat } from '../../domain/entities/document-format';
-import { decodeText, hasUsableTextLayer, tidyMarkdown } from '../../domain/entities/document-text';
+import { detectLanguages, ocrLanguagesOf } from '../../domain/entities/document-language';
+import { hasUsableTextLayer, tidyMarkdown } from '../../domain/entities/document-text';
 import type { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import type { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import type {
@@ -20,15 +19,13 @@ import type { DocumentEventRepository } from '../../domain/repositories/document
 import type { PersonRepository } from '../../domain/repositories/person.repository';
 import type { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
 import type { SubjectRepository } from '../../domain/repositories/subject.repository';
-import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
-import type { LibraryRepository } from '../../domain/repositories/library.repository';
-import { toBuffer, type BinarySource } from '../ports/binary-source';
+import type { BuildCanonical } from '../documents/build-canonical';
+import type { BinarySource } from '../ports/binary-source';
 import type { CallContext } from '../ports/call-context';
 import type { DocumentAnalysis, DocumentAnalyst } from '../ports/document-analyst';
 import type { EmbeddingProvider } from '../ports/embedding-provider';
 import type { FileStorage } from '../ports/file-storage';
 import type { ImageTool } from '../ports/image-tool';
-import type { LibraryReader } from '../ports/library-reader';
 import type { DocumentParser } from '../ports/document-parser';
 import type { PdfToolbox } from '../ports/pdf-toolbox';
 import type { UnitOfWork } from '../ports/unit-of-work';
@@ -52,20 +49,18 @@ const THUMB_QUALITY = 75;
 // is visible in its first page or two — sending a 200-page contract would cost tokens for nothing.
 const ANALYST_EXCERPT_CHARS = 4000;
 
-// A source of bytes that can be read more than once: page count and rendering are two separate
-// passes over the same file, and a stream survives only one of them.
-type OpenSource = () => Promise<BinarySource>;
-
-// What step 1 left behind for step 2 to work from.
+// What step 1 left behind for every step after it. There is one artifact now, whatever the document
+// was made of, so the later steps have one question to ask: is the canonical there (ADR-021)?
 type Canonical =
-  | { kind: 'sourceIsUsable' } // PDF or image: the source itself feeds the preview
-  | { kind: 'written' } // office: canonical.pdf is in the bucket
-  | { kind: 'failed' } // conversion failed; anything needing the PDF cannot run
-  | { kind: 'noPreview' }; // text: there is nothing to render
+  | { kind: 'ready'; pageCount: number; ocrUsed: boolean }
+  // Nothing in the document can be rendered: no page to preview, no text to read, and no failure
+  // to report either (docs/05 §5.5 step 1).
+  | { kind: 'nothing' }
+  | { kind: 'failed' };
 
-// `document-process`, all five steps (docs/05 §5.5): canonicalization to PDF, the JPG previews, the
-// Markdown that makes a document searchable, and — when a provider is configured — its documentType and
-// its vectors.
+// `document-process`, all five steps (docs/05 §5.5): the canonical PDF built out of the document's
+// files, the JPG previews of its first page, the Markdown that makes it searchable, and — when a
+// provider is configured — its documentType and its vectors.
 //
 // Each step records its own status, so a failure is contained: a preview that cannot be rendered
 // leaves the document listed, downloadable and still searchable. Re-running is safe — artifacts are
@@ -74,9 +69,7 @@ export class HandleDocumentProcess extends JobHandler {
   constructor(
     private readonly documents: DocumentRepository,
     private readonly events: DocumentEventRepository,
-    private readonly fileRefs: FileRefRepository,
-    private readonly libraries: LibraryRepository,
-    private readonly reader: LibraryReader,
+    private readonly canonical: BuildCanonical,
     private readonly files: FileStorage,
     private readonly pdfs: PdfToolbox,
     private readonly parser: DocumentParser,
@@ -107,38 +100,6 @@ export class HandleDocumentProcess extends JobHandler {
     // Soft-deleted or gone between enqueue and delivery: nothing to process, and nothing to fail.
     if (document === null || document.deletedAt !== null) return;
 
-    const format = classifyFormat(document.mimeType);
-    if (format === 'UNSUPPORTED') {
-      // No representation can be built, so the steps that would build one are settled here
-      // (docs/05 §5.5: SKIPPED for 1–3 and 5). Analysis still runs — a title is something to
-      // classify — and, just as importantly, no step may be left PENDING: a document with a PENDING
-      // step reads as "still processing" forever (docs/03 §3.3.10).
-      await this.write(documentId, {
-        steps: onlyRequested(
-          {
-            canonical: 'SKIPPED',
-            preview: 'SKIPPED',
-            markdown: 'SKIPPED',
-            vectorization: 'SKIPPED',
-          },
-          requested,
-        ),
-        skipReasons: onlyRequested(
-          {
-            canonical: 'UNSUPPORTED_FORMAT',
-            preview: 'UNSUPPORTED_FORMAT',
-            markdown: 'UNSUPPORTED_FORMAT',
-            vectorization: 'UNSUPPORTED_FORMAT',
-          },
-          requested,
-        ),
-        processingError: null,
-        failedStep: null,
-      });
-      if (requested.has('analysis')) await this.analyse(document);
-      return;
-    }
-
     // A re-run starts from a clean slate: an error from a previous attempt must not outlive it.
     await this.write(documentId, {
       steps: onlyRequested(
@@ -150,28 +111,19 @@ export class HandleDocumentProcess extends JobHandler {
       failedStep: null,
     });
 
-    const openSource = await this.sourceOpener(document);
     const canonical = requested.has('canonical')
-      ? await this.running(documentId, 'canonical', () =>
-          this.canonicalize(document, format, openSource),
-        )
-      : // Not asked for: whatever step 1 produced earlier is still in the bucket, and the steps
-        // after it must read that rather than the original office file (docs/07 §7.3).
-        alreadyCanonical(document, format);
+      ? await this.running(documentId, 'canonical', () => this.buildCanonical(document))
+      : // Not asked for: whatever step 1 produced earlier is still in the bucket, and every step
+        // after it reads that (docs/07 §7.3).
+        alreadyBuilt(document);
 
-    // Step 2 asks Stirling how many pages there are; step 3 needs the same number to weigh the text
-    // layer, so it is carried across rather than asked for twice.
-    const pageCount = requested.has('preview')
-      ? await this.running(documentId, 'preview', () =>
-          this.renderPreviews(document, format, openSource, canonical),
-        )
-      : null;
+    if (requested.has('preview')) {
+      await this.running(documentId, 'preview', () => this.renderPreviews(document, canonical));
+    }
     // Independent of the preview: a document whose page could not be rendered is still worth
     // reading and searching (docs/05 §5.5).
     if (requested.has('markdown')) {
-      await this.running(documentId, 'markdown', () =>
-        this.extractMarkdown(document, format, openSource, canonical, pageCount),
-      );
+      await this.running(documentId, 'markdown', () => this.extractMarkdown(document, canonical));
     }
 
     // Steps 4 and 5 read what step 3 wrote, so the document is re-read rather than reusing the
@@ -261,66 +213,61 @@ export class HandleDocumentProcess extends JobHandler {
     });
   }
 
-  // Step 1. Only office formats need converting; a PDF already is one, and images and text are
-  // handled directly by the steps that follow (docs/05 §5.5).
-  private async canonicalize(
-    document: Document,
-    format: DocumentFormat,
-    openSource: OpenSource,
-  ): Promise<Canonical> {
-    if (format !== 'OFFICE') {
-      await this.write(document.id, {
-        steps: { canonical: 'SKIPPED' },
-        skipReasons: { canonical: 'NOT_NEEDED' },
-      });
-      return format === 'TEXT' ? { kind: 'noPreview' } : { kind: 'sourceIsUsable' };
-    }
-
+  // Step 1. One artifact for every document, always (ADR-021): the files in their order, cropped,
+  // converted, merged, OCR'd if the text layer is thin, and stamped with what the document says it
+  // is. The assembly itself lives in BuildCanonical; what belongs here is what it means for the row.
+  private async buildCanonical(document: Document): Promise<Canonical> {
     try {
-      const pdf = await this.pdfs.officeToPdf({
-        body: await openSource(),
-        fileName: `${document.title}.${document.ext === '' ? 'bin' : document.ext}`,
+      const built = await this.canonical.execute(document);
+
+      if (built.kind === 'nothingToBuild') {
+        // A document of formats nothing can render: no artifact, no error, and every step that
+        // would have read the artifact settles the same way (docs/05 §5.5 step 1).
+        await this.write(document.id, {
+          steps: { canonical: 'SKIPPED' },
+          skipReasons: { canonical: 'UNSUPPORTED_FORMAT' },
+          pageCount: null,
+        });
+        return { kind: 'nothing' };
+      }
+
+      await this.files.put(artifactKeys.canonicalPdf(document.id), built.pdf, 'application/pdf');
+      await this.write(document.id, {
+        steps: { canonical: 'DONE' },
+        // Some file of it contributed no page. The step is done and incomplete — which is a
+        // different thing from failed, and worth saying out loud (docs/05 §5.5 step 1).
+        skipReasons: { canonical: built.unsupported > 0 ? 'UNSUPPORTED_FORMAT' : null },
+        // The count belongs to the canonical, because the canonical is the document (docs/03 §3.3.10).
+        pageCount: built.pageCount,
+        ocrUsed: built.ocrUsed,
       });
-      await this.files.put(artifactKeys.canonicalPdf(document.id), pdf, 'application/pdf');
-      await this.write(document.id, { steps: { canonical: 'DONE' } });
-      return { kind: 'written' };
+      return { kind: 'ready', pageCount: built.pageCount, ocrUsed: built.ocrUsed };
     } catch (error) {
       await this.recordFailure(document.id, 'canonical', error);
       return { kind: 'failed' };
     }
   }
 
-  // Step 2. Both artifacts come from one rendered page, so a PDF is rasterized once and resized
-  // twice (docs/09 §9.2: preview.jpg at PREVIEW_MAX_DIM, thumb.jpg at THUMB_MAX_DIM).
-  // Returns the page count it learned on the way, or null when there was no PDF to ask about.
-  private async renderPreviews(
-    document: Document,
-    format: DocumentFormat,
-    openSource: OpenSource,
-    canonical: Canonical,
-  ): Promise<number | null> {
-    if (canonical.kind === 'noPreview') {
+  // Step 2. The first page of the canonical, rasterized once and resized twice (docs/09 §9.2:
+  // preview.jpg at PREVIEW_MAX_DIM, thumb.jpg at THUMB_MAX_DIM). One rule for every document,
+  // because by this point every document is a PDF.
+  private async renderPreviews(document: Document, canonical: Canonical): Promise<void> {
+    if (canonical.kind === 'nothing') {
       await this.write(document.id, {
         steps: { preview: 'SKIPPED' },
-        skipReasons: { preview: 'NOT_NEEDED' },
+        skipReasons: { preview: 'UNSUPPORTED_FORMAT' },
       });
-      return null;
+      return;
     }
-
     if (canonical.kind === 'failed') {
       // Not a failure of its own: the page never existed to be rendered. The recorded error stays
       // the one from step 1 — replacing a root cause with its consequence helps nobody.
       await this.write(document.id, { steps: { preview: 'FAILED' } });
-      return null;
+      return;
     }
 
     try {
-      // Both artifacts are made from the same bytes, and a stream can only be read once.
-      const rendered =
-        format === 'IMAGE'
-          ? { page: await toBuffer(await openSource()), pageCount: null }
-          : await this.renderFirstPage(document, canonical, openSource);
-      const page = rendered.page;
+      const page = await this.pdfs.pdfFirstPageJpg(await this.openCanonical(document));
 
       const [preview, thumb] = await Promise.all([
         this.images.toJpegPreview(page, {
@@ -336,23 +283,21 @@ export class HandleDocumentProcess extends JobHandler {
       await this.files.put(artifactKeys.preview(document.id), preview, 'image/jpeg');
       await this.files.put(artifactKeys.thumbnail(document.id), thumb, 'image/jpeg');
       await this.write(document.id, { steps: { preview: 'DONE' } });
-      return rendered.pageCount;
     } catch (error) {
       await this.recordFailure(document.id, 'preview', error);
-      return null;
     }
   }
 
-  // Step 3. Every format ends up as Markdown one way or another: text passes through, a PDF with a
-  // usable text layer is read directly, and anything else — a scan, a photographed page — goes
-  // through OCR (docs/05 §5.5).
-  private async extractMarkdown(
-    document: Document,
-    format: DocumentFormat,
-    openSource: OpenSource,
-    canonical: Canonical,
-    pageCount: number | null,
-  ): Promise<void> {
+  // Step 3. The canonical PDF and nothing else: it is read where it carries text, and recognised
+  // where step 1's OCR still found none (docs/05 §5.5 step 3).
+  private async extractMarkdown(document: Document, canonical: Canonical): Promise<void> {
+    if (canonical.kind === 'nothing') {
+      await this.write(document.id, {
+        steps: { markdown: 'SKIPPED' },
+        skipReasons: { markdown: 'UNSUPPORTED_FORMAT' },
+      });
+      return;
+    }
     if (canonical.kind === 'failed') {
       // The cause is already recorded against step 1; there is no canonical PDF to read.
       await this.write(document.id, { steps: { markdown: 'FAILED' } });
@@ -360,12 +305,7 @@ export class HandleDocumentProcess extends JobHandler {
     }
 
     try {
-      const { markdown, ocrUsed } =
-        format === 'TEXT'
-          ? { markdown: decodeText(await toBuffer(await openSource())), ocrUsed: false }
-          : format === 'IMAGE'
-            ? await this.ocrImage(document, openSource)
-            : await this.readPdfText(document, canonical, openSource, pageCount);
+      const { markdown, ocrUsed } = await this.readCanonicalText(document, canonical);
 
       // What the document turned out to be written in — the set a later OCR pass is given
       // (docs/03 §3.3.10). Detected here because this is where the text first exists.
@@ -375,7 +315,8 @@ export class HandleDocumentProcess extends JobHandler {
         // Empty means "nothing to read", which is different from "not extracted yet"; the column
         // stays null so search and the viewer can tell those apart.
         markdown: markdown === '' ? null : markdown,
-        ocrUsed,
+        // Step 1 decides this for the artifact; a second recognition here can only add to it.
+        ocrUsed: canonical.ocrUsed || ocrUsed,
         languages: detected,
         // Kept separately as well, so a correction by hand can be shown for what it is: a
         // correction of this (docs/03 §3.3.10).
@@ -386,9 +327,27 @@ export class HandleDocumentProcess extends JobHandler {
     }
   }
 
-  // A PDF is trusted to carry its own text only when there is enough of it: below
-  // PDF_TEXT_MIN_CHARS_PER_PAGE on average the file is a scan wearing a thin text layer, and OCR is
-  // what actually makes it readable (docs/05 §5.9).
+  private async readCanonicalText(
+    document: Document,
+    canonical: { pageCount: number },
+  ): Promise<{ markdown: string; ocrUsed: boolean }> {
+    const extracted = await this.parseMarkdown(await this.openCanonical(document), []);
+    const pageCount = canonical.pageCount > 0 ? canonical.pageCount : (document.pageCount ?? 1);
+    if (hasUsableTextLayer(extracted, pageCount, this.settings.pdfTextMinCharsPerPage)) {
+      return { markdown: extracted, ocrUsed: false };
+    }
+
+    // A scan whose OCR pass in step 1 found nothing to read: the parser recognises the page instead
+    // of reading it (docs/05 §5.5 step 3).
+    return {
+      markdown: await this.parseMarkdown(
+        await this.openCanonical(document),
+        ocrLanguagesOf(document.languages, this.settings.ocrLanguages),
+      ),
+      ocrUsed: true,
+    };
+  }
+
   // Docling reads layout — headings, lists, real tables — and is the parser whenever it is
   // configured; Stirling's converter is the fallback for an instance running without it, and reads
   // text without structure (docs/05 §5.5).
@@ -402,71 +361,10 @@ export class HandleDocumentProcess extends JobHandler {
     }
 
     // The fallback needs two steps: Stirling OCRs into a searchable PDF, then converts it. Skipping
-    // the first would silently leave every scan without any text at all.
+    // the first would silently leave a scan without any text at all.
     const readable =
       ocrLanguages.length === 0 ? source : await this.pdfs.ocrPdf(source, ocrLanguages);
     return tidyMarkdown(await this.pdfs.pdfToMarkdown(readable));
-  }
-
-  // Which languages the OCR pass is given: the document's own once they are known, the instance
-  // default before that. A wrong set costs accuracy, so a narrow one beats a broad one
-  // (docs/03 §3.3.10).
-  private ocrLanguagesFor(document: Document): readonly string[] {
-    const own = document.languages.flatMap(toTesseractCodes);
-    return own.length > 0 ? own : this.settings.ocrLanguages;
-  }
-
-  private async readPdfText(
-    document: Document,
-    canonical: Canonical,
-    openSource: OpenSource,
-    knownPageCount: number | null,
-  ): Promise<{ markdown: string; ocrUsed: boolean }> {
-    const openPdf = this.pdfOpener(document, canonical, openSource);
-
-    const extracted = await this.parseMarkdown(await openPdf(), []);
-    // The preview step has usually recorded the page count by now; when it has not — a preview that
-    // failed, a reprocess of this step alone — one more call answers it rather than guessing.
-    const pageCount =
-      knownPageCount ?? document.pageCount ?? (await this.pdfs.pdfPageCount(await openPdf()));
-    if (hasUsableTextLayer(extracted, pageCount, this.settings.pdfTextMinCharsPerPage)) {
-      return { markdown: extracted, ocrUsed: false };
-    }
-
-    // No usable text layer: the parser recognises the page instead of reading it.
-    return {
-      markdown: await this.parseMarkdown(await openPdf(), this.ocrLanguagesFor(document)),
-      ocrUsed: true,
-    };
-  }
-
-  // An image has no text layer to weigh: it goes to OCR directly. Stirling OCRs PDFs, so the image
-  // becomes a one-page PDF first — the same conversion a scan set does (docs/05 §5.6).
-  private async ocrImage(
-    document: Document,
-    openSource: OpenSource,
-  ): Promise<{ markdown: string; ocrUsed: boolean }> {
-    const asPdf = await this.pdfs.imagesToPdf([
-      { body: await openSource(), fileName: `${document.title}.${document.ext || 'jpg'}` },
-    ]);
-    return {
-      markdown: await this.parseMarkdown(asPdf, this.ocrLanguagesFor(document)),
-      ocrUsed: true,
-    };
-  }
-
-  // Renders page one and records how many pages there are — the count belongs to whichever PDF the
-  // preview came from, source or canonical (docs/03 §3.3.10).
-  private async renderFirstPage(
-    document: Document,
-    canonical: Canonical,
-    openSource: OpenSource,
-  ): Promise<{ page: Buffer; pageCount: number }> {
-    const openPdf = this.pdfOpener(document, canonical, openSource);
-
-    const pageCount = await this.pdfs.pdfPageCount(await openPdf());
-    await this.write(document.id, { pageCount });
-    return { page: await this.pdfs.pdfFirstPageJpg(await openPdf()), pageCount };
   }
 
   // Step 4. One look at the document: which of the active documentTypes it belongs to, and where it is
@@ -649,37 +547,10 @@ export class HandleDocumentProcess extends JobHandler {
     await this.unitOfWork.run((tx) => this.chunks.replaceForDocument(documentId, chunks, tx));
   }
 
-  // The PDF a step should work from: the canonical one for an office document, the source itself
-  // for a PDF. Steps 2 and 3 both read it, each of them more than once.
-  private pdfOpener(document: Document, canonical: Canonical, openSource: OpenSource): OpenSource {
-    return canonical.kind === 'written'
-      ? () => this.files.getStream(artifactKeys.canonicalPdf(document.id))
-      : openSource;
-  }
-
-  // Where the document's own bytes live: in the library for a scanned file, in the bucket for a
-  // scan-set result (docs/09 §9.1–9.2). Each call opens a fresh stream.
-  private async sourceOpener(document: Document): Promise<OpenSource> {
-    // Everything but a library file keeps its bytes in the bucket — a merged scan set, an upload
-    // (docs/09 §9.2). Only a LIBRARY document sends us back to the volume.
-    if (document.source !== 'LIBRARY') {
-      return () => this.files.getStream(artifactKeys.source(document.id, document.ext));
-    }
-
-    const ref = await this.fileRefs.findLiveRefForDocument(document.id);
-    if (ref === null) {
-      // The file vanished before processing got to it. Throwing lets the job retry with backoff and
-      // then surface in the failures list, rather than silently marking the document unprocessable.
-      throw new Error(`Document ${document.id} has no available file to process`);
-    }
-
-    const library = await this.libraries.findById(ref.libraryId);
-    if (library === null || library.deletedAt !== null) {
-      throw new Error(`Document ${document.id} has no available library to read from`);
-    }
-
-    const location = { rootPath: library.rootPath, excludeGlobs: library.excludeGlobs };
-    return () => this.reader.openStream(location, ref.path);
+  // The one thing every step after the first reads (ADR-021). A fresh stream each time: a stream is
+  // good for one read, and both the preview and the text extraction need their own.
+  private openCanonical(document: Document): Promise<BinarySource> {
+    return this.files.getStream(artifactKeys.canonicalPdf(document.id));
   }
 
   // `failedStep` names the step in the admin panel, and the step's own status turns FAILED — the
@@ -755,34 +626,15 @@ function onlyRequested<T>(
 }
 
 // What step 1 left in the bucket on an earlier run, as far as the later steps are concerned.
-function alreadyCanonical(document: Document, format: DocumentFormat): Canonical {
-  if (format === 'TEXT') return { kind: 'noPreview' };
-  if (format !== 'OFFICE') return { kind: 'sourceIsUsable' };
-  // An office document with no canonical PDF has nothing for the later steps to read.
-  return document.steps.canonical === 'DONE' ? { kind: 'written' } : { kind: 'failed' };
-}
-
-// BCP-47 as the product stores it → the codes tesseract knows. Serbian is the case that needs the
-// script: `srp` is Cyrillic, `srp_latn` is not, and giving the wrong one costs every diacritic.
-const TESSERACT_CODES: Readonly<Record<string, string>> = {
-  ru: 'rus',
-  en: 'eng',
-  uk: 'ukr',
-  bg: 'bul',
-  de: 'deu',
-  fr: 'fra',
-  es: 'spa',
-  it: 'ita',
-  pl: 'pol',
-  tr: 'tur',
-  'sr-Cyrl': 'srp',
-  'sr-Latn': 'srp_latn',
-  sr: 'srp',
-  hr: 'srp_latn',
-  bs: 'srp_latn',
-};
-
-function toTesseractCodes(language: string): string[] {
-  const code = TESSERACT_CODES[language];
-  return code === undefined ? [] : [code];
+function alreadyBuilt(document: Document): Canonical {
+  if (document.steps.canonical === 'DONE') {
+    return {
+      kind: 'ready',
+      pageCount: document.pageCount ?? 0,
+      ocrUsed: document.ocrUsed,
+    };
+  }
+  // Skipped means there was nothing to build from; anything else means it has not been built yet,
+  // and a step reading an artifact that is not there would fail for the wrong reason.
+  return document.steps.canonical === 'SKIPPED' ? { kind: 'nothing' } : { kind: 'failed' };
 }

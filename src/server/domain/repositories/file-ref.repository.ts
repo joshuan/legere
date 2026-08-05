@@ -18,7 +18,7 @@ export type FileRefSnapshot = {
   mtimeMs: number;
   status: FileRef['status'];
   contentHash: string | null;
-  documentId: string | null;
+  fileId: string | null;
 };
 
 // A folder in the browse view (docs/11 §11.4). Folders are not stored: they are the distinct next
@@ -39,12 +39,10 @@ export abstract class FileRefRepository {
     tx?: TransactionHandle,
   ): Promise<FolderSummary[]>;
 
-  // The file to read when a LIBRARY document's own bytes are needed — for processing, and later for
-  // the source download (docs/09 §9.1): the first HASHED ref in a library that is still active.
-  abstract findLiveRefForDocument(
-    documentId: string,
-    tx?: TransactionHandle,
-  ): Promise<FileRef | null>;
+  // Where to read a LIBRARY file's own bytes — for building the canonical, and for the download of
+  // one original (docs/09 §9.1): the first HASHED ref in a library that is still active. A file is
+  // asked, not a document, because a document is many files and each has its own homes.
+  abstract findLiveRefForFile(fileId: string, tx?: TransactionHandle): Promise<FileRef | null>;
 
   abstract findByPath(
     libraryId: string,
@@ -70,11 +68,11 @@ export abstract class FileRefRepository {
     tx?: TransactionHandle,
   ): Promise<void>;
 
-  // Ingest finished: the ref now points at a document by content (docs/05 §5.3).
+  // Ingest finished: the ref now points at the file its bytes are (docs/05 §5.3).
   abstract markHashed(
     id: string,
     contentHash: string,
-    documentId: string,
+    fileId: string,
     size: bigint,
     mtimeMs: number,
     tx?: TransactionHandle,
@@ -85,11 +83,4 @@ export abstract class FileRefRepository {
 
   // Gone from disk (docs/05 §5.7). Data is never deleted; the ref just stops being live.
   abstract markMissing(ids: string[], missingSince: Date, tx?: TransactionHandle): Promise<number>;
-
-  // Availability of a document: how many of its refs are live in an active, non-deleted library
-  // (docs/03 §3.3.10).
-  abstract countLiveRefsInActiveLibraries(
-    documentId: string,
-    tx?: TransactionHandle,
-  ): Promise<number>;
 }

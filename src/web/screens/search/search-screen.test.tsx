@@ -24,8 +24,8 @@ const hit = {
   document: {
     id: 'aaaaaaaa-1111-4111-8111-111111111111',
     title: 'Rental agreement',
-    ext: 'pdf',
-    mimeType: 'application/pdf',
+    fileCount: 1,
+    primaryExt: 'pdf',
     sizeBytes: '2048',
     pageCount: 2,
     documentType: {
@@ -35,7 +35,7 @@ const hit = {
     },
     availability: 'AVAILABLE',
     processing: false,
-    source: 'LIBRARY',
+    origin: 'LIBRARY',
     hasPreview: true,
     createdAt: '2026-01-01T00:00:00.000Z',
   },

@@ -1,14 +1,16 @@
-import type { AutoValues } from '../../../shared/contracts/documents';
+import type { AutoValues, Availability } from '../../../shared/contracts/documents';
 import type {
   ValueSource,
-  DocumentSource,
+  FileOrigin,
   StepSkipReason,
   StepStatus,
   UserRole,
 } from '../../../shared/contracts/enums';
 
-// Document entity (docs/03 §3.3.10): the deduplicated logical unit of content. Pipeline step statuses
-// live on the row so progress is visible in the admin panel (docs/05 §5.5).
+// Document entity (docs/03 §3.3.10): what a person reads — an ordered list of files (§3.3.16,
+// §3.3.17) plus one canonical PDF built from them. The bytes themselves belong to the files, so
+// nothing here says what the document is made of; that is asked of the FileRepository.
+// Pipeline step statuses live on the row so progress is visible in the admin panel (docs/05 §5.5).
 export type DocumentSteps = {
   canonical: StepStatus;
   preview: StepStatus;
@@ -22,11 +24,7 @@ export type SkipReasons = Partial<Record<keyof DocumentSteps, StepSkipReason>>;
 
 export type Document = {
   id: string;
-  contentHash: string;
-  source: DocumentSource;
-  mimeType: string;
-  ext: string;
-  sizeBytes: bigint;
+  // Pages of the canonical PDF; null until it has been built (docs/03 §3.3.10).
   pageCount: number | null;
   title: string;
   // What this document is, for somebody who has never seen it (docs/03 §3.3.10).
@@ -55,20 +53,33 @@ export type Document = {
   typeId: string | null;
   typeSource: ValueSource;
   createdById: string | null;
-  scanSetId: string | null;
   createdAt: Date;
   deletedAt: Date | null;
 };
 
-// Derived, never stored (docs/03 §3.3.10). A LIBRARY document is available while at least one of its
-// refs is live in a library that is itself active; a DERIVED document is always available, since its
-// source PDF lives in S3 rather than on the volume.
-export function isAvailable(
-  document: Pick<Document, 'source'>,
-  liveRefsInActiveLibraries: number,
-): boolean {
-  if (document.source === 'DERIVED') return true;
-  return liveRefsInActiveLibraries > 0;
+// Whether the bytes behind one file can be read right now (docs/03 §3.3.10). A MANAGED file always
+// can — the bucket is ours and does not go missing behind our back — so only library files move
+// this needle, and they move it while at least one live ref still points at them.
+export function isFileReadable(origin: FileOrigin, liveRefsInActiveLibraries: number): boolean {
+  return origin === 'MANAGED' || liveRefsInActiveLibraries > 0;
+}
+
+// Derived, never stored (docs/03 §3.3.10). AVAILABLE when every file of the document can be read,
+// PARTIAL when some can and some cannot, UNAVAILABLE when none can — which is also the answer for a
+// document with no files at all, since there is nothing left to read. The canonical PDF outlives all
+// of them either way: an unavailable document still reads, searches and downloads as a PDF.
+export function availabilityOf(readablePerFile: readonly boolean[]): Availability {
+  if (readablePerFile.length === 0) return 'UNAVAILABLE';
+  if (readablePerFile.every((readable) => readable)) return 'AVAILABLE';
+  if (readablePerFile.some((readable) => readable)) return 'PARTIAL';
+  return 'UNAVAILABLE';
+}
+
+// Derived, never stored (docs/03 §3.3.10): a document is LIBRARY as soon as one of its files sits on
+// a volume — absorbing an upload does not change what a document is, it gains a file. A document
+// with no files is MANAGED, because nothing of it is on anybody's volume.
+export function originOf(fileOrigins: readonly FileOrigin[]): FileOrigin {
+  return fileOrigins.includes('LIBRARY') ? 'LIBRARY' : 'MANAGED';
 }
 
 // True while any step still has work to do and nothing it depends on has failed (docs/03 §3.3.10).
@@ -87,16 +98,19 @@ export function pendingSteps(): DocumentSteps {
   };
 }
 
-// Who may change a document's title or documentType (docs/03 §3.4). Read access is decided by the
-// repository query; this is the extra rule on top of it.
+// Who may change a document's title, type or composition (docs/03 §3.4). Read access is decided by
+// the repository query; this is the extra rule on top of it, and it asks the document's derived
+// origin rather than a column, because a document is a library document by holding a library file.
 export function canEditDocumentMeta(
   user: { id: string; role: UserRole },
-  document: Pick<Document, 'source' | 'createdById'>,
+  document: Pick<Document, 'createdById'>,
+  origin: FileOrigin,
 ): boolean {
   if (user.role === 'ADMIN') return true;
-  // Library documents are shared property: anyone who can read one can correct its title or
-  // documentType — the alternative is a library nobody may tidy up.
-  if (document.source === 'LIBRARY') return true;
-  // A derived document is its creator's; a share grants reading, not editing (docs/08 §8.5).
+  // Library content is shared property: anyone who can read one can correct its title or type — the
+  // alternative is a library nobody may tidy up.
+  if (origin === 'LIBRARY') return true;
+  // A document with no library file at all is its creator's; a share grants reading, not editing
+  // (docs/08 §8.5).
   return document.createdById === user.id;
 }

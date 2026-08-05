@@ -420,22 +420,34 @@ describe('Scan and ingest (integration)', () => {
       const [ref] = await refs(libraryId);
       expect(ref?.status).toBe('HASHED');
       expect(ref?.contentHash).toMatch(/^[0-9a-f]{64}$/);
-      expect(ref?.documentId).not.toBeNull();
+      // A ref points at the file its bytes are, and the file is what a document holds (ADR-021).
+      expect(ref?.fileId).not.toBeNull();
 
       const document = await prisma.document.findFirstOrThrow();
       expect(document).toMatchObject({
-        source: 'LIBRARY',
         // Title comes from the file name without its extension (docs/03 §3.3.10).
         title: 'report',
+        canonicalStatus: 'PENDING',
+      });
+
+      const file = await prisma.file.findFirstOrThrow();
+      expect(file).toMatchObject({
+        origin: 'LIBRARY',
+        // A library file's bytes stay on the volume: no object of our own (docs/09 §9.2).
+        storageKey: null,
         mimeType: 'text/plain',
         ext: 'txt',
         sizeBytes: 11n,
-        canonicalStatus: 'PENDING',
+        name: 'report.txt',
       });
       // sha256('hello world')
-      expect(document.contentHash).toBe(
+      expect(file.contentHash).toBe(
         'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9',
       );
+      // And the document holds exactly it, at position 0 (docs/03 §3.3.17).
+      expect(await prisma.documentFile.findMany({ where: { documentId: document.id } })).toEqual([
+        { documentId: document.id, position: 0, fileId: file.id },
+      ]);
       expect(await countProcessJobs()).toBe(1);
     });
 
@@ -447,11 +459,13 @@ describe('Scan and ingest (integration)', () => {
       await scan.handle({ libraryId });
       expect(await runIngests()).toBe(2);
 
-      // 🔒 The dedup guarantee (ADR-009): one content, one document.
+      // 🔒 The dedup guarantee, one level down since ADR-021: one content, one *file*, and one
+      // document holding it.
+      expect(await prisma.file.count()).toBe(1);
       expect(await prisma.document.count()).toBe(1);
       const found = await refs(libraryId);
       expect(found).toHaveLength(2);
-      expect(new Set(found.map((ref) => ref.documentId)).size).toBe(1);
+      expect(new Set(found.map((ref) => ref.fileId)).size).toBe(1);
       // …and the pipeline was started exactly once.
       expect(await countProcessJobs()).toBe(1);
     });
@@ -469,9 +483,9 @@ describe('Scan and ingest (integration)', () => {
       await scan.handle({ libraryId });
       await runIngests();
 
-      const document = await prisma.document.findFirstOrThrow();
-      expect(document.mimeType).toBe('image/png');
-      expect(document.ext).toBe('png');
+      const file = await prisma.file.findFirstOrThrow();
+      expect(file.mimeType).toBe('image/png');
+      expect(file.ext).toBe('png');
     });
 
     it('gives up on a tree larger than SCAN_MAX_FILES rather than ingesting a whole disk', async () => {
@@ -572,7 +586,9 @@ describe('Scan and ingest (integration)', () => {
       expect(after?.status).toBe('HASHED');
       // 🔒 The document is untouched: same row, same id, and the pipeline never ran again.
       expect(await prisma.document.count()).toBe(1);
-      expect(after?.documentId).toBe(document.id);
+      const file = await prisma.file.findFirstOrThrow();
+      expect(after?.fileId).toBe(file.id);
+      expect(await prisma.documentFile.count({ where: { documentId: document.id } })).toBe(1);
       expect(await countProcessJobs()).toBe(1);
     });
 
@@ -581,15 +597,13 @@ describe('Scan and ingest (integration)', () => {
       await writeFixture('away.txt', 'comes back');
       await scan.handle({ libraryId });
       await runIngests();
-      const document = await prisma.document.findFirstOrThrow();
+      const file = await prisma.file.findFirstOrThrow();
 
       await rm(join(root, 'away.txt'));
       await scan.handle({ libraryId });
       expect((await refs(libraryId))[0]?.status).toBe('MISSING');
-      // Unavailable: no live ref.
-      expect(
-        await prisma.fileRef.count({ where: { documentId: document.id, status: 'HASHED' } }),
-      ).toBe(0);
+      // Unavailable: no live ref left pointing at the file (docs/05 §5.7).
+      expect(await prisma.fileRef.count({ where: { fileId: file.id, status: 'HASHED' } })).toBe(0);
 
       await writeFixture('away.txt', 'comes back');
       await scan.handle({ libraryId });
@@ -598,7 +612,7 @@ describe('Scan and ingest (integration)', () => {
       const restored = (await refs(libraryId))[0];
       expect(restored?.status).toBe('HASHED');
       expect(restored?.missingSince).toBeNull();
-      expect(restored?.documentId).toBe(document.id);
+      expect(restored?.fileId).toBe(file.id);
       // Still one document, still processed once.
       expect(await prisma.document.count()).toBe(1);
       expect(await countProcessJobs()).toBe(1);

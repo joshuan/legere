@@ -12,14 +12,14 @@ vi.mock('next/link', () => ({
 const base: DocumentListDto = {
   id: 'aaaaaaaa-1111-4111-8111-111111111111',
   title: 'Rental agreement 2026',
-  ext: 'pdf',
-  mimeType: 'application/pdf',
+  fileCount: 1,
+  primaryExt: 'pdf',
   sizeBytes: '2048',
   pageCount: 3,
   documentType: { id: 'bbbbbbbb-2222-4222-8222-222222222222', slug: 'contract', name: 'Contract' },
   availability: 'AVAILABLE',
   processing: false,
-  source: 'LIBRARY',
+  origin: 'LIBRARY',
   hasPreview: true,
   createdAt: '2026-01-01T00:00:00.000Z',
 };
@@ -61,5 +61,30 @@ describe('DocumentCard', () => {
     renderWithProviders(<DocumentCard document={{ ...base, availability: 'UNAVAILABLE' }} />);
 
     expect(screen.getByText(enMessages.documents.badges.unavailable)).toBeInTheDocument();
+  });
+
+  it('tells "some files missing" from "no files at all"', () => {
+    const partial = renderWithProviders(
+      <DocumentCard document={{ ...base, fileCount: 7, availability: 'PARTIAL' }} />,
+    );
+
+    // A document half of which still reads is not a document nobody can open (docs/11 §11.3).
+    expect(screen.getByText(enMessages.documents.badges.partial)).toBeInTheDocument();
+    expect(screen.queryByText(enMessages.documents.badges.unavailable)).not.toBeInTheDocument();
+    partial.unmount();
+
+    renderWithProviders(<DocumentCard document={{ ...base, availability: 'UNAVAILABLE' }} />);
+    expect(screen.queryByText(enMessages.documents.badges.partial)).not.toBeInTheDocument();
+  });
+
+  it('says how many files a document is made of, and only when it is more than one', () => {
+    const many = renderWithProviders(<DocumentCard document={{ ...base, fileCount: 7 }} />);
+
+    expect(screen.getByText('7 files')).toBeInTheDocument();
+    many.unmount();
+
+    // "1 file" is true of most documents here; a badge that is always there says nothing.
+    renderWithProviders(<DocumentCard document={base} />);
+    expect(screen.queryByText(/file/)).not.toBeInTheDocument();
   });
 });

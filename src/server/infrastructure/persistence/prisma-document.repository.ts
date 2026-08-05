@@ -2,26 +2,34 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type Document as PrismaDocument } from '@prisma/client';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import { z } from 'zod';
-import type { Document, SkipReasons } from '../../domain/entities/document';
+import {
+  availabilityOf,
+  isFileReadable,
+  originOf,
+  type Document,
+  type SkipReasons,
+} from '../../domain/entities/document';
 import {
   DOCUMENT_STEPS,
   autoValuesSchema,
   type AutoValues,
+  type Availability,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
 import {
   stepSkipReasonSchema,
   stepStatusSchema,
-  type DocumentSource,
   type StepStatus,
 } from '../../../shared/contracts/enums';
+import { FileRepository, type DocumentFile } from '../../domain/repositories/file.repository';
 import {
   DocumentRepository,
   type CreateDocumentInput,
   type DocumentDetail,
+  type DocumentFileRefView,
+  type DocumentFileView,
   type DocumentListItem,
   type DocumentPage,
-  type DocumentUpsert,
   type ListDocumentsInput,
   type ProcessingUpdate,
   type SearchFilters,
@@ -37,11 +45,6 @@ import { PrismaService } from './prisma.service';
 function toDomain(row: PrismaDocument): Document {
   return {
     id: row.id,
-    contentHash: row.contentHash,
-    source: row.source,
-    mimeType: row.mimeType,
-    ext: row.ext,
-    sizeBytes: row.sizeBytes,
     pageCount: row.pageCount,
     title: row.title,
     markdown: row.markdown,
@@ -68,36 +71,22 @@ function toDomain(row: PrismaDocument): Document {
     typeId: row.typeId,
     typeSource: row.typeSource,
     createdById: row.createdById,
-    scanSetId: row.scanSetId,
     createdAt: row.createdAt,
     deletedAt: row.deletedAt,
   };
 }
 
-// What a list row needs beyond its own columns: the documentType, and how many of its files are still
-// live on a mounted volume (docs/03 §3.3.10). A filtered relation count keeps that to one query for
-// the whole page — and, unlike including the refs themselves, it counts every library rather than
-// only the ones this viewer can see.
+// What a list row needs beyond its own columns is now the document's files (docs/03 §3.3.10) — the
+// count, the first extension, the weight, the origin and the availability are all read off them.
+// Those are fetched for the whole page at once rather than per row (see `toItems`); only the
+// documentType still travels with the row itself.
 const LIST_INCLUDE = {
   documentType: { select: { id: true, slug: true, name: true } },
-  _count: { select: { fileRefs: { where: { status: 'HASHED', library: { deletedAt: null } } } } },
 } as const;
 
 type ListRow = PrismaDocument & {
   documentType: { id: string; slug: string; name: string } | null;
-  _count: { fileRefs: number };
 };
-
-function toListItem(row: ListRow): DocumentListItem {
-  const document = toDomain(row);
-  return {
-    document,
-    documentType: row.documentType,
-    // A document whose bytes are in the bucket — merged or uploaded — is always available.
-    availability:
-      document.source !== 'LIBRARY' || row._count.fileRefs > 0 ? 'AVAILABLE' : 'UNAVAILABLE',
-  };
-}
 
 // The column is jsonb, so what comes back is `unknown` as far as types go: parse it rather than
 // trusting it, and treat anything unrecognised as "no reason recorded".
@@ -125,10 +114,20 @@ function toSkipReasons(value: unknown): SkipReasons {
   return reasons;
 }
 
-// The two kinds whose bytes we hold ourselves: a scan-set result and an upload. They differ in where
-// they came from and in nothing else the access rule cares about (docs/03 §3.4).
-// Not `as const`: Prisma's `in` filter takes a mutable array, and a readonly tuple does not fit.
-const OWNED_SOURCES: DocumentSource[] = ['DERIVED', 'UPLOAD'];
+// A library file whose bytes can still be read: at least one HASHED ref in a library that is itself
+// active (docs/03 §3.3.10). A managed file needs no such thing.
+const LIVE_REF: Prisma.FileRefListRelationFilter = {
+  some: { status: 'HASHED', library: { deletedAt: null } },
+};
+
+const READABLE_FILE: Prisma.FileWhereInput = {
+  OR: [{ origin: 'MANAGED' }, { refs: LIVE_REF }],
+};
+
+const UNREADABLE_FILE: Prisma.FileWhereInput = {
+  origin: 'LIBRARY',
+  refs: { none: { status: 'HASHED', library: { deletedAt: null } } },
+};
 
 // The access rule of docs/03 §3.4, expressed once, in SQL, so a page of results never has to be
 // filtered afterwards — and no route can forget to apply it.
@@ -137,18 +136,26 @@ function readableBy(viewer: Viewer): Prisma.DocumentWhereInput {
 
   return {
     OR: [
-      // A library document is readable through any of its files that sits in a library the viewer
-      // can see — including a file that has gone MISSING, which makes the document unavailable but
-      // not invisible.
+      // Through a library: any file of the document is a library file lying in a library the viewer
+      // can see. A ref that has gone MISSING still counts — it makes the document unavailable, not
+      // invisible, and the canonical PDF reads either way.
       {
-        source: 'LIBRARY',
-        fileRefs: { some: { library: { deletedAt: null, ...visibleLibrary(viewer) } } },
+        files: {
+          some: {
+            file: {
+              origin: 'LIBRARY',
+              refs: { some: { library: { deletedAt: null, ...visibleLibrary(viewer) } } },
+            },
+          },
+        },
       },
-      // A document we hold the bytes for — a scan-set result, an upload — belongs to whoever made it,
-      // plus anyone it was shared with through a collection (docs/08 §8.5).
-      { source: { in: OWNED_SOURCES }, createdById: viewer.id },
+      // Or because they made it: an upload, a split, a combine (docs/03 §3.3.10).
+      { createdById: viewer.id },
+      // Or because it was shared with them through a collection (docs/08 §8.5). 🔒 Only for a
+      // document with no library file of its own: a share never widens library visibility, which is
+      // the admin's to control and not a user's to give away (docs/03 §3.4, §3.3.15).
       {
-        source: { in: OWNED_SOURCES },
+        files: { none: { file: { origin: 'LIBRARY' } } },
         collectionItems: {
           some: {
             collection: {
@@ -180,9 +187,18 @@ function visibleLibrary(viewer: Viewer): Prisma.LibraryWhereInput {
 
 function filters(query: ListDocumentsInput): Prisma.DocumentWhereInput {
   const where: Prisma.DocumentWhereInput = {};
+  // Every file-shaped filter is another clause on `files`, so they are collected into one AND list
+  // rather than overwriting each other on a single key.
+  const and: Prisma.DocumentWhereInput[] = [];
 
   if (query.libraryId !== undefined) {
-    where.fileRefs = { some: { libraryId: query.libraryId, library: { deletedAt: null } } };
+    and.push({
+      files: {
+        some: {
+          file: { refs: { some: { libraryId: query.libraryId, library: { deletedAt: null } } } },
+        },
+      },
+    });
   }
   if (query.typeId !== undefined) where.typeId = query.typeId;
   if (query.personId !== undefined) where.people = { some: { personId: query.personId } };
@@ -194,18 +210,18 @@ function filters(query: ListDocumentsInput): Prisma.DocumentWhereInput {
       lt: new Date(Date.UTC(query.year + 1, 0, 1)),
     };
   }
-  if (query.source !== undefined) where.source = query.source;
+
+  // Origin is derived from the files, so it filters on the same condition it is computed from
+  // (docs/03 §3.3.10): LIBRARY means at least one library file, MANAGED means none at all.
+  if (query.origin === 'LIBRARY') {
+    and.push({ files: { some: { file: { origin: 'LIBRARY' } } } });
+  }
+  if (query.origin === 'MANAGED') {
+    and.push({ files: { none: { file: { origin: 'LIBRARY' } } } });
+  }
 
   if (query.availability !== undefined) {
-    // Availability is derived, so it filters on the same condition it is computed from.
-    const live: Prisma.FileRefListRelationFilter = {
-      some: { status: 'HASHED', library: { deletedAt: null } },
-    };
-    where.AND = [
-      query.availability === 'AVAILABLE'
-        ? { OR: [{ source: { in: OWNED_SOURCES } }, { fileRefs: live }] }
-        : { source: 'LIBRARY', NOT: { fileRefs: live } },
-    ];
+    and.push(availabilityFilter(query.availability));
   }
 
   if (query.processing !== undefined) {
@@ -217,13 +233,28 @@ function filters(query: ListDocumentsInput): Prisma.DocumentWhereInput {
       { analysisStatus: 'PENDING' },
       { vectorizationStatus: 'PENDING' },
     ];
-    where.AND = [
-      ...(Array.isArray(where.AND) ? where.AND : []),
-      query.processing ? { OR: pending } : { NOT: { OR: pending } },
-    ];
+    and.push(query.processing ? { OR: pending } : { NOT: { OR: pending } });
   }
 
-  return where;
+  return and.length === 0 ? where : { ...where, AND: and };
+}
+
+// Availability is derived, so it filters on the same condition it is computed from (docs/03
+// §3.3.10). A document with no files at all is nobody's AVAILABLE, hence the `some: {}` guard.
+function availabilityFilter(availability: Availability): Prisma.DocumentWhereInput {
+  switch (availability) {
+    case 'AVAILABLE':
+      return { AND: [{ files: { some: {} } }, { files: { none: { file: UNREADABLE_FILE } } }] };
+    case 'PARTIAL':
+      return {
+        AND: [
+          { files: { some: { file: READABLE_FILE } } },
+          { files: { some: { file: UNREADABLE_FILE } } },
+        ],
+      };
+    case 'UNAVAILABLE':
+      return { AND: [{ files: { some: {} } }, { files: { none: { file: READABLE_FILE } } }] };
+  }
 }
 
 // The access rule of docs/03 §3.4 again, this time as SQL. Search ranks and limits inside the
@@ -236,10 +267,13 @@ function readableSql(viewer: Viewer): Prisma.Sql {
   return Prisma.sql`
     d.deleted_at IS NULL
     AND (
-      (d.source = 'LIBRARY' AND EXISTS (
-        SELECT 1 FROM file_refs fr
+      EXISTS (
+        SELECT 1 FROM document_files df
+        JOIN files fi ON fi.id = df.file_id
+        JOIN file_refs fr ON fr.file_id = fi.id
         JOIN libraries l ON l.id = fr.library_id
-        WHERE fr.document_id = d.id
+        WHERE df.document_id = d.id
+          AND fi.origin = 'LIBRARY'
           AND l.deleted_at IS NULL
           AND (
             l.visibility = 'ALL_USERS'
@@ -248,24 +282,28 @@ function readableSql(viewer: Viewer): Prisma.Sql {
               WHERE la.library_id = l.id AND la.user_id = ${viewer.id}::uuid
             )
           )
-      ))
-      OR (d.source <> 'LIBRARY' AND (
-        d.created_by_id = ${viewer.id}::uuid
-        OR EXISTS (
-          SELECT 1 FROM collection_items ci
-          JOIN collections c ON c.id = ci.collection_id
-          WHERE ci.document_id = d.id
-            AND c.deleted_at IS NULL
-            AND (
-              c.owner_id = ${viewer.id}::uuid
-              OR EXISTS (
-                SELECT 1 FROM collection_shares cs
-                WHERE cs.collection_id = c.id
-                  AND cs.revoked_at IS NULL
-                  AND (cs.grantee_user_id = ${viewer.id}::uuid OR cs.grantee_user_id IS NULL)
-              )
+      )
+      OR d.created_by_id = ${viewer.id}::uuid
+      OR (
+      NOT EXISTS (
+        SELECT 1 FROM document_files df2
+        JOIN files fi2 ON fi2.id = df2.file_id
+        WHERE df2.document_id = d.id AND fi2.origin = 'LIBRARY'
+      )
+      AND EXISTS (
+        SELECT 1 FROM collection_items ci
+        JOIN collections c ON c.id = ci.collection_id
+        WHERE ci.document_id = d.id
+          AND c.deleted_at IS NULL
+          AND (
+            c.owner_id = ${viewer.id}::uuid
+            OR EXISTS (
+              SELECT 1 FROM collection_shares cs
+              WHERE cs.collection_id = c.id
+                AND cs.revoked_at IS NULL
+                AND (cs.grantee_user_id = ${viewer.id}::uuid OR cs.grantee_user_id IS NULL)
             )
-        )
+          )
       ))
     )
   `;
@@ -279,9 +317,10 @@ function filtersSql(filters: SearchFilters): Prisma.Sql {
   }
   if (filters.libraryId !== undefined) {
     clauses.push(Prisma.sql`EXISTS (
-      SELECT 1 FROM file_refs fl
+      SELECT 1 FROM document_files df
+      JOIN file_refs fl ON fl.file_id = df.file_id
       JOIN libraries ll ON ll.id = fl.library_id
-      WHERE fl.document_id = d.id AND fl.library_id = ${filters.libraryId}::uuid
+      WHERE df.document_id = d.id AND fl.library_id = ${filters.libraryId}::uuid
         AND ll.deleted_at IS NULL
     )`);
   }
@@ -342,11 +381,24 @@ function add(
 
 @Injectable()
 export class PrismaDocumentRepository implements DocumentRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // A document is what its files say it is (docs/03 §3.3.10), and the list needs that for a whole
+    // page at once — so the composition is read through the same repository the rest of the server
+    // uses, in two batched queries rather than one per row.
+    private readonly files: FileRepository,
+  ) {}
 
   async findById(id: string, tx?: TransactionHandle): Promise<Document | null> {
     const row = await clientOf(this.prisma, tx).document.findUnique({ where: { id } });
     return row === null ? null : toDomain(row);
+  }
+
+  async create(input: CreateDocumentInput, tx?: TransactionHandle): Promise<Document> {
+    const row = await clientOf(this.prisma, tx).document.create({
+      data: { title: input.title, createdById: input.createdById ?? null },
+    });
+    return toDomain(row);
   }
 
   async updateProcessing(
@@ -495,12 +547,13 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ? encodeCursor({ at: last.createdAt, id: last.id })
         : null;
 
-    return { items: page.map(toListItem), nextCursor };
+    return { items: await this.toItems(page, tx), nextCursor };
   }
 
   // Documents whose files sit directly in one folder, by title (docs/07 §7.3). The folder match is
   // a string operation on the path, so the ids come from raw SQL; the rows themselves then load
-  // through the same include and mapper as every other list.
+  // through the same include and mapper as every other list. A ref points at a file and the file at
+  // a document (docs/03 §3.3.16), so the join goes through `document_files`.
   async listInFolder(
     libraryId: string,
     folder: string,
@@ -513,7 +566,8 @@ export class PrismaDocumentRepository implements DocumentRepository {
     const keys = await client.$queryRaw<{ id: string; title: string }[]>`
       SELECT DISTINCT d.id, d.title
       FROM documents d
-      JOIN file_refs f ON f.document_id = d.id
+      JOIN document_files df ON df.document_id = d.id
+      JOIN file_refs f ON f.file_id = df.file_id
       WHERE d.deleted_at IS NULL
         AND f.library_id = ${libraryId}::uuid
         AND (${folder} = '' OR f.path LIKE ${folder} || '/%')
@@ -542,14 +596,13 @@ export class PrismaDocumentRepository implements DocumentRepository {
     });
     const byId = new Map(rows.map((row) => [row.id, row]));
 
-    return {
-      // The raw query decided the order; the fetch by id does not preserve it.
-      items: page.flatMap((key) => {
-        const row = byId.get(key.id);
-        return row === undefined ? [] : [toListItem(row)];
-      }),
-      nextCursor,
-    };
+    // The raw query decided the order; the fetch by id does not preserve it.
+    const ordered = page.flatMap((key) => {
+      const row = byId.get(key.id);
+      return row === undefined ? [] : [row];
+    });
+
+    return { items: await this.toItems(ordered, tx), nextCursor };
   }
 
   // Full-text search (docs/04 §4.3): the generated search_vector, queried with websearch_to_tsquery
@@ -583,6 +636,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
     return this.hydrate(
       client,
       rows.map((row) => ({ id: row.id, snippet: row.snippet })),
+      tx,
     );
   }
 
@@ -619,6 +673,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
     return this.hydrate(
       client,
       rows.map((row) => ({ id: row.id, snippet: row.snippet })),
+      tx,
     );
   }
 
@@ -626,6 +681,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
   private async hydrate(
     client: ReturnType<typeof clientOf>,
     ranked: { id: string; snippet: string | null }[],
+    tx?: TransactionHandle,
   ): Promise<SearchMatch[]> {
     if (ranked.length === 0) return [];
 
@@ -635,11 +691,20 @@ export class PrismaDocumentRepository implements DocumentRepository {
     });
     const byId = new Map(rows.map((row) => [row.id, row]));
 
-    return ranked.flatMap((entry, index) => {
+    // Rank is the place the engine gave the document, not the place it ends up in this array: a row
+    // that vanished between the two queries leaves a gap rather than promoting everything below it.
+    const found = ranked.flatMap((entry, index) => {
       const row = byId.get(entry.id);
-      return row === undefined
-        ? []
-        : [{ item: toListItem(row), rank: index + 1, snippet: entry.snippet }];
+      return row === undefined ? [] : [{ row, rank: index + 1, snippet: entry.snippet }];
+    });
+    const items = await this.toItems(
+      found.map((entry) => entry.row),
+      tx,
+    );
+
+    return items.flatMap((item, index) => {
+      const entry = found[index];
+      return entry === undefined ? [] : [{ item, rank: entry.rank, snippet: entry.snippet }];
     });
   }
 
@@ -673,7 +738,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
     const page = rows.slice(0, query.limit);
     const last = page.at(-1);
     return {
-      items: page.map(toListItem),
+      items: await this.toItems(page, tx),
       nextCursor:
         rows.length > query.limit && last !== undefined
           ? encodeCursor({ at: last.createdAt, id: last.id })
@@ -681,28 +746,45 @@ export class PrismaDocumentRepository implements DocumentRepository {
     };
   }
 
+  // A whole page of rows plus what their files say about them, in two queries for the page rather
+  // than two per row (docs/03 §3.3.10).
+  private async toItems(rows: ListRow[], tx?: TransactionHandle): Promise<DocumentListItem[]> {
+    if (rows.length === 0) return [];
+
+    const byDocument = await this.files.listForDocuments(
+      rows.map((row) => row.id),
+      tx,
+    );
+    const liveRefs = await this.files.countLiveRefsForFiles(
+      [...byDocument.values()].flat().map((file) => file.id),
+      tx,
+    );
+
+    return rows.map((row) => {
+      const files = byDocument.get(row.id) ?? [];
+      return {
+        document: toDomain(row),
+        documentType: row.documentType,
+        fileCount: files.length,
+        primaryExt: files[0]?.ext ?? '',
+        sizeBytes: files.reduce((total, file) => total + file.sizeBytes, 0n),
+        origin: originOf(files.map((file) => file.origin)),
+        availability: availabilityOf(files.map((file) => readable(file, liveRefs))),
+      };
+    });
+  }
+
   async findReadableById(
     id: string,
     viewer: Viewer,
     tx?: TransactionHandle,
   ): Promise<DocumentDetail | null> {
-    const row = await clientOf(this.prisma, tx).document.findFirst({
+    const client = clientOf(this.prisma, tx);
+    const row = await client.document.findFirst({
       where: { id, deletedAt: null, ...readableBy(viewer) },
       include: {
         ...LIST_INCLUDE,
         createdBy: { select: { id: true, displayName: true } },
-        // 🔒 The file locations a viewer is shown are only those they could have reached anyway
-        // (docs/07 §7.3): an admin sees every ref, everyone else only their visible libraries.
-        fileRefs: {
-          where: { library: { deletedAt: null, ...visibleLibrary(viewer) } },
-          select: {
-            path: true,
-            status: true,
-            libraryId: true,
-            library: { select: { name: true } },
-          },
-          orderBy: { path: 'asc' },
-        },
         // A soft-deleted person stays on the documents that named them (ADR-015), so the link is
         // read whatever the catalogue now offers.
         people: { include: { person: true }, orderBy: { person: { name: 'asc' } } },
@@ -714,20 +796,61 @@ export class PrismaDocumentRepository implements DocumentRepository {
     });
     if (row === null) return null;
 
+    const files = await this.files.listForDocument(id, tx);
+    const fileIds = files.map((file) => file.id);
+    const liveRefs = await this.files.countLiveRefsForFiles(fileIds, tx);
+
+    // 🔒 The file locations a viewer is shown are only those they could have reached anyway
+    // (docs/07 §7.3): an admin sees every ref, everyone else only their visible libraries. The
+    // availability above is counted over *all* libraries — a file is no less readable for lying in
+    // one this caller cannot see.
+    const refRows =
+      fileIds.length === 0
+        ? []
+        : await client.fileRef.findMany({
+            where: {
+              fileId: { in: fileIds },
+              library: { deletedAt: null, ...visibleLibrary(viewer) },
+            },
+            select: {
+              fileId: true,
+              path: true,
+              status: true,
+              libraryId: true,
+              library: { select: { name: true } },
+            },
+            orderBy: { path: 'asc' },
+          });
+
+    const refsByFile = new Map<string, DocumentFileRefView[]>(
+      fileIds.map((fileId) => [fileId, []]),
+    );
+    for (const ref of refRows) {
+      if (ref.fileId === null) continue;
+      refsByFile.get(ref.fileId)?.push({
+        libraryId: ref.libraryId,
+        libraryName: ref.library.name,
+        path: ref.path,
+        status: ref.status,
+      });
+    }
+
+    const fileViews: DocumentFileView[] = files.map((file) => ({
+      ...file,
+      available: readable(file, liveRefs),
+      refs: refsByFile.get(file.id) ?? [],
+    }));
+
     return {
-      ...toListItem(row),
+      document: toDomain(row),
+      documentType: row.documentType,
       people: row.people.map((link) => ({ id: link.person.id, name: link.person.name })),
       subjects: row.subjects.map((link) => ({
         id: link.subject.id,
         kind: link.subject.kind.name,
         name: link.subject.name,
       })),
-      fileRefs: row.fileRefs.map((ref) => ({
-        libraryId: ref.libraryId,
-        libraryName: ref.library.name,
-        path: ref.path,
-        status: ref.status,
-      })),
+      files: fileViews,
       createdBy: row.createdBy,
     };
   }
@@ -772,47 +895,9 @@ export class PrismaDocumentRepository implements DocumentRepository {
     });
     return rows.map((row) => row.id);
   }
+}
 
-  async findActiveByContentHash(
-    contentHash: string,
-    tx?: TransactionHandle,
-  ): Promise<Document | null> {
-    const row = await clientOf(this.prisma, tx).document.findFirst({
-      where: { contentHash, deletedAt: null },
-    });
-    return row === null ? null : toDomain(row);
-  }
-
-  async findOrCreateByContentHash(
-    input: CreateDocumentInput,
-    tx?: TransactionHandle,
-  ): Promise<DocumentUpsert> {
-    const existing = await this.findActiveByContentHash(input.contentHash, tx);
-    if (existing !== null) return { document: existing, created: false };
-
-    try {
-      const row = await clientOf(this.prisma, tx).document.create({
-        data: {
-          contentHash: input.contentHash,
-          source: input.source,
-          mimeType: input.mimeType,
-          ext: input.ext,
-          sizeBytes: input.sizeBytes,
-          title: input.title,
-          createdById: input.createdById ?? null,
-          scanSetId: input.scanSetId ?? null,
-        },
-      });
-      return { document: toDomain(row), created: true };
-    } catch (error) {
-      // documents_content_hash_active_uq (docs/04 §4.3): another ingest inserted the same content
-      // between the read above and this write. Whoever lost simply attaches to the winner, so
-      // identical content still yields exactly one document.
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        const winner = await this.findActiveByContentHash(input.contentHash, tx);
-        if (winner !== null) return { document: winner, created: false };
-      }
-      throw error;
-    }
-  }
+// One file's readability, from the batch of ref counts the page was measured with.
+function readable(file: DocumentFile, liveRefs: Map<string, number>): boolean {
+  return isFileReadable(file.origin, liveRefs.get(file.id) ?? 0);
 }

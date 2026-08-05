@@ -22,7 +22,7 @@ detached, moved, or rescanned — user data is never lost in the process.
    preview, text extraction to Markdown, analysis, vectorization.
 4. Users open the web UI: browse documents with previews, read them in the viewer, search by content
    and by meaning, organize documents, and share folders/collections with each other.
-5. A special case — **scan sets**: a batch of JPG scans of one physical document (for example, ~40
+5. A common case — **a document made of many files**: a batch of JPG scans of one physical document (for example, ~40
    files of passport scans with large margins). On the user's explicit request Legere merges them into
    a single PDF with margins cropped (via Stirling-PDF) and stores the result as a derived document.
 
@@ -31,7 +31,7 @@ detached, moved, or rescanned — user data is never lost in the process.
 | Persona | Role | What they do |
 |---------|------|--------------|
 | **Administrator** | `ADMIN` | Deploys the service; configures external libraries and their visibility; invites users; manages roles; monitors the processing queue and errors in the admin panel |
-| **User** | `USER` | Views documents available to them; searches; organizes (folders/collections, document types); shares; triggers scan-set merging |
+| **User** | `USER` | Views documents available to them; searches; organizes (folders/collections, document types); shares; composes documents out of files |
 
 One person can hold both roles (the typical home scenario: the admin is also the primary user).
 
@@ -42,9 +42,9 @@ One person can hold both roles (the typical home scenario: the admin is also the
 | **External library** (Library) | An admin-configured root path inside the read-only storage that Legere monitors. There can be several libraries |
 | **File** (FileRef) | A concrete file on disk inside a library: path, size, mtime, content hash. Read-only |
 | **Document** | A logical unit of content after deduplication: one content hash = one document, which several files in different locations may point to |
-| **Derived artifact** (Artifact) | Something Legere produced itself: a JPG preview, a Markdown representation, a canonical PDF, a merged scan-set PDF. Stored in the app's private S3 bucket, not in the library |
+| **Derived artifact** (Artifact) | Something Legere produced itself: a JPG preview, a Markdown representation, the canonical PDF every document has. Stored in the app's private S3 bucket, not in the library |
 | **Scan set** | A user-selected set of scan images of one physical document, merged into a single PDF with margins cropped |
-| **Job** | A unit of work in the processing queue: library scan, hashing, parsing, preview, analysis, vectorization, scan-set merge |
+| **Job** | A unit of work in the processing queue: library scan, hashing, canonical assembly, parsing, preview, analysis, vectorization |
 | **Document type** | A document type from a managed reference list (passport, contract, invoice, manual…); assigned automatically, editable manually |
 | **Stirling-PDF** | An external self-hosted PDF tooling service (sibling container): conversion to PDF, OCR, merge, crop |
 
@@ -76,9 +76,9 @@ ODT/ODS/ODP), plain text/Markdown. Other formats are registered as documents "wi
 - **Writing to the external library** — never (not just in the MVP): no renames, no moves, no edits.
 - Editing document content (Legere is a system for reading and organizing, not an editor).
 - User file uploads via the web (content enters only through the external library). The only exception —
-  derived artifacts produced by the system itself (scan-set merging).
+  derived artifacts produced by the system itself (the canonical PDF of every document).
 - Mobile apps, desktop clients (web only).
-- Automatic scan-set merging (explicit user request only).
+- Automatic grouping of files into one document (Legere suggests, a person confirms — 05 §5.6a).
 - Document versioning, content-change audit log.
 - Public external links (sharing only between users of the instance).
 - Quotas, billing, multi-tenancy (one instance = one team/family).

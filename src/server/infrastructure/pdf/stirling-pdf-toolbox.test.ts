@@ -46,7 +46,7 @@ describe('StirlingPdfToolbox', () => {
   it('converts an office file under its own name, so LibreOffice picks the right filter', async () => {
     const spy = mockStirling(pdfResponse());
 
-    const result = await toolbox().officeToPdf({
+    const result = await toolbox().toPdf({
       body: Buffer.from('docx-bytes'),
       fileName: 'Q1 report.docx',
     });
@@ -120,6 +120,62 @@ describe('StirlingPdfToolbox', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it('merges the parts of a document in the order they were handed over', async () => {
+    const spy = mockStirling(pdfResponse('merged'));
+
+    const merged = await toolbox().mergePdfs([Buffer.from('one'), Buffer.from('two')]);
+
+    expect(merged.toString()).toBe('merged');
+    const { url, form } = sentRequest(spy);
+    expect(url).toBe('http://stirling:8080/api/v1/general/merge-pdfs');
+    // 🔒 Page order is position order (docs/05 §5.5 step 1); sorting by name or date would silently
+    // rearrange somebody's document.
+    expect(form.get('sortType')).toBe('orderProvided');
+    const parts = form.getAll('fileInput');
+    expect(parts.map((part) => (part instanceof File ? part.name : ''))).toEqual([
+      'part-0000.pdf',
+      'part-0001.pdf',
+    ]);
+    const first = parts[0];
+    if (!(first instanceof File)) throw new Error('expected a file part');
+    expect(await first.text()).toBe('one');
+  });
+
+  it('refuses to merge an empty list rather than asking the container to', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch');
+
+    await expect(toolbox().mergePdfs([])).rejects.toThrow(/at least one part/);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('stamps the title and the date the document carries', async () => {
+    const spy = mockStirling(pdfResponse('stamped'));
+
+    await toolbox().stampMetadata(Buffer.from('%PDF-'), {
+      title: 'Lease agreement',
+      date: new Date('2019-07-14T08:30:00.000Z'),
+    });
+
+    const { url, form } = sentRequest(spy);
+    expect(url).toBe('http://stirling:8080/api/v1/misc/update-metadata');
+    expect(form.get('title')).toBe('Lease agreement');
+    // The one date format the endpoint parses.
+    expect(form.get('creationDate')).toBe('2019/07/14 08:30:00');
+    // 🔒 Never deleteAll: the parts brought metadata of their own, and this pass adds rather than
+    // erases (docs/05 §5.5 step 1).
+    expect(form.get('deleteAll')).toBe('false');
+  });
+
+  it('stamps a title alone when the document has no date', async () => {
+    const spy = mockStirling(pdfResponse('stamped'));
+
+    await toolbox().stampMetadata(Buffer.from('%PDF-'), { title: 'Untitled', date: null });
+
+    const { form } = sentRequest(spy);
+    expect(form.get('title')).toBe('Untitled');
+    expect(form.get('creationDate')).toBeNull();
+  });
+
   it('drops the image placeholders the converter writes in place of pictures', async () => {
     // What Stirling really answers for a scanned page: a note about the image, not text from it.
     mockStirling(
@@ -155,7 +211,7 @@ describe('StirlingPdfToolbox', () => {
     mockStirling(new Response('Unsupported file type: .pages', { status: 422 }));
 
     await expect(
-      toolbox().officeToPdf({ body: Buffer.from('x'), fileName: 'notes.pages' }),
+      toolbox().toPdf({ body: Buffer.from('x'), fileName: 'notes.pages' }),
     ).rejects.toThrow(/422.*Unsupported file type/s);
   });
 

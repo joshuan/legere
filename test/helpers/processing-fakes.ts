@@ -6,17 +6,22 @@ import {
 import type { Document, DocumentSteps } from '../../src/server/domain/entities/document';
 import { pendingSteps } from '../../src/server/domain/entities/document';
 import type { FileRef } from '../../src/server/domain/entities/file-ref';
+import type { File } from '../../src/server/domain/entities/file';
 import type { Library } from '../../src/server/domain/entities/library';
 import {
   DocumentRepository,
   type CreateDocumentInput,
-  type DocumentUpsert,
   type ProcessingUpdate,
   type DocumentDetail,
   type DocumentPage,
   type SearchMatch,
   type StepStatusCounters,
 } from '../../src/server/domain/repositories/document.repository';
+import {
+  FileRepository,
+  type CreateFileInput,
+  type DocumentFile,
+} from '../../src/server/domain/repositories/file.repository';
 import {
   FileRefRepository,
   type CreateFileRefInput,
@@ -30,8 +35,11 @@ import {
   type UpdateLibraryInput,
 } from '../../src/server/domain/repositories/library.repository';
 import { RelativePath } from '../../src/server/domain/value-objects/relative-path';
-import type { BinarySource } from '../../src/server/application/ports/binary-source';
+import type { Crop } from '../../src/shared/contracts/documents';
+import { toBuffer, type BinarySource } from '../../src/server/application/ports/binary-source';
 import { ImageTool, type JpegPreviewOptions } from '../../src/server/application/ports/image-tool';
+import type { GrayscaleRaster } from '../../src/server/domain/entities/page-detection';
+import { QueueSettings } from '../../src/server/application/queue/queue-settings';
 import {
   LibraryReader,
   type FsDirectoryEntry,
@@ -43,6 +51,7 @@ import {
   PdfToolbox,
   type FirstPageOptions,
   type NamedBinary,
+  type PdfMetadata,
 } from '../../src/server/application/ports/pdf-toolbox';
 import {
   DocumentAnalyst,
@@ -96,20 +105,31 @@ function unused(name: string): never {
   throw new Error(`${name} is not part of the processing pipeline`);
 }
 
+// The keys of DocumentSteps, which is what a skip reason is filed under.
+function stepKey(step: string): keyof DocumentSteps {
+  const known: Array<keyof DocumentSteps> = [
+    'canonical',
+    'preview',
+    'markdown',
+    'analysis',
+    'vectorization',
+  ];
+  const found = known.find((candidate) => candidate === step);
+  if (found === undefined) throw new Error(`Unknown pipeline step ${step}`);
+  return found;
+}
+
 // Payloads carry ids as uuids, so fixtures do too.
 export const DOCUMENT_ID = '11111111-1111-4111-8111-111111111111';
 export const LIBRARY_ID = '22222222-2222-4222-8222-222222222222';
 
+export const FILE_ID = '55555555-5555-4555-8555-555555555555';
+
 export function documentFixture(overrides: Partial<Document> = {}): Document {
   return {
     id: DOCUMENT_ID,
-    contentHash: 'a'.repeat(64),
-    source: 'LIBRARY',
     description: null,
     titleSource: 'NONE',
-    mimeType: 'application/pdf',
-    ext: 'pdf',
-    sizeBytes: 1024n,
     pageCount: null,
     title: 'Invoice 2026-01',
     markdown: null,
@@ -126,7 +146,6 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     typeId: null,
     typeSource: 'NONE',
     createdById: null,
-    scanSetId: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     deletedAt: null,
     ...overrides,
@@ -149,15 +168,40 @@ export class InMemoryDocumentRepository extends DocumentRepository {
     return Promise.resolve(this.documents.get(id) ?? null);
   }
 
+  // A document is created empty and given its files afterwards (docs/03 §3.3.17).
+  create(input: CreateDocumentInput): Promise<Document> {
+    this.created += 1;
+    return Promise.resolve(
+      this.add(
+        documentFixture({
+          id: `created-${this.created}`,
+          title: input.title,
+          createdById: input.createdById ?? null,
+          pageCount: null,
+          markdown: null,
+          steps: pendingSteps(),
+        }),
+      ),
+    );
+  }
+
   updateProcessing(id: string, update: ProcessingUpdate): Promise<Document> {
     const existing = this.documents.get(id);
     if (existing === undefined) throw new Error(`No document ${id}`);
     this.updates.push({ id, update });
 
     const steps: DocumentSteps = { ...existing.steps, ...(update.steps ?? {}) };
+    // Merged one step at a time, and a null clears that step's note — what the column does.
+    const skipReasons = { ...existing.skipReasons };
+    for (const [step, reason] of Object.entries(update.skipReasons ?? {})) {
+      if (reason === null) delete skipReasons[stepKey(step)];
+      else skipReasons[stepKey(step)] = reason;
+    }
+
     const updated: Document = {
       ...existing,
       steps,
+      skipReasons,
       ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
       ...(update.languages === undefined ? {} : { languages: update.languages }),
       // Merged, like the column: each step adds what it worked out (docs/03 §3.3.10).
@@ -181,35 +225,6 @@ export class InMemoryDocumentRepository extends DocumentRepository {
 
   filterExistingIds(ids: string[]): Promise<string[]> {
     return Promise.resolve(ids.filter((id) => this.documents.has(id)));
-  }
-
-  findActiveByContentHash(contentHash: string): Promise<Document | null> {
-    return Promise.resolve(
-      [...this.documents.values()].find(
-        (document) => document.contentHash === contentHash && document.deletedAt === null,
-      ) ?? null,
-    );
-  }
-
-  // The dedup primitive, in memory: known content yields the document that already holds it, new
-  // content creates one (ADR-009).
-  findOrCreateByContentHash(input: CreateDocumentInput): Promise<DocumentUpsert> {
-    const existing = [...this.documents.values()].find(
-      (document) => document.contentHash === input.contentHash && document.deletedAt === null,
-    );
-    if (existing !== undefined) return Promise.resolve({ document: existing, created: false });
-
-    this.created += 1;
-    const document = this.add(
-      documentFixture({
-        ...input,
-        id: `created-${this.created}`,
-        pageCount: null,
-        markdown: null,
-        steps: pendingSteps(),
-      }),
-    );
-    return Promise.resolve({ document, created: true });
   }
 
   listYears(): Promise<Array<{ year: number; count: number }>> {
@@ -243,15 +258,139 @@ export class InMemoryDocumentRepository extends DocumentRepository {
   updateMeta(): Promise<Document> {
     return unused('updateMeta');
   }
-  softDelete(): Promise<void> {
-    return unused('softDelete');
+  softDelete(id: string, deletedAt: Date): Promise<void> {
+    const document = this.documents.get(id);
+    if (document !== undefined) this.documents.set(id, { ...document, deletedAt });
+    return Promise.resolve();
+  }
+}
+
+export function fileFixture(overrides: Partial<File> = {}): File {
+  return {
+    id: FILE_ID,
+    contentHash: 'a'.repeat(64),
+    origin: 'LIBRARY',
+    storageKey: null,
+    mimeType: 'application/pdf',
+    ext: 'pdf',
+    sizeBytes: 1024n,
+    name: 'a.pdf',
+    crop: null,
+    cropSource: 'NONE',
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+// The bytes, once, and which document holds them in what order (docs/03 §3.3.16–3.3.17). The map of
+// homes is the join table: a file has exactly one, and the fake enforces that as the schema does.
+export class InMemoryFileRepository extends FileRepository {
+  readonly files = new Map<string, File>();
+  // documentId → fileIds in position order.
+  readonly composition = new Map<string, string[]>();
+  private created = 0;
+
+  // Adds a file and, unless told otherwise, gives it a home — which is what every file has.
+  add(file: Partial<File> = {}, documentId: string | null = DOCUMENT_ID): File {
+    const full = fileFixture({ id: file.id ?? `file-${this.files.size + 1}`, ...file });
+    this.files.set(full.id, full);
+    if (documentId !== null)
+      this.composition.set(documentId, [...(this.composition.get(documentId) ?? []), full.id]);
+    return full;
+  }
+
+  findById(id: string): Promise<File | null> {
+    return Promise.resolve(this.files.get(id) ?? null);
+  }
+
+  findActiveByContentHash(contentHash: string): Promise<File | null> {
+    return Promise.resolve(
+      [...this.files.values()].find(
+        (file) => file.contentHash === contentHash && file.deletedAt === null,
+      ) ?? null,
+    );
+  }
+
+  findOrCreateByContentHash(input: CreateFileInput): Promise<{ file: File; created: boolean }> {
+    const existing = [...this.files.values()].find(
+      (file) => file.contentHash === input.contentHash && file.deletedAt === null,
+    );
+    if (existing !== undefined) return Promise.resolve({ file: existing, created: false });
+
+    this.created += 1;
+    const file = fileFixture({ ...input, id: `file-created-${this.created}` });
+    this.files.set(file.id, file);
+    return Promise.resolve({ file, created: true });
+  }
+
+  setCrop(id: string, crop: Crop | null, cropSource: File['cropSource']): Promise<File> {
+    const file = this.files.get(id);
+    if (file === undefined) throw new Error(`No file ${id}`);
+    const updated = { ...file, crop, cropSource };
+    this.files.set(id, updated);
+    return Promise.resolve(updated);
+  }
+
+  softDelete(id: string, deletedAt: Date): Promise<void> {
+    const file = this.files.get(id);
+    if (file !== undefined) this.files.set(id, { ...file, deletedAt });
+    return Promise.resolve();
+  }
+
+  listForDocument(documentId: string): Promise<DocumentFile[]> {
+    const ids = this.composition.get(documentId) ?? [];
+    return Promise.resolve(
+      ids.flatMap((id, position) => {
+        const file = this.files.get(id);
+        return file === undefined ? [] : [{ ...file, position }];
+      }),
+    );
+  }
+
+  async listForDocuments(documentIds: readonly string[]): Promise<Map<string, DocumentFile[]>> {
+    const out = new Map<string, DocumentFile[]>();
+    for (const documentId of documentIds) {
+      out.set(documentId, await this.listForDocument(documentId));
+    }
+    return out;
+  }
+
+  findDocumentIdForFile(fileId: string): Promise<string | null> {
+    for (const [documentId, ids] of this.composition) {
+      if (ids.includes(fileId)) return Promise.resolve(documentId);
+    }
+    return Promise.resolve(null);
+  }
+
+  attach(documentId: string, fileId: string): Promise<void> {
+    this.composition.set(documentId, [...(this.composition.get(documentId) ?? []), fileId]);
+    return Promise.resolve();
+  }
+
+  detach(documentId: string, fileId: string): Promise<void> {
+    this.composition.set(
+      documentId,
+      (this.composition.get(documentId) ?? []).filter((id) => id !== fileId),
+    );
+    return Promise.resolve();
+  }
+
+  reorder(documentId: string, fileIdsInOrder: readonly string[]): Promise<void> {
+    this.composition.set(documentId, [...fileIdsInOrder]);
+    return Promise.resolve();
+  }
+
+  countLiveRefsForFiles(fileIds: readonly string[]): Promise<Map<string, number>> {
+    return Promise.resolve(new Map(fileIds.map((id) => [id, 1])));
   }
 }
 
 export class InMemoryFileRefRepository extends FileRefRepository {
   readonly refs: FileRef[] = [];
 
-  add(ref: Partial<FileRef> & Pick<FileRef, 'id' | 'libraryId' | 'documentId'>): FileRef {
+  add(ref: Partial<FileRef> & Pick<FileRef, 'id' | 'libraryId' | 'fileId'>): FileRef {
     const full: FileRef = {
       path: RelativePath.parse('invoices/a.pdf'),
       size: 1024n,
@@ -271,15 +410,11 @@ export class InMemoryFileRefRepository extends FileRefRepository {
     return Promise.resolve(this.refs.find((ref) => ref.id === id) ?? null);
   }
 
-  findLiveRefForDocument(documentId: string): Promise<FileRef | null> {
+  // Where a file's bytes can be read: a file is asked, not a document, because a document is many
+  // files and each has its own homes (docs/05 §5.3).
+  findLiveRefForFile(fileId: string): Promise<FileRef | null> {
     return Promise.resolve(
-      this.refs.find((ref) => ref.documentId === documentId && ref.status === 'HASHED') ?? null,
-    );
-  }
-
-  countLiveRefsInActiveLibraries(documentId: string): Promise<number> {
-    return Promise.resolve(
-      this.refs.filter((ref) => ref.documentId === documentId && ref.status === 'HASHED').length,
+      this.refs.find((ref) => ref.fileId === fileId && ref.status === 'HASHED') ?? null,
     );
   }
 
@@ -298,8 +433,27 @@ export class InMemoryFileRefRepository extends FileRefRepository {
   markDiscovered(): Promise<void> {
     return unused('markDiscovered');
   }
-  markHashed(): Promise<void> {
-    return unused('markHashed');
+  // Ingest finished: the ref now points at the file its bytes are (docs/05 §5.3).
+  markHashed(
+    id: string,
+    contentHash: string,
+    fileId: string,
+    size: bigint,
+    mtimeMs: number,
+  ): Promise<void> {
+    const index = this.refs.findIndex((ref) => ref.id === id);
+    const ref = this.refs[index];
+    if (ref === undefined) throw new Error(`No file ref ${id}`);
+    this.refs[index] = {
+      ...ref,
+      status: 'HASHED',
+      contentHash,
+      fileId,
+      size,
+      mtimeMs,
+      missingSince: null,
+    };
+    return Promise.resolve();
   }
   touchSeen(): Promise<void> {
     return unused('touchSeen');
@@ -400,6 +554,8 @@ export type PdfToolboxCall = { method: string; fileName?: string };
 export class FakePdfToolbox extends PdfToolbox {
   readonly endpoint = 'http://stirling.test';
   readonly calls: PdfToolboxCall[] = [];
+  // What the metadata pass was told the document is (docs/05 §5.5 step 1).
+  readonly stamped: PdfMetadata[] = [];
   failures = new Set<string>();
   pageCount = 1;
 
@@ -424,9 +580,9 @@ export class FakePdfToolbox extends PdfToolbox {
     }
   }
 
-  officeToPdf(source: NamedBinary): Promise<Buffer> {
-    this.check('officeToPdf', source.fileName);
-    return Promise.resolve(Buffer.from('canonical-pdf'));
+  toPdf(source: NamedBinary): Promise<Buffer> {
+    this.check('toPdf', source.fileName);
+    return Promise.resolve(Buffer.from('converted-pdf'));
   }
 
   pdfFirstPageJpg(_source: BinarySource, _options?: FirstPageOptions): Promise<Buffer> {
@@ -434,8 +590,13 @@ export class FakePdfToolbox extends PdfToolbox {
     return Promise.resolve(Buffer.from('rendered-page'));
   }
 
-  ocrPdf(): Promise<Buffer> {
+  // What each OCR pass was asked to recognise: a wrong set costs accuracy, so the pipeline's choice
+  // of languages is worth asserting on (docs/03 §3.3.10).
+  readonly ocrLanguages: string[][] = [];
+
+  ocrPdf(_source: BinarySource, languages: readonly string[]): Promise<Buffer> {
     this.check('ocrPdf');
+    this.ocrLanguages.push([...languages]);
     return Promise.resolve(Buffer.from('ocr-pdf'));
   }
 
@@ -447,10 +608,29 @@ export class FakePdfToolbox extends PdfToolbox {
     return this.markdownByContent.get(content) ?? this.defaultMarkdown;
   }
 
-  imagesToPdf(images: readonly NamedBinary[]): Promise<Buffer> {
-    // The names are the interesting part: page order is item order (docs/05 §5.6).
+  async imagesToPdf(images: readonly NamedBinary[]): Promise<Buffer> {
+    // The names are the interesting part: page order is item order (docs/05 §5.5 step 1).
     this.check('imagesToPdf', images.map((image) => image.fileName).join(','));
-    return Promise.resolve(Buffer.from('merged-pdf'));
+    // Carries what it was given, so a test can follow one page's bytes into the canonical.
+    const bodies = await Promise.all(images.map((image) => describe(image.body)));
+    return Buffer.from(`image-pdf(${bodies.join(',')})`);
+  }
+
+  // The parts of a document, in position order (docs/05 §5.5 step 1). The result names them, so a
+  // reordered merge is visible in an assertion rather than only in a person's document.
+  async mergePdfs(parts: readonly BinarySource[]): Promise<Buffer> {
+    const bodies = await Promise.all(parts.map((part) => describe(part)));
+    this.check('mergePdfs', bodies.join(','));
+    return Buffer.from(`merged(${bodies.join(',')})`);
+  }
+
+  // Best-effort by contract: a test makes this fail to prove the canonical survives it. The bytes
+  // come back unchanged, so what a later step reads is still the PDF the merge produced; what was
+  // stamped is recorded instead.
+  async stampMetadata(source: BinarySource, metadata: PdfMetadata): Promise<Buffer> {
+    this.check('stampMetadata', metadata.title);
+    this.stamped.push(metadata);
+    return toBuffer(source);
   }
 
   pdfPageCount(): Promise<number> {
@@ -469,6 +649,7 @@ export class FakeDocumentParser extends DocumentParser {
   readonly endpoint = 'http://docling.test';
   configured = false;
   markdown = '';
+  failing = false;
   readonly calls: Array<{ ocrLanguages: readonly string[] }> = [];
 
   get isConfigured(): boolean {
@@ -477,15 +658,28 @@ export class FakeDocumentParser extends DocumentParser {
 
   toMarkdown(_source: BinarySource, options: ParseOptions): Promise<string> {
     this.calls.push({ ocrLanguages: options.ocrLanguages });
+    if (this.failing) return Promise.reject(new Error('Docling toMarkdown failed with 500'));
     return Promise.resolve(this.markdown);
   }
 }
 
 export class FakeImageTool extends ImageTool {
   readonly resizes: ResizeCall[] = [];
-  // What was handed to trim(), so a scan set's crop mode is observable.
-  readonly trims: string[] = [];
+  // What was handed to each of the other three, so what the pipeline asked for is observable.
+  readonly crops: Array<{ input: string; crop: Crop }> = [];
+  readonly contentBoxes: string[] = [];
+  readonly rasters: Array<{ input: string; maxDim: number }> = [];
   failing = false;
+  // What the detector and the fallback answer with, when a test cares.
+  raster: GrayscaleRaster = { data: new Uint8Array(4), width: 2, height: 2 };
+  box: Crop = {
+    points: [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+    ],
+  };
 
   async toJpegPreview(source: BinarySource, options: JpegPreviewOptions): Promise<Buffer> {
     const input = await describe(source);
@@ -494,11 +688,25 @@ export class FakeImageTool extends ImageTool {
     return Buffer.from(`jpeg:${options.maxDim}:${input}`);
   }
 
-  async trim(source: BinarySource, threshold: number): Promise<Buffer> {
+  // The crop as a perspective transform (docs/05 §5.6). The result names what it was given and how
+  // it was cut, so a test can see which page carried which quadrilateral into the canonical.
+  async applyCrop(source: BinarySource, crop: Crop): Promise<Buffer> {
     const input = await describe(source);
-    this.trims.push(input);
+    this.crops.push({ input, crop });
     if (this.failing) throw new Error('sharp: unsupported image format');
-    return Buffer.from(`trimmed(${threshold}):${input}`);
+    return Buffer.from(`cropped(${crop.points[0][0]},${crop.points[0][1]}):${input}`);
+  }
+
+  async contentBox(source: BinarySource): Promise<Crop> {
+    this.contentBoxes.push(await describe(source));
+    if (this.failing) throw new Error('sharp: unsupported image format');
+    return this.box;
+  }
+
+  async grayscaleRaster(source: BinarySource, maxDim: number): Promise<GrayscaleRaster> {
+    this.rasters.push({ input: await describe(source), maxDim });
+    if (this.failing) throw new Error('sharp: unsupported image format');
+    return this.raster;
   }
 }
 
@@ -582,6 +790,20 @@ export class InMemoryDocumentChunkRepository extends DocumentChunkRepository {
   chunksOf(documentId: string): NewDocumentChunk[] {
     return this.byDocument.get(documentId) ?? [];
   }
+}
+
+// How many units inside one job run at once (docs/05 §5.4). A plain QueueSettings over an in-memory
+// store: the class is what the pipeline takes, and there is nothing worth faking in it.
+export function queueSettingsFixture(unitConcurrency = 4): QueueSettings {
+  return new QueueSettings(new InMemorySettingsRepository(), {
+    concurrency: {
+      'library-scan': 1,
+      'file-ingest': 1,
+      'document-process': 1,
+      maintenance: 1,
+    },
+    unitConcurrency,
+  });
 }
 
 // Runs the body without a real transaction; the handle is never inspected by the fakes.

@@ -35,15 +35,20 @@ Two distinct storages with opposite rules:
   `@aws-sdk/lib-storage` for the multipart `Upload` helper below), custom
   `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE=true` for MinIO. The bucket is **private**; no public ACLs; no
   bucket policies granting anonymous read.
-- **Key layout (deterministic, no DB columns):**
+- **Key layout.** Document artifacts are deterministic from the document id; a managed file's key is
+  **stored on the file** (`File.storageKey`, 03 §3.3.16) rather than derived, so a key written by an
+  older version keeps resolving after the layout changes and no object ever has to be moved:
 
 ```
-documents/{documentId}/canonical.pdf   # canonicalized PDF (office → PDF); absent when source is PDF/text/image
-documents/{documentId}/preview.jpg     # first page, max dimension 1600 px, quality 80
-documents/{documentId}/thumb.jpg       # first page, max dimension 400 px, quality 75
-documents/{documentId}/source.{ext}    # DERIVED and UPLOAD: the document's own bytes — a merged scan-set PDF, or the file a user sent
+documents/{documentId}/canonical.pdf   # always — every document is a PDF (05 §5.5)
+documents/{documentId}/preview.jpg     # first page of the canonical
+documents/{documentId}/thumb.jpg       # the same, smaller, for lists
+files/{fileId}/original.{ext}          # a managed file's own bytes: an upload, or something we made
 ```
 
+- A `LIBRARY` file has no object at all: its bytes stay on the volume and are streamed from there.
+  The canonical PDF is the one copy Legere keeps of a library document's content, which is why the
+  document keeps reading after the volume is unplugged (05 §5.7).
 - Existence of an object ≡ the corresponding step status is `DONE` — the DB status is authoritative;
   the `maintenance` job may verify consistency but artifacts are always rewritten idempotently
   (`put` overwrites).

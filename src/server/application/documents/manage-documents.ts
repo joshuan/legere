@@ -1,13 +1,22 @@
 import type {
   DocumentDetailDto,
   DocumentEventPage,
+  DocumentFileDto,
   DocumentYearsResponse,
   DocumentListDto,
   ListDocumentsQuery,
   ListDocumentsResponse,
   UpdateDocumentRequest,
 } from '../../../shared/contracts/documents';
-import { canEditDocumentMeta, isProcessing, type Document } from '../../domain/entities/document';
+import type { FileOrigin } from '../../../shared/contracts/enums';
+import {
+  availabilityOf,
+  canEditDocumentMeta,
+  isProcessing,
+  originOf,
+  type Document,
+} from '../../domain/entities/document';
+import { isImageFile } from '../../domain/entities/file';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { PersonRepository } from '../../domain/repositories/person.repository';
 import type { SubjectRepository } from '../../domain/repositories/subject.repository';
@@ -15,6 +24,7 @@ import { ForbiddenError, NotFoundError } from '../../domain/errors/domain-error'
 import type { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import type {
   DocumentDetail,
+  DocumentFileView,
   DocumentListItem,
   DocumentRepository,
   UpdateDocumentMetaInput,
@@ -91,7 +101,9 @@ export class UpdateDocumentMeta {
     detail: DocumentDetail,
     input: UpdateDocumentRequest,
   ): Promise<DocumentDetailDto> {
-    if (!canEditDocumentMeta(viewer, detail.document)) {
+    // A document is a library document by holding a library file, so the rule asks the derived
+    // origin rather than a column (docs/03 §3.4).
+    if (!canEditDocumentMeta(viewer, detail.document, originOfDetail(detail))) {
       throw new ForbiddenError('You may not edit this document');
     }
 
@@ -214,29 +226,71 @@ export class DeleteDocument {
   }
 }
 
+// A document is a list of files now, and the list DTO says how many and what they weigh together
+// rather than describing the one file it used to be (docs/07 §7.3).
 export function toListDto(item: DocumentListItem): DocumentListDto {
   const { document } = item;
   return {
     id: document.id,
     title: document.title,
-    ext: document.ext,
-    mimeType: document.mimeType,
-    sizeBytes: document.sizeBytes.toString(),
+    fileCount: item.fileCount,
+    primaryExt: item.primaryExt,
+    sizeBytes: item.sizeBytes.toString(),
     pageCount: document.pageCount,
     documentType: item.documentType,
     availability: item.availability,
     processing: isProcessing(document.steps),
-    source: document.source,
+    origin: item.origin,
     hasPreview: document.steps.preview === 'DONE',
     createdAt: document.createdAt.toISOString(),
   };
 }
 
-function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
+// One file of a document, in page order (docs/07 §7.3). `refs` are already filtered to the libraries
+// the caller may see, so a file with three homes may show one.
+export function toFileDto(file: DocumentFileView): DocumentFileDto {
+  return {
+    id: file.id,
+    position: file.position,
+    name: file.name,
+    mimeType: file.mimeType,
+    ext: file.ext,
+    sizeBytes: file.sizeBytes.toString(),
+    origin: file.origin,
+    available: file.available,
+    isImage: isImageFile(file),
+    crop: file.crop,
+    cropSource: file.cropSource,
+    refs: file.refs,
+  };
+}
+
+// What a list row says about a document, worked out from the files it holds: how many there are,
+// what they weigh, whether any of them lies on a volume and whether they can be read right now
+// (docs/03 §3.3.10). None of it is stored, so none of it can drift from the composition.
+export function listItemOf(detail: DocumentDetail): DocumentListItem {
+  const { files } = detail;
+  return {
+    document: detail.document,
+    documentType: detail.documentType,
+    fileCount: files.length,
+    primaryExt: files[0]?.ext ?? '',
+    sizeBytes: files.reduce((total, file) => total + file.sizeBytes, 0n),
+    origin: originOf(files.map((file) => file.origin)),
+    availability: availabilityOf(files.map((file) => file.available)),
+  };
+}
+
+// A document is a library document by holding a library file, and it is asked of the files rather
+// than of a column (docs/03 §3.3.10). The access rule needs this and nothing else about them.
+export function originOfDetail(detail: DocumentDetail): FileOrigin {
+  return originOf(detail.files.map((file) => file.origin));
+}
+
+export function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
   const { document } = detail;
   return {
-    ...toListDto(detail),
-    contentHash: document.contentHash,
+    ...toListDto(listItemOf(detail)),
     ocrUsed: document.ocrUsed,
     description: document.description,
     titleSource: document.titleSource,
@@ -252,9 +306,8 @@ function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     city: document.city,
     processingError: document.processingError,
     failedStep: document.failedStep,
-    fileRefs: detail.fileRefs,
+    files: detail.files.map(toFileDto),
     createdBy: detail.createdBy,
-    scanSetId: document.scanSetId,
   };
 }
 

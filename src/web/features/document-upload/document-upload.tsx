@@ -6,7 +6,7 @@ import { App, Button, Card, Space, Tag, Tooltip, Typography, Upload, theme } fro
 import type { RcFile } from 'antd/es/upload';
 import { useTranslations } from 'next-intl';
 import { useCallback, useRef, useState, type ReactNode } from 'react';
-import { documentApi } from '../../entities/document';
+import { documentApi, documentKeys } from '../../entities/document';
 import { useErrorMessage } from '../../shared/lib';
 
 // One file on its way to the server (docs/11 §11.3). It exists on the screen before a byte is sent,
@@ -23,7 +23,10 @@ export type QueuedUpload = {
 // the order they were chosen. Forty parallel uploads would saturate the connection, arrive
 // interleaved, and make the pipeline queue jump about; one at a time is slower to finish and far
 // easier to watch. Choosing more files appends to the same queue rather than starting a second one.
-export function useDocumentUpload() {
+//
+// With a `documentId` the same queue points at that document instead of the instance: the files are
+// appended to it, in the order chosen, and the document rebuilds behind them (docs/11 §11.5a).
+export function useDocumentUpload(documentId?: string) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
@@ -53,19 +56,16 @@ export function useDocumentUpload() {
         );
 
         try {
-          const result = await documentApi.upload(next.file);
+          const outcome = await sendOne(next.file, documentId);
           // The list is refreshed before the placeholder goes, so the card is replaced rather than
           // blinking out and back in. Every filter combination shows a different slice and a new
           // document may belong to any of them, hence the shared prefix.
           await queryClient.invalidateQueries({ queryKey: ['documents'] });
+          if (documentId !== undefined) {
+            await queryClient.invalidateQueries({ queryKey: documentKeys.detail(documentId) });
+          }
           update((current) => current.filter((item) => item.key !== next.key));
-          void message.success(
-            result.created
-              ? t('documents.upload.done', { name: next.file.name })
-              : // Deduplication doing its job is not an error (ADR-009).
-                t('documents.upload.duplicate', { name: next.file.name }),
-            3,
-          );
+          void message.success(t(`documents.upload.${outcome}`, { name: next.file.name }), 3);
         } catch (error: unknown) {
           // The card stays, wearing its own error; the queue carries on. One rejected file must not
           // take the other thirty-nine with it.
@@ -81,7 +81,7 @@ export function useDocumentUpload() {
     } finally {
       running.current = false;
     }
-  }, [describeError, message, queryClient, t, update]);
+  }, [describeError, documentId, message, queryClient, t, update]);
 
   const send = useCallback(
     (file: File) => {
@@ -101,6 +101,20 @@ export function useDocumentUpload() {
   );
 
   return { send, dismiss, items, busy: items.some((item) => item.status !== 'failed') };
+}
+
+// Which of the three things happened, named as the message key that says so. Deduplication doing its
+// job is one of them, not an error (ADR-009).
+async function sendOne(
+  file: File,
+  documentId: string | undefined,
+): Promise<'done' | 'duplicate' | 'added'> {
+  if (documentId !== undefined) {
+    await documentApi.addFile(documentId, file);
+    return 'added';
+  }
+  const result = await documentApi.upload(file);
+  return result.created ? 'done' : 'duplicate';
 }
 
 // A file that is not a document yet: the same shape as the card it is about to become, so the grid
@@ -171,7 +185,52 @@ export function UploadingCard({
   );
 }
 
-export function UploadButton({ onFiles }: { onFiles: (file: File) => void }) {
+// The same file on its way into a document that already exists (docs/11 §11.5a): a row rather than a
+// card, because the Files section is a list and a placeholder should look like what it will become.
+export function UploadingRow({
+  upload,
+  onDismiss,
+}: {
+  upload: QueuedUpload;
+  onDismiss: () => void;
+}) {
+  const t = useTranslations();
+  const failed = upload.status === 'failed';
+
+  return (
+    <Space size={8} wrap>
+      {failed ? <InboxOutlined aria-hidden /> : <LoadingOutlined aria-hidden />}
+      <Typography.Text>{upload.file.name}</Typography.Text>
+      {failed ? (
+        <>
+          <Tag color="red">{t('documents.upload.failed')}</Tag>
+          {upload.error !== undefined && (
+            <Typography.Text type="danger" style={{ fontSize: 12 }}>
+              {upload.error}
+            </Typography.Text>
+          )}
+          <Button size="small" type="link" onClick={onDismiss} style={{ padding: 0 }}>
+            {t('documents.upload.dismiss')}
+          </Button>
+        </>
+      ) : (
+        <Tag color={upload.status === 'uploading' ? 'processing' : 'default'}>
+          {upload.status === 'uploading'
+            ? t('documents.upload.uploading')
+            : t('documents.upload.waiting')}
+        </Tag>
+      )}
+    </Space>
+  );
+}
+
+export function UploadButton({
+  onFiles,
+  label,
+}: {
+  onFiles: (file: File) => void;
+  label?: string;
+}) {
   const t = useTranslations();
 
   return (
@@ -185,7 +244,7 @@ export function UploadButton({ onFiles }: { onFiles: (file: File) => void }) {
         return Upload.LIST_IGNORE;
       }}
     >
-      <Button icon={<UploadOutlined />}>{t('documents.upload.action')}</Button>
+      <Button icon={<UploadOutlined />}>{label ?? t('documents.upload.action')}</Button>
     </Upload>
   );
 }

@@ -88,3 +88,37 @@ function splitByScript(text: string): Map<'Cyrl' | 'Latn', string> {
 
   return new Map([...parts].map(([script, words]) => [script, words.join(' ')] as const));
 }
+
+// BCP-47 as the product stores it → the codes tesseract knows. Serbian is the case that needs the
+// script: `srp` is Cyrillic, `srp_latn` is not, and giving the wrong one costs every diacritic.
+const TESSERACT_CODES: Readonly<Record<string, string>> = {
+  ru: 'rus',
+  en: 'eng',
+  uk: 'ukr',
+  bg: 'bul',
+  de: 'deu',
+  fr: 'fra',
+  es: 'spa',
+  it: 'ita',
+  pl: 'pol',
+  tr: 'tur',
+  'sr-Cyrl': 'srp',
+  'sr-Latn': 'srp_latn',
+  sr: 'srp',
+  hr: 'srp_latn',
+  bs: 'srp_latn',
+};
+
+// Which languages an OCR pass is given: the document's own once they are known, the instance
+// default before that. A wrong set costs accuracy — `EUR` read with Cyrillic in the set comes back
+// as `ЕОВ` — so a narrow set beats a broad one (docs/03 §3.3.10).
+export function ocrLanguagesOf(
+  documentLanguages: readonly string[],
+  fallback: readonly string[],
+): string[] {
+  const own = documentLanguages.flatMap((language) => {
+    const code = TESSERACT_CODES[language];
+    return code === undefined ? [] : [code];
+  });
+  return own.length > 0 ? own : [...fallback];
+}

@@ -7,6 +7,7 @@ import {
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
+import { seedDocument } from '../helpers/documents';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
@@ -198,18 +199,9 @@ describe('DocumentTypes (e2e)', () => {
     source: 'AUTO' | 'MANUAL' = 'AUTO',
   ): Promise<string> {
     contentSeq += 1;
-    const document = await testPrisma().document.create({
-      data: {
-        contentHash: `${contentSeq}`.padStart(64, 'f'),
-        source: 'LIBRARY',
-        mimeType: 'application/pdf',
-        ext: 'pdf',
-        sizeBytes: 10n,
-        title: `Doc ${contentSeq}`,
-        typeId,
-        typeSource: source,
-      },
+    const seeded = await seedDocument({
+      document: { title: `Doc ${contentSeq}`, typeId, typeSource: source },
     });
-    return document.id;
+    return seeded.id;
   }
 });

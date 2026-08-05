@@ -1,7 +1,7 @@
 import type { AutoValues, Availability, DocumentStep } from '../../../shared/contracts/documents';
 import type {
   ValueSource,
-  DocumentSource,
+  FileOrigin,
   FileRefStatus,
   StepSkipReason,
   StepStatus,
@@ -9,23 +9,13 @@ import type {
 } from '../../../shared/contracts/enums';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Document, DocumentSteps } from '../entities/document';
+import type { DocumentFile } from './file.repository';
 
+// A document is created empty and given its files afterwards (docs/03 §3.3.17): what the bytes are
+// is a property of a file now, and deduplication happens one level down (ADR-021).
 export type CreateDocumentInput = {
-  contentHash: string;
-  source: DocumentSource;
-  mimeType: string;
-  ext: string;
-  sizeBytes: bigint;
   title: string;
   createdById?: string | null;
-  scanSetId?: string | null;
-};
-
-// `created` tells the caller whether it owns the document's processing: only the ingest that actually
-// created it starts the pipeline (docs/05 §5.3 — dedup must not re-run processing).
-export type DocumentUpsert = {
-  document: Document;
-  created: boolean;
 };
 
 // What the pipeline writes back as it goes (docs/05 §5.5). Every field is optional: a step records
@@ -73,10 +63,17 @@ export type DocumentCategory = {
   name: string;
 };
 
-// A document plus what the list DTO needs and the row itself does not carry (docs/07 §7.3).
+// A document plus what the list DTO needs and the row itself does not carry (docs/07 §7.3): all of
+// it derived from the files the document holds, none of it stored (docs/03 §3.3.10).
 export type DocumentListItem = {
   document: Document;
   documentType: DocumentCategory | null;
+  fileCount: number;
+  // The extension of the first file — what the card puts on its badge. Empty when it has none.
+  primaryExt: string;
+  // What the files weigh together.
+  sizeBytes: bigint;
+  origin: FileOrigin;
   availability: Availability;
 };
 
@@ -87,13 +84,25 @@ export type DocumentFileRefView = {
   status: FileRefStatus;
 };
 
-export type DocumentDetail = DocumentListItem & {
+// One file of a document, in its place, with where its bytes can be found (docs/07 §7.3).
+export type DocumentFileView = DocumentFile & {
+  // Whether these bytes can be read right now — false for a library file whose volume lost it.
+  available: boolean;
+  // 🔒 Only refs in libraries the viewer may see; an admin sees them all. Always empty for a
+  // managed file, whose bytes are in the bucket rather than on a volume.
+  refs: DocumentFileRefView[];
+};
+
+export type DocumentDetail = {
+  document: Document;
+  documentType: DocumentCategory | null;
   // Who the document is about (docs/03 §3.3.19).
   people: Array<{ id: string; name: string }>;
   // And what it is about (docs/03 §3.3.20).
   subjects: Array<{ id: string; kind: string; name: string }>;
-  // Only refs in libraries the viewer may see; an admin sees them all (docs/07 §7.3).
-  fileRefs: DocumentFileRefView[];
+  // What it is made of, by position (docs/03 §3.3.17). Everything a list row derives — the count,
+  // the first extension, the weight, the origin, the availability — is derivable from this.
+  files: DocumentFileView[];
   createdBy: { id: string; displayName: string } | null;
 };
 
@@ -104,7 +113,8 @@ export type ListDocumentsInput = {
   typeId?: string | undefined;
   availability?: Availability | undefined;
   processing?: boolean | undefined;
-  source?: DocumentSource | undefined;
+  // LIBRARY selects documents holding at least one file on a volume, MANAGED the rest (docs/07 §7.3).
+  origin?: FileOrigin | undefined;
   personId?: string | undefined;
   subjectId?: string | undefined;
   year?: number | undefined;
@@ -143,6 +153,11 @@ export type SearchFilters = {
 
 export abstract class DocumentRepository {
   abstract findById(id: string, tx?: TransactionHandle): Promise<Document | null>;
+
+  // A document with nothing in it yet: the files are attached afterwards, in order (docs/03 §3.3.17).
+  // There is no upsert-by-content here any more — the same bytes arriving twice are one *file*, and
+  // whether that file already has a document is what the ingest asks next (docs/05 §5.3).
+  abstract create(input: CreateDocumentInput, tx?: TransactionHandle): Promise<Document>;
 
   // Records the outcome of a pipeline step. Not part of a transaction with the artifact write: S3 has
   // none, and the DB status is what is authoritative either way (docs/09 §9.2).
@@ -200,8 +215,8 @@ export abstract class DocumentRepository {
   ): Promise<SearchMatch[]>;
 
   // The items of a collection this viewer may read (docs/03 §3.3.14): the same access rule as
-  // everywhere else, which is what makes a shared DERIVED document readable and a LIBRARY document
-  // not.
+  // everywhere else, which is what makes a shared document readable to somebody who can see none of
+  // the libraries it might sit in.
   abstract listInCollection(
     collectionId: string,
     viewer: Viewer,
@@ -228,17 +243,4 @@ export abstract class DocumentRepository {
   // are deliberately retained (docs/09 §9.2). Maintenance uses it to tell an orphaned S3 object
   // from one that still belongs to a document.
   abstract filterExistingIds(ids: string[], tx?: TransactionHandle): Promise<string[]>;
-
-  abstract findActiveByContentHash(
-    contentHash: string,
-    tx?: TransactionHandle,
-  ): Promise<Document | null>;
-
-  // The deduplication primitive (ADR-009): returns the existing active document for this content, or
-  // creates one. Two ingests racing on identical content both end up attached to the same document —
-  // documents_content_hash_active_uq (docs/04 §4.3) decides which of them created it.
-  abstract findOrCreateByContentHash(
-    input: CreateDocumentInput,
-    tx?: TransactionHandle,
-  ): Promise<DocumentUpsert>;
 }

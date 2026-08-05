@@ -27,14 +27,14 @@ function documentAt(index: number, overrides: Partial<DocumentListDto> = {}): Do
   return {
     id: `aaaaaaaa-1111-4111-8111-00000000000${index}`,
     title: `Document ${index}`,
-    ext: 'pdf',
-    mimeType: 'application/pdf',
+    fileCount: 1,
+    primaryExt: 'pdf',
     sizeBytes: '2048',
     pageCount: 1,
     documentType: null,
     availability: 'AVAILABLE',
     processing: false,
-    source: 'LIBRARY',
+    origin: 'LIBRARY',
     hasPreview: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -49,6 +49,10 @@ beforeEach(() => {
   server.use(
     http.get('/api/documents', () =>
       HttpResponse.json(envelope({ items: [documentAt(1), documentAt(2)], nextCursor: null })),
+    ),
+    // Computed on every visit and never stored (docs/05 §5.6a); most instances have nothing to say.
+    http.get('/api/documents/grouping-suggestions', () =>
+      HttpResponse.json(envelope({ items: [] })),
     ),
     http.get('/api/libraries', () =>
       HttpResponse.json(
@@ -87,7 +91,7 @@ describe('DocumentsScreen', () => {
   });
 
   it('reads the filters out of the URL and sends them to the API', async () => {
-    currentSearch = 'source=DERIVED&processing=true';
+    currentSearch = 'origin=MANAGED&processing=true';
     const seen: string[] = [];
     server.use(
       http.get('/api/documents', ({ request }) => {
@@ -99,8 +103,20 @@ describe('DocumentsScreen', () => {
     renderWithProviders(<DocumentsScreen />);
     await screen.findByText('Document 1');
 
-    expect(seen[0]).toContain('source=DERIVED');
+    expect(seen[0]).toContain('origin=MANAGED');
     expect(seen[0]).toContain('processing=true');
+  });
+
+  it('writes the origin filter back into the URL', async () => {
+    renderWithProviders(<DocumentsScreen />);
+    await screen.findByText('Document 1');
+
+    await userEvent.click(
+      screen.getByRole('combobox', { name: enMessages.documents.filters.origin }),
+    );
+    await userEvent.click(await screen.findByTitle(enMessages.documents.filters.originManaged));
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents?origin=MANAGED'));
   });
 
   it('writes a chosen filter back into the URL, so the view can be linked', async () => {
@@ -312,37 +328,15 @@ describe('DocumentsScreen', () => {
     await waitFor(() => expect(screen.queryByText('Good.pdf')).toBeNull());
   });
 
-  describe('building a scan set from the grid (docs/11 §11.8)', () => {
-    it('creates a set from the selected images, in selection order', async () => {
-      let created: unknown = null;
+  describe('combining documents from the grid (docs/11 §11.3)', () => {
+    it('moves the files into the first-picked document, in the order they were ticked', async () => {
+      let combined: unknown = null;
+      let target = '';
       server.use(
-        http.get('/api/documents', () =>
-          HttpResponse.json(
-            envelope({
-              items: [
-                documentAt(1, { mimeType: 'image/jpeg', title: 'Scan A' }),
-                documentAt(2, { mimeType: 'image/jpeg', title: 'Scan B' }),
-              ],
-              nextCursor: null,
-            }),
-          ),
-        ),
-        http.post('/api/scan-sets', async ({ request }) => {
-          created = await request.json();
-          return HttpResponse.json(
-            envelope({
-              id: 'ffffffff-6666-4666-8666-666666666666',
-              name: 'New scan set',
-              status: 'DRAFT',
-              cropMode: 'TRIM',
-              itemCount: 2,
-              resultDocumentId: null,
-              error: null,
-              createdAt: '2026-01-01T00:00:00.000Z',
-              items: [],
-            }),
-            { status: 201 },
-          );
+        http.post('/api/documents/:id/combine', async ({ params, request }) => {
+          target = String(params.id);
+          combined = await request.json();
+          return HttpResponse.json(envelope({ ...detailOf(2), fileCount: 3 }));
         }),
       );
 
@@ -350,45 +344,142 @@ describe('DocumentsScreen', () => {
       await userEvent.click(
         await screen.findByRole('button', { name: enMessages.documents.selection.start }),
       );
-      await userEvent.click(screen.getByRole('checkbox', { name: 'Scan B' }));
-      await userEvent.click(screen.getByRole('checkbox', { name: 'Scan A' }));
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Document 2' }));
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Document 1' }));
       await userEvent.click(
-        screen.getByRole('button', { name: enMessages.documents.selection.create }),
+        screen.getByRole('button', { name: enMessages.documents.selection.combine }),
       );
 
-      // Selection order is page order; the builder is where it gets rearranged.
-      await waitFor(() =>
-        expect(created).toMatchObject({
-          items: [documentAt(2).id, documentAt(1).id],
-          cropMode: 'TRIM',
-        }),
-      );
-      expect(push).toHaveBeenCalledWith('/scan-sets/ffffffff-6666-4666-8666-666666666666');
+      // The first one ticked keeps its identity; the rest are appended to it in that order.
+      await waitFor(() => expect(target).toBe(documentAt(2).id));
+      expect(combined).toEqual({ documentIds: [documentAt(1).id] });
+      // The result is rebuilding, and the viewer is where that is watched.
+      expect(push).toHaveBeenCalledWith(`/documents/${documentAt(2).id}`);
     });
 
-    it('cannot select a document that is not an image', async () => {
-      server.use(
-        http.get('/api/documents', () =>
-          HttpResponse.json(
-            envelope({
-              items: [
-                documentAt(1, { mimeType: 'application/pdf', title: 'A PDF' }),
-                documentAt(2, { mimeType: 'image/jpeg', title: 'Scan B' }),
-              ],
-              nextCursor: null,
-            }),
-          ),
-        ),
-      );
-
+    it('will not combine one document with nothing', async () => {
       renderWithProviders(<DocumentsScreen />);
       await userEvent.click(
         await screen.findByRole('button', { name: enMessages.documents.selection.start }),
       );
 
-      // Only images can be pages (docs/03 §3.3.17), so the checkbox is simply not offered.
-      expect(screen.getByRole('checkbox', { name: 'A PDF' })).toBeDisabled();
-      expect(screen.getByRole('checkbox', { name: 'Scan B' })).not.toBeDisabled();
+      const combine = screen.getByRole('button', { name: enMessages.documents.selection.combine });
+      expect(combine).toBeDisabled();
+
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Document 1' }));
+      expect(combine).toBeDisabled();
+
+      // Any documents can be combined, not only images (docs/11 §11.3).
+      await userEvent.click(screen.getByRole('checkbox', { name: 'Document 2' }));
+      expect(combine).not.toBeDisabled();
+    });
+  });
+
+  describe('"these look like one document" (docs/11 §11.3)', () => {
+    const group = {
+      documentIds: [documentAt(1).id, documentAt(2).id],
+      libraryId: 'cccccccc-3333-4333-8333-333333333333',
+      libraryName: 'Invoices',
+      folder: 'passports/2026',
+      reason: 'NAME_SEQUENCE',
+    };
+
+    it('offers the group above the grid and combines it on one press', async () => {
+      let target = '';
+      let combined: unknown = null;
+      server.use(
+        http.get('/api/documents/grouping-suggestions', () =>
+          HttpResponse.json(envelope({ items: [group] })),
+        ),
+        http.post('/api/documents/:id/combine', async ({ params, request }) => {
+          target = String(params.id);
+          combined = await request.json();
+          return HttpResponse.json(envelope({ ...detailOf(1), fileCount: 2 }));
+        }),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+
+      expect(
+        await screen.findByText(/2 scans in Invoices\/passports\/2026, one after another/),
+      ).toBeInTheDocument();
+
+      await userEvent.click(
+        screen.getByRole('button', { name: enMessages.documents.suggestions.combine }),
+      );
+
+      await waitFor(() => expect(target).toBe(documentAt(1).id));
+      expect(combined).toEqual({ documentIds: [documentAt(2).id] });
+    });
+
+    it('takes a dismissal on the client, because the server never remembers being refused', async () => {
+      let asked = 0;
+      const dismissable = { ...group, documentIds: [documentAt(3).id, documentAt(4).id] };
+      server.use(
+        http.get('/api/documents/grouping-suggestions', () => {
+          asked += 1;
+          return HttpResponse.json(envelope({ items: [dismissable] }));
+        }),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText(/2 scans in Invoices\/passports\/2026/);
+
+      await userEvent.click(
+        screen.getByRole('button', { name: enMessages.documents.suggestions.dismiss }),
+      );
+
+      expect(screen.queryByText(/2 scans in Invoices/)).toBeNull();
+      // Nothing was told to the server about it — a suggestion is computed, not stored.
+      expect(asked).toBe(1);
+    });
+
+    it('says nothing at all when the grid is being filtered', async () => {
+      currentSearch = 'processing=true';
+      let asked = 0;
+      server.use(
+        http.get('/api/documents/grouping-suggestions', () => {
+          asked += 1;
+          return HttpResponse.json(envelope({ items: [group] }));
+        }),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      // A proposal about the whole shelf makes no sense over a filtered view of it.
+      expect(asked).toBe(0);
+      expect(screen.queryByText(enMessages.documents.suggestions.title)).toBeNull();
     });
   });
 });
+
+// What `POST /combine` answers with: the surviving document, whole (docs/07 §7.3).
+function detailOf(index: number): Record<string, unknown> {
+  return {
+    ...documentAt(index),
+    auto: {},
+    people: [],
+    documentDate: null,
+    subjects: [],
+    ocrUsed: false,
+    description: null,
+    titleSource: 'NONE',
+    typeSource: 'NONE',
+    steps: {
+      canonical: 'PENDING',
+      preview: 'PENDING',
+      markdown: 'PENDING',
+      analysis: 'PENDING',
+      vectorization: 'PENDING',
+    },
+    skipReasons: {},
+    languages: [],
+    country: null,
+    city: null,
+    processingError: null,
+    failedStep: null,
+    files: [],
+    createdBy: null,
+  };
+}

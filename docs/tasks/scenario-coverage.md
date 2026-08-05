@@ -99,15 +99,20 @@ the run below 90% of lines in `src/server/domain` and `src/server/application`, 
 | hybrid = text when no provider | `src/server/application/search/search-documents.test.ts` — answers a hybrid query with text alone |
 | RRF merge ordering deterministic | `src/server/application/search/search-documents.test.ts` — merges the two orderings by rank rather than by score; answers the same order for the same input; `test/e2e/search.e2e.test.ts` — orders the same query the same way every time |
 
-## Scan sets
+## Files and documents
 
 | Scenario | Test |
 |---|---|
-| non-image item rejected | `test/e2e/scan-sets.e2e.test.ts` — refuses a page that is not an image |
-| edit in QUEUED → `SCANSET_INVALID_STATE` | `test/e2e/scan-sets.e2e.test.ts` — queues a merge and refuses to edit the set while it is queued |
-| merge produces DERIVED doc with provenance and enqueues processing | `test/integration/scanset-merge.integration.test.ts` — merges the pages into a derived document owned by the person who built the set |
-| result dedup (identical result reuses document) | `test/integration/scanset-merge.integration.test.ts` — reuses the document when the same set is merged again, without processing it twice; refuses to steal a result that already belongs to another scan set |
-| FAILED retry after edit | `test/integration/scanset-merge.integration.test.ts` — records a failure on the set and leaves it editable; `test/e2e/scan-sets.e2e.test.ts` — lets a failed set be edited and merged again |
+| a canonical PDF is built for every document, whatever it is made of | `test/integration/canonical-build.integration.test.ts` — assembles an image, a PDF and an office file into one canonical PDF |
+| adding, reordering, cropping and splitting each rebuild the document | `test/e2e/document-files.e2e.test.ts` — every composition change enqueues a rebuild |
+| splitting off a file yields a document of its own | `test/e2e/document-files.e2e.test.ts` — the file leaves and becomes its own document |
+| the last file cannot be taken away (`DOCUMENT_LAST_FILE`) | `test/e2e/document-files.e2e.test.ts` — refuses to empty a document |
+| combining moves files in the chosen order and soft-deletes the emptied documents | `test/e2e/document-files.e2e.test.ts` — combines two documents in the order asked for |
+| a file belongs to exactly one document (`FILE_ALREADY_IN_DOCUMENT`) | `test/e2e/document-files.e2e.test.ts` — refuses bytes that already have a home |
+| the crop is a quadrilateral applied as a perspective transform | `src/server/domain/entities/crop-geometry.test.ts` — maps a skewed quad onto a rectangle |
+| corners are detected, and fall back to the content box | `src/server/domain/entities/page-detection.test.ts` — finds a rotated page; answers nothing for a frame with no page in it |
+| a MANUAL crop survives a rebuild | `test/e2e/document-files.e2e.test.ts` — a rebuild does not overwrite a crop somebody dragged |
+| a document with a missing original still serves its canonical | `test/e2e/document-files.e2e.test.ts` — the canonical downloads while the volume is gone |
 
 ## API
 

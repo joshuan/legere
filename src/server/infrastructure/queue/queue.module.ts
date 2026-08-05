@@ -17,7 +17,6 @@ function queueDefaults(config: AppConfig): QueueDefaults {
       'library-scan': 1,
       'file-ingest': config.get('QUEUE_CONCURRENCY_INGEST'),
       'document-process': config.get('QUEUE_CONCURRENCY_PROCESS'),
-      'scanset-merge': 1,
       maintenance: 1,
     },
     unitConcurrency: config.get('QUEUE_UNIT_CONCURRENCY'),

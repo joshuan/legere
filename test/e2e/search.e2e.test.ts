@@ -4,6 +4,7 @@ import { searchResponseSchema } from '../../src/shared/contracts/search';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
+import { seedDocument } from '../helpers/documents';
 import { cookieNamed, expectData } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
@@ -92,34 +93,16 @@ describe('Search (e2e)', () => {
     options: { typeId?: string; chunk?: number[] } = {},
   ): Promise<string> {
     contentSeq += 1;
-    const hash = `${contentSeq}`.padStart(64, '9');
-    const document = await testPrisma().document.create({
-      data: {
-        contentHash: hash,
-        source: 'LIBRARY',
-        mimeType: 'application/pdf',
-        ext: 'pdf',
-        sizeBytes: 100n,
+    const document = await seedDocument({
+      document: {
         title,
         markdown,
         canonicalStatus: 'SKIPPED',
-        previewStatus: 'DONE',
-        markdownStatus: 'DONE',
-        analysisStatus: 'DONE',
         vectorizationStatus: 'DONE',
         ...(options.typeId === undefined ? {} : { typeId: options.typeId }),
       },
-    });
-    await testPrisma().fileRef.create({
-      data: {
-        libraryId,
-        documentId: document.id,
-        path: `${title.toLowerCase().replace(/\s+/g, '-')}.pdf`,
-        size: 100n,
-        mtime: new Date('2026-01-01T00:00:00.000Z'),
-        status: 'HASHED',
-        contentHash: hash,
-      },
+      libraryId,
+      files: [{ path: `${title.toLowerCase().replace(/\s+/g, '-')}.pdf`, sizeBytes: 100n }],
     });
 
     if (options.chunk !== undefined) {

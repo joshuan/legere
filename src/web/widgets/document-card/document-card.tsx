@@ -74,16 +74,26 @@ export function DocumentCard({ document }: { document: DocumentListDto }) {
         </Tooltip>
 
         <Space size={[4, 4]} wrap>
-          {document.ext !== '' && (
+          {document.primaryExt !== '' && (
             <Tag style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.04em' }}>
-              {document.ext.toUpperCase()}
+              {document.primaryExt.toUpperCase()}
             </Tag>
+          )}
+          {/* Only when it is made of more than one: "1 file" is a fact about every document, and a
+              badge that is always there says nothing (docs/11 §11.3). */}
+          {document.fileCount > 1 && (
+            <Tag>{t('documents.badges.files', { count: document.fileCount })}</Tag>
           )}
           {document.documentType !== null && <Tag color="blue">{document.documentType.name}</Tag>}
           {document.processing && (
             <Tag icon={<LoadingOutlined />} color="processing">
               {t('documents.badges.processing')}
             </Tag>
+          )}
+          {/* Some of it can be read and some of it cannot — which is a different thing from a
+              document nobody can open, and it is worth saying which (docs/03 §3.3.10). */}
+          {document.availability === 'PARTIAL' && (
+            <Tag color="warning">{t('documents.badges.partial')}</Tag>
           )}
           {document.availability === 'UNAVAILABLE' && (
             <Tag color="default">{t('documents.badges.unavailable')}</Tag>

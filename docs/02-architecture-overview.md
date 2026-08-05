@@ -243,7 +243,7 @@ The application lives and ships as a whole; isomorphic contracts are a plain fol
 - **Decision:** all operations on binary formats are delegated to the sibling **Stirling-PDF**
   container over an internal HTTP API: office-to-PDF conversion, OCR (tesseract), PDF→JPG (previews),
   merging images into a PDF. Reading a PDF *into text* is no longer one of them — that is ADR-018. In code — a `PdfToolbox` port with a client implementation. (Scan-set
-  margin trimming happens per image via `sharp` before assembly — [`05 §5.6`](./05-library-and-processing.md#56-scan-sets-merging-into-a-pdf-on-explicit-request).)
+  per-file cropping happens via `sharp` before assembly — [`05 §5.6`](./05-library-and-processing.md#56-composing-a-document-out-of-files).)
 - **Why:** the requirement ("the PDF tool lives outside"); LibreOffice/tesseract inside the app image
   would bloat it by gigabytes.
 - **Alternatives:** built-in conversion libraries — rejected; narrow Node libraries (PDF text-layer
@@ -277,6 +277,26 @@ The application lives and ships as a whole; isomorphic contracts are a plain fol
   on the Docling path Docling does it, given the document's own languages
   ([`03 §3.3.10`](./03-domain-model.md)). Picture captioning is available and off — see
   [`12 §12.4`](./12-build-config-run.md) for the measured cost.
+
+### ADR-021. A file is not a document
+
+**Context.** Until v0.4 a document *was* a file: one content hash, one mime type, one size, one set
+of bytes. Everything that did not fit — forty photographs of one passport — was pushed into a
+separate concept (scan sets) that produced a second document out of the first forty, and the
+canonical PDF existed only for office formats, because only they needed converting.
+
+**Decision.** Split the two. A **file** is bytes with a hash, a name and one home. A **document** is
+an ordered list of files plus one **canonical PDF built from them, for every document, always**. The
+viewer shows the canonical, Download hands over the canonical, every pipeline step reads the
+canonical; the originals stay untouched and downloadable one at a time. Composition is editable —
+add, combine, split, reorder, crop — and every change rebuilds the canonical.
+
+**Consequences.** Deduplication moves from documents to files (ADR-009 still holds, one level down).
+Scan sets disappear: "these are one document" is now a property of a document rather than a machine
+for making a new one. Every document gains a text layer and a uniform preview, including images and
+plain text, which is what makes search and OCR one code path instead of four. The price is that a
+composition change re-runs the whole pipeline for that document — paid in the background, and the
+old artifacts keep serving until the new ones land.
 
 ### ADR-013. CI — a single Docker image to GHCR; deployment outside the repository
 - **Decision:** GitHub Actions: on every PR — `typecheck` + `lint` + `test` + `build` (with a

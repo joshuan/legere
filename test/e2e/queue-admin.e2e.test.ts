@@ -11,6 +11,7 @@ import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { HandleMaintenance } from '../../src/server/application/jobs/handle-maintenance';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
+import { seedDocument } from '../helpers/documents';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
@@ -76,25 +77,18 @@ describe('Reprocess and queue administration (e2e)', () => {
 
   // A processed document: every step finished, so a reprocess has something to reset.
   async function givenProcessedDocument(): Promise<string> {
-    const document = await testPrisma().document.create({
-      data: {
-        contentHash: `${seq}`.padStart(64, 'a'),
-        source: 'LIBRARY',
-        mimeType: 'application/pdf',
-        ext: 'pdf',
-        sizeBytes: 100n,
+    const seeded = await seedDocument({
+      document: {
         title: 'Invoice',
         markdown: 'Amount due',
         canonicalStatus: 'SKIPPED',
-        previewStatus: 'DONE',
-        markdownStatus: 'DONE',
-        analysisStatus: 'DONE',
         vectorizationStatus: 'DONE',
         processingError: 'preview failed once',
         failedStep: 'preview',
       },
+      files: [{ sizeBytes: 100n }],
     });
-    return document.id;
+    return seeded.id;
   }
 
   const processJobs = (): Promise<{ data: { documentId: string; steps?: string[] } }[]> =>
@@ -196,7 +190,6 @@ describe('Reprocess and queue administration (e2e)', () => {
         'library-scan',
         'file-ingest',
         'document-process',
-        'scanset-merge',
         'maintenance',
       ]);
       expect(overview.documents.total).toBe(1);
@@ -216,28 +209,25 @@ describe('Reprocess and queue administration (e2e)', () => {
     it('counts every step of every document, matching what the database holds', async () => {
       await givenProcessedDocument();
       // A second document mid-pipeline: preview done, the rest still to come.
-      await testPrisma().document.create({
-        data: {
-          contentHash: `${seq}`.padStart(64, 'b'),
-          source: 'LIBRARY',
-          mimeType: 'application/pdf',
-          ext: 'pdf',
-          sizeBytes: 10n,
+      await seedDocument({
+        document: {
           title: 'Half-way',
+          canonicalStatus: 'PENDING',
           previewStatus: 'DONE',
           markdownStatus: 'FAILED',
+          analysisStatus: 'PENDING',
+          vectorizationStatus: 'PENDING',
         },
       });
       // A soft-deleted one, which the counters must not include.
-      await testPrisma().document.create({
-        data: {
-          contentHash: `${seq}`.padStart(64, 'c'),
-          source: 'LIBRARY',
-          mimeType: 'application/pdf',
-          ext: 'pdf',
-          sizeBytes: 10n,
+      await seedDocument({
+        document: {
           title: 'Deleted',
+          canonicalStatus: 'PENDING',
           previewStatus: 'DONE',
+          markdownStatus: 'PENDING',
+          analysisStatus: 'PENDING',
+          vectorizationStatus: 'PENDING',
           deletedAt: new Date(),
         },
       });
@@ -376,7 +366,8 @@ describe('Reprocess and queue administration (e2e)', () => {
     // Every queue comes back, not only the two that were sent: the form shows them all.
     const settings = expectData(saved, queueSettingsSchema);
     expect(settings.concurrency['file-ingest']).toBe(8);
-    expect(settings.concurrency['scanset-merge']).toBe(1);
+    // Every queue comes back with its env default, even the ones nobody touched.
+    expect(settings.concurrency['library-scan']).toBe(1);
     expect(settings.unitConcurrency).toBe(4);
 
     // 🔒 It survives a read, which is what "survives a restart" means for a stored setting.

@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**v0.1.0 — the backlog M0–M9 is implemented**: `docs/tasks/backlog.md` is fully ticked, and every
-mandatory scenario of `docs/14 §14.8` is mapped to a test in `docs/tasks/scenario-coverage.md`. The
-specification (documents 01–14 in `docs/`) remains the source of truth; new work continues the same
-way — take the first unchecked task, one task per PR, tick it off in the same PR.
+**The backlog M0–M13 is implemented**: `docs/tasks/backlog.md` is fully ticked, and every mandatory
+scenario of `docs/14 §14.8` is mapped to a test in `docs/tasks/scenario-coverage.md`. The
+specification (documents 01–14 in `docs/`) remains the source of truth; new work
+continues the same way — take the first unchecked task, tick it off in the same commit.
 
 ## Commands
 
@@ -60,10 +60,12 @@ MinIO- and Stirling-backed integration suites skip themselves when those contain
 ## Key architecture (summary)
 
 Legere is a self-hosted document management system (the Immich external-library model): a read-only
-file storage is attached to the server; Legere scans it, deduplicates by SHA-256, processes documents
-through a pg-boss queue (canonicalization to PDF → JPG preview → Markdown with OCR → categorization →
-vectorization into pgvector), and provides a viewer, hybrid search (FTS + vectors), sharing, and an
-admin panel. Heavy PDF operations (conversion, OCR, scan-set merging) run in an external
+file storage is attached to the server; Legere scans it, deduplicates **files** by SHA-256, and
+composes them into **documents** — a document is an ordered list of files plus one canonical PDF
+built from them (`02` ADR-021). Each document runs through a pg-boss queue (canonical PDF → JPG
+preview → Markdown with OCR → analysis → vectorization into pgvector), and the product provides a
+viewer, hybrid search (FTS + vectors), sharing, and an admin panel. Heavy PDF operations (conversion,
+OCR, page merging) run in an external
 **Stirling-PDF** container. Derived artifacts live in a private **S3 bucket** (served via
 short-lived signed URLs); the server stores no files locally. Details — `docs/01`, `docs/02`,
 `docs/05`.

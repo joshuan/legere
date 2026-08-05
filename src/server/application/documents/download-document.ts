@@ -1,23 +1,21 @@
 import type { Readable } from 'node:stream';
 import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
 import type { DocumentDetail } from '../../domain/repositories/document.repository';
-import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
-import type { LibraryRepository } from '../../domain/repositories/library.repository';
-import { RelativePath } from '../../domain/value-objects/relative-path';
-import type { Clock } from '../ports/clock';
 import type { FileStorage } from '../ports/file-storage';
-import type { LibraryReader } from '../ports/library-reader';
-import { artifactKeys } from '../storage/artifact-keys';
+import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
+import { fileOf } from './compose-document';
+import type { DocumentFileBytes } from './document-file-bytes';
 
-// Bytes reach a client one of two ways (docs/09 §9.1–9.2): a library file is streamed through the
-// app, and anything Legere derived is handed over as a short-lived signed URL. There are no direct
-// links to either.
+// Bytes reach a client one of two ways (docs/09 §9.1–9.2): what sits on the read-only volume is
+// streamed through the app, and anything Legere keeps in its own bucket is handed over as a
+// short-lived signed URL. There are no direct links to either.
 export type Download =
   | {
       kind: 'stream';
       body: Readable;
       contentType: string;
-      contentLength: bigint;
+      // Absent when nothing knows it without asking the bucket; the client then reads to the end.
+      contentLength?: bigint;
       fileName: string;
     }
   | { kind: 'redirect'; url: string };
@@ -27,115 +25,100 @@ export type DownloadSettings = {
 };
 
 // Which derived artifact a route is after (docs/09 §9.2).
-export type ArtifactKind = 'preview' | 'thumb' | 'canonical';
+export type ArtifactKind = 'preview' | 'thumb';
 
-export class DownloadDocumentSource {
+// GET /api/documents/:id/canonical (docs/07 §7.3). This **is** the document as far as reading and
+// downloading go (docs/05 §5.5): one PDF in page order, whatever the originals were and whether or
+// not the volume that held them is still plugged in.
+export class DownloadDocumentCanonical {
   constructor(
-    private readonly libraries: LibraryRepository,
-    private readonly fileRefs: FileRefRepository,
-    private readonly reader: LibraryReader,
     private readonly files: FileStorage,
-    private readonly clock: Clock,
     private readonly settings: DownloadSettings,
   ) {}
 
-  async execute(detail: DocumentDetail): Promise<Download> {
+  async execute(detail: DocumentDetail, download: boolean): Promise<Download> {
     const { document } = detail;
+    if (document.steps.canonical !== 'DONE') {
+      // Honest rather than a redirect to a URL that 404s from the bucket: the PDF is being
+      // assembled, and the originals are one level down in the meantime (docs/11 §11.5b).
+      throw new ConflictError('CANONICAL_NOT_READY', 'The canonical PDF has not been built yet');
+    }
 
-    if (document.source !== 'LIBRARY') {
-      // The bytes are ours: a merged scan set, or a file somebody uploaded (docs/09 §9.2).
+    const key = artifactKeys.canonicalPdf(document.id);
+    if (!download) {
+      // Viewed rather than saved: this is what the `<embed>` on the page points at, and a signed URL
+      // serves the range requests a PDF viewer makes without going through us (docs/09 §9.2).
       return {
         kind: 'redirect',
-        url: await this.files.getSignedUrl(
-          artifactKeys.source(document.id, document.ext),
-          this.settings.signedUrlTtlSec,
-        ),
+        url: await this.files.getSignedUrl(key, this.settings.signedUrlTtlSec),
       };
     }
 
-    // The first live file, among the ones this caller may see — the detail's refs are already
-    // filtered to visible libraries (docs/09 §9.1).
-    const ref = detail.fileRefs.find((candidate) => candidate.status === 'HASHED');
-    if (ref === undefined) {
-      throw new ConflictError('DOCUMENT_UNAVAILABLE', 'No file of this document is available');
-    }
-
-    const library = await this.libraries.findById(ref.libraryId);
-    if (library === null || library.deletedAt !== null) {
-      throw new ConflictError('DOCUMENT_UNAVAILABLE', 'No file of this document is available');
-    }
-
-    const path = RelativePath.tryParse(ref.path);
-    if (path === null) {
-      throw new ConflictError('DOCUMENT_UNAVAILABLE', 'No file of this document is available');
-    }
-
-    const body = await this.reader
-      .openStream({ rootPath: library.rootPath, excludeGlobs: library.excludeGlobs }, path)
-      .catch(async (error: unknown) => {
-        // The file went away between the scan and this request. Recording it keeps the next listing
-        // honest instead of offering a download that fails again (docs/09 §9.1).
-        await this.markMissing(ref.libraryId, ref.path);
-        throw new ConflictError(
-          'DOCUMENT_UNAVAILABLE',
-          `The file is no longer on the volume: ${error instanceof Error ? error.message : ''}`,
-        );
-      });
-
+    // Saved rather than viewed: streamed through the app, because the name the person ends up with
+    // is the title of the document and only this response can say so (docs/11 §11.5b).
     return {
       kind: 'stream',
-      body,
-      contentType: document.mimeType,
-      // One content, one size (ADR-009): every ref of a document holds the same bytes, and this is
-      // the size the scan recorded for them.
-      contentLength: document.sizeBytes,
-      fileName: `${document.title}.${document.ext === '' ? 'bin' : document.ext}`,
+      body: await this.files.getStream(key),
+      contentType: 'application/pdf',
+      fileName: `${document.title}.pdf`,
     };
-  }
-
-  private async markMissing(libraryId: string, path: string): Promise<void> {
-    const parsed = RelativePath.tryParse(path);
-    if (parsed === null) return;
-    const ref = await this.fileRefs.findByPath(libraryId, parsed);
-    if (ref === null) return;
-    await this.fileRefs.markMissing([ref.id], this.clock.now());
   }
 }
 
-// preview.jpg / thumb.jpg / canonical.pdf as a signed URL (docs/09 §9.2). A step that never
-// produced its artifact is a 404: there is nothing to hand out, and pretending otherwise would send
-// the client to a URL that 404s from S3 instead.
+// GET /api/documents/:id/files/:fileId/content (docs/07 §7.3): the original bytes of one file,
+// exactly as they arrived. A library file is streamed from the volume, a managed one is a signed URL
+// into our own bucket (docs/09 §9.1–9.2).
+export class DownloadDocumentFile {
+  constructor(
+    private readonly bytes: DocumentFileBytes,
+    private readonly files: FileStorage,
+    private readonly settings: DownloadSettings,
+  ) {}
+
+  async execute(detail: DocumentDetail, fileId: string): Promise<Download> {
+    const file = fileOf(detail, fileId);
+
+    if (file.origin === 'MANAGED') {
+      return {
+        kind: 'redirect',
+        url: await this.files.getSignedUrl(originalKeyOf(file), this.settings.signedUrlTtlSec),
+      };
+    }
+
+    return {
+      kind: 'stream',
+      body: await this.bytes.open(file),
+      contentType: file.mimeType,
+      contentLength: file.sizeBytes,
+      // The original, named as it arrived (docs/11 §11.5b) — not after the document, which may be
+      // made of forty of these.
+      fileName: file.name,
+    };
+  }
+}
+
+// preview.jpg / thumb.jpg as a signed URL (docs/09 §9.2). A step that never produced its artifact is
+// a 404: there is nothing to hand out, and pretending otherwise would send the client to a URL that
+// 404s from S3 instead.
 export class GetDocumentArtifactUrl {
   constructor(
     private readonly files: FileStorage,
-    private readonly source: DownloadDocumentSource,
     private readonly settings: DownloadSettings,
   ) {}
 
   async execute(detail: DocumentDetail, kind: ArtifactKind): Promise<Download> {
     const { document } = detail;
-
-    if (kind === 'canonical') {
-      // A PDF has no canonical copy — it already is one, so /canonical is /source (docs/07 §7.3).
-      if (document.steps.canonical !== 'DONE') {
-        if (document.mimeType === 'application/pdf') return this.source.execute(detail);
-        throw new NotFoundError('NOT_FOUND', 'This document has no canonical PDF');
-      }
-      return this.signed(artifactKeys.canonicalPdf(document.id));
-    }
-
     if (document.steps.preview !== 'DONE') {
       throw new NotFoundError('NOT_FOUND', 'This document has no preview');
     }
-    return this.signed(
-      kind === 'preview' ? artifactKeys.preview(document.id) : artifactKeys.thumbnail(document.id),
-    );
-  }
-
-  private async signed(key: string): Promise<Download> {
     return {
       kind: 'redirect',
-      url: await this.files.getSignedUrl(key, this.settings.signedUrlTtlSec),
+      url: await this.files.getSignedUrl(
+        kind === 'preview'
+          ? artifactKeys.preview(document.id)
+          : artifactKeys.thumbnail(document.id),
+        this.settings.signedUrlTtlSec,
+      ),
     };
   }
 }

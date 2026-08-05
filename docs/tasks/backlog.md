@@ -356,3 +356,60 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Goal:** an export job, a backup, an assistant — anything that needs to *read* this instance gets a credential of its own, and it can only read.
   **Docs:** [`03 §3.3.22`](../03-domain-model.md), [`08 §8.2a`](../08-auth-and-authorization.md#82a-api-tokens-read-only), [`07 §7.1–7.3`](../07-api-specification.md), [`11 §11.9`](../11-ui-ux-spec.md#119-settings-settings)
   **Acceptance:** a user issues a named, expiring token to themselves on `/settings` and sees the secret exactly once; `Authorization: Bearer` authenticates every `GET` the owner could make, with their role and their visibility, and nothing else — any other method on `/api` is refused with `READ_ONLY_TOKEN` before routing, valid token or not; only the hash is stored; revoking, expiry, and deactivating the owner each end it on the next request; the token list says when each was last used.
+
+## M13 — A file is not a document
+
+The refactor of [`02 ADR-021`](../02-architecture-overview.md): files and documents become two
+things, every document gains a rebuildable canonical PDF, and scan sets are replaced by editing the
+composition of a document. Tasks are ordered by dependency — M13.1 lands first and alone, the rest
+build on it.
+
+- [x] **M13.1 — Two tables where there was one**
+  **Goal:** the bytes get a row of their own, and a document becomes an ordered list of them.
+  **Docs:** [`03 §3.3.9–3.3.10, §3.3.16–3.3.17`](../03-domain-model.md), [`04 §4.1`](../04-database-schema.md), [`05 §5.3`](../05-library-and-processing.md)
+  **Acceptance:** `files` and `document_files` exist; a file carries the content hash, mime, size, name, origin, storage key and crop that used to sit on the document; `file_refs.file_id` replaces `document_id`; the dedup unique moves to `files`; every existing document keeps working as a one-file document and every existing scan set is gone, its result documents intact; the FTS, HNSW and partial-unique objects survive the migration untouched.
+
+- [x] **M13.2 — Every document is a PDF**
+  **Goal:** one artifact to view, download, OCR and search, whatever the document is made of.
+  **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`09 §9.2`](../09-file-storage.md)
+  **Acceptance:** step 1 builds `canonical.pdf` for every document — images cropped and laid one per page, office and text converted, PDFs taken as they are, parts merged in position order; a merged PDF with too thin a text layer is OCR'd into a searchable one and that is what is stored; the title and date are stamped into its metadata best-effort; page count comes from it; steps 2–5 read it and nothing else; a file whose format nothing can render leaves the step incomplete with `UNSUPPORTED_FORMAT` instead of failing the document.
+
+- [x] **M13.3 — The crop is a quadrilateral**
+  **Goal:** a page photographed at an angle comes out flat and rectangular.
+  **Docs:** [`03 §3.3.16`](../03-domain-model.md), [`05 §5.6`](../05-library-and-processing.md#56-composing-a-document-out-of-files)
+  **Acceptance:** a file carries four normalized points and who chose them; building the canonical applies them as a perspective transform whose output size comes from the quad's own edges; a `MANUAL` crop is never overwritten by a rebuild; the geometry is pure, framework-free and unit-tested against known homographies.
+
+- [x] **M13.4 — The corners find themselves**
+  **Goal:** "auto-detect corners" answers with the page, not with the table it is lying on.
+  **Docs:** [`05 §5.6`](../05-library-and-processing.md#56-composing-a-document-out-of-files), [`07 §7.3`](../07-api-specification.md)
+  **Acceptance:** grayscale → Sobel → Hough finds the dominant near-horizontal and near-vertical lines and intersects the strongest well-separated pair into a quad; a picture with no convincing page falls back to the content bounding box and says which method answered; the detector is pure and tested on synthetic pages, including a rotated one and one that fills the frame.
+
+- [x] **M13.5 — Composition is editable**
+  **Goal:** add a file, reorder, split one off, combine documents — and the document rebuilds itself.
+  **Docs:** [`05 §5.6`](../05-library-and-processing.md#56-composing-a-document-out-of-files), [`07 §7.3`](../07-api-specification.md)
+  **Acceptance:** the six routes of `07` behave as documented, each answering with the whole document and enqueueing a rebuild; splitting off a file creates a document of its own and refuses to empty the last one; combining moves files in the chosen order and soft-deletes the emptied documents; a file already in a document cannot be attached to another; access is the document's own, and every change is recorded as a document event.
+
+- [x] **M13.6 — Download the document, or what it was made of**
+  **Goal:** "Download" means the PDF; the originals are one level down and always reachable.
+  **Docs:** [`07 §7.3`](../07-api-specification.md), [`11 §11.5b`](../11-ui-ux-spec.md#115b-download-the-document-or-what-it-was-made-of)
+  **Acceptance:** `/canonical` serves the assembled PDF as an attachment on demand and refuses honestly while it is being built; `/files/:fileId/content` streams one original from the volume or redirects to its signed URL; the old `/source` route is gone; a document whose volume vanished still downloads as a PDF and says its originals are missing.
+
+- [x] **M13.7 — The viewer shows the document, and the details show the files**
+  **Goal:** the reading surface stops being "whatever the single file happened to be".
+  **Docs:** [`11 §11.5, §11.5a, §11.5b`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
+  **Acceptance:** the preview tab embeds the canonical for every document; the details tab grows a Files section — thumbnail, name, kind, size, library path, missing badge — with per-row download, move up/down and split-off, and an Add files queue above it; the Download control is a split button with the originals in its dropdown; the grid shows a file count and a partial-availability badge.
+
+- [x] **M13.8 — Dragging the corners**
+  **Goal:** the crop is something a person can see and adjust, not a number in a database.
+  **Docs:** [`11 §11.5c`](../11-ui-ux-spec.md#115c-the-crop-editor)
+  **Acceptance:** a modal over the image with four draggable handles, a dimmed outside, keyboard nudging, Auto-detect corners filling them from the server's proposal, Reset clearing the crop and Save storing it and rebuilding; the editor is a component of its own with its own tests and no knowledge of how the transform is applied.
+
+- [x] **M13.9 — Scan sets are gone**
+  **Goal:** one way to say "these are one document", not two.
+  **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen), [`07`](../07-api-specification.md)
+  **Acceptance:** the `/scan-sets` routes, screens, entity, contracts, API, job, repository and tables are gone; the documents grid's multi-select says Combine and calls the new route; nothing in the product mentions a scan set; the release notes say what happened to the old ones.
+
+- [x] **M13.10 — These look like one document**
+  **Goal:** forty scans that arrived together are offered as one document instead of being found by hand.
+  **Docs:** [`05 §5.6a`](../05-library-and-processing.md#56a-noticing-that-files-belong-together), [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen)
+  **Acceptance:** single-file image documents in one folder whose names form a consecutive sequence and whose mtimes fall inside `GROUPING_WINDOW_MINUTES` are proposed as a group, newest first, at most twenty; a document somebody has already titled, typed or filed is never proposed; the suggestion cards on the grid combine or dismiss, and dismissing is client-side; nothing about a suggestion is stored.

@@ -20,7 +20,7 @@ documentation — report it (see [`../CLAUDE.md`](../CLAUDE.md)).
 | 08 | [`08-auth-and-authorization.md`](./08-auth-and-authorization.md) | Email+password, email verification, invites, sessions, roles, access model |
 | 09 | [`09-file-storage.md`](./09-file-storage.md) | Read-only library, S3 for derived artifacts, signed URLs, source streaming |
 | 10 | [`10-frontend-architecture.md`](./10-frontend-architecture.md) | Next.js + FSD + next-intl + antd + TanStack Query |
-| 11 | [`11-ui-ux-spec.md`](./11-ui-ux-spec.md) | Screens: viewer, browse, search, collections, scan sets, admin panel |
+| 11 | [`11-ui-ux-spec.md`](./11-ui-ux-spec.md) | Screens: viewer, browse, search, collections, document composition, admin panel |
 | 12 | [`12-build-config-run.md`](./12-build-config-run.md) | Build, env, local run, Dockerfile, deployment example |
 | 13 | [`13-ci-cd.md`](./13-ci-cd.md) | GitHub Actions: PR checks and image publishing to GHCR |
 | 14 | [`14-coding-standards.md`](./14-coding-standards.md) | Code standards, ESLint boundaries, testing, Definition of Done |
@@ -54,7 +54,7 @@ Take the first unchecked task; one task = one PR; tick it off in the same PR.
 - **Deduplication** — by SHA-256 of content: one content = one document, no matter how many files contain it.
 - **Processing pipeline:** canonicalization to PDF → first-page JPG preview → Markdown extraction (OCR
   when needed) → analysis → vectorization (embeddings in pgvector).
-- **PDF tooling lives outside:** a sibling **Stirling-PDF** container (conversion to PDF, OCR, scan-set
+- **PDF tooling lives outside:** a sibling **Stirling-PDF** container (conversion to PDF, OCR, page
   merging, margin cropping). The app talks to it over an internal HTTP API.
 - **Derived artifacts** (previews, md, merged PDFs) — in **S3** (private bucket; viewing and downloading —
   via short-lived signed URLs). An important difference from Immich: the server keeps **no local files** —

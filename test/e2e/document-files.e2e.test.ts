@@ -1,8 +1,18 @@
+import { createHash } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import sharp from 'sharp';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
-import { documentMarkdownResponseSchema } from '../../src/shared/contracts/documents';
+import {
+  documentDetailDtoSchema,
+  documentMarkdownResponseSchema,
+} from '../../src/shared/contracts/documents';
+import {
+  cropSuggestionResponseSchema,
+  groupingSuggestionsResponseSchema,
+  splitDocumentFileResponseSchema,
+} from '../../src/shared/contracts/files';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
 import { api, createTestApp, type TestApp } from '../helpers/app';
@@ -11,6 +21,7 @@ import { cookieNamed, expectData, expectError } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
 const FILE_BODY = 'the bytes of the original file';
+const PDF = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n%%EOF\n');
 
 // A streamed binary body arrives as a Buffer rather than in `res.text`.
 function bodyOf(res: { body: unknown; text?: string }): string {
@@ -18,8 +29,12 @@ function bodyOf(res: { body: unknown; text?: string }): string {
   return res.text ?? '';
 }
 
-// The file endpoints (docs/07 §7.3, docs/09 §9.1–9.2): library bytes stream through the app,
-// derived artifacts are handed over as short-lived signed URLs.
+function sha256(body: Buffer | string): string {
+  return createHash('sha256').update(body).digest('hex');
+}
+
+// The files a document is made of (docs/05 §5.6, docs/07 §7.3): composing them, and reading them
+// back — the assembled PDF, or one original at a time.
 describe('Document files (e2e)', () => {
   let app: TestApp;
   let adminCookie: string;
@@ -85,51 +100,66 @@ describe('Document files (e2e)', () => {
 
   let contentSeq = 0;
 
-  type Fixture = {
-    documentId: string;
-    fileName: string;
-    libraryId: string;
+  type FileSpec = {
+    name?: string;
+    body?: Buffer | string;
+    mimeType?: string;
+    ext?: string;
+    mtime?: Date;
+    // Written to the volume unless a test wants a ref pointing at nothing.
+    onDisk?: boolean;
   };
 
-  // A library document backed by a real file on the volume, the way a scan would have left it.
-  async function givenLibraryDocument(
-    overrides: {
-      title?: string;
-      visibility?: 'ALL_USERS' | 'RESTRICTED';
-      mimeType?: string;
-      ext?: string;
-      previewStatus?: 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
-      canonicalStatus?: 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
-      markdown?: string | null;
-      writeFile?: boolean;
-    } = {},
-  ): Promise<Fixture> {
+  type LibraryFixture = { id: string; rootPath: string };
+
+  type Fixture = {
+    documentId: string;
+    libraryId: string;
+    rootPath: string;
+    fileIds: string[];
+    fileNames: string[];
+  };
+
+  // Each library gets a root of its own: two libraries may not point at one path, and a test that
+  // needs two of them needs two folders.
+  async function givenLibrary(
+    visibility: 'ALL_USERS' | 'RESTRICTED' = 'ALL_USERS',
+  ): Promise<LibraryFixture> {
     contentSeq += 1;
-    const fileName = `file-${contentSeq}.pdf`;
+    const rootPath = `${folder}/library-${contentSeq}`;
+    await mkdir(join(libraryRoot, rootPath), { recursive: true });
     const library = await testPrisma().library.create({
       data: {
         name: `Files ${contentSeq}`,
-        rootPath: folder,
-        visibility: overrides.visibility ?? 'ALL_USERS',
+        rootPath,
+        visibility,
         excludeGlobs: [],
         scanIntervalMinutes: 15,
       },
     });
+    return { id: library.id, rootPath };
+  }
 
-    if (overrides.writeFile !== false) {
-      await writeFile(join(libraryRoot, folder, fileName), FILE_BODY);
-    }
-
+  // A library document backed by real files on the volume, the way a scan would have left it.
+  async function givenLibraryDocument(
+    overrides: {
+      title?: string;
+      library?: LibraryFixture;
+      visibility?: 'ALL_USERS' | 'RESTRICTED';
+      canonicalStatus?: 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
+      previewStatus?: 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
+      titleSource?: 'NONE' | 'AUTO' | 'MANUAL';
+      markdown?: string | null;
+      files?: FileSpec[];
+    } = {},
+  ): Promise<Fixture> {
+    const library = overrides.library ?? (await givenLibrary(overrides.visibility));
     const document = await testPrisma().document.create({
       data: {
-        contentHash: `${contentSeq}`.padStart(64, 'b'),
-        source: 'LIBRARY',
-        mimeType: overrides.mimeType ?? 'application/pdf',
-        ext: overrides.ext ?? 'pdf',
-        sizeBytes: BigInt(Buffer.byteLength(FILE_BODY)),
-        title: overrides.title ?? `Document ${contentSeq}`,
+        title: overrides.title ?? `Document ${(contentSeq += 1)}`,
         markdown: overrides.markdown ?? null,
-        canonicalStatus: overrides.canonicalStatus ?? 'SKIPPED',
+        titleSource: overrides.titleSource ?? 'NONE',
+        canonicalStatus: overrides.canonicalStatus ?? 'DONE',
         previewStatus: overrides.previewStatus ?? 'DONE',
         markdownStatus: 'DONE',
         analysisStatus: 'DONE',
@@ -137,68 +167,474 @@ describe('Document files (e2e)', () => {
       },
     });
 
-    await testPrisma().fileRef.create({
-      data: {
-        libraryId: library.id,
-        documentId: document.id,
-        path: fileName,
-        size: BigInt(Buffer.byteLength(FILE_BODY)),
-        mtime: new Date('2026-01-01T00:00:00.000Z'),
-        status: 'HASHED',
-        contentHash: `${contentSeq}`.padStart(64, 'b'),
-      },
-    });
+    const specs = overrides.files ?? [{}];
+    const fileIds: string[] = [];
+    const fileNames: string[] = [];
 
-    return { documentId: document.id, fileName, libraryId: library.id };
+    for (const [position, spec] of specs.entries()) {
+      contentSeq += 1;
+      const name = spec.name ?? `file-${contentSeq}.pdf`;
+      const body = spec.body ?? `${FILE_BODY} ${contentSeq}`;
+      const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
+
+      if (spec.onDisk !== false) {
+        await writeFile(join(libraryRoot, library.rootPath, name), buffer);
+      }
+
+      const file = await testPrisma().file.create({
+        data: {
+          contentHash: sha256(buffer),
+          origin: 'LIBRARY',
+          mimeType: spec.mimeType ?? 'application/pdf',
+          ext: spec.ext ?? name.split('.').pop() ?? 'pdf',
+          sizeBytes: BigInt(buffer.byteLength),
+          name,
+        },
+      });
+      await testPrisma().documentFile.create({
+        data: { documentId: document.id, position, fileId: file.id },
+      });
+      await testPrisma().fileRef.create({
+        data: {
+          libraryId: library.id,
+          fileId: file.id,
+          path: `${name}`,
+          size: BigInt(buffer.byteLength),
+          mtime: spec.mtime ?? new Date('2026-01-01T00:00:00.000Z'),
+          status: 'HASHED',
+          contentHash: sha256(buffer),
+        },
+      });
+
+      fileIds.push(file.id);
+      fileNames.push(name);
+    }
+
+    return {
+      documentId: document.id,
+      libraryId: library.id,
+      rootPath: library.rootPath,
+      fileIds,
+      fileNames,
+    };
   }
 
-  async function givenDerivedDocument(ownerId: string): Promise<string> {
+  // A document made of bytes of our own: an upload, or something we produced (docs/09 §9.2).
+  async function givenManagedDocument(
+    ownerId: string,
+    body: Buffer = PDF,
+  ): Promise<{ documentId: string; fileId: string; key: string }> {
     contentSeq += 1;
     const document = await testPrisma().document.create({
       data: {
-        contentHash: `${contentSeq}`.padStart(64, 'a'),
-        source: 'DERIVED',
-        mimeType: 'application/pdf',
-        ext: 'pdf',
-        sizeBytes: 12n,
-        title: 'Merged scan',
+        title: `Uploaded ${contentSeq}`,
         createdById: ownerId,
-        canonicalStatus: 'SKIPPED',
+        canonicalStatus: 'DONE',
         previewStatus: 'DONE',
         markdownStatus: 'DONE',
         analysisStatus: 'DONE',
         vectorizationStatus: 'SKIPPED',
       },
     });
-    return document.id;
+    const file = await testPrisma().file.create({
+      data: {
+        contentHash: sha256(body),
+        origin: 'MANAGED',
+        mimeType: 'application/pdf',
+        ext: 'pdf',
+        sizeBytes: BigInt(body.byteLength),
+        name: `uploaded-${contentSeq}.pdf`,
+      },
+    });
+    const key = artifactKeys.fileOriginal(file.id, 'pdf');
+    await testPrisma().file.update({ where: { id: file.id }, data: { storageKey: key } });
+    await testPrisma().documentFile.create({
+      data: { documentId: document.id, position: 0, fileId: file.id },
+    });
+    await app.files.put(key, body, 'application/pdf');
+
+    return { documentId: document.id, fileId: file.id, key };
   }
 
-  describe('source', () => {
-    it('streams a library file with its length, type and file name', async () => {
-      const { documentId } = await givenLibraryDocument({ title: 'Rental agreement' });
+  const detailOf = async (documentId: string, cookie = adminCookie) =>
+    expectData(
+      await api(app).get(`/api/documents/${documentId}`).set('Cookie', cookie),
+      documentDetailDtoSchema,
+    );
 
-      // application/pdf is binary as far as the client is concerned, so the body is buffered
-      // rather than read as text.
+  const processJobs = (documentId: string): Promise<Array<{ data: { documentId: string } }>> =>
+    testPrisma().$queryRawUnsafe(
+      `SELECT data FROM pgboss.job WHERE name = 'document-process' AND data->>'documentId' = '${documentId}'`,
+    );
+
+  const addFile = (documentId: string, body: Buffer, fileName: string, cookie = adminCookie) =>
+    api(app)
+      .postBinary(`/api/documents/${documentId}/files`, body)
+      .set('Cookie', cookie)
+      .set('X-File-Name', encodeURIComponent(fileName));
+
+  describe('adding a file', () => {
+    it('appends the upload, stores its bytes and rebuilds the document', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument();
+
+      const res = await addFile(documentId, PDF, 'page two.pdf');
+
+      expect(res.status).toBe(201);
+      const detail = expectData(res, documentDetailDtoSchema);
+      // The whole document comes back: a composition change is never local (docs/07 §7.3).
+      expect(detail.files.map((file) => file.position)).toEqual([0, 1]);
+      expect(detail.files[0]?.id).toBe(fileIds[0]);
+      expect(detail.files[1]).toMatchObject({
+        name: 'page two.pdf',
+        origin: 'MANAGED',
+        available: true,
+        refs: [],
+      });
+      expect(detail.fileCount).toBe(2);
+      // One library file among two still makes the document a library document (docs/03 §3.3.10).
+      expect(detail.origin).toBe('LIBRARY');
+
+      const stored = await testPrisma().file.findFirstOrThrow({
+        where: { contentHash: sha256(PDF) },
+      });
+      expect(app.files.get(artifactKeys.fileOriginal(stored.id, 'pdf')).body).toEqual(PDF);
+      expect(await processJobs(documentId)).toHaveLength(1);
+
+      const events = await testPrisma().documentEvent.findMany({ where: { documentId } });
+      expect(events.map((event) => event.type)).toContain('FILE_ATTACHED');
+      expect(events.map((event) => event.type)).toContain('QUEUED');
+    });
+
+    it('refuses bytes that already belong to another document', async () => {
+      const first = await givenLibraryDocument({ files: [{ name: 'taken.pdf', body: 'mine' }] });
+      const second = await givenLibraryDocument();
+
+      const res = await addFile(second.documentId, Buffer.from('mine'), 'copy.pdf');
+
+      // A file has exactly one home; moving it is Combine, not a second upload (docs/05 §5.6).
+      expect(res.status).toBe(409);
+      expect(expectError(res).code).toBe('FILE_ALREADY_IN_DOCUMENT');
+      expect((await detailOf(second.documentId)).files).toHaveLength(1);
+      expect((await detailOf(first.documentId)).files).toHaveLength(1);
+    });
+
+    it('refuses a body with no name at all', async () => {
+      const { documentId } = await givenLibraryDocument();
+
       const res = await api(app)
-        .get(`/api/documents/${documentId}/source`)
-        .set('Cookie', adminCookie)
-        .buffer(true);
+        .postBinary(`/api/documents/${documentId}/files`, PDF)
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(422);
+      expect(expectError(res).code).toBe('VALIDATION_FAILED');
+    });
+  });
+
+  describe('reordering', () => {
+    it('rewrites the order the client sends and rebuilds', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({
+        files: [{ name: 'a.pdf' }, { name: 'b.pdf' }, { name: 'c.pdf' }],
+      });
+      const reversed = [...fileIds].reverse();
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}/files`, { order: reversed })
+        .set('Cookie', adminCookie);
 
       expect(res.status).toBe(200);
-      expect(res.headers['content-type']).toContain('application/pdf');
-      expect(res.headers['content-length']).toBe(String(Buffer.byteLength(FILE_BODY)));
-      expect(res.headers['content-disposition']).toContain('attachment');
-      expect(res.headers['content-disposition']).toContain('filename="Rental agreement.pdf"');
-      // 🔒 User content served from our own origin must not be sniffed into something executable.
-      expect(res.headers['x-content-type-options']).toBe('nosniff');
-      expect(bodyOf(res)).toBe(FILE_BODY);
+      expect(expectData(res, documentDetailDtoSchema).files.map((file) => file.id)).toEqual(
+        reversed,
+      );
+      expect(await processJobs(documentId)).toHaveLength(1);
+    });
+
+    it('refuses an order that is not the whole document', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({
+        files: [{ name: 'x.pdf' }, { name: 'y.pdf' }],
+      });
+
+      const partial = await api(app)
+        .patch(`/api/documents/${documentId}/files`, { order: [fileIds[0]] })
+        .set('Cookie', adminCookie);
+
+      expect(partial.status).toBe(422);
+      expect(expectError(partial).code).toBe('VALIDATION_FAILED');
+      // The pages are still where they were: a refused reorder changes nothing.
+      expect((await detailOf(documentId)).files.map((file) => file.id)).toEqual(fileIds);
+    });
+  });
+
+  describe('cropping', () => {
+    const crop = {
+      points: [
+        [0.1, 0.1],
+        [0.9, 0.12],
+        [0.88, 0.9],
+        [0.12, 0.88],
+      ],
+    };
+
+    it('stores the quadrilateral a person dragged and rebuilds', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({
+        files: [{ name: 'photo.jpg', mimeType: 'image/jpeg', ext: 'jpg' }],
+      });
+      const fileId = fileIds[0] ?? '';
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileId}`, { crop })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      const file = expectData(res, documentDetailDtoSchema).files[0];
+      expect(file?.crop).toEqual(crop);
+      // 🔒 MANUAL is what stops a rebuild from replacing it with what a detector found.
+      expect(file?.cropSource).toBe('MANUAL');
+      expect(await processJobs(documentId)).toHaveLength(1);
+
+      const cleared = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileId}`, { crop: null })
+        .set('Cookie', adminCookie);
+      expect(expectData(cleared, documentDetailDtoSchema).files[0]).toMatchObject({
+        crop: null,
+        cropSource: 'NONE',
+      });
+    });
+
+    it('refuses to crop something that is not an image', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument();
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileIds[0]}`, { crop })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(422);
+      expect(expectError(res).code).toBe('FILE_NOT_IMAGE');
+    });
+
+    it('proposes corners for an image without storing them', async () => {
+      const image = await sharp({
+        create: { width: 200, height: 150, channels: 3, background: '#ffffff' },
+      })
+        .png()
+        .toBuffer();
+      const { documentId, fileIds } = await givenLibraryDocument({
+        files: [{ name: 'page.png', body: image, mimeType: 'image/png', ext: 'png' }],
+      });
+
+      const res = await api(app)
+        .get(`/api/documents/${documentId}/files/${fileIds[0]}/crop-suggestion`)
+        .set('Cookie', adminCookie);
+
+      const suggestion = expectData(res, cropSuggestionResponseSchema);
+      // A blank sheet holds no page to find, so the honest answer is the content box (docs/05 §5.6).
+      expect(suggestion.method).toBe('CONTENT_BOX');
+      expect(suggestion.crop.points).toHaveLength(4);
+      // A proposal is not a change: nothing is stored until the client saves it.
+      expect((await detailOf(documentId)).files[0]?.cropSource).toBe('NONE');
+    });
+  });
+
+  describe('splitting', () => {
+    it('gives the file a document of its own and leaves the rest behind', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({
+        title: 'Two pages',
+        files: [{ name: 'first.pdf' }, { name: 'second.pdf' }],
+      });
+
+      const res = await api(app)
+        .delete(`/api/documents/${documentId}/files/${fileIds[1]}`)
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      const { document, splitDocumentId } = expectData(res, splitDocumentFileResponseSchema);
+      expect(document.files.map((file) => file.id)).toEqual([fileIds[0]]);
+
+      const split = await detailOf(splitDocumentId);
+      // Titled after the file and inheriting nothing else (docs/05 §5.6).
+      expect(split.title).toBe('second');
+      expect(split.files.map((file) => file.id)).toEqual([fileIds[1]]);
+      // Both documents are rebuilt: one lost a page and the other is new.
+      expect(await processJobs(documentId)).toHaveLength(1);
+      expect(await processJobs(splitDocumentId)).toHaveLength(1);
+    });
+
+    it('refuses to take the only file away', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument();
+
+      const res = await api(app)
+        .delete(`/api/documents/${documentId}/files/${fileIds[0]}`)
+        .set('Cookie', adminCookie);
+
+      // 🔒 A document is emptied by deleting it, not by taking its parts away (docs/03 §3.3.10).
+      expect(res.status).toBe(409);
+      expect(expectError(res).code).toBe('DOCUMENT_LAST_FILE');
+      expect((await detailOf(documentId)).files).toHaveLength(1);
+    });
+
+    it('404s a file that belongs to another document', async () => {
+      const mine = await givenLibraryDocument({
+        files: [{ name: 'one.pdf' }, { name: 'two.pdf' }],
+      });
+      const other = await givenLibraryDocument();
+
+      const res = await api(app)
+        .delete(`/api/documents/${mine.documentId}/files/${other.fileIds[0]}`)
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(404);
+      expect(expectError(res).code).toBe('FILE_NOT_FOUND');
+    });
+  });
+
+  describe('combining', () => {
+    it('moves the files over in the order given and buries the emptied documents', async () => {
+      const library = await givenLibrary();
+      const target = await givenLibraryDocument({ library, files: [{ name: 'target.pdf' }] });
+      const first = await givenLibraryDocument({ library, files: [{ name: 'extra-1.pdf' }] });
+      const second = await givenLibraryDocument({ library, files: [{ name: 'extra-2.pdf' }] });
+
+      const res = await api(app)
+        .post(`/api/documents/${target.documentId}/combine`, {
+          documentIds: [second.documentId, first.documentId],
+        })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      const detail = expectData(res, documentDetailDtoSchema);
+      expect(detail.files.map((file) => file.id)).toEqual([
+        target.fileIds[0],
+        second.fileIds[0],
+        first.fileIds[0],
+      ]);
+
+      // The emptied rows are gone, with their own titles and types (docs/05 §5.6).
+      for (const absorbed of [first, second]) {
+        const row = await testPrisma().document.findUniqueOrThrow({
+          where: { id: absorbed.documentId },
+        });
+        expect(row.deletedAt).not.toBeNull();
+        expect(
+          (await api(app).get(`/api/documents/${absorbed.documentId}`).set('Cookie', adminCookie))
+            .status,
+        ).toBe(404);
+      }
+      expect(await processJobs(target.documentId)).toHaveLength(1);
+    });
+
+    it('refuses to combine a document into itself', async () => {
+      const { documentId } = await givenLibraryDocument();
+
+      const res = await api(app)
+        .post(`/api/documents/${documentId}/combine`, { documentIds: [documentId] })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(422);
+      expect(expectError(res).code).toBe('VALIDATION_FAILED');
+    });
+
+    it('refuses a document the caller cannot even see', async () => {
+      const mine = await givenLibraryDocument({ visibility: 'ALL_USERS' });
+      const hidden = await givenLibraryDocument({ visibility: 'RESTRICTED' });
+      const user = await inviteUser(`combiner${seq}@legere.local`);
+
+      const res = await api(app)
+        .post(`/api/documents/${mine.documentId}/combine`, { documentIds: [hidden.documentId] })
+        .set('Cookie', user.cookie);
+
+      // 🔒 Not found, not forbidden: the existence of the other document is not confirmed.
+      expect(res.status).toBe(404);
+      expect(expectError(res).code).toBe('DOCUMENT_NOT_FOUND');
+      expect((await detailOf(mine.documentId)).files).toHaveLength(1);
+    });
+
+    it('refuses a document the caller may read but not edit', async () => {
+      const owner = await inviteUser(`owner${seq}@legere.local`);
+      const reader = await inviteUser(`reader${seq}@legere.local`);
+      const managed = await givenManagedDocument(owner.id);
+      const target = await givenLibraryDocument();
+
+      // Shared for reading, which is not the same as shared for editing (docs/08 §8.5).
+      const collection = await testPrisma().collection.create({
+        data: { ownerId: owner.id, name: `Shared ${seq}` },
+      });
+      await testPrisma().collectionItem.create({
+        data: {
+          collectionId: collection.id,
+          documentId: managed.documentId,
+          addedById: owner.id,
+        },
+      });
+      await testPrisma().collectionShare.create({
+        data: { collectionId: collection.id, granteeUserId: reader.id },
+      });
+
+      const res = await api(app)
+        .post(`/api/documents/${target.documentId}/combine`, {
+          documentIds: [managed.documentId],
+        })
+        .set('Cookie', reader.cookie);
+
+      // 🔒 A document with no library file is its creator's; absorbing it would destroy it.
+      expect(res.status).toBe(403);
+      expect(expectError(res).code).toBe('FORBIDDEN');
+      expect((await detailOf(target.documentId, reader.cookie)).files).toHaveLength(1);
+    });
+  });
+
+  describe('downloading the document', () => {
+    it('redirects to the canonical PDF for reading, and streams it for saving', async () => {
+      const { documentId } = await givenLibraryDocument({ title: 'Rental agreement' });
+      await app.files.put(artifactKeys.canonicalPdf(documentId), PDF, 'application/pdf');
+
+      const inline = await api(app)
+        .get(`/api/documents/${documentId}/canonical`)
+        .set('Cookie', adminCookie)
+        .redirects(0);
+      expect(inline.status).toBe(302);
+      expect(inline.headers.location).toContain(artifactKeys.canonicalPdf(documentId));
+      // 🔒 Short-lived, never a permanent link (docs/08 §8.5).
+      expect(inline.headers.location).toContain('X-Amz-Expires=300');
+
+      const saved = await api(app)
+        .get(`/api/documents/${documentId}/canonical?download=1`)
+        .set('Cookie', adminCookie)
+        .buffer(true);
+      expect(saved.status).toBe(200);
+      expect(saved.headers['content-type']).toContain('application/pdf');
+      // The name a person ends up with is the title of the document (docs/11 §11.5b).
+      expect(saved.headers['content-disposition']).toContain('attachment');
+      expect(saved.headers['content-disposition']).toContain('filename="Rental agreement.pdf"');
+      expect(bodyOf(saved)).toBe(PDF.toString());
+    });
+
+    it('says plainly that the PDF is still being assembled', async () => {
+      const { documentId } = await givenLibraryDocument({ canonicalStatus: 'PENDING' });
+
+      const res = await api(app)
+        .get(`/api/documents/${documentId}/canonical`)
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(409);
+      expect(expectError(res).code).toBe('CANONICAL_NOT_READY');
+    });
+
+    it('has no /source route any more', async () => {
+      const { documentId } = await givenLibraryDocument();
+
+      const res = await api(app)
+        .get(`/api/documents/${documentId}/source`)
+        .set('Cookie', adminCookie);
+
+      // The originals are one level down, under /files/:fileId/content (docs/07 §7.3).
+      expect(res.status).toBe(404);
     });
 
     it('encodes a non-ASCII title per RFC 5987 and still offers an ASCII fallback', async () => {
       const { documentId } = await givenLibraryDocument({ title: 'Счёт за январь' });
+      await app.files.put(artifactKeys.canonicalPdf(documentId), PDF, 'application/pdf');
 
       const res = await api(app)
-        .get(`/api/documents/${documentId}/source`)
+        .get(`/api/documents/${documentId}/canonical?download=1`)
         .set('Cookie', adminCookie);
 
       const disposition = res.headers['content-disposition'] ?? '';
@@ -206,54 +642,77 @@ describe('Document files (e2e)', () => {
       expect(disposition).toContain(encodeURIComponent('Счёт за январь.pdf'));
       // The plain parameter stays ASCII, or old clients mangle the whole header.
       const plain = /filename="([^"]*)"/.exec(disposition)?.[1] ?? '';
-
       expect(/^[\x20-\x7e]*$/.test(plain)).toBe(true);
+    });
+  });
+
+  describe('downloading one original', () => {
+    it('streams a library file with its length, type and own name', async () => {
+      const { documentId, fileIds, fileNames } = await givenLibraryDocument({
+        files: [{ name: 'scan.pdf', body: FILE_BODY }],
+      });
+
+      const res = await api(app)
+        .get(`/api/documents/${documentId}/files/${fileIds[0]}/content`)
+        .set('Cookie', adminCookie)
+        .buffer(true);
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('application/pdf');
+      expect(res.headers['content-length']).toBe(String(Buffer.byteLength(FILE_BODY)));
+      expect(res.headers['content-disposition']).toContain(`filename="${fileNames[0]}"`);
+      // 🔒 User content served from our own origin must not be sniffed into something executable.
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(bodyOf(res)).toBe(FILE_BODY);
+    });
+
+    it('redirects a managed file to a signed URL', async () => {
+      const owner = await inviteUser(`uploader${seq}@legere.local`);
+      const managed = await givenManagedDocument(owner.id);
+
+      const res = await api(app)
+        .get(`/api/documents/${managed.documentId}/files/${managed.fileId}/content`)
+        .set('Cookie', owner.cookie)
+        .redirects(0);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain(managed.key);
     });
 
     it('marks the ref MISSING and answers DOCUMENT_UNAVAILABLE when the file has vanished', async () => {
-      const { documentId, fileName } = await givenLibraryDocument();
-      await rm(join(libraryRoot, folder, fileName));
+      const fixture = await givenLibraryDocument();
+      const { documentId, fileIds } = fixture;
+      await rm(join(libraryRoot, fixture.rootPath, fixture.fileNames[0] ?? ''));
 
       const res = await api(app)
-        .get(`/api/documents/${documentId}/source`)
+        .get(`/api/documents/${documentId}/files/${fileIds[0]}/content`)
         .set('Cookie', adminCookie);
 
       expect(res.status).toBe(409);
       expect(expectError(res).code).toBe('DOCUMENT_UNAVAILABLE');
       // The next listing tells the truth instead of offering a download that fails again.
-      const ref = await testPrisma().fileRef.findFirstOrThrow({ where: { documentId } });
+      const ref = await testPrisma().fileRef.findFirstOrThrow({
+        where: { fileId: fileIds[0] ?? '' },
+      });
       expect(ref.status).toBe('MISSING');
       expect(ref.missingSince).not.toBeNull();
     });
 
     it('answers DOCUMENT_UNAVAILABLE when every ref is already MISSING', async () => {
-      const { documentId } = await givenLibraryDocument();
+      const { documentId, fileIds } = await givenLibraryDocument();
       await testPrisma().fileRef.updateMany({
-        where: { documentId },
+        where: { fileId: fileIds[0] ?? '' },
         data: { status: 'MISSING', missingSince: new Date() },
       });
 
       const res = await api(app)
-        .get(`/api/documents/${documentId}/source`)
+        .get(`/api/documents/${documentId}/files/${fileIds[0]}/content`)
         .set('Cookie', adminCookie);
 
       expect(res.status).toBe(409);
       expect(expectError(res).code).toBe('DOCUMENT_UNAVAILABLE');
-    });
-
-    it('redirects a derived document to a signed URL for its merged PDF', async () => {
-      const owner = await inviteUser(`owner${seq}@legere.local`);
-      const documentId = await givenDerivedDocument(owner.id);
-
-      const res = await api(app)
-        .get(`/api/documents/${documentId}/source`)
-        .set('Cookie', owner.cookie)
-        .redirects(0);
-
-      expect(res.status).toBe(302);
-      expect(res.headers.location).toContain(artifactKeys.source(documentId, 'pdf'));
-      // 🔒 Short-lived, never a permanent link (docs/08 §8.5).
-      expect(res.headers.location).toContain('X-Amz-Expires=300');
+      // The document itself still reads, and says its originals are elsewhere (docs/05 §5.7).
+      expect((await detailOf(documentId)).availability).toBe('UNAVAILABLE');
     });
   });
 
@@ -286,82 +745,119 @@ describe('Document files (e2e)', () => {
       expect(res.status).toBe(404);
       expect(expectError(res).code).toBe('NOT_FOUND');
     });
-
-    it('redirects to the canonical PDF of a converted document', async () => {
-      const { documentId } = await givenLibraryDocument({
-        mimeType: 'application/vnd.oasis.opendocument.text',
-        ext: 'odt',
-        canonicalStatus: 'DONE',
-      });
-
-      const res = await api(app)
-        .get(`/api/documents/${documentId}/canonical`)
-        .set('Cookie', adminCookie)
-        .redirects(0);
-
-      expect(res.status).toBe(302);
-      expect(res.headers.location).toContain(artifactKeys.canonicalPdf(documentId));
-    });
-
-    it('serves the source itself as the canonical PDF of a PDF', async () => {
-      const { documentId } = await givenLibraryDocument();
-
-      const res = await api(app)
-        .get(`/api/documents/${documentId}/canonical`)
-        .set('Cookie', adminCookie)
-        .buffer(true);
-
-      // A PDF has no canonical copy — it already is one (docs/07 §7.3).
-      expect(res.status).toBe(200);
-      expect(bodyOf(res)).toBe(FILE_BODY);
-      expect(res.headers['content-disposition']).toContain('inline');
-    });
-
-    it('404s the canonical PDF of a document that has none', async () => {
-      const { documentId } = await givenLibraryDocument({
-        mimeType: 'text/plain',
-        ext: 'txt',
-        canonicalStatus: 'SKIPPED',
-      });
-
-      const res = await api(app)
-        .get(`/api/documents/${documentId}/canonical`)
-        .set('Cookie', adminCookie);
-
-      expect(res.status).toBe(404);
-    });
   });
 
   describe('markdown', () => {
-    it('returns the extracted text', async () => {
-      const { documentId } = await givenLibraryDocument({ markdown: '# Invoice\n\nAmount due' });
+    it('returns the extracted text, and null when there is none', async () => {
+      const withText = await givenLibraryDocument({ markdown: '# Invoice\n\nAmount due' });
+      const without = await givenLibraryDocument({ markdown: null });
+
+      expect(
+        expectData(
+          await api(app)
+            .get(`/api/documents/${withText.documentId}/markdown`)
+            .set('Cookie', adminCookie),
+          documentMarkdownResponseSchema,
+        ).markdown,
+      ).toBe('# Invoice\n\nAmount due');
+      expect(
+        expectData(
+          await api(app)
+            .get(`/api/documents/${without.documentId}/markdown`)
+            .set('Cookie', adminCookie),
+          documentMarkdownResponseSchema,
+        ).markdown,
+      ).toBeNull();
+    });
+  });
+
+  describe('grouping suggestions', () => {
+    const scannedAt = (minutes: number) => new Date(Date.UTC(2026, 6, 14, 11, minutes, 0));
+
+    async function givenScan(
+      library: LibraryFixture,
+      name: string,
+      minutes: number,
+      overrides: { titleSource?: 'NONE' | 'AUTO' | 'MANUAL' } = {},
+    ): Promise<string> {
+      const fixture = await givenLibraryDocument({
+        library,
+        titleSource: overrides.titleSource ?? 'NONE',
+        files: [
+          {
+            name,
+            mimeType: 'image/jpeg',
+            ext: 'jpg',
+            body: `image bytes of ${name}`,
+            mtime: scannedAt(minutes),
+          },
+        ],
+      });
+      return fixture.documentId;
+    }
+
+    it('offers a run of scans as one document', async () => {
+      const library = await givenLibrary();
+      const first = await givenScan(library, 'passport-01.jpg', 0);
+      const second = await givenScan(library, 'passport-02.jpg', 1);
+      const third = await givenScan(library, 'passport-03.jpg', 2);
+      // Hours later and named differently: a different sitting, and no suggestion of its own.
+      await givenScan(library, 'unrelated.jpg', 600);
 
       const res = await api(app)
-        .get(`/api/documents/${documentId}/markdown`)
+        .get('/api/documents/grouping-suggestions')
         .set('Cookie', adminCookie);
 
-      expect(expectData(res, documentMarkdownResponseSchema).markdown).toBe(
-        '# Invoice\n\nAmount due',
-      );
+      const { items } = expectData(res, groupingSuggestionsResponseSchema);
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({
+        documentIds: [first, second, third],
+        libraryId: library.id,
+        folder: '',
+        reason: 'NAME_SEQUENCE',
+      });
     });
 
-    it('returns null when there is no text rather than pretending there is', async () => {
-      const { documentId } = await givenLibraryDocument({ markdown: null });
+    it('never suggests a document somebody has already titled', async () => {
+      const library = await givenLibrary();
+      await givenScan(library, 'deed-01.jpg', 0, { titleSource: 'MANUAL' });
+      await givenScan(library, 'deed-02.jpg', 1);
 
       const res = await api(app)
-        .get(`/api/documents/${documentId}/markdown`)
+        .get('/api/documents/grouping-suggestions')
         .set('Cookie', adminCookie);
 
-      expect(expectData(res, documentMarkdownResponseSchema).markdown).toBeNull();
+      // A suggestion that undoes somebody's work is worse than no suggestion (docs/05 §5.6a).
+      expect(expectData(res, groupingSuggestionsResponseSchema).items).toEqual([]);
+    });
+
+    it('shows nothing from a library the caller was not granted', async () => {
+      const library = await givenLibrary('RESTRICTED');
+      await givenScan(library, 'secret-01.jpg', 0);
+      await givenScan(library, 'secret-02.jpg', 1);
+      const outsider = await inviteUser(`stranger${seq}@legere.local`);
+
+      const res = await api(app)
+        .get('/api/documents/grouping-suggestions')
+        .set('Cookie', outsider.cookie);
+
+      expect(expectData(res, groupingSuggestionsResponseSchema).items).toEqual([]);
     });
   });
 
   describe('authorization', () => {
     it('refuses every file route exactly like the metadata routes', async () => {
-      const { documentId } = await givenLibraryDocument({ visibility: 'RESTRICTED' });
+      const { documentId, fileIds } = await givenLibraryDocument({ visibility: 'RESTRICTED' });
       const outsider = await inviteUser(`outsider${seq}@legere.local`);
 
-      for (const path of ['source', 'preview', 'thumb', 'canonical', 'markdown']) {
+      for (const path of [
+        'preview',
+        'thumb',
+        'canonical',
+        'markdown',
+        `files/${fileIds[0]}/content`,
+        `files/${fileIds[0]}/crop-suggestion`,
+      ]) {
         const res = await api(app)
           .get(`/api/documents/${documentId}/${path}`)
           .set('Cookie', outsider.cookie);
@@ -374,18 +870,25 @@ describe('Document files (e2e)', () => {
       }
     });
 
-    it('lets a granted user download the same file', async () => {
-      const { documentId, libraryId } = await givenLibraryDocument({ visibility: 'RESTRICTED' });
+    it('lets a granted user download and compose the same document', async () => {
+      const { documentId, libraryId, fileIds } = await givenLibraryDocument({
+        visibility: 'RESTRICTED',
+        files: [{ name: 'granted.pdf', body: FILE_BODY }],
+      });
       const user = await inviteUser(`granted${seq}@legere.local`);
       await testPrisma().libraryAccess.create({ data: { libraryId, userId: user.id } });
 
-      const res = await api(app)
-        .get(`/api/documents/${documentId}/source`)
+      const download = await api(app)
+        .get(`/api/documents/${documentId}/files/${fileIds[0]}/content`)
         .set('Cookie', user.cookie)
         .buffer(true);
+      expect(download.status).toBe(200);
+      expect(bodyOf(download)).toBe(FILE_BODY);
 
-      expect(res.status).toBe(200);
-      expect(bodyOf(res)).toBe(FILE_BODY);
+      // Library content is shared property: whoever may read it may tidy it up (docs/03 §3.4).
+      const added = await addFile(documentId, PDF, 'added by a reader.pdf', user.cookie);
+      expect(added.status).toBe(201);
+      expect(expectData(added, documentDetailDtoSchema).files).toHaveLength(2);
     });
   });
 });

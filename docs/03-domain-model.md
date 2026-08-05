@@ -15,12 +15,13 @@ User ─┬─< Session
       ├─< PasswordReset (user / createdBy)
       ├─< Collection ──< CollectionItem >── Document
       │        └──────< CollectionShare >── User? (null = whole instance)
-      ├─< ScanSet ──< ScanSetItem >── Document (image source)
-      │        └── resultDocument → Document (DERIVED)
+      ├─< Document (createdBy — the owner of a document nobody found on a volume)
       └─< LibraryAccess >── Library
 
-Library ─┬─< FileRef >── Document (n:1, by contentHash)
+Library ─┬─< FileRef >── File (n:1, by contentHash; a path where those bytes lie)
          └─< ScanRun
+
+File ──< DocumentFile >── Document   (ordered: position; per-file crop)
 
 Document ─┬─< DocumentChunk (embeddings)
           └── Document type (n:1)
@@ -37,10 +38,9 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `Theme` | `SYSTEM`, `LIGHT`, `DARK` | |
 | `LibraryVisibility` | `ALL_USERS`, `RESTRICTED` | new libraries default to `RESTRICTED` (fail-closed) |
 | `FileRefStatus` | `DISCOVERED`, `HASHED`, `MISSING` | |
-| `DocumentSource` | `LIBRARY`, `DERIVED`, `UPLOAD` | where the bytes live and where they came from: a file in a read-only library, a scan-set merge, or a file a person sent from their browser. `DERIVED` and `UPLOAD` both keep their bytes in S3 |
+| `FileOrigin` | `LIBRARY`, `MANAGED` | where a file's bytes live: on the read-only volume (addressed by `FileRef`s) or in our own bucket (uploaded from a browser, or produced by us). A document's own origin is derived from its files rather than stored — see §3.3.10 |
 | `StepStatus` | `PENDING`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes `PENDING` reads as "stuck". The mark is best-effort and never the reason a job fails |
 | `ValueSource` | `NONE`, `AUTO`, `MANUAL` | who decided a value: nobody, the pipeline, a person. Carried by `typeSource` and `titleSource` — one vocabulary, because it is one question |
-| `ScanSetStatus` | `DRAFT`, `QUEUED`, `PROCESSING`, `DONE`, `FAILED` | |
 | `ScanRunStatus` | `RUNNING`, `DONE`, `FAILED` | |
 | `VerificationPurpose` | `REGISTRATION`, `PASSWORD_RESET` | on `EmailVerification` |
 
@@ -179,27 +179,31 @@ A physical file inside a library. **No soft delete** — lifecycle is expressed 
 | mtime | timestamptz | filesystem mtime |
 | status | FileRefStatus | |
 | contentHash | string? | sha256 hex; set when HASHED |
-| documentId | uuid? | set when HASHED |
+| fileId | uuid? | the file these bytes are, set when HASHED (§3.3.16). A ref points at a file, and the file is what a document holds |
 | missingSince | timestamptz? | |
 | firstSeenAt / lastSeenAt | timestamptz | |
 
 **State machine:** `DISCOVERED → HASHED` (file-ingest), `HASHED → MISSING` (scan found it gone),
 `MISSING → HASHED` (file returned, same hash), `HASHED → DISCOVERED` (size/mtime changed → rehash;
-if the new hash differs, the ref re-points to another Document).
+if the new hash differs, the ref re-points to another File — and the file it left keeps its document,
+now with one fewer place its bytes can be read from).
 
 ### 3.3.10. Document
-The logical unit of content (deduplicated).
+
+What a person reads: one paper, however many files it took to capture it. A passport photographed
+across forty images is one document; a contract that arrived as a single PDF is one document; the
+difference between them is a number, not a kind.
+
+A document owns an **ordered list of files** (§3.3.16, §3.3.17) and exactly one **canonical PDF**
+built from them (§5.5) — the thing the viewer shows, the thing Download hands over by default, and
+the thing every later step reads. The originals are kept untouched and remain downloadable one by
+one; the canonical is rebuildable from them at any moment, so it is an artifact and never a source.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | |
-| contentHash | string | sha256 hex; unique among active documents |
-| source | DocumentSource | |
-| mimeType | string | detected from content (magic bytes), not from the extension |
-| ext | string | lower-cased original extension, e.g. `pdf` |
-| sizeBytes | bigint | |
-| pageCount | int? | for PDFs (source or canonical) |
-| title | string | initial = file name without extension: of the first FileRef (LIBRARY), of the scan set (DERIVED), of the uploaded file (UPLOAD). Named by the analysis where nobody has chosen one; editable |
+| pageCount | int? | pages of the **canonical PDF**; `NULL` until it has been built |
+| title | string | initial = the name of the first file, without its extension. Named by the analysis where nobody has chosen one; editable |
 | description | text? | a few hundred characters answering "what is this": what the document is, between whom, what for. Read by the analysis where the field is empty; editable |
 | markdown | text? | the extracted Markdown representation |
 | searchVector | tsvector | generated from title + markdown (see 04) |
@@ -216,8 +220,7 @@ The logical unit of content (deduplicated).
 | titleSource | ValueSource | default `NONE` — the file name is not a choice; `MANUAL` is never overwritten by auto |
 | typeId | uuid? | |
 | typeSource | ValueSource | default `NONE`; `MANUAL` is never overwritten by auto |
-| createdById | uuid? | the owner; set for DERIVED and UPLOAD documents |
-| scanSetId | uuid? | provenance for DERIVED documents |
+| createdById | uuid? | who created this document by hand: an upload, a split, a combine. `NULL` for a document a library scan found |
 | createdAt / updatedAt / deletedAt | | |
 
 **Languages.** A document may be written in more than one — a bilingual contract has parallel
@@ -267,7 +270,7 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 
 | Reason | Meaning |
 |---|---|
-| `NOT_NEEDED` | nothing to do for this format — a PDF needs no canonicalization, text has no page to render |
+| `NOT_NEEDED` | nothing to do for this document — no file of it is an image, so there is nothing to crop |
 | `UNSUPPORTED_FORMAT` | the format has no representation the product can build |
 | `NOT_CONFIGURED` | the instance has no classifier / embeddings provider (docs/05 §5.5) |
 | `NO_TYPES` | retained for documents processed before step 4 became a full analysis; no longer produced — with no document types defined the step still runs, because it also reads where the document is from |
@@ -275,23 +278,31 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 | `MANUAL_TYPE` | a person chose the document type, and a machine never overwrites that |
 
 **Derived state (computed, not stored):**
-- `availability`: a LIBRARY document is `AVAILABLE` if it has ≥1 `FileRef` with status `HASHED` in an
-  active, non-deleted library; otherwise `UNAVAILABLE`. DERIVED and UPLOAD documents are always
-  `AVAILABLE` — their bytes are in S3, which is ours and does not go missing behind our back.
+- `origin`: `LIBRARY` when at least one of the document's files is a library file, `MANAGED`
+  otherwise. Not a column — a document that absorbs an upload does not change kind, it gains a file.
+- `availability`: `AVAILABLE` when every file of the document can be read right now; `PARTIAL` when
+  some can and some cannot; `UNAVAILABLE` when none can. A `MANAGED` file is always readable — the
+  bucket is ours and does not go missing behind our back — so only library files move this needle.
+  **The canonical PDF outlives all of them**: a document whose volume was unplugged still reads,
+  still searches and still downloads as a PDF, and says plainly that its originals are elsewhere.
 - `processing`: `true` while any step is `PENDING` or `RUNNING` and prerequisites are not `FAILED`.
+- `fileCount`, `sizeBytes`: how many files the document is made of and what they weigh together.
 
 **Invariants:**
-- One active document per `contentHash`.
-- A DERIVED document has `createdById` and `scanSetId` set and no `FileRef`s.
-- An UPLOAD document has `createdById` set, no `scanSetId` and no `FileRef`s. It is the only kind a
-  non-admin can create directly, and the read-only library volume is untouched by it (ADR-004).
-- Soft delete of a document (admin) hides it everywhere, removes its chunks from search, and detaches
-  it from collections/scan sets logically (items referencing it are hidden, not deleted).
+- A live document has ≥1 file. Removing the last one is refused (`DOCUMENT_LAST_FILE`); a document
+  is emptied by deleting it, not by taking its parts away one at a time.
+- Deduplication is a property of files, not documents (§3.3.16): two documents may hold the same
+  file no more than one may — a file has exactly one home.
+- Soft delete of a document (admin) hides it everywhere, removes its chunks from search, detaches it
+  from collections logically (items referencing it are hidden, not deleted), and takes its files
+  with it — they are not silently re-homed. A library file whose document was deleted is **not**
+  re-ingested by the next scan; the scan sees a live `FileRef` pointing at a live file and leaves it
+  alone.
 
 **Artifact keys (deterministic, no DB columns — see 09):**
-`documents/{id}/canonical.pdf`, `documents/{id}/preview.jpg`, `documents/{id}/thumb.jpg`,
-`documents/{id}/source.{ext}` (DERIVED and UPLOAD — the bytes themselves; `.pdf` for a scan-set
-merge, the uploaded file's own extension otherwise).
+`documents/{id}/canonical.pdf`, `documents/{id}/preview.jpg`, `documents/{id}/thumb.jpg`.
+A document owns no source bytes of its own: those belong to its files
+(`files/{fileId}/original.{ext}` for managed ones, a path on a volume for library ones).
 
 ### 3.3.19. Person
 
@@ -519,8 +530,8 @@ product: users organize documents into collections and share them.
 `(collectionId, documentId)` unique; `addedAt`, `addedById`. Hard-deleted on removal. Adding requires
 read access to the document at add time; items whose document later becomes inaccessible to a viewer
 are filtered out at read time for that viewer (the collection owner's access governs nothing for other
-viewers — each viewer sees the intersection of the collection and their own access, **except** shared
-DERIVED documents, which are readable via the share itself, see 08 §8.5).
+viewers — each viewer sees the intersection of the collection and their own access, **except**
+documents with no library file, which are readable via the share itself, see 08 §8.5).
 
 ### 3.3.15. CollectionShare
 | Field | Type | Notes |
@@ -531,30 +542,48 @@ DERIVED documents, which are readable via the share itself, see 08 §8.5).
 | createdAt / revokedAt? | | |
 
 Unique active share per (collectionId, granteeUserId), including the NULL (instance-wide) row.
-Sharing grants **read** access to the collection and, through it, to its DERIVED documents. LIBRARY
-documents are never made accessible via shares — library visibility is the only gate for them
-(deliberate: admins control library exposure, users cannot widen it).
+Sharing grants **read** access to the collection and, through it, to the documents in it that their
+owner created. A document with a file on a library volume is never made accessible via a share —
+library visibility is the only gate for it (deliberate: admins control library exposure, users
+cannot widen it).
 
-### 3.3.16. ScanSet
+### 3.3.16. File
+
+The bytes themselves, once, however many places they turn up in. A file is what a person put on the
+volume or sent from their browser; it is never what they read. What they read is a document
+(§3.3.10), which is an ordered list of files plus everything a machine and a person said about them.
+
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | |
-| name | string | becomes the result document's title |
-| createdById | uuid | |
-| status | ScanSetStatus | |
-| cropMode | `TRIM` \| `NONE` | default `TRIM` (auto-trim margins per image) |
-| resultDocumentId | uuid? | set on DONE |
-| error | string? | on FAILED |
+| contentHash | string | sha256 hex; unique among live files — the deduplication key that used to sit on the document (ADR-009, ADR-021) |
+| origin | FileOrigin | `LIBRARY` (bytes on the read-only volume, addressed by `FileRef`s) or `MANAGED` (bytes in our bucket) |
+| storageKey | string? | for `MANAGED` files, the exact object key; `NULL` for `LIBRARY` files. Stored rather than derived so a key written by an older version keeps working after the layout changes (docs/09 §9.2) |
+| mimeType | string | detected from content (magic bytes), never from the extension |
+| ext | string | lower-cased original extension |
+| sizeBytes | bigint | |
+| name | string | the file's own name, as it arrived: the last path segment, or the uploaded file name |
+| crop | json? | the quadrilateral of this file's content, normalized to `0…1` of the image: `{ points: [[x,y] ×4] }` in the order top-left, top-right, bottom-right, bottom-left. Only meaningful for images; applied when the canonical PDF is built (§5.5) |
+| cropSource | ValueSource | `NONE` (uncropped), `AUTO` (found by edge detection), `MANUAL` (a person dragged the corners). `MANUAL` is never overwritten by a rebuild |
 | createdAt / updatedAt / deletedAt | | |
 
-**State machine:** `DRAFT → QUEUED` (user triggers merge; requires ≥1 item) → `PROCESSING` (job
-started) → `DONE` | `FAILED`. `FAILED → QUEUED` (retry allowed, items may be edited first).
-Items are editable only in `DRAFT`/`FAILED` (`SCANSET_INVALID_STATE` otherwise).
+**Invariants:**
+- One live file per `contentHash` — the same bytes arriving twice, from a scan and from a browser,
+  are one file with two homes.
+- A `LIBRARY` file has ≥0 `FileRef`s (0 once every copy of it has vanished from every volume, §5.7);
+  a `MANAGED` file has a `storageKey` and no `FileRef`s.
+- 🔒 A file belongs to **exactly one live document** (§3.3.17). Detaching it from one document gives
+  it a document of its own rather than leaving it homeless — so a file on a volume is always
+  somewhere, and a scan that finds it again has nothing to guess.
+- Bytes are never modified. A crop is a number written beside a file, not a change to it: the
+  original stays exactly as it arrived and the canonical PDF is rebuilt instead (§5.6).
 
-### 3.3.17. ScanSetItem
-`(scanSetId, position)` unique; `documentId` must reference an image document (`mimeType image/*`)
-readable by the scan set's creator (`SCANSET_ITEM_NOT_IMAGE` / `FORBIDDEN`). Position is a 0-based
-contiguous order; reordering rewrites positions.
+### 3.3.17. DocumentFile
+
+The join that makes a document a sequence rather than a bag: `(documentId, position)` unique,
+`fileId` unique among live rows (a file has one home, §3.3.16). Position is 0-based and contiguous;
+reordering rewrites positions. Adding, removing, reordering or re-cropping a row invalidates the
+document's canonical PDF and enqueues a rebuild (§5.6).
 
 ## 3.4. Access model (authoritative summary)
 
@@ -564,18 +593,19 @@ Full rules in [`08 §8.5`](./08-auth-and-authorization.md); the model in one pla
 canReadDocument(user, doc):
   if user.role == ADMIN                → true
   if doc.deletedAt                     → false (404)
-  if doc.source == LIBRARY:
-      → any active FileRef of doc lies in an active library L where
-          L.visibility == ALL_USERS or LibraryAccess(L, user) exists
-  if doc.source == DERIVED or doc.source == UPLOAD:
-      → doc.createdById == user.id
-        or doc is an item of an active collection C such that
-           C.ownerId == user.id
-           or an active CollectionShare(C, user) or CollectionShare(C, NULL) exists
+  → ANY file of doc is a LIBRARY file with an active FileRef in an active library L where
+        L.visibility == ALL_USERS or LibraryAccess(L, user) exists
+    or doc.createdById == user.id
+    or doc is an item of an active collection C such that
+         C.ownerId == user.id
+         or an active CollectionShare(C, user) or CollectionShare(C, NULL) exists
 
-canEditDocumentMeta(user, doc):        # title, document type
-  → canReadDocument via a library (LIBRARY docs)  — collaborative editing
-  → owner or ADMIN (DERIVED and UPLOAD docs)
+canEditDocumentMeta(user, doc):        # title, document type, the composition of files
+  → canReadDocument via a library                 — collaborative editing
+  → owner or ADMIN, for a document with no library file at all
+
+# A document that absorbed an uploaded file into a library document stays readable to whoever the
+# library is readable to: one visible file is enough, because the document is one thing.
 
 canManageCollection(user, c):  c.ownerId == user.id or ADMIN
 canReadCollection(user, c):    owner, ADMIN, or active share (user-specific or instance-wide)
@@ -588,12 +618,14 @@ above runs unchanged — with one subtraction, that the caller may only read.
 
 | Action | Effect |
 |--------|--------|
-| File gone from disk | `FileRef.MISSING`; document possibly `UNAVAILABLE`; nothing deleted |
+| File gone from disk | `FileRef.MISSING`; the document turns `PARTIAL` or `UNAVAILABLE`; nothing is deleted, and the canonical PDF still reads |
+| File detached from a document | the file becomes a document of its own, with its own canonical PDF; nothing is deleted (§5.6) |
+| Document absorbed into another | its files move over in order, its own row is soft-deleted, and its collections/metadata are left behind with it (§5.6) |
 | Library soft-deleted | its documents disappear from all listings; artifacts/data retained |
 | Document soft-deleted (admin) | hidden everywhere; chunks excluded from search; artifacts retained in S3 (cleaned by a later `maintenance` policy only if ever specified) |
 | Document type soft-deleted | documents' document type reset to NONE |
 | Collection soft-deleted | hidden for everyone incl. shares |
-| User soft-deleted | sessions and API tokens revoked; their collections/scan sets hidden; their DERIVED documents remain visible to users they were shared with? — **No:** shares die with the collection; DERIVED docs of a deleted user stay accessible to ADMIN only |
+| User soft-deleted | sessions and API tokens revoked; their collections hidden; shares die with the collection, and the documents they created stay accessible to ADMIN only |
 
 ## 3.6. Open questions
 

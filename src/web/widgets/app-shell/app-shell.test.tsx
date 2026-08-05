@@ -97,7 +97,6 @@ describe('AppShell', () => {
       enMessages.nav.documents,
       enMessages.nav.search,
       enMessages.nav.collections,
-      enMessages.nav.scanSets,
       enMessages.nav.settings,
     ]) {
       expect(screen.getByRole('menuitem', { name: new RegExp(label) })).toBeInTheDocument();
@@ -128,7 +127,6 @@ describe('AppShell', () => {
       '/documents',
       '/search',
       '/collections',
-      '/scan-sets',
       '/settings',
       '/people',
       '/subjects',

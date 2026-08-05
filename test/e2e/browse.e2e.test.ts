@@ -4,6 +4,7 @@ import { browseResponseSchema } from '../../src/shared/contracts/libraries';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
+import { seedDocument } from '../helpers/documents';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
@@ -85,37 +86,17 @@ describe('Browse (e2e)', () => {
     return library.id;
   }
 
-  // One document with its file at exactly this path.
+  // One document whose single file lies at exactly this path (docs/03 §3.3.16–17).
   async function givenFileAt(libraryId: string, path: string, title?: string): Promise<string> {
-    contentSeq += 1;
-    const hash = `${contentSeq}`.padStart(64, 'e');
-    const document = await testPrisma().document.create({
-      data: {
-        contentHash: hash,
-        source: 'LIBRARY',
-        mimeType: 'application/pdf',
-        ext: 'pdf',
-        sizeBytes: 100n,
+    const seeded = await seedDocument({
+      document: {
         title: title ?? path.split('/').pop() ?? path,
         canonicalStatus: 'SKIPPED',
-        previewStatus: 'DONE',
-        markdownStatus: 'DONE',
-        analysisStatus: 'DONE',
-        vectorizationStatus: 'SKIPPED',
       },
+      libraryId,
+      files: [{ path, sizeBytes: 100n }],
     });
-    await testPrisma().fileRef.create({
-      data: {
-        libraryId,
-        documentId: document.id,
-        path,
-        size: 100n,
-        mtime: new Date('2026-01-01T00:00:00.000Z'),
-        status: 'HASHED',
-        contentHash: hash,
-      },
-    });
-    return document.id;
+    return seeded.id;
   }
 
   const browse = (libraryId: string, cookie: string, query = '') =>

@@ -99,11 +99,6 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
       icon: <AppstoreOutlined />,
       label: <Link href="/collections">{t('nav.collections')}</Link>,
     },
-    {
-      key: '/scan-sets',
-      icon: <DatabaseOutlined />,
-      label: <Link href="/scan-sets">{t('nav.scanSets')}</Link>,
-    },
     // The catalogues a document is filed by. Content, not administration (docs/11 §11.12a): anyone
     // signed in reads them and adds to them, and it is the affordances that reach across documents —
     // renaming, deleting, merging — that are an admin's, not the screens.

@@ -40,10 +40,9 @@ enum FileRefStatus {
   MISSING
 }
 
-enum DocumentSource {
+enum FileOrigin {
   LIBRARY
-  DERIVED
-  UPLOAD
+  MANAGED
 }
 
 enum StepStatus {
@@ -72,14 +71,6 @@ enum ValueSource {
   MANUAL
 }
 
-enum ScanSetStatus {
-  DRAFT
-  QUEUED
-  PROCESSING
-  DONE
-  FAILED
-}
-
 enum ScanRunStatus {
   RUNNING
   DONE
@@ -89,11 +80,6 @@ enum ScanRunStatus {
 enum VerificationPurpose {
   REGISTRATION
   PASSWORD_RESET
-}
-
-enum ScanSetCropMode {
-  TRIM
-  NONE
 }
 
 model User {
@@ -118,7 +104,6 @@ model User {
   libraryAccess    LibraryAccess[]
   collections      Collection[]
   collectionShares CollectionShare[]
-  scanSets         ScanSet[]
   derivedDocuments Document[]
   documentEvents   DocumentEvent[]
 
@@ -269,27 +254,22 @@ model FileRef {
   mtime        DateTime      @map("mtime") @db.Timestamptz(6)
   status       FileRefStatus
   contentHash  String?       @map("content_hash")
-  documentId   String?       @map("document_id") @db.Uuid
+  fileId       String?       @map("file_id") @db.Uuid
   missingSince DateTime?     @map("missing_since") @db.Timestamptz(6)
   firstSeenAt  DateTime      @default(now()) @map("first_seen_at") @db.Timestamptz(6)
   lastSeenAt   DateTime      @default(now()) @map("last_seen_at") @db.Timestamptz(6)
 
-  library  Library   @relation(fields: [libraryId], references: [id])
-  document Document? @relation(fields: [documentId], references: [id])
+  library Library @relation(fields: [libraryId], references: [id])
+  file    File?   @relation(fields: [fileId], references: [id])
 
   @@unique([libraryId, path])
-  @@index([documentId])
+  @@index([fileId])
   @@index([libraryId, status])
   @@map("file_refs")
 }
 
 model Document {
   id                  String                   @id @default(uuid()) @db.Uuid
-  contentHash         String                   @map("content_hash")
-  source              DocumentSource
-  mimeType            String                   @map("mime_type")
-  ext                 String
-  sizeBytes           BigInt                   @map("size_bytes")
   pageCount           Int?                     @map("page_count")
   title               String
   // What this document is, for somebody who has never seen it (docs/03 §3.3.10). Null until the
@@ -319,21 +299,18 @@ model Document {
   typeId              String?                  @map("type_id") @db.Uuid
   typeSource          ValueSource              @default(NONE) @map("type_source")
   createdById         String?                  @map("created_by_id") @db.Uuid
-  scanSetId           String?                  @map("scan_set_id") @db.Uuid
   createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime?                @map("deleted_at") @db.Timestamptz(6)
 
   documentType    DocumentType?     @relation(fields: [typeId], references: [id])
   createdBy       User?             @relation(fields: [createdById], references: [id])
-  fileRefs        FileRef[]
+  files           DocumentFile[]
   chunks          DocumentChunk[]
   events          DocumentEvent[]
   people          DocumentPerson[]
   subjects        DocumentSubject[]
   collectionItems CollectionItem[]
-  scanSetItems    ScanSetItem[]
-  resultOf        ScanSet?          @relation("ScanSetResult")
 
   @@index([typeId])
   @@index([createdAt(sort: Desc)])
@@ -507,36 +484,39 @@ model CollectionShare {
   @@map("collection_shares")
 }
 
-model ScanSet {
-  id               String          @id @default(uuid()) @db.Uuid
-  name             String
-  createdById      String          @map("created_by_id") @db.Uuid
-  status           ScanSetStatus   @default(DRAFT)
-  cropMode         ScanSetCropMode @default(TRIM) @map("crop_mode")
-  resultDocumentId String?         @unique @map("result_document_id") @db.Uuid
-  error            String?
-  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt        DateTime?       @map("deleted_at") @db.Timestamptz(6)
+// The bytes themselves, once, however many places they turn up in (docs/03 §3.3.16, ADR-021).
+model File {
+  id          String      @id @default(uuid()) @db.Uuid
+  contentHash String      @map("content_hash")
+  origin      FileOrigin
+  storageKey  String?     @map("storage_key")
+  mimeType    String      @map("mime_type")
+  ext         String
+  sizeBytes   BigInt      @map("size_bytes")
+  name        String
+  crop        Json?
+  cropSource  ValueSource @default(NONE) @map("crop_source")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime?   @map("deleted_at") @db.Timestamptz(6)
 
-  createdBy      User          @relation(fields: [createdById], references: [id])
-  resultDocument Document?     @relation("ScanSetResult", fields: [resultDocumentId], references: [id])
-  items          ScanSetItem[]
+  refs     FileRef[]
+  document DocumentFile?
 
-  @@index([createdById])
-  @@map("scan_sets")
+  @@map("files")
 }
 
-model ScanSetItem {
-  scanSetId  String @map("scan_set_id") @db.Uuid
-  position   Int
+// A document is an ordered list of files (docs/03 §3.3.17); a file has exactly one home.
+model DocumentFile {
   documentId String @map("document_id") @db.Uuid
+  position   Int
+  fileId     String @unique @map("file_id") @db.Uuid
 
-  scanSet  ScanSet  @relation(fields: [scanSetId], references: [id])
-  document Document @relation(fields: [documentId], references: [id])
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  file     File     @relation(fields: [fileId], references: [id])
 
-  @@id([scanSetId, position])
-  @@map("scan_set_items")
+  @@id([documentId, position])
+  @@map("document_files")
 }
 
 // Instance settings an admin changes at runtime (docs/03 §3.3.21): a key-value store, because these

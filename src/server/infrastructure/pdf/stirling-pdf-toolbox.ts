@@ -5,6 +5,7 @@ import {
   PdfToolbox,
   type FirstPageOptions,
   type NamedBinary,
+  type PdfMetadata,
 } from '../../application/ports/pdf-toolbox';
 import { AppConfig } from '../config/app-config';
 import { callHeaders } from '../logging/async-call-context';
@@ -12,10 +13,12 @@ import { callHeaders } from '../logging/async-call-context';
 // Stirling's REST surface (ADR-012). One endpoint per port method; the container is reached over the
 // internal network and is never exposed.
 const ENDPOINTS = {
-  officeToPdf: '/api/v1/convert/file/pdf',
+  toPdf: '/api/v1/convert/file/pdf',
   pdfToImage: '/api/v1/convert/pdf/img',
   ocr: '/api/v1/misc/ocr-pdf',
   imagesToPdf: '/api/v1/convert/img/pdf',
+  mergePdfs: '/api/v1/general/merge-pdfs',
+  updateMetadata: '/api/v1/misc/update-metadata',
   pageCount: '/api/v1/analysis/page-count',
   pdfToMarkdown: '/api/v1/convert/pdf/markdown',
 } as const;
@@ -38,12 +41,12 @@ export class StirlingPdfToolbox extends PdfToolbox {
     return this.baseUrl;
   }
 
-  async officeToPdf(source: NamedBinary): Promise<Buffer> {
+  async toPdf(source: NamedBinary): Promise<Buffer> {
     const form = new FormData();
     // LibreOffice picks its input filter from the extension, so the original name has to travel
     // with the bytes — an .xlsx uploaded as "file" would be read as something else entirely.
     form.append('fileInput', await blobOf(source.body), source.fileName);
-    return this.postForBytes(ENDPOINTS.officeToPdf, form);
+    return this.postForBytes(ENDPOINTS.toPdf, form);
   }
 
   async pdfFirstPageJpg(source: BinarySource, options: FirstPageOptions = {}): Promise<Buffer> {
@@ -98,6 +101,35 @@ export class StirlingPdfToolbox extends PdfToolbox {
     return this.postForBytes(ENDPOINTS.imagesToPdf, form);
   }
 
+  async mergePdfs(parts: readonly BinarySource[]): Promise<Buffer> {
+    if (parts.length === 0) throw new Error('mergePdfs needs at least one part');
+
+    const form = new FormData();
+    // The order of the fields is the order of the pages, and `orderProvided` is what tells Stirling
+    // to keep it instead of sorting by name or by date (docs/05 §5.5 step 1).
+    for (const [index, part] of parts.entries()) {
+      form.append('fileInput', await blobOf(part), `part-${String(index).padStart(4, '0')}.pdf`);
+    }
+    form.append('sortType', 'orderProvided');
+    form.append('removeCertSign', 'false');
+    return this.postForBytes(ENDPOINTS.mergePdfs, form);
+  }
+
+  async stampMetadata(source: BinarySource, metadata: PdfMetadata): Promise<Buffer> {
+    const form = new FormData();
+    form.append('fileInput', await blobOf(source), 'input.pdf');
+    // deleteAll would wipe what the source PDFs carried; this pass adds what Legere knows and
+    // leaves the rest of the fields as they arrived.
+    form.append('deleteAll', 'false');
+    form.append('title', metadata.title);
+    form.append('producer', 'Legere');
+    if (metadata.date !== null) {
+      form.append('creationDate', stirlingDate(metadata.date));
+      form.append('modificationDate', stirlingDate(metadata.date));
+    }
+    return this.postForBytes(ENDPOINTS.updateMetadata, form);
+  }
+
   async pdfPageCount(source: BinarySource): Promise<number> {
     const form = new FormData();
     form.append('fileInput', await blobOf(source), 'input.pdf');
@@ -143,6 +175,15 @@ async function blobOf(source: BinarySource): Promise<Blob> {
     throw new Error('unexpected shared memory backing a document buffer');
   }
   return new Blob([new Uint8Array(underlying, bytes.byteOffset, bytes.byteLength)]);
+}
+
+// The one date format Stirling's metadata endpoint parses; anything else is rejected as malformed.
+function stirlingDate(date: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return (
+    `${date.getUTCFullYear()}/${pad(date.getUTCMonth() + 1)}/${pad(date.getUTCDate())} ` +
+    `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`
+  );
 }
 
 function truncate(text: string, max = 500): string {

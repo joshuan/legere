@@ -30,18 +30,18 @@ Dependencies point inward only: `presentation → application → domain`;
 ## 6.2. Domain layer
 
 - **Entities** are plain classes/types mirroring [`03`](./03-domain-model.md) (e.g. `Document`,
-  `FileRef`, `Library`, `ScanSet`) with behavior where it belongs:
+  `FileRef`, `File`, `Library`) with behavior where it belongs:
   `document.availability(fileRefs, libraries)`, `scanSet.canEditItems()`,
   `fileRef.needsRehash(size, mtime)`.
 - **Value objects:** `RelativePath` (normalized, traversal-safe — the only way to represent a library
   path in the domain), `ContentHash` (sha256 hex, lower-case), `EmailAddress` (normalized).
 - **Domain errors:** a sealed hierarchy `DomainError { code, httpStatus, details? }` — e.g.
   `NotFoundError('DOCUMENT_NOT_FOUND')`, `ForbiddenError`, `LastAdminError`,
-  `LibraryPathConflictError`, `ScanSetInvalidStateError`. The full code list — [`07 §7.2`](./07-api-specification.md#72-error-codes).
+  `LibraryPathConflictError`, `DocumentLastFileError`. The full code list — [`07 §7.2`](./07-api-specification.md#72-error-codes).
 - **Repository ports** (abstract classes) — one per aggregate: `UserRepository`, `SessionRepository`,
   `EmailVerificationRepository`, `UserInviteRepository`, `PasswordResetRepository`,
   `LibraryRepository`, `FileRefRepository`, `ScanRunRepository`, `DocumentRepository`,
-  `DocumentChunkRepository`, `DocumentTypeRepository`, `CollectionRepository`, `ScanSetRepository`.
+  `DocumentChunkRepository`, `DocumentTypeRepository`, `CollectionRepository`, `FileRepository`.
   Repositories accept/return domain entities, never Prisma types.
 
 ## 6.3. Application layer
@@ -60,7 +60,7 @@ only. Inventory (module → use cases):
 | search | `SearchDocuments` |
 | document types | `ListCategories`, `CreateCategory`ᴬ, `UpdateCategory`ᴬ, `DeleteCategory`ᴬ |
 | collections | `CreateCollection`, `ListMyCollections`, `GetCollection`, `UpdateCollection`, `DeleteCollection`, `AddCollectionItem`, `RemoveCollectionItem`, `ShareCollection`, `RevokeCollectionShare`, `ListCollectionShares` |
-| scan-sets | `CreateScanSet`, `ListMyScanSets`, `GetScanSet`, `UpdateScanSet`, `DeleteScanSet`, `EnqueueScanSetMerge` |
+| document files | `AddFileToDocument`, `ReorderDocumentFiles`, `SetFileCrop`, `SuggestFileCrop`, `SplitFileIntoDocument`, `CombineDocuments`, `SuggestDocumentGroups`, `DownloadFile` |
 | queue-admin | `GetQueueOverview`ᴬ, `ListFailedJobs`ᴬ, `RetryFailedJob`ᴬ |
 | health | `CheckHealth` |
 
@@ -75,7 +75,6 @@ Job handlers live in `application/jobs/` and are use cases with the signature
 | `HandleLibraryScan` | `{ libraryId, scanRunId? }` | walk, diff, create/update FileRefs, enqueue `file-ingest`, write ScanRun |
 | `HandleFileIngest` | `{ fileRefId }` | hash stream, attach/create Document, enqueue `document-process` for new documents |
 | `HandleDocumentProcess` | `{ documentId, steps?: string[] }` | run steps 1–5 sequentially; `steps` limits re-processing to a subset |
-| `HandleScanSetMerge` | `{ scanSetId }` | trim → assemble PDF → create DERIVED document → enqueue its processing |
 | `HandleMaintenance` | `{}` | purge expired EmailVerifications/invites/resets; delete S3 artifacts of documents soft-deleted > 30 days ago is **not** done (retention: keep); compact nothing else |
 
 Every handler starts with an idempotency check ("already done? → return") and must tolerate
@@ -114,7 +113,7 @@ atomically.
 - **Guards** (execution order): `SessionGuard` (the `sid` cookie, or an `Authorization: Bearer` API
   token on a safe method — [`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)) →
   `RolesGuard` (`@Roles('ADMIN')` routes) →
-  `DocumentAccessGuard` / `CollectionAccessGuard` / `ScanSetOwnerGuard` (resolve the resource by path
+  `DocumentAccessGuard` / `CollectionAccessGuard` (resolve the resource by path
   param, run the 03 §3.4 checks, attach the loaded resource to the request via `@CurrentDocument()`
   etc. so use cases don't re-fetch).
 - **Pipes:** a global `ZodValidationPipe` that looks up the Zod schema declared per-route
@@ -140,7 +139,7 @@ atomically.
 LibraryReader), `PdfModule` (PdfToolbox, ImageTool), `AiModule` (EmbeddingProvider,
 DocumentAnalyst), `QueueModule` (JobQueue, QueueMonitor, worker bootstrap), and the feature
 modules: `AuthModule`, `UsersModule`, `LibrariesModule`, `DocumentsModule`, `SearchModule`,
-`DocumentTypesModule`, `CollectionsModule`, `ScanSetsModule`, `QueueAdminModule`, `HealthModule`.
+`DocumentTypesModule`, `CollectionsModule`, `QueueAdminModule`, `HealthModule`.
 
 ## 6.6. Configuration
 
@@ -165,13 +164,13 @@ passwords, tokens, codes, session ids, email bodies, signed URLs. Job handlers l
   resolved from the Nest DI container (`app.get(HandleFileIngest)`).
 - Retry policy per queue: `retryLimit: 5`, `retryBackoff: true` (exponential).
   `library-scan` uses a **singleton key** = libraryId (pg-boss `singletonKey`) so one scan per library
-  runs at a time; `scanset-merge` uses singletonKey = scanSetId.
+  runs at a time; `document-process` uses singletonKey = documentId.
 - **`expireInSeconds` is per queue**, and it is a recovery time rather than a work timeout: it is how
   long a job stays `active` after its worker disappeared — a crash, a deploy, a dev restart — before
   pg-boss gives it to someone else. Under the `stately` policy an abandoned job keeps its singleton
   slot, so this interval is exactly how long a library stays unscannable (and its ScanRun stuck at
   RUNNING) after a restart mid-scan. Values: `library-scan` 15 min, `file-ingest` 10 min,
-  `document-process` 60 min (conversion and OCR), `scanset-merge` 30 min, `maintenance` 15 min —
+  `document-process` 60 min (assembly, conversion and OCR), `maintenance` 15 min —
   generous multiples of the real work, safe because every handler is idempotent
   ([`05 §5.4`](./05-library-and-processing.md#54-job-queue-pg-boss)).
 - Cron: on start, the app (re)registers pg-boss schedules — per-library scans (`*/N` from

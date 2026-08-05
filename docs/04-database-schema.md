@@ -48,10 +48,9 @@ enum FileRefStatus {
   MISSING
 }
 
-enum DocumentSource {
+enum FileOrigin {
   LIBRARY
-  DERIVED
-  UPLOAD
+  MANAGED
 }
 
 enum StepStatus {
@@ -76,14 +75,6 @@ enum ValueSource {
   MANUAL
 }
 
-enum ScanSetStatus {
-  DRAFT
-  QUEUED
-  PROCESSING
-  DONE
-  FAILED
-}
-
 enum ScanRunStatus {
   RUNNING
   DONE
@@ -93,11 +84,6 @@ enum ScanRunStatus {
 enum VerificationPurpose {
   REGISTRATION
   PASSWORD_RESET
-}
-
-enum ScanSetCropMode {
-  TRIM
-  NONE
 }
 
 model User {
@@ -121,7 +107,6 @@ model User {
   libraryAccess     LibraryAccess[]
   collections       Collection[]
   collectionShares  CollectionShare[]
-  scanSets          ScanSet[]
   derivedDocuments  Document[]
 
   @@map("users")
@@ -269,27 +254,22 @@ model FileRef {
   mtime        DateTime      @map("mtime") @db.Timestamptz(6)
   status       FileRefStatus
   contentHash  String?       @map("content_hash")
-  documentId   String?       @map("document_id") @db.Uuid
+  fileId       String?       @map("file_id") @db.Uuid
   missingSince DateTime?     @map("missing_since") @db.Timestamptz(6)
   firstSeenAt  DateTime      @default(now()) @map("first_seen_at") @db.Timestamptz(6)
   lastSeenAt   DateTime      @default(now()) @map("last_seen_at") @db.Timestamptz(6)
 
-  library  Library   @relation(fields: [libraryId], references: [id])
-  document Document? @relation(fields: [documentId], references: [id])
+  library Library @relation(fields: [libraryId], references: [id])
+  file    File?   @relation(fields: [fileId], references: [id])
 
   @@unique([libraryId, path])
-  @@index([documentId])
+  @@index([fileId])
   @@index([libraryId, status])
   @@map("file_refs")
 }
 
 model Document {
   id                   String         @id @default(uuid()) @db.Uuid
-  contentHash          String         @map("content_hash")
-  source               DocumentSource
-  mimeType             String         @map("mime_type")
-  ext                  String
-  sizeBytes            BigInt         @map("size_bytes")
   pageCount            Int?           @map("page_count")
   title                String
   description          String?        @map("description")
@@ -312,18 +292,15 @@ model Document {
   typeId           String?        @map("type_id") @db.Uuid
   typeSource       ValueSource @default(NONE) @map("type_source")
   createdById          String?        @map("created_by_id") @db.Uuid
-  scanSetId            String?        @map("scan_set_id") @db.Uuid
   createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt            DateTime?      @map("deleted_at") @db.Timestamptz(6)
 
   document type        Document type?        @relation(fields: [typeId], references: [id])
   createdBy       User?            @relation(fields: [createdById], references: [id])
-  fileRefs        FileRef[]
+  files           DocumentFile[]
   chunks          DocumentChunk[]
   collectionItems CollectionItem[]
-  scanSetItems    ScanSetItem[]
-  resultOf        ScanSet?         @relation("ScanSetResult")
 
   @@index([typeId])
   @@index([createdAt(sort: Desc)])
@@ -415,36 +392,37 @@ model CollectionShare {
   @@map("collection_shares")
 }
 
-model ScanSet {
-  id               String          @id @default(uuid()) @db.Uuid
-  name             String
-  createdById      String          @map("created_by_id") @db.Uuid
-  status           ScanSetStatus   @default(DRAFT)
-  cropMode         ScanSetCropMode @default(TRIM) @map("crop_mode")
-  resultDocumentId String?         @unique @map("result_document_id") @db.Uuid
-  error            String?
-  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt        DateTime?       @map("deleted_at") @db.Timestamptz(6)
+model File {
+  id          String     @id @default(uuid()) @db.Uuid
+  contentHash String     @map("content_hash")
+  origin      FileOrigin
+  storageKey  String?    @map("storage_key")
+  mimeType    String     @map("mime_type")
+  ext         String
+  sizeBytes   BigInt     @map("size_bytes")
+  name        String
+  crop        Json?
+  cropSource  ValueSource @default(NONE) @map("crop_source")
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt   DateTime?  @map("deleted_at") @db.Timestamptz(6)
 
-  createdBy      User          @relation(fields: [createdById], references: [id])
-  resultDocument Document?     @relation("ScanSetResult", fields: [resultDocumentId], references: [id])
-  items          ScanSetItem[]
+  refs     FileRef[]
+  document DocumentFile?
 
-  @@index([createdById])
-  @@map("scan_sets")
+  @@map("files")
 }
 
-model ScanSetItem {
-  scanSetId  String @map("scan_set_id") @db.Uuid
-  position   Int
+model DocumentFile {
   documentId String @map("document_id") @db.Uuid
+  position   Int
+  fileId     String @unique @map("file_id") @db.Uuid
 
-  scanSet  ScanSet  @relation(fields: [scanSetId], references: [id])
-  document Document @relation(fields: [documentId], references: [id])
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  file     File     @relation(fields: [fileId], references: [id])
 
-  @@id([scanSetId, position])
-  @@map("scan_set_items")
+  @@id([documentId, position])
+  @@map("document_files")
 }
 ```
 
@@ -492,7 +470,7 @@ CREATE INDEX document_chunks_embedding_idx ON document_chunks
 -- 4) partial unique indexes (soft-delete aware)
 CREATE UNIQUE INDEX users_email_active_uq        ON users (email)        WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX libraries_root_path_active_uq ON libraries (root_path) WHERE deleted_at IS NULL;
-CREATE UNIQUE INDEX documents_content_hash_active_uq ON documents (content_hash) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX files_content_hash_active_uq ON files (content_hash) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX document_types_slug_active_uq    ON document_types (slug)    WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX collections_owner_name_active_uq ON collections (owner_id, name) WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX collection_shares_grantee_active_uq
@@ -514,7 +492,9 @@ indexes. `prisma migrate dev` generates the base DDL; the raw statements are app
 | Query | Served by |
 |-------|-----------|
 | scan: lookup by `(libraryId, path)` | `file_refs` unique index |
-| dedup: `Document` by `contentHash` | partial unique index |
+| dedup: `File` by `contentHash` | partial unique index |
+| the files of one document, in order | `document_files` PK `(document_id, position)` |
+| the document a file belongs to | `document_files.file_id` unique |
 | document list, newest first, filtered by document type/library | `documents(created_at DESC)`, `documents(type_id)`, `file_refs(library_id, status)` + join |
 | availability check for a document | `file_refs(document_id)` index |
 | FTS | GIN on `search_vector`, query via `websearch_to_tsquery('simple', $1)` |

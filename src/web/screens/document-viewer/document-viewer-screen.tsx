@@ -2,6 +2,12 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
+  DownOutlined,
+  FileTextOutlined,
+} from '@ant-design/icons';
+import {
   App,
   AutoComplete,
   Button,
@@ -9,8 +15,10 @@ import {
   Checkbox,
   Col,
   DatePicker,
+  Dropdown,
   Empty,
   Input,
+  List,
   Row,
   Select,
   Space,
@@ -20,6 +28,7 @@ import {
   Tag,
   Tooltip,
   Typography,
+  theme,
 } from 'antd';
 import dayjs from 'dayjs';
 import { useTranslations } from 'next-intl';
@@ -34,6 +43,7 @@ import {
   type ResettableField,
   type DocumentDetailDto,
   type DocumentEventDto,
+  type DocumentFileDto,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
 import type { StepStatus } from '../../../shared/contracts/enums';
@@ -43,6 +53,8 @@ import { documentApi, documentFiles, documentKeys } from '../../entities/documen
 import { personApi, personKeys } from '../../entities/person';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
+import { CropEditor } from '../../features/crop-editor';
+import { UploadButton, UploadingRow, useDocumentUpload } from '../../features/document-upload';
 import { useErrorMessage, formatBytes } from '../../shared/lib';
 import { isViewerTab, type ViewerTab } from './viewer-tab';
 
@@ -209,9 +221,7 @@ export function DocumentViewerScreen({
               {
                 key: 'preview',
                 label: t('viewer.tabs.preview'),
-                children: (
-                  <PreviewPane document={detail} markdown={markdown.data?.markdown ?? null} />
-                ),
+                children: <PreviewPane document={detail} />,
               },
               {
                 key: 'text',
@@ -277,22 +287,7 @@ export function DocumentViewerScreen({
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Card>
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <Tooltip
-                title={
-                  detail.availability === 'UNAVAILABLE'
-                    ? t('viewer.downloadUnavailable')
-                    : undefined
-                }
-              >
-                <Button
-                  type="primary"
-                  block
-                  disabled={detail.availability === 'UNAVAILABLE'}
-                  href={documentFiles.source(detail.id)}
-                >
-                  {t('viewer.download')}
-                </Button>
-              </Tooltip>
+              <DownloadSplitButton document={detail} />
 
               {/* Only the caller's own collections: adding to somebody else's is not a thing a
                   reader may do (docs/03 §3.4). */}
@@ -378,35 +373,18 @@ export function DocumentViewerScreen({
   );
 }
 
-// The document itself, as the browser can show it (docs/10 §10.8): a PDF in an <object>, an image
-// as its full-size preview, text as rendered Markdown.
-function PreviewPane({
-  document,
-  markdown,
-}: {
-  document: DocumentDetailDto;
-  markdown: string | null;
-}) {
+// The document itself, as the browser can show it (docs/10 §10.8): **the canonical PDF**, whatever
+// the document happens to be made of — by the time it is readable it is a PDF (docs/05 §5.5). Until
+// that step has finished there is nothing whole to show, so the pane is honest about it rather than
+// quietly showing page one of forty (docs/11 §11.5).
+function PreviewPane({ document }: { document: DocumentDetailDto }) {
   const t = useTranslations();
 
-  if (document.mimeType.startsWith('image/') && document.hasPreview) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element -- an API route that 302s to a signed URL.
-      <img
-        // Keyed by the step that produces it: a preview requested before it existed is a broken
-        // image the browser will never retry on its own (docs/10 §10.5).
-        key={document.steps.preview}
-        src={documentFiles.preview(document.id)}
-        alt={document.title}
-        style={{ maxWidth: '100%' }}
-      />
-    );
-  }
-
-  const hasPdf = document.mimeType === 'application/pdf' || document.steps.canonical === 'DONE';
-  if (hasPdf && document.availability === 'AVAILABLE') {
+  if (document.steps.canonical === 'DONE') {
     return (
       <object
+        // Keyed by the step that produces it: a canonical requested before it existed is a dead
+        // embed the browser will never retry on its own (docs/10 §10.5).
         key={document.steps.canonical}
         data={documentFiles.canonical(document.id)}
         type="application/pdf"
@@ -414,13 +392,89 @@ function PreviewPane({
         aria-label={t('viewer.tabs.preview')}
       >
         {/* Whatever the browser cannot render inline, it can still download. */}
-        <a href={documentFiles.source(document.id)}>{t('viewer.download')}</a>
+        <a href={documentFiles.canonical(document.id, { download: true })}>
+          {t('viewer.download')}
+        </a>
       </object>
     );
   }
 
-  if (markdown !== null && markdown !== '') return <RenderedMarkdown markdown={markdown} />;
-  return <Empty description={t('viewer.noPreview')} />;
+  // The first page, while the whole of it is still being put together — with a line saying that is
+  // what this is, so nobody reads a one-page preview as the whole document.
+  if (document.hasPreview) {
+    return (
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Typography.Text type="secondary">{t('viewer.canonical.assembling')}</Typography.Text>
+        {/* eslint-disable-next-line @next/next/no-img-element -- an API route that 302s to a signed URL. */}
+        <img
+          key={document.steps.preview}
+          src={documentFiles.preview(document.id)}
+          alt={document.title}
+          style={{ maxWidth: '100%' }}
+        />
+      </Space>
+    );
+  }
+
+  return (
+    <Empty
+      description={
+        document.steps.canonical === 'FAILED'
+          ? t('viewer.canonical.failed')
+          : t('viewer.canonical.assembling')
+      }
+    />
+  );
+}
+
+// Download is a split button (docs/11 §11.5b): its main half is the document as one piece, its
+// dropdown the originals it was made of. The default is never silently an original — a document made
+// of forty photographs downloads as one PDF, and whoever wants photograph 23 asks for it by name.
+function DownloadSplitButton({ document }: { document: DocumentDetailDto }) {
+  const t = useTranslations();
+  const ready = document.steps.canonical === 'DONE';
+
+  return (
+    <Space.Compact style={{ width: '100%' }}>
+      <Tooltip title={ready ? undefined : t('viewer.canonical.assembling')}>
+        {/* antd drops the href of a disabled button, so there is nothing left to click through to
+            while the document is not one piece yet (docs/11 §11.5b). */}
+        <Button
+          type="primary"
+          block
+          disabled={!ready}
+          {...(ready ? { href: documentFiles.canonical(document.id, { download: true }) } : {})}
+        >
+          {t('viewer.download')}
+        </Button>
+      </Tooltip>
+      {/* Enabled even while the canonical is not: the dropdown is the answer to "I need the raw
+          file", and it has to work on the worst day (docs/11 §11.5b). */}
+      <Dropdown
+        trigger={['click']}
+        menu={{
+          items: document.files.map((file) => ({
+            key: file.id,
+            disabled: !file.available,
+            label: file.available ? (
+              <a href={documentFiles.fileContent(document.id, file.id)} download={file.name}>
+                {file.name}
+              </a>
+            ) : (
+              <Space size={4}>
+                <span>{file.name}</span>
+                <Typography.Text type="secondary">
+                  {t('viewer.files.missingReason')}
+                </Typography.Text>
+              </Space>
+            ),
+          })),
+        }}
+      >
+        <Button type="primary" aria-label={t('viewer.downloadOriginals')} icon={<DownOutlined />} />
+      </Dropdown>
+    </Space.Compact>
+  );
 }
 
 function TextPane({
@@ -703,7 +757,6 @@ function DetailsPane({
             emphasis: true,
             pending: state('preview'),
           },
-          { label: t('viewer.details.mime'), value: document.mimeType },
           {
             label: t('viewer.details.documentType'),
             value:
@@ -958,14 +1011,6 @@ function DetailsPane({
             note: wasRead(autoPlace, placeOf(document.city, document.country), ['city', 'country']),
           },
           {
-            label: t('viewer.details.hash'),
-            value: (
-              <Typography.Text code copyable={{ text: document.contentHash }}>
-                {document.contentHash.slice(0, 12)}…
-              </Typography.Text>
-            ),
-          },
-          {
             label: t('viewer.details.created'),
             value: new Date(document.createdAt).toLocaleString(),
           },
@@ -974,30 +1019,6 @@ function DetailsPane({
             value: document.ocrUsed ? t('common.yes') : t('common.no'),
             pending: state('markdown'),
           },
-          // Where the bytes are. One row per place, labelled by the library holding it: a card of
-          // its own made it look like a section of the document rather than one more fact about it.
-          ...(document.fileRefs.length === 0
-            ? [
-                {
-                  label: t('viewer.details.locations'),
-                  value: (
-                    <Typography.Text type="secondary">
-                      {t('viewer.details.noLocations')}
-                    </Typography.Text>
-                  ),
-                },
-              ]
-            : document.fileRefs.map((ref) => ({
-                label: ref.libraryName,
-                value: (
-                  <Space size={4} wrap>
-                    <Typography.Text code>{ref.path}</Typography.Text>
-                    {ref.status === 'MISSING' && (
-                      <Tag color="default">{t('documents.badges.unavailable')}</Tag>
-                    )}
-                  </Space>
-                ),
-              }))),
         ]}
       />
 
@@ -1012,6 +1033,228 @@ function DetailsPane({
             </Button>
           </Space>
         </div>
+      )}
+
+      {/* What the document is made of, and the only place it can be rearranged (docs/11 §11.5a). */}
+      <FilesSection document={document} />
+    </Space>
+  );
+}
+
+// A document is an ordered list of files (docs/03 §3.3.10), and this is where that list is visible
+// and editable (docs/11 §11.5a). Every action here rebuilds the document — the canonical PDF, the
+// preview, the text, the analysis — so the section says so once, quietly, and then stays usable
+// while it happens.
+function FilesSection({ document }: { document: DocumentDetailDto }) {
+  const t = useTranslations();
+  const queryClient = useQueryClient();
+  const describeError = useErrorMessage();
+  const { message } = App.useApp();
+  const { token } = theme.useToken();
+  // The same queue as the grid, pointed at this document: files land here in the order chosen
+  // (docs/11 §11.3, §11.5a).
+  const upload = useDocumentUpload(document.id);
+  const [cropping, setCropping] = useState<DocumentFileDto | null>(null);
+
+  const refresh = (): void => {
+    void queryClient.invalidateQueries({ queryKey: documentKeys.detail(document.id) });
+    void queryClient.invalidateQueries({ queryKey: documentKeys.markdown(document.id) });
+    void queryClient.invalidateQueries({ queryKey: ['documents'] });
+  };
+
+  const reorder = useMutation({
+    mutationFn: (order: string[]) => documentApi.reorderFiles(document.id, { order }),
+    onSuccess: () => {
+      void message.success(t('viewer.files.rebuilding'), 2);
+      refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
+  // Not a deletion, and it does not carry the reader off to the new document either: they are
+  // looking at this one, and the file they split off is a document they can find (docs/11 §11.5a).
+  const split = useMutation({
+    mutationFn: (fileId: string) => documentApi.splitFile(document.id, fileId),
+    onSuccess: () => {
+      void message.success(t('viewer.files.splitDone'), 3);
+      refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
+  const move = (index: number, by: number): void => {
+    const order = document.files.map((file) => file.id);
+    const target = index + by;
+    const moved = order[index];
+    const displaced = order[target];
+    if (moved === undefined || displaced === undefined) return;
+    order[index] = displaced;
+    order[target] = moved;
+    reorder.mutate(order);
+  };
+
+  const busy = reorder.isPending || split.isPending;
+
+  return (
+    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+      <Row align="middle" justify="space-between" gutter={[8, 8]}>
+        <Col>
+          <Typography.Title level={5} style={{ margin: 0 }}>
+            {t('viewer.files.title')}
+          </Typography.Title>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t('viewer.files.rebuildNote')}
+          </Typography.Text>
+        </Col>
+        <Col>
+          <UploadButton onFiles={upload.send} label={t('viewer.files.add')} />
+        </Col>
+      </Row>
+
+      {/* On screen before a byte is sent, above the files it is about to join. */}
+      {upload.items.map((queued) => (
+        <UploadingRow
+          key={queued.key}
+          upload={queued}
+          onDismiss={() => upload.dismiss(queued.key)}
+        />
+      ))}
+
+      <List
+        dataSource={document.files}
+        rowKey="id"
+        size="small"
+        renderItem={(file: DocumentFileDto, index: number) => (
+          <List.Item
+            actions={[
+              <Button
+                key="download"
+                size="small"
+                type="link"
+                disabled={!file.available}
+                download={file.name}
+                {...(file.available
+                  ? { href: documentFiles.fileContent(document.id, file.id) }
+                  : {})}
+              >
+                {t('viewer.files.download')}
+              </Button>,
+              ...(file.isImage
+                ? [
+                    <Button key="crop" size="small" type="link" onClick={() => setCropping(file)}>
+                      {t('viewer.files.crop')}
+                    </Button>,
+                  ]
+                : []),
+              <Button
+                key="up"
+                size="small"
+                type="text"
+                aria-label={t('viewer.files.moveUp', { name: file.name })}
+                icon={<ArrowUpOutlined />}
+                disabled={index === 0 || busy}
+                onClick={() => move(index, -1)}
+              />,
+              <Button
+                key="down"
+                size="small"
+                type="text"
+                aria-label={t('viewer.files.moveDown', { name: file.name })}
+                icon={<ArrowDownOutlined />}
+                disabled={index === document.files.length - 1 || busy}
+                onClick={() => move(index, 1)}
+              />,
+              // Splitting off the only file is not offered at all, rather than refused after the
+              // fact: a document is emptied by deleting it (docs/11 §11.5a).
+              ...(document.files.length > 1
+                ? [
+                    <Button
+                      key="split"
+                      size="small"
+                      type="link"
+                      disabled={busy}
+                      onClick={() => split.mutate(file.id)}
+                    >
+                      {t('viewer.files.splitOff')}
+                    </Button>,
+                  ]
+                : []),
+            ]}
+          >
+            <List.Item.Meta
+              avatar={
+                <div
+                  style={{
+                    width: 44,
+                    height: 56,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'var(--legere-well)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {file.isImage && file.available ? (
+                    // An API route that 302s to a signed URL, or streams the volume's own bytes
+                    // (docs/10 §10.8).
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={documentFiles.fileContent(document.id, file.id)}
+                      alt=""
+                      loading="lazy"
+                      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                    />
+                  ) : (
+                    <FileTextOutlined
+                      style={{ fontSize: 20, color: token.colorTextQuaternary }}
+                      aria-hidden
+                    />
+                  )}
+                </div>
+              }
+              title={
+                <Space size={4} wrap>
+                  <span>{file.name}</span>
+                  {!file.available && <Tag color="default">{t('viewer.files.missing')}</Tag>}
+                  {file.crop !== null && <Tag color="blue">{t('viewer.files.cropped')}</Tag>}
+                </Space>
+              }
+              description={
+                <Space direction="vertical" size={0}>
+                  {/* What it is and what it weighs. The kind is the mime type rather than the
+                      extension: the name above already ends in `.jpg`. */}
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {`${file.mimeType} · ${formatBytes(file.sizeBytes)}`}
+                  </Typography.Text>
+                  {/* Where the bytes live is a fact about the file, and it belongs beside the file
+                      rather than in a section of its own (docs/11 §11.5a). */}
+                  {file.refs.map((ref) => (
+                    <Typography.Text
+                      key={`${ref.libraryId}:${ref.path}`}
+                      type="secondary"
+                      style={{ fontSize: 12 }}
+                      code
+                    >
+                      {`${ref.libraryName}: ${ref.path}`}
+                    </Typography.Text>
+                  ))}
+                </Space>
+              }
+            />
+          </List.Item>
+        )}
+      />
+
+      {cropping !== null && (
+        <CropEditor
+          open
+          documentId={document.id}
+          file={cropping}
+          onClose={() => {
+            setCropping(null);
+            refresh();
+          }}
+        />
       )}
     </Space>
   );

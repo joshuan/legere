@@ -68,6 +68,7 @@ SMTP_FROM="Legere <no-reply@example.com>"
 
 # --- library volume ---
 LIBRARY_ROOT=./dev-library                   # the folder `npm run dev` reads; the container overrides this with /library
+GROUPING_WINDOW_MINUTES=10                   # how close in time scans must be to be suggested as one document (05 §5.6a)
 SCAN_MAX_FILES=50000                         # a scan gives up past this many files (05 §5.2); 0 = no limit
 UPLOAD_MAX_BYTES=104857600                   # 100 MiB: the largest file a user may upload (05 §5.1a)
 

@@ -31,18 +31,20 @@ human-readable index and must stay in sync with them.
 | 403 | `FORBIDDEN` | authz failure, CSRF failure, deactivated user |
 | 403 | `READ_ONLY_TOKEN` | a mutating request carrying an `Authorization: Bearer` header ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)) |
 | 404 | `NOT_FOUND` | unknown route/malformed id |
-| 404 | `USER_NOT_FOUND`, `LIBRARY_NOT_FOUND`, `DOCUMENT_NOT_FOUND`, `DOCUMENT_TYPE_NOT_FOUND`, `COLLECTION_NOT_FOUND`, `SCANSET_NOT_FOUND`, `INVITE_NOT_FOUND`, `API_TOKEN_NOT_FOUND` | resource lookups (incl. soft-deleted) |
+| 404 | `USER_NOT_FOUND`, `LIBRARY_NOT_FOUND`, `DOCUMENT_NOT_FOUND`, `DOCUMENT_TYPE_NOT_FOUND`, `COLLECTION_NOT_FOUND`, `FILE_NOT_FOUND`, `INVITE_NOT_FOUND`, `API_TOKEN_NOT_FOUND` | resource lookups (incl. soft-deleted) |
 | 409 | `EMAIL_ALREADY_REGISTERED` | registration race |
 | 409 | `LAST_ADMIN` | demote/deactivate/delete last admin |
 | 409 | `DOCUMENT_DUPLICATE` | upload whose content already exists as a document the caller may not read |
 | 409 | `LIBRARY_PATH_CONFLICT` | nested/duplicate library path |
 | 409 | `DOCUMENT_TYPE_SLUG_TAKEN`, `COLLECTION_NAME_TAKEN` | uniqueness |
-| 409 | `SCANSET_INVALID_STATE` | editing/merging in a wrong status |
+| 409 | `DOCUMENT_LAST_FILE` | removing the only file of a document |
+| 409 | `FILE_ALREADY_IN_DOCUMENT` | attaching a file that already belongs to a document |
+| 409 | `CANONICAL_NOT_READY` | the canonical PDF has not been built yet |
 | 409 | `DOCUMENT_UNAVAILABLE` | source download when all refs MISSING |
 | 410 | `ONBOARDING_CLOSED` | onboarding after first user exists |
 | 422 | `VALIDATION_FAILED` | Zod failure (`details.issues`) |
 | 422 | `LIBRARY_PATH_INVALID` | path outside root / not a directory |
-| 422 | `SCANSET_ITEM_NOT_IMAGE` | non-image item |
+| 422 | `FILE_NOT_IMAGE` | cropping something that is not an image |
 | 400 | `EMAIL_CODE_INVALID`, `REGISTRATION_TICKET_INVALID`, `INVITE_INVALID`, `RESET_INVALID`, `CAPTCHA_FAILED` | auth flows |
 | 429 | `RATE_LIMITED`, `EMAIL_CODE_TOO_MANY_ATTEMPTS` | limits |
 | 500 | `INTERNAL` | unexpected |
@@ -107,8 +109,8 @@ reports as expired.
 ### Documents
 | Method & path | Auth | Notes |
 |---------------|------|-------|
-| `POST /api/documents` | 🔒 | **upload**: the file as the raw request body, its name in `X-Legere-Filename` (RFC 5987 or plain). Mime detected from content; `UPLOAD_MAX_BYTES` cap → 413. Deduplicated (ADR-009): identical bytes the caller may read resolve to that document (`200`), identical bytes they may not → `409 DOCUMENT_DUPLICATE`. Otherwise `201` with the new `UPLOAD` document, processing already enqueued |
-| `GET /api/documents` | 🔒 | paginated, newest first; filters: `libraryId?`, `typeId?`, `personId?`, `subjectId?`, `year?`, `availability?` (`AVAILABLE`\|`UNAVAILABLE`), `processing?` (bool), `source?`; only documents the caller can read |
+| `POST /api/documents` | 🔒 | **upload**: the file as the raw request body, its name in `X-Legere-Filename` (RFC 5987 or plain). Mime detected from content; `UPLOAD_MAX_BYTES` cap → 413. Deduplicated by **file** (ADR-009, ADR-021): bytes that are already a file resolve to that file's document when the caller may read it (`200`), and to `409 DOCUMENT_DUPLICATE` when they may not. Otherwise `201` with a new document holding the new file, processing already enqueued |
+| `GET /api/documents` | 🔒 | paginated, newest first; filters: `libraryId?`, `typeId?`, `personId?`, `subjectId?`, `year?`, `availability?` (`AVAILABLE`\|`PARTIAL`\|`UNAVAILABLE`), `processing?` (bool), `origin?` (`LIBRARY`\|`MANAGED`); only documents the caller can read |
 | `GET /api/documents/years` | 🔒 | `{ items: [{ year, count }] }`, newest first — the years the caller's documents carry (11 §11.4). Declared before `:id`, or the router reads "years" as a document id |
 | `GET /api/documents/:id` | 🔒 | → `DocumentDetailDto`, including `auto` — what the pipeline decided before anybody corrected it (03 §3.3.10) |
 | `PATCH /api/documents/:id` | 🔒 | `{ title?, description?, languages?, country?, city?, typeId?, peopleIds?, subjectIds?, documentDate? }` per canEditDocumentMeta (03 §3.4); setting typeId flips `typeSource` to MANUAL (null → NONE), and setting `title` flips `titleSource` to MANUAL, after which no analysis renames the document. `languages` are BCP-47 tags, `country` ISO 3166-1 alpha-2 (upper-cased on the way in), `city` free text; all three are corrections of what detection guessed (03 §3.3.10). `reset: ('title'\|'description'\|'documentType'\|'languages'\|'country'\|'city'\|'documentDate')[]` puts fields back to what the pipeline read and, for the title and the document type, restores `AUTO` — it is applied after the explicit values, so a payload carrying both ends with the reset |
@@ -116,13 +118,14 @@ reports as expired.
 | `POST /api/documents/:id/reprocess` | 🔒ᴬ | `{ steps?: ('canonical'\|'preview'\|'markdown'\|'analysis'\|'vectorization')[] }` → re-enqueues `document-process` |
 | `GET /api/documents/:id/events` | 🔒 | paginated, newest first → `{ items: DocumentEventDto[], nextCursor }` — the document's history (03 §3.3.18). Same access as the document itself |
 | `GET /api/documents/:id/markdown` | 🔒 | → `{ markdown: string \| null }` |
-| `GET /api/documents/:id/source` | 🔒 | LIBRARY: streams the original file (`Content-Type`, `Content-Disposition: attachment`); DERIVED: 302 → signed URL of `source.pdf`; `DOCUMENT_UNAVAILABLE` if no live ref |
 | `GET /api/documents/:id/preview` | 🔒 | 302 → signed URL of `preview.jpg` (404 `NOT_FOUND` if step not DONE) |
 | `GET /api/documents/:id/thumb` | 🔒 | 302 → signed URL of `thumb.jpg` |
-| `GET /api/documents/:id/canonical` | 🔒 | 302 → signed URL of `canonical.pdf`; for PDF sources equals `/source` |
+| `GET /api/documents/:id/canonical` | 🔒 | 302 → signed URL of `canonical.pdf`, `Content-Disposition` chosen by `?download=1`. This **is** the document as far as reading and downloading go (`05 §5.5`); `409 CANONICAL_NOT_READY` while the step has not finished. The originals are one level down, under `/files/:fileId/content` |
 
-`DocumentListDto`: `{ id, title, ext, mimeType, sizeBytes(string), pageCount, type: {id,slug,name}|null, availability, processing, source, hasPreview, createdAt }`.
-`DocumentDetailDto` = list dto + `{ contentHash, ocrUsed, typeSource, steps: {canonical, preview, markdown, analysis, vectorization}, processingError, failedStep, fileRefs: [{ libraryId, libraryName, path, status }] (only refs in libraries visible to the caller; ADMIN sees all), createdBy?, scanSetId? }`.
+`DocumentListDto`: `{ id, title, fileCount, primaryExt, sizeBytes(string, the files together), pageCount, documentType: {id,slug,name}|null, availability, processing, origin, hasPreview, createdAt }`.
+`DocumentDetailDto` = list dto + `{ ocrUsed, typeSource, steps: {canonical, preview, markdown, analysis, vectorization}, processingError, failedStep, createdBy?, files: DocumentFileDto[] }`.
+
+`DocumentFileDto` = `{ id, position, name, mimeType, ext, sizeBytes, origin: 'LIBRARY' | 'MANAGED', available: boolean, crop: { points: [[x,y] ×4] } | null, cropSource: 'NONE' | 'AUTO' | 'MANUAL', isImage, refs: [{ libraryId, libraryName, path, status }] }` — ordered by position; `refs` lists only libraries visible to the caller (ADMIN sees all) and is empty for a managed file.
 
 ### Search
 | Method & path | Auth | Notes |
@@ -178,15 +181,22 @@ reports as expired.
 | `DELETE /api/collections/:id/shares/:shareId` | 🔒 owner | revoke |
 | `GET /api/users/lookup?q=` | 🔒 | minimal directory for the share picker: `[{ id, displayName, email }]`, max 10, active users only |
 
-### Scan sets
+### Document files
+
+A document is an ordered list of files (`03 §3.3.10`, `05 §5.6`). Every route below changes the
+composition and therefore enqueues a canonical rebuild + the rest of the pipeline; all of them
+answer with the whole `DocumentDetailDto`, because a composition change is never local.
+
 | Method & path | Auth | Notes |
 |---------------|------|-------|
-| `GET /api/scan-sets` | 🔒 | own, newest first |
-| `POST /api/scan-sets` | 🔒 | `{ name, cropMode?, items: [documentId, ...] }` (order = page order) → `ScanSetDto` (status DRAFT) |
-| `GET /api/scan-sets/:id` | 🔒 owner | with items (position, thumb) and `resultDocumentId` |
-| `PATCH /api/scan-sets/:id` | 🔒 owner | `{ name?, cropMode?, items? }` — DRAFT/FAILED only (`SCANSET_INVALID_STATE`) |
-| `POST /api/scan-sets/:id/merge` | 🔒 owner | DRAFT/FAILED → QUEUED, enqueues `scanset-merge` |
-| `DELETE /api/scan-sets/:id` | 🔒 owner | soft delete (result document, if any, stays) |
+| `POST /api/documents/:id/files` | 🔒 canEdit | the file **is** the body (as `POST /api/documents`), name in `X-Legere-Filename` (`X-File-Name` is accepted too); appended last. `413` over `UPLOAD_MAX_BYTES`, `409 FILE_ALREADY_IN_DOCUMENT` when those bytes already live in another document |
+| `PATCH /api/documents/:id/files` | 🔒 canEdit | `{ order: [fileId, ...] }` — the complete order, every file exactly once (`422 VALIDATION_FAILED` otherwise) |
+| `PATCH /api/documents/:id/files/:fileId` | 🔒 canEdit | `{ crop: { points: [[x,y] ×4] } \| null }` — normalized `0…1`, clockwise from top-left; `null` clears it. `422 FILE_NOT_IMAGE` for anything but an image |
+| `DELETE /api/documents/:id/files/:fileId` | 🔒 canEdit | **split**: the file leaves and becomes its own document → `{ document, splitDocumentId }`. `409 DOCUMENT_LAST_FILE` when it is the only one |
+| `GET /api/documents/:id/files/:fileId/crop-suggestion` | 🔒 | edge detection over the image → `{ crop: { points }, method: 'EDGES' \| 'CONTENT_BOX' }`. A proposal; nothing is stored until the client saves it (`05 §5.6`) |
+| `GET /api/documents/:id/files/:fileId/content` | 🔒 | the original bytes of one file: streamed from the volume, or 302 to a signed URL for a managed file. `409 DOCUMENT_UNAVAILABLE` when the volume no longer has it |
+| `POST /api/documents/:id/combine` | 🔒 canEdit | `{ documentIds: [uuid, ...] }` (1…50, the caller must be able to edit each) — their files are appended in that order and the emptied documents are soft-deleted |
+| `GET /api/documents/grouping-suggestions` | 🔒 | `{ items: [{ documentIds, libraryId, libraryName, folder, reason }] }` — single-file image documents that look like one document (`05 §5.6a`), newest first, max 20 groups. Computed, never stored |
 
 ### Admin: queue
 | Method & path | Auth | Notes |
@@ -214,7 +224,7 @@ reports as expired.
 ## 7.5. Contracts package layout
 
 `src/shared/contracts/` — one file per resource (`auth.ts`, `users.ts`, `libraries.ts`,
-`documents.ts`, `search.ts`, `document types.ts`, `collections.ts`, `scan-sets.ts`, `queue.ts`,
+`documents.ts`, `files.ts`, `search.ts`, `document types.ts`, `collections.ts`, `queue.ts`,
 `common.ts` — envelope, pagination, error codes enum, shared enums). Each file exports request
 schemas, response schemas, and inferred types. The server validates requests with them; the client
 validates responses with them (fail loudly on drift).

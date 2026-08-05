@@ -20,10 +20,9 @@ export const EXPIRE_IN_SECONDS: Readonly<Record<QueueName, number>> = {
   'library-scan': 15 * 60,
   // Reads and hashes one file.
   'file-ingest': 10 * 60,
-  // The slow one: conversion and OCR through Stirling, for a document of any size.
+  // The slow one: cropping, conversion, merging and OCR through Stirling, for a document of any
+  // number of files (docs/05 §5.5 step 1).
   'document-process': 60 * 60,
-  // Trims and merges up to a few dozen images.
-  'scanset-merge': 30 * 60,
   // Lists the bucket and deletes a few rows.
   maintenance: 15 * 60,
 };
@@ -32,10 +31,10 @@ export const EXPIRE_IN_SECONDS: Readonly<Record<QueueName, number>> = {
 const STOP_TIMEOUT_MS = 30_000;
 
 // Queues whose work is keyed by an entity get pg-boss's `stately` policy: at most one job queued and
-// at most one active per singleton key. That is what makes "one scan per library at a time" and
-// "one merge per scan set" hold at the database level (docs/05 §5.2, §5.4, docs/06 §6.8) — a plain
-// singletonKey on the default `standard` policy does not deduplicate at all.
-const SINGLETON_QUEUES: ReadonlySet<QueueName> = new Set(['library-scan', 'scanset-merge']);
+// at most one active per singleton key. That is what makes "one scan per library at a time" hold at
+// the database level (docs/05 §5.2, §5.4, docs/06 §6.8) — a plain singletonKey on the default
+// `standard` policy does not deduplicate at all.
+const SINGLETON_QUEUES: ReadonlySet<QueueName> = new Set(['library-scan']);
 
 // Owns the single PgBoss instance for the process (docs/06 §6.8): one connection pool on
 // DATABASE_URL, its own `pgboss` schema, which Prisma does not manage (docs/04 §4.2).

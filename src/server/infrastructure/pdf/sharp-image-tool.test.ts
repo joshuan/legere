@@ -97,20 +97,96 @@ describe('SharpImageTool', () => {
     });
   });
 
-  describe('trim', () => {
-    it('cuts the uniform border away and leaves the content', async () => {
-      const trimmed = await images.trim(await pageOnWhite(), 10);
-      const meta = await sharp(trimmed).metadata();
+  describe('contentBox', () => {
+    it('answers where the content sits, normalized to the whole image', async () => {
+      const crop = await images.contentBox(await pageOnWhite());
 
-      expect(meta.width).toBe(100);
-      expect(meta.height).toBe(200);
+      // The black rectangle is 100×200 at (150, 100) of a 400×400 frame.
+      expect(crop.points).toEqual([
+        [0.375, 0.25],
+        [0.625, 0.25],
+        [0.625, 0.75],
+        [0.375, 0.75],
+      ]);
     });
 
-    it('leaves an image with no border alone', async () => {
-      const meta = await sharp(await images.trim(await landscape(300, 200), 10)).metadata();
+    it('answers the whole frame for an image with no border to trim', async () => {
+      const crop = await images.contentBox(await landscape(300, 200));
 
-      expect(meta.width).toBe(300);
+      expect(crop.points).toEqual([
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+      ]);
+    });
+  });
+
+  describe('applyCrop', () => {
+    it('cuts an axis-aligned quad down to its own size', async () => {
+      const cropped = await images.applyCrop(await pageOnWhite(), {
+        points: [
+          [0.375, 0.25],
+          [0.625, 0.25],
+          [0.625, 0.75],
+          [0.375, 0.75],
+        ],
+      });
+
+      const meta = await sharp(cropped).metadata();
+      expect(meta.format).toBe('jpeg');
+      expect(meta.width).toBe(100);
       expect(meta.height).toBe(200);
+
+      // What was cut out is the black rectangle, so the result is black all through.
+      const { data } = await sharp(cropped).raw().toBuffer({ resolveWithObject: true });
+      expect(Math.max(...data.subarray(0, 300))).toBeLessThan(20);
+    });
+
+    it('straightens a page photographed at an angle into a rectangle', async () => {
+      // A quad whose top edge is 201 px and whose sides are 380: the result is that rectangle,
+      // however slanted the sides were (docs/05 §5.6).
+      const cropped = await images.applyCrop(await pageOnWhite(), {
+        points: [
+          [0.1, 0],
+          [0.6, 0.05],
+          [0.6, 1],
+          [0.1, 0.95],
+        ],
+      });
+
+      const meta = await sharp(cropped).metadata();
+      expect(meta.width).toBe(201);
+      expect(meta.height).toBe(380);
+    });
+
+    it('refuses a quadrilateral that encloses nothing', async () => {
+      await expect(
+        images.applyCrop(await pageOnWhite(), {
+          points: [
+            [0.5, 0.5],
+            [0.5, 0.5],
+            [0.5, 0.5],
+            [0.5, 0.5],
+          ],
+        }),
+      ).rejects.toThrow(/crop/i);
+    });
+  });
+
+  describe('grayscaleRaster', () => {
+    it('downscales to the longest side and answers one byte per pixel', async () => {
+      const raster = await images.grayscaleRaster(await landscape(1200, 800), 100);
+
+      expect(raster.width).toBe(100);
+      expect(raster.height).toBe(67);
+      expect(raster.data.length).toBe(100 * 67);
+    });
+
+    it('leaves a small image at its own size', async () => {
+      const raster = await images.grayscaleRaster(await landscape(80, 40), 400);
+
+      expect({ width: raster.width, height: raster.height }).toEqual({ width: 80, height: 40 });
     });
   });
 });

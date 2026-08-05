@@ -32,19 +32,16 @@
       "DOCUMENT_NOT_FOUND": "This document no longer exists.",
       "DOCUMENT_TYPE_NOT_FOUND": "This document type no longer exists.",
       "COLLECTION_NOT_FOUND": "This collection no longer exists.",
-      "SCANSET_NOT_FOUND": "This scan set no longer exists.",
       "INVITE_NOT_FOUND": "This invite no longer exists.",
       "EMAIL_ALREADY_REGISTERED": "An account with this email already exists.",
       "LAST_ADMIN": "The last administrator cannot be demoted or deactivated.",
       "LIBRARY_PATH_CONFLICT": "This folder overlaps another library.",
       "DOCUMENT_TYPE_SLUG_TAKEN": "A document type with this slug already exists.",
       "COLLECTION_NAME_TAKEN": "You already have a collection with this name.",
-      "SCANSET_INVALID_STATE": "This scan set cannot be changed in its current state.",
       "DOCUMENT_UNAVAILABLE": "The original file is currently unavailable.",
       "ONBOARDING_CLOSED": "This instance has already been set up.",
       "VALIDATION_FAILED": "Please check the highlighted fields.",
       "LIBRARY_PATH_INVALID": "This path is not a folder inside the library volume.",
-      "SCANSET_ITEM_NOT_IMAGE": "Only images can be added to a scan set.",
       "EMAIL_CODE_INVALID": "This code is not correct.",
       "REGISTRATION_TICKET_INVALID": "This step has expired. Please start again.",
       "INVITE_INVALID": "This invite link is no longer valid.",
@@ -62,7 +59,12 @@
       "SUBJECT_KIND_NOT_FOUND": "This kind is no longer in the list.",
       "SUBJECT_KIND_IN_USE": "This kind still holds things. Remove or move them first.",
       "API_TOKEN_NOT_FOUND": "This API token no longer exists.",
-      "READ_ONLY_TOKEN": "An API token may only read; use the app to make changes."
+      "READ_ONLY_TOKEN": "An API token may only read; use the app to make changes.",
+      "FILE_NOT_FOUND": "This file is no longer part of this document.",
+      "DOCUMENT_LAST_FILE": "A document keeps at least one file. Delete the document instead.",
+      "FILE_ALREADY_IN_DOCUMENT": "These bytes are already a file of another document.",
+      "CANONICAL_NOT_READY": "The document is still being assembled. Try again in a moment.",
+      "FILE_NOT_IMAGE": "Only an image can be cropped."
     }
   },
   "auth": {
@@ -437,18 +439,19 @@
     "title": "Documents",
     "badges": {
       "processing": "Processing",
-      "unavailable": "File missing"
+      "unavailable": "Files missing",
+      "files": "{count} files",
+      "partial": "Some files missing"
     },
     "filters": {
       "library": "Library",
       "documentType": "Type",
-      "source": "Source",
-      "sourceLibrary": "From libraries",
-      "sourceUpload": "Uploaded",
-      "sourceDerived": "Created by me",
       "unavailableOnly": "Missing files only",
       "processingOnly": "Processing only",
-      "clear": "Clear filters"
+      "clear": "Clear filters",
+      "origin": "Origin",
+      "originLibrary": "From libraries",
+      "originManaged": "Added here"
     },
     "empty": {
       "instance": "No documents yet. Ask your administrator to add a library.",
@@ -456,13 +459,11 @@
       "addLibrary": "Add a library"
     },
     "selection": {
-      "start": "Select pages",
+      "start": "Select documents",
       "cancel": "Cancel selection",
-      "count": "{count} images selected",
-      "skipped": "{count} non-images will be skipped",
-      "create": "Create scan set from selection",
-      "created": "Scan set created",
-      "defaultName": "New scan set"
+      "count": "{count} selected",
+      "combine": "Combine into one document",
+      "combined": "Combined into one document"
     },
     "upload": {
       "action": "Upload",
@@ -472,6 +473,14 @@
       "waiting": "Waiting",
       "uploading": "Uploading…",
       "failed": "Upload failed",
+      "dismiss": "Dismiss",
+      "added": "{name} added to this document"
+    },
+    "suggestions": {
+      "title": "These look like one document.",
+      "nameSequence": "{count} scans in {folder}, one after another",
+      "sameSitting": "{count} scans in {folder}, scanned in one sitting",
+      "combine": "Combine",
       "dismiss": "Dismiss"
     }
   },
@@ -480,9 +489,7 @@
     "documentType": "Type",
     "auto": "auto",
     "download": "Download",
-    "downloadUnavailable": "The file is missing from the library volume.",
     "addToCollection": "Add to collection",
-    "noPreview": "No preview for this document.",
     "noText": "No text extracted yet",
     "textPending": "Being extracted…",
     "textFailed": "Extraction failed",
@@ -516,7 +523,6 @@
     "details": {
       "size": "Size",
       "pages": "Pages",
-      "mime": "File type",
       "languages": "Languages",
       "languagesPlaceholder": "Add a language tag",
       "place": "Place",
@@ -524,11 +530,8 @@
       "cityPlaceholder": "City",
       "country": "Country",
       "countryPlaceholder": "Country",
-      "hash": "Content hash",
       "created": "Added",
       "ocr": "OCR used",
-      "locations": "File locations",
-      "noLocations": "This document has no files on any library you can see.",
       "auto": "read as {value}",
       "applyRead": "Put it back to what was read",
       "documentType": "Type",
@@ -558,6 +561,38 @@
       "when": "When",
       "what": "What happened",
       "who": "Who"
+    },
+    "crop": {
+      "title": "Crop this page",
+      "autoDetect": "Auto-detect corners",
+      "autoDetected": "Corners proposed — drag them if they are off",
+      "autoFailed": "Nothing page-shaped found; the content box is proposed instead",
+      "reset": "Clear crop",
+      "save": "Save and rebuild",
+      "cancel": "Cancel",
+      "hint": "Drag the corners to the page. It will be straightened to a rectangle when the document is rebuilt.",
+      "corner": "Corner {index}",
+      "saved": "Crop saved; the document is rebuilding"
+    },
+    "downloadOriginals": "Download one of the originals",
+    "canonical": {
+      "assembling": "Being assembled…",
+      "failed": "This document could not be assembled."
+    },
+    "files": {
+      "title": "Files",
+      "rebuildNote": "Changing the files rebuilds the document.",
+      "add": "Add files",
+      "download": "Download",
+      "crop": "Crop",
+      "moveUp": "Move {name} up",
+      "moveDown": "Move {name} down",
+      "splitOff": "Split off",
+      "splitDone": "That file is a document of its own now.",
+      "rebuilding": "The document is being rebuilt.",
+      "missing": "Missing",
+      "missingReason": "the volume no longer has it",
+      "cropped": "Cropped"
     }
   },
   "nav": {
@@ -565,7 +600,6 @@
     "browse": "Browse",
     "search": "Search",
     "collections": "Collections",
-    "scanSets": "Scan sets",
     "administration": "Administration",
     "settings": "Settings",
     "logout": "Log out",
@@ -628,22 +662,6 @@
       "nobody": "Not shared with anyone yet",
       "revoke": "Revoke"
     }
-  },
-  "scanSets": {
-    "title": "Scan sets",
-    "empty": "No scan sets yet. Select a few images in Documents to build one.",
-    "pageCount": "{count} pages",
-    "pages": "Pages",
-    "noPages": "This set has no pages.",
-    "trimMargins": "Trim margins",
-    "merge": "Merge into PDF",
-    "queued": "Merge queued",
-    "failed": "The merge failed",
-    "done": "The pages were merged",
-    "openResult": "Open the result",
-    "movePageLeft": "Move page {position} earlier",
-    "movePageRight": "Move page {position} later",
-    "removePage": "Remove page {position}"
   },
   "facets": {
     "types": "By type",

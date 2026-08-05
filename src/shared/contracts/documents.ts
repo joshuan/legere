@@ -3,7 +3,7 @@ import { paginatedSchema, paginationQuerySchema } from './common';
 import {
   valueSourceSchema,
   documentEventTypeSchema,
-  documentSourceSchema,
+  fileOriginSchema,
   fileRefStatusSchema,
   stepSkipReasonSchema,
   stepStatusSchema,
@@ -25,7 +25,10 @@ export const DOCUMENT_STEPS: readonly DocumentStep[] = documentStepSchema.option
 
 // Derived, never stored (docs/03 §3.3.10): a LIBRARY document is available while at least one of its
 // files is still on a mounted volume.
-export const availabilitySchema = z.enum(['AVAILABLE', 'UNAVAILABLE']);
+// Whether the originals behind a document can be read right now (docs/03 §3.3.10). PARTIAL is the
+// honest middle: some files of it are on a volume nobody can reach, and the rest are here.
+// The canonical PDF reads either way.
+export const availabilitySchema = z.enum(['AVAILABLE', 'PARTIAL', 'UNAVAILABLE']);
 export type Availability = z.infer<typeof availabilitySchema>;
 
 export const documentCategorySchema = z.object({
@@ -37,15 +40,18 @@ export const documentCategorySchema = z.object({
 export const documentListDtoSchema = z.object({
   id: z.string().uuid(),
   title: z.string(),
-  ext: z.string(),
-  mimeType: z.string(),
-  // BigInt travels as a decimal string (docs/07 §7.4).
+  // How many files the document is made of, and what they weigh together (docs/07 §7.3).
+  fileCount: z.number().int().positive(),
+  // The extension of the first file: what the card puts on its badge. Empty when it has none.
+  primaryExt: z.string(),
   sizeBytes: z.string(),
+  // Pages of the canonical PDF; null until it has been built.
   pageCount: z.number().int().nullable(),
   documentType: documentCategorySchema.nullable(),
   availability: availabilitySchema,
   processing: z.boolean(),
-  source: documentSourceSchema,
+  // LIBRARY when any file of it sits on a volume, MANAGED otherwise (docs/03 §3.3.10).
+  origin: fileOriginSchema,
   hasPreview: z.boolean(),
   createdAt: z.string().datetime(),
 });
@@ -69,6 +75,32 @@ export const documentFileRefSchema = z.object({
 });
 
 // Why a step is SKIPPED, per step; absent for steps that ran (docs/03 §3.3.10).
+// A file inside a document (docs/07 §7.3, docs/03 §3.3.16).
+export const cropPointSchema = z.tuple([z.number().min(0).max(1), z.number().min(0).max(1)]);
+export const cropSchema = z.object({
+  // Clockwise from the top-left corner, normalized to 0…1 of the image (docs/05 §5.6).
+  points: z.tuple([cropPointSchema, cropPointSchema, cropPointSchema, cropPointSchema]),
+});
+export type Crop = z.infer<typeof cropSchema>;
+
+export const documentFileDtoSchema = z.object({
+  id: z.string().uuid(),
+  position: z.number().int().nonnegative(),
+  name: z.string(),
+  mimeType: z.string(),
+  ext: z.string(),
+  sizeBytes: z.string(),
+  origin: fileOriginSchema,
+  // Whether these bytes can be read right now — false for a library file whose volume lost it.
+  available: z.boolean(),
+  isImage: z.boolean(),
+  crop: cropSchema.nullable(),
+  cropSource: valueSourceSchema,
+  // Where the same bytes lie on the volumes the caller can see; empty for a managed file.
+  refs: z.array(documentFileRefSchema),
+});
+export type DocumentFileDto = z.infer<typeof documentFileDtoSchema>;
+
 export const documentSkipReasonsSchema = z.record(documentStepSchema, stepSkipReasonSchema);
 export type DocumentSkipReasons = z.infer<typeof documentSkipReasonsSchema>;
 
@@ -107,7 +139,6 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   documentDate: z.string().nullable(),
   // What the document is about (docs/03 §3.3.20).
   subjects: z.array(z.object({ id: z.string().uuid(), kind: z.string(), name: z.string() })),
-  contentHash: z.string(),
   ocrUsed: z.boolean(),
   // What this document is, in a few hundred characters (docs/03 §3.3.10).
   description: z.string().nullable(),
@@ -122,9 +153,8 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   city: z.string().nullable(),
   processingError: z.string().nullable(),
   failedStep: z.string().nullable(),
-  fileRefs: z.array(documentFileRefSchema),
+  files: z.array(documentFileDtoSchema),
   createdBy: z.object({ id: z.string().uuid(), displayName: z.string() }).nullable(),
-  scanSetId: z.string().uuid().nullable(),
 });
 export type DocumentDetailDto = z.infer<typeof documentDetailDtoSchema>;
 
@@ -144,7 +174,7 @@ export const listDocumentsQuerySchema = paginationQuerySchema.extend({
   year: z.coerce.number().int().min(1900).max(2100).optional(),
   availability: availabilitySchema.optional(),
   processing: queryBoolean,
-  source: documentSourceSchema.optional(),
+  origin: fileOriginSchema.optional(),
 });
 export type ListDocumentsQuery = z.infer<typeof listDocumentsQuerySchema>;
 

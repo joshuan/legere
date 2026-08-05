@@ -9,6 +9,7 @@ import {
 import { createInviteResponseSchema, okResponseSchema } from '../../src/shared/contracts/users';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
+import { seedDocument, seedLibrary } from '../helpers/documents';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
@@ -73,73 +74,43 @@ describe('Documents (e2e)', () => {
 
   // Fixtures are written straight to the database: this suite is about the read model, and the way
   // documents get there is covered by the scan/ingest suites.
-  let contentSeq = 0;
-
-  async function givenLibrary(
-    visibility: 'ALL_USERS' | 'RESTRICTED',
-    userIds: string[] = [],
-  ): Promise<string> {
-    const library = await testPrisma().library.create({
-      data: {
-        name: `Library ${(contentSeq += 1)}`,
-        rootPath: `lib-${contentSeq}`,
-        visibility,
-        excludeGlobs: [],
-        scanIntervalMinutes: 15,
-        access: { create: userIds.map((userId) => ({ userId })) },
-      },
-    });
-    return library.id;
-  }
+  const givenLibrary = (visibility: 'ALL_USERS' | 'RESTRICTED', userIds: string[] = []) =>
+    seedLibrary({ visibility, userIds });
 
   type DocumentOptions = {
     title?: string;
     libraryId?: string;
     refStatus?: 'HASHED' | 'MISSING';
     typeId?: string;
+    createdById?: string;
     previewStatus?: 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
     markdownStatus?: 'PENDING' | 'DONE' | 'FAILED' | 'SKIPPED';
     createdAt?: Date;
     sizeBytes?: bigint;
   };
 
+  // A document with one file: a library file when a library is named, our own bytes otherwise
+  // (docs/03 §3.3.16).
   async function givenDocument(options: DocumentOptions = {}): Promise<string> {
-    contentSeq += 1;
-    const document = await testPrisma().document.create({
-      data: {
-        contentHash: `${contentSeq}`.padStart(64, 'c'),
-        source: 'LIBRARY',
-        mimeType: 'application/pdf',
-        ext: 'pdf',
-        sizeBytes: options.sizeBytes ?? 2048n,
-        title: options.title ?? `Document ${contentSeq}`,
+    const seeded = await seedDocument({
+      document: {
         canonicalStatus: 'SKIPPED',
         previewStatus: options.previewStatus ?? 'DONE',
         markdownStatus: options.markdownStatus ?? 'DONE',
-        analysisStatus: 'DONE',
-        vectorizationStatus: 'SKIPPED',
+        ...(options.title === undefined ? {} : { title: options.title }),
         ...(options.typeId === undefined ? {} : { typeId: options.typeId, typeSource: 'AUTO' }),
+        ...(options.createdById === undefined ? {} : { createdById: options.createdById }),
         ...(options.createdAt === undefined ? {} : { createdAt: options.createdAt }),
       },
-    });
-
-    if (options.libraryId !== undefined) {
-      await testPrisma().fileRef.create({
-        data: {
-          libraryId: options.libraryId,
-          documentId: document.id,
-          path: `folder/file-${contentSeq}.pdf`,
-          size: 2048n,
-          mtime: new Date('2026-01-01T00:00:00.000Z'),
-          status: options.refStatus ?? 'HASHED',
-          contentHash: `${contentSeq}`.padStart(64, 'c'),
-          ...(options.refStatus === 'MISSING'
-            ? { missingSince: new Date('2026-02-01T00:00:00.000Z') }
-            : {}),
+      ...(options.libraryId === undefined ? {} : { libraryId: options.libraryId }),
+      files: [
+        {
+          sizeBytes: options.sizeBytes ?? 2048n,
+          ...(options.refStatus === undefined ? {} : { refStatus: options.refStatus }),
         },
-      });
-    }
-    return document.id;
+      ],
+    });
+    return seeded.id;
   }
 
   const listAs = (cookie: string, query = '') =>
@@ -168,7 +139,9 @@ describe('Documents (e2e)', () => {
         availability: 'AVAILABLE',
         processing: false,
         hasPreview: true,
-        source: 'LIBRARY',
+        origin: 'LIBRARY',
+        fileCount: 1,
+        primaryExt: 'pdf',
         // BigInt travels as a string (docs/07 §7.4).
         sizeBytes: '2048',
       });
@@ -209,17 +182,8 @@ describe('Documents (e2e)', () => {
     it('shows an admin everything, including documents in no library at all', async () => {
       const restricted = await givenLibrary('RESTRICTED');
       await givenDocument({ libraryId: restricted });
-      // A DERIVED document nobody shared: still an admin's business (docs/08 §8.5).
-      await testPrisma().document.create({
-        data: {
-          contentHash: 'd'.repeat(64),
-          source: 'DERIVED',
-          mimeType: 'application/pdf',
-          ext: 'pdf',
-          sizeBytes: 10n,
-          title: 'Merged scan',
-        },
-      });
+      // A managed document nobody shared: still an admin's business (docs/08 §8.5).
+      await seedDocument({ document: { title: 'Uploaded by nobody' } });
 
       const page = expectData(await listAs(adminCookie), listDocumentsResponseSchema);
 
@@ -229,17 +193,7 @@ describe('Documents (e2e)', () => {
     it('shows a derived document to its creator and to nobody else', async () => {
       const owner = await inviteUser(`owner${seq}@legere.local`);
       const other = await inviteUser(`other${seq}@legere.local`);
-      await testPrisma().document.create({
-        data: {
-          contentHash: 'e'.repeat(64),
-          source: 'DERIVED',
-          mimeType: 'application/pdf',
-          ext: 'pdf',
-          sizeBytes: 10n,
-          title: 'My scan',
-          createdById: owner.id,
-        },
-      });
+      await seedDocument({ document: { title: 'My scan', createdById: owner.id } });
 
       expect(
         expectData(await listAs(owner.cookie), listDocumentsResponseSchema).items,
@@ -348,22 +302,14 @@ describe('Documents (e2e)', () => {
         expect(settled.items.map((item) => item.id)).toEqual([done]);
       });
 
-      it('filters by source', async () => {
+      it('filters by origin', async () => {
         const open = await givenLibrary('ALL_USERS');
         const fromLibrary = await givenDocument({ libraryId: open });
-        await testPrisma().document.create({
-          data: {
-            contentHash: 'f'.repeat(64),
-            source: 'DERIVED',
-            mimeType: 'application/pdf',
-            ext: 'pdf',
-            sizeBytes: 10n,
-            title: 'Merged',
-          },
-        });
+        // No file of it lies on a volume, so the document is managed (docs/03 §3.3.10).
+        await seedDocument({ document: { title: 'Uploaded' } });
 
         const page = expectData(
-          await listAs(adminCookie, '?source=LIBRARY'),
+          await listAs(adminCookie, '?origin=LIBRARY'),
           listDocumentsResponseSchema,
         );
 
@@ -394,29 +340,38 @@ describe('Documents (e2e)', () => {
         typeSource: 'NONE',
         ocrUsed: false,
         createdBy: null,
-        scanSetId: null,
       });
-      // The hash is the content identity of ADR-009, and it belongs in the detail view.
-      expect(detail.contentHash).toHaveLength(64);
       expect(detail.steps.markdown).toBe('DONE');
-      expect(detail.fileRefs).toHaveLength(1);
-      expect(detail.fileRefs[0]).toMatchObject({ libraryId: open, status: 'HASHED' });
+      // What the document is made of, and where those bytes lie (docs/07 §7.3).
+      expect(detail.files).toHaveLength(1);
+      expect(detail.files[0]).toMatchObject({
+        position: 0,
+        origin: 'LIBRARY',
+        available: true,
+        isImage: false,
+        crop: null,
+        cropSource: 'NONE',
+      });
+      expect(detail.files[0]?.refs).toHaveLength(1);
+      expect(detail.files[0]?.refs[0]).toMatchObject({ libraryId: open, status: 'HASHED' });
     });
 
     it('hides file locations in libraries the caller cannot see, while an admin sees all of them', async () => {
       const open = await givenLibrary('ALL_USERS');
       const secret = await givenLibrary('RESTRICTED');
-      const documentId = await givenDocument({ libraryId: open });
-      // The same content also lives in a library this user was never granted (docs/05 §5.3).
+      const seeded = await seedDocument({ libraryId: open });
+      const documentId = seeded.id;
+      // The same bytes also lie in a library this user was never granted: one file, two homes
+      // (docs/05 §5.3).
       await testPrisma().fileRef.create({
         data: {
           libraryId: secret,
-          documentId,
+          fileId: seeded.fileIds[0] ?? '',
           path: 'confidential/copy.pdf',
           size: 2048n,
           mtime: new Date('2026-01-01T00:00:00.000Z'),
           status: 'HASHED',
-          contentHash: 'c'.repeat(64),
+          contentHash: seeded.contentHashes[0] ?? '',
         },
       });
       const user = await inviteUser(`limited${seq}@legere.local`);
@@ -431,8 +386,8 @@ describe('Documents (e2e)', () => {
       );
 
       // 🔒 A path is a disclosure: the user learns nothing about the library they cannot read.
-      expect(asUser.fileRefs.map((ref) => ref.libraryId)).toEqual([open]);
-      expect(asAdmin.fileRefs).toHaveLength(2);
+      expect(asUser.files[0]?.refs.map((ref) => ref.libraryId)).toEqual([open]);
+      expect(asAdmin.files[0]?.refs).toHaveLength(2);
     });
 
     it('404s a document in a library the caller cannot see', async () => {
@@ -521,16 +476,8 @@ describe('Documents (e2e)', () => {
     it('refuses to edit a derived document owned by someone else', async () => {
       const owner = await inviteUser(`derivedowner${seq}@legere.local`);
       const other = await inviteUser(`meddler${seq}@legere.local`);
-      const document = await testPrisma().document.create({
-        data: {
-          contentHash: 'a'.repeat(63) + '9',
-          source: 'DERIVED',
-          mimeType: 'application/pdf',
-          ext: 'pdf',
-          sizeBytes: 10n,
-          title: 'Owner scan',
-          createdById: owner.id,
-        },
+      const document = await seedDocument({
+        document: { title: 'Owner scan', createdById: owner.id },
       });
       // Shared instance-wide, so the other user may read it.
       const collection = await testPrisma().collection.create({

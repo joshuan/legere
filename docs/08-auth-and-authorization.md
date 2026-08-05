@@ -122,7 +122,7 @@ credential which leaks costs its owner nothing but a revocation and can never ch
 
 | Capability | USER | ADMIN |
 |------------|------|-------|
-| Viewing/searching documents of accessible libraries, folders/collections, sharing, scan sets | ✅ | ✅ |
+| Viewing/searching documents of accessible libraries, folders/collections, sharing; composing documents out of files | ✅ | ✅ |
 | Library management (creation, paths, intervals, visibility, rescan) | — | ✅ |
 | User invites, role changes, deactivation, session revocation | — | ✅ |
 | Document type reference list | — | ✅ |
@@ -150,8 +150,8 @@ Principles (the exact entity model — in 03):
 - **Library → visibility.** Each library has a visibility setting: "all users" or an explicit list. A
   document from a library is visible to whoever the library is visible to (a document whose files live
   in several libraries is visible given access to at least one).
-- **Derived documents** (merged scan-set PDFs) belong to their creator; visible to them and to whoever
-  they share with.
+- **Documents nobody found on a volume** — an upload, a split, a combine — belong to their creator;
+  visible to them and to whoever they share with.
 - **Sharing.** A user can make their folders/collections (and derived documents) shared: with specific
   users or with the whole instance. Sharing grants **read** access; structure editing — owner only.
 - **Personal organization** (folders/collections, notes) is private by default.
