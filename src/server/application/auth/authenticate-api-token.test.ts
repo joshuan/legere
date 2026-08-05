@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { FakeSessionTokens, FixedClock, InMemoryUserRepository } from '../../../../test/helpers/fakes';
+import {
+  FakeSessionTokens,
+  FixedClock,
+  InMemoryUserRepository,
+} from '../../../../test/helpers/fakes';
 import {
   ApiTokenRepository,
   type ApiToken,
@@ -52,9 +56,7 @@ class InMemoryApiTokenRepository extends ApiTokenRepository {
   }
 
   revokeAllForUser(userId: string, revokedAt: Date): Promise<number> {
-    const live = this.tokens.filter(
-      (token) => token.userId === userId && token.revokedAt === null,
-    );
+    const live = this.tokens.filter((token) => token.userId === userId && token.revokedAt === null);
     live.forEach((token) => (token.revokedAt = revokedAt));
     return Promise.resolve(live.length);
   }

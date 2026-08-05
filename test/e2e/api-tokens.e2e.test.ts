@@ -124,7 +124,10 @@ describe('API tokens (e2e)', () => {
     expect(expectError(forged).code).toBe('READ_ONLY_TOKEN');
 
     // And the session that issued it still works, so nothing above was a general refusal.
-    await api(app).patch('/api/me', { displayName: 'Renamed' }).set('Cookie', adminCookie).expect(200);
+    await api(app)
+      .patch('/api/me', { displayName: 'Renamed' })
+      .set('Cookie', adminCookie)
+      .expect(200);
   });
 
   it('carries the owner authority and no more', async () => {

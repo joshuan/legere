@@ -45,47 +45,47 @@ export function SettingsScreen() {
   return (
     <Space direction="vertical" size="large" style={{ width: '100%', maxWidth: 720 }}>
       <Card>
-      <Typography.Title level={4}>{t('settings.title')}</Typography.Title>
+        <Typography.Title level={4}>{t('settings.title')}</Typography.Title>
 
-      <Form layout="vertical" initialValues={me}>
-        <Form.Item label={t('settings.displayName')} name="displayName">
-          <Input
-            aria-label={t('settings.displayName')}
-            onBlur={(event) => {
-              const displayName = event.target.value.trim();
-              if (displayName !== '' && displayName !== me.displayName) patch({ displayName });
-            }}
-          />
-        </Form.Item>
+        <Form layout="vertical" initialValues={me}>
+          <Form.Item label={t('settings.displayName')} name="displayName">
+            <Input
+              aria-label={t('settings.displayName')}
+              onBlur={(event) => {
+                const displayName = event.target.value.trim();
+                if (displayName !== '' && displayName !== me.displayName) patch({ displayName });
+              }}
+            />
+          </Form.Item>
 
-        <Form.Item label={t('settings.email')}>
-          <Input value={me.email} disabled aria-label={t('settings.email')} />
-        </Form.Item>
+          <Form.Item label={t('settings.email')}>
+            <Input value={me.email} disabled aria-label={t('settings.email')} />
+          </Form.Item>
 
-        <Form.Item label={t('settings.language')} name="language">
-          <Select
-            aria-label={t('settings.language')}
-            onChange={(language: 'EN' | 'RU') => patch({ language })}
-            options={[
-              { value: 'EN', label: 'English' },
-              { value: 'RU', label: 'Русский' },
-            ]}
-          />
-        </Form.Item>
+          <Form.Item label={t('settings.language')} name="language">
+            <Select
+              aria-label={t('settings.language')}
+              onChange={(language: 'EN' | 'RU') => patch({ language })}
+              options={[
+                { value: 'EN', label: 'English' },
+                { value: 'RU', label: 'Русский' },
+              ]}
+            />
+          </Form.Item>
 
-        <Form.Item label={t('settings.theme')} name="theme">
-          <Radio.Group
-            onChange={(event: RadioChangeEvent) => {
-              const theme = themeSchema.safeParse(event.target.value);
-              if (theme.success) patch({ theme: theme.data });
-            }}
-            options={[
-              { value: 'SYSTEM', label: t('settings.themes.SYSTEM') },
-              { value: 'LIGHT', label: t('settings.themes.LIGHT') },
-              { value: 'DARK', label: t('settings.themes.DARK') },
-            ]}
-          />
-        </Form.Item>
+          <Form.Item label={t('settings.theme')} name="theme">
+            <Radio.Group
+              onChange={(event: RadioChangeEvent) => {
+                const theme = themeSchema.safeParse(event.target.value);
+                if (theme.success) patch({ theme: theme.data });
+              }}
+              options={[
+                { value: 'SYSTEM', label: t('settings.themes.SYSTEM') },
+                { value: 'LIGHT', label: t('settings.themes.LIGHT') },
+                { value: 'DARK', label: t('settings.themes.DARK') },
+              ]}
+            />
+          </Form.Item>
         </Form>
       </Card>
 

@@ -30,9 +30,7 @@ const server = createApiMock();
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
   server.use(
-    http.get('/api/me/api-tokens', () =>
-      HttpResponse.json(envelope({ items: [active, revoked] })),
-    ),
+    http.get('/api/me/api-tokens', () => HttpResponse.json(envelope({ items: [active, revoked] }))),
   );
 });
 afterEach(() => server.resetHandlers());
@@ -49,9 +47,9 @@ describe('ApiTokensCard', () => {
     expect(screen.getByText(enMessages.settings.apiTokens.statuses.REVOKED)).toBeInTheDocument();
     // Never used yet, and the table says so rather than showing an empty cell.
     expect(screen.getAllByText(enMessages.settings.apiTokens.never)).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: enMessages.settings.apiTokens.revoke })).toHaveLength(
-      1,
-    );
+    expect(
+      screen.getAllByRole('button', { name: enMessages.settings.apiTokens.revoke }),
+    ).toHaveLength(1);
   });
 
   it('shows the new token once, with a warning that it cannot be retrieved', async () => {
@@ -63,7 +61,9 @@ describe('ApiTokensCard', () => {
     const user = userEvent.setup();
     renderWithProviders(<ApiTokensCard />);
 
-    await user.click(await screen.findByRole('button', { name: enMessages.settings.apiTokens.create }));
+    await user.click(
+      await screen.findByRole('button', { name: enMessages.settings.apiTokens.create }),
+    );
     await user.type(
       await screen.findByLabelText(enMessages.settings.apiTokens.name),
       'a backup script',
