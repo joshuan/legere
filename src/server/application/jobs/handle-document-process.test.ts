@@ -19,12 +19,14 @@ import {
   InMemoryDocumentRepository,
   InMemoryFileRefRepository,
   InMemoryLibraryRepository,
+  InMemorySettingsRepository,
   libraryFixture,
   StubLibraryReader,
 } from '../../../../test/helpers/processing-fakes';
 import type { Document } from '../../domain/entities/document';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
 import { artifactKeys } from '../storage/artifact-keys';
+import { AnalysisSettings } from '../settings/analysis-settings';
 import { HandleDocumentProcess } from './handle-document-process';
 
 const PREVIEW_MAX_DIM = 1600;
@@ -106,6 +108,7 @@ describe('HandleDocumentProcess', () => {
       embeddings,
       new ImmediateUnitOfWork(),
       calls,
+      new AnalysisSettings(new InMemorySettingsRepository()),
       {
         previewMaxDim: PREVIEW_MAX_DIM,
         thumbMaxDim: THUMB_MAX_DIM,

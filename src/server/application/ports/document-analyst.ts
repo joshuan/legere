@@ -6,6 +6,14 @@ export type DocumentTypeOption = {
   description: string | null;
 };
 
+// A thing already in the catalogue, as the model is shown it: what sort of thing, which one, and how
+// to recognise it (docs/03 §3.3.20).
+export type KnownSubject = {
+  kind: string;
+  name: string;
+  note: string | null;
+};
+
 // What one look at a document yields (docs/05 §5.5 step 4). Every field is independently optional:
 // a model that recognises an invoice but cannot tell which country it is from should still be able
 // to say so, rather than being pushed into inventing the rest.
@@ -45,12 +53,17 @@ export abstract class DocumentAnalyst {
   // Which host the work goes to (docs/03 §3.3.18); empty when unconfigured.
   abstract get endpoint(): string;
 
-  // The kinds the catalogue already holds travel with the request: a model told what "apartment"
-  // is called here reuses it instead of inventing a synonym, which is what turns one shelf into two
-  // (docs/03 §3.3.20a).
+  // The catalogue travels with the request. The kinds, so a model told what "apartment" is called
+  // here reuses it instead of inventing a synonym; and the things themselves with their notes, so a
+  // lease, a bill and an insurance policy about one flat are recognised as being about one flat
+  // rather than three (docs/03 §3.3.20, §3.3.20a).
   abstract analyze(
     excerpt: string,
     documentTypes: readonly DocumentTypeOption[],
     subjectKinds: readonly string[],
+    knownSubjects: readonly KnownSubject[],
+    // What to write in: a BCP-47 tag, or empty for the language of the document itself
+    // (docs/05 §5.5).
+    language: string,
   ): Promise<DocumentAnalysis>;
 }

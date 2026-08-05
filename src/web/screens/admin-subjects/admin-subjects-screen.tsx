@@ -137,12 +137,14 @@ export function AdminSubjectsScreen() {
           >
             <Input />
           </Form.Item>
+          {/* Not a footnote: this is what the analysis reads to tell one flat from another
+              (docs/03 §3.3.20), so it is given room to be written in. */}
           <Form.Item
             name="note"
-            label={t('admin.catalogues.fields.note')}
+            label={t('admin.subjects.fields.note')}
             extra={t('admin.subjects.fields.noteHint')}
           >
-            <Input.TextArea rows={2} />
+            <Input.TextArea rows={4} maxLength={2000} showCount />
           </Form.Item>
         </>
       )}

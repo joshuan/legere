@@ -340,7 +340,7 @@ and "the papers for the car" is how anybody actually looks for them.
 | id | uuid | |
 | kindId | uuid | which `SubjectKind` this is one of |
 | name | string | which one, as the document writes it |
-| note | string? | |
+| note | string? | **how to recognise this one**: the address, the plate, the account number, the other party — whatever a document about it would mention. Written by hand, read by the analysis |
 | createdAt / updatedAt / deletedAt | | soft delete (ADR-015): the links stay |
 
 Unique on `(kindId, lower(name))` among living rows: the same flat entered twice is the failure this
@@ -376,6 +376,14 @@ in, because the analysis adds kinds on its own and whoever corrects it must be a
 removing are an admin's. 🔒 **A kind still used by a living subject cannot be removed**
 (`SUBJECT_KIND_IN_USE`): a subject with no kind is not a thing anybody can file by, so the subjects
 go first.
+
+**Recognising one again.** After the first months an archive stops meeting new things: almost every
+document arriving is about a flat, a car or a company that is already in the catalogue. So the
+analysis is given the catalogue — each thing with its kind, its name and its note — and told to
+answer with one of them, spelled exactly as it is there, when the document is about it. A new row is
+what it does when nothing matches, not what it does by default. The note is what makes that possible:
+"Njegoševa 5, ap. 12, cadastral 1234, landlady Marija Petrović" is how a lease, a bill and an
+insurance policy are all recognised as being about one flat, none of which spell it the same way.
 
 **Merging** works exactly as it does for people (§3.3.19), with one addition: the rows being folded
 together may disagree about their kind, so the merge is told which kind the survivor is filed under.

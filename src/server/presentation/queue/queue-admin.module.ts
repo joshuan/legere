@@ -1,3 +1,5 @@
+import { AnalysisSettings } from '../../application/settings/analysis-settings';
+import { SettingsRepository } from '../../domain/repositories/settings.repository';
 import { Module } from '@nestjs/common';
 import { AuthenticateSession } from '../../application/auth/authenticate-session';
 import { Clock } from '../../application/ports/clock';
@@ -19,6 +21,14 @@ import { AdminQueueController } from './admin-queue.controller';
 @Module({
   controllers: [AdminQueueController],
   providers: [
+    // The analysis language lives with the queue knobs: same kind of setting, same screen
+    // (docs/05 §5.5).
+    {
+      provide: AnalysisSettings,
+      useFactory: (settings: SettingsRepository): AnalysisSettings =>
+        new AnalysisSettings(settings),
+      inject: [SettingsRepository],
+    },
     SessionGuard,
     {
       provide: AuthenticateSession,

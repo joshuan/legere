@@ -33,6 +33,7 @@ import type { DocumentParser } from '../ports/document-parser';
 import type { PdfToolbox } from '../ports/pdf-toolbox';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import { artifactKeys } from '../storage/artifact-keys';
+import type { AnalysisSettings } from '../settings/analysis-settings';
 import { JobHandler } from './job-handler';
 import type { ProcessingSettings } from './processing-settings';
 
@@ -89,6 +90,7 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly embeddings: EmbeddingProvider,
     private readonly unitOfWork: UnitOfWork,
     private readonly calls: CallContext,
+    private readonly analysisSettings: AnalysisSettings,
     private readonly settings: ProcessingSettings,
   ) {
     super();
@@ -498,6 +500,16 @@ export class HandleDocumentProcess extends JobHandler {
           description,
         })),
         kinds.map((kind) => kind.name),
+        // Most documents are about something already here; the model can only know that if it is
+        // shown the catalogue (docs/03 §3.3.20).
+        (await this.subjects.listActive()).map((subject) => ({
+          kind: subject.kind,
+          name: subject.name,
+          note: subject.note,
+        })),
+        // Read per run rather than at start-up: changing it takes effect on the next document
+        // (docs/05 §5.5).
+        (await this.analysisSettings.read()).language,
       );
 
       await this.linkPeople(document, analysis.people);

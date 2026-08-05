@@ -10,6 +10,12 @@ import {
   type RetryJobResponse,
   type UpdateQueueSettingsRequest,
 } from '../../../shared/contracts/queue';
+import {
+  analysisLanguageSchema,
+  updateAnalysisLanguageRequestSchema,
+  type AnalysisLanguageDto,
+  type UpdateAnalysisLanguageRequest,
+} from '../../../shared/contracts/settings';
 import { apiClient } from '../../shared/api';
 
 // Admin queue endpoints (docs/07 §7.3).
@@ -35,8 +41,21 @@ export const queueSettingsApi = {
     }),
 };
 
+// What the analysis writes in (docs/05 §5.5).
+export const analysisSettingsApi = {
+  read: (): Promise<AnalysisLanguageDto> =>
+    apiClient.get('/api/admin/queue/analysis', { schema: analysisLanguageSchema }),
+
+  save: (body: UpdateAnalysisLanguageRequest): Promise<AnalysisLanguageDto> =>
+    apiClient.patch('/api/admin/queue/analysis', {
+      schema: analysisLanguageSchema,
+      body: updateAnalysisLanguageRequestSchema.parse(body),
+    }),
+};
+
 export const queueKeys = {
   settings: ['queue', 'settings'] as const,
+  analysis: ['queue', 'analysis'] as const,
   overview: ['admin', 'queue', 'overview'] as const,
   failures: ['admin', 'queue', 'failures'] as const,
 };

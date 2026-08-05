@@ -4,6 +4,7 @@ import {
   DocumentAnalyst,
   type DocumentTypeOption,
   type DocumentAnalysis,
+  type KnownSubject,
 } from '../../application/ports/document-analyst';
 import { AppConfig } from '../config/app-config';
 import { callHeaders } from '../logging/async-call-context';
@@ -64,6 +65,11 @@ const SYSTEM_PROMPT = [
   'Reuse a kind from the list you are given whenever one of them fits, spelled exactly as it is',
   'there — two spellings of one kind split the archive in half. Only when none fits, name a new one',
   'in the language of the document.',
+  'You are also given the things this archive already knows, each with how to recognise it. If the',
+  'document is about one of them — the same flat, the same car, the same company, however differently',
+  'it happens to be written there — answer with that kind and that name, spelled exactly as they are',
+  'in the list. Most documents are about something already known; a new thing is what you answer when',
+  'nothing in the list matches, not what you answer by default.',
 ].join(' ');
 
 // Deterministic answers: the same document must not land in a different documentType on a reprocess.
@@ -85,6 +91,10 @@ const MAX_PEOPLE = 8;
 const MAX_NAME_CHARS = 200;
 const MAX_SUBJECTS = 5;
 const MAX_KIND_CHARS = 40;
+// How much of the catalogue the model is shown. Past this the prompt starts crowding out the
+// document itself, which is the one thing it cannot do without.
+const MAX_KNOWN_SUBJECTS = 60;
+const MAX_KNOWN_NOTE_CHARS = 300;
 
 @Injectable()
 export class OpenAiCompatAnalyst extends DocumentAnalyst {
@@ -121,6 +131,8 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     excerpt: string,
     documentTypes: readonly DocumentTypeOption[],
     subjectKinds: readonly string[] = [],
+    knownSubjects: readonly KnownSubject[] = [],
+    language = '',
   ): Promise<DocumentAnalysis> {
     if (!this.isConfigured) throw new Error('No document analyst is configured');
 
@@ -138,8 +150,13 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
         // way, and providers that do not support the flag ignore it.
         response_format: { type: 'json_object' },
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt(excerpt, documentTypes, subjectKinds) },
+          // The instruction comes last in the system message, so it overrides the per-field
+          // "language of the document" the prompt says everywhere else (docs/05 §5.5).
+          { role: 'system', content: `${SYSTEM_PROMPT}${languageInstruction(language)}` },
+          {
+            role: 'user',
+            content: userPrompt(excerpt, documentTypes, subjectKinds, knownSubjects),
+          },
         ],
       }),
     });
@@ -156,6 +173,27 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
   }
 }
 
+// One language for everything the machine writes, when the instance has said which (docs/05 §5.5).
+// Named rather than tagged: a model is told "in Russian", not "in ru".
+function languageInstruction(language: string): string {
+  if (language.trim() === '') return '';
+  const named = describeLanguage(language.trim());
+  return (
+    ` Write the title, the description, and any name you invent for a person, a thing or a kind` +
+    ` in ${named}, whatever language the document itself is in. This is the language of the archive,` +
+    ` not of the document.`
+  );
+}
+
+// "ru" → "Russian". Intl knows the list; a table of language names here would go out of date.
+function describeLanguage(tag: string): string {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(tag) ?? tag;
+  } catch {
+    return tag;
+  }
+}
+
 // The catalogue as the model sees it: slug, name, and the description an admin wrote as guidance
 // (docs/03 §3.3.12). With no documentTypes defined there is still a place to read — the list is simply
 // empty and "none" is the only honest slug.
@@ -163,6 +201,7 @@ function userPrompt(
   excerpt: string,
   documentTypes: readonly DocumentTypeOption[],
   subjectKinds: readonly string[] = [],
+  knownSubjects: readonly KnownSubject[] = [],
 ): string {
   const list =
     documentTypes.length === 0
@@ -180,7 +219,21 @@ function userPrompt(
       ? '(none yet — name one)'
       : subjectKinds.map((k) => `- ${k}`).join('\n');
 
-  return `DocumentTypes:\n${list}\n\nSubject kinds already in use:\n${kinds}\n\nDocument:\n"""\n${excerpt}\n"""`;
+  // Capped, because the excerpt is what the model is actually here to read: an archive of a thousand
+  // things must not push the document out of the context window (docs/05 §5.5 step 4).
+  const known =
+    knownSubjects.length === 0
+      ? '(nothing yet)'
+      : knownSubjects
+          .slice(0, MAX_KNOWN_SUBJECTS)
+          .map((subject) =>
+            subject.note === null || subject.note === ''
+              ? `- ${subject.kind}: ${subject.name}`
+              : `- ${subject.kind}: ${subject.name} — ${truncate(subject.note, MAX_KNOWN_NOTE_CHARS)}`,
+          )
+          .join('\n');
+
+  return `DocumentTypes:\n${list}\n\nSubject kinds already in use:\n${kinds}\n\nThings this archive already knows:\n${known}\n\nDocument:\n"""\n${excerpt}\n"""`;
 }
 
 function readAnswer(

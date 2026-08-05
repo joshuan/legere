@@ -21,7 +21,10 @@ export const createSubjectRequestSchema = z.object({
   // (POST /api/subject-kinds), which is open to anyone signed in.
   kindId: z.string().uuid(),
   name: z.string().trim().min(1).max(200),
-  note: z.string().trim().max(500).nullable().optional(),
+  // How to recognise this one: the address, the plate, the account number, the other party — the
+  // things a document would mention. Read by the analysis, so it is a paragraph rather than a line
+  // (docs/03 §3.3.20).
+  note: z.string().trim().max(2000).nullable().optional(),
 });
 export type CreateSubjectRequest = z.infer<typeof createSubjectRequestSchema>;
 
@@ -31,7 +34,7 @@ export const mergeSubjectsRequestSchema = z.object({
   ids: z.array(z.string().uuid()).min(2).max(50),
   kindId: z.string().uuid(),
   name: z.string().trim().min(1).max(200),
-  note: z.string().trim().max(500).nullable().optional(),
+  note: z.string().trim().max(2000).nullable().optional(),
 });
 export type MergeSubjectsRequest = z.infer<typeof mergeSubjectsRequestSchema>;
 

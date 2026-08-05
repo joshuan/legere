@@ -18,7 +18,13 @@ import {
   RetryFailedJob,
 } from '../../application/queue/inspect-queue';
 import { QueueSettings } from '../../application/queue/queue-settings';
+import { AnalysisSettings } from '../../application/settings/analysis-settings';
 import { WorkerRegistry } from '../../infrastructure/queue/worker-registry';
+import {
+  updateAnalysisLanguageRequestSchema,
+  type AnalysisLanguageDto,
+  type UpdateAnalysisLanguageRequest,
+} from '../../../shared/contracts/settings';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
@@ -36,11 +42,28 @@ export class AdminQueueController {
     private readonly retryJob: RetryFailedJob,
     private readonly settings: QueueSettings,
     private readonly workers: WorkerRegistry,
+    private readonly analysis: AnalysisSettings,
   ) {}
 
   @Get('settings')
   async getSettings(): Promise<Envelope<QueueSettingsDto>> {
     return successEnvelope(await this.settings.read());
+  }
+
+  // What the analysis writes in (docs/05 §5.5). It lives beside the queue knobs because it is the
+  // same kind of thing — how this instance does its work — and an admin settings screen of its own
+  // for one field would be a screen nobody visits.
+  @Get('analysis')
+  async getAnalysis(): Promise<Envelope<AnalysisLanguageDto>> {
+    return successEnvelope(await this.analysis.read());
+  }
+
+  @Patch('analysis')
+  async updateAnalysis(
+    @ZodBody(updateAnalysisLanguageRequestSchema) body: UpdateAnalysisLanguageRequest,
+  ): Promise<Envelope<AnalysisLanguageDto>> {
+    // Read per document rather than at start-up, so nothing needs re-registering here.
+    return successEnvelope(await this.analysis.write(body));
   }
 
   // Saved, then applied: the workers are re-registered with the new numbers rather than waiting for

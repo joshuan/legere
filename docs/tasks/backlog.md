@@ -335,12 +335,12 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`05 §5.4`](../05-library-and-processing.md#54-job-queue-pg-boss), [`11 §11.13`](../11-ui-ux-spec.md#1113-admin-queue-adminqueue)
   **Acceptance:** `/admin/queue` sets, per job type, how many run at once — and, within one job, how many of its own units run in parallel (pages of a document, files of a scan); the values take effect without a restart and survive one; the defaults stay what `12 §12.4` documents.
 
-- [ ] **M11.3 — A subject says how to recognise it**
+- [x] **M11.3 — A subject says how to recognise it**
   **Goal:** the analysis matches a document to a thing already in the catalogue instead of inventing a fifth spelling of it.
   **Docs:** [`03 §3.3.20`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process)
   **Acceptance:** a subject carries a description — the address, the plate, the account number, whatever identifies *this* one — written by hand or by the analysis; the analysis is given the catalogue's things with their descriptions and links an existing one when the document is about it, creating a row only when nothing matches. **Why now:** after the first months almost no genuinely new things appear, so the job stops being "read a name" and becomes "recognise which one of these".
 
-- [ ] **M11.4 — One language for everything the machine writes**
+- [x] **M11.4 — One language for everything the machine writes**
   **Goal:** an archive does not end up with a Russian title over an English description.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`03 §3.3.10`](../03-domain-model.md), [`12 §12.4`](../12-build-config-run.md)
   **Acceptance:** the instance says which language the analysis writes in — the title, the description, and the names it invents for people, things and their kinds — rather than each field following whatever the document happened to be written in; documents already processed keep what they have until they are analysed again. **Open:** whether this is an env value like the rest of the pipeline settings, or a row on an admin settings screen (which M11.2 needs anyway) — the second is friendlier and the first is how every other processing setting works today.

@@ -167,6 +167,11 @@ not configured, no document types defined, no text to embed, or a document type 
    not a 4000-character excerpt), and a place somebody filled in by hand stays — clearing a field is
    how you ask for it to be inferred again. With no document types defined the step still runs, because
    the place is worth the call.
+   **It is shown the catalogue it is filing into**: the kinds already in use, and the things
+   themselves with their notes (03 §3.3.20). After the first months an archive stops meeting new
+   things — almost every document is about a flat, a car or a company already known — so the job
+   stops being "read a name" and becomes "recognise which one of these". A new row is what the step
+   creates when nothing matches, not what it creates by default.
    It also answers a **description** — what this is, between whom and what for, in a few hundred
    characters, so an unfamiliar document can be judged without being read. Blank-fill like the place:
    a description somebody wrote stays, and clearing it asks for a new one.

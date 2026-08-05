@@ -20,10 +20,12 @@ import { MimeDetector } from '../../application/ports/mime-detector';
 import { PdfToolbox } from '../../application/ports/pdf-toolbox';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { QueueSettings } from '../../application/queue/queue-settings';
+import { AnalysisSettings } from '../../application/settings/analysis-settings';
 import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { PersonRepository } from '../../domain/repositories/person.repository';
+import { SettingsRepository } from '../../domain/repositories/settings.repository';
 import { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
 import { SubjectRepository } from '../../domain/repositories/subject.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
@@ -62,6 +64,13 @@ function processingSettings(config: AppConfig): ProcessingSettings {
     // The correlation id a pipeline step is run under (docs/03 §3.3.18). Bound here because the
     // jobs are what open a call; an HTTP request already has an id of its own (docs/06 §6.7).
     { provide: CallContext, useClass: AsyncLocalCallContext },
+    // What the analysis writes in (docs/05 §5.5); read per run, so a change needs no restart.
+    {
+      provide: AnalysisSettings,
+      useFactory: (settings: SettingsRepository): AnalysisSettings =>
+        new AnalysisSettings(settings),
+      inject: [SettingsRepository],
+    },
     {
       provide: HandleLibraryScan,
       useFactory: (
@@ -146,6 +155,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         embeddings: EmbeddingProvider,
         unitOfWork: UnitOfWork,
         calls: CallContext,
+        analysisSettings: AnalysisSettings,
         config: AppConfig,
       ): HandleDocumentProcess =>
         new HandleDocumentProcess(
@@ -167,6 +177,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           embeddings,
           unitOfWork,
           calls,
+          analysisSettings,
           processingSettings(config),
         ),
       inject: [
@@ -188,6 +199,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         EmbeddingProvider,
         UnitOfWork,
         CallContext,
+        AnalysisSettings,
         AppConfig,
       ],
     },

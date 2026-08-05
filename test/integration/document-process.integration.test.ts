@@ -12,6 +12,7 @@ import { DocumentRepository } from '../../src/server/domain/repositories/documen
 import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../src/server/domain/repositories/library.repository';
 import { UnitOfWork } from '../../src/server/application/ports/unit-of-work';
+import { AnalysisSettings } from '../../src/server/application/settings/analysis-settings';
 import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
 import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
 import { PrismaService } from '../../src/server/infrastructure/persistence/prisma.service';
@@ -20,6 +21,7 @@ import { disconnectTestPrisma, truncateAll } from '../helpers/db';
 import {
   FakeAnalyst,
   FakeCallContext,
+  InMemorySettingsRepository,
   FakeEmbeddingProvider,
   FakeImageTool,
   FakeDocumentParser,
@@ -82,6 +84,7 @@ describe('Document processing (integration)', () => {
       embeddings,
       moduleRef.get(UnitOfWork),
       new FakeCallContext(),
+      new AnalysisSettings(new InMemorySettingsRepository()),
       {
         previewMaxDim: 1600,
         thumbMaxDim: 400,

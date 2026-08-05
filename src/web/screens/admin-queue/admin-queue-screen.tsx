@@ -9,6 +9,7 @@ import {
   Form,
   InputNumber,
   Row,
+  Select,
   Space,
   Statistic,
   Switch,
@@ -20,7 +21,7 @@ import {
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useState } from 'react';
 import type { FailedJobDto, StepCountersDto } from '../../../shared/contracts/queue';
-import { queueApi, queueKeys, queueSettingsApi } from '../../entities/queue';
+import { analysisSettingsApi, queueApi, queueKeys, queueSettingsApi } from '../../entities/queue';
 import { formatBytes, useErrorMessage } from '../../shared/lib';
 
 // The queue moves on its own, so the view follows it (docs/11 §11.13). Pausing matters: reading a
@@ -50,6 +51,26 @@ export function AdminQueueScreen() {
       });
     }
   }, [settings.data, settingsForm]);
+
+  const [analysisForm] = Form.useForm<{ language?: string | undefined }>();
+  const analysis = useQuery({ queryKey: queueKeys.analysis, queryFn: analysisSettingsApi.read });
+
+  useEffect(() => {
+    if (analysis.data !== undefined) {
+      analysisForm.setFieldsValue({
+        language: analysis.data.language === '' ? undefined : analysis.data.language,
+      });
+    }
+  }, [analysis.data, analysisForm]);
+
+  const saveAnalysis = useMutation({
+    mutationFn: analysisSettingsApi.save,
+    onSuccess: () => {
+      void message.success(t('admin.queue.settings.saved'), 2);
+      void queryClient.invalidateQueries({ queryKey: queueKeys.analysis });
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
 
   const saveSettings = useMutation({
     mutationFn: queueSettingsApi.save,
@@ -199,6 +220,38 @@ export function AdminQueueScreen() {
             </Button>
           </Form.Item>
         </Form>
+
+        {/* One language for everything the machine writes, so an archive does not end up with a
+            Russian title over an English description (docs/05 §5.5). Empty keeps what it did
+            before: each field in the language of its own document. */}
+        <Form
+          form={analysisForm}
+          layout="inline"
+          style={{ marginTop: 16 }}
+          onFinish={(values: { language?: string | undefined }) =>
+            saveAnalysis.mutate({ language: values.language ?? '' })
+          }
+        >
+          <Form.Item
+            name="language"
+            label={t('admin.queue.settings.analysisLanguage')}
+            tooltip={t('admin.queue.settings.analysisLanguageHint')}
+          >
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              style={{ minWidth: 220 }}
+              placeholder={t('admin.queue.settings.analysisLanguageAuto')}
+              options={LANGUAGE_OPTIONS}
+            />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={saveAnalysis.isPending}>
+              {t('common.actions.save')}
+            </Button>
+          </Form.Item>
+        </Form>
       </Card>
 
       <Card
@@ -301,3 +354,24 @@ function describePayload(payload: unknown): string {
     .map(([key, value]) => `${key}=${String(value)}`);
   return entries.length === 0 ? '—' : entries.join(' ');
 }
+
+// Every language Intl can name, in the reader's own language — the same list the viewer offers for a
+// document's languages (docs/11 §11.5). Built rather than shipped: a table of languages goes out of
+// date and one asked of Intl cannot.
+const LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = (() => {
+  const letters = 'abcdefghijklmnopqrstuvwxyz'.split('');
+  const options: Array<{ value: string; label: string }> = [];
+  for (const first of letters) {
+    for (const second of letters) {
+      const code = `${first}${second}`;
+      let name = code;
+      try {
+        name = new Intl.DisplayNames([navigator.language], { type: 'language' }).of(code) ?? code;
+      } catch {
+        name = code;
+      }
+      if (name !== code) options.push({ value: code, label: `${name} (${code})` });
+    }
+  }
+  return options.sort((a, b) => a.label.localeCompare(b.label));
+})();

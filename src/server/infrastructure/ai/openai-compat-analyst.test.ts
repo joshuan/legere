@@ -94,6 +94,26 @@ describe('OpenAiCompatAnalyst', () => {
       expect(prompt).toContain('Квартира');
       expect(prompt).toContain('Reuse a kind from the list');
     });
+
+    it('offers the things already known, with how to recognise each', async () => {
+      const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('{"slug":"invoice"}'));
+
+      await analyst().analyze(
+        'text',
+        CATEGORIES,
+        ['apartment'],
+        [
+          { kind: 'apartment', name: 'Njegoševa 5', note: 'ap. 12, landlady Marija' },
+          { kind: 'car', name: 'Golf IV', note: null },
+        ],
+      );
+
+      const prompt = JSON.stringify(requestOf(spy).body.messages);
+      // The note is the whole point: it is how a lease and a bill are recognised as one flat.
+      expect(prompt).toContain('apartment: Njegoševa 5 — ap. 12, landlady Marija');
+      expect(prompt).toContain('car: Golf IV');
+      expect(prompt).toContain('Most documents are about something already known');
+    });
   });
 
   describe('the answer', () => {

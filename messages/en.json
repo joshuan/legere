@@ -291,7 +291,10 @@
         "title": "How hard this instance works",
         "saved": "Applied",
         "unitConcurrency": "Units per job",
-        "unitConcurrencyHint": "How many independent pieces inside one job run at once — the pages of a scan set being cropped, say."
+        "unitConcurrencyHint": "How many independent pieces inside one job run at once — the pages of a scan set being cropped, say.",
+        "analysisLanguage": "The analysis writes in",
+        "analysisLanguageAuto": "The language of each document",
+        "analysisLanguageHint": "Titles, descriptions and the names invented for people, things and kinds all use this language. Leave it empty and each follows the document it came from."
       }
     },
     "documentTypes": {
@@ -374,7 +377,8 @@
         "kind": "Kind",
         "kindRequired": "Choose a kind",
         "kindHint": "Kinds are managed on their own screen.",
-        "noteHint": "Anything that tells two things of one name apart."
+        "noteHint": "The address, the plate, the account number, the other party — whatever a document about it would mention. The analysis reads this to tell one thing from another.",
+        "note": "How to recognise it"
       }
     },
     "subjectKinds": {
