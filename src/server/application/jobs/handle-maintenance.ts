@@ -5,6 +5,7 @@ import type { PasswordResetRepository } from '../../domain/repositories/password
 import type { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
 import type { Clock } from '../ports/clock';
 import type { FileStorage, StoredObjectInfo } from '../ports/file-storage';
+import type { JobQueue } from '../ports/job-queue';
 import type { MetricsCache } from '../ports/metrics-cache';
 import { JobHandler } from './job-handler';
 
@@ -19,6 +20,14 @@ const DOCUMENT_KEY = /^documents\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 // single enormous query.
 const EXISTENCE_BATCH = 500;
 
+// How long a document may sit at PENDING before this job assumes nobody is coming for it. Longer
+// than `document-process` takes to expire, so a slow document is never enqueued twice.
+const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
+
+// A bound on one sweep: an upgrade that resets every document must not put the whole archive into
+// the queue in one hour, and the next sweep picks up where this one stopped.
+const STALE_BATCH = 200;
+
 // `maintenance`, hourly (docs/06 §6.8). Housekeeping only: nothing here is on a request path, and
 // nothing it does is visible to a user except by things not piling up.
 export class HandleMaintenance extends JobHandler {
@@ -29,6 +38,7 @@ export class HandleMaintenance extends JobHandler {
     private readonly documents: DocumentRepository,
     private readonly files: FileStorage,
     private readonly metrics: MetricsCache,
+    private readonly queue: JobQueue,
     private readonly clock: Clock,
   ) {
     super();
@@ -42,6 +52,17 @@ export class HandleMaintenance extends JobHandler {
     await this.verifications.deleteExpired(now);
     await this.invites.deleteExpired(now);
     await this.resets.deleteExpired(now);
+
+    // Documents nobody is coming for: a job lost to a crash, or a migration that reset every step
+    // and had no way to enqueue anything (docs/05 §5.4). The handler is idempotent, so the cost of
+    // being wrong here is one repeated run and never a broken document.
+    const stalled = await this.documents.listStalePendingIds(
+      new Date(now.getTime() - STALE_AFTER_MS),
+      STALE_BATCH,
+    );
+    for (const documentId of stalled) {
+      await this.queue.enqueue('document-process', { documentId }, { singletonKey: documentId });
+    }
 
     // One listing of the bucket answers both remaining questions (docs/09 §9.5).
     const objects = await this.files.list('');

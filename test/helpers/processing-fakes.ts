@@ -231,6 +231,24 @@ export class InMemoryDocumentRepository extends DocumentRepository {
     return unused('listYears');
   }
 
+  readonly updatedAt = new Map<string, Date>();
+
+  setUpdatedAt(documentId: string, at: Date): void {
+    this.updatedAt.set(documentId, at);
+  }
+
+  listStalePendingIds(olderThan: Date, limit: number): Promise<string[]> {
+    // `updatedAt` is a column, not part of the domain entity, so the fake keeps its own note of
+    // when a row was last written and the test drives it through `setUpdatedAt`.
+    const stale = [...this.documents.values()].filter(
+      (document: Document) =>
+        document.deletedAt === null &&
+        (this.updatedAt.get(document.id) ?? document.createdAt).getTime() < olderThan.getTime() &&
+        Object.values(document.steps).some((status) => status === 'PENDING'),
+    );
+    return Promise.resolve(stale.slice(0, limit).map((document: Document) => document.id));
+  }
+
   countByStepStatus(): Promise<StepStatusCounters> {
     return unused('countByStepStatus');
   }

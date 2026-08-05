@@ -9,6 +9,12 @@ import {
   documentFixture,
   InMemoryDocumentRepository,
 } from '../../../../test/helpers/processing-fakes';
+import {
+  JobQueue,
+  type EnqueueOptions,
+  type QueueName,
+} from '../../application/ports/job-queue';
+import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
 import { InMemoryMetricsCache } from '../../infrastructure/storage/in-memory-metrics-cache';
 import { HandleMaintenance } from './handle-maintenance';
@@ -21,6 +27,33 @@ const DELETED_DOCUMENT = '22222222-2222-4222-8222-222222222222';
 const GONE_DOCUMENT = '33333333-3333-4333-8333-333333333333';
 
 // The hourly housekeeping job (docs/06 §6.8, docs/09 §9.5).
+// Records what the sweep enqueued; nothing else here needs a queue.
+class RecordingJobQueue extends JobQueue {
+  readonly enqueued: Array<{ name: QueueName; payload: object; options?: EnqueueOptions }> = [];
+
+  enqueue(name: QueueName, payload: object, options?: EnqueueOptions): Promise<string | null> {
+    this.enqueued.push({ name, payload, ...(options === undefined ? {} : { options }) });
+    return Promise.resolve('job-id');
+  }
+
+  enqueueAfterTx(
+    _tx: TransactionHandle,
+    name: QueueName,
+    payload: object,
+    options?: EnqueueOptions,
+  ): Promise<string | null> {
+    return this.enqueue(name, payload, options);
+  }
+
+  scheduleCron(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  unscheduleCron(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
 describe('HandleMaintenance', () => {
   let clock: FixedClock;
   let verifications: InMemoryEmailVerificationRepository;
@@ -29,6 +62,7 @@ describe('HandleMaintenance', () => {
   let documents: InMemoryDocumentRepository;
   let files: InMemoryFileStorage;
   let metrics: InMemoryMetricsCache;
+  let queue: RecordingJobQueue;
   let handler: HandleMaintenance;
 
   beforeEach(() => {
@@ -39,6 +73,7 @@ describe('HandleMaintenance', () => {
     documents = new InMemoryDocumentRepository();
     files = new InMemoryFileStorage();
     metrics = new InMemoryMetricsCache();
+    queue = new RecordingJobQueue();
     handler = new HandleMaintenance(
       verifications,
       invites,
@@ -46,6 +81,7 @@ describe('HandleMaintenance', () => {
       documents,
       files,
       metrics,
+      queue,
       clock,
     );
   });
@@ -184,4 +220,37 @@ describe('HandleMaintenance', () => {
       measuredAt: NOW.toISOString(),
     });
   });
+  // A migration that resets every step has no way to enqueue anything, and a crash loses jobs
+  // outright. Either way the document waits at PENDING until this sweep notices (docs/05 §5.4).
+  it('re-enqueues documents nobody is coming for, and leaves the fresh ones alone', async () => {
+    const stale = documentFixture({ id: 'doc-stale' });
+    const fresh = documentFixture({ id: 'doc-fresh' });
+    const done = documentFixture({
+      id: 'doc-done',
+      steps: {
+        canonical: 'DONE',
+        preview: 'DONE',
+        markdown: 'DONE',
+        analysis: 'DONE',
+        vectorization: 'DONE',
+      },
+    });
+    documents.add(stale);
+    documents.add(fresh);
+    documents.add(done);
+    documents.setUpdatedAt('doc-stale', new Date(NOW.getTime() - 3 * 60 * 60 * 1000));
+    documents.setUpdatedAt('doc-fresh', new Date(NOW.getTime() - 60 * 1000));
+    documents.setUpdatedAt('doc-done', new Date(NOW.getTime() - 3 * 60 * 60 * 1000));
+
+    await handler.handle();
+
+    expect(queue.enqueued).toEqual([
+      {
+        name: 'document-process',
+        payload: { documentId: 'doc-stale' },
+        options: { singletonKey: 'doc-stale' },
+      },
+    ]);
+  });
+
 });

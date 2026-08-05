@@ -75,7 +75,7 @@ Job handlers live in `application/jobs/` and are use cases with the signature
 | `HandleLibraryScan` | `{ libraryId, scanRunId? }` | walk, diff, create/update FileRefs, enqueue `file-ingest`, write ScanRun |
 | `HandleFileIngest` | `{ fileRefId }` | hash stream, attach/create Document, enqueue `document-process` for new documents |
 | `HandleDocumentProcess` | `{ documentId, steps?: string[] }` | run steps 1–5 sequentially; `steps` limits re-processing to a subset |
-| `HandleMaintenance` | `{}` | purge expired EmailVerifications/invites/resets; delete S3 artifacts of documents soft-deleted > 30 days ago is **not** done (retention: keep); compact nothing else |
+| `HandleMaintenance` (also re-enqueues documents stuck at PENDING, 05 §5.4) | `{}` | purge expired EmailVerifications/invites/resets; delete S3 artifacts of documents soft-deleted > 30 days ago is **not** done (retention: keep); compact nothing else |
 
 Every handler starts with an idempotency check ("already done? → return") and must tolerate
 re-delivery (pg-boss is at-least-once).

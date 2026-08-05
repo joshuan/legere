@@ -169,6 +169,16 @@ export abstract class DocumentRepository {
 
   abstract countByStepStatus(tx?: TransactionHandle): Promise<StepStatusCounters>;
 
+  // Documents left waiting: a step is PENDING and nothing has written to the row since `olderThan`.
+  // A document being processed right now has its steps written as they run, so it is never in this
+  // answer — what is, is a document whose job was lost or was never enqueued at all, which is what a
+  // migration that resets statuses leaves behind (docs/05 §5.4).
+  abstract listStalePendingIds(
+    olderThan: Date,
+    limit: number,
+    tx?: TransactionHandle,
+  ): Promise<string[]>;
+
   // 🔒 Only the years this viewer can see documents in: a year with one document they may not read
   // is not a year that exists for them (docs/03 §3.4).
   abstract listYears(

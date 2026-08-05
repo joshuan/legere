@@ -247,9 +247,10 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         documents: DocumentRepository,
         files: FileStorage,
         metrics: MetricsCache,
+        queue: JobQueue,
         clock: Clock,
       ): HandleMaintenance =>
-        new HandleMaintenance(verifications, invites, resets, documents, files, metrics, clock),
+        new HandleMaintenance(verifications, invites, resets, documents, files, metrics, queue, clock),
       inject: [
         EmailVerificationRepository,
         UserInviteRepository,
@@ -257,6 +258,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         DocumentRepository,
         FileStorage,
         MetricsCache,
+        JobQueue,
         Clock,
       ],
     },

@@ -51,6 +51,10 @@ class StubSearchRepository extends DocumentRepository {
     throw new Error('listYears is not part of search');
   }
 
+  listStalePendingIds(): Promise<string[]> {
+    return Promise.resolve([]);
+  }
+
   countByStepStatus() {
     return notUsed();
   }

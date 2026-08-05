@@ -112,6 +112,11 @@ Rules:
   process.
 - Enqueueing a job and writing an entity happen in a single DB transaction (pg-boss lives in the same
   PostgreSQL).
+- **Nobody waits at `PENDING` for ever.** The hourly `maintenance` sweep re-enqueues documents whose
+  steps are pending and whose row nothing has written to for two hours — a job lost to a crash, or a
+  migration that reset every step and had no queue to write to. It takes at most 200 a run, so an
+  upgrade that rebuilds an archive spreads over hours instead of filling the queue in one; the
+  handler is idempotent, so being wrong costs one repeated run and never a broken document.
 
 ## 5.5. Document processing pipeline (`document-process`)
 

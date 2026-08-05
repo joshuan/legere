@@ -491,6 +491,30 @@ export class PrismaDocumentRepository implements DocumentRepository {
       .sort((a, b) => b.year - a.year);
   }
 
+  async listStalePendingIds(
+    olderThan: Date,
+    limit: number,
+    tx?: TransactionHandle,
+  ): Promise<string[]> {
+    const rows = await clientOf(this.prisma, tx).document.findMany({
+      where: {
+        deletedAt: null,
+        updatedAt: { lt: olderThan },
+        OR: [
+          { canonicalStatus: 'PENDING' },
+          { previewStatus: 'PENDING' },
+          { markdownStatus: 'PENDING' },
+          { analysisStatus: 'PENDING' },
+          { vectorizationStatus: 'PENDING' },
+        ],
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+    });
+    return rows.map((row) => row.id);
+  }
+
   async countByStepStatus(tx?: TransactionHandle): Promise<StepStatusCounters> {
     const rows = await clientOf(this.prisma, tx).$queryRaw<CounterRow[]>`
       SELECT canonical_status, preview_status, markdown_status,
