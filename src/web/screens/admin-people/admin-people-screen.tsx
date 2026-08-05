@@ -2,6 +2,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Form, Input, Typography } from 'antd';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useCallback } from 'react';
 import type { PersonDto } from '../../../shared/contracts/people';
@@ -46,7 +47,13 @@ export function AdminPeopleScreen() {
         {
           title: t('admin.catalogues.columns.documents'),
           key: 'documents',
-          render: (person) => person.documentCount,
+          // The number is the question "which forty?"; the link answers it (docs/11 §11.12a).
+          render: (person) =>
+            person.documentCount === 0 ? (
+              0
+            ) : (
+              <Link href={`/browse/people/${person.id}`}>{person.documentCount}</Link>
+            ),
         },
       ]}
       initialValues={{ name: '', note: '' }}
@@ -62,6 +69,13 @@ export function AdminPeopleScreen() {
       }}
       onDelete={(person) => personApi.remove(person.id)}
       onSaved={refresh}
+      // The analysis reads a name as the document spells it, so one person arrives three times
+      // (docs/03 §3.3.19).
+      merge={{
+        label: (person) => person.name,
+        onMerge: (people, values) =>
+          personApi.merge({ ids: people.map((person) => person.id), name: values.name ?? '' }),
+      }}
       fields={() => (
         <>
           <Form.Item

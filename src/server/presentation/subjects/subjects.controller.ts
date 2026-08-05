@@ -1,8 +1,10 @@
 import { Controller, Delete, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   createSubjectRequestSchema,
+  mergeSubjectsRequestSchema,
   updateSubjectRequestSchema,
   type CreateSubjectRequest,
+  type MergeSubjectsRequest,
   type ListSubjectsResponse,
   type SubjectDto,
   type UpdateSubjectRequest,
@@ -13,6 +15,7 @@ import {
   CreateSubject,
   DeleteSubject,
   ListSubjects,
+  MergeSubjects,
   UpdateSubject,
 } from '../../application/subjects/manage-subjects';
 import { Roles, RolesGuard } from '../auth/roles.guard';
@@ -54,7 +57,16 @@ export class AdminSubjectsController {
   constructor(
     private readonly updateSubject: UpdateSubject,
     private readonly deleteSubject: DeleteSubject,
+    private readonly mergeSubjects: MergeSubjects,
   ) {}
+
+  // Declared before `:id`, or the router reads "merge" as a subject id.
+  @Post('merge')
+  async merge(
+    @ZodBody(mergeSubjectsRequestSchema) body: MergeSubjectsRequest,
+  ): Promise<Envelope<SubjectDto>> {
+    return successEnvelope(await this.mergeSubjects.execute(body));
+  }
 
   @Patch(':id')
   async update(

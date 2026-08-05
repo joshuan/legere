@@ -1,10 +1,12 @@
 import {
   createPersonRequestSchema,
   listPeopleResponseSchema,
+  mergePeopleRequestSchema,
   personDtoSchema,
   updatePersonRequestSchema,
   type CreatePersonRequest,
   type ListPeopleResponse,
+  type MergePeopleRequest,
   type PersonDto,
   type UpdatePersonRequest,
 } from '../../../shared/contracts/people';
@@ -29,6 +31,13 @@ export const personApi = {
     apiClient.patch(`/api/admin/people/${id}`, {
       schema: personDtoSchema,
       body: updatePersonRequestSchema.parse(body),
+    }),
+
+  // Folding several rows into one reaches every document that named any of them (docs/03 §3.3.19).
+  merge: (body: MergePeopleRequest): Promise<PersonDto> =>
+    apiClient.post('/api/admin/people/merge', {
+      schema: personDtoSchema,
+      body: mergePeopleRequestSchema.parse(body),
     }),
 
   remove: (id: string): Promise<OkResponse> =>

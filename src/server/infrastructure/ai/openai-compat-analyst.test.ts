@@ -84,6 +84,16 @@ describe('OpenAiCompatAnalyst', () => {
       expect(prompt).toContain('contract: Contract');
       expect(prompt).toContain('Amount due: 1200');
     });
+
+    it('offers the kinds already in use, so one shelf does not become two', async () => {
+      const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('{"slug":"invoice"}'));
+
+      await analyst().analyze('text', CATEGORIES, ['Квартира', 'car']);
+
+      const prompt = JSON.stringify(requestOf(spy).body.messages);
+      expect(prompt).toContain('Квартира');
+      expect(prompt).toContain('Reuse a kind from the list');
+    });
   });
 
   describe('the answer', () => {

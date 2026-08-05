@@ -58,9 +58,12 @@ const SYSTEM_PROMPT = [
   'The date is the one the document is *about* — signed, issued, valid from, departing — not the day',
   'it was printed or scanned. When several appear, take the one that dates the document itself.',
   'A subject is the thing the document concerns: the flat a lease is for, the car an insurance',
-  'policy covers, the country a tax return is filed in. The kind is one lower-case English word;',
-  'the name is what identifies that one thing, as the document writes it. Empty list if there is',
-  'no such thing — a bank statement is about an account, a birthday card about nothing.',
+  'policy covers, the country a tax return is filed in. The kind is one word saying what sort of',
+  'thing it is; the name is what identifies that one thing, as the document writes it. Empty list if',
+  'there is no such thing — a bank statement is about an account, a birthday card about nothing.',
+  'Reuse a kind from the list you are given whenever one of them fits, spelled exactly as it is',
+  'there — two spellings of one kind split the archive in half. Only when none fits, name a new one',
+  'in the language of the document.',
 ].join(' ');
 
 // Deterministic answers: the same document must not land in a different documentType on a reprocess.
@@ -117,6 +120,7 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
   async analyze(
     excerpt: string,
     documentTypes: readonly DocumentTypeOption[],
+    subjectKinds: readonly string[] = [],
   ): Promise<DocumentAnalysis> {
     if (!this.isConfigured) throw new Error('No document analyst is configured');
 
@@ -135,7 +139,7 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt(excerpt, documentTypes) },
+          { role: 'user', content: userPrompt(excerpt, documentTypes, subjectKinds) },
         ],
       }),
     });
@@ -155,7 +159,11 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
 // The catalogue as the model sees it: slug, name, and the description an admin wrote as guidance
 // (docs/03 §3.3.12). With no documentTypes defined there is still a place to read — the list is simply
 // empty and "none" is the only honest slug.
-function userPrompt(excerpt: string, documentTypes: readonly DocumentTypeOption[]): string {
+function userPrompt(
+  excerpt: string,
+  documentTypes: readonly DocumentTypeOption[],
+  subjectKinds: readonly string[] = [],
+): string {
   const list =
     documentTypes.length === 0
       ? '(none defined — answer "none")'
@@ -167,7 +175,12 @@ function userPrompt(excerpt: string, documentTypes: readonly DocumentTypeOption[
           )
           .join('\n');
 
-  return `DocumentTypes:\n${list}\n\nDocument:\n"""\n${excerpt}\n"""`;
+  const kinds =
+    subjectKinds.length === 0
+      ? '(none yet — name one)'
+      : subjectKinds.map((k) => `- ${k}`).join('\n');
+
+  return `DocumentTypes:\n${list}\n\nSubject kinds already in use:\n${kinds}\n\nDocument:\n"""\n${excerpt}\n"""`;
 }
 
 function readAnswer(

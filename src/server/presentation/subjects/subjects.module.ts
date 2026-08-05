@@ -3,10 +3,12 @@ import {
   CreateSubject,
   DeleteSubject,
   ListSubjects,
+  MergeSubjects,
   UpdateSubject,
 } from '../../application/subjects/manage-subjects';
 import { AuthenticateSession } from '../../application/auth/authenticate-session';
 import { Clock } from '../../application/ports/clock';
+import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserRepository } from '../../domain/repositories/user.repository';
@@ -50,6 +52,16 @@ import { AdminSubjectsController, SubjectsController } from './subjects.controll
       useFactory: (subjects: SubjectRepository, kinds: SubjectKindRepository): UpdateSubject =>
         new UpdateSubject(subjects, kinds),
       inject: [SubjectRepository, SubjectKindRepository],
+    },
+    {
+      provide: MergeSubjects,
+      useFactory: (
+        subjects: SubjectRepository,
+        kinds: SubjectKindRepository,
+        unitOfWork: UnitOfWork,
+        clock: Clock,
+      ): MergeSubjects => new MergeSubjects(subjects, kinds, unitOfWork, clock),
+      inject: [SubjectRepository, SubjectKindRepository, UnitOfWork, Clock],
     },
     {
       provide: DeleteSubject,

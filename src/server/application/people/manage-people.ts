@@ -1,10 +1,12 @@
 import type {
   CreatePersonRequest,
+  MergePeopleRequest,
   ListPeopleResponse,
   PersonDto,
   UpdatePersonRequest,
 } from '../../../shared/contracts/people';
 import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
+import type { UnitOfWork } from '../ports/unit-of-work';
 import type { PersonRepository } from '../../domain/repositories/person.repository';
 import type { Clock } from '../ports/clock';
 
@@ -84,5 +86,56 @@ export class DeletePerson {
     // Soft delete keeps the links (ADR-015): the documents still say who they were about, and only
     // new documents stop being able to name them.
     await this.people.softDelete(id, this.clock.now());
+  }
+}
+
+// Four rows for one person, because the analysis read four spellings of one name. Merging keeps the
+// oldest row — the one the archive has been calling this person longest — renames it to whatever was
+// chosen, moves every document link onto it and soft-deletes the rest (docs/03 §3.3.19).
+//
+// One transaction: a merge that moved half the links and then failed would leave documents pointing
+// at a person nobody can see.
+export class MergePeople {
+  constructor(
+    private readonly people: PersonRepository,
+    private readonly unitOfWork: UnitOfWork,
+    private readonly clock: Clock,
+  ) {}
+
+  async execute(input: MergePeopleRequest): Promise<PersonDto> {
+    const rows = await this.people.findByIds(input.ids);
+    if (rows.length !== input.ids.length) {
+      throw new NotFoundError('PERSON_NOT_FOUND', 'Person not found');
+    }
+
+    // 🔒 The surviving name must not collide with somebody who was not part of the merge — that
+    // would be two people becoming one by accident, which is the opposite of the point.
+    const clash = await this.people.findByName(input.name);
+    if (clash !== null && !input.ids.includes(clash.id)) {
+      throw new ConflictError('PERSON_EXISTS', 'Somebody else is already called that');
+    }
+
+    const survivor = [...rows].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
+    if (survivor === undefined) throw new NotFoundError('PERSON_NOT_FOUND', 'Person not found');
+    const merged = input.ids.filter((id) => id !== survivor.id);
+
+    const now = this.clock.now();
+    await this.unitOfWork.run(async (tx) => {
+      await this.people.moveDocumentLinks(merged, survivor.id, tx);
+      await this.people.update(
+        survivor.id,
+        { name: input.name, ...(input.note === undefined ? {} : { note: input.note }) },
+        tx,
+      );
+      for (const id of merged) await this.people.softDelete(id, now, tx);
+    });
+
+    const counted = (await this.people.listActive()).find((row) => row.id === survivor.id);
+    return {
+      id: survivor.id,
+      name: input.name,
+      note: counted?.note ?? null,
+      documentCount: counted?.documentCount ?? 0,
+    };
   }
 }

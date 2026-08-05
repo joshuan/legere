@@ -489,6 +489,7 @@ export class HandleDocumentProcess extends JobHandler {
 
     try {
       const documentTypes = await this.documentTypes.listActive();
+      const kinds = await this.subjectKinds.listActive();
       const analysis = await this.analyst.analyze(
         analystExcerpt(document),
         documentTypes.map(({ slug: value, name, description }) => ({
@@ -496,6 +497,7 @@ export class HandleDocumentProcess extends JobHandler {
           name,
           description,
         })),
+        kinds.map((kind) => kind.name),
       );
 
       await this.linkPeople(document, analysis.people);

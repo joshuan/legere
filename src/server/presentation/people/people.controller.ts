@@ -1,8 +1,10 @@
 import { Controller, Delete, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   createPersonRequestSchema,
+  mergePeopleRequestSchema,
   updatePersonRequestSchema,
   type CreatePersonRequest,
+  type MergePeopleRequest,
   type ListPeopleResponse,
   type PersonDto,
   type UpdatePersonRequest,
@@ -13,6 +15,7 @@ import {
   CreatePerson,
   DeletePerson,
   ListPeople,
+  MergePeople,
   UpdatePerson,
 } from '../../application/people/manage-people';
 import { Roles, RolesGuard } from '../auth/roles.guard';
@@ -54,7 +57,16 @@ export class AdminPeopleController {
   constructor(
     private readonly updatePerson: UpdatePerson,
     private readonly deletePerson: DeletePerson,
+    private readonly mergePeople: MergePeople,
   ) {}
+
+  // Declared before `:id`, or the router reads "merge" as a person id.
+  @Post('merge')
+  async merge(
+    @ZodBody(mergePeopleRequestSchema) body: MergePeopleRequest,
+  ): Promise<Envelope<PersonDto>> {
+    return successEnvelope(await this.mergePeople.execute(body));
+  }
 
   @Patch(':id')
   async update(

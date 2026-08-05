@@ -25,6 +25,16 @@ export const createSubjectRequestSchema = z.object({
 });
 export type CreateSubjectRequest = z.infer<typeof createSubjectRequestSchema>;
 
+// Four rows for one flat become one (docs/03 §3.3.20). The kind travels too: the rows being merged
+// may disagree about it, and the survivor has to be filed somewhere definite.
+export const mergeSubjectsRequestSchema = z.object({
+  ids: z.array(z.string().uuid()).min(2).max(50),
+  kindId: z.string().uuid(),
+  name: z.string().trim().min(1).max(200),
+  note: z.string().trim().max(500).nullable().optional(),
+});
+export type MergeSubjectsRequest = z.infer<typeof mergeSubjectsRequestSchema>;
+
 export const updateSubjectRequestSchema = createSubjectRequestSchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, {

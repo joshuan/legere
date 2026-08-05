@@ -71,7 +71,9 @@ export class PrismaSubjectKindRepository extends SubjectKindRepository {
     tx?: TransactionHandle,
   ): Promise<SubjectKind> {
     const row = await clientOf(this.prisma, tx).subjectKind.create({
-      data: { name: input.name.trim().toLowerCase(), note: input.note ?? null },
+      // As typed: the case is the owner's, and only the uniqueness check ignores it
+      // (docs/03 §3.3.20a).
+      data: { name: input.name.trim(), note: input.note ?? null },
     });
     return toSubjectKind(row);
   }
@@ -84,7 +86,7 @@ export class PrismaSubjectKindRepository extends SubjectKindRepository {
     const row = await clientOf(this.prisma, tx).subjectKind.update({
       where: { id },
       data: {
-        ...(input.name === undefined ? {} : { name: input.name.trim().toLowerCase() }),
+        ...(input.name === undefined ? {} : { name: input.name.trim() }),
         ...(input.note === undefined ? {} : { note: input.note }),
       },
     });

@@ -30,6 +30,15 @@ export abstract class PersonRepository {
   // The people on one document, in catalogue order.
   abstract listForDocument(documentId: string, tx?: TransactionHandle): Promise<Person[]>;
 
+  // Moves every document link from these rows onto one survivor, collapsing the duplicates a
+  // document that named two of them would otherwise end up with (docs/03 §3.3.19). The merged-away
+  // rows are not touched here — the use case soft-deletes them inside the same transaction.
+  abstract moveDocumentLinks(
+    fromIds: string[],
+    toId: string,
+    tx?: TransactionHandle,
+  ): Promise<void>;
+
   // Replaces the whole set: the form sends what the document should end up with, not a diff.
   abstract setForDocument(
     documentId: string,

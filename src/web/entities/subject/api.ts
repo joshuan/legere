@@ -1,10 +1,12 @@
 import {
   createSubjectRequestSchema,
   listSubjectsResponseSchema,
+  mergeSubjectsRequestSchema,
   subjectDtoSchema,
   updateSubjectRequestSchema,
   type CreateSubjectRequest,
   type ListSubjectsResponse,
+  type MergeSubjectsRequest,
   type SubjectDto,
   type UpdateSubjectRequest,
 } from '../../../shared/contracts/subjects';
@@ -28,6 +30,13 @@ export const subjectApi = {
     apiClient.patch(`/api/admin/subjects/${id}`, {
       schema: subjectDtoSchema,
       body: updateSubjectRequestSchema.parse(body),
+    }),
+
+  // Folding several rows into one reaches every document about any of them (docs/03 §3.3.20).
+  merge: (body: MergeSubjectsRequest): Promise<SubjectDto> =>
+    apiClient.post('/api/admin/subjects/merge', {
+      schema: subjectDtoSchema,
+      body: mergeSubjectsRequestSchema.parse(body),
     }),
 
   remove: (id: string): Promise<OkResponse> =>

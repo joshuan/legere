@@ -1,5 +1,6 @@
 import type {
   CreateSubjectRequest,
+  MergeSubjectsRequest,
   ListSubjectsResponse,
   SubjectDto,
   UpdateSubjectRequest,
@@ -8,6 +9,7 @@ import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
 import type { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
 import type { SubjectRepository } from '../../domain/repositories/subject.repository';
 import type { Clock } from '../ports/clock';
+import type { UnitOfWork } from '../ports/unit-of-work';
 
 // The same access shape as people (docs/03 §3.3.19–20): reading and adding are open, because the
 // analysis adds things on its own and whoever corrects it must be able to; renaming and removing are
@@ -116,5 +118,64 @@ export class DeleteSubject {
     if (subject === null) throw new NotFoundError('SUBJECT_NOT_FOUND', 'Subject not found');
     // Soft delete keeps the links (ADR-015): the documents still say what they were about.
     await this.subjects.softDelete(id, this.clock.now());
+  }
+}
+
+// Four rows for one flat, because the analysis read the address four ways. Merging keeps the oldest
+// row, files it under the chosen kind and name, moves every document link onto it and soft-deletes
+// the rest (docs/03 §3.3.20). One transaction: a half-moved merge would leave documents about a
+// thing nobody can see.
+export class MergeSubjects {
+  constructor(
+    private readonly subjects: SubjectRepository,
+    private readonly kinds: SubjectKindRepository,
+    private readonly unitOfWork: UnitOfWork,
+    private readonly clock: Clock,
+  ) {}
+
+  async execute(input: MergeSubjectsRequest): Promise<SubjectDto> {
+    const kind = await this.kinds.findById(input.kindId);
+    if (kind === null) throw new NotFoundError('SUBJECT_KIND_NOT_FOUND', 'Subject kind not found');
+
+    const rows = await Promise.all(input.ids.map((id) => this.subjects.findById(id)));
+    const found = rows.filter((row) => row !== null);
+    if (found.length !== input.ids.length) {
+      throw new NotFoundError('SUBJECT_NOT_FOUND', 'Subject not found');
+    }
+
+    // 🔒 The result must not collide with a thing that was not part of the merge.
+    const clash = await this.subjects.findByKindAndName(kind.id, input.name);
+    if (clash !== null && !input.ids.includes(clash.id)) {
+      throw new ConflictError('SUBJECT_EXISTS', 'This thing is already in the list');
+    }
+
+    const survivor = [...found].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
+    if (survivor === undefined) throw new NotFoundError('SUBJECT_NOT_FOUND', 'Subject not found');
+    const merged = input.ids.filter((id) => id !== survivor.id);
+
+    const now = this.clock.now();
+    await this.unitOfWork.run(async (tx) => {
+      await this.subjects.moveDocumentLinks(merged, survivor.id, tx);
+      await this.subjects.update(
+        survivor.id,
+        {
+          kindId: kind.id,
+          name: input.name,
+          ...(input.note === undefined ? {} : { note: input.note }),
+        },
+        tx,
+      );
+      for (const id of merged) await this.subjects.softDelete(id, now, tx);
+    });
+
+    const counted = (await this.subjects.listActive()).find((row) => row.id === survivor.id);
+    return {
+      id: survivor.id,
+      kindId: kind.id,
+      kind: kind.name,
+      name: input.name,
+      note: counted?.note ?? null,
+      documentCount: counted?.documentCount ?? 0,
+    };
   }
 }

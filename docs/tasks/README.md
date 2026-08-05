@@ -54,5 +54,6 @@ disagree, the doc wins — and report the discrepancy.
 | M8 | Scan sets | merge-to-PDF flow end to end |
 | M9 | Hardening & release | maintenance, mandatory-scenario audit, v0.1.0 |
 | M10 | Correcting what the machine read | reading a field back, catalogues with screens of their own, a log that names the service |
+| M11 | Uploading, throughput, recognition | an upload queue on the page, tunable concurrency, subjects the analysis can recognise |
 
 Milestones are strictly sequential; tasks within a milestone are ordered by dependency.

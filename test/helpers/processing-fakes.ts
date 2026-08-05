@@ -606,6 +606,10 @@ export class FakeDocumentEventRepository extends DocumentEventRepository {
 
 // The people catalogue in memory: a name is one row, and the analyst may add to it (docs/03 §3.3.19).
 export class InMemoryPersonRepository extends PersonRepository {
+  moveDocumentLinks(): Promise<void> {
+    return unused('moveDocumentLinks');
+  }
+
   readonly people = new Map<string, Person>();
   readonly links = new Map<string, string[]>();
 
@@ -724,6 +728,10 @@ export class InMemorySubjectKindRepository extends SubjectKindRepository {
 
 // The subjects catalogue in memory (docs/03 §3.3.20).
 export class InMemorySubjectRepository extends SubjectRepository {
+  moveDocumentLinks(): Promise<void> {
+    return unused('moveDocumentLinks');
+  }
+
   readonly subjects = new Map<string, Subject>();
   readonly links = new Map<string, string[]>();
 

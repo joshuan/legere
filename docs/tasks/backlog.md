@@ -307,3 +307,40 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Goal:** extracted Markdown reads like a document rather than like unstyled HTML.
   **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`11 §11.15`](../11-ui-ux-spec.md#1115-visual-identity--the-reading-room)
   **Acceptance:** headings, paragraphs and lists carry the reading-room rhythm rather than the browser's defaults — no stray leading margin at the top, spacing that groups rather than separates; tables fill the pane with real cell borders, header weight and horizontal scrolling instead of overflowing; code, quotes, links and images are styled to match; long OCR output stays readable at every width.
+
+- [x] **M10.10 — Merge what the analysis saw twice**
+  **Goal:** four rows for one flat — or one person spelled three ways — become one row, without losing a single document.
+  **Docs:** [`03 §3.3.19–20`](../03-domain-model.md), [`07`](../07-api-specification.md), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-admin-catalogues-adminpeople-adminsubjects-adminsubject-kinds)
+  **Acceptance:** rows are selectable on `/admin/people` and `/admin/subjects`; **Merge** asks for the surviving name — offered as a choice among the selected ones, or typed — and, for subjects, for the kind when the selected rows disagree; every document link moves to the survivor with duplicates collapsed, the others are soft-deleted, and no document loses the person or the thing it named; an admin's, and refused when the result would collide with a row that was not selected.
+
+- [x] **M10.11 — A kind is named in the owner's own words**
+  **Goal:** "Квартира" stops being turned into "apartment".
+  **Docs:** [`03 §3.3.20a`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process)
+  **Acceptance:** a kind is stored exactly as it is typed, in any language and any case, while remaining unique case-insensitively; the analysis is shown the kinds the catalogue already has and reuses one rather than inventing a synonym, and names a new one in the document's own language.
+
+- [x] **M10.12 — The count is the way to the documents**
+  **Goal:** "40" in a catalogue row is a question, and clicking it should answer it.
+  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-admin-catalogues-adminpeople-adminsubjects-adminsubject-kinds), [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browse)
+  **Acceptance:** the documents count on `/admin/people` and `/admin/subjects` links to that person's or that thing's browse page; a count of zero is plain text, since there is nothing to go to.
+
+## M11 — Uploading, throughput, and knowing a thing again
+
+- [ ] **M11.1 — An upload is a queue on the page, not a modal that blocks**
+  **Goal:** choosing forty files puts forty cards on the screen at once and fills them in one by one.
+  **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen), [`05 §5.1a`](../05-library-and-processing.md#51a-uploads)
+  **Acceptance:** the chosen files appear in the grid immediately as client-side cards marked "uploading", before a byte is sent; they upload **one at a time**, in order, however many there are; each becomes the real server card as it lands; pressing Upload again appends to the same queue rather than replacing it; a failure marks its own card and the queue carries on.
+
+- [ ] **M11.2 — The queue's throughput is a setting, not a rebuild**
+  **Goal:** an admin can tune how hard the instance works without editing env and restarting.
+  **Docs:** [`05 §5.4`](../05-library-and-processing.md#54-job-queue-pg-boss), [`11 §11.13`](../11-ui-ux-spec.md#1113-admin-queue-adminqueue)
+  **Acceptance:** `/admin/queue` sets, per job type, how many run at once — and, within one job, how many of its own units run in parallel (pages of a document, files of a scan); the values take effect without a restart and survive one; the defaults stay what `12 §12.4` documents.
+
+- [ ] **M11.3 — A subject says how to recognise it**
+  **Goal:** the analysis matches a document to a thing already in the catalogue instead of inventing a fifth spelling of it.
+  **Docs:** [`03 §3.3.20`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process)
+  **Acceptance:** a subject carries a description — the address, the plate, the account number, whatever identifies *this* one — written by hand or by the analysis; the analysis is given the catalogue's things with their descriptions and links an existing one when the document is about it, creating a row only when nothing matches. **Why now:** after the first months almost no genuinely new things appear, so the job stops being "read a name" and becomes "recognise which one of these".
+
+- [ ] **M11.4 — One language for everything the machine writes**
+  **Goal:** an archive does not end up with a Russian title over an English description.
+  **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`03 §3.3.10`](../03-domain-model.md), [`12 §12.4`](../12-build-config-run.md)
+  **Acceptance:** the instance says which language the analysis writes in — the title, the description, and the names it invents for people, things and their kinds — rather than each field following whatever the document happened to be written in; documents already processed keep what they have until they are analysed again. **Open:** whether this is an env value like the rest of the pipeline settings, or a row on an admin settings screen (which M11.2 needs anyway) — the second is friendlier and the first is how every other processing setting works today.

@@ -116,6 +116,25 @@ export class PrismaSubjectRepository extends SubjectRepository {
     return rows.map((row) => toSubject(row.subject));
   }
 
+  async moveDocumentLinks(fromIds: string[], toId: string, tx?: TransactionHandle): Promise<void> {
+    if (fromIds.length === 0) return;
+    const client = clientOf(this.prisma, tx);
+
+    // Create-then-delete, not an UPDATE: a document that was about two of the merged things would
+    // collide on the primary key. `skipDuplicates` collapses it into the one link it should have.
+    const links = await client.documentSubject.findMany({
+      where: { subjectId: { in: fromIds } },
+      select: { documentId: true },
+    });
+    if (links.length > 0) {
+      await client.documentSubject.createMany({
+        data: links.map((link) => ({ documentId: link.documentId, subjectId: toId })),
+        skipDuplicates: true,
+      });
+    }
+    await client.documentSubject.deleteMany({ where: { subjectId: { in: fromIds } } });
+  }
+
   async setForDocument(
     documentId: string,
     subjectIds: string[],

@@ -326,7 +326,15 @@
       "fields": {
         "name": "Name",
         "nameRequired": "Enter a name",
-        "note": "Note"
+        "note": "Note",
+        "mergedName": "The name to keep",
+        "mergedNameHint": "Pick one of the selected names, or write the right one."
+      },
+      "merged": "Merged",
+      "mergeTitle": "Merge {count} rows into one",
+      "actions": {
+        "merge": "Merge {count}",
+        "mergeConfirm": "Merge"
       }
     },
     "people": {

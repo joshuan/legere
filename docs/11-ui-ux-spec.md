@@ -262,6 +262,16 @@ A subject's kind is a select over the catalogue, never a typed word: kinds are c
 are managed (03 §3.3.20a). Moving a thing to another kind is an ordinary edit of that select — a boat
 filed as a country is corrected, not deleted and retyped.
 
+**Merging is what these screens are for.** The analysis reads a name as each document spells it, so
+one flat arrives four times and one person three. Rows carry checkboxes; with two or more selected,
+**Merge** asks the only question that matters — *which of these is the right name* — offering the
+selected names and taking anything typed over them. For subjects it asks for the kind too, since the
+selected rows may disagree. Everything then folds into one row and no document loses what it named.
+
+**The documents count is a link**, to that person's or that thing's browse page: "40" is the question
+"which forty?", and the answer is one click away. A count of zero is plain text — there is nothing to
+go to.
+
 **Deleting says what it costs.** A person or a subject stays on the documents that name it, and the
 confirmation says so rather than implying the documents change. A kind that still holds things cannot
 be deleted at all, and its confirmation says that too instead of offering a button the server will

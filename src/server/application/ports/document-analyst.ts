@@ -45,8 +45,12 @@ export abstract class DocumentAnalyst {
   // Which host the work goes to (docs/03 §3.3.18); empty when unconfigured.
   abstract get endpoint(): string;
 
+  // The kinds the catalogue already holds travel with the request: a model told what "apartment"
+  // is called here reuses it instead of inventing a synonym, which is what turns one shelf into two
+  // (docs/03 §3.3.20a).
   abstract analyze(
     excerpt: string,
     documentTypes: readonly DocumentTypeOption[],
+    subjectKinds: readonly string[],
   ): Promise<DocumentAnalysis>;
 }

@@ -82,19 +82,20 @@ describe('Catalogues (e2e)', () => {
     ).id;
 
   describe('subject kinds', () => {
-    it('lets anyone signed in add one, lower-cased and only once', async () => {
+    it('lets anyone signed in add one, spelled their way and only once', async () => {
       // Open on purpose: whoever files a boat must not wait for an admin to invent "boat"
       // (docs/03 §3.3.20a).
       const created = await api(app)
-        .post('/api/subject-kinds', { name: 'Apartment' })
+        .post('/api/subject-kinds', { name: 'Квартира' })
         .set('Cookie', userCookie);
 
       expect(created.status).toBe(201);
-      expect(expectData(created, subjectKindDtoSchema).name).toBe('apartment');
+      // Exactly as typed: the case and the language are the owner's, not the product's.
+      expect(expectData(created, subjectKindDtoSchema).name).toBe('Квартира');
 
-      // 🔒 One row per living name: "Apartment" and "apartment" are one kind.
+      // 🔒 One row per living name all the same: only the uniqueness check ignores case.
       const again = await api(app)
-        .post('/api/subject-kinds', { name: 'apartment' })
+        .post('/api/subject-kinds', { name: 'квартира' })
         .set('Cookie', adminCookie);
       expect(again.status).toBe(409);
       expect(expectError(again).code).toBe('SUBJECT_KIND_EXISTS');
@@ -232,6 +233,122 @@ describe('Catalogues (e2e)', () => {
         .set('Cookie', adminCookie);
 
       expect(expectData(moved, subjectDtoSchema)).toMatchObject({ kind: 'boat', kindId: boat });
+    });
+  });
+
+  describe('merging', () => {
+    // A document keeps naming the same thing whichever row it happened to be linked to: that is the
+    // whole promise of a merge (docs/03 §3.3.20).
+    async function givenDocumentAbout(subjectIds: string[], hash: string): Promise<string> {
+      const document = await testPrisma().document.create({
+        data: {
+          contentHash: hash.padStart(64, 'e'),
+          source: 'UPLOAD',
+          mimeType: 'application/pdf',
+          ext: 'pdf',
+          sizeBytes: 10n,
+          title: `Doc ${hash}`,
+        },
+      });
+      await testPrisma().documentSubject.createMany({
+        data: subjectIds.map((subjectId) => ({ documentId: document.id, subjectId })),
+      });
+      return document.id;
+    }
+
+    it('folds four things into one and moves every document with them', async () => {
+      const kindId = await givenKind('apartment');
+      const ids: string[] = [];
+      for (const name of ['Njegoševa 5', 'Njegoševa 5, ap. 12', 'the flat']) {
+        ids.push(
+          expectData(
+            await api(app).post('/api/subjects', { kindId, name }).set('Cookie', adminCookie),
+            subjectDtoSchema,
+          ).id,
+        );
+      }
+      const [first, second, third] = ids;
+      if (first === undefined || second === undefined || third === undefined) {
+        throw new Error('expected three subjects');
+      }
+      const onlySecond = await givenDocumentAbout([second], '1');
+      // A document that named two of them must end up with one link, not two.
+      const both = await givenDocumentAbout([first, third], '2');
+
+      const merged = await api(app)
+        .post('/api/admin/subjects/merge', { ids, kindId, name: 'Njegoševa 5' })
+        .set('Cookie', adminCookie);
+
+      expect(merged.status).toBe(201);
+      const survivor = expectData(merged, subjectDtoSchema);
+      // The oldest row survives — the one the archive has been calling this longest.
+      expect(survivor.id).toBe(first);
+      expect(survivor.name).toBe('Njegoševa 5');
+      // Two documents, one link each: nothing lost, nothing doubled.
+      expect(survivor.documentCount).toBe(2);
+
+      const links = await testPrisma().documentSubject.findMany({
+        where: { documentId: { in: [onlySecond, both] } },
+      });
+      expect(links).toHaveLength(2);
+      expect(links.every((link) => link.subjectId === first)).toBe(true);
+
+      // The rest are gone from the catalogue, and only they.
+      const remaining = expectData(
+        await api(app).get('/api/subjects').set('Cookie', adminCookie),
+        listSubjectsResponseSchema,
+      ).items;
+      expect(remaining.map((subject) => subject.id)).toEqual([first]);
+    });
+
+    it('refuses a merge whose result would collide with a row nobody selected', async () => {
+      const kindId = await givenKind('country');
+      const ids = [];
+      for (const name of ['Crna Gora', 'Montenegro ']) {
+        ids.push(
+          expectData(
+            await api(app).post('/api/subjects', { kindId, name }).set('Cookie', adminCookie),
+            subjectDtoSchema,
+          ).id,
+        );
+      }
+      await api(app).post('/api/subjects', { kindId, name: 'Serbia' }).set('Cookie', adminCookie);
+
+      // 🔒 Two things becoming one by accident is the opposite of the point.
+      const refused = await api(app)
+        .post('/api/admin/subjects/merge', { ids, kindId, name: 'serbia' })
+        .set('Cookie', adminCookie);
+      expect(refused.status).toBe(409);
+      expect(expectError(refused).code).toBe('SUBJECT_EXISTS');
+    });
+
+    it('folds people the analysis spelled three ways, and only an admin may', async () => {
+      const ids: string[] = [];
+      for (const name of ['Marija Petrović', 'Marija Petrovic', 'M. Petrović']) {
+        ids.push(
+          expectData(
+            await api(app).post('/api/people', { name }).set('Cookie', userCookie),
+            personDtoSchema,
+          ).id,
+        );
+      }
+
+      const refused = await api(app)
+        .post('/api/admin/people/merge', { ids, name: 'Marija Petrović' })
+        .set('Cookie', userCookie);
+      expect(refused.status).toBe(403);
+
+      const merged = await api(app)
+        .post('/api/admin/people/merge', { ids, name: 'Marija Petrović' })
+        .set('Cookie', adminCookie);
+
+      expect(merged.status).toBe(201);
+      expect(expectData(merged, personDtoSchema).name).toBe('Marija Petrović');
+      const remaining = expectData(
+        await api(app).get('/api/people').set('Cookie', adminCookie),
+        listPeopleResponseSchema,
+      ).items;
+      expect(remaining).toHaveLength(1);
     });
   });
 

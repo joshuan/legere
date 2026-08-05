@@ -2,6 +2,7 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Form, Input, Select, Tag, Typography } from 'antd';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useCallback } from 'react';
 import type { SubjectDto } from '../../../shared/contracts/subjects';
@@ -62,7 +63,15 @@ export function AdminSubjectsScreen() {
         {
           title: t('admin.catalogues.columns.documents'),
           key: 'documents',
-          render: (subject) => subject.documentCount,
+          // The number is the question "which four?"; the link answers it (docs/11 §11.12a).
+          render: (subject) =>
+            subject.documentCount === 0 ? (
+              0
+            ) : (
+              <Link href={`/browse/subjects/${subject.kindId}/${subject.id}`}>
+                {subject.documentCount}
+              </Link>
+            ),
         },
       ]}
       initialValues={{ kindId: '', name: '', note: '' }}
@@ -85,6 +94,30 @@ export function AdminSubjectsScreen() {
       }}
       onDelete={(subject) => subjectApi.remove(subject.id)}
       onSaved={refresh}
+      // One flat read four ways is what the analysis actually produces (docs/03 §3.3.20). The kind
+      // travels too: the rows being folded together may disagree about it.
+      merge={{
+        label: (subject) => subject.name,
+        initialValues: (rows) => ({
+          name: rows[0]?.name ?? '',
+          kindId: rows[0]?.kindId ?? '',
+        }),
+        fields: () => (
+          <Form.Item
+            name="kindId"
+            label={t('admin.subjects.fields.kind')}
+            rules={[{ required: true, message: t('admin.subjects.fields.kindRequired') }]}
+          >
+            <Select showSearch optionFilterProp="label" options={kindOptions} />
+          </Form.Item>
+        ),
+        onMerge: (rows, values) =>
+          subjectApi.merge({
+            ids: rows.map((subject) => subject.id),
+            kindId: values.kindId ?? '',
+            name: values.name ?? '',
+          }),
+      }}
       fields={() => (
         <>
           <Form.Item

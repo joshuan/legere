@@ -17,14 +17,10 @@ export const listSubjectKindsResponseSchema = z.object({ items: z.array(subjectK
 export type ListSubjectKindsResponse = z.infer<typeof listSubjectKindsResponseSchema>;
 
 export const createSubjectKindRequestSchema = z.object({
-  // Lower-cased on the way in, as it was while this lived on the subject: "Apartment" and
-  // "apartment" are one kind, and a catalogue that disagrees with itself has two of everything.
-  name: z
-    .string()
-    .trim()
-    .min(1)
-    .max(40)
-    .transform((value) => value.toLowerCase()),
+  // Stored exactly as it is typed, in whatever language and case the owner files by — "Квартира"
+  // is a kind, and turning it into "apartment" is the product deciding how somebody's archive is
+  // spelled. Uniqueness stays case-insensitive, so it is still one kind (docs/03 §3.3.20a).
+  name: z.string().trim().min(1).max(40),
   note: z.string().trim().max(500).nullable().optional(),
 });
 export type CreateSubjectKindRequest = z.infer<typeof createSubjectKindRequestSchema>;

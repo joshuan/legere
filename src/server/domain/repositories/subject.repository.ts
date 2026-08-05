@@ -31,6 +31,14 @@ export abstract class SubjectRepository {
 
   abstract listForDocument(documentId: string, tx?: TransactionHandle): Promise<Subject[]>;
 
+  // Moves every document link from these rows onto one survivor, collapsing the duplicates a
+  // document that named two of them would otherwise end up with (docs/03 §3.3.20).
+  abstract moveDocumentLinks(
+    fromIds: string[],
+    toId: string,
+    tx?: TransactionHandle,
+  ): Promise<void>;
+
   abstract setForDocument(
     documentId: string,
     subjectIds: string[],

@@ -104,6 +104,26 @@ export class PrismaPersonRepository extends PersonRepository {
     return rows.map((row) => toPerson(row.person));
   }
 
+  async moveDocumentLinks(fromIds: string[], toId: string, tx?: TransactionHandle): Promise<void> {
+    if (fromIds.length === 0) return;
+    const client = clientOf(this.prisma, tx);
+
+    // Written as create-then-delete rather than an UPDATE, because a document that named two of the
+    // merged rows would collide on the primary key half way through. `skipDuplicates` is exactly the
+    // collapse we want; the old rows go afterwards.
+    const links = await client.documentPerson.findMany({
+      where: { personId: { in: fromIds } },
+      select: { documentId: true },
+    });
+    if (links.length > 0) {
+      await client.documentPerson.createMany({
+        data: links.map((link) => ({ documentId: link.documentId, personId: toId })),
+        skipDuplicates: true,
+      });
+    }
+    await client.documentPerson.deleteMany({ where: { personId: { in: fromIds } } });
+  }
+
   async setForDocument(
     documentId: string,
     personIds: string[],

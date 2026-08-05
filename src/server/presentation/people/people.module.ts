@@ -3,10 +3,12 @@ import {
   CreatePerson,
   DeletePerson,
   ListPeople,
+  MergePeople,
   UpdatePerson,
 } from '../../application/people/manage-people';
 import { AuthenticateSession } from '../../application/auth/authenticate-session';
 import { Clock } from '../../application/ports/clock';
+import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserRepository } from '../../domain/repositories/user.repository';
@@ -47,6 +49,12 @@ import { AdminPeopleController, PeopleController } from './people.controller';
       provide: UpdatePerson,
       useFactory: (people: PersonRepository): UpdatePerson => new UpdatePerson(people),
       inject: [PersonRepository],
+    },
+    {
+      provide: MergePeople,
+      useFactory: (people: PersonRepository, unitOfWork: UnitOfWork, clock: Clock): MergePeople =>
+        new MergePeople(people, unitOfWork, clock),
+      inject: [PersonRepository, UnitOfWork, Clock],
     },
     {
       provide: DeletePerson,

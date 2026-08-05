@@ -78,6 +78,52 @@ describe('AdminSubjectsScreen', () => {
     );
   });
 
+  it('folds the selected rows into one, asking which name is the right one', async () => {
+    let merged: unknown = null;
+    server.use(
+      http.post('/api/admin/subjects/merge', async ({ request }) => {
+        merged = await request.json();
+        return HttpResponse.json(envelope(subject), { status: 201 });
+      }),
+      http.get('/api/subjects', () =>
+        HttpResponse.json(
+          envelope({
+            items: [
+              subject,
+              { ...subject, id: 'dddddddd-4444-4444-8444-444444444444', name: 'the flat' },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<AdminSubjectsScreen />);
+    await screen.findByText('the flat');
+    // The header checkbox takes both rows; a merge of one row is not a merge.
+    const [selectAll] = screen.getAllByRole('checkbox');
+    if (selectAll === undefined) throw new Error('expected a selection checkbox');
+    await userEvent.click(selectAll);
+    await userEvent.click(await screen.findByRole('button', { name: /Merge 2/ }));
+
+    const dialog = await screen.findByRole('dialog');
+    const name = within(dialog).getByLabelText(enMessages.admin.catalogues.fields.mergedName);
+    await userEvent.clear(name);
+    await userEvent.type(name, 'Njegoševa 5');
+    await userEvent.click(
+      within(dialog).getByRole('button', {
+        name: enMessages.admin.catalogues.actions.mergeConfirm,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(merged).toMatchObject({
+        ids: [subject.id, 'dddddddd-4444-4444-8444-444444444444'],
+        name: 'Njegoševa 5',
+        kindId: APARTMENT,
+      }),
+    );
+  });
+
   it('says a delete leaves the documents alone rather than implying they change', async () => {
     renderWithProviders(<AdminSubjectsScreen />);
     await userEvent.click(

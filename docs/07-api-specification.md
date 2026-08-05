@@ -123,6 +123,7 @@ human-readable index and must stay in sync with them.
 | `GET /api/people` | 🔒 | the catalogue with a document count each, by name |
 | `POST /api/people` | 🔒 | `{ name, note? }` → `PersonDto`; `409 PERSON_EXISTS` on a name that already lives. Open to any signed-in caller (03 §3.3.19) |
 | `PATCH /api/admin/people/:id` | 🔒ᴬ | `{ name?, note? }` |
+| `POST /api/admin/people/merge` | 🔒ᴬ | `{ ids[≥2], name, note? }` → the surviving `PersonDto`. The oldest of the rows survives, takes the name, and receives every document link the others had (duplicates collapsed); the rest are soft-deleted, all in one transaction. `409 PERSON_EXISTS` when the chosen name belongs to somebody outside the merge (03 §3.3.19) |
 | `DELETE /api/admin/people/:id` | 🔒ᴬ | soft delete; the links on existing documents stay |
 
 ### Subjects
@@ -131,13 +132,14 @@ human-readable index and must stay in sync with them.
 | `GET /api/subjects` | 🔒 | the catalogue with a document count each, by kind then name. Each row carries `kindId` and the kind's `name`, because every screen that shows a subject shows both halves |
 | `POST /api/subjects` | 🔒 | `{ kindId, name, note? }` → `SubjectDto`; `409 SUBJECT_EXISTS` on a living `(kindId, name)`, `404 SUBJECT_KIND_NOT_FOUND` for a kind that is not in the catalogue. Open to any signed-in caller (03 §3.3.20) |
 | `PATCH /api/admin/subjects/:id` | 🔒ᴬ | `{ kindId?, name?, note? }` — moving a thing to another kind is an ordinary correction |
+| `POST /api/admin/subjects/merge` | 🔒ᴬ | `{ ids[≥2], kindId, name, note? }` → the surviving `SubjectDto`; same rules as the people merge, plus the kind the survivor is filed under, since the merged rows may disagree about it (03 §3.3.20) |
 | `DELETE /api/admin/subjects/:id` | 🔒ᴬ | soft delete; the links on existing documents stay |
 
 ### Subject kinds
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `GET /api/subject-kinds` | 🔒 | the catalogue by name, each with how many things it holds and how many documents they are on |
-| `POST /api/subject-kinds` | 🔒 | `{ name, note? }` → `SubjectKindDto`; lower-cased on the way in; `409 SUBJECT_KIND_EXISTS`. Open to any signed-in caller, like people and subjects (03 §3.3.20a) |
+| `POST /api/subject-kinds` | 🔒 | `{ name, note? }` → `SubjectKindDto`; stored as typed, in any language and any case, unique case-insensitively; `409 SUBJECT_KIND_EXISTS`. Open to any signed-in caller, like people and subjects (03 §3.3.20a) |
 | `PATCH /api/admin/subject-kinds/:id` | 🔒ᴬ | `{ name?, note? }` — one edit renames every thing filed under it |
 | `DELETE /api/admin/subject-kinds/:id` | 🔒ᴬ | soft delete; 🔒 `409 SUBJECT_KIND_IN_USE` while a living subject still files under it |
 

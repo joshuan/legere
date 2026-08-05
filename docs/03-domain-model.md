@@ -314,6 +314,14 @@ analysis step adds names on its own and whoever corrects it must be able to add 
 without waiting for an admin. Renaming and removing are an admin's: both reach across every document
 that names the person.
 
+**Merging.** The analysis reads a name as each document spells it, so one person arrives as three
+rows. Merging folds them together: the **oldest row survives** — the one the archive has been calling
+this person longest — takes the name that was chosen, receives every document link the others had
+(with the duplicates a document that named two of them would otherwise get collapsed into one), and
+the rest are soft-deleted. All of it in one transaction: a half-moved merge would leave documents
+pointing at somebody nobody can see. The surviving name may not collide with a person who was not
+part of the merge — that would be two people becoming one by accident.
+
 **The analysis step fills it in.** The model is asked for the people a document is about, named as
 the document names them; each name is matched against the catalogue case-insensitively and created
 when it is missing. Creating is the point — an archive where the machine may only pick from what
@@ -348,9 +356,15 @@ screen has something to list, and the same kind cannot exist twice under two spe
 | Field | Type | Notes |
 |---|---|---|
 | id | uuid | |
-| name | string | unique among living rows, case-insensitively |
+| name | string | stored exactly as typed, in any language and any case; unique among living rows, case-insensitively |
 | note | string? | what this kind is for, in the owner's own words |
 | createdAt / updatedAt / deletedAt | | soft delete (ADR-015) |
+
+**Named in the owner's words.** "Квартира" is a kind; turning it into "apartment" is the product
+deciding how somebody's archive is spelled. The name is stored as typed and only the uniqueness check
+ignores case. The analysis is shown the kinds already in use and told to reuse one where it fits —
+two spellings of one kind split a shelf in half — and to name a new one in the document's own
+language when none does.
 
 It was free text until the catalogue existed, on the argument that the list of kinds a household
 files by is not knowable in advance. That argument was for the *list*, not for the *storage*: the
@@ -362,6 +376,9 @@ in, because the analysis adds kinds on its own and whoever corrects it must be a
 removing are an admin's. 🔒 **A kind still used by a living subject cannot be removed**
 (`SUBJECT_KIND_IN_USE`): a subject with no kind is not a thing anybody can file by, so the subjects
 go first.
+
+**Merging** works exactly as it does for people (§3.3.19), with one addition: the rows being folded
+together may disagree about their kind, so the merge is told which kind the survivor is filed under.
 
 Same access and the same fill-blanks-only rule as people (§3.3.19): the analysis names things and
 creates the ones the catalogue has never seen, matching on `(kind, name)` case-insensitively; a
