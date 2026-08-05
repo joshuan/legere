@@ -8,13 +8,41 @@ import { z } from 'zod';
 export const settingSourceSchema = z.enum(['ENV', 'DEFAULT', 'SET', 'UNSET']);
 export type SettingSource = z.infer<typeof settingSourceSchema>;
 
+// What a value nobody set costs, as a token rather than a sentence. The server knows how the
+// pipeline degrades; the client knows the operator's language, and the two are not the same
+// knowledge — so this names the outcome and the message catalog says it in ru or en (docs/07 §7.3,
+// docs/11 §11.13a). Named for what happens, not for the variable that failed to happen it.
+export const CONSEQUENCES = [
+  // storage
+  'SIGNED_URLS_USE_INTERNAL_ENDPOINT',
+  // library
+  'SCAN_UNLIMITED',
+  // processing
+  'MARKDOWN_FALLS_BACK_TO_STIRLING',
+  // ai
+  'VECTORIZATION_SKIPPED_NO_PROVIDER',
+  'VECTORIZATION_SKIPPED_NO_MODEL',
+  'ANALYSIS_SKIPPED_NO_PROVIDER',
+  'ANALYSIS_USES_EMBEDDINGS_PROVIDER',
+  'ANALYSIS_SKIPPED_NO_MODEL',
+  // email
+  'EMAIL_CODES_TO_LOG',
+  // auth
+  'COOKIE_NOT_SHARED_WITH_SUBDOMAINS',
+  'CAPTCHA_DISABLED',
+  'CAPTCHA_WIDGET_ABSENT',
+] as const;
+
+export const consequenceSchema = z.enum(CONSEQUENCES);
+export type Consequence = z.infer<typeof consequenceSchema>;
+
 export const instanceSettingSchema = z.object({
   key: z.string(),
   // Absent for a secret, and for anything nobody configured.
   value: z.string().nullable(),
   source: settingSourceSchema,
-  // What its absence costs, where that is worth saying: "the step is skipped".
-  consequence: z.string().nullable(),
+  // What its absence costs, where that is worth saying — most rows have nothing to say.
+  consequence: consequenceSchema.nullable(),
 });
 export type InstanceSettingDto = z.infer<typeof instanceSettingSchema>;
 

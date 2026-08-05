@@ -212,7 +212,7 @@ answer with the whole `DocumentDetailDto`, because a composition change is never
 
 | Method & path | Auth | Notes |
 |---------------|------|-------|
-| `GET /api/admin/instance` | 🔒ᴬ | the effective configuration, grouped, as the process actually resolved it: `{ groups: [{ key, settings: [{ key, value, source }] }] }`. 🔒 **A secret is never a value here** — a password, an API key, a token or a secret key appears as `source: 'SET'` with no value, or `'UNSET'`; everything else carries what it resolved to, with `source: 'ENV'` when the environment set it and `'DEFAULT'` when nothing did. `DATABASE_URL` is decomposed into host, port, database and user, and its password is not one of them |
+| `GET /api/admin/instance` | 🔒ᴬ | the effective configuration, grouped, as the process actually resolved it: `{ groups: [{ key, settings: [{ key, value, source, consequence }] }] }`. 🔒 **A secret is never a value here** — a password, an API key, a token or a secret key appears as `source: 'SET'` with no value, or `'UNSET'`; everything else carries what it resolved to, with `source: 'ENV'` when the environment set it and `'DEFAULT'` when nothing did. `DATABASE_URL` is decomposed into host, port, database and user, and its password is not one of them. `consequence` says what a value nobody set costs, and travels as an UPPER_SNAKE token the client localizes (`EMAIL_CODES_TO_LOG`, `ANALYSIS_SKIPPED_NO_PROVIDER`, …) — never as prose, which would arrive in one language on a page rendered in another; `null` where a blank costs nothing |
 
 ### Health
 | Method & path | Auth | Notes |

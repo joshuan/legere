@@ -34,7 +34,7 @@ const instance = {
           key: 'SMTP_HOST',
           value: null,
           source: 'DEFAULT',
-          consequence: 'No mail server is configured: codes are printed to the application log.',
+          consequence: 'EMAIL_CODES_TO_LOG',
         },
         { key: 'SMTP_PASSWORD', value: null, source: 'SET', consequence: null },
       ],
@@ -46,7 +46,7 @@ const instance = {
           key: 'TURNSTILE_SECRET_KEY',
           value: null,
           source: 'UNSET',
-          consequence: 'CAPTCHA is disabled.',
+          consequence: 'CAPTCHA_DISABLED',
         },
       ],
     },
@@ -97,8 +97,12 @@ describe('AdminInstanceScreen', () => {
 
     const smtp = within(rowFor('SMTP host'));
     expect(smtp.getByText('Not set')).toBeInTheDocument();
+    // The server sends a token; the page shows the sentence, in the locale everything else is in.
+    expect(smtp.queryByText('EMAIL_CODES_TO_LOG')).not.toBeInTheDocument();
     expect(
-      smtp.getByText('No mail server is configured: codes are printed to the application log.'),
+      smtp.getByText(
+        'No mail server is configured: verification and invite codes are printed to the application log instead of being sent.',
+      ),
     ).toBeInTheDocument();
 
     // A value that is there says nothing extra beside it.
@@ -115,7 +119,11 @@ describe('AdminInstanceScreen', () => {
 
     const turnstile = within(rowFor('Turnstile secret key'));
     expect(turnstile.getByText('Not set')).toBeInTheDocument();
-    expect(turnstile.getByText('CAPTCHA is disabled.')).toBeInTheDocument();
+    expect(
+      turnstile.getByText(
+        'CAPTCHA is disabled: login and registration accept requests without a challenge.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('reports a failure instead of an empty page', async () => {

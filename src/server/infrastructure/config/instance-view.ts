@@ -1,4 +1,5 @@
 import type {
+  Consequence,
   InstanceResponse,
   InstanceSettingDto,
   SettingSource,
@@ -9,6 +10,10 @@ import type { ConfigValues } from './config.schema';
 // What this server resolved its configuration to, grouped the way docs/12 §12.4 groups it and
 // answering the questions an operator asks at 2 a.m.: which database is this, where does OCR go,
 // which model is answering, is mail configured at all (docs/07 §7.3, docs/11 §11.13a).
+//
+// What a blank costs is named, not written out: a `Consequence` token travels and the client says
+// it in the operator's language. This file decides which outcome a blank has; it does not decide
+// what an outcome sounds like in Russian.
 
 // 🔒 The deny-list. A key named here never travels as a value: its row says SET or UNSET and
 // nothing else, whatever the environment holds. It is written out once, here, rather than decided
@@ -32,9 +37,9 @@ const SECRET_KEYS: ReadonlySet<keyof ConfigValues> = new Set([
 export function describeInstance(config: AppConfig): InstanceResponse {
   // Whether a setting resolved to nothing at all — an empty string, never a zero.
   const blank = (key: keyof ConfigValues): boolean => format(config.get(key)) === null;
-  const when = (condition: boolean, consequence: string): string | null =>
+  const when = (condition: boolean, consequence: Consequence): Consequence | null =>
     condition ? consequence : null;
-  const s = (key: keyof ConfigValues, consequence: string | null = null): InstanceSettingDto =>
+  const s = (key: keyof ConfigValues, consequence: Consequence | null = null): InstanceSettingDto =>
     setting(config, key, consequence);
 
   return {
@@ -50,10 +55,7 @@ export function describeInstance(config: AppConfig): InstanceResponse {
           s('S3_ENDPOINT'),
           s(
             'S3_PUBLIC_ENDPOINT',
-            when(
-              blank('S3_PUBLIC_ENDPOINT'),
-              'Signed URLs are issued against S3_ENDPOINT, which browsers must therefore be able to reach.',
-            ),
+            when(blank('S3_PUBLIC_ENDPOINT'), 'SIGNED_URLS_USE_INTERNAL_ENDPOINT'),
           ),
           s('S3_REGION'),
           s('S3_BUCKET'),
@@ -68,13 +70,7 @@ export function describeInstance(config: AppConfig): InstanceResponse {
         settings: [
           s('LIBRARY_ROOT'),
           s('GROUPING_WINDOW_MINUTES'),
-          s(
-            'SCAN_MAX_FILES',
-            when(
-              config.get('SCAN_MAX_FILES') === 0,
-              'No limit: a scan walks the whole tree it is pointed at, however large.',
-            ),
-          ),
+          s('SCAN_MAX_FILES', when(config.get('SCAN_MAX_FILES') === 0, 'SCAN_UNLIMITED')),
           s('UPLOAD_MAX_BYTES'),
         ],
       },
@@ -82,13 +78,7 @@ export function describeInstance(config: AppConfig): InstanceResponse {
         key: 'processing',
         settings: [
           s('STIRLING_URL'),
-          s(
-            'DOCLING_URL',
-            when(
-              blank('DOCLING_URL'),
-              "Markdown extraction falls back to Stirling's converter, which reads the text but flattens headings and tables.",
-            ),
-          ),
+          s('DOCLING_URL', when(blank('DOCLING_URL'), 'MARKDOWN_FALLS_BACK_TO_STIRLING')),
           s('DOCLING_PICTURE_DESCRIPTION'),
           s('OCR_LANGUAGES'),
           s('PDF_TEXT_MIN_CHARS_PER_PAGE'),
@@ -103,16 +93,10 @@ export function describeInstance(config: AppConfig): InstanceResponse {
         settings: [
           s(
             'EMBEDDINGS_API_BASE_URL',
-            when(
-              blank('EMBEDDINGS_API_BASE_URL'),
-              'No embeddings provider: vectorization is skipped and semantic search is unavailable. Keyword search still works.',
-            ),
+            when(blank('EMBEDDINGS_API_BASE_URL'), 'VECTORIZATION_SKIPPED_NO_PROVIDER'),
           ),
           s('EMBEDDINGS_API_KEY'),
-          s(
-            'EMBEDDINGS_MODEL',
-            when(blank('EMBEDDINGS_MODEL'), 'No model to ask: vectorization is skipped.'),
-          ),
+          s('EMBEDDINGS_MODEL', when(blank('EMBEDDINGS_MODEL'), 'VECTORIZATION_SKIPPED_NO_MODEL')),
           s('EMBEDDING_DIMENSIONS'),
           // An empty classifier URL is not a blank on its own: the analysis falls back to the
           // embeddings provider, and only when that is empty too does the step stop running.
@@ -121,27 +105,18 @@ export function describeInstance(config: AppConfig): InstanceResponse {
             when(
               blank('CLASSIFIER_API_BASE_URL'),
               blank('EMBEDDINGS_API_BASE_URL')
-                ? 'No provider for the analysis: the step is skipped, so no document type, place, description or title is suggested.'
-                : 'The analysis reuses the embeddings provider.',
+                ? 'ANALYSIS_SKIPPED_NO_PROVIDER'
+                : 'ANALYSIS_USES_EMBEDDINGS_PROVIDER',
             ),
           ),
           s('CLASSIFIER_API_KEY'),
-          s(
-            'CLASSIFIER_MODEL',
-            when(blank('CLASSIFIER_MODEL'), 'No model to ask: the analysis step is skipped.'),
-          ),
+          s('CLASSIFIER_MODEL', when(blank('CLASSIFIER_MODEL'), 'ANALYSIS_SKIPPED_NO_MODEL')),
         ],
       },
       {
         key: 'email',
         settings: [
-          s(
-            'SMTP_HOST',
-            when(
-              blank('SMTP_HOST'),
-              'No mail server is configured: verification and invite codes are printed to the application log instead of being sent.',
-            ),
-          ),
+          s('SMTP_HOST', when(blank('SMTP_HOST'), 'EMAIL_CODES_TO_LOG')),
           s('SMTP_PORT'),
           s('SMTP_SECURE'),
           s('SMTP_USER'),
@@ -155,21 +130,9 @@ export function describeInstance(config: AppConfig): InstanceResponse {
           s('AUTH_SECRET'),
           s('SESSION_TTL_DAYS'),
           s('API_TOKEN_TTL_DAYS'),
-          s(
-            'COOKIE_DOMAIN',
-            when(
-              blank('COOKIE_DOMAIN'),
-              'The session cookie is bound to the host that issued it and is not shared with subdomains.',
-            ),
-          ),
-          s(
-            'TURNSTILE_SECRET_KEY',
-            'CAPTCHA is disabled: login and registration accept requests without a challenge.',
-          ),
-          s(
-            'NEXT_PUBLIC_TURNSTILE_SITE_KEY',
-            'No CAPTCHA widget is rendered. This value is baked into the client bundle at build time, so setting it at runtime has no effect.',
-          ),
+          s('COOKIE_DOMAIN', when(blank('COOKIE_DOMAIN'), 'COOKIE_NOT_SHARED_WITH_SUBDOMAINS')),
+          s('TURNSTILE_SECRET_KEY', 'CAPTCHA_DISABLED'),
+          s('NEXT_PUBLIC_TURNSTILE_SITE_KEY', 'CAPTCHA_WIDGET_ABSENT'),
         ],
       },
       {
@@ -191,7 +154,7 @@ export function describeInstance(config: AppConfig): InstanceResponse {
 function setting(
   config: AppConfig,
   key: keyof ConfigValues,
-  consequence: string | null,
+  consequence: Consequence | null,
 ): InstanceSettingDto {
   const value = format(config.get(key));
 

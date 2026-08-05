@@ -3,7 +3,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Card, Skeleton, Space, Tag, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
-import type { InstanceSettingDto, SettingSource } from '../../../shared/contracts/instance';
+import type {
+  Consequence,
+  InstanceSettingDto,
+  SettingSource,
+} from '../../../shared/contracts/instance';
 import { instanceApi, instanceKeys } from '../../entities/instance';
 import { useErrorMessage } from '../../shared/lib';
 import { DefinitionList, type Definition } from '../../shared/ui/definition-list';
@@ -15,6 +19,29 @@ const SOURCE_COLOR: Record<SettingSource, string> = {
   DEFAULT: 'default',
   SET: 'gold',
   UNSET: 'gold',
+};
+
+// What a blank costs, as the operator's own language reads it. The server names the outcome; the
+// sentence lives in the message catalog, like every other sentence on the page (docs/11 §11.13a).
+// Record<Consequence, …> is deliberate, as in shared/api/error-messages: adding a token to the
+// contract without a message here is a type error, never a raw key on screen.
+const CONSEQUENCE_KEYS: Record<Consequence, string> = {
+  SIGNED_URLS_USE_INTERNAL_ENDPOINT:
+    'admin.instance.consequences.SIGNED_URLS_USE_INTERNAL_ENDPOINT',
+  SCAN_UNLIMITED: 'admin.instance.consequences.SCAN_UNLIMITED',
+  MARKDOWN_FALLS_BACK_TO_STIRLING: 'admin.instance.consequences.MARKDOWN_FALLS_BACK_TO_STIRLING',
+  VECTORIZATION_SKIPPED_NO_PROVIDER:
+    'admin.instance.consequences.VECTORIZATION_SKIPPED_NO_PROVIDER',
+  VECTORIZATION_SKIPPED_NO_MODEL: 'admin.instance.consequences.VECTORIZATION_SKIPPED_NO_MODEL',
+  ANALYSIS_SKIPPED_NO_PROVIDER: 'admin.instance.consequences.ANALYSIS_SKIPPED_NO_PROVIDER',
+  ANALYSIS_USES_EMBEDDINGS_PROVIDER:
+    'admin.instance.consequences.ANALYSIS_USES_EMBEDDINGS_PROVIDER',
+  ANALYSIS_SKIPPED_NO_MODEL: 'admin.instance.consequences.ANALYSIS_SKIPPED_NO_MODEL',
+  EMAIL_CODES_TO_LOG: 'admin.instance.consequences.EMAIL_CODES_TO_LOG',
+  COOKIE_NOT_SHARED_WITH_SUBDOMAINS:
+    'admin.instance.consequences.COOKIE_NOT_SHARED_WITH_SUBDOMAINS',
+  CAPTCHA_DISABLED: 'admin.instance.consequences.CAPTCHA_DISABLED',
+  CAPTCHA_WIDGET_ABSENT: 'admin.instance.consequences.CAPTCHA_WIDGET_ABSENT',
 };
 
 // /admin/instance (docs/11 §11.13a): what this server actually resolved its configuration to,
@@ -85,9 +112,9 @@ function row(setting: InstanceSettingDto, t: Translate): Definition {
         </Tag>
       </Space>
     ),
-    // 🔒 What the blank costs, in the server's own words: it knows how the pipeline degrades, and
-    // the page must not be the second place that opinion is written down.
-    ...(setting.consequence === null ? {} : { note: setting.consequence }),
+    // What the blank costs. The server decided which outcome it is; the page says it in the
+    // language the operator is reading the rest of the row in.
+    ...(setting.consequence === null ? {} : { note: t(CONSEQUENCE_KEYS[setting.consequence]) }),
   };
 }
 

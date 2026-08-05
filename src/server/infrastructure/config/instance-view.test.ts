@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { instanceResponseSchema } from '../../../shared/contracts/instance';
+import { CONSEQUENCES, instanceResponseSchema } from '../../../shared/contracts/instance';
 import { loadConfig } from './app-config';
 import { describeInstance } from './instance-view';
 
@@ -141,20 +141,42 @@ describe('describeInstance', () => {
   });
 
   describe('what a blank costs', () => {
+    // A token, never a sentence: the page is localized, and prose from here would arrive in English
+    // beside a Russian label (docs/07 §7.3).
+    it('travels as a token the client localizes, not as English prose', () => {
+      const consequences = rowsOf()
+        .map((setting) => setting.consequence)
+        .filter((consequence) => consequence !== null);
+
+      expect(consequences.length).toBeGreaterThan(0);
+      for (const consequence of consequences) {
+        expect(CONSEQUENCES).toContain(consequence);
+        expect(consequence).toMatch(/^[A-Z][A-Z_]*$/);
+      }
+    });
+
     it('says mail is unconfigured in terms of what happens to the codes', () => {
-      expect(rowFor('SMTP_HOST').consequence).toMatch(/log/);
+      expect(rowFor('SMTP_HOST').consequence).toBe('EMAIL_CODES_TO_LOG');
       expect(rowFor('SMTP_HOST', { SMTP_HOST: 'smtp.example.com' }).consequence).toBeNull();
     });
 
     it('names the steps that stop running without a provider', () => {
-      expect(rowFor('EMBEDDINGS_API_BASE_URL').consequence).toMatch(/vectorization is skipped/i);
-      expect(rowFor('CLASSIFIER_API_BASE_URL').consequence).toMatch(/skipped/i);
+      expect(rowFor('EMBEDDINGS_API_BASE_URL').consequence).toBe(
+        'VECTORIZATION_SKIPPED_NO_PROVIDER',
+      );
+      // The embeddings model has a default, so only an emptied one leaves nothing to ask.
+      expect(rowFor('EMBEDDINGS_MODEL').consequence).toBeNull();
+      expect(rowFor('EMBEDDINGS_MODEL', { EMBEDDINGS_MODEL: '' }).consequence).toBe(
+        'VECTORIZATION_SKIPPED_NO_MODEL',
+      );
+      expect(rowFor('CLASSIFIER_API_BASE_URL').consequence).toBe('ANALYSIS_SKIPPED_NO_PROVIDER');
+      expect(rowFor('CLASSIFIER_MODEL').consequence).toBe('ANALYSIS_SKIPPED_NO_MODEL');
       // With embeddings configured the analysis borrows that provider rather than stopping.
       expect(
         rowFor('CLASSIFIER_API_BASE_URL', {
           EMBEDDINGS_API_BASE_URL: 'https://api.openai.com/v1',
         }).consequence,
-      ).toMatch(/embeddings provider/i);
+      ).toBe('ANALYSIS_USES_EMBEDDINGS_PROVIDER');
       expect(
         rowFor('EMBEDDINGS_API_BASE_URL', { EMBEDDINGS_API_BASE_URL: 'https://api.openai.com/v1' })
           .consequence,
@@ -162,7 +184,8 @@ describe('describeInstance', () => {
     });
 
     it('carries a consequence for a secret nobody set, and drops it once it is set', () => {
-      expect(rowFor('TURNSTILE_SECRET_KEY').consequence).toMatch(/CAPTCHA is disabled/);
+      expect(rowFor('TURNSTILE_SECRET_KEY').consequence).toBe('CAPTCHA_DISABLED');
+      expect(rowFor('NEXT_PUBLIC_TURNSTILE_SITE_KEY').consequence).toBe('CAPTCHA_WIDGET_ABSENT');
       expect(
         rowFor('TURNSTILE_SECRET_KEY', { TURNSTILE_SECRET_KEY: 'a-key' }).consequence,
       ).toBeNull();
@@ -176,10 +199,11 @@ describe('describeInstance', () => {
     });
 
     it('explains the fallbacks the pipeline takes quietly', () => {
-      expect(rowFor('DOCLING_URL').consequence).toMatch(/Stirling/);
+      expect(rowFor('DOCLING_URL').consequence).toBe('MARKDOWN_FALLS_BACK_TO_STIRLING');
       expect(rowFor('DOCLING_URL', { DOCLING_URL: 'http://docling:5001' }).consequence).toBeNull();
-      expect(rowFor('S3_PUBLIC_ENDPOINT').consequence).toMatch(/S3_ENDPOINT/);
-      expect(rowFor('SCAN_MAX_FILES', { SCAN_MAX_FILES: '0' }).consequence).toMatch(/No limit/);
+      expect(rowFor('S3_PUBLIC_ENDPOINT').consequence).toBe('SIGNED_URLS_USE_INTERNAL_ENDPOINT');
+      expect(rowFor('COOKIE_DOMAIN').consequence).toBe('COOKIE_NOT_SHARED_WITH_SUBDOMAINS');
+      expect(rowFor('SCAN_MAX_FILES', { SCAN_MAX_FILES: '0' }).consequence).toBe('SCAN_UNLIMITED');
       expect(rowFor('SCAN_MAX_FILES').consequence).toBeNull();
     });
   });
