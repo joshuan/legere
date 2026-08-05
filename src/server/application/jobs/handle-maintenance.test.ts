@@ -9,11 +9,7 @@ import {
   documentFixture,
   InMemoryDocumentRepository,
 } from '../../../../test/helpers/processing-fakes';
-import {
-  JobQueue,
-  type EnqueueOptions,
-  type QueueName,
-} from '../../application/ports/job-queue';
+import { JobQueue, type EnqueueOptions, type QueueName } from '../../application/ports/job-queue';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
 import { InMemoryMetricsCache } from '../../infrastructure/storage/in-memory-metrics-cache';
@@ -252,5 +248,4 @@ describe('HandleMaintenance', () => {
       },
     ]);
   });
-
 });
