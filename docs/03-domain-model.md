@@ -416,7 +416,7 @@ An instance knob an admin turns at runtime: a key, a JSON value, and when it las
 
 | Field | Type | Notes |
 |---|---|---|
-| key | string | primary key; `queue` is the first one |
+| key | string | primary key; `queue` is the first one — concurrency per queue, units inside a job, and which queues are paused |
 | value | json | whatever that key means |
 | updatedAt | timestamptz | |
 

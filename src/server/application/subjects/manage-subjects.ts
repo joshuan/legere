@@ -156,6 +156,11 @@ export class MergeSubjects {
     const now = this.clock.now();
     await this.unitOfWork.run(async (tx) => {
       await this.subjects.moveDocumentLinks(merged, survivor.id, tx);
+      // The merged rows go before the survivor is renamed: the name chosen is usually one of theirs
+      // — it is picked from the very rows being merged — and one living row per (kind, name) is a
+      // database constraint, not a preference. Renaming first collides with a row this same
+      // transaction is about to delete.
+      for (const id of merged) await this.subjects.softDelete(id, now, tx);
       await this.subjects.update(
         survivor.id,
         {
@@ -165,7 +170,6 @@ export class MergeSubjects {
         },
         tx,
       );
-      for (const id of merged) await this.subjects.softDelete(id, now, tx);
     });
 
     const counted = (await this.subjects.listActive()).find((row) => row.id === survivor.id);

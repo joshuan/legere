@@ -1,7 +1,8 @@
 'use client';
 
+import { CloseOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Select, Space, Switch, Typography } from 'antd';
+import { Button, Select, Space, Switch, Tag, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import type { FileOrigin } from '../../../shared/contracts/enums';
 import type { DocumentFilters } from '../../entities/document';
@@ -30,6 +31,12 @@ export function DocumentFiltersBar({ value, onChange }: DocumentFiltersProps) {
     if (merged.availability !== undefined) next.availability = merged.availability;
     if (merged.processing !== undefined) next.processing = merged.processing;
     if (merged.origin !== undefined) next.origin = merged.origin;
+    // Both halves or neither: the API answers 422 to half of this pair, so half is never sent
+    // (docs/07 §7.3, docs/11 §11.13).
+    if (merged.step !== undefined && merged.stepStatus !== undefined) {
+      next.step = merged.step;
+      next.stepStatus = merged.stepStatus;
+    }
     onChange(next);
   };
 
@@ -97,6 +104,23 @@ export function DocumentFiltersBar({ value, onChange }: DocumentFiltersProps) {
           onChange={(on) => set({ processing: on ? true : undefined })}
         />
       </Space>
+
+      {/* Arrived from a queue counter rather than chosen here, so it says in words what was clicked
+          and comes off the same way anything else does (docs/11 §11.13). The step is named as the
+          queue screen names it, because that is the number the reader pressed. */}
+      {value.step !== undefined && value.stepStatus !== undefined && (
+        <Tag
+          color="processing"
+          closable
+          closeIcon={<CloseOutlined aria-label={t('documents.filters.stepClear')} />}
+          onClose={() => set({ step: undefined, stepStatus: undefined })}
+        >
+          {t('documents.filters.step', {
+            step: t(`admin.queue.steps.${value.step}`),
+            status: t(`documents.filters.stepStatus.${value.stepStatus}`),
+          })}
+        </Tag>
+      )}
 
       {active && <Button onClick={() => onChange({})}>{t('documents.filters.clear')}</Button>}
     </Space>

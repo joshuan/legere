@@ -14,6 +14,14 @@ const person = {
   documentCount: 40,
 };
 
+// The same person, as another document spells her (docs/03 §3.3.19).
+const twin = {
+  id: 'bbbbbbbb-2222-4222-8222-222222222222',
+  name: 'Marija Petrovic',
+  note: 'Signs the lease',
+  documentCount: 3,
+};
+
 const server = createApiMock();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
@@ -59,6 +67,89 @@ describe('PeopleScreen', () => {
 
     // One row, not forty edits — the reason the catalogue exists (docs/03 §3.3.19).
     await waitFor(() => expect(patched).toMatchObject({ name: 'Marija Petrovic' }));
+  });
+
+  describe('merging (docs/11 §11.12a)', () => {
+    async function openTheMergeDialog(rows: unknown[]): Promise<HTMLElement> {
+      server.use(http.get('/api/people', () => HttpResponse.json(envelope({ items: rows }))));
+
+      renderWithProviders(<PeopleScreen isAdmin />);
+      // All of them, because two rows may well be spelled the same.
+      await screen.findAllByText(/Marija Petrovi/);
+      // The header checkbox takes every row; a merge of one row is not a merge.
+      const [selectAll] = screen.getAllByRole('checkbox');
+      if (selectAll === undefined) throw new Error('expected a selection checkbox');
+      await userEvent.click(selectAll);
+      await userEvent.click(await screen.findByRole('button', { name: /Merge 2/ }));
+
+      return await screen.findByRole('dialog');
+    }
+
+    it('keeps every line the merged rows carried, and sends what is left of it', async () => {
+      let merged: unknown = null;
+      server.use(
+        http.post('/api/admin/people/merge', async ({ request }) => {
+          merged = await request.json();
+          return HttpResponse.json(envelope(person), { status: 201 });
+        }),
+      );
+
+      const dialog = await openTheMergeDialog([person, twin]);
+      const note = within(dialog).getByLabelText(enMessages.admin.catalogues.fields.note);
+
+      // The name that is about to disappear, then every note any of the rows had: the default is
+      // "keep everything", because the alternative is a merge that quietly destroys the one line
+      // somebody wrote a year ago.
+      expect(note).toHaveValue('Also known as: Marija Petrovic\nThe landlady\nSigns the lease');
+
+      await userEvent.click(
+        within(dialog).getByRole('button', {
+          name: enMessages.admin.catalogues.actions.mergeConfirm,
+        }),
+      );
+
+      await waitFor(() =>
+        expect(merged).toMatchObject({
+          ids: [person.id, twin.id],
+          name: person.name,
+          note: 'Also known as: Marija Petrovic\nThe landlady\nSigns the lease',
+        }),
+      );
+    });
+
+    it('lets the note be edited before the merge is confirmed', async () => {
+      let merged: unknown = null;
+      server.use(
+        http.post('/api/admin/people/merge', async ({ request }) => {
+          merged = await request.json();
+          return HttpResponse.json(envelope(person), { status: 201 });
+        }),
+      );
+
+      const dialog = await openTheMergeDialog([person, twin]);
+      const note = within(dialog).getByLabelText(enMessages.admin.catalogues.fields.note);
+      await userEvent.clear(note);
+      await userEvent.type(note, 'The landlady');
+      await userEvent.click(
+        within(dialog).getByRole('button', {
+          name: enMessages.admin.catalogues.actions.mergeConfirm,
+        }),
+      );
+
+      // An ordinary field: a person deletes what is noise and keeps what is not.
+      await waitFor(() => expect(merged).toMatchObject({ note: 'The landlady' }));
+    });
+
+    it('leaves the note empty when the rows carried nothing to keep', async () => {
+      const dialog = await openTheMergeDialog([
+        { ...person, note: null },
+        { ...twin, name: person.name, note: null },
+      ]);
+
+      expect(within(dialog).getByLabelText(enMessages.admin.catalogues.fields.note)).toHaveValue(
+        '',
+      );
+    });
   });
 
   it('shows the catalogue to anyone, and offers the corrections to an admin only', async () => {

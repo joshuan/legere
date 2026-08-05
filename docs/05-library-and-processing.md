@@ -112,6 +112,11 @@ Rules:
   process.
 - Enqueueing a job and writing an entity happen in a single DB transaction (pg-boss lives in the same
   PostgreSQL).
+- **A queue can be paused.** A paused queue keeps accepting jobs and registers no worker, so work
+  piles up where it can be seen and nothing is lost: it is the way to stop a misbehaving step —
+  an OCR container thrashing, a model answering nonsense — without stopping the instance or
+  editing env. Resuming re-registers the worker and the backlog drains. Which queues are paused is a
+  stored setting like the concurrencies beside it ([`11 §11.13`](./11-ui-ux-spec.md)).
 - **Nobody waits at `PENDING` for ever.** The hourly `maintenance` sweep re-enqueues documents whose
   steps are pending and whose row nothing has written to for two hours — a job lost to a crash, or a
   migration that reset every step and had no queue to write to. It takes at most 200 a run, so an

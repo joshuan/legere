@@ -120,6 +120,9 @@ describe('SubjectsScreen', () => {
         ids: [subject.id, 'dddddddd-4444-4444-8444-444444444444'],
         name: 'Njegoševa 5',
         kindId: APARTMENT,
+        // The name that is about to disappear is kept as a note rather than lost: it is how this
+        // flat was written on the documents that named it (docs/11 §11.12a).
+        note: 'Also known as: the flat',
       }),
     );
   });

@@ -236,7 +236,28 @@ function filters(query: ListDocumentsInput): Prisma.DocumentWhereInput {
     and.push(query.processing ? { OR: pending } : { NOT: { OR: pending } });
   }
 
+  // One filter made of two parameters (docs/07 §7.3): a step alone says nothing about what to keep,
+  // and the route refuses that half before it gets here.
+  if (query.step !== undefined && query.stepStatus !== undefined) {
+    and.push(stepStatusFilter(query.step, query.stepStatus));
+  }
+
   return and.length === 0 ? where : { ...where, AND: and };
+}
+
+// Which column each step of the pipeline records itself in (docs/03 §3.3.10). A step is a name in
+// the API and a column in the table; this is the one place the two are tied together.
+const STEP_STATUS_FILTER: Record<DocumentStep, (status: StepStatus) => Prisma.DocumentWhereInput> =
+  {
+    canonical: (status) => ({ canonicalStatus: status }),
+    preview: (status) => ({ previewStatus: status }),
+    markdown: (status) => ({ markdownStatus: status }),
+    analysis: (status) => ({ analysisStatus: status }),
+    vectorization: (status) => ({ vectorizationStatus: status }),
+  };
+
+function stepStatusFilter(step: DocumentStep, status: StepStatus): Prisma.DocumentWhereInput {
+  return STEP_STATUS_FILTER[step](status);
 }
 
 // Availability is derived, so it filters on the same condition it is computed from (docs/03
@@ -510,6 +531,23 @@ export class PrismaDocumentRepository implements DocumentRepository {
       },
       select: { id: true },
       orderBy: { createdAt: 'asc' },
+      take: limit,
+    });
+    return rows.map((row) => row.id);
+  }
+
+  async listIdsByStepStatus(
+    step: DocumentStep,
+    status: StepStatus,
+    limit: number,
+    tx?: TransactionHandle,
+  ): Promise<string[]> {
+    const rows = await clientOf(this.prisma, tx).document.findMany({
+      where: { deletedAt: null, ...stepStatusFilter(step, status) },
+      select: { id: true },
+      // Newest first, like every other list of documents: a capped repair starts with what was
+      // filed last (docs/07 §7.3).
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit,
     });
     return rows.map((row) => row.id);

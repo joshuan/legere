@@ -55,6 +55,10 @@ class StubSearchRepository extends DocumentRepository {
     return Promise.resolve([]);
   }
 
+  listIdsByStepStatus(): Promise<string[]> {
+    return Promise.resolve([]);
+  }
+
   countByStepStatus() {
     return notUsed();
   }

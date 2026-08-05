@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   Form,
+  Input,
   Modal,
   Popconfirm,
   Space,
@@ -87,6 +88,11 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   merge?: {
     // The names on offer as the survivor's, in the order the rows were listed.
     label: (row: Row) => string;
+    // What this row already carries in its note, so a merge can keep it (docs/11 §11.12a).
+    note?: (row: Row) => string | null;
+    // How much note the surviving row may hold, as its contract says — shown as a count rather
+    // than discovered when the server refuses the merge.
+    noteMaxLength?: number;
     // Whatever else the merged row needs decided — the kind, for subjects.
     fields?: (rows: Row[]) => ReactNode;
     initialValues?: (rows: Row[]) => MergeValues;
@@ -141,6 +147,29 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     onError,
   });
 
+  // Nothing written on the merged rows is thrown away (docs/11 §11.12a): the names that are about to
+  // disappear, and then every note any of the selected rows carried, one per line. The person editing
+  // it deletes what is noise — but the default is "keep everything", because the alternative is a
+  // merge that quietly destroys the one line somebody wrote a year ago to explain which flat this is.
+  const keptNote = (rows: Row[], survivor: string): string => {
+    if (merge === undefined) return '';
+
+    const vanishing = [...new Set(rows.map((row) => merge.label(row)))].filter(
+      (name) => name !== survivor,
+    );
+    const notes = rows
+      .map((row) => merge.note?.(row) ?? '')
+      .map((note) => note.trim())
+      .filter((note) => note !== '');
+
+    return [
+      ...(vanishing.length === 0
+        ? []
+        : [t('admin.catalogues.fields.alsoKnownAs', { names: vanishing.join(', ') })]),
+      ...notes,
+    ].join('\n');
+  };
+
   const actionsColumn = {
     title: t('admin.catalogues.columns.actions'),
     key: 'actions',
@@ -181,10 +210,13 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
               onClick={() => {
                 mergeForm.resetFields();
                 const first = chosen[0];
-                mergeForm.setFieldsValue(
+                const values =
                   merge.initialValues?.(chosen) ??
-                    (first === undefined ? {} : { name: merge.label(first) }),
-                );
+                  (first === undefined ? {} : { name: merge.label(first) });
+                mergeForm.setFieldsValue({
+                  ...values,
+                  note: values.note ?? keptNote(chosen, values.name ?? ''),
+                });
                 setMerging(true);
               }}
             >
@@ -265,6 +297,21 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
               />
             </Form.Item>
             {merge.fields?.(chosen)}
+            {/* Prefilled with what the rows carried, and editable before confirming: a merge must
+                not be the thing that loses the note explaining which flat this is
+                (docs/11 §11.12a). */}
+            <Form.Item
+              name="note"
+              label={t('admin.catalogues.fields.note')}
+              extra={t('admin.catalogues.fields.mergedNoteHint')}
+            >
+              <Input.TextArea
+                rows={4}
+                {...(merge.noteMaxLength === undefined
+                  ? {}
+                  : { maxLength: merge.noteMaxLength, showCount: true })}
+              />
+            </Form.Item>
           </Form>
         </Modal>
       )}

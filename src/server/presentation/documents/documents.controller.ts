@@ -82,6 +82,15 @@ import { UuidParam } from '../http/uuid-param.pipe';
 import { CurrentDocument, DocumentAccessGuard } from './document-access.guard';
 import { attachedFileName, readUploadBody, uploadFileName } from './read-upload-body';
 
+// 🔒 A step and the status it sits in are one filter, not two (docs/07 §7.3): `?step=preview` alone
+// would answer with every document and still look like a filtered list, which is the kind of wrong
+// answer nobody notices. The pairing lives here rather than in the shared contract, because the
+// contract is the shape both sides send and this is a rule about a request.
+const listDocumentsQuery = listDocumentsQuerySchema.refine(
+  (query) => (query.step === undefined) === (query.stepStatus === undefined),
+  { message: 'step and stepStatus must be given together' },
+);
+
 // Documents (docs/07 §7.3). Guard order: SessionGuard → RolesGuard → DocumentAccessGuard
 // (docs/06 §6.4); the access guard loads the document once and hands it to the route.
 @Controller('documents')
@@ -126,7 +135,7 @@ export class DocumentsController {
   @Get()
   async listDocuments(
     @CurrentUser() user: User,
-    @ZodQuery(listDocumentsQuerySchema) query: ListDocumentsQuery,
+    @ZodQuery(listDocumentsQuery) query: ListDocumentsQuery,
   ): Promise<Envelope<ListDocumentsResponse>> {
     return successEnvelope(await this.list.execute(user, query));
   }

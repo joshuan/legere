@@ -20,6 +20,9 @@ const CATEGORY_ID = 'bbbbbbbb-2222-4222-8222-222222222222';
 const LIBRARY_ID = 'cccccccc-3333-4333-8333-333333333333';
 const FIRST_FILE = 'ffffffff-1111-4111-8111-111111111111';
 const SECOND_FILE = 'ffffffff-2222-4222-8222-222222222222';
+const PERSON_ID = 'dddddddd-1111-4111-8111-111111111111';
+const SUBJECT_ID = 'dddddddd-2222-4222-8222-222222222222';
+const KIND_ID = 'dddddddd-3333-4333-8333-333333333333';
 
 function fileOf(id: string, overrides: Partial<DocumentFileDto> = {}): DocumentFileDto {
   return {
@@ -128,6 +131,40 @@ function serve(
         }),
       ),
     ),
+    // The catalogues the Details form files a document by (docs/03 §3.3.19–20a).
+    http.get('/api/people', () =>
+      HttpResponse.json(
+        envelope({
+          items: [{ id: PERSON_ID, name: 'Marija Petrović', note: null, documentCount: 1 }],
+        }),
+      ),
+    ),
+    http.get('/api/subjects', () =>
+      HttpResponse.json(
+        envelope({
+          items: [
+            {
+              id: SUBJECT_ID,
+              kindId: KIND_ID,
+              kind: 'apartment',
+              name: 'Njegoševa 5',
+              note: null,
+              documentCount: 1,
+            },
+          ],
+        }),
+      ),
+    ),
+    http.get('/api/subject-kinds', () =>
+      HttpResponse.json(
+        envelope({
+          items: [
+            { id: KIND_ID, name: 'apartment', note: null, subjectCount: 1, documentCount: 1 },
+          ],
+        }),
+      ),
+    ),
+    http.get('/api/collections', () => HttpResponse.json(envelope({ items: [] }))),
   );
 }
 
@@ -275,6 +312,102 @@ describe('DocumentViewerScreen', () => {
     // typeSource to MANUAL and a classifier's choice would silently become a person's
     // (docs/03 §3.3.10).
     await waitFor(() => expect(patched).toEqual({ city: 'Bar' }));
+  });
+
+  it('saves a person the document names, on its own', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+
+    const people = details.getByRole('combobox', { name: enMessages.viewer.details.people });
+    await userEvent.click(people);
+    await userEvent.click(await screen.findByTitle('Marija Petrović'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
+
+    // 🔒 A person chosen alone is a save of its own: the links are as much of the correction as the
+    // documentType is, and Save that quietly does nothing is worse than no Save (docs/11 §11.5).
+    await waitFor(() => expect(patched).toEqual({ peopleIds: [PERSON_ID] }));
+  });
+
+  it('saves the thing the document is about, on its own', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+
+    const subjects = details.getByRole('combobox', { name: enMessages.viewer.details.subjects });
+    await userEvent.click(subjects);
+    await userEvent.click(await screen.findByTitle('Njegoševa 5 · apartment'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
+
+    await waitFor(() => expect(patched).toEqual({ subjectIds: [SUBJECT_ID] }));
+  });
+
+  it('saves the day the document is dated, on its own', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+
+    const date = details.getByRole('textbox', { name: enMessages.viewer.details.documentDate });
+    await userEvent.type(date, '2019-03-01{Enter}');
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
+
+    // A calendar day travels as the day it is, with no time zone dragged in behind it.
+    await waitFor(() => expect(patched).toEqual({ documentDate: '2019-03-01' }));
+  });
+
+  it('sends nothing at all when the form was opened and nothing was touched', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+    // Somebody the document already names, so the links start non-empty and still count as
+    // untouched — the order a multi-select puts them in is not an edit.
+    serve({
+      ...detail,
+      people: [{ id: PERSON_ID, name: 'Marija Petrović' }],
+      subjects: [{ id: SUBJECT_ID, kind: 'apartment', name: 'Njegoševa 5' }],
+      documentDate: '2019-03-01',
+    });
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
+
+    // 🔒 A glance is not an edit: an untouched field must not be sent, or every save would count as
+    // a manual assignment of everything (docs/03 §3.3.10).
+    expect(patched).toBeNull();
   });
 
   it('offers a language by its name, not only the ones already on the document', async () => {

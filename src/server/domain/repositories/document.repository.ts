@@ -118,6 +118,11 @@ export type ListDocumentsInput = {
   personId?: string | undefined;
   subjectId?: string | undefined;
   year?: number | undefined;
+  // A pipeline step and the status it sits in, which are one filter and not two: what a queue
+  // counter links to (docs/07 §7.3, docs/11 §11.13). Half of it is refused before it reaches here,
+  // and half of it here filters nothing.
+  step?: DocumentStep | undefined;
+  stepStatus?: StepStatus | undefined;
 };
 
 export type DocumentPage = {
@@ -175,6 +180,16 @@ export abstract class DocumentRepository {
   // migration that resets statuses leaves behind (docs/05 §5.4).
   abstract listStalePendingIds(
     olderThan: Date,
+    limit: number,
+    tx?: TransactionHandle,
+  ): Promise<string[]>;
+
+  // The documents whose named step sits in a given status, newest first — what "the previews failed,
+  // run them again" needs to find (docs/07 §7.3). Bounded by the caller: a repair on a large archive
+  // is meant to drain in batches, not in one push. Soft-deleted documents are not part of it.
+  abstract listIdsByStepStatus(
+    step: DocumentStep,
+    status: StepStatus,
     limit: number,
     tx?: TransactionHandle,
   ): Promise<string[]>;

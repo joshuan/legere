@@ -41,8 +41,17 @@ export class WorkerRegistry {
   async start(): Promise<void> {
     const boss = await this.provider.start();
     const settings = await this.settings.read();
+    const paused = new Set(settings.paused);
 
     for (const binding of this.bindings) {
+      // 🔒 A paused queue gets no worker at all (docs/05 §5.4): jobs keep arriving and wait where
+      // an admin can watch the depth grow, and nothing consumes them until it is resumed. Stopping
+      // one misbehaving step must not mean stopping the instance.
+      if (paused.has(binding.queue)) {
+        this.logger.info({ queue: binding.queue }, 'Queue is paused, no worker started');
+        continue;
+      }
+
       const concurrency = binding.concurrency ?? settings.concurrency[binding.queue] ?? 1;
       // strict: false — handlers live in feature modules, not in this one.
       const handler = this.moduleRef.get<JobHandler>(binding.handler, { strict: false });
@@ -64,7 +73,8 @@ export class WorkerRegistry {
 
   // Applying a new setting without a restart: pg-boss is told to stop serving each queue, and the
   // workers are registered again with the numbers that are now stored (docs/11 §11.13). An admin
-  // changing a knob should not have to bounce the container to see it take effect.
+  // changing a knob should not have to bounce the container to see it take effect. This is also
+  // what pausing and resuming are: a queue that is now paused simply gets no worker back.
   async restart(): Promise<void> {
     const boss = await this.provider.start();
     for (const binding of this.bindings) {

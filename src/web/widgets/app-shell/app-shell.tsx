@@ -5,6 +5,7 @@ import {
   DatabaseOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
+  InfoCircleOutlined,
   LogoutOutlined,
   SearchOutlined,
   SettingOutlined,
@@ -150,6 +151,13 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
                 key: '/admin/queue',
                 icon: <ThunderboltOutlined />,
                 label: <Link href="/admin/queue">{t('nav.admin.queue')}</Link>,
+              },
+              // What this server is actually running (docs/11 §11.13a). Last, because it is the
+              // page an operator opens when something else has already gone wrong.
+              {
+                key: '/admin/instance',
+                icon: <InfoCircleOutlined />,
+                label: <Link href="/admin/instance">{t('nav.admin.instance')}</Link>,
               },
             ],
           },

@@ -78,8 +78,19 @@ export function PeopleScreen({ isAdmin = false }: { isAdmin?: boolean }) {
       // (docs/03 §3.3.19).
       merge={{
         label: (person) => person.name,
-        onMerge: (people, values) =>
-          personApi.merge({ ids: people.map((person) => person.id), name: values.name ?? '' }),
+        // What the merged rows carried, offered back as the survivor's note rather than dropped
+        // (docs/11 §11.12a).
+        note: (person) => person.note,
+        // As much as `mergePeopleRequestSchema` accepts.
+        noteMaxLength: 500,
+        onMerge: (people, values) => {
+          const note = (values.note ?? '').trim();
+          return personApi.merge({
+            ids: people.map((person) => person.id),
+            name: values.name ?? '',
+            note: note === '' ? null : note,
+          });
+        },
       }}
       fields={() => (
         <>

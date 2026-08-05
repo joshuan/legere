@@ -20,6 +20,7 @@ import { CollectionsModule } from './presentation/collections/collections.module
 import { DocumentsModule } from './presentation/documents/documents.module';
 import { DomainExceptionFilter } from './presentation/http/domain-exception.filter';
 import { HealthModule } from './presentation/health/health.module';
+import { InstanceModule } from './presentation/instance/instance.module';
 import { JobsModule } from './presentation/jobs/jobs.module';
 import { LibrariesModule } from './presentation/libraries/libraries.module';
 import { QueueAdminModule } from './presentation/queue/queue-admin.module';
@@ -54,6 +55,7 @@ import { UsersModule } from './presentation/users/users.module';
     SearchModule,
     CollectionsModule,
     QueueAdminModule,
+    InstanceModule,
     JobsModule,
     HealthModule,
   ],

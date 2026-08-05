@@ -103,6 +103,11 @@ export function SubjectsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
       // travels too: the rows being folded together may disagree about it.
       merge={{
         label: (subject) => subject.name,
+        // The note is what the analysis reads to tell one flat from another, so a merge keeps every
+        // line of it rather than the survivor's alone (docs/11 §11.12a).
+        note: (subject) => subject.note,
+        // As much as `mergeSubjectsRequestSchema` accepts.
+        noteMaxLength: 2000,
         initialValues: (rows) => ({
           name: rows[0]?.name ?? '',
           kindId: rows[0]?.kindId ?? '',
@@ -116,12 +121,15 @@ export function SubjectsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
             <Select showSearch optionFilterProp="label" options={kindOptions} />
           </Form.Item>
         ),
-        onMerge: (rows, values) =>
-          subjectApi.merge({
+        onMerge: (rows, values) => {
+          const note = (values.note ?? '').trim();
+          return subjectApi.merge({
             ids: rows.map((subject) => subject.id),
             kindId: values.kindId ?? '',
             name: values.name ?? '',
-          }),
+            note: note === '' ? null : note,
+          });
+        },
       }}
       fields={() => (
         <>

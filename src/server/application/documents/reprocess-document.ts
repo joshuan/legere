@@ -37,7 +37,13 @@ export class ReprocessDocument {
       failedStep: null,
     });
 
-    await this.queue.enqueue('document-process', { documentId, steps: requested });
+    // Keyed by the document: whatever asked for the run — this route or a repair over five hundred
+    // of them at once — a document is one piece of work in the queue (docs/05 §5.4).
+    await this.queue.enqueue(
+      'document-process',
+      { documentId, steps: requested },
+      { singletonKey: documentId },
+    );
     // Who asked for it and for which steps: a document that was reprocessed three times is a
     // document somebody was fighting with, and that is worth being able to see (docs/03 §3.3.18).
     await this.events.record({

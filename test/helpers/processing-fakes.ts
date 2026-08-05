@@ -35,7 +35,8 @@ import {
   type UpdateLibraryInput,
 } from '../../src/server/domain/repositories/library.repository';
 import { RelativePath } from '../../src/server/domain/value-objects/relative-path';
-import type { Crop } from '../../src/shared/contracts/documents';
+import type { Crop, DocumentStep } from '../../src/shared/contracts/documents';
+import type { StepStatus } from '../../src/shared/contracts/enums';
 import { toBuffer, type BinarySource } from '../../src/server/application/ports/binary-source';
 import { ImageTool, type JpegPreviewOptions } from '../../src/server/application/ports/image-tool';
 import type { GrayscaleRaster } from '../../src/server/domain/entities/page-detection';
@@ -247,6 +248,16 @@ export class InMemoryDocumentRepository extends DocumentRepository {
         Object.values(document.steps).some((status) => status === 'PENDING'),
     );
     return Promise.resolve(stale.slice(0, limit).map((document: Document) => document.id));
+  }
+
+  // Newest first, like the query it stands in for (docs/07 §7.3).
+  listIdsByStepStatus(step: DocumentStep, status: StepStatus, limit: number): Promise<string[]> {
+    const matching = [...this.documents.values()]
+      .filter(
+        (document: Document) => document.deletedAt === null && document.steps[step] === status,
+      )
+      .sort((a: Document, b: Document) => b.createdAt.getTime() - a.createdAt.getTime());
+    return Promise.resolve(matching.slice(0, limit).map((document: Document) => document.id));
   }
 
   countByStepStatus(): Promise<StepStatusCounters> {

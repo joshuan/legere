@@ -173,6 +173,85 @@
       "copy": "Copy link",
       "expires": "Expires {date}"
     },
+    "instance": {
+      "title": "Instance",
+      "subtitle": "What this server resolved its configuration to. Read-only: a setting is changed in the environment, and the process restarted.",
+      "values": {
+        "set": "Set",
+        "notSet": "Not set"
+      },
+      "sources": {
+        "ENV": "Environment",
+        "DEFAULT": "Default",
+        "SET": "Secret",
+        "UNSET": "Secret"
+      },
+      "groups": {
+        "core": "Core",
+        "database": "Database",
+        "storage": "Object storage",
+        "library": "Library",
+        "processing": "Processing",
+        "ai": "AI providers",
+        "email": "Email",
+        "auth": "Authentication",
+        "queue": "Queue"
+      },
+      "keys": {
+        "NODE_ENV": "Mode",
+        "PORT": "Port",
+        "APP_BASE_URL": "Base URL",
+        "LOG_LEVEL": "Log level",
+        "DATABASE_HOST": "Host",
+        "DATABASE_PORT": "Port",
+        "DATABASE_NAME": "Database",
+        "DATABASE_USER": "User",
+        "S3_ENDPOINT": "Endpoint",
+        "S3_PUBLIC_ENDPOINT": "Endpoint for browsers",
+        "S3_REGION": "Region",
+        "S3_BUCKET": "Bucket",
+        "S3_ACCESS_KEY_ID": "Access key",
+        "S3_SECRET_ACCESS_KEY": "Secret key",
+        "S3_FORCE_PATH_STYLE": "Path-style addressing",
+        "SIGNED_URL_TTL_SEC": "Signed URL lifetime, s",
+        "LIBRARY_ROOT": "Library root",
+        "GROUPING_WINDOW_MINUTES": "Scan grouping window, min",
+        "SCAN_MAX_FILES": "Files per scan, limit",
+        "UPLOAD_MAX_BYTES": "Upload size, limit in bytes",
+        "STIRLING_URL": "Stirling-PDF",
+        "DOCLING_URL": "Docling",
+        "DOCLING_PICTURE_DESCRIPTION": "Picture captions",
+        "OCR_LANGUAGES": "Default OCR languages",
+        "PDF_TEXT_MIN_CHARS_PER_PAGE": "Text-layer threshold, chars per page",
+        "PREVIEW_MAX_DIM": "Preview size, px",
+        "THUMB_MAX_DIM": "Thumbnail size, px",
+        "CHUNK_TARGET_CHARS": "Chunk size, chars",
+        "CHUNK_OVERLAP_CHARS": "Chunk overlap, chars",
+        "EMBEDDINGS_API_BASE_URL": "Embeddings API",
+        "EMBEDDINGS_API_KEY": "Embeddings API key",
+        "EMBEDDINGS_MODEL": "Embeddings model",
+        "EMBEDDING_DIMENSIONS": "Vector dimensions",
+        "CLASSIFIER_API_BASE_URL": "Analysis API",
+        "CLASSIFIER_API_KEY": "Analysis API key",
+        "CLASSIFIER_MODEL": "Analysis model",
+        "SMTP_HOST": "SMTP host",
+        "SMTP_PORT": "SMTP port",
+        "SMTP_SECURE": "TLS on connect",
+        "SMTP_USER": "SMTP user",
+        "SMTP_PASSWORD": "SMTP password",
+        "SMTP_FROM": "From address",
+        "AUTH_SECRET": "Signing secret",
+        "SESSION_TTL_DAYS": "Session lifetime, days",
+        "API_TOKEN_TTL_DAYS": "API token lifetime, days",
+        "COOKIE_DOMAIN": "Cookie domain",
+        "TURNSTILE_SECRET_KEY": "Turnstile secret key",
+        "NEXT_PUBLIC_TURNSTILE_SITE_KEY": "Turnstile site key",
+        "QUEUE_CONCURRENCY_INGEST": "File ingest, at once",
+        "QUEUE_CONCURRENCY_PROCESS": "Document processing, at once",
+        "QUEUE_UNIT_CONCURRENCY": "Units inside one job, at once",
+        "QUEUE_REPROCESS_MAX": "Documents per re-run request, limit"
+      }
+    },
     "users": {
       "title": "Users",
       "columns": {
@@ -293,7 +372,15 @@
       "failedRecent": "Failed (24 h)",
       "retried": "Job re-enqueued",
       "actions": {
-        "retry": "Retry"
+        "retry": "Retry",
+        "runAgain": "Run again"
+      },
+      "pause": {
+        "switch": "Pause {queue}",
+        "tag": "Paused"
+      },
+      "reprocess": {
+        "enqueued": "{count} documents re-enqueued"
       },
       "steps": {
         "canonical": "Canonical PDF",
@@ -372,7 +459,9 @@
         "nameRequired": "Enter a name",
         "note": "Note",
         "mergedName": "The name to keep",
-        "mergedNameHint": "Pick one of the selected names, or write the right one."
+        "mergedNameHint": "Pick one of the selected names, or write the right one.",
+        "alsoKnownAs": "Also known as: {names}",
+        "mergedNoteHint": "What the merged rows carried, kept on the surviving one. Delete what is noise — nothing here is written back to the rows that go away."
       },
       "merged": "Merged",
       "mergeTitle": "Merge {count} rows into one",
@@ -451,7 +540,16 @@
       "clear": "Clear filters",
       "origin": "Origin",
       "originLibrary": "From libraries",
-      "originManaged": "Added here"
+      "originManaged": "Added here",
+      "step": "{step}: {status}",
+      "stepClear": "Clear the step filter",
+      "stepStatus": {
+        "PENDING": "waiting",
+        "RUNNING": "running",
+        "DONE": "done",
+        "FAILED": "failed",
+        "SKIPPED": "skipped"
+      }
     },
     "empty": {
       "instance": "No documents yet. Ask your administrator to add a library.",
@@ -607,7 +705,8 @@
     "admin": {
       "libraries": "Libraries",
       "users": "Users",
-      "queue": "Queue"
+      "queue": "Queue",
+      "instance": "Instance"
     },
     "catalogues": "Catalogues",
     "people": "People",

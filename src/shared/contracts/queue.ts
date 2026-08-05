@@ -37,6 +37,18 @@ export const queueOverviewResponseSchema = z.object({
 });
 export type QueueOverviewResponse = z.infer<typeof queueOverviewResponseSchema>;
 
+// POST /api/admin/queue/reprocess — "the previews failed, run them again" (docs/11 §11.13).
+export const reprocessByStepRequestSchema = z.object({
+  step: documentStepSchema,
+  status: stepStatusSchema,
+});
+export type ReprocessByStepRequest = z.infer<typeof reprocessByStepRequestSchema>;
+
+export const reprocessByStepResponseSchema = z.object({
+  enqueued: z.number().int().nonnegative(),
+});
+export type ReprocessByStepResponse = z.infer<typeof reprocessByStepResponseSchema>;
+
 export const failedJobDtoSchema = z.object({
   jobId: z.string(),
   queue: z.string(),
@@ -61,7 +73,7 @@ export type RetryJobResponse = z.infer<typeof retryJobResponseSchema>;
 //
 // - `concurrency` — how many jobs of one queue run at once. This is throughput across documents.
 // - `unitConcurrency` — how many independent units inside a single job run at once: the pages of a
-//   scan set being cropped, say. This is throughput inside one piece of work, and it is one number
+//   files of one document being cropped into pages, say. This is throughput inside one piece of work, and it is one number
 //   because the units are all the same shape of work — reading and resizing an image.
 //
 // Both are bounded: the point of a queue is that an instance under load stays usable, and a box
@@ -71,6 +83,9 @@ export const QUEUE_CONCURRENCY_MAX = 32;
 export const queueSettingsSchema = z.object({
   concurrency: z.record(z.string(), z.number().int().min(1).max(QUEUE_CONCURRENCY_MAX)),
   unitConcurrency: z.number().int().min(1).max(QUEUE_CONCURRENCY_MAX),
+  // Queues whose workers are not registered: jobs arrive and wait, nothing consumes them
+  // (docs/05 §5.4). The way to stop one misbehaving step without stopping the instance.
+  paused: z.array(z.string()),
 });
 export type QueueSettingsDto = z.infer<typeof queueSettingsSchema>;
 

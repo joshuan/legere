@@ -5,19 +5,24 @@ import {
   type PaginationQuery,
 } from '../../../shared/contracts/common';
 import {
+  reprocessByStepRequestSchema,
   updateQueueSettingsRequestSchema,
   type ListQueueFailuresResponse,
   type QueueOverviewResponse,
   type QueueSettingsDto,
+  type ReprocessByStepRequest,
+  type ReprocessByStepResponse,
   type RetryJobResponse,
   type UpdateQueueSettingsRequest,
 } from '../../../shared/contracts/queue';
+import type { User } from '../../domain/entities/user';
 import {
   GetQueueOverview,
   ListQueueFailures,
   RetryFailedJob,
 } from '../../application/queue/inspect-queue';
 import { QueueSettings } from '../../application/queue/queue-settings';
+import { ReprocessDocumentsByStep } from '../../application/queue/reprocess-by-step';
 import { AnalysisSettings } from '../../application/settings/analysis-settings';
 import { WorkerRegistry } from '../../infrastructure/queue/worker-registry';
 import {
@@ -25,6 +30,7 @@ import {
   type AnalysisLanguageDto,
   type UpdateAnalysisLanguageRequest,
 } from '../../../shared/contracts/settings';
+import { CurrentUser } from '../auth/current-user';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
@@ -43,6 +49,7 @@ export class AdminQueueController {
     private readonly settings: QueueSettings,
     private readonly workers: WorkerRegistry,
     private readonly analysis: AnalysisSettings,
+    private readonly reprocessByStep: ReprocessDocumentsByStep,
   ) {}
 
   @Get('settings')
@@ -67,7 +74,8 @@ export class AdminQueueController {
   }
 
   // Saved, then applied: the workers are re-registered with the new numbers rather than waiting for
-  // the container to be bounced (docs/11 §11.13).
+  // the container to be bounced (docs/11 §11.13). Pausing and resuming ride the same path — a queue
+  // that is now paused gets no worker back, and one that is not does.
   @Patch('settings')
   async updateSettings(
     @ZodBody(updateQueueSettingsRequestSchema) body: UpdateQueueSettingsRequest,
@@ -75,6 +83,17 @@ export class AdminQueueController {
     const saved = await this.settings.write(body);
     await this.workers.restart();
     return successEnvelope(saved);
+  }
+
+  // "The previews failed, run them again" (docs/07 §7.3, docs/11 §11.13): every document whose named
+  // step sits in that status goes back through the ordinary reprocess, newest first and bounded per
+  // call, and the answer says how many this call took.
+  @Post('reprocess')
+  async reprocessStep(
+    @CurrentUser() user: User,
+    @ZodBody(reprocessByStepRequestSchema) body: ReprocessByStepRequest,
+  ): Promise<Envelope<ReprocessByStepResponse>> {
+    return successEnvelope(await this.reprocessByStep.execute(body, user.id));
   }
 
   @Get('overview')

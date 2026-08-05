@@ -19,14 +19,24 @@ import {
   theme,
 } from 'antd';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import type { FailedJobDto, StepCountersDto } from '../../../shared/contracts/queue';
+import { stepStatusSchema, type StepStatus } from '../../../shared/contracts/enums';
+import type {
+  FailedJobDto,
+  ReprocessByStepRequest,
+  StepCountersDto,
+} from '../../../shared/contracts/queue';
 import { analysisSettingsApi, queueApi, queueKeys, queueSettingsApi } from '../../entities/queue';
 import { formatBytes, useErrorMessage } from '../../shared/lib';
 
 // The queue moves on its own, so the view follows it (docs/11 §11.13). Pausing matters: reading a
 // long error message while the table reorders underneath is the opposite of useful.
 const REFRESH_MS = 5000;
+
+// The statuses a step can be asked to run again from: work that never happened, and work that broke.
+// Re-running a DONE step is a different request — one document at a time, from its own page.
+const RERUNNABLE: readonly StepStatus[] = ['PENDING', 'FAILED'];
 
 // /admin/queue (docs/11 §11.13): what the queue is doing, and what failed.
 export function AdminQueueScreen() {
@@ -81,6 +91,20 @@ export function AdminQueueScreen() {
     onError: (error: unknown) => void message.error(describeError(error)),
   });
 
+  // Paused, a queue keeps taking jobs and runs none of them: the depth grows where an admin can see
+  // it and nothing is lost (docs/11 §11.13). It rides inside the settings, which are sent whole.
+  const paused = settings.data?.paused ?? [];
+
+  const togglePause = (queue: string, pause: boolean): void => {
+    const current = settings.data;
+    if (current === undefined) return;
+    saveSettings.mutate({
+      concurrency: current.concurrency,
+      unitConcurrency: current.unitConcurrency,
+      paused: pause ? [...current.paused, queue] : current.paused.filter((name) => name !== queue),
+    });
+  };
+
   const overview = useQuery({
     queryKey: queueKeys.overview,
     queryFn: queueApi.overview,
@@ -107,6 +131,17 @@ export function AdminQueueScreen() {
     onError: (error: unknown) => {
       void message.error(describeError(error));
     },
+  });
+
+  // The common repair after a container was down for an hour: every document whose step sits in that
+  // status, re-enqueued in one gesture, and it says how many it took (docs/11 §11.13).
+  const reprocess = useMutation({
+    mutationFn: (body: ReprocessByStepRequest) => queueApi.reprocess(body),
+    onSuccess: (result) => {
+      void message.success(t('admin.queue.reprocess.enqueued', { count: result.enqueued }), 2);
+      refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
   });
 
   // Refreshed hourly by `maintenance`, so it is null on a fresh instance (docs/09 §9.5).
@@ -175,7 +210,30 @@ export function AdminQueueScreen() {
       <Row gutter={[16, 16]}>
         {(overview.data?.queues ?? []).map((queue) => (
           <Col key={queue.name} xs={24} sm={12} lg={6}>
-            <Card size="small" title={queue.name} loading={overview.isPending}>
+            <Card
+              size="small"
+              // A paused queue is labelled as paused everywhere its depth is shown, so a growing
+              // queue is never mistaken for a stuck one (docs/11 §11.13).
+              title={
+                <Space size={4}>
+                  {queue.name}
+                  {paused.includes(queue.name) && (
+                    <Tag color="orange">{t('admin.queue.pause.tag')}</Tag>
+                  )}
+                </Space>
+              }
+              extra={
+                <Switch
+                  size="small"
+                  checked={paused.includes(queue.name)}
+                  disabled={settings.data === undefined}
+                  loading={saveSettings.isPending}
+                  aria-label={t('admin.queue.pause.switch', { queue: queue.name })}
+                  onChange={(pause) => togglePause(queue.name, pause)}
+                />
+              }
+              loading={overview.isPending}
+            >
               <Space size="large">
                 <Statistic title={t('admin.queue.queued')} value={queue.queued} />
                 <Statistic title={t('admin.queue.active')} value={queue.active} />
@@ -199,7 +257,13 @@ export function AdminQueueScreen() {
           layout="inline"
           onFinish={(values: Record<string, number>) => {
             const { unitConcurrency, ...concurrency } = values;
-            saveSettings.mutate({ concurrency, unitConcurrency: unitConcurrency ?? 1 });
+            saveSettings.mutate({
+              concurrency,
+              unitConcurrency: unitConcurrency ?? 1,
+              // Sent whole (docs/07 §7.3): the pause switches live on the cards above, and saving
+              // the throughput must not quietly resume what somebody paused.
+              paused,
+            });
           }}
         >
           {Object.keys(settings.data?.concurrency ?? {}).map((queue) => (
@@ -267,7 +331,15 @@ export function AdminQueueScreen() {
           {(overview.data?.documents.steps ?? []).map((step) => (
             <Col key={step.step} xs={24} sm={12} lg={8} xl={4}>
               <Card size="small" type="inner" title={t(`admin.queue.steps.${step.step}`)}>
-                {stepSummary(step)}
+                <StepCounters
+                  step={step}
+                  onRunAgain={(status) => reprocess.mutate({ step: step.step, status })}
+                  running={
+                    reprocess.isPending && reprocess.variables?.step === step.step
+                      ? reprocess.variables.status
+                      : null
+                  }
+                />
               </Card>
             </Col>
           ))}
@@ -322,18 +394,46 @@ export function AdminQueueScreen() {
 }
 
 // One line per status that actually has documents in it; a step with nothing in a status should not
-// spend a row saying zero.
-function stepSummary(step: StepCountersDto): React.ReactNode {
-  const entries = Object.entries(step.counts).filter(([, count]) => count > 0);
+// spend a row saying zero. In the statuses' own order rather than the server's, so the five cards
+// read alike.
+function StepCounters({
+  step,
+  onRunAgain,
+  running,
+}: {
+  step: StepCountersDto;
+  onRunAgain: (status: StepStatus) => void;
+  // The status of this step being re-enqueued right now, if any.
+  running: StepStatus | null;
+}) {
+  const t = useTranslations();
+
+  const entries = stepStatusSchema.options
+    // A status the server did not mention holds nothing, which is the same thing as a zero here.
+    .map((status) => ({ status, count: step.counts[status] ?? 0 }))
+    .filter((entry) => entry.count > 0);
   if (entries.length === 0) return <Typography.Text type="secondary">—</Typography.Text>;
 
   return (
     <Space direction="vertical" size={0}>
-      {entries.map(([status, count]) => (
-        <Typography.Text key={status}>
+      {entries.map(({ status, count }) => (
+        <Space key={status} size={4}>
           <Tag color={statusColor(status)}>{status}</Tag>
-          {count}
-        </Typography.Text>
+          {/* A counter nobody can act on is a number on a wall: the point of "12 failed previews"
+              is the twelve documents (docs/11 §11.13). Both halves travel, never one — the API
+              refuses half the question. */}
+          <Link href={`/documents?step=${step.step}&stepStatus=${status}`}>{count}</Link>
+          {RERUNNABLE.includes(status) && (
+            <Button
+              size="small"
+              type="link"
+              loading={running === status}
+              onClick={() => onRunAgain(status)}
+            >
+              {t('admin.queue.actions.runAgain')}
+            </Button>
+          )}
+        </Space>
       ))}
     </Space>
   );

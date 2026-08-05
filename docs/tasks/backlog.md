@@ -413,3 +413,35 @@ build on it.
   **Goal:** forty scans that arrived together are offered as one document instead of being found by hand.
   **Docs:** [`05 §5.6a`](../05-library-and-processing.md#56a-noticing-that-files-belong-together), [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen)
   **Acceptance:** single-file image documents in one folder whose names form a consecutive sequence and whose mtimes fall inside `GROUPING_WINDOW_MINUTES` are proposed as a group, newest first, at most twenty; a document somebody has already titled, typed or filed is never proposed; the suggestion cards on the grid combine or dismiss, and dismissing is client-side; nothing about a suggestion is stored.
+
+## M14 — Repairs and the operator's view
+
+- [x] **M14.1 — Merging a thing into its own name**
+  **Goal:** picking the surviving name from the list of names being merged stops answering 500.
+  **Docs:** [`03 §3.3.19–3.3.20`](../03-domain-model.md), [`07 §7.3`](../07-api-specification.md)
+  **Acceptance:** the merged rows are soft-deleted before the survivor is renamed, so a name that belongs to one of them is free by the time it is taken; merging into a name held by a row that was *not* selected is still `409`; people and subjects behave the same, and both cases are tested.
+
+- [x] **M14.2 — A merge keeps what the rows carried**
+  **Goal:** the note nobody wants to lose is offered rather than dropped.
+  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-admin-catalogues-adminpeople-adminsubjects-adminsubject-kinds)
+  **Acceptance:** the merge dialog's note arrives prefilled with the names about to disappear and every note the selected rows had, editable before confirming, and empty when there was nothing to keep.
+
+- [x] **M14.3 — Saving a person, and a date**
+  **Goal:** choosing a person in the editor and pressing Save actually saves.
+  **Docs:** [`07 §7.3`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
+  **Acceptance:** the viewer's save sends `peopleIds`, `subjectIds` and `documentDate` when they changed and only when they changed, alongside the fields it already sent; a change to any one of them alone produces exactly one request; covered by tests that would have caught the silence.
+
+- [x] **M14.4 — A counter is a way to the documents**
+  **Goal:** "12 failed previews" becomes those twelve documents.
+  **Docs:** [`07 §7.3`](../07-api-specification.md), [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen), [`11 §11.13`](../11-ui-ux-spec.md#1113-admin-queue-adminqueue)
+  **Acceptance:** `GET /api/documents` filters by `step` + `stepStatus` (either alone is a `422`); every number on the queue screen links to that filter; the documents screen shows the filter and can clear it.
+
+- [x] **M14.5 — A queue can be paused, and a step can be run again**
+  **Goal:** an operator can stop one misbehaving step and re-run what failed, without a restart and without opening five hundred documents.
+  **Docs:** [`05 §5.4`](../05-library-and-processing.md#54-job-queue-pg-boss), [`07 §7.3`](../07-api-specification.md), [`11 §11.13`](../11-ui-ux-spec.md#1113-admin-queue-adminqueue)
+  **Acceptance:** `paused` joins the queue settings and takes effect immediately by re-registering the workers; a paused queue accepts jobs and runs none, and says so wherever its depth is shown; `POST /api/admin/queue/reprocess` re-enqueues every document whose step sits in a status, bounded per call, and answers with how many.
+
+- [x] **M14.6 — What this server is actually running**
+  **Goal:** the operator's questions answered on a page instead of inside a container.
+  **Docs:** [`07 §7.3`](../07-api-specification.md), [`11 §11.13a`](../11-ui-ux-spec.md#1113a-admin-instance-admininstance), [`12 §12.4`](../12-build-config-run.md)
+  **Acceptance:** `/admin/instance` shows the effective configuration grouped as `12 §12.4` groups it, each row saying where the value came from; 🔒 no secret is ever a value — a password, key or token reads as Set or Not set, and `DATABASE_URL` appears decomposed without its password; a test proves that a configured secret's value appears nowhere in the response.

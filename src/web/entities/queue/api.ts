@@ -2,11 +2,15 @@ import {
   listQueueFailuresResponseSchema,
   queueOverviewResponseSchema,
   queueSettingsSchema,
+  reprocessByStepRequestSchema,
+  reprocessByStepResponseSchema,
   retryJobResponseSchema,
   updateQueueSettingsRequestSchema,
   type ListQueueFailuresResponse,
   type QueueOverviewResponse,
   type QueueSettingsDto,
+  type ReprocessByStepRequest,
+  type ReprocessByStepResponse,
   type RetryJobResponse,
   type UpdateQueueSettingsRequest,
 } from '../../../shared/contracts/queue';
@@ -28,6 +32,14 @@ export const queueApi = {
 
   retry: (jobId: string): Promise<RetryJobResponse> =>
     apiClient.post(`/api/admin/queue/failures/${jobId}/retry`, { schema: retryJobResponseSchema }),
+
+  // "The previews failed, run them again" — every document whose named step sits in that status,
+  // in one gesture instead of five hundred (docs/11 §11.13).
+  reprocess: (body: ReprocessByStepRequest): Promise<ReprocessByStepResponse> =>
+    apiClient.post('/api/admin/queue/reprocess', {
+      schema: reprocessByStepResponseSchema,
+      body: reprocessByStepRequestSchema.parse(body),
+    }),
 };
 
 export const queueSettingsApi = {

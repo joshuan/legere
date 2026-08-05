@@ -272,6 +272,9 @@ Profile card: display name, email (read-only), language (English/Русский)
 (System/Light/Dark). Changes save immediately (`PATCH /api/me`), language switch re-renders instantly
 (cookie + reload of messages).
 
+An admin also sees a line pointing at **Administration → Instance** (§11.13a): this page is about
+the person, that one is about the server.
+
 **API tokens card** ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)): a table
 of the user's own tokens — name, status tag (Active/Expired/Revoked), created, expires, last used
 ("never" until it is used) — with a **Revoke** button per living row (confirm popover) and a
@@ -329,6 +332,12 @@ one flat arrives four times and one person three. Rows carry checkboxes; with tw
 selected names and taking anything typed over them. For subjects it asks for the kind too, since the
 selected rows may disagree. Everything then folds into one row and no document loses what it named.
 
+**Nothing written on the merged rows is thrown away.** The dialog's note field arrives prefilled with
+what the rows carried: the names that are about to disappear ("Also known as: …") and every note any
+of them had, one per line. It is an ordinary editable field — a person deletes what is noise and
+keeps what is not — but the default is "keep everything", because the alternative is a merge that
+quietly destroys the one line somebody wrote a year ago to explain which flat this is.
+
 **The documents count is a link**, to that person's or that thing's browse page: "40" is the question
 "which forty?", and the answer is one click away. A count of zero is plain text — there is nothing to
 go to.
@@ -349,16 +358,41 @@ saved filters are built on the list.
 
 ## 11.13. Admin: Queue (`/admin/queue`)
 
-**How hard this instance works** is a row of numbers at the top: one per queue — how many of its jobs
-run at once — plus *units per job*, how many independent pieces inside a single job do. Saved and
-applied in one press: the workers are re-registered, so nobody has to bounce a container to make a
-machine work harder or leave it alone. Out-of-range values are clamped rather than rejected; the
-point is a usable instance, not a lecture. What the fields start at is what `12 §12.4` documents.
+- **Queue depths** per job type: queued / active / recently failed, and the concurrency control of
+  the throughput settings below.
+- **Pipeline counters**, one row per step, one number per status. **Every number is a link**: it goes
+  to `/documents?step=preview&stepStatus=FAILED` — the documents behind it. A counter nobody can act
+  on is a number on a wall; the point of "12 failed previews" is the twelve documents.
+- **Retry by step.** Beside a step's `FAILED` (and `PENDING`) count, a **Run again** action
+  re-enqueues those documents for that step alone — the common repair after a container was down for
+  an hour, done in one gesture instead of five hundred. It says how many it enqueued, and it is
+  capped per call so a huge archive drains in batches rather than in one indigestible push.
+- **Pause and resume.** Each queue carries a switch. Paused, it keeps taking jobs and runs none of
+  them: the depth grows where an admin can see it, and nothing is lost. It is the honest way to stop
+  one misbehaving step — OCR thrashing, a model answering nonsense — without stopping the instance.
+  A paused queue is labelled as paused everywhere its depth is shown, so a growing queue is never
+  mistaken for a stuck one.
+- **Throughput settings:** per job type, how many run at once, and how many units inside one job do.
+  Changes take effect without a restart and survive one (`05 §5.4`).
+- **Failed jobs** table: queue, payload summary, error, when, retry count, and a per-row Retry.
+- **Storage usage** as of the last maintenance run.
 
-- **Overview cards:** per queue (scan / ingest / process / merge) — queued, active, failed-recent;
-  plus pipeline totals (documents by step status) and S3 usage.
-- **Failures table:** time, queue, payload summary (linked document/library), error (expandable),
-  retry count, Retry button. Auto-refresh 5 s with a pause toggle.
+## 11.13a. Admin: Instance (`/admin/instance`)
+
+What this server actually resolved its configuration to, read-only, grouped the way `12 §12.4`
+groups it: core, database, storage, library, processing, AI, email, auth, queue. Each row is a name,
+a value, and where the value came from — the environment, or the default nobody overrode. It answers
+the questions an operator asks at 2 a.m. without shelling into a container: which database is this,
+where does OCR go, which model is answering, is mail configured at all.
+
+🔒 **No secret is ever a value here.** A password, an API key, an auth secret, a token: the row says
+**Set** or **Not set** and nothing more, and `DATABASE_URL` is shown decomposed into host, port,
+database and user — never as the string that carries its password. A page that leaks the credential
+it is describing would be worse than no page.
+
+A value that is not configured reads as **Not set** with the consequence beside it where there is
+one — "AI analysis: not configured, the step is skipped" — because a blank is only useful next to
+what it costs.
 
 ## 11.14. Cross-cutting UI rules
 

@@ -175,6 +175,10 @@ export const listDocumentsQuerySchema = paginationQuerySchema.extend({
   availability: availabilitySchema.optional(),
   processing: queryBoolean,
   origin: fileOriginSchema.optional(),
+  // A pipeline step and the status it sits in, given together: what a queue counter links to
+  // (docs/07 §7.3, docs/11 §11.13). Either alone is a validation failure — half the question.
+  step: documentStepSchema.optional(),
+  stepStatus: stepStatusSchema.optional(),
 });
 export type ListDocumentsQuery = z.infer<typeof listDocumentsQuerySchema>;
 

@@ -6,8 +6,8 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { availabilitySchema } from '../../../shared/contracts/documents';
-import { fileOriginSchema } from '../../../shared/contracts/enums';
+import { availabilitySchema, documentStepSchema } from '../../../shared/contracts/documents';
+import { fileOriginSchema, stepStatusSchema } from '../../../shared/contracts/enums';
 import type { GroupingSuggestion } from '../../../shared/contracts/files';
 import {
   documentApi,
@@ -259,6 +259,16 @@ function parseFilters(params: URLSearchParams): DocumentFilters {
   const processing = params.get('processing');
   if (processing === 'true') filters.processing = true;
   if (processing === 'false') filters.processing = false;
+
+  // What a queue counter links to: a step and the status it sits in, always together. Half of the
+  // pair is half a question, and the API answers a 422 to it — so half is never taken from the URL
+  // either (docs/11 §11.13).
+  const step = documentStepSchema.safeParse(params.get('step'));
+  const stepStatus = stepStatusSchema.safeParse(params.get('stepStatus'));
+  if (step.success && stepStatus.success) {
+    filters.step = step.data;
+    filters.stepStatus = stepStatus.data;
+  }
 
   return filters;
 }

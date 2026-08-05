@@ -3,6 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { QueueSettingsDto } from '../../../shared/contracts/queue';
 import { createApiMock, envelope, errorEnvelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { AdminQueueScreen } from './admin-queue-screen';
@@ -28,6 +29,19 @@ const overview = {
     ],
   },
   storage: { objects: 34, bytes: '1932735283', measuredAt: '2026-01-02T09:00:00.000Z' },
+};
+
+// What the settings endpoint answers with; `paused` is the list of queues nothing consumes.
+const settings: QueueSettingsDto = {
+  concurrency: {
+    'library-scan': 1,
+    'file-ingest': 4,
+    'document-process': 2,
+    'scanset-merge': 1,
+    maintenance: 1,
+  },
+  unitConcurrency: 2,
+  paused: [],
 };
 
 const failure = {
@@ -159,6 +173,85 @@ describe('AdminQueueScreen', () => {
     );
 
     expect(await screen.findByText(enMessages.errors.codes.NOT_FOUND)).toBeInTheDocument();
+  });
+
+  it('makes every counter a way to the documents behind it', async () => {
+    renderWithProviders(<AdminQueueScreen />);
+
+    const preview = (await screen.findByText(enMessages.admin.queue.steps.preview)).closest(
+      '.ant-card',
+    );
+    if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step card');
+
+    // The point of "2 failed previews" is the two documents (docs/11 §11.13), and both halves of
+    // the question travel: the API refuses one without the other.
+    expect(within(preview).getByRole('link', { name: '2' })).toHaveAttribute(
+      'href',
+      '/documents?step=preview&stepStatus=FAILED',
+    );
+    expect(within(preview).getByRole('link', { name: '10' })).toHaveAttribute(
+      'href',
+      '/documents?step=preview&stepStatus=DONE',
+    );
+  });
+
+  it('runs a failed step again and says how many it took', async () => {
+    let asked: unknown = null;
+    server.use(
+      http.post('/api/admin/queue/reprocess', async ({ request }) => {
+        asked = await request.json();
+        return HttpResponse.json(envelope({ enqueued: 2 }));
+      }),
+    );
+
+    renderWithProviders(<AdminQueueScreen />);
+    const preview = (await screen.findByText(enMessages.admin.queue.steps.preview)).closest(
+      '.ant-card',
+    );
+    if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step card');
+
+    // Only the counts something can be done about carry the action: preview has two failures and
+    // nothing pending, so there is exactly one.
+    await userEvent.click(
+      within(preview).getByRole('button', { name: enMessages.admin.queue.actions.runAgain }),
+    );
+
+    await waitFor(() => expect(asked).toEqual({ step: 'preview', status: 'FAILED' }));
+    // The count is the whole point of the answer: five hundred documents were not opened by hand.
+    expect(await screen.findByText('2 documents re-enqueued')).toBeInTheDocument();
+  });
+
+  it('pauses one queue without stopping the instance, and labels it beside its depth', async () => {
+    let patched: unknown = null;
+    let state = { ...settings };
+    server.use(
+      http.get('/api/admin/queue/settings', () => HttpResponse.json(envelope(state))),
+      http.get('/api/admin/queue/analysis', () => HttpResponse.json(envelope({ language: '' }))),
+      http.patch('/api/admin/queue/settings', async ({ request }) => {
+        patched = await request.json();
+        state = { ...settings, paused: ['document-process'] };
+        return HttpResponse.json(envelope(state));
+      }),
+    );
+
+    renderWithProviders(<AdminQueueScreen />);
+    const pause = await screen.findByRole('switch', { name: 'Pause document-process' });
+    await waitFor(() => expect(pause).toBeEnabled());
+    await userEvent.click(pause);
+
+    // The settings are sent whole (docs/07 §7.3): pausing must not quietly reset the throughput.
+    await waitFor(() =>
+      expect(patched).toEqual({
+        concurrency: settings.concurrency,
+        unitConcurrency: settings.unitConcurrency,
+        paused: ['document-process'],
+      }),
+    );
+
+    // A growing queue must never be mistaken for a stuck one (docs/11 §11.13).
+    const card = pause.closest('.ant-card');
+    if (!(card instanceof HTMLElement)) throw new Error('expected the queue card');
+    expect(await within(card).findByText(enMessages.admin.queue.pause.tag)).toBeInTheDocument();
   });
 
   // The refresh is a real 5 s interval (docs/11 §11.13), so this waits it out rather than faking

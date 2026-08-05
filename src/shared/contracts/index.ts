@@ -11,6 +11,7 @@ export * from './files';
 export * from './people';
 export * from './subjects';
 export * from './queue';
+export * from './instance';
 export * from './document-types';
 export * from './search';
 export * from './collections';

@@ -96,6 +96,9 @@ export const configSchema = z.object({
   // How many independent units inside one job run at once — the pages of a scan set being cropped,
   // say. The default is 1 because it was the behaviour before the knob existed (docs/05 §5.4).
   QUEUE_UNIT_CONCURRENCY: z.coerce.number().int().positive().default(1),
+  // How many documents one "run this step again" may enqueue (docs/07 §7.3). A cap, not a quota:
+  // the call is repeatable, so a large archive drains in batches an admin can watch.
+  QUEUE_REPROCESS_MAX: z.coerce.number().int().positive().default(500),
 
   // AI providers (empty base URL = feature disabled)
   EMBEDDINGS_API_BASE_URL: z.string().default(''),

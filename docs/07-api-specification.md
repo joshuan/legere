@@ -110,7 +110,7 @@ reports as expired.
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `POST /api/documents` | 🔒 | **upload**: the file as the raw request body, its name in `X-Legere-Filename` (RFC 5987 or plain). Mime detected from content; `UPLOAD_MAX_BYTES` cap → 413. Deduplicated by **file** (ADR-009, ADR-021): bytes that are already a file resolve to that file's document when the caller may read it (`200`), and to `409 DOCUMENT_DUPLICATE` when they may not. Otherwise `201` with a new document holding the new file, processing already enqueued |
-| `GET /api/documents` | 🔒 | paginated, newest first; filters: `libraryId?`, `typeId?`, `personId?`, `subjectId?`, `year?`, `availability?` (`AVAILABLE`\|`PARTIAL`\|`UNAVAILABLE`), `processing?` (bool), `origin?` (`LIBRARY`\|`MANAGED`); only documents the caller can read |
+| `GET /api/documents` | 🔒 | paginated, newest first; filters: `libraryId?`, `typeId?`, `personId?`, `subjectId?`, `year?`, `availability?` (`AVAILABLE`\|`PARTIAL`\|`UNAVAILABLE`), `processing?` (bool), `origin?` (`LIBRARY`\|`MANAGED`), `step?` + `stepStatus?` (given together: the documents whose named pipeline step sits in that status — what a queue counter links to, 11 §11.13); only documents the caller can read |
 | `GET /api/documents/years` | 🔒 | `{ items: [{ year, count }] }`, newest first — the years the caller's documents carry (11 §11.4). Declared before `:id`, or the router reads "years" as a document id |
 | `GET /api/documents/:id` | 🔒 | → `DocumentDetailDto`, including `auto` — what the pipeline decided before anybody corrected it (03 §3.3.10) |
 | `PATCH /api/documents/:id` | 🔒 | `{ title?, description?, languages?, country?, city?, typeId?, peopleIds?, subjectIds?, documentDate? }` per canEditDocumentMeta (03 §3.4); setting typeId flips `typeSource` to MANUAL (null → NONE), and setting `title` flips `titleSource` to MANUAL, after which no analysis renames the document. `languages` are BCP-47 tags, `country` ISO 3166-1 alpha-2 (upper-cased on the way in), `city` free text; all three are corrections of what detection guessed (03 §3.3.10). `reset: ('title'\|'description'\|'documentType'\|'languages'\|'country'\|'city'\|'documentDate')[]` puts fields back to what the pipeline read and, for the title and the document type, restores `AUTO` — it is applied after the explicit values, so a payload carrying both ends with the reset |
@@ -205,7 +205,14 @@ answer with the whole `DocumentDetailDto`, because a composition change is never
 | `GET /api/admin/queue/failures` | 🔒ᴬ | paginated failed jobs: `{ jobId, queue, payload, error, failedAt, retryCount }` |
 | `POST /api/admin/queue/failures/:jobId/retry` | 🔒ᴬ | re-enqueues a copy of the job → `{ ok: true }` |
 | `GET /api/admin/queue/settings` | 🔒ᴬ | → `{ concurrency: { <queue>: number }, unitConcurrency }` — every queue, with the env defaults where nothing is stored (03 §3.3.21) |
-| `PATCH /api/admin/queue/settings` | 🔒ᴬ | the same shape, sent whole; values are clamped to 1…32 rather than refused, and the workers are re-registered immediately so the change needs no restart |
+| `PATCH /api/admin/queue/settings` | 🔒ᴬ | the same shape, sent whole; values are clamped to 1…32 rather than refused, and the workers are re-registered immediately so the change needs no restart. `paused` is the list of queues whose workers are not registered at all: jobs still arrive and wait, nothing consumes them (05 §5.4) |
+| `POST /api/admin/queue/reprocess` | 🔒ᴬ | `{ step, status }` → `{ enqueued: number }`. Re-enqueues `document-process` for every document whose named step sits in that status, newest first, at most `QUEUE_REPROCESS_MAX` (default 500) a call — the answer to "the previews failed, run them again" without opening five hundred documents |
+
+### Admin: the instance itself
+
+| Method & path | Auth | Notes |
+|---------------|------|-------|
+| `GET /api/admin/instance` | 🔒ᴬ | the effective configuration, grouped, as the process actually resolved it: `{ groups: [{ key, settings: [{ key, value, source }] }] }`. 🔒 **A secret is never a value here** — a password, an API key, a token or a secret key appears as `source: 'SET'` with no value, or `'UNSET'`; everything else carries what it resolved to, with `source: 'ENV'` when the environment set it and `'DEFAULT'` when nothing did. `DATABASE_URL` is decomposed into host, port, database and user, and its password is not one of them |
 
 ### Health
 | Method & path | Auth | Notes |

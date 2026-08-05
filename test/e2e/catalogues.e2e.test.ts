@@ -282,6 +282,71 @@ describe('Catalogues (e2e)', () => {
       expect(remaining.map((subject) => subject.id)).toEqual([first]);
     });
 
+    it('keeps the name of a row being merged away, which is the one usually chosen', async () => {
+      // The surviving name is picked from the selected rows themselves, so it is nearly always held
+      // by a row this very merge is about to remove. One living row per (kind, name) is enforced by
+      // the database, so the removal has to happen before the rename (docs/03 §3.3.20).
+      const kindId = await givenKind('apartment');
+      const ids: string[] = [];
+      for (const name of ['Njegoševa 5', 'the flat']) {
+        ids.push(
+          expectData(
+            await api(app).post('/api/subjects', { kindId, name }).set('Cookie', adminCookie),
+            subjectDtoSchema,
+          ).id,
+        );
+      }
+      const [first] = ids;
+      if (first === undefined) throw new Error('expected two subjects');
+
+      const merged = await api(app)
+        .post('/api/admin/subjects/merge', { ids, kindId, name: 'the flat' })
+        .set('Cookie', adminCookie);
+
+      expect(merged.status).toBe(201);
+      expect(expectData(merged, subjectDtoSchema)).toMatchObject({ id: first, name: 'the flat' });
+
+      // One row is left, under the chosen name — not two, and not a failed merge.
+      const remaining = expectData(
+        await api(app).get('/api/subjects').set('Cookie', adminCookie),
+        listSubjectsResponseSchema,
+      ).items;
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]).toMatchObject({ id: first, name: 'the flat' });
+    });
+
+    it('keeps the name of a person being merged away, spelled the way that was chosen', async () => {
+      const ids: string[] = [];
+      for (const name of ['Marija Petrovic', 'Marija Petrović']) {
+        ids.push(
+          expectData(
+            await api(app).post('/api/people', { name }).set('Cookie', userCookie),
+            personDtoSchema,
+          ).id,
+        );
+      }
+      const [first] = ids;
+      if (first === undefined) throw new Error('expected two people');
+
+      // The right spelling belongs to the younger row, and it is the one an admin picks.
+      const merged = await api(app)
+        .post('/api/admin/people/merge', { ids, name: 'Marija Petrović' })
+        .set('Cookie', adminCookie);
+
+      expect(merged.status).toBe(201);
+      expect(expectData(merged, personDtoSchema)).toMatchObject({
+        id: first,
+        name: 'Marija Petrović',
+      });
+
+      const remaining = expectData(
+        await api(app).get('/api/people').set('Cookie', adminCookie),
+        listPeopleResponseSchema,
+      ).items;
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]).toMatchObject({ id: first, name: 'Marija Petrović' });
+    });
+
     it('refuses a merge whose result would collide with a row nobody selected', async () => {
       const kindId = await givenKind('country');
       const ids = [];
@@ -301,6 +366,34 @@ describe('Catalogues (e2e)', () => {
         .set('Cookie', adminCookie);
       expect(refused.status).toBe(409);
       expect(expectError(refused).code).toBe('SUBJECT_EXISTS');
+    });
+
+    it('refuses to merge people into a name somebody outside the merge already has', async () => {
+      const ids: string[] = [];
+      for (const name of ['Marija Petrovic', 'M. Petrović']) {
+        ids.push(
+          expectData(
+            await api(app).post('/api/people', { name }).set('Cookie', userCookie),
+            personDtoSchema,
+          ).id,
+        );
+      }
+      await api(app).post('/api/people', { name: 'Ana Jovanović' }).set('Cookie', userCookie);
+
+      // 🔒 Two people becoming one by accident is the opposite of the point.
+      const refused = await api(app)
+        .post('/api/admin/people/merge', { ids, name: 'ana jovanović' })
+        .set('Cookie', adminCookie);
+      expect(refused.status).toBe(409);
+      expect(expectError(refused).code).toBe('PERSON_EXISTS');
+
+      // And nothing was folded on the way to refusing.
+      expect(
+        expectData(
+          await api(app).get('/api/people').set('Cookie', adminCookie),
+          listPeopleResponseSchema,
+        ).items,
+      ).toHaveLength(3);
     });
 
     it('folds people the analysis spelled three ways, and only an admin may', async () => {

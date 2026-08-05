@@ -1,9 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
-import { reprocessResponseSchema } from '../../src/shared/contracts/documents';
+import {
+  listDocumentsResponseSchema,
+  reprocessResponseSchema,
+} from '../../src/shared/contracts/documents';
 import {
   listQueueFailuresResponseSchema,
   queueOverviewResponseSchema,
+  reprocessByStepResponseSchema,
   retryJobResponseSchema,
   queueSettingsSchema,
 } from '../../src/shared/contracts/queue';
@@ -347,18 +351,185 @@ describe('Reprocess and queue administration (e2e)', () => {
     });
   });
 
+  // Running one step again for everything that is stuck in a status (docs/07 §7.3, docs/11 §11.13).
+  describe('running a step again', () => {
+    // Two failed previews, one that worked, and one that was deleted after failing.
+    async function givenFailedPreviews(): Promise<[string, string]> {
+      const first = await seedDocument({
+        document: { title: 'Failed 1', previewStatus: 'FAILED' },
+      });
+      const second = await seedDocument({
+        document: { title: 'Failed 2', previewStatus: 'FAILED' },
+      });
+      await seedDocument({ document: { title: 'Fine', previewStatus: 'DONE' } });
+      await seedDocument({
+        document: { title: 'Gone', previewStatus: 'FAILED', deletedAt: new Date() },
+      });
+      return [first.id, second.id];
+    }
+
+    it('enqueues exactly the documents whose step sits in that status, and says how many', async () => {
+      const [first, second] = await givenFailedPreviews();
+
+      const res = await api(app)
+        .post('/api/admin/queue/reprocess', { step: 'preview', status: 'FAILED' })
+        .set('Cookie', adminCookie);
+
+      // 🔒 The document that worked and the one that was deleted are not part of the repair.
+      expect(expectData(res, reprocessByStepResponseSchema)).toEqual({ enqueued: 2 });
+
+      const jobs = await processJobs();
+      expect(jobs).toHaveLength(2);
+      // Only the step asked for; the rest of the pipeline is not paid for again.
+      expect(jobs.every((job) => job.data.steps?.length === 1)).toBe(true);
+      expect(jobs.map((job) => job.data.documentId).sort()).toEqual([first, second].sort());
+
+      // The step goes back to PENDING at once, so the queue screen shows work in progress from the
+      // moment the button was pressed.
+      const rows = await testPrisma().document.findMany({
+        where: { id: { in: [first, second] } },
+      });
+      expect(rows.map((row) => row.previewStatus)).toEqual(['PENDING', 'PENDING']);
+      // 🔒 Steps nobody asked for keep the state they had.
+      expect(rows.every((row) => row.markdownStatus === 'DONE')).toBe(true);
+
+      const untouched = await testPrisma().document.findFirstOrThrow({ where: { title: 'Fine' } });
+      expect(untouched.previewStatus).toBe('DONE');
+    });
+
+    it('answers zero and enqueues nothing when nothing is in that state', async () => {
+      await givenFailedPreviews();
+
+      const res = await api(app)
+        .post('/api/admin/queue/reprocess', { step: 'analysis', status: 'FAILED' })
+        .set('Cookie', adminCookie);
+
+      expect(expectData(res, reprocessByStepResponseSchema)).toEqual({ enqueued: 0 });
+      expect(await processJobs()).toHaveLength(0);
+    });
+
+    it('refuses a step or a status that is not part of the pipeline', async () => {
+      const res = await api(app)
+        .post('/api/admin/queue/reprocess', { step: 'thumbnail', status: 'FAILED' })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(422);
+      expect(expectError(res).code).toBe('VALIDATION_FAILED');
+
+      const badStatus = await api(app)
+        .post('/api/admin/queue/reprocess', { step: 'preview', status: 'BROKEN' })
+        .set('Cookie', adminCookie);
+      expect(badStatus.status).toBe(422);
+      expect(await processJobs()).toHaveLength(0);
+    });
+
+    it('is admin-only', async () => {
+      const userCookie = await inviteUser(`repairman${seq}@legere.local`);
+
+      const asUser = await api(app)
+        .post('/api/admin/queue/reprocess', { step: 'preview', status: 'FAILED' })
+        .set('Cookie', userCookie);
+      expect(asUser.status).toBe(403);
+      expect(expectError(asUser).code).toBe('FORBIDDEN');
+
+      const anonymous = await api(app).post('/api/admin/queue/reprocess', {
+        step: 'preview',
+        status: 'FAILED',
+      });
+      expect(anonymous.status).toBe(401);
+    });
+  });
+
+  // Every number on the queue screen is a way to the documents behind it (docs/11 §11.13).
+  describe('the documents behind a counter', () => {
+    it('filters by a step and the status it sits in', async () => {
+      const failed = await seedDocument({
+        document: { title: 'Failed preview', previewStatus: 'FAILED' },
+      });
+      await seedDocument({ document: { title: 'Good preview', previewStatus: 'DONE' } });
+      await seedDocument({ document: { title: 'Failed markdown', markdownStatus: 'FAILED' } });
+
+      const res = await api(app)
+        .get('/api/documents?step=preview&stepStatus=FAILED')
+        .set('Cookie', adminCookie);
+
+      const page = expectData(res, listDocumentsResponseSchema);
+      expect(page.items.map((item) => item.id)).toEqual([failed.id]);
+    });
+
+    it('refuses half the question', async () => {
+      // 🔒 A step without a status would answer with every document and still look filtered
+      // (docs/07 §7.3).
+      for (const query of ['step=preview', 'stepStatus=FAILED']) {
+        const res = await api(app).get(`/api/documents?${query}`).set('Cookie', adminCookie);
+        expect(res.status).toBe(422);
+        expect(expectError(res).code).toBe('VALIDATION_FAILED');
+      }
+    });
+
+    it('still shows only what the caller may read', async () => {
+      await seedDocument({ document: { title: 'Failed preview', previewStatus: 'FAILED' } });
+      const userCookie = await inviteUser(`onlooker${seq}@legere.local`);
+
+      const res = await api(app)
+        .get('/api/documents?step=preview&stepStatus=FAILED')
+        .set('Cookie', userCookie);
+
+      // A document in a library they were not given is not theirs to see, however it was found.
+      expect(expectData(res, listDocumentsResponseSchema).items).toEqual([]);
+    });
+  });
+
+  // Pausing takes effect through the same re-registration as the concurrencies, so this runs before
+  // the throughput test: until one of them is sent, this app has no workers at all, and a queue
+  // that is paused when they start gets none.
+  it('pauses a queue, which then takes jobs and runs none of them', async () => {
+    const paused = await api(app)
+      .patch('/api/admin/queue/settings', {
+        concurrency: {},
+        unitConcurrency: 1,
+        // A queue this version does not have is dropped rather than stored for ever (docs/05 §5.4).
+        paused: ['document-process', 'thumbnails'],
+      })
+      .set('Cookie', adminCookie);
+
+    expect(expectData(paused, queueSettingsSchema).paused).toEqual(['document-process']);
+
+    // 🔒 It survives a read, which is what "survives a restart" means for a stored setting: the
+    // workers are registered from this on every start.
+    const stored = await api(app).get('/api/admin/queue/settings').set('Cookie', adminCookie);
+    expect(expectData(stored, queueSettingsSchema).paused).toEqual(['document-process']);
+
+    // The job arrives and waits: the depth grows where an admin can see it, and nothing consumes it.
+    const documentId = await givenProcessedDocument();
+    await api(app).post(`/api/documents/${documentId}/reprocess`).set('Cookie', adminCookie);
+    const overview = await api(app).get('/api/admin/queue/overview').set('Cookie', adminCookie);
+    const depths = expectData(overview, queueOverviewResponseSchema).queues;
+    expect(depths.find((queue) => queue.name === 'document-process')?.queued).toBe(1);
+
+    // Resuming re-registers the worker; the job goes first so a real pipeline run does not start
+    // underneath the rest of the suite.
+    await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+    const resumed = await api(app)
+      .patch('/api/admin/queue/settings', { concurrency: {}, unitConcurrency: 1, paused: [] })
+      .set('Cookie', adminCookie);
+    expect(expectData(resumed, queueSettingsSchema).paused).toEqual([]);
+  });
+
   it('sets how hard the instance works, and applies it without a restart', async () => {
     const before = await api(app).get('/api/admin/queue/settings').set('Cookie', adminCookie);
     // The env defaults of docs/12 §12.4 stand until somebody overrides one.
     expect(expectData(before, queueSettingsSchema)).toMatchObject({
       concurrency: { 'file-ingest': 4, 'document-process': 2 },
       unitConcurrency: 1,
+      paused: [],
     });
 
     const saved = await api(app)
       .patch('/api/admin/queue/settings', {
         concurrency: { 'file-ingest': 8, 'document-process': 3 },
         unitConcurrency: 4,
+        paused: [],
       })
       .set('Cookie', adminCookie);
 
@@ -379,6 +550,7 @@ describe('Reprocess and queue administration (e2e)', () => {
       .patch('/api/admin/queue/settings', {
         concurrency: { 'file-ingest': 32 },
         unitConcurrency: 32,
+        paused: [],
       })
       .set('Cookie', adminCookie);
     expect(expectData(clamped, queueSettingsSchema).concurrency['file-ingest']).toBe(32);

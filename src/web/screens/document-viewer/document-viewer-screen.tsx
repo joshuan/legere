@@ -633,6 +633,17 @@ function DetailsPane({
     if (!reset.includes('documentType') && draft.typeId !== (document.documentType?.id ?? null)) {
       change.typeId = draft.typeId;
     }
+    // Links, not values: the whole set travels, so what counts as a change is which rows are in it
+    // and not the order the multi-select happened to leave them in. Neither has a reset — a person
+    // the analysis named is a link, and PATCH has no reset for one — so the set alone decides.
+    const named = document.people.map((person) => person.id);
+    if (!sameIds(draft.peopleIds, named)) change.peopleIds = draft.peopleIds;
+    const about = document.subjects.map((subject) => subject.id);
+    if (!sameIds(draft.subjectIds, about)) change.subjectIds = draft.subjectIds;
+    // A calendar day, compared as the plain `yyyy-mm-dd` it is held as.
+    if (!reset.includes('documentDate') && draft.documentDate !== document.documentDate) {
+      change.documentDate = draft.documentDate;
+    }
     if (
       !reset.includes('languages') &&
       draft.languages.join('|') !== document.languages.join('|')
@@ -1372,6 +1383,14 @@ function describeEvent(event: DocumentEventDto, t: ReturnType<typeof useTranslat
     )
     .join('; ');
   return changes === '' ? t('viewer.log.metaChanged') : changes;
+}
+
+// The same choice made twice: two sets of links are equal when they hold the same ids, whatever
+// order the control put them in — reordering a multi-select is not an edit.
+function sameIds(chosen: string[], current: string[]): boolean {
+  if (chosen.length !== current.length) return false;
+  const held = new Set(current);
+  return chosen.every((id) => held.has(id));
 }
 
 // Something typed that is not already in the catalogue — the only case where offering to add a

@@ -173,6 +173,85 @@
       "copy": "Скопировать ссылку",
       "expires": "Действует до {date}"
     },
+    "instance": {
+      "title": "Сервер",
+      "subtitle": "К какой конфигурации пришёл этот сервер. Только чтение: настройка меняется в окружении, после чего процесс перезапускают.",
+      "values": {
+        "set": "Задано",
+        "notSet": "Не задано"
+      },
+      "sources": {
+        "ENV": "Окружение",
+        "DEFAULT": "По умолчанию",
+        "SET": "Секрет",
+        "UNSET": "Секрет"
+      },
+      "groups": {
+        "core": "Основное",
+        "database": "База данных",
+        "storage": "Объектное хранилище",
+        "library": "Библиотека",
+        "processing": "Обработка",
+        "ai": "AI-провайдеры",
+        "email": "Почта",
+        "auth": "Аутентификация",
+        "queue": "Очередь"
+      },
+      "keys": {
+        "NODE_ENV": "Режим",
+        "PORT": "Порт",
+        "APP_BASE_URL": "Базовый адрес",
+        "LOG_LEVEL": "Уровень логов",
+        "DATABASE_HOST": "Хост",
+        "DATABASE_PORT": "Порт",
+        "DATABASE_NAME": "База",
+        "DATABASE_USER": "Пользователь",
+        "S3_ENDPOINT": "Адрес",
+        "S3_PUBLIC_ENDPOINT": "Адрес для браузера",
+        "S3_REGION": "Регион",
+        "S3_BUCKET": "Бакет",
+        "S3_ACCESS_KEY_ID": "Ключ доступа",
+        "S3_SECRET_ACCESS_KEY": "Секретный ключ",
+        "S3_FORCE_PATH_STYLE": "Адресация path-style",
+        "SIGNED_URL_TTL_SEC": "Время жизни подписанной ссылки, с",
+        "LIBRARY_ROOT": "Корень библиотеки",
+        "GROUPING_WINDOW_MINUTES": "Окно группировки сканов, мин",
+        "SCAN_MAX_FILES": "Предел файлов за одно сканирование",
+        "UPLOAD_MAX_BYTES": "Предел размера загрузки, байт",
+        "STIRLING_URL": "Stirling-PDF",
+        "DOCLING_URL": "Docling",
+        "DOCLING_PICTURE_DESCRIPTION": "Подписи к картинкам",
+        "OCR_LANGUAGES": "Языки OCR по умолчанию",
+        "PDF_TEXT_MIN_CHARS_PER_PAGE": "Порог текстового слоя, символов на страницу",
+        "PREVIEW_MAX_DIM": "Размер превью, px",
+        "THUMB_MAX_DIM": "Размер миниатюры, px",
+        "CHUNK_TARGET_CHARS": "Размер фрагмента, символов",
+        "CHUNK_OVERLAP_CHARS": "Перекрытие фрагментов, символов",
+        "EMBEDDINGS_API_BASE_URL": "API эмбеддингов",
+        "EMBEDDINGS_API_KEY": "Ключ API эмбеддингов",
+        "EMBEDDINGS_MODEL": "Модель эмбеддингов",
+        "EMBEDDING_DIMENSIONS": "Размерность вектора",
+        "CLASSIFIER_API_BASE_URL": "API анализа",
+        "CLASSIFIER_API_KEY": "Ключ API анализа",
+        "CLASSIFIER_MODEL": "Модель анализа",
+        "SMTP_HOST": "SMTP-хост",
+        "SMTP_PORT": "SMTP-порт",
+        "SMTP_SECURE": "TLS при подключении",
+        "SMTP_USER": "SMTP-пользователь",
+        "SMTP_PASSWORD": "SMTP-пароль",
+        "SMTP_FROM": "Адрес отправителя",
+        "AUTH_SECRET": "Секрет подписи",
+        "SESSION_TTL_DAYS": "Время жизни сессии, дней",
+        "API_TOKEN_TTL_DAYS": "Время жизни API-токена, дней",
+        "COOKIE_DOMAIN": "Домен cookie",
+        "TURNSTILE_SECRET_KEY": "Секретный ключ Turnstile",
+        "NEXT_PUBLIC_TURNSTILE_SITE_KEY": "Публичный ключ Turnstile",
+        "QUEUE_CONCURRENCY_INGEST": "Приём файлов, одновременно",
+        "QUEUE_CONCURRENCY_PROCESS": "Обработка документов, одновременно",
+        "QUEUE_UNIT_CONCURRENCY": "Единиц внутри одного задания, одновременно",
+        "QUEUE_REPROCESS_MAX": "Предел документов на один повторный запуск"
+      }
+    },
     "users": {
       "title": "Пользователи",
       "columns": {
@@ -293,7 +372,15 @@
       "failedRecent": "Ошибки (24 ч)",
       "retried": "Задача поставлена заново",
       "actions": {
-        "retry": "Повторить"
+        "retry": "Повторить",
+        "runAgain": "Прогнать заново"
+      },
+      "pause": {
+        "switch": "Приостановить очередь {queue}",
+        "tag": "На паузе"
+      },
+      "reprocess": {
+        "enqueued": "Документов отправлено заново: {count}"
       },
       "steps": {
         "canonical": "Канонический PDF",
@@ -372,7 +459,9 @@
         "nameRequired": "Укажите название",
         "note": "Заметка",
         "mergedName": "Итоговое название",
-        "mergedNameHint": "Выберите одно из выделенных или впишите правильное."
+        "mergedNameHint": "Выберите одно из выделенных или впишите правильное.",
+        "alsoKnownAs": "Также известно как: {names}",
+        "mergedNoteHint": "Всё, что было написано в объединяемых записях, — теперь в одной. Лишнее удалите: в исчезающие записи это уже не вернётся."
       },
       "merged": "Объединено",
       "mergeTitle": "Объединить {count} записей в одну",
@@ -451,7 +540,16 @@
       "clear": "Сбросить фильтры",
       "origin": "Откуда",
       "originLibrary": "Из библиотек",
-      "originManaged": "Добавлено здесь"
+      "originManaged": "Добавлено здесь",
+      "step": "{step}: {status}",
+      "stepClear": "Убрать фильтр по шагу",
+      "stepStatus": {
+        "PENDING": "в ожидании",
+        "RUNNING": "выполняется",
+        "DONE": "готово",
+        "FAILED": "ошибка",
+        "SKIPPED": "пропущено"
+      }
     },
     "empty": {
       "instance": "Документов пока нет. Попросите администратора добавить библиотеку.",
@@ -607,7 +705,8 @@
     "admin": {
       "libraries": "Библиотеки",
       "users": "Пользователи",
-      "queue": "Очередь"
+      "queue": "Очередь",
+      "instance": "Сервер"
     },
     "catalogues": "Каталоги",
     "people": "Люди",

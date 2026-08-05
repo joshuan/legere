@@ -130,6 +130,65 @@ describe('DocumentsScreen', () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents?processing=true'));
   });
 
+  it('takes a step and its status from the URL, names them and clears them together', async () => {
+    // Where a queue counter lands (docs/11 §11.13).
+    currentSearch = 'step=preview&stepStatus=FAILED';
+    const seen: string[] = [];
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        seen.push(new URL(request.url).search);
+        return HttpResponse.json(envelope({ items: [documentAt(1)], nextCursor: null }));
+      }),
+    );
+
+    renderWithProviders(<DocumentsScreen />);
+    await screen.findByText('Document 1');
+
+    expect(seen[0]).toContain('step=preview');
+    expect(seen[0]).toContain('stepStatus=FAILED');
+    // In words, not in the API's spelling — and named as the counter that was pressed names it.
+    expect(screen.getByText('Preview: failed')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByLabelText(enMessages.documents.filters.stepClear));
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents'));
+  });
+
+  it('never sends half of the step filter, because the API refuses half a question', async () => {
+    currentSearch = 'step=preview';
+    const seen: string[] = [];
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        seen.push(new URL(request.url).search);
+        return HttpResponse.json(envelope({ items: [], nextCursor: null }));
+      }),
+    );
+
+    renderWithProviders(<DocumentsScreen />);
+    await screen.findByText(enMessages.documents.empty.instance);
+
+    // 422 is what half of it would earn (docs/07 §7.3); it is not a filter at all until it is whole.
+    expect(seen[0] ?? '').not.toContain('step');
+    expect(screen.queryByText(/Preview/)).toBeNull();
+  });
+
+  it('keeps the step filter while another one is changed', async () => {
+    currentSearch = 'step=preview&stepStatus=FAILED';
+
+    renderWithProviders(<DocumentsScreen />);
+    await screen.findByText('Document 1');
+
+    await userEvent.click(
+      screen.getByRole('switch', { name: enMessages.documents.filters.processingOnly }),
+    );
+
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith(
+        '/documents?processing=true&step=preview&stepStatus=FAILED',
+      ),
+    );
+  });
+
   it('ignores a filter value the contract does not know', async () => {
     currentSearch = 'availability=MAYBE';
     const seen: string[] = [];
