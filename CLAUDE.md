@@ -39,8 +39,10 @@ MinIO- and Stirling-backed integration suites skip themselves when those contain
 3. **A contradiction or gap in the documentation → stop and ask.** Each document collects its open
    questions in its final section — do not resolve them silently.
 4. **The external library is read-only. Never** design or write code that modifies library files.
-5. **Pull-request-based development:** direct pushes to `main` are forbidden; branch → PR → green CI →
-   merge. Conventional Commits (`<type>(<scope>): <summary>`).
+5. **Commit straight to `main`** while this instance has one author and no users: no branch, no pull
+   request, green checks after the fact. Conventional Commits (`<type>(<scope>): <summary>`) either
+   way. This is temporary — the moment somebody else works here or somebody depends on the deployed
+   instance, it goes back to branch → PR → green CI → merge.
 6. **Do not change the fixed stack without approval** (see `docs/02` ADRs): one process/port
    (Express + Nest `/api` + Next `*`), one `package.json` without workspaces, npm, Prisma + PostgreSQL
    (+pgvector), pg-boss, S3 (private bucket) for derived artifacts, Zod contracts in
