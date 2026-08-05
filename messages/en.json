@@ -540,12 +540,13 @@
     "admin": {
       "libraries": "Libraries",
       "users": "Users",
-      "documentTypes": "Document types",
-      "queue": "Queue",
-      "people": "People",
-      "subjects": "Subjects",
-      "subjectKinds": "Subject kinds"
-    }
+      "queue": "Queue"
+    },
+    "catalogues": "Catalogues",
+    "people": "People",
+    "subjects": "Subjects",
+    "subjectKinds": "Subject kinds",
+    "documentTypes": "Document types"
   },
   "browse": {
     "library": "Library",

@@ -104,6 +104,36 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
       icon: <DatabaseOutlined />,
       label: <Link href="/scan-sets">{t('nav.scanSets')}</Link>,
     },
+    // The catalogues a document is filed by. Content, not administration (docs/11 §11.12a): anyone
+    // signed in reads them and adds to them, and it is the affordances that reach across documents —
+    // renaming, deleting, merging — that are an admin's, not the screens.
+    {
+      key: '/catalogues',
+      icon: <TagsOutlined />,
+      label: t('nav.catalogues'),
+      children: [
+        {
+          key: '/people',
+          icon: <TeamOutlined />,
+          label: <Link href="/people">{t('nav.people')}</Link>,
+        },
+        {
+          key: '/subjects',
+          icon: <TagsOutlined />,
+          label: <Link href="/subjects">{t('nav.subjects')}</Link>,
+        },
+        {
+          key: '/subject-kinds',
+          icon: <TagsOutlined />,
+          label: <Link href="/subject-kinds">{t('nav.subjectKinds')}</Link>,
+        },
+        {
+          key: '/document-types',
+          icon: <TagsOutlined />,
+          label: <Link href="/document-types">{t('nav.documentTypes')}</Link>,
+        },
+      ],
+    },
     ...(user.role === 'ADMIN'
       ? [
           {
@@ -120,26 +150,6 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
                 key: '/admin/users',
                 icon: <TeamOutlined />,
                 label: <Link href="/admin/users">{t('nav.admin.users')}</Link>,
-              },
-              {
-                key: '/admin/document-types',
-                icon: <TagsOutlined />,
-                label: <Link href="/admin/document-types">{t('nav.admin.documentTypes')}</Link>,
-              },
-              {
-                key: '/admin/people',
-                icon: <TeamOutlined />,
-                label: <Link href="/admin/people">{t('nav.admin.people')}</Link>,
-              },
-              {
-                key: '/admin/subjects',
-                icon: <TagsOutlined />,
-                label: <Link href="/admin/subjects">{t('nav.admin.subjects')}</Link>,
-              },
-              {
-                key: '/admin/subject-kinds',
-                icon: <TagsOutlined />,
-                label: <Link href="/admin/subject-kinds">{t('nav.admin.subjectKinds')}</Link>,
               },
               {
                 key: '/admin/queue',

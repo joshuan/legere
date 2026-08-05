@@ -345,7 +345,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`03 §3.3.10`](../03-domain-model.md), [`12 §12.4`](../12-build-config-run.md)
   **Acceptance:** the instance says which language the analysis writes in — the title, the description, and the names it invents for people, things and their kinds — rather than each field following whatever the document happened to be written in; documents already processed keep what they have until they are analysed again. **Open:** whether this is an env value like the rest of the pipeline settings, or a row on an admin settings screen (which M11.2 needs anyway) — the second is friendlier and the first is how every other processing setting works today.
 
-- [ ] **M11.5 — The catalogues are content, not administration**
+- [x] **M11.5 — The catalogues are content, not administration**
   **Goal:** people, things, kinds and document types stop living behind an admin door.
   **Docs:** [`11 §11.1`](../11-ui-ux-spec.md#111-shell--navigation), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-admin-catalogues-adminpeople-adminsubjects-adminsubject-kinds)
   **Acceptance:** they move out of `Administration` to their own places in the menu, beside Documents and Browse, and off the `/admin` routes; anyone signed in may read them and add to them, exactly as the API has always allowed; renaming, deleting and merging stay an admin's and simply are not offered to anyone else, rather than the whole screen being hidden.

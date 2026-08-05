@@ -10,10 +10,10 @@ import { CatalogueManager } from '../../widgets/catalogue-manager';
 
 type FormValues = { name: string; note: string };
 
-// /admin/subject-kinds (docs/11 §11.12a): what sort of thing a subject may be. Renaming one here is
+// /subject-kinds (docs/11 §11.12a): what sort of thing a subject may be. Renaming one here is
 // a single edit for everything filed under it, which is the whole reason the kinds are a catalogue
 // rather than a string on every row (docs/03 §3.3.20a).
-export function AdminSubjectKindsScreen() {
+export function SubjectKindsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: subjectKindApi.list });
@@ -70,6 +70,11 @@ export function AdminSubjectKindsScreen() {
       }}
       onDelete={(kind) => subjectKindApi.remove(kind.id)}
       onSaved={refresh}
+      // Anyone signed in may add — the analysis does, and whoever corrects it must be able to
+      // (docs/03 §3.3.19–20a) — while renaming, deleting and merging reach across every document
+      // that names the row, so they are an admin's.
+      canCreate
+      canManage={isAdmin}
       fields={() => (
         <>
           <Form.Item

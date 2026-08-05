@@ -14,9 +14,9 @@ type FormValues = {
   description: string;
 };
 
-// /admin/document-types (docs/11 §11.12): the reference list the classifier chooses from and the
+// /document-types (docs/11 §11.12): the reference list the classifier chooses from and the
 // filters are built on.
-export function AdminDocumentTypesScreen() {
+export function DocumentTypesScreen({ isAdmin = false }: { isAdmin?: boolean }) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
@@ -80,6 +80,8 @@ export function AdminDocumentTypesScreen() {
     setOpen(true);
   };
 
+  // Reading the reference list is everybody's — a filter is built on it, and a document wears its
+  // type. Defining one is an admin's, exactly as the API has it (docs/07 §7.3).
   const columns = [
     {
       title: t('admin.documentTypes.columns.slug'),
@@ -104,39 +106,45 @@ export function AdminDocumentTypesScreen() {
       key: 'documents',
       render: (_: unknown, documentType: DocumentTypeDto) => documentType.documentCount,
     },
-    {
-      title: t('admin.documentTypes.columns.actions'),
-      key: 'actions',
-      render: (_: unknown, documentType: DocumentTypeDto) => (
-        <Space>
-          <Button size="small" onClick={() => openEdit(documentType)}>
-            {t('common.actions.edit')}
-          </Button>
-          <Popconfirm
-            title={t('admin.documentTypes.confirmDelete', {
-              name: documentType.name,
-              count: documentType.documentCount,
-            })}
-            okText={t('common.yes')}
-            cancelText={t('common.actions.cancel')}
-            onConfirm={() => remove.mutate(documentType.id)}
-          >
-            <Button size="small" danger>
-              {t('common.actions.delete')}
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
+    ...(!isAdmin
+      ? []
+      : [
+          {
+            title: t('admin.documentTypes.columns.actions'),
+            key: 'actions',
+            render: (_: unknown, documentType: DocumentTypeDto) => (
+              <Space>
+                <Button size="small" onClick={() => openEdit(documentType)}>
+                  {t('common.actions.edit')}
+                </Button>
+                <Popconfirm
+                  title={t('admin.documentTypes.confirmDelete', {
+                    name: documentType.name,
+                    count: documentType.documentCount,
+                  })}
+                  okText={t('common.yes')}
+                  cancelText={t('common.actions.cancel')}
+                  onConfirm={() => remove.mutate(documentType.id)}
+                >
+                  <Button size="small" danger>
+                    {t('common.actions.delete')}
+                  </Button>
+                </Popconfirm>
+              </Space>
+            ),
+          },
+        ]),
   ];
 
   return (
     <Card
       title={t('admin.documentTypes.title')}
       extra={
-        <Button type="primary" onClick={openCreate}>
-          {t('admin.documentTypes.actions.create')}
-        </Button>
+        isAdmin ? (
+          <Button type="primary" onClick={openCreate}>
+            {t('admin.documentTypes.actions.create')}
+          </Button>
+        ) : null
       }
     >
       <Table

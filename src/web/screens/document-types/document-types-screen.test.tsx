@@ -5,7 +5,7 @@ import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope, errorEnvelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
-import { AdminDocumentTypesScreen } from './admin-document-types-screen';
+import { DocumentTypesScreen } from './document-types-screen';
 
 const documentType = {
   id: 'aaaaaaaa-1111-4111-8111-111111111111',
@@ -29,9 +29,9 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-describe('AdminDocumentTypesScreen', () => {
+describe('DocumentTypesScreen', () => {
   it('shows the list with slugs and document counts', async () => {
-    renderWithProviders(<AdminDocumentTypesScreen />);
+    renderWithProviders(<DocumentTypesScreen isAdmin />);
 
     expect(await screen.findByText('invoice')).toBeInTheDocument();
     expect(screen.getByText('Invoice')).toBeInTheDocument();
@@ -48,7 +48,7 @@ describe('AdminDocumentTypesScreen', () => {
       }),
     );
 
-    renderWithProviders(<AdminDocumentTypesScreen />);
+    renderWithProviders(<DocumentTypesScreen isAdmin />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.admin.documentTypes.actions.create }),
     );
@@ -77,7 +77,7 @@ describe('AdminDocumentTypesScreen', () => {
       ),
     );
 
-    renderWithProviders(<AdminDocumentTypesScreen />);
+    renderWithProviders(<DocumentTypesScreen isAdmin />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.admin.documentTypes.actions.create }),
     );
@@ -100,7 +100,7 @@ describe('AdminDocumentTypesScreen', () => {
   });
 
   it('locks the slug when editing, since it cannot be changed', async () => {
-    renderWithProviders(<AdminDocumentTypesScreen />);
+    renderWithProviders(<DocumentTypesScreen isAdmin />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.edit }),
     );
@@ -123,7 +123,7 @@ describe('AdminDocumentTypesScreen', () => {
       }),
     );
 
-    renderWithProviders(<AdminDocumentTypesScreen />);
+    renderWithProviders(<DocumentTypesScreen isAdmin />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.edit }),
     );
@@ -140,7 +140,7 @@ describe('AdminDocumentTypesScreen', () => {
   });
 
   it('names the documentType and the cost in the delete confirmation', async () => {
-    renderWithProviders(<AdminDocumentTypesScreen />);
+    renderWithProviders(<DocumentTypesScreen isAdmin />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.delete }),
     );
@@ -149,5 +149,17 @@ describe('AdminDocumentTypesScreen', () => {
     expect(
       await screen.findByText(/Delete “Invoice”\? 7 documents will lose this type\./),
     ).toBeInTheDocument();
+  });
+
+  it('is readable by anyone and editable by an admin', async () => {
+    renderWithProviders(<DocumentTypesScreen />);
+
+    // The list a filter is built on and a document wears: everybody reads it.
+    expect(await screen.findByText('Invoice')).toBeInTheDocument();
+    // 🔒 Defining a type is an admin's, exactly as the API has it (docs/07 §7.3).
+    expect(
+      screen.queryByRole('button', { name: enMessages.admin.documentTypes.actions.create }),
+    ).toBeNull();
+    expect(screen.queryByRole('button', { name: enMessages.common.actions.edit })).toBeNull();
   });
 });

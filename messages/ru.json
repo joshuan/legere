@@ -540,12 +540,13 @@
     "admin": {
       "libraries": "Библиотеки",
       "users": "Пользователи",
-      "documentTypes": "Типы документов",
-      "queue": "Очередь",
-      "people": "Люди",
-      "subjects": "Объекты",
-      "subjectKinds": "Виды объектов"
-    }
+      "queue": "Очередь"
+    },
+    "catalogues": "Каталоги",
+    "people": "Люди",
+    "subjects": "Объекты",
+    "subjectKinds": "Виды объектов",
+    "documentTypes": "Типы документов"
   },
   "browse": {
     "library": "Библиотека",

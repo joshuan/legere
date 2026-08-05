@@ -12,10 +12,10 @@ import { CatalogueManager } from '../../widgets/catalogue-manager';
 
 type FormValues = { kindId: string; name: string; note: string };
 
-// /admin/subjects (docs/11 §11.12a): the things documents are about. Both halves are editable — a
+// /subjects (docs/11 §11.12a): the things documents are about. Both halves are editable — a
 // boat filed as a country is corrected by moving it, not by deleting and retyping it
 // (docs/03 §3.3.20).
-export function AdminSubjectsScreen() {
+export function SubjectsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });
@@ -94,6 +94,11 @@ export function AdminSubjectsScreen() {
       }}
       onDelete={(subject) => subjectApi.remove(subject.id)}
       onSaved={refresh}
+      // Anyone signed in may add — the analysis does, and whoever corrects it must be able to
+      // (docs/03 §3.3.19–20a) — while renaming, deleting and merging reach across every document
+      // that names the row, so they are an admin's.
+      canCreate
+      canManage={isAdmin}
       // One flat read four ways is what the analysis actually produces (docs/03 §3.3.20). The kind
       // travels too: the rows being folded together may disagree about it.
       merge={{

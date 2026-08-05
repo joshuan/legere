@@ -55,6 +55,8 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   onSave,
   onDelete,
   onSaved,
+  canManage,
+  canCreate,
   merge,
 }: {
   title: string;
@@ -75,6 +77,12 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   onSave: (values: Values, editing: Row | null) => Promise<unknown>;
   onDelete: (row: Row) => Promise<unknown>;
   onSaved: () => void;
+  // Reading a catalogue is everybody's; correcting one reaches across every document that names the
+  // row, so it is an admin's (docs/03 §3.3.19–20a). The affordances are simply not offered rather
+  // than the screen being hidden: a person who cannot rename a thing still needs to see the list.
+  canManage: boolean;
+  // Adding is open on the catalogues the analysis writes into, and an admin's on the document types.
+  canCreate: boolean;
   // Merging is optional: a catalogue that cannot have duplicates does not need it.
   merge?: {
     // The names on offer as the survivor's, in the order the rows were listed.
@@ -133,13 +141,42 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     onError,
   });
 
+  const actionsColumn = {
+    title: t('admin.catalogues.columns.actions'),
+    key: 'actions',
+    render: (_: unknown, row: Row) => (
+      <Space>
+        <Button
+          size="small"
+          onClick={() => {
+            setEditing(row);
+            form.setFieldsValue(valuesOf(row));
+            setOpen(true);
+          }}
+        >
+          {t('common.actions.edit')}
+        </Button>
+        <Popconfirm
+          title={confirmDelete(row)}
+          okText={t('common.yes')}
+          cancelText={t('common.actions.cancel')}
+          onConfirm={() => remove.mutate(row)}
+        >
+          <Button size="small" danger>
+            {t('common.actions.delete')}
+          </Button>
+        </Popconfirm>
+      </Space>
+    ),
+  };
+
   return (
     <Card
       title={title}
       extra={
         <Space>
           {/* Only once there is something to fold together: a merge of one row is not a merge. */}
-          {merge !== undefined && selected.length > 1 && (
+          {canManage && merge !== undefined && selected.length > 1 && (
             <Button
               onClick={() => {
                 mergeForm.resetFields();
@@ -154,16 +191,18 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
               {t('admin.catalogues.actions.merge', { count: selected.length })}
             </Button>
           )}
-          <Button
-            type="primary"
-            onClick={() => {
-              setEditing(null);
-              form.resetFields();
-              setOpen(true);
-            }}
-          >
-            {createLabel}
-          </Button>
+          {canCreate && (
+            <Button
+              type="primary"
+              onClick={() => {
+                setEditing(null);
+                form.resetFields();
+                setOpen(true);
+              }}
+            >
+              {createLabel}
+            </Button>
+          )}
         </Space>
       }
     >
@@ -173,7 +212,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
         dataSource={rows}
         pagination={false}
         locale={{ emptyText }}
-        {...(merge === undefined
+        {...(merge === undefined || !canManage
           ? {}
           : {
               rowSelection: {
@@ -192,34 +231,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
               ? {}
               : { filters: column.filters, onFilter: column.onFilter }),
           })),
-          {
-            title: t('admin.catalogues.columns.actions'),
-            key: 'actions',
-            render: (_: unknown, row: Row) => (
-              <Space>
-                <Button
-                  size="small"
-                  onClick={() => {
-                    setEditing(row);
-                    form.setFieldsValue(valuesOf(row));
-                    setOpen(true);
-                  }}
-                >
-                  {t('common.actions.edit')}
-                </Button>
-                <Popconfirm
-                  title={confirmDelete(row)}
-                  okText={t('common.yes')}
-                  cancelText={t('common.actions.cancel')}
-                  onConfirm={() => remove.mutate(row)}
-                >
-                  <Button size="small" danger>
-                    {t('common.actions.delete')}
-                  </Button>
-                </Popconfirm>
-              </Space>
-            ),
-          },
+          ...(canManage ? [actionsColumn] : []),
         ]}
       />
 

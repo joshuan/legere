@@ -11,10 +11,10 @@ import { CatalogueManager } from '../../widgets/catalogue-manager';
 
 type FormValues = { name: string; note: string };
 
-// /admin/people (docs/11 §11.12a): the catalogue the analysis writes into and a person corrects.
+// /people (docs/11 §11.12a): the catalogue the analysis writes into and a person corrects.
 // Correcting it here rather than on a document is the point — a name spelled wrong on forty
 // documents is one row, not forty edits (docs/03 §3.3.19).
-export function AdminPeopleScreen() {
+export function PeopleScreen({ isAdmin = false }: { isAdmin?: boolean }) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const people = useQuery({ queryKey: personKeys.all, queryFn: personApi.list });
@@ -69,6 +69,11 @@ export function AdminPeopleScreen() {
       }}
       onDelete={(person) => personApi.remove(person.id)}
       onSaved={refresh}
+      // Anyone signed in may add — the analysis does, and whoever corrects it must be able to
+      // (docs/03 §3.3.19–20a) — while renaming, deleting and merging reach across every document
+      // that names the row, so they are an admin's.
+      canCreate
+      canManage={isAdmin}
       // The analysis reads a name as the document spells it, so one person arrives three times
       // (docs/03 §3.3.19).
       merge={{

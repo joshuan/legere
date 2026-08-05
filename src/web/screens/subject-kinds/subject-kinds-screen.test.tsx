@@ -5,7 +5,7 @@ import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
-import { AdminSubjectKindsScreen } from './admin-subject-kinds-screen';
+import { SubjectKindsScreen } from './subject-kinds-screen';
 
 const kind = {
   id: 'aaaaaaaa-1111-4111-8111-111111111111',
@@ -27,9 +27,9 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-describe('AdminSubjectKindsScreen', () => {
+describe('SubjectKindsScreen', () => {
   it('shows what hangs off a kind, which is what it is worth keeping for', async () => {
-    renderWithProviders(<AdminSubjectKindsScreen />);
+    renderWithProviders(<SubjectKindsScreen isAdmin />);
 
     expect(await screen.findByText('apartment')).toBeInTheDocument();
     expect(screen.getByText('3')).toBeInTheDocument();
@@ -45,7 +45,7 @@ describe('AdminSubjectKindsScreen', () => {
       }),
     );
 
-    renderWithProviders(<AdminSubjectKindsScreen />);
+    renderWithProviders(<SubjectKindsScreen isAdmin />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.edit }),
     );
@@ -62,7 +62,7 @@ describe('AdminSubjectKindsScreen', () => {
   });
 
   it('says a kind still holding things cannot simply be deleted', async () => {
-    renderWithProviders(<AdminSubjectKindsScreen />);
+    renderWithProviders(<SubjectKindsScreen isAdmin />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.delete }),
     );

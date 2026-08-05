@@ -15,7 +15,8 @@ Authenticated layout: left **Sider** (collapsible) + content. Menu:
 | Search | `/search` | all |
 | Collections | `/collections` | all |
 | Scan sets | `/scan-sets` | all |
-| Administration ▸ Libraries / Users / Document types / People / Subjects / Subject kinds / Queue | `/admin/*` | ADMIN |
+| Catalogues ▸ People / Subjects / Subject kinds / Document types | `/people`, `/subjects`, `/subject-kinds`, `/document-types` | all |
+| Administration ▸ Libraries / Users / Queue | `/admin/*` | ADMIN |
 | (footer) Settings, user avatar + name, Logout | `/settings` | all |
 
 Top bar of content area: screen title, contextual actions, a global search input (submits to
@@ -248,12 +249,12 @@ reset link (modal shows the URL once with a copy button and expiry). Header acti
 modal (role select, optional email hint) → result modal with the invite URL (copy button, "shown only
 once" warning) + the active invites list below the table with revoke actions.
 
-## 11.12. Admin: Document types (`/admin/document-types`)
+## 11.12. Document types (`/document-types`)
 
 Simple CRUD table: slug (immutable after create), name, description, documents count. Delete confirm
 warns that documents will lose the document type.
 
-## 11.12a. Admin: Catalogues (`/admin/people`, `/admin/subjects`, `/admin/subject-kinds`)
+## 11.12a. Catalogues (`/people`, `/subjects`, `/subject-kinds`, `/document-types`)
 
 The three lists a document is filed by, each a table in the pattern of the document types: rows with
 their counts, one modal that both creates and edits, and a delete behind a confirmation that says how
@@ -263,9 +264,9 @@ one row is the screen where it gets fixed.
 
 | Screen | Rows | Columns |
 |---|---|---|
-| `/admin/people` | the people catalogue | name, note, documents |
-| `/admin/subjects` | the things documents are about | kind (filterable), name, note, documents |
-| `/admin/subject-kinds` | what sort of thing a subject may be | name, note, things, documents |
+| `/people` | the people catalogue | name, note, documents |
+| `/subjects` | the things documents are about | kind (filterable), name, note, documents |
+| `/subject-kinds` | what sort of thing a subject may be | name, note, things, documents |
 
 A subject's kind is a select over the catalogue, never a typed word: kinds are created where kinds
 are managed (03 §3.3.20a). Moving a thing to another kind is an ordinary edit of that select — a boat
@@ -286,9 +287,14 @@ confirmation says so rather than implying the documents change. A kind that stil
 be deleted at all, and its confirmation says that too instead of offering a button the server will
 refuse.
 
-Reaching them is the admin menu, and the pages 404 for everyone else exactly as the rest of the admin
-segment does — adding to a catalogue stays open to anyone signed in, but that happens in the viewer,
-where the document being filed is on the screen.
+**These are content, not administration.** A catalogue is what documents are filed by, and the people
+who file them are not necessarily the people who run the instance — so they live in the menu beside
+Documents and Browse, and anyone signed in reads them and adds to them, exactly as the API has always
+allowed. What is an admin's is what reaches across documents: renaming, deleting and merging. Those
+affordances are simply not offered to anyone else — not a hidden screen, because somebody who cannot
+rename a thing still needs to see the list and add to it. Document types are the one exception in the
+other direction: reading is everybody's, but defining a type is an admin's, since the classifier and
+saved filters are built on the list.
 
 ## 11.13. Admin: Queue (`/admin/queue`)
 

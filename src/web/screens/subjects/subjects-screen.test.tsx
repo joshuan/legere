@@ -5,7 +5,7 @@ import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
-import { AdminSubjectsScreen } from './admin-subjects-screen';
+import { SubjectsScreen } from './subjects-screen';
 
 const APARTMENT = 'aaaaaaaa-1111-4111-8111-111111111111';
 const BOAT = 'bbbbbbbb-2222-4222-8222-222222222222';
@@ -43,9 +43,9 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-describe('AdminSubjectsScreen', () => {
+describe('SubjectsScreen', () => {
   it('shows both halves of a thing and how many documents it is on', async () => {
-    renderWithProviders(<AdminSubjectsScreen />);
+    renderWithProviders(<SubjectsScreen isAdmin />);
 
     expect(await screen.findByText('Njegoševa 5')).toBeInTheDocument();
     expect(screen.getByText('apartment')).toBeInTheDocument();
@@ -61,7 +61,7 @@ describe('AdminSubjectsScreen', () => {
       }),
     );
 
-    renderWithProviders(<AdminSubjectsScreen />);
+    renderWithProviders(<SubjectsScreen isAdmin />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.edit }),
     );
@@ -97,7 +97,7 @@ describe('AdminSubjectsScreen', () => {
       ),
     );
 
-    renderWithProviders(<AdminSubjectsScreen />);
+    renderWithProviders(<SubjectsScreen isAdmin />);
     await screen.findByText('the flat');
     // The header checkbox takes both rows; a merge of one row is not a merge.
     const [selectAll] = screen.getAllByRole('checkbox');
@@ -125,7 +125,7 @@ describe('AdminSubjectsScreen', () => {
   });
 
   it('says a delete leaves the documents alone rather than implying they change', async () => {
-    renderWithProviders(<AdminSubjectsScreen />);
+    renderWithProviders(<SubjectsScreen isAdmin />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.delete }),
     );
