@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AuthenticateSession } from '../../application/auth/authenticate-session';
+import { AuthenticateApiToken } from '../../application/auth/authenticate-api-token';
 import { Clock } from '../../application/ports/clock';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { SessionTokens } from '../../application/ports/session-tokens';
@@ -9,6 +9,11 @@ import {
   PreviewInvite,
   RevokeInvite,
 } from '../../application/users/manage-invites';
+import {
+  CreateApiToken,
+  ListApiTokens,
+  RevokeApiToken,
+} from '../../application/users/manage-api-tokens';
 import { GetMe, UpdateMe } from '../../application/users/manage-me';
 import {
   CreatePasswordReset,
@@ -21,15 +26,17 @@ import {
   ReactivateUser,
   RevokeUserSessions,
 } from '../../application/users/manage-users';
+import { ApiTokenRepository } from '../../domain/repositories/api-token.repository';
 import { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
 import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
 import { UserRepository } from '../../domain/repositories/user.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
-import { SessionGuard } from '../auth/session.guard';
+import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { AdminInvitesController } from './admin-invites.controller';
 import { AdminUsersController } from './admin-users.controller';
 import { InvitesController } from './invites.controller';
+import { MeApiTokensController } from './me-api-tokens.controller';
 import { MeController } from './me.controller';
 import { PasswordResetsController } from './password-resets.controller';
 
@@ -38,22 +45,46 @@ import { PasswordResetsController } from './password-resets.controller';
 @Module({
   controllers: [
     MeController,
+    MeApiTokensController,
     InvitesController,
     PasswordResetsController,
     AdminInvitesController,
     AdminUsersController,
   ],
   providers: [
-    SessionGuard,
+    ...sessionGuardProviders,
     {
-      provide: AuthenticateSession,
+      provide: AuthenticateApiToken,
       useFactory: (
-        sessions: SessionRepository,
+        apiTokens: ApiTokenRepository,
         users: UserRepository,
         tokens: SessionTokens,
         clock: Clock,
-      ): AuthenticateSession => new AuthenticateSession(sessions, users, tokens, clock),
-      inject: [SessionRepository, UserRepository, SessionTokens, Clock],
+      ): AuthenticateApiToken => new AuthenticateApiToken(apiTokens, users, tokens, clock),
+      inject: [ApiTokenRepository, UserRepository, SessionTokens, Clock],
+    },
+    {
+      provide: CreateApiToken,
+      useFactory: (
+        apiTokens: ApiTokenRepository,
+        tokens: SessionTokens,
+        clock: Clock,
+        config: AppConfig,
+      ): CreateApiToken =>
+        new CreateApiToken(apiTokens, tokens, clock, config.get('API_TOKEN_TTL_DAYS')),
+      inject: [ApiTokenRepository, SessionTokens, Clock, AppConfig],
+    },
+    {
+      provide: ListApiTokens,
+      useFactory: (apiTokens: ApiTokenRepository, clock: Clock): ListApiTokens =>
+        new ListApiTokens(apiTokens, clock),
+      inject: [ApiTokenRepository, Clock],
+    },
+    {
+      provide: RevokeApiToken,
+      useFactory: (apiTokens: ApiTokenRepository, clock: Clock): RevokeApiToken =>
+        new RevokeApiToken(apiTokens, clock),
+      inject: [ApiTokenRepository, Clock],
     },
     {
       provide: CreateInvite,
@@ -120,11 +151,20 @@ import { PasswordResetsController } from './password-resets.controller';
       useFactory: (
         users: UserRepository,
         sessions: SessionRepository,
+        apiTokens: ApiTokenRepository,
         resets: PasswordResetRepository,
         unitOfWork: UnitOfWork,
         clock: Clock,
-      ): DeactivateUser => new DeactivateUser(users, sessions, resets, unitOfWork, clock),
-      inject: [UserRepository, SessionRepository, PasswordResetRepository, UnitOfWork, Clock],
+      ): DeactivateUser =>
+        new DeactivateUser(users, sessions, apiTokens, resets, unitOfWork, clock),
+      inject: [
+        UserRepository,
+        SessionRepository,
+        ApiTokenRepository,
+        PasswordResetRepository,
+        UnitOfWork,
+        Clock,
+      ],
     },
     {
       provide: ReactivateUser,

@@ -15,6 +15,7 @@ import { LibraryRepository } from '../../domain/repositories/library.repository'
 import { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
 import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
 import { ScanSetRepository } from '../../domain/repositories/scan-set.repository';
+import { ApiTokenRepository } from '../../domain/repositories/api-token.repository';
 import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
 import { UserRepository } from '../../domain/repositories/user.repository';
@@ -33,6 +34,7 @@ import { PrismaLibraryRepository } from './prisma-library.repository';
 import { PrismaPasswordResetRepository } from './prisma-password-reset.repository';
 import { PrismaScanRunRepository } from './prisma-scan-run.repository';
 import { PrismaScanSetRepository } from './prisma-scan-set.repository';
+import { PrismaApiTokenRepository } from './prisma-api-token.repository';
 import { PrismaSessionRepository } from './prisma-session.repository';
 import { PrismaUnitOfWork } from './prisma-unit-of-work';
 import { PrismaUserInviteRepository } from './prisma-user-invite.repository';
@@ -45,6 +47,7 @@ import { PrismaService } from './prisma.service';
 const REPOSITORIES = [
   { provide: UserRepository, useClass: PrismaUserRepository },
   { provide: SessionRepository, useClass: PrismaSessionRepository },
+  { provide: ApiTokenRepository, useClass: PrismaApiTokenRepository },
   { provide: EmailVerificationRepository, useClass: PrismaEmailVerificationRepository },
   { provide: UserInviteRepository, useClass: PrismaUserInviteRepository },
   { provide: PasswordResetRepository, useClass: PrismaPasswordResetRepository },
@@ -71,6 +74,7 @@ const REPOSITORIES = [
     UnitOfWork,
     UserRepository,
     SessionRepository,
+    ApiTokenRepository,
     EmailVerificationRepository,
     UserInviteRepository,
     PasswordResetRepository,

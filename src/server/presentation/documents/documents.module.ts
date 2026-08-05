@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AuthenticateSession } from '../../application/auth/authenticate-session';
 import {
   DeleteDocument,
   GetDocument,
@@ -21,7 +20,6 @@ import { LibraryReader } from '../../application/ports/library-reader';
 import { JobQueue } from '../../application/ports/job-queue';
 import { MimeDetector } from '../../application/ports/mime-detector';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
-import { SessionTokens } from '../../application/ports/session-tokens';
 import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { PersonRepository } from '../../domain/repositories/person.repository';
@@ -29,10 +27,8 @@ import { SubjectRepository } from '../../domain/repositories/subject.repository'
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
-import { SessionRepository } from '../../domain/repositories/session.repository';
-import { UserRepository } from '../../domain/repositories/user.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
-import { SessionGuard } from '../auth/session.guard';
+import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { DocumentAccessGuard } from './document-access.guard';
 import { UploadDocument } from '../../application/documents/upload-document';
 import { DocumentsController } from './documents.controller';
@@ -45,7 +41,7 @@ function downloadSettings(config: AppConfig): DownloadSettings {
 @Module({
   controllers: [DocumentsController],
   providers: [
-    SessionGuard,
+    ...sessionGuardProviders,
     DocumentAccessGuard,
     {
       provide: ListDocuments,
@@ -129,16 +125,6 @@ function downloadSettings(config: AppConfig): DownloadSettings {
     {
       provide: GetDocumentMarkdown,
       useFactory: (): GetDocumentMarkdown => new GetDocumentMarkdown(),
-    },
-    {
-      provide: AuthenticateSession,
-      useFactory: (
-        sessions: SessionRepository,
-        users: UserRepository,
-        tokens: SessionTokens,
-        clock: Clock,
-      ): AuthenticateSession => new AuthenticateSession(sessions, users, tokens, clock),
-      inject: [SessionRepository, UserRepository, SessionTokens, Clock],
     },
     {
       provide: ListDocumentEvents,

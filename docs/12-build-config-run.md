@@ -53,6 +53,7 @@ DATABASE_URL=postgresql://legere:legere@localhost:5432/legere?schema=public
 # --- auth ---
 AUTH_SECRET=dev-secret-change-me-min-32-chars!!   # ≥32 chars; HMAC for email codes
 SESSION_TTL_DAYS=30
+API_TOKEN_TTL_DAYS=90                        # default lifetime of a read-only API token (08 §8.2a); the owner may choose 1…365
 COOKIE_DOMAIN=                               # empty in dev; set consciously in prod
 TURNSTILE_SECRET_KEY=                        # empty = CAPTCHA disabled
 NEXT_PUBLIC_TURNSTILE_SITE_KEY=              # build-time (baked into the client bundle)

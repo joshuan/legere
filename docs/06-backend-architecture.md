@@ -111,7 +111,9 @@ atomically.
 
 - **Controllers** are thin: parse/validate (Zod pipe) → call the use case → map the result to a DTO.
   No business logic, no Prisma.
-- **Guards** (execution order): `SessionGuard` → `RolesGuard` (`@Roles('ADMIN')` routes) →
+- **Guards** (execution order): `SessionGuard` (the `sid` cookie, or an `Authorization: Bearer` API
+  token on a safe method — [`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)) →
+  `RolesGuard` (`@Roles('ADMIN')` routes) →
   `DocumentAccessGuard` / `CollectionAccessGuard` / `ScanSetOwnerGuard` (resolve the resource by path
   param, run the 03 §3.4 checks, attach the loaded resource to the request via `@CurrentDocument()`
   etc. so use cases don't re-fetch).
@@ -125,6 +127,9 @@ atomically.
   limits live inside the auth use cases (they read `EmailVerification`/login-failure state).
 - **CSRF:** an Express-level middleware on `/api` for mutating methods — fail-closed
   `Origin`/`Referer` check against `APP_BASE_URL` (see [`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)).
+- **Read-only bearer:** a second middleware beside it, also on `/api` and also for mutating methods:
+  an `Authorization: Bearer` header there is refused with `READ_ONLY_TOKEN` before routing
+  ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)).
 - **Cookie helpers:** `setSessionCookie(res, token)` / `clearSessionCookie(res)` in one module;
   attributes per [`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions).
 

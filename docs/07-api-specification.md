@@ -11,8 +11,12 @@ human-readable index and must stay in sync with them.
   `code`, never shows `message`); `details` is `null` or a structured object (e.g. Zod issues).
 - **Status codes:** 200 (read/update), 201 (create), 204 — never used (bodies always present),
   401/403/404/409/413/422/429/500 per §7.2 (413 only for an upload over `UPLOAD_MAX_BYTES`). Unknown `/api/*` route → 404 `NOT_FOUND` (JSON, never HTML).
-- **Auth:** session cookie `sid` (httpOnly). 🔒 = requires session; 🔒ᴬ = requires role ADMIN.
-  Mutations additionally pass the fail-closed Origin check ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)).
+- **Auth:** session cookie `sid` (httpOnly), or `Authorization: Bearer <api token>` for reads
+  ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)). 🔒 = requires session;
+  🔒ᴬ = requires role ADMIN. A bearer token satisfies 🔒/🔒ᴬ on safe methods as its owner would;
+  on any other method the request is refused with `READ_ONLY_TOKEN`, so every mutation below means
+  "session only". Mutations additionally pass the fail-closed Origin check
+  ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)).
 - **Pagination:** cursor-based: request `?limit=` (default 30, max 100) `&cursor=` (opaque);
   response `{ data: { items: [...], nextCursor: string | null } }`. Sorting is fixed per endpoint
   (documented below); no arbitrary sort params in MVP.
@@ -25,8 +29,9 @@ human-readable index and must stay in sync with them.
 | 401 | `UNAUTHENTICATED` | no/invalid session |
 | 401 | `INVALID_CREDENTIALS` | login |
 | 403 | `FORBIDDEN` | authz failure, CSRF failure, deactivated user |
+| 403 | `READ_ONLY_TOKEN` | a mutating request carrying an `Authorization: Bearer` header ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)) |
 | 404 | `NOT_FOUND` | unknown route/malformed id |
-| 404 | `USER_NOT_FOUND`, `LIBRARY_NOT_FOUND`, `DOCUMENT_NOT_FOUND`, `DOCUMENT_TYPE_NOT_FOUND`, `COLLECTION_NOT_FOUND`, `SCANSET_NOT_FOUND`, `INVITE_NOT_FOUND` | resource lookups (incl. soft-deleted) |
+| 404 | `USER_NOT_FOUND`, `LIBRARY_NOT_FOUND`, `DOCUMENT_NOT_FOUND`, `DOCUMENT_TYPE_NOT_FOUND`, `COLLECTION_NOT_FOUND`, `SCANSET_NOT_FOUND`, `INVITE_NOT_FOUND`, `API_TOKEN_NOT_FOUND` | resource lookups (incl. soft-deleted) |
 | 409 | `EMAIL_ALREADY_REGISTERED` | registration race |
 | 409 | `LAST_ADMIN` | demote/deactivate/delete last admin |
 | 409 | `DOCUMENT_DUPLICATE` | upload whose content already exists as a document the caller may not read |
@@ -57,6 +62,13 @@ human-readable index and must stay in sync with them.
 | `GET /api/password-resets/:token` | — | → `{ email(masked), expiresAt, valid: boolean }` |
 | `GET /api/me` | 🔒 | → `UserDto` |
 | `PATCH /api/me` | 🔒 | `{ displayName?, language?, theme? }` → `UserDto` (also refreshes `NEXT_LOCALE` cookie) |
+| `GET /api/me/api-tokens` | 🔒 | own tokens, newest first; usable ones and the recently dead alike, never a secret → `{ items: ApiTokenDto[] }` |
+| `POST /api/me/api-tokens` | 🔒 | `{ name, expiresInDays? }` (1…365, default `API_TOKEN_TTL_DAYS`) → `{ token, apiToken: ApiTokenDto }` — `token` appears in this response and nowhere else |
+| `DELETE /api/me/api-tokens/:id` | 🔒 owner | revoke → `{ ok: true }`; already revoked is not an error, `404 API_TOKEN_NOT_FOUND` for somebody else's |
+
+`ApiTokenDto` = `{ id, name, createdAt, expiresAt, lastUsedAt, revokedAt, status: 'ACTIVE' | 'EXPIRED' | 'REVOKED' }`.
+`status` is derived on read rather than stored, so a token that expired while nobody was looking
+reports as expired.
 
 `UserDto`: `{ id, email, displayName, role, language, theme, createdAt }` — never contains hashes.
 

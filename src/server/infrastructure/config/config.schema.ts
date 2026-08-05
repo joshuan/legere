@@ -23,6 +23,9 @@ export const configSchema = z.object({
   // auth
   AUTH_SECRET: z.string().min(32, 'AUTH_SECRET must be at least 32 characters'),
   SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
+  // The default lifetime of a read-only API token; the owner may pick anything up to a year
+  // (docs/08 §8.2a).
+  API_TOKEN_TTL_DAYS: z.coerce.number().int().positive().max(365).default(90),
   COOKIE_DOMAIN: z.string().default(''),
   TURNSTILE_SECRET_KEY: z.string().default(''),
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.string().default(''),

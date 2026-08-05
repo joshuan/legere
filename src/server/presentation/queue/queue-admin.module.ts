@@ -1,20 +1,15 @@
 import { AnalysisSettings } from '../../application/settings/analysis-settings';
 import { SettingsRepository } from '../../domain/repositories/settings.repository';
 import { Module } from '@nestjs/common';
-import { AuthenticateSession } from '../../application/auth/authenticate-session';
-import { Clock } from '../../application/ports/clock';
 import { MetricsCache } from '../../application/ports/metrics-cache';
 import { QueueMonitor } from '../../application/ports/queue-monitor';
-import { SessionTokens } from '../../application/ports/session-tokens';
 import {
   GetQueueOverview,
   ListQueueFailures,
   RetryFailedJob,
 } from '../../application/queue/inspect-queue';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
-import { SessionRepository } from '../../domain/repositories/session.repository';
-import { UserRepository } from '../../domain/repositories/user.repository';
-import { SessionGuard } from '../auth/session.guard';
+import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { AdminQueueController } from './admin-queue.controller';
 
 // Admin queue observability (docs/06 §6.5).
@@ -29,17 +24,7 @@ import { AdminQueueController } from './admin-queue.controller';
         new AnalysisSettings(settings),
       inject: [SettingsRepository],
     },
-    SessionGuard,
-    {
-      provide: AuthenticateSession,
-      useFactory: (
-        sessions: SessionRepository,
-        users: UserRepository,
-        tokens: SessionTokens,
-        clock: Clock,
-      ): AuthenticateSession => new AuthenticateSession(sessions, users, tokens, clock),
-      inject: [SessionRepository, UserRepository, SessionTokens, Clock],
-    },
+    ...sessionGuardProviders,
     {
       provide: GetQueueOverview,
       useFactory: (

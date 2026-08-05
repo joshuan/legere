@@ -23,6 +23,8 @@ the run below 90% of lines in `src/server/domain` and `src/server/application`, 
 | logout revocation | `test/e2e/login.e2e.test.ts` — populates the caller from the session cookie and revokes it on logout |
 | CSRF fail-closed | `test/e2e/login.e2e.test.ts` — CSRF (fail-closed origin check), five tests |
 | per-email rate caps | `test/e2e/registration.e2e.test.ts` — enforces the per-email cap of one code per minute; enforces the per-email daily cap of five codes |
+| API token reads as its owner, never writes | `test/e2e/api-tokens.e2e.test.ts` — reads as its owner and shows the secret exactly once; is refused on every mutating method, before the route is even reached; carries the owner authority and no more |
+| API token revoked / expired / owner blocked | `test/e2e/api-tokens.e2e.test.ts` — stops working when revoked, when expired, and when its owner is deactivated; `src/server/application/auth/authenticate-api-token.test.ts` — refuses a token that is unknown, malformed, expired or revoked |
 | password reset revokes sessions | `test/e2e/invites-resets.e2e.test.ts` — changes the password through the code flow and revokes every existing session |
 | `LAST_ADMIN` on role change | `test/e2e/users.e2e.test.ts` — refuses to demote the last admin |
 | `LAST_ADMIN` on deactivate | `test/e2e/users.e2e.test.ts` — refuses to deactivate the last admin |

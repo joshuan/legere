@@ -85,6 +85,39 @@ seed creates an admin and a user with the password `password`.
   without TLS should cost them encryption, not the ability to log in. Any deployment reachable over
   HTTPS gets the attribute, in production or not.
 
+## 8.2a. API tokens (read-only)
+
+A browser is not the only thing that has a reason to read an archive: a backup script, a scheduled
+export, an assistant answering questions about what is filed here. Those callers get a **read-only
+API token** ([`03 §3.3.22`](./03-domain-model.md#3322-apitoken)) instead of a password, so that a
+credential which leaks costs its owner nothing but a revocation and can never change a document.
+
+- **Issuing.** A signed-in user creates their own tokens on `/settings` — no admin involvement,
+  because the token grants strictly less than the session used to create it. The request names the
+  token and may set a lifetime; the response carries the plaintext **once**
+  ([`07 §7.3`](./07-api-specification.md#73-endpoints)).
+- **Shape.** `legere_` + `crypto.randomBytes(32).toString('base64url')`. The prefix is not a secret
+  and does not authenticate anything; it exists so the string is recognisable to a human reading a
+  config file and to a secret scanner reading a repository. Only `sha256(token)` reaches the
+  database, as with every other bearer secret in this system (§8.2).
+- **Presenting.** `Authorization: Bearer <token>` on `/api/*`. There is no cookie and no CSRF
+  question: nothing a browser sends automatically can carry this header.
+- **Read-only, enforced twice.** A mutating method (anything but `GET`/`HEAD`/`OPTIONS`) carrying an
+  `Authorization: Bearer` header on `/api` is refused with `403 READ_ONLY_TOKEN` by a middleware
+  standing beside `csrfOriginCheck` — before routing, without looking the token up, so a route that
+  forgot its guard is still covered. The guard behind it then refuses to resolve a bearer credential
+  on an unsafe method at all. Fail-closed, like the origin check it stands next to.
+- **Authorization.** The token resolves to its owner and inherits **their** role and visibility: an
+  admin's token reads the admin endpoints, a user's token reads what that user can read. Deactivating
+  the owner, or revoking the token, ends it immediately — every request re-reads both.
+- **Lifetime.** Expiry is mandatory (`API_TOKEN_TTL_DAYS`, default 90, max 365): a token nobody can
+  remember issuing should stop working by itself. `lastUsedAt` is written at most once a minute, so
+  the list can answer "is this one still in use?" without a write per request.
+- **Not in this feature:** scopes narrower than "read what the owner reads", per-token IP limits,
+  and machine accounts without a human owner. Each is a real thing to want; none is needed to let a
+  script read an archive, and none can be added silently — a token's authority is exactly its
+  owner's, and that is a sentence users can hold in their heads.
+
 ## 8.3. Roles
 
 | Capability | USER | ADMIN |
@@ -143,6 +176,8 @@ Guards: `SessionGuard` (authn) → `RolesGuard` (admin routes) → `DocumentAcce
       httpOnly/SameSite=Lax/Secure(prod).
 - [ ] Mutations — fail-closed `csrfOriginCheck`; per-IP + per-email rate limiting; CAPTCHA on
       login/start.
+- [ ] API tokens: hashed at rest, shown once, mandatory expiry, revoked with the owner; a mutating
+      request carrying one is refused before routing (§8.2a).
 - [ ] `passwordHash`/`tokenHash`/codes/tickets and email bodies are never serialized or logged.
 - [ ] Every protected route — `SessionGuard` (+ `RolesGuard`/`DocumentAccessGuard`); file endpoints —
       under the same authorization; the S3 bucket is private, signed URLs with a short TTL only.

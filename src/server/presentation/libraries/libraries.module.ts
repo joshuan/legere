@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AuthenticateSession } from '../../application/auth/authenticate-session';
 import {
   CreateLibrary,
   DeleteLibrary,
@@ -14,15 +13,12 @@ import { ListScanRuns, TriggerScan } from '../../application/libraries/manage-sc
 import { Clock } from '../../application/ports/clock';
 import { JobQueue } from '../../application/ports/job-queue';
 import { LibraryReader } from '../../application/ports/library-reader';
-import { SessionTokens } from '../../application/ports/session-tokens';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
 import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
-import { SessionRepository } from '../../domain/repositories/session.repository';
-import { UserRepository } from '../../domain/repositories/user.repository';
-import { SessionGuard } from '../auth/session.guard';
+import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { AdminLibrariesController } from './admin-libraries.controller';
 import { LibrariesController } from './libraries.controller';
 
@@ -30,17 +26,7 @@ import { LibrariesController } from './libraries.controller';
 @Module({
   controllers: [AdminLibrariesController, LibrariesController],
   providers: [
-    SessionGuard,
-    {
-      provide: AuthenticateSession,
-      useFactory: (
-        sessions: SessionRepository,
-        users: UserRepository,
-        tokens: SessionTokens,
-        clock: Clock,
-      ): AuthenticateSession => new AuthenticateSession(sessions, users, tokens, clock),
-      inject: [SessionRepository, UserRepository, SessionTokens, Clock],
-    },
+    ...sessionGuardProviders,
     {
       provide: CreateLibrary,
       useFactory: (

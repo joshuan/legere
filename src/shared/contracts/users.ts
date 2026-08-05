@@ -82,6 +82,40 @@ export type ListInvitesResponse = z.infer<typeof listInvitesResponseSchema>;
 export const okResponseSchema = z.object({ ok: z.literal(true) });
 export type OkResponse = z.infer<typeof okResponseSchema>;
 
+// Read-only API tokens (docs/07 §7.3 "Auth & account", docs/08 §8.2a).
+
+// Derived on read rather than stored: a token that expired while nobody was looking says so.
+export const apiTokenStatusSchema = z.enum(['ACTIVE', 'EXPIRED', 'REVOKED']);
+export type ApiTokenStatus = z.infer<typeof apiTokenStatusSchema>;
+
+export const apiTokenDtoSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  status: apiTokenStatusSchema,
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  lastUsedAt: z.string().datetime().nullable(),
+  revokedAt: z.string().datetime().nullable(),
+});
+export type ApiTokenDto = z.infer<typeof apiTokenDtoSchema>;
+
+export const listApiTokensResponseSchema = z.object({ items: z.array(apiTokenDtoSchema) });
+export type ListApiTokensResponse = z.infer<typeof listApiTokensResponseSchema>;
+
+// POST /api/me/api-tokens — a lifetime the owner picks, or the instance default.
+export const createApiTokenRequestSchema = z.object({
+  name: z.string().trim().min(1).max(128),
+  expiresInDays: z.number().int().min(1).max(365).optional(),
+});
+export type CreateApiTokenRequest = z.infer<typeof createApiTokenRequestSchema>;
+
+// `token` is the plaintext, and this is the only response that will ever carry it (docs/08 §8.2a).
+export const createApiTokenResponseSchema = z.object({
+  token: z.string(),
+  apiToken: apiTokenDtoSchema,
+});
+export type CreateApiTokenResponse = z.infer<typeof createApiTokenResponseSchema>;
+
 // GET /api/users/lookup?q= — minimal directory for the share picker, max 10 active users.
 export const userLookupQuerySchema = z.object({ q: z.string().trim().min(1).max(128) });
 export type UserLookupQuery = z.infer<typeof userLookupQuerySchema>;

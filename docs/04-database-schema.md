@@ -142,6 +142,22 @@ model Session {
   @@map("sessions")
 }
 
+model ApiToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  name       String
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("api_tokens")
+}
+
 model EmailVerification {
   id              String              @id @default(uuid()) @db.Uuid
   email           String
@@ -504,6 +520,8 @@ indexes. `prisma migrate dev` generates the base DDL; the raw statements are app
 | FTS | GIN on `search_vector`, query via `websearch_to_tsquery('simple', $1)` |
 | semantic search | HNSW cosine on `document_chunks.embedding`, `ORDER BY embedding <=> $1 LIMIT k` |
 | admin scan journal | `scan_runs(library_id, started_at DESC)` |
+| authenticating a bearer token, once per request | `api_tokens.token_hash` unique index |
+| a user's own token list | `api_tokens(user_id)` index |
 
 ## 4.5. Migration policy
 

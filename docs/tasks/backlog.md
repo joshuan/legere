@@ -349,3 +349,10 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
   **Goal:** people, things, kinds and document types stop living behind an admin door.
   **Docs:** [`11 §11.1`](../11-ui-ux-spec.md#111-shell--navigation), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-admin-catalogues-adminpeople-adminsubjects-adminsubject-kinds)
   **Acceptance:** they move out of `Administration` to their own places in the menu, beside Documents and Browse, and off the `/admin` routes; anyone signed in may read them and add to them, exactly as the API has always allowed; renaming, deleting and merging stay an admin's and simply are not offered to anyone else, rather than the whole screen being hidden.
+
+## M12 — Reading the instance from outside
+
+- [x] **M12.1 — A script may read the archive; nothing but a browser may change it**
+  **Goal:** an export job, a backup, an assistant — anything that needs to *read* this instance gets a credential of its own, and it can only read.
+  **Docs:** [`03 §3.3.22`](../03-domain-model.md), [`08 §8.2a`](../08-auth-and-authorization.md#82a-api-tokens-read-only), [`07 §7.1–7.3`](../07-api-specification.md), [`11 §11.9`](../11-ui-ux-spec.md#119-settings-settings)
+  **Acceptance:** a user issues a named, expiring token to themselves on `/settings` and sees the secret exactly once; `Authorization: Bearer` authenticates every `GET` the owner could make, with their role and their visibility, and nothing else — any other method on `/api` is refused with `READ_ONLY_TOKEN` before routing, valid token or not; only the hash is stored; revoking, expiry, and deactivating the owner each end it on the next request; the token list says when each was last used.

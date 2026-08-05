@@ -25,9 +25,12 @@ export const CurrentUser = createParamDecorator((_data: unknown, context: Execut
   return caller.user;
 });
 
-// @CurrentSession() — the session backing this request (used by logout).
+// @CurrentSession() — the session backing this request (used by logout). Unreachable with an API
+// token: logout is a mutation, and a bearer credential is refused before routing (docs/08 §8.2a).
 export const CurrentSession = createParamDecorator((_data: unknown, context: ExecutionContext) => {
   const caller = callerOf(context.switchToHttp().getRequest<Request>());
   if (caller === undefined) throw new Error('CurrentSession used on a route without SessionGuard');
+  if (caller.kind !== 'SESSION')
+    throw new Error('CurrentSession used on a route reached by a token');
   return caller.session;
 });

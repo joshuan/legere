@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AuthenticateSession } from '../../application/auth/authenticate-session';
 import { CompleteRegistration } from '../../application/auth/complete-registration';
 import { GetOnboardingStatus } from '../../application/auth/get-onboarding-status';
 import { IssueSession } from '../../application/auth/issue-session';
@@ -23,24 +22,14 @@ import { UserInviteRepository } from '../../domain/repositories/user-invite.repo
 import { UserRepository } from '../../domain/repositories/user.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { AuthController } from './auth.controller';
-import { SessionGuard } from './session.guard';
+import { sessionGuardProviders } from './session-guard.providers';
 
 // Use cases are framework-free classes, so they are wired with explicit factory providers
 // (docs/06 §6.1): no decorators leak into the application layer.
 @Module({
   controllers: [AuthController],
   providers: [
-    SessionGuard,
-    {
-      provide: AuthenticateSession,
-      useFactory: (
-        sessions: SessionRepository,
-        users: UserRepository,
-        tokens: SessionTokens,
-        clock: Clock,
-      ): AuthenticateSession => new AuthenticateSession(sessions, users, tokens, clock),
-      inject: [SessionRepository, UserRepository, SessionTokens, Clock],
-    },
+    ...sessionGuardProviders,
     {
       provide: Login,
       useFactory: (

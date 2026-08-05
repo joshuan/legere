@@ -13,6 +13,7 @@ import { buildPinoHttpOptions } from '../src/server/infrastructure/logging/logge
 import { WorkerRegistry } from '../src/server/infrastructure/queue/worker-registry';
 import { csrfOriginCheck } from '../src/server/presentation/http/csrf.middleware';
 import { errorEnvelope } from '../src/server/presentation/http/envelope';
+import { readOnlyBearer } from '../src/server/presentation/http/read-only-bearer.middleware';
 
 // A request handler for everything Nest does not serve (Next pages/assets, or a stub in tests).
 type NextHandle = (req: Request, res: Response) => void;
@@ -57,6 +58,8 @@ export async function wireServer(
   );
   // Fail-closed CSRF origin check on every mutating /api request (docs/08 §8.4), before Nest sees it.
   server.use('/api', csrfOriginCheck(nestApp.get(AppConfig).get('APP_BASE_URL')));
+  // And beside it: a bearer token reaches read routes only (docs/08 §8.2a).
+  server.use('/api', readOnlyBearer);
 
   await nestApp.init();
 

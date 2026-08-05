@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AuthenticateSession } from '../../application/auth/authenticate-session';
 import {
   AddCollectionItem,
   CreateCollection,
@@ -14,29 +13,17 @@ import {
 } from '../../application/collections/manage-collections';
 import { LookupUsers } from '../../application/collections/lookup-users';
 import { Clock } from '../../application/ports/clock';
-import { SessionTokens } from '../../application/ports/session-tokens';
 import { CollectionRepository } from '../../domain/repositories/collection.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
-import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserRepository } from '../../domain/repositories/user.repository';
-import { SessionGuard } from '../auth/session.guard';
+import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { CollectionsController, UserLookupController } from './collections.controller';
 
 // Collections and sharing (docs/06 §6.5).
 @Module({
   controllers: [CollectionsController, UserLookupController],
   providers: [
-    SessionGuard,
-    {
-      provide: AuthenticateSession,
-      useFactory: (
-        sessions: SessionRepository,
-        users: UserRepository,
-        tokens: SessionTokens,
-        clock: Clock,
-      ): AuthenticateSession => new AuthenticateSession(sessions, users, tokens, clock),
-      inject: [SessionRepository, UserRepository, SessionTokens, Clock],
-    },
+    ...sessionGuardProviders,
     {
       provide: ListCollections,
       useFactory: (collections: CollectionRepository): ListCollections =>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Card, Form, Input, Radio, Select, Spin, Typography } from 'antd';
+import { App, Card, Form, Input, Radio, Select, Space, Spin, Typography } from 'antd';
 import type { RadioChangeEvent } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
@@ -11,6 +11,7 @@ import { themeSchema } from '../../../shared/contracts/enums';
 import type { UpdateMeRequest } from '../../../shared/contracts/users';
 import { sessionApi, sessionKeys } from '../../entities/session';
 import { useErrorMessage } from '../../shared/lib';
+import { ApiTokensCard } from './api-tokens-card';
 
 // /settings (docs/11 §11.9). Every control saves on change — there is no Save button — and a
 // language switch takes effect immediately: the server rewrites NEXT_LOCALE and router.refresh()
@@ -42,7 +43,8 @@ export function SettingsScreen() {
   if (isPending || me === undefined) return <Spin />;
 
   return (
-    <Card style={{ maxWidth: 560 }}>
+    <Space direction="vertical" size="large" style={{ width: '100%', maxWidth: 720 }}>
+      <Card>
       <Typography.Title level={4}>{t('settings.title')}</Typography.Title>
 
       <Form layout="vertical" initialValues={me}>
@@ -84,7 +86,10 @@ export function SettingsScreen() {
             ]}
           />
         </Form.Item>
-      </Form>
-    </Card>
+        </Form>
+      </Card>
+
+      <ApiTokensCard />
+    </Space>
   );
 }

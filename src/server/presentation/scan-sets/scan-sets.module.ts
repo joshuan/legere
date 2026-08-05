@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
-import { AuthenticateSession } from '../../application/auth/authenticate-session';
 import { Clock } from '../../application/ports/clock';
 import { JobQueue } from '../../application/ports/job-queue';
-import { SessionTokens } from '../../application/ports/session-tokens';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import {
   CreateScanSet,
@@ -14,26 +12,14 @@ import {
 } from '../../application/scan-sets/manage-scan-sets';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { ScanSetRepository } from '../../domain/repositories/scan-set.repository';
-import { SessionRepository } from '../../domain/repositories/session.repository';
-import { UserRepository } from '../../domain/repositories/user.repository';
-import { SessionGuard } from '../auth/session.guard';
+import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { ScanSetsController } from './scan-sets.controller';
 
 // Scan sets (docs/06 §6.5).
 @Module({
   controllers: [ScanSetsController],
   providers: [
-    SessionGuard,
-    {
-      provide: AuthenticateSession,
-      useFactory: (
-        sessions: SessionRepository,
-        users: UserRepository,
-        tokens: SessionTokens,
-        clock: Clock,
-      ): AuthenticateSession => new AuthenticateSession(sessions, users, tokens, clock),
-      inject: [SessionRepository, UserRepository, SessionTokens, Clock],
-    },
+    ...sessionGuardProviders,
     {
       provide: ListScanSets,
       useFactory: (scanSets: ScanSetRepository): ListScanSets => new ListScanSets(scanSets),

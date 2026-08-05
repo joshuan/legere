@@ -230,6 +230,15 @@ Profile card: display name, email (read-only), language (English/Русский)
 (System/Light/Dark). Changes save immediately (`PATCH /api/me`), language switch re-renders instantly
 (cookie + reload of messages).
 
+**API tokens card** ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)): a table
+of the user's own tokens — name, status tag (Active/Expired/Revoked), created, expires, last used
+("never" until it is used) — with a **Revoke** button per living row (confirm popover) and a
+**Create token** button above. Creating opens a modal asking for a name and a lifetime in days
+(default `API_TOKEN_TTL_DAYS`); on success the modal turns into the one and only sight of the token:
+the string in a read-only field, a copy button, and a plain warning that closing the modal ends the
+only chance to copy it. The card says in one line what a token is for — reading this instance from
+outside, never writing — because a credential nobody can explain is a credential nobody should make.
+
 ## 11.10. Admin: Libraries (`/admin/libraries`, `/admin/libraries/:id`)
 
 - Table: name, path, enabled switch, visibility, files/documents/missing counters, last scan (time +

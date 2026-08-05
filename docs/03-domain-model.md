@@ -10,6 +10,7 @@ Conventions: all IDs are UUID v4; all timestamps are UTC (`timestamptz`); soft d
 
 ```
 User ─┬─< Session
+      ├─< ApiToken (read-only bearer credentials)
       ├─< UserInvite (createdBy / acceptedBy)
       ├─< PasswordReset (user / createdBy)
       ├─< Collection ──< CollectionItem >── Document
@@ -415,6 +416,33 @@ exactly as it always has. A value whose shape this version does not recognise is
 crashing what reads it — a setting written by a later version must not stop the workers from
 starting.
 
+### 3.3.22. ApiToken
+
+A credential a user issues to themselves so that something other than a browser can **read** this
+instance: a script, a scheduled export, an assistant. Every token this instance issues is read-only —
+there is no scope field, because there is no second kind ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)).
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | |
+| userId | uuid | the owner; the token acts as them and sees exactly what they see |
+| name | string | what it is for, written by the owner ("laptop export script"); 1–128 chars |
+| tokenHash | string | unique; sha256 of the opaque bearer token, which is shown once and never stored |
+| expiresAt | timestamptz | required; `API_TOKEN_TTL_DAYS` (default 90) unless the owner chose otherwise, max 365 |
+| lastUsedAt | timestamptz? | best-effort, written at most once a minute per token |
+| revokedAt | timestamptz? | revocation by the owner |
+| createdAt | | |
+
+Usable token = not revoked, not expired, owner active and not deactivated — the same three questions
+a session answers (§3.3.2), asked of a different credential.
+
+**Invariants:**
+- 🔒 A token authorizes **safe HTTP methods only**. A mutating request carrying one is refused with
+  `READ_ONLY_TOKEN` before it reaches a controller, whether or not the token itself is valid.
+- Deactivating or soft-deleting a user revokes their tokens, exactly as it revokes their sessions.
+- The plaintext token exists in one response and nowhere else: not in the database, not in a log,
+  not in a later listing.
+
 ### 3.3.18. DocumentEvent
 
 The history of one document: how it came to be what it is. The `Document` row carries the *current*
@@ -553,6 +581,9 @@ canManageCollection(user, c):  c.ownerId == user.id or ADMIN
 canReadCollection(user, c):    owner, ADMIN, or active share (user-specific or instance-wide)
 ```
 
+An `ApiToken` (§3.3.22) adds no rule to this table: it resolves to its owner and then every check
+above runs unchanged — with one subtraction, that the caller may only read.
+
 ## 3.5. Deletion semantics (summary)
 
 | Action | Effect |
@@ -562,7 +593,7 @@ canReadCollection(user, c):    owner, ADMIN, or active share (user-specific or i
 | Document soft-deleted (admin) | hidden everywhere; chunks excluded from search; artifacts retained in S3 (cleaned by a later `maintenance` policy only if ever specified) |
 | Document type soft-deleted | documents' document type reset to NONE |
 | Collection soft-deleted | hidden for everyone incl. shares |
-| User soft-deleted | sessions revoked; their collections/scan sets hidden; their DERIVED documents remain visible to users they were shared with? — **No:** shares die with the collection; DERIVED docs of a deleted user stay accessible to ADMIN only |
+| User soft-deleted | sessions and API tokens revoked; their collections/scan sets hidden; their DERIVED documents remain visible to users they were shared with? — **No:** shares die with the collection; DERIVED docs of a deleted user stay accessible to ADMIN only |
 
 ## 3.6. Open questions
 

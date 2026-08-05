@@ -2,6 +2,7 @@ import type { AdminUserDto, ListUsersResponse } from '../../../shared/contracts/
 import type { UserRole } from '../../../shared/contracts/enums';
 import { isUserActive, type User } from '../../domain/entities/user';
 import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
+import type { ApiTokenRepository } from '../../domain/repositories/api-token.repository';
 import type { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
 import type { SessionRepository } from '../../domain/repositories/session.repository';
 import type { UserRepository } from '../../domain/repositories/user.repository';
@@ -38,12 +39,14 @@ export class ChangeUserRole {
   }
 }
 
-// POST /api/admin/users/:id/deactivate — blocks login, kills sessions, and invalidates any pending
-// reset link so a blocked account cannot be recovered behind the admin's back (docs/03 §3.3.1).
+// POST /api/admin/users/:id/deactivate — blocks login, kills sessions and API tokens, and
+// invalidates any pending reset link so a blocked account cannot be recovered behind the admin's
+// back (docs/03 §3.3.1).
 export class DeactivateUser {
   constructor(
     private readonly users: UserRepository,
     private readonly sessions: SessionRepository,
+    private readonly apiTokens: ApiTokenRepository,
     private readonly resets: PasswordResetRepository,
     private readonly unitOfWork: UnitOfWork,
     private readonly clock: Clock,
@@ -59,6 +62,8 @@ export class DeactivateUser {
 
       const updated = await this.users.update(userId, { deactivatedAt: now }, tx);
       await this.sessions.revokeAllForUser(userId, now, tx);
+      // A blocked account keeps no credentials, and a token is a credential (docs/03 §3.3.22).
+      await this.apiTokens.revokeAllForUser(userId, now, tx);
       await this.resets.revokeAllForUser(userId, now, tx);
       return toAdminUserDto(updated);
     });
