@@ -325,7 +325,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 ## M11 — Uploading, throughput, and knowing a thing again
 
-- [ ] **M11.1 — An upload is a queue on the page, not a modal that blocks**
+- [x] **M11.1 — An upload is a queue on the page, not a modal that blocks**
   **Goal:** choosing forty files puts forty cards on the screen at once and fills them in one by one.
   **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen), [`05 §5.1a`](../05-library-and-processing.md#51a-uploads)
   **Acceptance:** the chosen files appear in the grid immediately as client-side cards marked "uploading", before a byte is sent; they upload **one at a time**, in order, however many there are; each becomes the real server card as it lands; pressing Upload again appends to the same queue rather than replacing it; a failure marks its own card and the queue carries on.

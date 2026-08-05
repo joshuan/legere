@@ -247,6 +247,71 @@ describe('DocumentsScreen', () => {
     await waitFor(() => expect(screen.getByText(/Twice\.pdf/)).toBeInTheDocument());
   });
 
+  it('queues the chosen files as cards and sends them one at a time', async () => {
+    const sent: string[] = [];
+    let inFlight = 0;
+    server.use(
+      http.post('/api/documents', async ({ request }) => {
+        inFlight += 1;
+        // 🔒 One at a time: forty parallel uploads saturate the connection and arrive interleaved
+        // (docs/11 §11.3).
+        expect(inFlight).toBe(1);
+        sent.push(decodeURIComponent(request.headers.get('x-legere-filename') ?? ''));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        inFlight -= 1;
+        return HttpResponse.json(envelope({ document: documentAt(9), created: true }));
+      }),
+    );
+
+    renderWithProviders(<DocumentsScreen isAdmin={false} />);
+    await screen.findByText('Document 1');
+
+    const input = document.querySelector('input[type="file"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error('no file input rendered');
+    await userEvent.upload(input, [
+      new File(['a'], 'First.pdf', { type: 'application/pdf' }),
+      new File(['b'], 'Second.pdf', { type: 'application/pdf' }),
+      new File(['c'], 'Third.pdf', { type: 'application/pdf' }),
+    ]);
+
+    // On the screen before a byte is sent, in the order they were chosen.
+    expect(screen.getByText('Third.pdf')).toBeInTheDocument();
+
+    await waitFor(() => expect(sent).toEqual(['First.pdf', 'Second.pdf', 'Third.pdf']));
+    // Each placeholder goes as its document arrives.
+    await waitFor(() => expect(screen.queryByText('Third.pdf')).toBeNull());
+  });
+
+  it('leaves a failed file on the screen and carries on with the rest', async () => {
+    server.use(
+      http.post('/api/documents', ({ request }) => {
+        const name = decodeURIComponent(request.headers.get('x-legere-filename') ?? '');
+        return name === 'Bad.pdf'
+          ? HttpResponse.json(
+              { error: { code: 'DOCUMENT_DUPLICATE', message: 'duplicate', details: null } },
+              { status: 409 },
+            )
+          : HttpResponse.json(envelope({ document: documentAt(9), created: true }));
+      }),
+    );
+
+    renderWithProviders(<DocumentsScreen isAdmin={false} />);
+    await screen.findByText('Document 1');
+
+    const input = document.querySelector('input[type="file"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error('no file input rendered');
+    await userEvent.upload(input, [
+      new File(['a'], 'Bad.pdf', { type: 'application/pdf' }),
+      new File(['b'], 'Good.pdf', { type: 'application/pdf' }),
+    ]);
+
+    // The failure keeps its own card, with what went wrong on it…
+    expect(await screen.findByText(enMessages.documents.upload.failed)).toBeInTheDocument();
+    expect(screen.getByText('Bad.pdf')).toBeInTheDocument();
+    // …and the queue carried on regardless.
+    await waitFor(() => expect(screen.queryByText('Good.pdf')).toBeNull());
+  });
+
   describe('building a scan set from the grid (docs/11 §11.8)', () => {
     it('creates a set from the selected images, in selection order', async () => {
       let created: unknown = null;

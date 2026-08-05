@@ -12,7 +12,12 @@ import { documentApi, documentKeys, type DocumentFilters } from '../../entities/
 import { scanSetApi, scanSetKeys } from '../../entities/scan-set';
 import { DocumentFiltersBar } from '../../features/document-filters';
 import { DocumentCard } from '../../widgets/document-card';
-import { UploadButton, UploadDropZone, useDocumentUpload } from '../../features/document-upload';
+import {
+  UploadButton,
+  UploadDropZone,
+  UploadingCard,
+  useDocumentUpload,
+} from '../../features/document-upload';
 import { useErrorMessage } from '../../shared/lib';
 
 // While anything on screen is still being processed the list refreshes, so a document stops saying
@@ -164,7 +169,7 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
 
       {documents.isPending ? (
         <Spin />
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && upload.items.length === 0 ? (
         <Empty
           description={
             Object.keys(filters).length > 0
@@ -182,6 +187,13 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
       ) : (
         <UploadDropZone onFiles={upload.send}>
           <Row gutter={[16, 16]}>
+            {/* Ahead of everything: a file chosen a second ago is the newest thing here, and it is
+                also the thing the person is waiting on (docs/11 §11.3). */}
+            {upload.items.map((queued) => (
+              <Col key={queued.key} xs={12} sm={8} md={6} lg={4} xl={4} xxl={4}>
+                <UploadingCard upload={queued} onDismiss={() => upload.dismiss(queued.key)} />
+              </Col>
+            ))}
             {items.map((document, index) => (
               <Col
                 key={document.id}

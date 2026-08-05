@@ -425,7 +425,11 @@
       "action": "Upload",
       "hint": "Drop files here to add them to your documents",
       "done": "{name} uploaded",
-      "duplicate": "{name} was already here — opened the existing document"
+      "duplicate": "{name} was already here — opened the existing document",
+      "waiting": "Waiting",
+      "uploading": "Uploading…",
+      "failed": "Upload failed",
+      "dismiss": "Dismiss"
     }
   },
   "viewer": {

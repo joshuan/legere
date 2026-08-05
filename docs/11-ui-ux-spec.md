@@ -52,11 +52,20 @@ Onboarding when already onboarded → 404 page.
 - Infinite scroll (`useInfiniteQuery`). Card click → viewer. Empty state (fresh instance): "No
   documents yet. Ask your administrator to add a library." — with a CTA to `/admin/libraries` for
   admins, and the upload affordance below, which any user can act on.
-- **Upload** (header action, and a drop zone over the grid): picks one or more files and sends each to
-  `POST /api/documents`, showing per-file progress. A finished upload appears in the grid immediately,
-  still processing. Failures are reported per file and keep the rest going: too large
-  (`UPLOAD_MAX_BYTES`), or `DOCUMENT_DUPLICATE` — "this file is already on this instance", which is
-  what deduplication means from the outside.
+- **Upload** (header action, and a drop zone over the grid) is **a queue on the page, not a modal
+  over it**. The moment files are chosen they are cards in the grid — ahead of everything, since a
+  file chosen a second ago is both the newest thing here and the thing being waited on — each marked
+  `Waiting` and then `Uploading…`. They are sent to `POST /api/documents` **one at a time, in the
+  order they were chosen**, however many there are: forty parallel uploads saturate the connection,
+  arrive interleaved and make the processing queue jump about, while one at a time is barely slower
+  and far easier to watch. Each placeholder is replaced by the real card as its document lands — the
+  list is refreshed *before* the placeholder goes, so the card is replaced rather than blinking out
+  and back in. Choosing more files **appends to the same queue** instead of starting a second one.
+  A failure keeps its own card, wearing the reason — too large (`UPLOAD_MAX_BYTES`), or
+  `DOCUMENT_DUPLICATE`, "this file is already on this instance", which is what deduplication means
+  from the outside — and the queue carries on: one rejected file must not take the other thirty-nine
+  with it. That card is dismissed by hand, because an error nobody saw is an error that did not
+  happen.
 
 ## 11.4. Browse (`/browse/…`)
 
