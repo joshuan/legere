@@ -19,6 +19,7 @@ import { LibraryReader } from '../../application/ports/library-reader';
 import { MimeDetector } from '../../application/ports/mime-detector';
 import { PdfToolbox } from '../../application/ports/pdf-toolbox';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
+import { QueueSettings } from '../../application/queue/queue-settings';
 import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
@@ -204,6 +205,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         parser: DocumentParser,
         queue: JobQueue,
         unitOfWork: UnitOfWork,
+        queueSettings: QueueSettings,
       ): HandleScanSetMerge =>
         new HandleScanSetMerge(
           scanSets,
@@ -216,6 +218,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           pdfs,
           queue,
           unitOfWork,
+          queueSettings,
         ),
       inject: [
         ScanSetRepository,
@@ -229,6 +232,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         DocumentParser,
         JobQueue,
         UnitOfWork,
+        QueueSettings,
       ],
     },
     {

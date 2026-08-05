@@ -4,6 +4,7 @@ import { InjectPinoLogger, type PinoLogger } from 'nestjs-pino';
 import type { Job } from 'pg-boss';
 import type { JobHandler } from '../../application/jobs/job-handler';
 import type { QueueName } from '../../application/ports/job-queue';
+import { QueueSettings } from '../../application/queue/queue-settings';
 import { AppConfig } from '../config/app-config';
 import { PgBossProvider } from './pg-boss.provider';
 
@@ -28,6 +29,7 @@ export class WorkerRegistry {
     private readonly provider: PgBossProvider,
     private readonly moduleRef: ModuleRef,
     private readonly config: AppConfig,
+    private readonly settings: QueueSettings,
     @InjectPinoLogger(WorkerRegistry.name) private readonly logger: PinoLogger,
   ) {}
 
@@ -38,19 +40,21 @@ export class WorkerRegistry {
 
   async start(): Promise<void> {
     const boss = await this.provider.start();
+    const settings = await this.settings.read();
 
     for (const binding of this.bindings) {
-      const concurrency = binding.concurrency ?? this.concurrencyFor(binding.queue);
+      const concurrency = binding.concurrency ?? settings.concurrency[binding.queue] ?? 1;
       // strict: false — handlers live in feature modules, not in this one.
       const handler = this.moduleRef.get<JobHandler>(binding.handler, { strict: false });
 
       await boss.work(
         binding.queue,
         { batchSize: concurrency },
+        // 🔒 In parallel, which is what a concurrency of four has always claimed to mean: the batch
+        // used to be awaited one job at a time, so the setting fetched four jobs and then ran them
+        // in a queue of its own (docs/05 §5.4).
         async (jobs: Job<object>[]): Promise<void> => {
-          for (const job of jobs) {
-            await this.runOne(binding.queue, job, handler);
-          }
+          await Promise.all(jobs.map((job) => this.runOne(binding.queue, job, handler)));
         },
       );
 
@@ -58,15 +62,20 @@ export class WorkerRegistry {
     }
   }
 
+  // Applying a new setting without a restart: pg-boss is told to stop serving each queue, and the
+  // workers are registered again with the numbers that are now stored (docs/11 §11.13). An admin
+  // changing a knob should not have to bounce the container to see it take effect.
+  async restart(): Promise<void> {
+    const boss = await this.provider.start();
+    for (const binding of this.bindings) {
+      await boss.offWork(binding.queue);
+    }
+    await this.start();
+  }
+
   async scheduleSystemCrons(): Promise<void> {
     const boss = await this.provider.start();
     await boss.schedule('maintenance', MAINTENANCE_CRON, {});
-  }
-
-  concurrencyFor(queue: QueueName): number {
-    if (queue === 'file-ingest') return this.config.get('QUEUE_CONCURRENCY_INGEST');
-    if (queue === 'document-process') return this.config.get('QUEUE_CONCURRENCY_PROCESS');
-    return 1;
   }
 
   // One job at a time inside a batch, with the outcome logged per docs/06 §6.7. Errors are rethrown

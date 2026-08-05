@@ -520,3 +520,14 @@ model ScanSetItem {
   @@id([scanSetId, position])
   @@map("scan_set_items")
 }
+
+// Instance settings an admin changes at runtime (docs/03 §3.3.21): a key-value store, because these
+// arrive one knob at a time and a migration per knob is a migration nobody wants to write. The env
+// values remain the defaults; a row here is a deliberate override (docs/12 §12.4).
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("settings")
+}

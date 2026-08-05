@@ -182,6 +182,8 @@ human-readable index and must stay in sync with them.
 | `GET /api/admin/queue/overview` | 🔒ᴬ | per queue: `{ name, queued, active, failedRecent }` + document step counters + `storage: { objects, bytes, measuredAt } \| null` (hourly aggregate, `null` before the first `maintenance` run) |
 | `GET /api/admin/queue/failures` | 🔒ᴬ | paginated failed jobs: `{ jobId, queue, payload, error, failedAt, retryCount }` |
 | `POST /api/admin/queue/failures/:jobId/retry` | 🔒ᴬ | re-enqueues a copy of the job → `{ ok: true }` |
+| `GET /api/admin/queue/settings` | 🔒ᴬ | → `{ concurrency: { <queue>: number }, unitConcurrency }` — every queue, with the env defaults where nothing is stored (03 §3.3.21) |
+| `PATCH /api/admin/queue/settings` | 🔒ᴬ | the same shape, sent whole; values are clamped to 1…32 rather than refused, and the workers are re-registered immediately so the change needs no restart |
 
 ### Health
 | Method & path | Auth | Notes |

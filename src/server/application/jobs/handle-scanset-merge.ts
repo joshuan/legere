@@ -14,6 +14,7 @@ import type { NamedBinary, PdfToolbox } from '../ports/pdf-toolbox';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import { artifactKeys } from '../storage/artifact-keys';
 import { JobHandler } from './job-handler';
+import type { QueueSettings } from '../queue/queue-settings';
 
 export const scanSetMergePayloadSchema = z.object({ scanSetId: z.string().uuid() });
 export type ScanSetMergePayload = z.infer<typeof scanSetMergePayloadSchema>;
@@ -38,6 +39,7 @@ export class HandleScanSetMerge extends JobHandler {
     private readonly pdfs: PdfToolbox,
     private readonly queue: JobQueue,
     private readonly unitOfWork: UnitOfWork,
+    private readonly queueSettings: QueueSettings,
   ) {
     super();
   }
@@ -55,17 +57,26 @@ export class HandleScanSetMerge extends JobHandler {
     try {
       if (scanSet.items.length === 0) throw new Error('The scan set has no pages');
 
-      const pages: NamedBinary[] = [];
-      for (const item of scanSet.items) {
-        const source = await this.openPage(item.documentId);
-        // TRIM crops the scanner's margin per page before assembly; NONE keeps the frame the
-        // photographer chose (docs/05 §5.6).
-        const body =
-          scanSet.cropMode === 'TRIM'
-            ? await this.images.trim(source, TRIM_THRESHOLD)
-            : await toBuffer(source);
-        pages.push({ body, fileName: `page-${String(item.position).padStart(4, '0')}.jpg` });
-      }
+      // The pages are independent work — read one, crop one — so they are prepared `unitConcurrency`
+      // at a time (docs/05 §5.4). Order is preserved by position rather than by arrival: page order
+      // is the whole point of a scan set (docs/05 §5.6).
+      // Read per job rather than at start-up: this knob takes effect on the next merge, with no
+      // worker to re-register (docs/11 §11.13).
+      const { unitConcurrency } = await this.queueSettings.read();
+      const pages = await inBatches(
+        [...scanSet.items].sort((a, b) => a.position - b.position),
+        unitConcurrency,
+        async (item): Promise<NamedBinary> => {
+          const source = await this.openPage(item.documentId);
+          // TRIM crops the scanner's margin per page before assembly; NONE keeps the frame the
+          // photographer chose (docs/05 §5.6).
+          const body =
+            scanSet.cropMode === 'TRIM'
+              ? await this.images.trim(source, TRIM_THRESHOLD)
+              : await toBuffer(source);
+          return { body, fileName: `page-${String(item.position).padStart(4, '0')}.jpg` };
+        },
+      );
 
       const pdf = await this.pdfs.imagesToPdf(pages);
       const contentHash = ContentHash.parse(createHash('sha256').update(pdf).digest('hex'));
@@ -141,4 +152,18 @@ export class HandleScanSetMerge extends JobHandler {
       ref.path,
     );
   }
+}
+
+// `size` at a time, in order, results in the order they went in. Written here rather than reached
+// for from a library: it is six lines, and the alternative is a dependency for six lines.
+async function inBatches<T, R>(
+  items: readonly T[],
+  size: number,
+  work: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let index = 0; index < items.length; index += size) {
+    results.push(...(await Promise.all(items.slice(index, index + size).map(work))));
+  }
+  return results;
 }

@@ -3,6 +3,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { HandleScanSetMerge } from '../../src/server/application/jobs/handle-scanset-merge';
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
 import { UnitOfWork } from '../../src/server/application/ports/unit-of-work';
+import { QueueSettings } from '../../src/server/application/queue/queue-settings';
+import {
+  InMemorySettingsRepository,
+  FakeImageTool,
+  FakePdfToolbox,
+  StubLibraryReader,
+} from '../helpers/processing-fakes';
 import { DocumentRepository } from '../../src/server/domain/repositories/document.repository';
 import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../src/server/domain/repositories/library.repository';
@@ -12,7 +19,6 @@ import { PersistenceModule } from '../../src/server/infrastructure/persistence/p
 import { PrismaService } from '../../src/server/infrastructure/persistence/prisma.service';
 import { InMemoryFileStorage } from '../../src/server/infrastructure/storage/in-memory-file-storage';
 import { disconnectTestPrisma, truncateAll } from '../helpers/db';
-import { FakeImageTool, FakePdfToolbox, StubLibraryReader } from '../helpers/processing-fakes';
 
 // The merge job against the real database (docs/05 §5.6): pages in, one derived document out.
 describe('Scan set merge (integration)', () => {
@@ -62,6 +68,17 @@ describe('Scan set merge (integration)', () => {
         unscheduleCron: () => Promise.resolve(),
       },
       moduleRef.get(UnitOfWork),
+      // The knob this suite is not about: nothing stored, so the defaults stand.
+      new QueueSettings(new InMemorySettingsRepository(), {
+        concurrency: {
+          'library-scan': 1,
+          'file-ingest': 1,
+          'document-process': 1,
+          'scanset-merge': 1,
+          maintenance: 1,
+        },
+        unitConcurrency: 1,
+      }),
     );
 
     await truncateAll();

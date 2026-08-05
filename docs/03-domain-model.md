@@ -390,6 +390,23 @@ ticket "about" that ticket's number — even when the prompt says in as many wor
 says it anyway, because a stronger model obeys it; the field is corrected by hand meanwhile, and a
 correction is never overwritten.
 
+### 3.3.21. Setting
+
+An instance knob an admin turns at runtime: a key, a JSON value, and when it last changed.
+
+| Field | Type | Notes |
+|---|---|---|
+| key | string | primary key; `queue` is the first one |
+| value | json | whatever that key means |
+| updatedAt | timestamptz | |
+
+A key-value table rather than a column per setting, because these arrive one at a time and a
+migration per knob is a migration nobody wants to write. **Env stays the default** ([`12 §12.4`](./12-build-config-run.md)):
+a row here is somebody overriding one deliberately, so an instance with an empty table behaves
+exactly as it always has. A value whose shape this version does not recognise is ignored rather than
+crashing what reads it — a setting written by a later version must not stop the workers from
+starting.
+
 ### 3.3.18. DocumentEvent
 
 The history of one document: how it came to be what it is. The `Document` row carries the *current*

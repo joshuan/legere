@@ -5,6 +5,7 @@ import {
   listQueueFailuresResponseSchema,
   queueOverviewResponseSchema,
   retryJobResponseSchema,
+  queueSettingsSchema,
 } from '../../src/shared/contracts/queue';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { HandleMaintenance } from '../../src/server/application/jobs/handle-maintenance';
@@ -354,5 +355,41 @@ describe('Reprocess and queue administration (e2e)', () => {
         expect(expectError(res).code).toBe('FORBIDDEN');
       }
     });
+  });
+
+  it('sets how hard the instance works, and applies it without a restart', async () => {
+    const before = await api(app).get('/api/admin/queue/settings').set('Cookie', adminCookie);
+    // The env defaults of docs/12 §12.4 stand until somebody overrides one.
+    expect(expectData(before, queueSettingsSchema)).toMatchObject({
+      concurrency: { 'file-ingest': 4, 'document-process': 2 },
+      unitConcurrency: 1,
+    });
+
+    const saved = await api(app)
+      .patch('/api/admin/queue/settings', {
+        concurrency: { 'file-ingest': 8, 'document-process': 3 },
+        unitConcurrency: 4,
+      })
+      .set('Cookie', adminCookie);
+
+    expect(saved.status).toBe(200);
+    // Every queue comes back, not only the two that were sent: the form shows them all.
+    const settings = expectData(saved, queueSettingsSchema);
+    expect(settings.concurrency['file-ingest']).toBe(8);
+    expect(settings.concurrency['scanset-merge']).toBe(1);
+    expect(settings.unitConcurrency).toBe(4);
+
+    // 🔒 It survives a read, which is what "survives a restart" means for a stored setting.
+    const after = await api(app).get('/api/admin/queue/settings').set('Cookie', adminCookie);
+    expect(expectData(after, queueSettingsSchema).concurrency['file-ingest']).toBe(8);
+
+    // Out of range is clamped rather than refused: the point is a usable instance, not a lecture.
+    const clamped = await api(app)
+      .patch('/api/admin/queue/settings', {
+        concurrency: { 'file-ingest': 32 },
+        unitConcurrency: 32,
+      })
+      .set('Cookie', adminCookie);
+    expect(expectData(clamped, queueSettingsSchema).concurrency['file-ingest']).toBe(32);
   });
 });

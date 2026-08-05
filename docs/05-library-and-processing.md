@@ -93,8 +93,16 @@ Rules:
   entry in the error journal (admin panel) with a manual "Retry".
 - **Priorities:** actions explicitly requested by a user (`scanset-merge`, manual rescan) rank above
   background work.
-- Per-type concurrency is env-configured; the total load is capped so the queue does not starve the API
-  in the same process.
+- Per-type concurrency is env-configured **and admin-tunable at runtime** ([`11 §11.13`](./11-ui-ux-spec.md)):
+  the env values are the defaults, a stored setting overrides them, and changing one re-registers the
+  workers rather than waiting for the container to be bounced. Two knobs, not one:
+  **how many jobs of a queue run at once**, and **how many independent units inside a single job**
+  do — the pages of a scan set being read and cropped, say. The second is one number because those
+  units are all the same shape of work.
+  The batch a worker takes is run **in parallel**, which is what a concurrency of four has always
+  meant; it used to be awaited one job at a time, so the setting fetched four jobs and then ran them
+  in a queue of its own. The total load is capped so the queue does not starve the API in the same
+  process.
 - Enqueueing a job and writing an entity happen in a single DB transaction (pg-boss lives in the same
   PostgreSQL).
 

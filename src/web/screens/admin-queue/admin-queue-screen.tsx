@@ -6,6 +6,8 @@ import {
   Button,
   Card,
   Col,
+  Form,
+  InputNumber,
   Row,
   Space,
   Statistic,
@@ -16,9 +18,9 @@ import {
   theme,
 } from 'antd';
 import { useTranslations } from 'next-intl';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { FailedJobDto, StepCountersDto } from '../../../shared/contracts/queue';
-import { queueApi, queueKeys } from '../../entities/queue';
+import { queueApi, queueKeys, queueSettingsApi } from '../../entities/queue';
 import { formatBytes, useErrorMessage } from '../../shared/lib';
 
 // The queue moves on its own, so the view follows it (docs/11 §11.13). Pausing matters: reading a
@@ -34,6 +36,29 @@ export function AdminQueueScreen() {
   const { token } = theme.useToken();
 
   const [live, setLive] = useState(true);
+
+  const [settingsForm] = Form.useForm<Record<string, number>>();
+  const settings = useQuery({ queryKey: queueKeys.settings, queryFn: queueSettingsApi.read });
+
+  // The form is filled from the server's answer once it arrives, and never fought with afterwards:
+  // a knob somebody is typing into must not jump under them on a refetch.
+  useEffect(() => {
+    if (settings.data !== undefined) {
+      settingsForm.setFieldsValue({
+        ...settings.data.concurrency,
+        unitConcurrency: settings.data.unitConcurrency,
+      });
+    }
+  }, [settings.data, settingsForm]);
+
+  const saveSettings = useMutation({
+    mutationFn: queueSettingsApi.save,
+    onSuccess: () => {
+      void message.success(t('admin.queue.settings.saved'), 2);
+      void queryClient.invalidateQueries({ queryKey: queueKeys.settings });
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
 
   const overview = useQuery({
     queryKey: queueKeys.overview,
@@ -144,6 +169,37 @@ export function AdminQueueScreen() {
           </Col>
         ))}
       </Row>
+
+      {/* How hard the instance works (docs/11 §11.13). Saved and applied at once: the workers are
+          re-registered rather than waiting for the container to be bounced. */}
+      <Card title={t('admin.queue.settings.title')} loading={settings.isPending}>
+        <Form
+          form={settingsForm}
+          layout="inline"
+          onFinish={(values: Record<string, number>) => {
+            const { unitConcurrency, ...concurrency } = values;
+            saveSettings.mutate({ concurrency, unitConcurrency: unitConcurrency ?? 1 });
+          }}
+        >
+          {Object.keys(settings.data?.concurrency ?? {}).map((queue) => (
+            <Form.Item key={queue} name={queue} label={queue}>
+              <InputNumber min={1} max={32} style={{ width: 80 }} />
+            </Form.Item>
+          ))}
+          <Form.Item
+            name="unitConcurrency"
+            label={t('admin.queue.settings.unitConcurrency')}
+            tooltip={t('admin.queue.settings.unitConcurrencyHint')}
+          >
+            <InputNumber min={1} max={32} style={{ width: 80 }} />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={saveSettings.isPending}>
+              {t('common.actions.save')}
+            </Button>
+          </Form.Item>
+        </Form>
+      </Card>
 
       <Card
         title={t('admin.queue.pipeline.title')}

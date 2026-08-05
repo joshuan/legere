@@ -86,6 +86,9 @@ export const configSchema = z.object({
   CHUNK_OVERLAP_CHARS: z.coerce.number().int().nonnegative().default(200),
   QUEUE_CONCURRENCY_INGEST: z.coerce.number().int().positive().default(4),
   QUEUE_CONCURRENCY_PROCESS: z.coerce.number().int().positive().default(2),
+  // How many independent units inside one job run at once — the pages of a scan set being cropped,
+  // say. The default is 1 because it was the behaviour before the knob existed (docs/05 §5.4).
+  QUEUE_UNIT_CONCURRENCY: z.coerce.number().int().positive().default(1),
 
   // AI providers (empty base URL = feature disabled)
   EMBEDDINGS_API_BASE_URL: z.string().default(''),

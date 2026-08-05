@@ -62,6 +62,14 @@ enum StepStatus {
   SKIPPED
 }
 
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("settings")
+}
+
 enum ValueSource {
   NONE
   AUTO

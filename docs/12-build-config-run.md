@@ -96,6 +96,7 @@ CHUNK_TARGET_CHARS=1000
 CHUNK_OVERLAP_CHARS=200
 QUEUE_CONCURRENCY_INGEST=4
 QUEUE_CONCURRENCY_PROCESS=2
+QUEUE_UNIT_CONCURRENCY=1
 
 # --- AI providers (empty base URL = feature disabled, steps SKIPPED) ---
 EMBEDDINGS_API_BASE_URL=                     # OpenAI-compatible, e.g. https://api.openai.com/v1 or http://ollama:11434/v1

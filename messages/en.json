@@ -286,6 +286,12 @@
         "payload": "Payload",
         "retries": "Retries",
         "actions": "Actions"
+      },
+      "settings": {
+        "title": "How hard this instance works",
+        "saved": "Applied",
+        "unitConcurrency": "Units per job",
+        "unitConcurrencyHint": "How many independent pieces inside one job run at once — the pages of a scan set being cropped, say."
       }
     },
     "documentTypes": {

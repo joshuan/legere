@@ -56,3 +56,24 @@ export type ListQueueFailuresResponse = z.infer<typeof listQueueFailuresResponse
 
 export const retryJobResponseSchema = z.object({ ok: z.literal(true) });
 export type RetryJobResponse = z.infer<typeof retryJobResponseSchema>;
+
+// How hard the instance works (docs/11 §11.13). Two different knobs:
+//
+// - `concurrency` — how many jobs of one queue run at once. This is throughput across documents.
+// - `unitConcurrency` — how many independent units inside a single job run at once: the pages of a
+//   scan set being cropped, say. This is throughput inside one piece of work, and it is one number
+//   because the units are all the same shape of work — reading and resizing an image.
+//
+// Both are bounded: the point of a queue is that an instance under load stays usable, and a box
+// that lets somebody type 500 is a box that lets somebody take the machine down.
+export const QUEUE_CONCURRENCY_MAX = 32;
+
+export const queueSettingsSchema = z.object({
+  concurrency: z.record(z.string(), z.number().int().min(1).max(QUEUE_CONCURRENCY_MAX)),
+  unitConcurrency: z.number().int().min(1).max(QUEUE_CONCURRENCY_MAX),
+});
+export type QueueSettingsDto = z.infer<typeof queueSettingsSchema>;
+
+// Sent whole: the form shows every knob at once, so it saves every knob at once.
+export const updateQueueSettingsRequestSchema = queueSettingsSchema;
+export type UpdateQueueSettingsRequest = z.infer<typeof updateQueueSettingsRequestSchema>;

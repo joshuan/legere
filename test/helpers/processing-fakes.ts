@@ -52,6 +52,10 @@ import {
 import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
 import { CallContext } from '../../src/server/application/ports/call-context';
 import type { Person } from '../../src/server/domain/entities/person';
+import {
+  SettingsRepository,
+  type SettingValue,
+} from '../../src/server/domain/repositories/settings.repository';
 import type { Subject } from '../../src/server/domain/entities/subject';
 import type { SubjectKind } from '../../src/server/domain/entities/subject-kind';
 import {
@@ -883,5 +887,19 @@ export class FakeCallContext extends CallContext {
 
   get current(): string | null {
     return this.id;
+  }
+}
+
+// Instance settings in memory (docs/03 §3.3.21): a map, which is all the table is.
+export class InMemorySettingsRepository extends SettingsRepository {
+  readonly values = new Map<string, SettingValue>();
+
+  read(key: string): Promise<SettingValue> {
+    return Promise.resolve(this.values.get(key) ?? null);
+  }
+
+  write(key: string, value: SettingValue): Promise<void> {
+    this.values.set(key, value);
+    return Promise.resolve();
   }
 }

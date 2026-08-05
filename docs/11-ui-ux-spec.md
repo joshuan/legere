@@ -292,6 +292,12 @@ where the document being filed is on the screen.
 
 ## 11.13. Admin: Queue (`/admin/queue`)
 
+**How hard this instance works** is a row of numbers at the top: one per queue — how many of its jobs
+run at once — plus *units per job*, how many independent pieces inside a single job do. Saved and
+applied in one press: the workers are re-registered, so nobody has to bounce a container to make a
+machine work harder or leave it alone. Out-of-range values are clamped rather than rejected; the
+point is a usable instance, not a lecture. What the fields start at is what `12 §12.4` documents.
+
 - **Overview cards:** per queue (scan / ingest / process / merge) — queued, active, failed-recent;
   plus pipeline totals (documents by step status) and S3 usage.
 - **Failures table:** time, queue, payload summary (linked document/library), error (expandable),
