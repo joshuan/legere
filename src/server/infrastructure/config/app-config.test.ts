@@ -49,7 +49,11 @@ describe('loadConfig', () => {
   });
 
   describe('in production', () => {
-    const PRODUCTION = { ...MINIMAL, NODE_ENV: 'production', APP_BASE_URL: 'https://legere.example' };
+    const PRODUCTION = {
+      ...MINIMAL,
+      NODE_ENV: 'production',
+      APP_BASE_URL: 'https://legere.example',
+    };
 
     it('refuses the example AUTH_SECRET published in this repository', () => {
       expect(() =>

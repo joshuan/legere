@@ -45,8 +45,9 @@ describe('ConcurrencyGate', () => {
         await slot.promise;
       }),
     );
-    const queued = gate.run(async () => {
+    const queued = gate.run(() => {
       started += 1;
+      return Promise.resolve();
     });
     await Promise.resolve();
 
@@ -86,9 +87,9 @@ describe('ConcurrencyGate', () => {
   it('frees the slot when the work throws', async () => {
     const gate = new ConcurrencyGate(1);
 
-    await expect(
-      gate.run(() => Promise.reject(new Error('the work failed'))),
-    ).rejects.toThrowError('the work failed');
+    await expect(gate.run(() => Promise.reject(new Error('the work failed')))).rejects.toThrowError(
+      'the work failed',
+    );
 
     await expect(gate.run(() => Promise.resolve('the next one still runs'))).resolves.toBe(
       'the next one still runs',

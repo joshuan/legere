@@ -57,7 +57,11 @@ describe('CheckHealth', () => {
   });
 
   it('reports error when the queue is down', async () => {
-    const result = await new CheckHealth(new FakeDb(true), new FakeQueue('down'), clock()).execute();
+    const result = await new CheckHealth(
+      new FakeDb(true),
+      new FakeQueue('down'),
+      clock(),
+    ).execute();
     expect(result).toEqual({ status: 'error', db: 'ok', queue: 'down' });
   });
 

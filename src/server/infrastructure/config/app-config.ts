@@ -110,7 +110,9 @@ export function configWarnings(config: AppConfig): readonly string[] {
   if (!config.isProduction) {
     for (const { key, value } of PUBLISHED_EXAMPLES) {
       if (config.get(key) === value) {
-        warnings.push(`${key} is the published example value; production will refuse to start on it`);
+        warnings.push(
+          `${key} is the published example value; production will refuse to start on it`,
+        );
       }
     }
   }
