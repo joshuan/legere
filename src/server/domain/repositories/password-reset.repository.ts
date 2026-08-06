@@ -27,7 +27,10 @@ export abstract class PasswordResetRepository {
 
   abstract create(input: CreatePasswordResetInput, tx?: TransactionHandle): Promise<PasswordReset>;
 
-  abstract markUsed(id: string, usedAt: Date, tx?: TransactionHandle): Promise<void>;
+  // Spends the reset link (docs/08 §8.1.6, "single-use reset link"). A **conditional** write, for
+  // the same reason markAccepted is one: the row is updated only while it still satisfies
+  // isPasswordResetValid, and `false` means somebody else had already spent, revoked or outlived it.
+  abstract markUsed(id: string, usedAt: Date, tx?: TransactionHandle): Promise<boolean>;
 
   // Deactivating a user invalidates their pending resets (docs/03 §3.3.1).
   abstract revokeAllForUser(

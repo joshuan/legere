@@ -73,6 +73,21 @@ describe('Invites and password resets (e2e)', () => {
     });
   }
 
+  // Everything up to the last step: an address gets its own registration ticket against a shared
+  // invite. Two of these exist at once whenever an attacker starts a series per address on one
+  // link, which is what makes the single-use rule a race rather than a lookup.
+  async function ticketForInvite(token: string, email: string): Promise<string> {
+    await api(app).post('/api/auth/register/start', { email, inviteToken: token });
+    const verified = await api(app).post('/api/auth/register/verify', {
+      email,
+      code: app.emails.lastCodeFor(email),
+    });
+    return expectData(verified, registerVerifyResponseSchema).ticket;
+  }
+
+  const completeWith = (ticket: string) =>
+    api(app).post('/api/auth/register/complete', { ticket, password: PASSWORD });
+
   function tokenFrom(url: string): string {
     const token = url.split('/').pop();
     if (token === undefined || token === '') throw new Error(`No token in ${url}`);
@@ -182,6 +197,77 @@ describe('Invites and password resets (e2e)', () => {
       expect(expectError(afterExpiry).code).toBe('INVITE_INVALID');
     });
 
+    // 🔒 SEC-04: one link, two tickets. Completion re-reads the invite inside its transaction, so
+    // the second registration finds it spent (docs/08 §8.1.2, "single-use link").
+    it('mints one account when two registrations complete against the same invite in turn', async () => {
+      const invite = expectData(await createInvite({ role: 'ADMIN' }), createInviteResponseSchema);
+      const token = tokenFrom(invite.url);
+      const first = await ticketForInvite(token, 'shadow-a@legere.local');
+      const second = await ticketForInvite(token, 'shadow-b@legere.local');
+
+      expect((await completeWith(first)).status).toBe(200);
+
+      const reused = await completeWith(second);
+      expect(reused.status).toBe(400);
+      expect(expectError(reused).code).toBe('INVITE_INVALID');
+
+      // The onboarded admin plus exactly one invited admin — no copy the panel cannot see.
+      expect(await testPrisma().user.count({ where: { role: 'ADMIN' } })).toBe(2);
+      expect(await testPrisma().user.count({ where: { email: 'shadow-b@legere.local' } })).toBe(0);
+    });
+
+    // 🔒 SEC-04: the same, with both completions in flight together. READ COMMITTED lets both read
+    // an unaccepted invite, so only the conditional write in markAccepted can separate them.
+    it('mints one account when two registrations complete against the same invite at once', async () => {
+      const invite = expectData(await createInvite({ role: 'ADMIN' }), createInviteResponseSchema);
+      const token = tokenFrom(invite.url);
+      const tickets = [
+        await ticketForInvite(token, 'racer-a@legere.local'),
+        await ticketForInvite(token, 'racer-b@legere.local'),
+      ];
+
+      const results = await Promise.all(tickets.map((ticket) => completeWith(ticket)));
+
+      const succeeded = results.filter((res) => res.status === 200);
+      const rejected = results.filter((res) => res.status !== 200);
+      expect(succeeded).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      const failure = rejected[0];
+      if (failure === undefined) throw new Error('expected one rejection');
+      expect(expectError(failure).code).toBe('INVITE_INVALID');
+
+      expect(await testPrisma().user.count({ where: { role: 'ADMIN' } })).toBe(2);
+      const stored = await testPrisma().userInvite.findFirstOrThrow();
+      expect(stored.acceptedAt).not.toBeNull();
+    });
+
+    it('refuses a completion when the invite is revoked inside the ticket window', async () => {
+      const invite = expectData(await createInvite({ role: 'ADMIN' }), createInviteResponseSchema);
+      const ticket = await ticketForInvite(tokenFrom(invite.url), 'revoked@legere.local');
+
+      await api(app).delete(`/api/admin/invites/${invite.id}`).set('Cookie', adminCookie);
+
+      const res = await completeWith(ticket);
+      expect(res.status).toBe(400);
+      expect(expectError(res).code).toBe('INVITE_INVALID');
+      expect(await testPrisma().user.count({ where: { email: 'revoked@legere.local' } })).toBe(0);
+    });
+
+    it('refuses a completion when the invite expires inside the ticket window', async () => {
+      const invite = expectData(await createInvite(), createInviteResponseSchema);
+      const ticket = await ticketForInvite(tokenFrom(invite.url), 'stale@legere.local');
+
+      await testPrisma().userInvite.updateMany({
+        where: { id: invite.id },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+
+      const res = await completeWith(ticket);
+      expect(res.status).toBe(400);
+      expect(expectError(res).code).toBe('INVITE_INVALID');
+      expect(await testPrisma().user.count({ where: { email: 'stale@legere.local' } })).toBe(0);
+    });
+
     it('is admin-only', async () => {
       const invite = expectData(await createInvite(), createInviteResponseSchema);
       const userSession = await acceptInvite(tokenFrom(invite.url), 'plain@legere.local');
@@ -270,6 +356,74 @@ describe('Invites and password resets (e2e)', () => {
         resetToken: tokenFrom(reset.url),
       });
       expect(expectError(reuse).code).toBe('RESET_INVALID');
+    });
+
+    // A second account to deactivate: the last admin cannot be blocked (docs/03 §3.3.1).
+    async function invitedUser(email: string) {
+      const invite = expectData(await createInvite(), createInviteResponseSchema);
+      expect((await acceptInvite(tokenFrom(invite.url), email)).status).toBe(200);
+      return testPrisma().user.findFirstOrThrow({ where: { email } });
+    }
+
+    // Everything up to the last step of a reset series.
+    async function ticketForReset(token: string, email: string): Promise<string> {
+      await api(app).post('/api/auth/register/start', { email, resetToken: token });
+      const verified = await api(app).post('/api/auth/register/verify', {
+        email,
+        code: app.emails.lastCodeFor(email),
+      });
+      return expectData(verified, registerVerifyResponseSchema).ticket;
+    }
+
+    // 🔒 SEC-24: the ticket lives fifteen minutes, and an admin can block the account inside them.
+    // Deactivation exists to cut every route back in; completion was not one of them.
+    it('refuses a reset whose account was deactivated inside the ticket window', async () => {
+      const target = await invitedUser('deactivated-target@legere.local');
+      const reset = expectData(await createReset(target.id), createPasswordResetResponseSchema);
+      const ticket = await ticketForReset(tokenFrom(reset.url), target.email);
+
+      const blocked = await api(app)
+        .post(`/api/admin/users/${target.id}/deactivate`)
+        .set('Cookie', adminCookie);
+      expect(blocked.status).toBe(200);
+
+      const completed = await api(app).post('/api/auth/register/complete', {
+        ticket,
+        password: NEW_PASSWORD,
+      });
+      expect(completed.status).toBe(400);
+      expect(expectError(completed).code).toBe('RESET_INVALID');
+
+      // Nothing was written: reactivating the account must not hand it to whoever held the link.
+      const after = await testPrisma().user.findUniqueOrThrow({ where: { id: target.id } });
+      expect(after.passwordHash).toBe(target.passwordHash);
+      expect(
+        await testPrisma().passwordReset.count({ where: { userId: target.id, usedAt: null } }),
+      ).toBe(1);
+    });
+
+    // The same door from the other side: the account is active again, but the link it belonged to
+    // was revoked while the ticket was outstanding.
+    it('refuses a reset whose link was revoked inside the ticket window', async () => {
+      const target = await invitedUser('revoked-target@legere.local');
+      const reset = expectData(await createReset(target.id), createPasswordResetResponseSchema);
+      const ticket = await ticketForReset(tokenFrom(reset.url), target.email);
+
+      await api(app).post(`/api/admin/users/${target.id}/deactivate`).set('Cookie', adminCookie);
+      const restored = await api(app)
+        .post(`/api/admin/users/${target.id}/reactivate`)
+        .set('Cookie', adminCookie);
+      expect(restored.status).toBe(200);
+
+      const completed = await api(app).post('/api/auth/register/complete', {
+        ticket,
+        password: NEW_PASSWORD,
+      });
+      expect(completed.status).toBe(400);
+      expect(expectError(completed).code).toBe('RESET_INVALID');
+
+      const after = await testPrisma().user.findUniqueOrThrow({ where: { id: target.id } });
+      expect(after.passwordHash).toBe(target.passwordHash);
     });
 
     it('refuses to issue a reset for a deactivated user', async () => {

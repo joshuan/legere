@@ -1,16 +1,23 @@
 import type { EmailVerification } from '../../src/server/domain/entities/email-verification';
+import type { Session } from '../../src/server/domain/entities/session';
 import type { User } from '../../src/server/domain/entities/user';
+import {
+  SessionRepository,
+  type CreateSessionInput,
+} from '../../src/server/domain/repositories/session.repository';
 import {
   EmailVerificationRepository,
   type CreateEmailVerificationInput,
   type IssueTicketInput,
 } from '../../src/server/domain/repositories/email-verification.repository';
 import {
+  isPasswordResetValid,
   PasswordResetRepository,
   type CreatePasswordResetInput,
   type PasswordReset,
 } from '../../src/server/domain/repositories/password-reset.repository';
 import {
+  isInviteValid,
   UserInviteRepository,
   type CreateUserInviteInput,
   type UserInvite,
@@ -24,6 +31,7 @@ import {
 } from '../../src/server/domain/repositories/user.repository';
 import { CaptchaVerifier } from '../../src/server/application/ports/captcha-verifier';
 import { Clock } from '../../src/server/application/ports/clock';
+import { PasswordHasher } from '../../src/server/application/ports/password-hasher';
 import { EmailSendThrottle } from '../../src/server/application/ports/email-send-throttle';
 import { EmailSender, type EmailMessage } from '../../src/server/application/ports/email-sender';
 import {
@@ -90,6 +98,62 @@ export class StubCaptchaVerifier extends CaptchaVerifier {
   }
   verify(): Promise<boolean> {
     return Promise.resolve(this.result);
+  }
+}
+
+// Argon2id is far too slow for unit tests and proves nothing about a use case; the port exists so
+// they can hash reversibly instead (docs/08 §8.1.5).
+export class FakePasswordHasher extends PasswordHasher {
+  hash(password: string): Promise<string> {
+    return Promise.resolve(`hashed:${password}`);
+  }
+  verify(hash: string, password: string): Promise<boolean> {
+    return Promise.resolve(hash === `hashed:${password}`);
+  }
+}
+
+export class InMemorySessionRepository extends SessionRepository {
+  readonly sessions: Session[] = [];
+
+  constructor(private readonly clock: Clock = new FixedClock()) {
+    super();
+  }
+
+  create(input: CreateSessionInput): Promise<Session> {
+    const session: Session = {
+      id: `session-${this.sessions.length + 1}`,
+      tokenHash: input.tokenHash,
+      userId: input.userId,
+      userAgent: input.userAgent,
+      createdAt: this.clock.now(),
+      expiresAt: input.expiresAt,
+      revokedAt: null,
+    };
+    this.sessions.push(session);
+    return Promise.resolve(session);
+  }
+
+  findByTokenHash(tokenHash: string): Promise<Session | null> {
+    return Promise.resolve(
+      this.sessions.find((session) => session.tokenHash === tokenHash) ?? null,
+    );
+  }
+
+  revoke(id: string, revokedAt: Date): Promise<void> {
+    const session = this.sessions.find((candidate) => candidate.id === id);
+    if (session !== undefined) session.revokedAt = revokedAt;
+    return Promise.resolve();
+  }
+
+  revokeAllForUser(userId: string, revokedAt: Date): Promise<number> {
+    let revoked = 0;
+    for (const session of this.sessions) {
+      if (session.userId === userId && session.revokedAt === null) {
+        session.revokedAt = revokedAt;
+        revoked += 1;
+      }
+    }
+    return Promise.resolve(revoked);
   }
 }
 
@@ -238,8 +302,9 @@ export class InMemoryEmailVerificationRepository extends EmailVerificationReposi
     return Promise.resolve(record);
   }
 
-  incrementAttempts(id: string): Promise<number> {
-    const record = this.byId(id);
+  consumeAttempt(id: string, maxAttempts: number): Promise<number | null> {
+    const record = [...this.records.values()].find((candidate) => candidate.id === id);
+    if (record === undefined || record.attempts >= maxAttempts) return Promise.resolve(null);
     record.attempts += 1;
     return Promise.resolve(record.attempts);
   }
@@ -293,13 +358,13 @@ export class InMemoryUserInviteRepository extends UserInviteRepository {
     return Promise.resolve(this.invites.find((invite) => invite.id === id) ?? null);
   }
 
-  markAccepted(id: string, acceptedById: string, acceptedAt: Date): Promise<void> {
+  // Conditional, like the SQL it stands in for: only a still-valid invite is spent.
+  markAccepted(id: string, acceptedById: string, acceptedAt: Date): Promise<boolean> {
     const invite = this.invites.find((candidate) => candidate.id === id);
-    if (invite !== undefined) {
-      invite.acceptedById = acceptedById;
-      invite.acceptedAt = acceptedAt;
-    }
-    return Promise.resolve();
+    if (invite === undefined || !isInviteValid(invite, acceptedAt)) return Promise.resolve(false);
+    invite.acceptedById = acceptedById;
+    invite.acceptedAt = acceptedAt;
+    return Promise.resolve(true);
   }
 
   create(input: CreateUserInviteInput): Promise<UserInvite> {
@@ -356,10 +421,11 @@ export class InMemoryPasswordResetRepository extends PasswordResetRepository {
     return Promise.resolve(this.resets.find((reset) => reset.id === id) ?? null);
   }
 
-  markUsed(id: string, usedAt: Date): Promise<void> {
+  markUsed(id: string, usedAt: Date): Promise<boolean> {
     const reset = this.resets.find((candidate) => candidate.id === id);
-    if (reset !== undefined) reset.usedAt = usedAt;
-    return Promise.resolve();
+    if (reset === undefined || !isPasswordResetValid(reset, usedAt)) return Promise.resolve(false);
+    reset.usedAt = usedAt;
+    return Promise.resolve(true);
   }
 
   create(input: CreatePasswordResetInput): Promise<PasswordReset> {

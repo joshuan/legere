@@ -33,8 +33,20 @@ export class VerifyEmailCode {
     const now = this.clock.now();
     const verification = await this.findUsableSeries(input.email, now);
 
+    // The guess is paid for before it is made. Comparing first and incrementing after would let N
+    // simultaneous requests all be measured against a counter none of them had moved yet, so a
+    // connection pool's worth of codes would be tested where five should be; here the write is the
+    // gate, and N concurrent verifications consume N attempts.
+    const attempts = await this.verifications.consumeAttempt(verification.id, MAX_CODE_ATTEMPTS);
+    if (attempts === null) {
+      await this.verifications.delete(verification.id);
+      throw new RateLimitedError(
+        'EMAIL_CODE_TOO_MANY_ATTEMPTS',
+        'Too many wrong codes; request a new one',
+      );
+    }
+
     if (!this.codes.matches(verification.codeHash, input.code)) {
-      const attempts = await this.verifications.incrementAttempts(verification.id);
       if (attempts >= MAX_CODE_ATTEMPTS) {
         await this.verifications.delete(verification.id);
         throw new RateLimitedError(

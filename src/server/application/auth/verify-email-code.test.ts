@@ -5,20 +5,27 @@ import {
   FixedClock,
   InMemoryEmailVerificationRepository,
 } from '../../../../test/helpers/fakes';
+import { MAX_CODE_ATTEMPTS } from '../../domain/entities/email-verification';
 import { VerifyEmailCode } from './verify-email-code';
 
 const EMAIL = 'user@legere.local';
 
+// Counts how many codes were actually put to the test, which is the number the attempt cap is
+// supposed to bound (docs/08 §8.1.3 step 2).
+class CountingVerificationCodes extends FakeVerificationCodes {
+  comparisons = 0;
+  override matches(hash: string, code: string): boolean {
+    this.comparisons += 1;
+    return super.matches(hash, code);
+  }
+}
+
 function build() {
   const clock = new FixedClock();
   const verifications = new InMemoryEmailVerificationRepository(clock);
-  const useCase = new VerifyEmailCode(
-    verifications,
-    new FakeVerificationCodes(),
-    new FakeSessionTokens(),
-    clock,
-  );
-  return { useCase, clock, verifications };
+  const codes = new CountingVerificationCodes();
+  const useCase = new VerifyEmailCode(verifications, codes, new FakeSessionTokens(), clock);
+  return { useCase, clock, verifications, codes };
 }
 
 async function seedSeries(context: ReturnType<typeof build>): Promise<void> {
@@ -64,6 +71,33 @@ describe('VerifyEmailCode', () => {
     await expect(context.useCase.execute({ email: EMAIL, code: '000000' })).rejects.toMatchObject({
       code: 'EMAIL_CODE_TOO_MANY_ATTEMPTS',
     });
+    expect(await context.verifications.findActive(EMAIL, 'REGISTRATION')).toBeNull();
+  });
+
+  it('spends one attempt per verification when several arrive at once', async () => {
+    const burst = 3;
+    const results = await Promise.allSettled(
+      Array.from({ length: burst }, () =>
+        context.useCase.execute({ email: EMAIL, code: '000000' }),
+      ),
+    );
+
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    expect((await context.verifications.findActive(EMAIL, 'REGISTRATION'))?.attempts).toBe(burst);
+    expect(context.codes.comparisons).toBe(burst);
+  });
+
+  it('tests no more codes than the cap allows when a burst arrives at once', async () => {
+    const burst = MAX_CODE_ATTEMPTS * 4;
+    const results = await Promise.allSettled(
+      Array.from({ length: burst }, () =>
+        context.useCase.execute({ email: EMAIL, code: '000000' }),
+      ),
+    );
+
+    // The counter is the gate, so the guesses beyond the cap never reach the comparison at all.
+    expect(context.codes.comparisons).toBeLessThanOrEqual(MAX_CODE_ATTEMPTS);
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
     expect(await context.verifications.findActive(EMAIL, 'REGISTRATION')).toBeNull();
   });
 

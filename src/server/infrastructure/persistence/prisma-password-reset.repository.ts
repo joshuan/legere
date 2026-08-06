@@ -40,8 +40,14 @@ export class PrismaPasswordResetRepository implements PasswordResetRepository {
     return toDomain(row);
   }
 
-  async markUsed(id: string, usedAt: Date, tx?: TransactionHandle): Promise<void> {
-    await clientOf(this.prisma, tx).passwordReset.update({ where: { id }, data: { usedAt } });
+  // Conditional, exactly like UserInvite.markAccepted: the WHERE carries isPasswordResetValid, so a
+  // link revoked or spent since it was read updates nothing and the caller is told so.
+  async markUsed(id: string, usedAt: Date, tx?: TransactionHandle): Promise<boolean> {
+    const result = await clientOf(this.prisma, tx).passwordReset.updateMany({
+      where: { id, revokedAt: null, usedAt: null, expiresAt: { gt: usedAt } },
+      data: { usedAt },
+    });
+    return result.count === 1;
   }
 
   async revokeAllForUser(userId: string, revokedAt: Date, tx?: TransactionHandle): Promise<number> {

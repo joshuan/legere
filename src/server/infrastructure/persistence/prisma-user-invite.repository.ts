@@ -61,15 +61,19 @@ export class PrismaUserInviteRepository implements UserInviteRepository {
     return result.count;
   }
 
+  // One UPDATE that carries the whole of isInviteValid in its WHERE, so the database decides who
+  // spent the link. Under READ COMMITTED the second transaction waits on the row lock and then
+  // re-evaluates the predicate against the committed version, where `acceptedAt` is no longer null.
   async markAccepted(
     id: string,
     acceptedById: string,
     acceptedAt: Date,
     tx?: TransactionHandle,
-  ): Promise<void> {
-    await clientOf(this.prisma, tx).userInvite.update({
-      where: { id },
+  ): Promise<boolean> {
+    const result = await clientOf(this.prisma, tx).userInvite.updateMany({
+      where: { id, revokedAt: null, acceptedAt: null, expiresAt: { gt: acceptedAt } },
       data: { acceptedById, acceptedAt },
     });
+    return result.count === 1;
   }
 }

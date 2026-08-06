@@ -34,7 +34,16 @@ export abstract class EmailVerificationRepository {
     tx?: TransactionHandle,
   ): Promise<EmailVerification>;
 
-  abstract incrementAttempts(id: string, tx?: TransactionHandle): Promise<number>;
+  // Reserves one of the allowed guesses *before* the code is compared (docs/08 §8.1.3 step 2). The
+  // write itself is the gate: it increments only while the counter is below `maxAttempts`, and
+  // returns the value it wrote. `null` means there was no guess left to reserve — or the series is
+  // already gone. Incrementing after the comparison would let a burst of concurrent verifications
+  // all test a code against a counter none of them had moved yet.
+  abstract consumeAttempt(
+    id: string,
+    maxAttempts: number,
+    tx?: TransactionHandle,
+  ): Promise<number | null>;
 
   abstract issueTicket(
     id: string,

@@ -82,12 +82,21 @@ export class PrismaEmailVerificationRepository implements EmailVerificationRepos
     return toDomain(row);
   }
 
-  async incrementAttempts(id: string, tx?: TransactionHandle): Promise<number> {
-    const row = await clientOf(this.prisma, tx).emailVerification.update({
-      where: { id },
+  // `UPDATE … SET attempts = attempts + 1 WHERE id = ? AND attempts < ? RETURNING attempts` — one
+  // statement, so concurrent verifications queue on the row lock and are handed distinct counts.
+  // No row came back → the cap was already spent, or the series has been burned.
+  async consumeAttempt(
+    id: string,
+    maxAttempts: number,
+    tx?: TransactionHandle,
+  ): Promise<number | null> {
+    const rows = await clientOf(this.prisma, tx).emailVerification.updateManyAndReturn({
+      where: { id, attempts: { lt: maxAttempts } },
       data: { attempts: { increment: 1 } },
+      select: { attempts: true },
     });
-    return row.attempts;
+    const updated = rows[0];
+    return updated === undefined ? null : updated.attempts;
   }
 
   async issueTicket(
@@ -109,8 +118,10 @@ export class PrismaEmailVerificationRepository implements EmailVerificationRepos
     });
   }
 
+  // deleteMany rather than delete: burning the series is what several concurrent verifications do
+  // at once when the cap runs out, and the losers must not turn a missing row into a 500.
   async delete(id: string, tx?: TransactionHandle): Promise<void> {
-    await clientOf(this.prisma, tx).emailVerification.delete({ where: { id } });
+    await clientOf(this.prisma, tx).emailVerification.deleteMany({ where: { id } });
   }
 
   async deleteExpired(now: Date, tx?: TransactionHandle): Promise<number> {

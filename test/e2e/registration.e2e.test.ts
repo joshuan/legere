@@ -137,6 +137,47 @@ describe('Registration and onboarding (e2e)', () => {
     expect(await testPrisma().emailVerification.count({ where: { email } })).toBe(0);
   });
 
+  // 🔒 SEC-28: the attempt counter is spent by the write, before the code is compared, so requests
+  // arriving together cannot all be measured against a number none of them has moved yet.
+  it('consumes one attempt per verification when several arrive at once', async () => {
+    const email = 'concurrent@legere.local';
+    await start({ email });
+    const wrongCode = app.emails.lastCodeFor(email) === '000000' ? '111111' : '000000';
+
+    const burst = 3;
+    const results = await Promise.all(
+      Array.from({ length: burst }, () => verify({ email, code: wrongCode })),
+    );
+
+    expect(results.every((res) => res.status === 400)).toBe(true);
+    const series = await testPrisma().emailVerification.findFirstOrThrow({ where: { email } });
+    expect(series.attempts).toBe(burst);
+  });
+
+  it('burns the series and issues no ticket when a burst of guesses arrives at once', async () => {
+    const email = 'burst@legere.local';
+    await start({ email });
+    const realCode = app.emails.lastCodeFor(email);
+    const wrongCode = realCode === '000000' ? '111111' : '000000';
+
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => verify({ email, code: wrongCode })),
+    );
+
+    // Every request is answered by the flow itself — the cap running out is not an unhandled error.
+    expect(results.some((res) => res.status >= 500)).toBe(false);
+    expect(results.some((res) => res.status === 200)).toBe(false);
+    expect(
+      results.every((res) =>
+        ['EMAIL_CODE_INVALID', 'EMAIL_CODE_TOO_MANY_ATTEMPTS'].includes(expectError(res).code),
+      ),
+    ).toBe(true);
+
+    // The burst did not sail past the cap: the series is gone, and the right code is worth nothing.
+    expect(await testPrisma().emailVerification.count({ where: { email } })).toBe(0);
+    expect(expectError(await verify({ email, code: realCode })).code).toBe('EMAIL_CODE_INVALID');
+  });
+
   it('rejects an expired code and an expired ticket', async () => {
     const email = 'expiry@legere.local';
     await start({ email });

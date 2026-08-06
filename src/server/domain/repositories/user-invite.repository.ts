@@ -42,12 +42,17 @@ export abstract class UserInviteRepository {
 
   abstract revoke(id: string, revokedAt: Date, tx?: TransactionHandle): Promise<void>;
 
+  // Spends the invite (docs/08 §8.1.2, "single-use link"). A **conditional** write: the row moves
+  // to accepted only while it still satisfies isInviteValid, and the answer says whether this call
+  // is the one that spent it. Reading the invite and then updating it would not do — the
+  // transactions this runs in are READ COMMITTED, so two completions racing on one link both see
+  // `acceptedAt = null`; only the write can decide between them, and `false` means the caller lost.
   abstract markAccepted(
     id: string,
     acceptedById: string,
     acceptedAt: Date,
     tx?: TransactionHandle,
-  ): Promise<void>;
+  ): Promise<boolean>;
 
   // Maintenance purge of expired rows (docs/06 §6.3.2).
   abstract deleteExpired(now: Date, tx?: TransactionHandle): Promise<number>;
