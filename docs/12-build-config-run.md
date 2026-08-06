@@ -369,6 +369,28 @@ development stack of §12.5, which takes the same name from its directory — us
 - **Scaling later:** a second app container is possible (sessions/queue are in Postgres, files in
   S3), but per-IP rate limits become per-instance — acceptable, documented limitation.
 
+## 12.8a. Security headers
+
+Set on every response by one middleware mounted above the dispatcher, so pages and `/api` alike
+carry them ([`06 §6.9`](./06-backend-architecture.md)):
+
+| Header | Value | Why |
+|---|---|---|
+| `X-Content-Type-Options` | `nosniff` | The archive serves user content; nothing in it may be sniffed into something executable |
+| `X-Frame-Options` | `DENY` | Clickjacking, for anything predating `frame-ancestors` |
+| `Content-Security-Policy` | `frame-ancestors 'none'` on pages; `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` on `/api` | Nothing under `/api` has a reason to load anything at all |
+| `Referrer-Policy` | `no-referrer` | 🔒 Invite and reset links carry a single-use credential in their path ([`08 §8.1.2`](./08-auth-and-authorization.md#812-admin-invite)); the browser default would hand it to the first third-party asset a page loads |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | None of them is used |
+| `Strict-Transport-Security` | one year, `includeSubDomains` — **only when `APP_BASE_URL` is `https://`** | An instance on `http://<lan-ip>` is supported ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions)); telling that browser to upgrade would lock its operator out |
+
+Neither Express nor Next advertises what it is built on.
+
+**What is deliberately absent: a `script-src` for pages.** Ant Design's CSS-in-JS and Next's inline
+bootstrap need either `'unsafe-inline'`, which would buy nothing while looking like it bought
+something, or a per-request nonce threaded through the Ant Design registry and Next's script tags.
+The second is the one worth having — it is what would blunt a stored XSS — and it is a task of its
+own, tracked in the backlog rather than left as a comment.
+
 ## 12.9. Open questions
 
 None.

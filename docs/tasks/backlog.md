@@ -499,7 +499,7 @@ Every task ends the same way: the scenario it fixes joins
   **Options (decide in the PR description):** (1) a `TRUST_PROXY` setting defaulting to off — correct for both topologies, and an operator behind a proxy who forgets it gets over-throttling, which is the safe direction to fail; (2) put a reverse proxy in the shipped compose and stop publishing the app port — also brings the TLS the `Secure` cookie already rewards, at the cost of a heavier default stack. Whichever is chosen, add a concurrency bound around password hashing so no future keying mistake can saturate the libuv threadpool again.
   **Acceptance:** `X-Forwarded-For` changes nothing about which bucket a request falls into unless the deployment is configured to sit behind a proxy; `12 §12.8` stops describing `trust proxy` as simply "already set" and says what it costs without an ingress; concurrent password verifications are bounded and the bound is exercised by a test; `/api/health` is throttled generously enough that a five-second container probe never trips it, or answers from a short-lived cache.
 
-- [ ] **M15.7 — Headers that say no**
+- [x] **M15.7 — Headers that say no**
   **Goal:** the instance stops being framable, sniffable and free of any policy about what may execute.
   **Closes:** SEC-06, SEC-37
   **Docs:** [`02 §2.2`](../02-architecture-overview.md#22-entry-point-servermaints-integration-contract), [`12 §12.8`](../12-build-config-run.md)
@@ -571,7 +571,7 @@ Every task ends the same way: the scenario it fixes joins
   **Docs:** [`08 §8.1.7`](../08-auth-and-authorization.md), [`08 §8.2`](../08-auth-and-authorization.md#82-server-side-sessions), [`11 §11.11`](../11-ui-ux-spec.md)
   **Acceptance:** whatever `08` decides, the outcome is testable: an authenticated password change that requires the current password and revokes every other session; a user's own sessions listed and revocable on `/settings` beside the API tokens they can already manage; a documented answer on whether a 30-day session should end earlier when idle and whether a role change should re-issue it; `08 §8.2` says what `COOKIE_DOMAIN` costs — every sibling subdomain receives the session cookie — because today it does not.
 
-- [ ] **M15.18 — The second layers the documentation promises**
+- [x] **M15.18 — The second layers the documentation promises**
   **Goal:** two claims in `docs/08` that describe a defence in depth become true.
   **Closes:** SEC-27, SEC-42
   **Docs:** [`08 §8.2a`](../08-auth-and-authorization.md#82a-api-tokens-read-only), [`08 §8.4`](../08-auth-and-authorization.md#84-csrf-rate-limiting-captcha), [`02 §2.2`](../02-architecture-overview.md#22-entry-point-servermaints-integration-contract)

@@ -105,8 +105,10 @@ credential which leaks costs its owner nothing but a revocation and can never ch
 - **Read-only, enforced twice.** A mutating method (anything but `GET`/`HEAD`/`OPTIONS`) carrying an
   `Authorization: Bearer` header on `/api` is refused with `403 READ_ONLY_TOKEN` by a middleware
   standing beside `csrfOriginCheck` — before routing, without looking the token up, so a route that
-  forgot its guard is still covered. The guard behind it then refuses to resolve a bearer credential
-  on an unsafe method at all. Fail-closed, like the origin check it stands next to.
+  forgot its guard is still covered. `SessionGuard` behind it refuses to resolve a bearer credential
+  on an unsafe method at all, and refuses it *before* the lookup, so neither layer turns an honest
+  refusal into "invalid token". Fail-closed, like the origin check it stands next to, and proven by
+  a test that stands the guard up with the middleware removed.
 - **Authorization.** The token resolves to its owner and inherits **their** role and visibility: an
   admin's token reads the admin endpoints, a user's token reads what that user can read. Deactivating
   the owner, or revoking the token, ends it immediately — every request re-reads both.
@@ -135,7 +137,10 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
 ## 8.4. CSRF, rate limiting, CAPTCHA
 
 - **CSRF:** the SameSite=Lax cookie + `csrfOriginCheck` on **all mutations** (incl. login/register) —
-  `Origin`/`Referer` compared against `APP_BASE_URL`, **fail-closed** (absent/mismatched → 403).
+  `Origin`/`Referer` compared against `APP_BASE_URL`, **fail-closed** (absent/mismatched → 403). The
+  check is mounted above the `/api` dispatcher, not on `/api`: which requests may change state is
+  not a question of where a route happens to be mounted, and a Next route handler or server action
+  added later would otherwise inherit the session cookie with no check at all.
 - **Rate limiting:** layer 1 — per-IP in-memory (`@nestjs/throttler`) on `/api/auth/*` and
   `/api/invites/*` (incl. protection against Argon2 flooding); layer 2 — per-email: `register/start`
   ≤1 code/60 s and ≤5/day; `register/verify` ≤5 wrong attempts → the record is burned; `login` —

@@ -18,6 +18,7 @@ import { WorkerRegistry } from '../src/server/infrastructure/queue/worker-regist
 import { csrfOriginCheck } from '../src/server/presentation/http/csrf.middleware';
 import { errorEnvelope } from '../src/server/presentation/http/envelope';
 import { readOnlyBearer } from '../src/server/presentation/http/read-only-bearer.middleware';
+import { securityHeaders } from '../src/server/presentation/http/security-headers.middleware';
 
 // A request handler for everything Nest does not serve (Next pages/assets, or a stub in tests).
 type NextHandle = (req: Request, res: Response) => void;
@@ -44,6 +45,17 @@ export async function wireServer(
     server.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
   }
   nestApp.setGlobalPrefix('api');
+  // Nothing is served that says what it is built on.
+  server.disable('x-powered-by');
+
+  // Before the dispatcher, so pages carry them too (docs/12 §12.8).
+  server.use(securityHeaders({ usesHttps: config.usesHttps }));
+  // 🔒 And the origin check with them, above the dispatcher rather than on `/api`: a rule about
+  // which requests may change state should not depend on where a route happens to be mounted. The
+  // product has no Next route handler and no server action today, so this changes nothing now —
+  // which is the moment to move it, rather than the day somebody adds one and inherits the session
+  // cookie without the check (docs/08 §8.4).
+  server.use(csrfOriginCheck(config.get('APP_BASE_URL')));
 
   server.use((req, res, forward) => {
     if (isApiPath(req.path)) {
@@ -68,9 +80,7 @@ export async function wireServer(
   server.use('/api', (req, res, next) =>
     isUpload(req) ? next() : express.urlencoded({ extended: true })(req, res, next),
   );
-  // Fail-closed CSRF origin check on every mutating /api request (docs/08 §8.4), before Nest sees it.
-  server.use('/api', csrfOriginCheck(config.get('APP_BASE_URL')));
-  // And beside it: a bearer token reaches read routes only (docs/08 §8.2a).
+  // A bearer token reaches read routes only (docs/08 §8.2a).
   server.use('/api', readOnlyBearer);
 
   await nestApp.init();

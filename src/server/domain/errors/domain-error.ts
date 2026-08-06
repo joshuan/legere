@@ -58,6 +58,18 @@ export class ForbiddenError extends DomainError {
   }
 }
 
+// A read-only API token on a method that changes something (403, docs/08 §8.2a). Its own error
+// rather than a plain `FORBIDDEN` so the answer says which rule refused, and so it reads the same
+// whether the middleware before routing caught it or the guard behind it did.
+export class ReadOnlyTokenError extends DomainError {
+  readonly code = 'READ_ONLY_TOKEN';
+  readonly httpStatus = 403;
+
+  constructor(message = 'An API token may only be used for safe methods') {
+    super(message);
+  }
+}
+
 // 401 UNAUTHENTICATED — no or invalid session.
 export class UnauthenticatedError extends DomainError {
   readonly code = 'UNAUTHENTICATED';
