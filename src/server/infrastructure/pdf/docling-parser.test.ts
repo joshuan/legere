@@ -11,6 +11,8 @@ function parser(overrides: Record<string, string> = {}): DoclingParser {
       DATABASE_URL: 'postgresql://legere:legere@localhost:5432/legere',
       APP_BASE_URL: 'http://localhost:3000',
       AUTH_SECRET: 'test-secret-minimum-32-characters!!',
+      S3_ACCESS_KEY_ID: 'test-access-key',
+      S3_SECRET_ACCESS_KEY: 'test-secret-key',
       DOCLING_URL: 'http://docling:5001',
       ...overrides,
     }),

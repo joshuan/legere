@@ -17,6 +17,8 @@ const BASE_ENV = {
   DATABASE_URL: 'postgresql://legere:legere@localhost:5432/legere',
   AUTH_SECRET: 'x'.repeat(32),
   LOG_LEVEL: 'silent',
+  S3_ACCESS_KEY_ID: 'test-access-key',
+  S3_SECRET_ACCESS_KEY: 'test-secret-key',
 };
 
 // LoggerModule is global in AppModule (docs/06 §6.5); mirror that here so LogEmailSender resolves.

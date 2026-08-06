@@ -13,6 +13,8 @@ function toolbox(url = 'http://stirling:8080'): StirlingPdfToolbox {
       DATABASE_URL: 'postgresql://legere:legere@localhost:5432/legere',
       APP_BASE_URL: 'http://localhost:3000',
       AUTH_SECRET: 'test-secret-minimum-32-characters!!',
+      S3_ACCESS_KEY_ID: 'test-access-key',
+      S3_SECRET_ACCESS_KEY: 'test-secret-key',
       STIRLING_URL: url,
     }),
   );
