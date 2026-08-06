@@ -55,5 +55,13 @@ disagree, the doc wins — and report the discrepancy.
 | M9 | Hardening & release | maintenance, mandatory-scenario audit, v0.1.0 |
 | M10 | Correcting what the machine read | reading a field back, catalogues with screens of their own, a log that names the service |
 | M11 | Uploading, throughput, recognition | an upload queue on the page, tunable concurrency, subjects the analysis can recognise |
+| M12 | Reading the instance from outside | read-only API tokens |
+| M13 | A file is not a document | a document is an ordered list of files plus one canonical PDF |
+| M14 | Repairs and the operator's view | merges that hold, a queue that can be paused, an instance page |
+| M15 | Closing what the audit found | the findings of [`security-audit-2026-08.md`](./security-audit-2026-08.md), fixed and tested |
 
 Milestones are strictly sequential; tasks within a milestone are ordered by dependency.
+
+M15 is the exception to "take the first unchecked task": its tasks are ordered by what an attacker
+reaches first, and three of them are blocked on a documentation decision (they say so). Take the
+first unchecked task that is not blocked, and raise the blocked ones with the owner instead.

@@ -445,3 +445,148 @@ build on it.
   **Goal:** the operator's questions answered on a page instead of inside a container.
   **Docs:** [`07 §7.3`](../07-api-specification.md), [`11 §11.13a`](../11-ui-ux-spec.md#1113a-admin-instance-admininstance), [`12 §12.4`](../12-build-config-run.md)
   **Acceptance:** `/admin/instance` shows the effective configuration grouped as `12 §12.4` groups it, each row saying where the value came from; 🔒 no secret is ever a value — a password, key or token reads as Set or Not set, and `DATABASE_URL` appears decomposed without its password; a test proves that a configured secret's value appears nowhere in the response.
+
+## M15 — Closing what the audit found
+
+The findings register is [`security-audit-2026-08.md`](./security-audit-2026-08.md); every task below
+names the `SEC-nn` ids it closes, and the register holds the evidence, the attack, and the options.
+Tasks are ordered by what an attacker reaches first, not by how hard they are.
+
+Three of these need a **documentation decision before any code** — M15.13, M15.17 and M15.19 change
+behaviour that `docs/08` currently specifies, so per golden rule 3 the doc moves first and the task
+is blocked until it has. Each says so in its Goal.
+
+Every task ends the same way: the scenario it fixes joins
+[`14 §14.8`](../14-coding-standards.md#148-testing) and
+[`scenario-coverage.md`](./scenario-coverage.md), with a test that fails on today's tree.
+
+- [ ] **M15.1 — A share is not a licence to re-share**
+  **Goal:** a document its owner shared with one person stops being publishable to the whole instance by that person.
+  **Closes:** SEC-01, SEC-26
+  **Docs:** [`03 §3.3.15`](../03-domain-model.md), [`03 §3.4`](../03-domain-model.md), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model)
+  **Options (decide in the PR description):** (1) add `document.createdById = collection.ownerId` to the share branch of the access predicate in both dialects — smallest, fixes read and search at once, and the predicate gets simpler because the owner alternative collapses into the existing creator branch; (2) refuse the add in `AddCollectionItem` instead — fails at the mistake rather than silently, but breaks curating a collection of library documents and repairs nothing already laundered; (3) document-level ACLs — disproportionate, and contradicts `03 §3.4`.
+  **Acceptance:** a document reachable only through somebody else's share cannot be made readable to a third party by adding it to a second collection — proven end to end with three users, through `GET /api/documents/:id`, `/canonical`, `/markdown` **and** `/api/search`, because the rule lives in two dialects and both must hold; revoking the first share removes the access it granted with nothing surviving in a second collection; `DELETE /api/collections/:id/shares/:shareId` answers 404 for a share belonging to another collection; a query is written and run that lists items already laundered, and what it found is recorded in the PR.
+
+- [ ] **M15.2 — A login lands where it started**
+  **Goal:** `?returnTo=` stops being a way to hand a signed-in person to somebody else's page.
+  **Closes:** SEC-02
+  **Docs:** [`10 §10.2`](../10-frontend-architecture.md), [`11 §11.2`](../11-ui-ux-spec.md)
+  **Acceptance:** a `safeReturnTo` helper in `src/web/shared/lib` resolves the candidate against the current origin and keeps only `pathname + search + hash` when the origins match, falling back to `/documents` otherwise; it is applied at **both** sinks — the login form and the auth wizard — not at the one place that reads the query today, so the next feature to wire the prop inherits the guard; unit tests cover an absolute off-origin URL, protocol-relative `//host`, backslash variants, a same-origin path with a query and hash, and `javascript:`; the `javascript:` case is additionally checked in a real browser and the result recorded in the PR, because whether it navigates or executes decides whether this was a redirect or an XSS.
+
+- [ ] **M15.3 — Nothing uploaded can run in a browser**
+  **Goal:** a file a user uploads is served as bytes to save, never as a page to execute.
+  **Closes:** SEC-03
+  **Docs:** [`09 §9.1`](../09-file-storage.md), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model)
+  **Options (decide in the PR description):** (1) set `ResponseContentDisposition` and `ResponseContentType` on the presign — one choke point, retroactive for objects already in the bucket, and the signature covers the overrides so they cannot be stripped; the preview and canonical paths then need `inline` plus their real type, so the port grows a "how is this served" argument; (2) normalize the stored `ContentType` to `application/octet-stream` off a render allow-list — two lines, but leaves existing objects and the next careless presign unprotected; (3) stream managed originals through the app like library ones, so the existing `nosniff` + `attachment` block applies uniformly — one rule for all file serving, but it gives up range requests, so it fits `…/files/:fileId/content` only.
+  **Acceptance:** an uploaded `.html`, `.htm`, `.svg` and `.xml` are each retrieved through `GET /api/documents/:id/files/:fileId/content` and none of them arrives with a content type a browser will render as a document; `X-Content-Type-Options: nosniff` and a `Content-Disposition` are present on **every** file-serving response, the redirect branch included — the branch that skips them today; the preview, thumbnail and canonical PDF still display inline in the viewer; whichever option is chosen, option 2 is also applied as depth.
+
+- [ ] **M15.4 — An invite is used once, and a reset is still valid when it is spent**
+  **Goal:** one invite link stops being able to mint a second admin nobody can see.
+  **Closes:** SEC-04, SEC-24, SEC-28
+  **Docs:** [`08 §8.1.2`](../08-auth-and-authorization.md#812-admin-invite), [`08 §8.1.6`](../08-auth-and-authorization.md#816-password-reset-admin-initiated)
+  **Acceptance:** `CompleteRegistration` re-checks `isInviteValid` **inside** the transaction and `markAccepted` is a conditional write whose zero-row result is `INVITE_INVALID`, so two completions racing on one invite produce exactly one account; the same for a password reset — validity and the target account's active state are re-read at completion, and `markUsed` is conditional; verifying an email code makes the attempt counter the gate rather than a value read before it is written, so N concurrent guesses consume N attempts; tests cover one invite driven to completion twice (sequentially and concurrently), an account deactivated inside the ticket window, and a burst of concurrent verifies.
+
+- [ ] **M15.5 — A log is not a place to keep credentials**
+  **Goal:** reading the application log stops being a way to take over an account.
+  **Closes:** SEC-10, SEC-18
+  **Docs:** [`08 §8.1.2`](../08-auth-and-authorization.md#812-admin-invite), [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist), [`12 §12.4`](../12-build-config-run.md)
+  **Acceptance:** the request serializer logs a route-shaped URL, so an invite or reset token in a path segment reaches no log line; the document filename headers and the search query are redacted or dropped by an explicit decision recorded in the code; `LogEmailSender` logs the recipient and subject and never the body; under `NODE_ENV=production` an empty `SMTP_HOST` refuses to start unless an explicit opt-in is set, so the demo path cannot be reached by accident on a real instance, and `deploy/init.sh` and `12 §12.8` say how the first admin is created instead; a test drives an invite preview and a reset preview and asserts the token appears in no emitted log record.
+
+- [ ] **M15.6 — The server knows who is really calling**
+  **Goal:** rate limiting stops being switched off by a header the caller writes themselves.
+  **Closes:** SEC-05, SEC-36
+  **Docs:** [`06 §6.4`](../06-backend-architecture.md), [`08 §8.4`](../08-auth-and-authorization.md#84-csrf-rate-limiting-captcha), [`12 §12.4`](../12-build-config-run.md), [`12 §12.8`](../12-build-config-run.md)
+  **Options (decide in the PR description):** (1) a `TRUST_PROXY` setting defaulting to off — correct for both topologies, and an operator behind a proxy who forgets it gets over-throttling, which is the safe direction to fail; (2) put a reverse proxy in the shipped compose and stop publishing the app port — also brings the TLS the `Secure` cookie already rewards, at the cost of a heavier default stack. Whichever is chosen, add a concurrency bound around password hashing so no future keying mistake can saturate the libuv threadpool again.
+  **Acceptance:** `X-Forwarded-For` changes nothing about which bucket a request falls into unless the deployment is configured to sit behind a proxy; `12 §12.8` stops describing `trust proxy` as simply "already set" and says what it costs without an ingress; concurrent password verifications are bounded and the bound is exercised by a test; `/api/health` is throttled generously enough that a five-second container probe never trips it, or answers from a short-lived cache.
+
+- [ ] **M15.7 — Headers that say no**
+  **Goal:** the instance stops being framable, sniffable and free of any policy about what may execute.
+  **Closes:** SEC-06, SEC-37
+  **Docs:** [`02 §2.2`](../02-architecture-overview.md#22-entry-point-servermaints-integration-contract), [`12 §12.8`](../12-build-config-run.md)
+  **Options (decide in the PR description):** (1) helmet with a permissive CSP in `Report-Only` — fifteen lines, works unchanged with Ant Design's CSS-in-JS, delivers `frame-ancestors`, HSTS, nosniff and `Referrer-Policy` immediately, but `script-src 'unsafe-inline'` is a floor rather than a defence and must not be mistaken for one; (2) a nonce-based CSP threaded through the Ant Design registry — the only option that actually stops the XSS in SEC-03, and the most expensive: nonces disable static optimization and the custom Express dispatcher needs care; (3) the non-CSP headers globally now plus a strict `default-src 'none'` on `/api` only, with the page CSP deferred to a tracked task. Recommended: 3 now, 2 next; not 1 alone.
+  **Acceptance:** every response carries `X-Content-Type-Options`, `Referrer-Policy`, a frame policy that refuses embedding, and — only when the instance is served over HTTPS — HSTS, because turning it on for the `http://<lan-ip>` deployments `08 §8.2` deliberately supports would lock their operators out; the policy is built from `AppConfig` at boot rather than written as a constant, because presigned URLs point the browser at `S3_PUBLIC_ENDPOINT` and a static policy would block the viewer; neither Express nor Next advertises itself; a test asserts the header set on a page response and on an `/api` response, and the deferred page CSP is a task in this backlog rather than a comment.
+
+- [ ] **M15.8 — Dependencies with known holes, and a pipeline that would have said so**
+  **Goal:** the image stops shipping a native image decoder with four open CVEs, and stops being able to do it again quietly.
+  **Closes:** SEC-07, SEC-21
+  **Docs:** [`13 §13.1–13.2`](../13-ci-cd.md), [`12 §12.6`](../12-build-config-run.md#126-dockerfile-one-image)
+  **Acceptance:** `npm audit --omit=dev` reports nothing of high severity or above; `sharp` and `nodemailer` are on majors that carry the fixes and the breaking changes they bring are absorbed with the suite green; `ci.yml` declares a least-privilege `permissions:` block like `release.yml` already does; every third-party action is pinned to a commit SHA with the version in a comment; a dependency audit runs in CI and fails the build above a chosen threshold, and an image scan runs on release; Dependabot (or an equivalent) is configured so the next advisory arrives as a pull request rather than as an audit finding.
+
+- [ ] **M15.9 — One document cannot take down the server**
+  **Goal:** a file chosen to be expensive costs its own processing step and nothing else.
+  **Closes:** SEC-08, SEC-17, SEC-20, SEC-25
+  **Docs:** [`05 §5.4–5.5`](../05-library-and-processing.md#54-job-queue-pg-boss), [`09 §9.1`](../09-file-storage.md), [`12 §12.4`](../12-build-config-run.md)
+  **Acceptance:** every `sharp` pipeline declares a pixel budget and the process-wide cache and concurrency are set once at load, so a small file that decodes to a gigabyte fails its step with a recorded reason instead of ending the process — which in a one-process architecture is also the HTTP surface; every outbound call carries a timeout and reads its response through a bound, the captcha check included, because that one sits on the login path; `toBuffer` takes a maximum and library ingest refuses a file above it using the size it already knows before reading; the search headline runs over a bounded prefix of the Markdown and the text query is computed once rather than three times; a `statement_timeout` is set for the application role; each of these has a test that would hang or exhaust memory without it.
+
+- [ ] **M15.10 — The container is not root, and does not hold the keys to everything**
+  **Goal:** a hole in a native library stops being a hole in the host.
+  **Closes:** SEC-09, SEC-14, SEC-22, SEC-43
+  **Docs:** [`12 §12.6`](../12-build-config-run.md#126-dockerfile-one-image), [`12 §12.5`](../12-build-config-run.md#125-local-development), [`12 §12.8`](../12-build-config-run.md)
+  **Acceptance:** the runtime image drops to an unprivileged user and the shipped compose adds `cap_drop`, `no-new-privileges`, a memory limit and a read-only root filesystem with an explicit writable path for what genuinely needs one; the application is given a scoped object-store service account limited to its own bucket rather than the store's root credentials, and root stays for administration; the development compose binds its five services to loopback instead of every interface; migrations run as a one-shot step with a role that may change the schema, and the application connects with one that may not; the image still starts, serves `/api/health`, and processes a document end to end under all of it.
+
+- [ ] **M15.11 — Configuration that refuses to run insecurely**
+  **Goal:** the published example secret stops being a working production secret.
+  **Closes:** SEC-15, SEC-23, SEC-39
+  **Docs:** [`12 §12.4`](../12-build-config-run.md), [`11 §11.13a`](../11-ui-ux-spec.md#1113a-admin-instance-admininstance)
+  **Acceptance:** under `NODE_ENV=production` the configuration loader refuses the example `AUTH_SECRET` and the example S3 credentials by value, and says which ones in the same collected-errors style the loader already uses; the S3 credentials lose their defaults entirely, so an unconfigured instance fails rather than works with a published key; a plain-HTTP `APP_BASE_URL` in production is a loud warning that names what it costs — the `Secure` attribute on the session cookie; the loader asserts that `S3_PUBLIC_ENDPOINT` and `APP_BASE_URL` are different origins, because the PDF viewer's isolation silently depends on it; a test asserts that every configuration key whose name contains `SECRET`, `PASSWORD`, `KEY` or `TOKEN` is on the instance page's redaction list, so the next secret added is caught by CI rather than by an admin's screenshot.
+
+- [ ] **M15.12 — The archive cannot be talked into leaking**
+  **Goal:** a document stops being able to give the analysis instructions.
+  **Closes:** SEC-11
+  **Docs:** [`05 §5.5`](../05-library-and-processing.md), [`03 §3.3.19–3.3.20`](../03-domain-model.md)
+  **Options (decide in the PR description):** (1) a nonce-delimited fence with the nonce stripped from the excerpt — five lines, removes the escape but not an obedient model; (2) instructions and catalogue in the system message, the excerpt alone in the user message, stated as data — cheap and standard, soft by nature; (3) stop putting the instance-wide catalogue next to untrusted text, or scope it to what the document's owner can already see — the only one that removes the disclosure rather than raising its cost, at some cost to classification quality; (4) let analysis link to existing people and subjects freely but require confirmation before a **new** catalogue row is created — removes the poisoning permanently, adds a review step. Recommended: 1+2+3 for the disclosure, 4 for the poisoning.
+  **Acceptance:** a fixture document whose text instructs the model to copy the known-subjects list into a field does not produce a document whose title, description, people or subjects contain another user's catalogue entries; the excerpt cannot terminate its own delimiter; whatever is chosen for new catalogue rows, an operator can tell from the UI which rows analysis proposed and which a person confirmed.
+
+- [ ] **M15.13 — A lockout that cannot be pointed at somebody**
+  **Goal:** knowing an address stops being enough to keep its owner out indefinitely.
+  **Closes:** SEC-12, SEC-19
+  **Blocked on a decision:** the current behaviour is exactly what `08 §8.4` specifies, so this task cannot start until `docs/08` says something different. Bring the options to the owner first.
+  **Docs:** [`08 §8.4`](../08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)
+  **Options:** (1) verify the password first and apply the backoff only to failures, so the legitimate owner is never locked out — but the expensive hash then runs before the cheap gate, which only works together with the hashing bound from M15.6; (2) key on address **and** address+origin, keeping the per-address delay small and letting the per-origin one grow — an attacker spread across many origins regains speed unless a captcha is required after N failures; (3) replace the lockout with a mandatory captcha after N failures — no lockout at all, but a hard dependency on a captcha that is optional today and a no-op when unconfigured.
+  **Acceptance:** whatever `08 §8.4` ends up specifying, a person who knows their own password can sign in while somebody else is failing against their address; an invite whose `emailHint` is set only starts a registration for that address; the send throttle is keyed per purpose, so flooding an address with registration letters cannot deny it a password reset; a code series is chosen by the purpose being verified rather than by which one is found first; the attempt and throttle state survives a restart, because a crash loop currently resets every cap.
+
+- [ ] **M15.14 — The event log respects the same walls as everything else**
+  **Goal:** a document's history stops naming folders inside libraries the reader cannot open.
+  **Closes:** SEC-13
+  **Docs:** [`03 §3.3.18`](../03-domain-model.md), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model)
+  **Options (decide in the PR description):** (1) filter the recorded path by library visibility, which needs the event payload to carry its `libraryId` — forward-only, with older rows falling back to redacted; (2) strip the path from library-sourced events for non-admins, mirroring what the same function already does for the internal endpoint — one line, ships today, and loses a useful detail for readers who *could* see that library; (3) stop recording the event when known bytes turn up in a second library, which loses provenance `03 §3.3.18` exists to keep. Recommended: 2 now, 1 once the payload carries the library.
+  **Acceptance:** a user who may read a document because its bytes also live in a library they can see does not learn, from `GET /api/documents/:id/events`, the path those bytes occupy in a library they cannot; the same document's `refs` already hide that path, and a test asserts the two answers agree.
+
+- [ ] **M15.15 — Inputs stay inside their bounds**
+  **Goal:** the small sharp edges found across parsing, matching and path handling stop being there.
+  **Closes:** SEC-16, SEC-29, SEC-30, SEC-31, SEC-32, SEC-33, SEC-44
+  **Docs:** [`05 §5.1`](../05-library-and-processing.md), [`07 §7.1–7.2`](../07-api-specification.md#71-conventions), [`14 §14.4`](../14-coding-standards.md)
+  **Acceptance:** an exclude glob whose wildcards multiply is refused by the contract rather than compiled, and the matcher is built once per scan instead of recompiled per directory entry; a browse path containing `%` or `_` matches literally, and the folder listing and its offsets agree; a filename header containing control characters is stripped of them before the path is split, so nothing with a newline reaches a title, an S3 key or another container's multipart part; the library-creation check calls the `realpath` containment function that already exists, so a root reached through an intermediate symlink is refused, and a fixture proves it; both raw-body upload routes are exempt from the body parsers, declared in one place rather than by a path equality that the second route silently missed; the table-separator test is bounded so a megabyte-long line costs nothing; an unparseable cursor answers 422 rather than 500.
+
+- [ ] **M15.16 — An account has a history**
+  **Goal:** after an incident it is possible to say who signed in, from where, and when their authority changed.
+  **Closes:** SEC-34
+  **Docs:** [`06 §6.7`](../06-backend-architecture.md), [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist)
+  **Acceptance:** a successful login, a failed login, a lockout, an invite issued and accepted, a password reset issued and completed, a role change, a deactivation, a session revocation and an API token created or revoked each emit one structured record naming the actor, the target, the request id and the time; the records carry no token, code or password, and a test asserts that; the request id is the one the request already has, so a record joins to its request; where these records go, and how long they live, is written down in `06 §6.7`.
+
+- [ ] **M15.17 — A user can look after their own account**
+  **Goal:** somebody who thinks their password leaked can change it without asking an administrator.
+  **Closes:** SEC-35
+  **Blocked on a decision:** `08 §8.1.7` rules out self-service *recovery*; an authenticated *rotation* is a different thing and simply absent. `docs/08` has to say which of these it wants before code is written.
+  **Docs:** [`08 §8.1.7`](../08-auth-and-authorization.md), [`08 §8.2`](../08-auth-and-authorization.md#82-server-side-sessions), [`11 §11.11`](../11-ui-ux-spec.md)
+  **Acceptance:** whatever `08` decides, the outcome is testable: an authenticated password change that requires the current password and revokes every other session; a user's own sessions listed and revocable on `/settings` beside the API tokens they can already manage; a documented answer on whether a 30-day session should end earlier when idle and whether a role change should re-issue it; `08 §8.2` says what `COOKIE_DOMAIN` costs — every sibling subdomain receives the session cookie — because today it does not.
+
+- [ ] **M15.18 — The second layers the documentation promises**
+  **Goal:** two claims in `docs/08` that describe a defence in depth become true.
+  **Closes:** SEC-27, SEC-42
+  **Docs:** [`08 §8.2a`](../08-auth-and-authorization.md#82a-api-tokens-read-only), [`08 §8.4`](../08-auth-and-authorization.md#84-csrf-rate-limiting-captcha), [`02 §2.2`](../02-architecture-overview.md#22-entry-point-servermaints-integration-contract)
+  **Acceptance:** the session guard refuses to resolve a bearer credential on an unsafe method, so the middleware in front of it stops being the only thing standing between a read-only token and a write — which is what `08 §8.2a` already claims happens; the origin check covers every mutating request rather than every mutating `/api` request, or a lint rule makes it impossible to add a route outside `/api` that could accept one, and `02 §2.2` records which of the two was chosen; a test mutates through the guard with the middleware removed and is refused.
+
+- [ ] **M15.19 — Two questions the audit could not answer**
+  **Goal:** decide, in the documentation, two things that are currently accidents rather than choices.
+  **Closes:** SEC-40, SEC-41
+  **Blocked on a decision:** both behaviours match what `docs/07` and `docs/08` say today. They are here because the consequence looks unintended, not because the code disagrees with the docs — so the owner decides, and the doc changes, before anything is written.
+  **Docs:** [`07 §7.3`](../07-api-specification.md), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model), [`03 §3.3.19–3.3.20`](../03-domain-model.md)
+  **The questions:** (1) the people, subject and subject-kind catalogues are instance-wide, with global document counts, and their rows are mined by analysis from documents the reader may not open — is a name extracted from a restricted library meant to be visible to everyone? If not, the count becomes viewer-scoped and rows a viewer can reach nothing through disappear. (2) A user holding grants on two libraries can combine a document from the restricted one into a document from the open one, and the rebuilt PDF and Markdown then carry its pages to everyone who can see the open library — is `08 §8.5`'s "visible given access to at least one" a statement about deduplicated identical bytes, or a licence to bridge two libraries by hand?
+  **Acceptance:** each question is answered in the document that owns it, and whichever answer is chosen has a test proving the behaviour is now deliberate.
+
+- [ ] **M15.20 — The security checklist stops being decoration**
+  **Goal:** `08 §8.6` becomes a set of claims something proves, like the mandatory scenarios already are.
+  **Closes:** SEC-45
+  **Docs:** [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist), [`14 §14.8`](../14-coding-standards.md#148-testing), [`tasks/scenario-coverage.md`](./scenario-coverage.md)
+  **Acceptance:** every line of `08 §8.6` maps to the test that proves it, in the table that already exists for the mandatory scenarios, and a line with no test is either given one or struck from the checklist with a reason; the boxes are ticked only once their tests are green — two of them ("single-use invite links", "codes and tickets are never logged") were false when this audit ran, which is what a checklist nobody verifies is worth; `security-audit-2026-08.md` gains a closing note recording which findings were fixed, which were accepted, and by whom.
