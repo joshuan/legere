@@ -467,7 +467,7 @@ Every task ends the same way: the scenario it fixes joins
   **Options (decide in the PR description):** (1) add `document.createdById = collection.ownerId` to the share branch of the access predicate in both dialects — smallest, fixes read and search at once, and the predicate gets simpler because the owner alternative collapses into the existing creator branch; (2) refuse the add in `AddCollectionItem` instead — fails at the mistake rather than silently, but breaks curating a collection of library documents and repairs nothing already laundered; (3) document-level ACLs — disproportionate, and contradicts `03 §3.4`.
   **Acceptance:** a document reachable only through somebody else's share cannot be made readable to a third party by adding it to a second collection — proven end to end with three users, through `GET /api/documents/:id`, `/canonical`, `/markdown` **and** `/api/search`, because the rule lives in two dialects and both must hold; revoking the first share removes the access it granted with nothing surviving in a second collection; `DELETE /api/collections/:id/shares/:shareId` answers 404 for a share belonging to another collection; a query is written and run that lists items already laundered, and what it found is recorded in the PR.
 
-- [ ] **M15.2 — A login lands where it started**
+- [x] **M15.2 — A login lands where it started**
   **Goal:** `?returnTo=` stops being a way to hand a signed-in person to somebody else's page.
   **Closes:** SEC-02
   **Docs:** [`10 §10.2`](../10-frontend-architecture.md), [`11 §11.2`](../11-ui-ux-spec.md)

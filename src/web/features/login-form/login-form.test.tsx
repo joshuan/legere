@@ -68,6 +68,16 @@ describe('LoginForm', () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents/abc'));
   });
 
+  it('will not hand a freshly signed-in user to somebody else’s page', async () => {
+    server.use(http.post('/api/auth/login', () => HttpResponse.json(envelope(user))));
+
+    renderWithProviders(<LoginForm returnTo="https://legere-intern4l.example/login" />);
+    await fillAndSubmit();
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents'));
+    expect(replace).not.toHaveBeenCalledWith('https://legere-intern4l.example/login');
+  });
+
   it('shows the localized message for invalid credentials, never the server text', async () => {
     server.use(
       http.post('/api/auth/login', () =>

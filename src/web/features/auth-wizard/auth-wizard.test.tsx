@@ -87,6 +87,27 @@ describe('AuthWizard', () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents'));
   });
 
+  it('will not hand a freshly signed-in user to somebody else’s page', async () => {
+    mockHappyPath();
+
+    renderWithProviders(<AuthWizard mode="invite" returnTo="//evil.example/login" />);
+    await submitEmail();
+    await typeCode('123456');
+
+    const password = await screen.findByLabelText(enMessages.auth.fields.password);
+    await userEvent.type(password, 'a-decent-passphrase');
+    await userEvent.type(
+      screen.getByLabelText(enMessages.auth.fields.passwordConfirm),
+      'a-decent-passphrase',
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: enMessages.auth.wizard.actions.finish }),
+    );
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents'));
+    expect(replace).not.toHaveBeenCalledWith('//evil.example/login');
+  });
+
   it('carries the invite token into register/start', async () => {
     const started: unknown[] = [];
     mockHappyPath((body) => started.push(body));

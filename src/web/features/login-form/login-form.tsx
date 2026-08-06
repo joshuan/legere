@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import { sessionApi } from '../../entities/session';
-import { useErrorMessage } from '../../shared/lib';
+import { safeReturnTo, useErrorMessage } from '../../shared/lib';
 
 // Login card (docs/11 §11.2). Errors are localized by code and shown inline; there is no
 // self-service recovery in the MVP, so "forgot password" is a static hint (docs/08 §8.1.7).
@@ -23,7 +23,9 @@ export function LoginForm({ returnTo }: { returnTo?: string }) {
       setError(null);
       try {
         await sessionApi.login({ email: values.email, password: values.password });
-        router.replace(returnTo !== undefined && returnTo !== '' ? returnTo : '/documents');
+        // The guard sits here rather than where the query is read, so nothing reaches the router
+        // that did not come back from it (docs/tasks/security-audit-2026-08.md SEC-02).
+        router.replace(safeReturnTo(returnTo));
         router.refresh();
       } catch (caught) {
         setError(describeError(caught));

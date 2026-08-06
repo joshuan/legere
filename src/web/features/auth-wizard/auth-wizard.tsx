@@ -12,7 +12,7 @@ import {
 } from '../../../shared/contracts/auth';
 import { sessionApi } from '../../entities/session';
 import { isApiError } from '../../shared/api';
-import { useErrorMessage } from '../../shared/lib';
+import { safeReturnTo, useErrorMessage } from '../../shared/lib';
 
 // The one wizard behind onboarding, invite acceptance and password reset (docs/11 §11.2): the three
 // flows differ only in which token they carry and whether the address is fixed.
@@ -117,7 +117,9 @@ export function AuthWizard({
       setError(null);
       try {
         await sessionApi.registerComplete({ ticket, password: values.password });
-        router.replace(returnTo !== undefined && returnTo !== '' ? returnTo : '/documents');
+        // Same guard as the login form, at the sink rather than at the read site
+        // (docs/tasks/security-audit-2026-08.md SEC-02).
+        router.replace(safeReturnTo(returnTo));
       } catch (caught) {
         setError(describeError(caught));
         // An expired or spent ticket means starting over.
