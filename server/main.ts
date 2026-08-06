@@ -8,7 +8,11 @@ import { Logger as PinoLogger } from 'nestjs-pino';
 import next from 'next';
 import { pinoHttp } from 'pino-http';
 import { AppModule } from '../src/server/app.module';
-import { AppConfig, loadConfig } from '../src/server/infrastructure/config/app-config';
+import {
+  AppConfig,
+  configWarnings,
+  loadConfig,
+} from '../src/server/infrastructure/config/app-config';
 import { buildPinoHttpOptions } from '../src/server/infrastructure/logging/logger.options';
 import { WorkerRegistry } from '../src/server/infrastructure/queue/worker-registry';
 import { csrfOriginCheck } from '../src/server/presentation/http/csrf.middleware';
@@ -99,6 +103,9 @@ export async function bootstrap({ dev }: { dev: boolean }): Promise<void> {
   server.listen(port, () => {
     const logger = nestApp.get(PinoLogger);
     logger.log(`Legere listening on :${port} (dev=${dev})`);
+    // What this instance is running on that is not wrong but costs something (docs/12 §12.4a).
+    // Production refuses the rest at boot; these are the ones an operator should choose knowingly.
+    for (const warning of configWarnings(config)) logger.warn(warning);
     // Every one of these degrades quietly when it is not set — parsing falls back to a converter
     // that flattens the document, categorization and semantic search simply do not happen. Saying
     // so once at startup is the difference between "configured off" and "forgot to configure".

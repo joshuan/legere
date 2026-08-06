@@ -524,7 +524,7 @@ Every task ends the same way: the scenario it fixes joins
   **Docs:** [`12 §12.6`](../12-build-config-run.md#126-dockerfile-one-image), [`12 §12.5`](../12-build-config-run.md#125-local-development), [`12 §12.8`](../12-build-config-run.md)
   **Acceptance:** the runtime image drops to an unprivileged user and the shipped compose adds `cap_drop`, `no-new-privileges`, a memory limit and a read-only root filesystem with an explicit writable path for what genuinely needs one; the application is given a scoped object-store service account limited to its own bucket rather than the store's root credentials, and root stays for administration; the development compose binds its five services to loopback instead of every interface; migrations run as a one-shot step with a role that may change the schema, and the application connects with one that may not; the image still starts, serves `/api/health`, and processes a document end to end under all of it.
 
-- [ ] **M15.11 — Configuration that refuses to run insecurely**
+- [x] **M15.11 — Configuration that refuses to run insecurely**
   **Goal:** the published example secret stops being a working production secret.
   **Closes:** SEC-15, SEC-23, SEC-39
   **Docs:** [`12 §12.4`](../12-build-config-run.md), [`11 §11.13a`](../11-ui-ux-spec.md#1113a-admin-instance-admininstance)

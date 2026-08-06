@@ -8,3 +8,7 @@ process.env.AUTH_SECRET ??= 'test-secret-minimum-32-characters!!';
 // the integration harness truncates every table between tests.
 process.env.DATABASE_URL ??= 'postgresql://legere:legere@localhost:5432/legere_test?schema=public';
 process.env.LIBRARY_ROOT ??= '/tmp/test-library';
+// The S3 credentials carry no schema default any more (docs/12 §12.4a), so the dummy values live
+// here beside the others rather than in the schema where production could reach them.
+process.env.S3_ACCESS_KEY_ID ??= 'legere';
+process.env.S3_SECRET_ACCESS_KEY ??= 'legere-secret';

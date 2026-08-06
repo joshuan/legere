@@ -1,16 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { CONSEQUENCES, instanceResponseSchema } from '../../../shared/contracts/instance';
 import { loadConfig } from './app-config';
-import { describeInstance } from './instance-view';
+import { configSchema } from './config.schema';
+import { SECRET_KEYS, describeInstance } from './instance-view';
 
 const AUTH_SECRET = 'auth-secret-nobody-may-ever-see-1234';
 const SMTP_PASSWORD = 'smtp-password-nobody-may-ever-see';
 const DATABASE_PASSWORD = 'database-password-nobody-may-ever-see';
 
+const S3_SECRET = 's3-secret-nobody-may-ever-see';
+
 const MINIMAL = {
   APP_BASE_URL: 'http://localhost:3000',
   DATABASE_URL: `postgresql://legere:${DATABASE_PASSWORD}@db.internal:5433/archive?schema=public`,
   AUTH_SECRET,
+  S3_ACCESS_KEY_ID: 's3-access-key-nobody-may-ever-see',
+  S3_SECRET_ACCESS_KEY: S3_SECRET,
 };
 
 const view = (env: Record<string, string> = {}) =>
@@ -207,4 +212,37 @@ describe('describeInstance', () => {
       expect(rowFor('SCAN_MAX_FILES').consequence).toBeNull();
     });
   });
+
+  // 🔒 The redaction list is a deny-list: a key it does not name travels as its value. That is the
+  // right shape for a page whose job is to show configuration, and the wrong shape for the day
+  // somebody adds a credential to the schema and to a group and to nothing else. This is the
+  // backstop — it fails in CI rather than in an admin's screenshot.
+  describe('the redaction list keeps up with the schema', () => {
+    // Keys whose name reads like a credential and is not one. Each is here by decision, not by
+    // oversight: a lifetime in days tells an attacker nothing.
+    const NOT_SECRETS: ReadonlySet<string> = new Set(['API_TOKEN_TTL_DAYS']);
+
+    it('names every key in the schema that looks like a credential', () => {
+      const credentialShaped = Object.keys(configSchema.shape).filter(
+        (key) => /SECRET|PASSWORD|KEY|TOKEN/.test(key) && !NOT_SECRETS.has(key),
+      );
+
+      const unredacted = credentialShaped.filter((key) => !hasSecretKey(key));
+
+      expect(unredacted).toEqual([]);
+    });
+
+    it('holds nothing the schema no longer has', () => {
+      const schemaKeys = new Set(Object.keys(configSchema.shape));
+
+      expect([...SECRET_KEYS].filter((key) => !schemaKeys.has(key))).toEqual([]);
+    });
+  });
 });
+
+// `SECRET_KEYS` is typed by the schema's keys; the schema's keys arrive from `Object.keys` as
+// strings. Asking the set about a string is the whole point of the test, and this is how it is done
+// without a type assertion.
+function hasSecretKey(key: string): boolean {
+  return [...SECRET_KEYS].some((secret) => secret === key);
+}

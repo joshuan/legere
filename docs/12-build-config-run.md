@@ -155,6 +155,32 @@ then looks broken rather than strict.
 (passed as Docker build-args, [`13 §13.3`](./13-ci-cd.md#133-githubworkflowsreleaseyml)); setting them
 at runtime has no effect.
 
+## 12.4a. What production refuses to start with
+
+The schema above validates *shape*. A production instance — `NODE_ENV=production`, which both the
+image and `deploy/docker-compose.yaml` set — is held to more than that, because the values this
+repository publishes so a reader can copy a file and see the app start are values anybody can read
+on GitHub. `loadConfig` collects every problem and refuses to boot, in the same multi-line form the
+schema errors use:
+
+| Refused | Why |
+|---|---|
+| `AUTH_SECRET` equal to the example in `.env.example` | It is the HMAC key for email verification codes, and it is published |
+| `S3_SECRET_ACCESS_KEY` equal to `legere-secret` | Same, for the bucket holding every derived artifact |
+| The browser-facing bucket origin equal to `APP_BASE_URL`'s | 🔒 The viewer embeds the canonical PDF from a presigned URL, and a PDF viewer runs script in the origin that served it. Different origins is what keeps a document in the archive from scripting the app; put them on one and it can. The check reads `S3_PUBLIC_ENDPOINT`, or `S3_ENDPOINT` when no public one is set ([`09 §9.2`](./09-file-storage.md)) |
+
+`S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` carry **no defaults at all**: a credential that works
+without being set is a credential published in this repository. Every path that runs the app supplies
+them — `.env` in development, the compose file in a deployment, `test/setup.server.ts` in CI.
+
+Two things are warned about at startup rather than refused, because an operator may want them:
+
+- `APP_BASE_URL` that is not `https://` — session cookies then travel without the `Secure` attribute
+  ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions) explains why that follows the
+  address rather than `NODE_ENV`), and so does everything else.
+- A development instance running on a published example value — the warning says production will
+  refuse it, so the surprise happens on a laptop and not on a deploy.
+
 ## 12.5. Local development
 
 ```bash

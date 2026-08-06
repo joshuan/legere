@@ -23,7 +23,7 @@ import type { ConfigValues } from './config.schema';
 // The Turnstile site key is on it deliberately. It is public by design — it is baked into the
 // client bundle — but it is still a key, and what an operator needs from this page is "a CAPTCHA is
 // configured", which SET says in full.
-const SECRET_KEYS: ReadonlySet<keyof ConfigValues> = new Set([
+export const SECRET_KEYS: ReadonlySet<keyof ConfigValues> = new Set([
   'AUTH_SECRET',
   'TURNSTILE_SECRET_KEY',
   'NEXT_PUBLIC_TURNSTILE_SITE_KEY',
