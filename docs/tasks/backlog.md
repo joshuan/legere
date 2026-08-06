@@ -530,7 +530,7 @@ Every task ends the same way: the scenario it fixes joins
   **Docs:** [`12 §12.4`](../12-build-config-run.md), [`11 §11.13a`](../11-ui-ux-spec.md#1113a-admin-instance-admininstance)
   **Acceptance:** under `NODE_ENV=production` the configuration loader refuses the example `AUTH_SECRET` and the example S3 credentials by value, and says which ones in the same collected-errors style the loader already uses; the S3 credentials lose their defaults entirely, so an unconfigured instance fails rather than works with a published key; a plain-HTTP `APP_BASE_URL` in production is a loud warning that names what it costs — the `Secure` attribute on the session cookie; the loader asserts that `S3_PUBLIC_ENDPOINT` and `APP_BASE_URL` are different origins, because the PDF viewer's isolation silently depends on it; a test asserts that every configuration key whose name contains `SECRET`, `PASSWORD`, `KEY` or `TOKEN` is on the instance page's redaction list, so the next secret added is caught by CI rather than by an admin's screenshot.
 
-- [ ] **M15.12 — The archive cannot be talked into leaking**
+- [x] **M15.12 — The archive cannot be talked into leaking**
   **Goal:** a document stops being able to give the analysis instructions.
   **Closes:** SEC-11
   **Docs:** [`05 §5.5`](../05-library-and-processing.md), [`03 §3.3.19–3.3.20`](../03-domain-model.md)
