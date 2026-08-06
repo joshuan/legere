@@ -46,6 +46,7 @@ NODE_ENV=development
 PORT=3000
 APP_BASE_URL=http://localhost:3000          # absolute; used for CSRF origin check and links in emails/invites
 LOG_LEVEL=debug                              # pino level; prod default: info
+TRUST_PROXY=                                 # empty = do not believe X-Forwarded-For; 1 = one ingress in front (12 §12.8)
 
 # --- database ---
 DATABASE_URL=postgresql://legere:legere@localhost:5432/legere?schema=public
@@ -358,8 +359,13 @@ development stack of §12.5, which takes the same name from its directory — us
 - **Email pitfalls:** unset `SMTP_HOST` = codes only in container logs (demo fallback — fine for a
   single-admin start, useless for inviting others). `SMTP_SECURE` must match the port (465→true,
   587→false); `SMTP_FROM` domain must be authorized (SPF/DKIM) or providers will 5xx/spam-folder you.
-- **Behind the proxy:** the app assumes `trust proxy` (already set); cookies are `Secure` in prod, so
-  TLS at the ingress is mandatory.
+- **Behind a proxy:** set `TRUST_PROXY` — `1` for a single ingress, a larger number for a chain, or
+  a value Express understands (`loopback`, a CIDR list). It is **empty by default**, and that is
+  deliberate: with it on, `req.ip` comes from `X-Forwarded-For`, which the client writes. Publish the
+  app port directly with `TRUST_PROXY=1` and every caller picks their own rate-limit bucket per
+  request, so the per-IP limits of [`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)
+  stop existing. Set it only when something in front of the app rewrites the header. Cookies are
+  `Secure` whenever `APP_BASE_URL` is `https://`, so TLS at the ingress remains the expectation.
 - **Scaling later:** a second app container is possible (sessions/queue are in Postgres, files in
   S3), but per-IP rate limits become per-instance — acceptable, documented limitation.
 

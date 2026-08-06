@@ -16,6 +16,11 @@ export const configSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   APP_BASE_URL: z.string().url(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  // 🔒 Whether to believe `X-Forwarded-For`, and how far (docs/12 §12.8). Empty — the default —
+  // means no: the header is a thing the client writes, so trusting it without an ingress that
+  // rewrites it hands every caller a fresh rate-limit bucket per request. A number is a hop count;
+  // anything else is passed to Express as it stands, so `loopback` and CIDR lists work.
+  TRUST_PROXY: z.string().default(''),
 
   // database
   DATABASE_URL: z.string().min(1),

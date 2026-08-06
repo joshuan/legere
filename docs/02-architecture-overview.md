@@ -52,7 +52,7 @@ Details and the rationale for the ordering — in `06-backend-architecture.md` (
 ```ts
 // schematic
 const server = express();
-server.set('trust proxy', 1);
+if (TRUST_PROXY !== '') server.set('trust proxy', TRUST_PROXY);   // off unless configured (12 §12.8)
 
 const nextApp = next({ dev });                    // 1) prepare Next FIRST
 await nextApp.prepare();

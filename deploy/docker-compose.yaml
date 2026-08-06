@@ -32,6 +32,7 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:?generate one with `openssl rand -base64 32`}
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      TRUST_PROXY: ${TRUST_PROXY:-}
       DATABASE_URL: postgresql://legere:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/legere?schema=public
       LIBRARY_ROOT: /library
       STIRLING_URL: http://stirling:8080

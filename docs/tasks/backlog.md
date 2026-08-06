@@ -492,7 +492,7 @@ Every task ends the same way: the scenario it fixes joins
   **Docs:** [`08 §8.1.2`](../08-auth-and-authorization.md#812-admin-invite), [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist), [`12 §12.4`](../12-build-config-run.md)
   **Acceptance:** the request serializer logs a route-shaped URL, so an invite or reset token in a path segment reaches no log line; the document filename headers and the search query are redacted or dropped by an explicit decision recorded in the code; `LogEmailSender` logs the recipient and subject and never the body; under `NODE_ENV=production` an empty `SMTP_HOST` refuses to start unless an explicit opt-in is set, so the demo path cannot be reached by accident on a real instance, and `deploy/init.sh` and `12 §12.8` say how the first admin is created instead; a test drives an invite preview and a reset preview and asserts the token appears in no emitted log record.
 
-- [ ] **M15.6 — The server knows who is really calling**
+- [x] **M15.6 — The server knows who is really calling**
   **Goal:** rate limiting stops being switched off by a header the caller writes themselves.
   **Closes:** SEC-05, SEC-36
   **Docs:** [`06 §6.4`](../06-backend-architecture.md), [`08 §8.4`](../08-auth-and-authorization.md#84-csrf-rate-limiting-captcha), [`12 §12.4`](../12-build-config-run.md), [`12 §12.8`](../12-build-config-run.md)

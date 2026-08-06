@@ -34,7 +34,15 @@ export async function wireServer(
   nestApp: INestApplication,
   nextHandle: NextHandle,
 ): Promise<void> {
-  server.set('trust proxy', 1);
+  const config = nestApp.get(AppConfig);
+  // 🔒 Off unless the operator says otherwise (docs/12 §12.8). Express reads `req.ip` from
+  // `X-Forwarded-For` once this is set, and every per-IP limit in the app reads `req.ip` — so
+  // trusting the header with nothing in front to rewrite it means a caller picks their own bucket.
+  // Getting it wrong in the other direction costs over-throttling, which is the safe direction.
+  const trustProxy = config.get('TRUST_PROXY');
+  if (trustProxy !== '') {
+    server.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
+  }
   nestApp.setGlobalPrefix('api');
 
   server.use((req, res, forward) => {
@@ -61,7 +69,7 @@ export async function wireServer(
     isUpload(req) ? next() : express.urlencoded({ extended: true })(req, res, next),
   );
   // Fail-closed CSRF origin check on every mutating /api request (docs/08 §8.4), before Nest sees it.
-  server.use('/api', csrfOriginCheck(nestApp.get(AppConfig).get('APP_BASE_URL')));
+  server.use('/api', csrfOriginCheck(config.get('APP_BASE_URL')));
   // And beside it: a bearer token reaches read routes only (docs/08 §8.2a).
   server.use('/api', readOnlyBearer);
 

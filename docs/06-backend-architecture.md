@@ -191,7 +191,12 @@ Additional normative details:
    **before** `nestApp.init()`.
 4. After `init()`, a terminal `/api` middleware returns
    `404 { error: { code: 'NOT_FOUND', message: 'Unknown API route', details: null } }`.
-5. `server.set('trust proxy', 1)` — the app always runs behind a TLS-terminating proxy in prod.
+5. `trust proxy` is set **only** when `TRUST_PROXY` says so, and is off by default
+   ([`12 §12.8`](./12-build-config-run.md#128-production-notes)). 🔒 Every per-IP limit in the app
+   reads `req.ip`, and Express reads that from `X-Forwarded-For` once this is on — so believing the
+   header with nothing in front to rewrite it lets a caller choose their own rate-limit bucket. A
+   deployment that forgets to set it behind a real proxy over-throttles, which is the safe direction
+   to be wrong in.
 6. Multipart is not used (no user uploads); no multer.
 7. Dev runner: `nodemon` watches `server/`, `src/server/`, `src/shared/` and re-executes
    `node server/dev.mjs`, which registers the SWC ESM loader (decorator metadata, ADR-017) and runs
@@ -201,7 +206,11 @@ Additional normative details:
 
 `GET /api/health` → `200 { data: { status: 'ok', db: 'ok', queue: 'ok' } }`; DB checked with
 `SELECT 1`, queue with a pg-boss state read. Any check failing → `503` with the failing component.
-Used as the container liveness/readiness probe. S3 and Stirling are **not** part of health (their
+Used as the container liveness/readiness probe. 🔒 The answer stands for one second and a burst
+arriving together costs one round trip: the route is unauthenticated because a probe cannot
+authenticate, so without that every caller buys a database round trip and anybody may call it as
+fast as they like. A second is far below any probe interval, so the answer is never stale to an
+operator. Throttling it instead would be worse — the probe would be the thing refused. S3 and Stirling are **not** part of health (their
 outage must not restart the app).
 
 ## 6.11. Open questions
