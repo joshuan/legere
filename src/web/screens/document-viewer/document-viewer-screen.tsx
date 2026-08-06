@@ -1362,12 +1362,21 @@ function describeEvent(event: DocumentEventDto, t: ReturnType<typeof useTranslat
     const steps = (payload.steps ?? []).map((one) => t(`viewer.steps.${one}`)).join(', ');
     return steps === '' ? t('viewer.log.queued') : t('viewer.log.queuedSteps', { steps });
   }
-  if (event.type === 'CREATED') return t('viewer.log.created', { path: payload.path ?? '' });
+  // 🔒 The path of a library file only reaches an admin (docs/03 §3.3.18), so each of these
+  // sentences has a form that names no folder: the entry still says what happened.
+  const path = payload.path;
+  if (event.type === 'CREATED') {
+    return path === undefined ? t('viewer.log.createdBare') : t('viewer.log.created', { path });
+  }
   if (event.type === 'FILE_ATTACHED') {
-    return t('viewer.log.fileAttached', { path: payload.path ?? '' });
+    return path === undefined
+      ? t('viewer.log.fileAttachedBare')
+      : t('viewer.log.fileAttached', { path });
   }
   if (event.type === 'FILE_MISSING') {
-    return t('viewer.log.fileMissing', { path: payload.path ?? '' });
+    return path === undefined
+      ? t('viewer.log.fileMissingBare')
+      : t('viewer.log.fileMissing', { path });
   }
 
   const changes = Object.entries(payload.changes ?? {})

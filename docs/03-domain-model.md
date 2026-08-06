@@ -479,6 +479,17 @@ chunking text — names no service, since there is no other log to go and read. 
 container on an internal network: it is recorded for everybody and returned only to an admin, who is
 the only one who can act on it.
 
+🔒 **Where the bytes were seen.** An entry whose `source` is `LIBRARY` carries the path the file
+occupies on a volume. Files are deduplicated instance-wide, so the same bytes can be referenced from
+several libraries and that path may name a folder inside one the reader was never granted — which
+`GET /api/documents/:id` already refuses to show, filtering a file's refs to visible libraries
+(08 §8.5). The log agrees with it: `path` on a `LIBRARY` entry is recorded for everybody and
+returned only to an admin, like `endpoint` above. A path from an upload, a split or a combine names
+a file of this instance's own and is returned to whoever may read the document. This is
+deliberately blunt — it withholds the path from a reader who could have seen that library too;
+naming the library in the payload, so the entry can be filtered rather than stripped, is the better
+answer and a forward-only change.
+
 Read newest first, by whoever may read the document itself. Writing an entry must never be the
 reason an operation fails: a document that processed correctly but could not be written about is
 still a processed document. Every step status the pipeline writes produces an entry, routed through

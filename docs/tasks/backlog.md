@@ -545,7 +545,7 @@ Every task ends the same way: the scenario it fixes joins
   **Options:** (1) verify the password first and apply the backoff only to failures, so the legitimate owner is never locked out — but the expensive hash then runs before the cheap gate, which only works together with the hashing bound from M15.6; (2) key on address **and** address+origin, keeping the per-address delay small and letting the per-origin one grow — an attacker spread across many origins regains speed unless a captcha is required after N failures; (3) replace the lockout with a mandatory captcha after N failures — no lockout at all, but a hard dependency on a captcha that is optional today and a no-op when unconfigured.
   **Acceptance:** whatever `08 §8.4` ends up specifying, a person who knows their own password can sign in while somebody else is failing against their address; an invite whose `emailHint` is set only starts a registration for that address; the send throttle is keyed per purpose, so flooding an address with registration letters cannot deny it a password reset; a code series is chosen by the purpose being verified rather than by which one is found first; the attempt and throttle state survives a restart, because a crash loop currently resets every cap.
 
-- [ ] **M15.14 — The event log respects the same walls as everything else**
+- [x] **M15.14 — The event log respects the same walls as everything else**
   **Goal:** a document's history stops naming folders inside libraries the reader cannot open.
   **Closes:** SEC-13
   **Docs:** [`03 §3.3.18`](../03-domain-model.md), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model)

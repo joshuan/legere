@@ -604,6 +604,33 @@ describe('DocumentViewerScreen', () => {
     expect(screen.getByText(/Admin/)).toBeInTheDocument();
   });
 
+  it('reads an entry whose path was withheld as a sentence, not a dangling dash', async () => {
+    server.use(
+      http.get(`/api/documents/${ID}/events`, () =>
+        HttpResponse.json(
+          envelope({
+            items: [
+              {
+                id: 'eeeeeeee-4444-4444-8444-444444444444',
+                type: 'FILE_ATTACHED',
+                at: '2026-08-03T10:00:00.000Z',
+                actor: null,
+                // 🔒 The path of a library file only reaches an admin (docs/03 §3.3.18), so this is
+                // what everybody else is served.
+                payload: { source: 'LIBRARY' },
+              },
+            ],
+            nextCursor: null,
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
+
+    expect(await screen.findByText('Another copy of this document appeared')).toBeInTheDocument();
+  });
+
   it('picks up the text as soon as the step that produces it finishes', async () => {
     let extracted = false;
     server.use(

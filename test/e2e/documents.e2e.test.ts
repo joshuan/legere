@@ -617,6 +617,96 @@ describe('Documents (e2e)', () => {
       expect(userEntry?.payload.requestId).toBe('11111111-1111-4111-8111-111111111111');
     });
 
+    it('names no folder in the log that the same reader is refused in the file list', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const secret = await givenLibrary('RESTRICTED');
+      const seeded = await seedDocument({ libraryId: open });
+      const documentId = seeded.id;
+      const openPath = seeded.paths[0] ?? '';
+      const secretPath = 'hr/terminations/notice.pdf';
+      // The same bytes seen a second time, inside a library this reader was never granted: one
+      // file, two homes (docs/05 §5.3). The ref is what `GET /api/documents/:id` filters away.
+      await testPrisma().fileRef.create({
+        data: {
+          libraryId: secret,
+          fileId: seeded.fileIds[0] ?? '',
+          path: secretPath,
+          size: 2048n,
+          mtime: new Date('2026-01-01T00:00:00.000Z'),
+          status: 'HASHED',
+          contentHash: seeded.contentHashes[0] ?? '',
+        },
+      });
+      // ...and this is what the ingest wrote about both sightings (docs/03 §3.3.18).
+      await testPrisma().documentEvent.createMany({
+        data: [
+          { documentId, type: 'CREATED', payload: { source: 'LIBRARY', path: openPath } },
+          { documentId, type: 'FILE_ATTACHED', payload: { source: 'LIBRARY', path: secretPath } },
+        ],
+      });
+      const user = await inviteUser(`logwalls${seq}@legere.local`);
+
+      // The two answers the same viewer gets: where the files lie, and what the log says about it.
+      async function pathsSeenBy(
+        cookie: string,
+      ): Promise<{ refs: string[]; log: string[]; entries: number }> {
+        const detail = expectData(
+          await api(app).get(`/api/documents/${documentId}`).set('Cookie', cookie),
+          documentDetailDtoSchema,
+        );
+        const page = expectData(
+          await api(app).get(`/api/documents/${documentId}/events`).set('Cookie', cookie),
+          documentEventPageSchema,
+        );
+        return {
+          refs: detail.files.flatMap((file) => file.refs.map((ref) => ref.path)),
+          log: page.items.flatMap((event) =>
+            event.payload.path === undefined ? [] : [event.payload.path],
+          ),
+          entries: page.items.length,
+        };
+      }
+
+      const asReader = await pathsSeenBy(user.cookie);
+      const asAdmin = await pathsSeenBy(adminCookie);
+
+      // 🔒 The log and the file list agree: neither names a folder the other withholds, so reading
+      // a document whose bytes also lie elsewhere teaches nothing about elsewhere (SEC-13).
+      expect(asReader.log.every((path) => asReader.refs.includes(path))).toBe(true);
+      expect(asReader.refs).not.toContain(secretPath);
+      expect(asReader.log).not.toContain(secretPath);
+      // The entries themselves stay: the reader still learns that a second copy turned up, which is
+      // the provenance the log exists for (docs/03 §3.3.18). Only the folder is withheld.
+      expect(asReader.entries).toBe(2);
+      // The same agreement holds for an admin, who may see both libraries: nothing is stripped from
+      // either answer, and the folders match.
+      expect(asAdmin.log.every((path) => asAdmin.refs.includes(path))).toBe(true);
+      expect(asAdmin.log).toContain(secretPath);
+      expect(asAdmin.log).toContain(openPath);
+    });
+
+    it('still names the file in an entry about bytes this instance holds itself', async () => {
+      const owner = await inviteUser(`uploader${seq}@legere.local`);
+      const documentId = await givenDocument({ title: 'Scan', createdById: owner.id });
+      await testPrisma().documentEvent.create({
+        data: {
+          documentId,
+          type: 'FILE_ATTACHED',
+          actorId: owner.id,
+          payload: { source: 'UPLOAD', path: 'page two.pdf' },
+        },
+      });
+
+      const page = expectData(
+        await api(app).get(`/api/documents/${documentId}/events`).set('Cookie', owner.cookie),
+        documentEventPageSchema,
+      );
+
+      // Only a library path is somebody else's folder (docs/03 §3.3.18): an upload names a file the
+      // reader is already looking at, and the log would be poorer for hiding it.
+      expect(page.items[0]?.payload.path).toBe('page two.pdf');
+    });
+
     it('writes what a person changed into the document log', async () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open, title: 'Ticket' });

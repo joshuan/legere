@@ -199,9 +199,11 @@ export class DocumentsController {
       await this.events.execute(document.document.id, {
         limit: query.limit,
         cursor: query.cursor,
-        // The host a step ran against is operational detail: it names a container on an internal
-        // network, and only the person who administers it has any use for it (docs/03 §3.3.18).
-        withEndpoints: user.role === 'ADMIN',
+        // An entry is written whole and read redacted: the host a step ran against names a container
+        // on an internal network, and the path of a library file may name a folder in a library this
+        // reader cannot open. Only the person who administers the instance has use for either, and
+        // is the only one who could have seen them anyway (docs/03 §3.3.18, docs/08 §8.5).
+        asAdmin: user.role === 'ADMIN',
       }),
     );
   }

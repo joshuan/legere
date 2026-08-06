@@ -17,6 +17,7 @@ import {
   type Document,
 } from '../../domain/entities/document';
 import { isImageFile } from '../../domain/entities/file';
+import type { DocumentEventPayload } from '../../domain/entities/document-event';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { PersonRepository } from '../../domain/repositories/person.repository';
 import type { SubjectRepository } from '../../domain/repositories/subject.repository';
@@ -58,7 +59,7 @@ export class ListDocumentEvents {
 
   async execute(
     documentId: string,
-    query: { limit: number; cursor?: string | undefined; withEndpoints?: boolean },
+    query: { limit: number; cursor?: string | undefined; asAdmin?: boolean },
   ): Promise<DocumentEventPage> {
     const page = await this.events.listForDocument(documentId, query);
     return {
@@ -67,14 +68,27 @@ export class ListDocumentEvents {
         type: event.type,
         at: event.at.toISOString(),
         actor: event.actorName,
-        // The service and the id are everybody's — they say who did the work and under what name.
-        // The host it lives on is stripped for anyone who cannot act on it (docs/03 §3.3.18).
-        payload:
-          query.withEndpoints === true ? event.payload : { ...event.payload, endpoint: undefined },
+        payload: query.asAdmin === true ? event.payload : redactForReader(event.payload),
       })),
       nextCursor: page.nextCursor,
     };
   }
+}
+
+// 🔒 What an entry says to somebody who does not administer this instance (docs/03 §3.3.18,
+// docs/08 §8.5). The service and the id are everybody's — they say who did the work and under what
+// name. The host it lives on is stripped for anyone who cannot act on it, and a path inside a
+// library is stripped for the same reason the document's own `refs` are filtered to visible
+// libraries: files are deduplicated instance-wide, so an entry can name a folder inside a library
+// this reader was never granted, and the log must not say what `GET /api/documents/:id` refuses to.
+// Blunt on purpose — it also drops the path for a reader who could have seen that library. The
+// better end state is to filter the entry by the library it names, which waits for the payload to
+// carry its `libraryId` (a forward-only change, with older rows falling back to redacted).
+function redactForReader(payload: DocumentEventPayload): DocumentEventPayload {
+  const withoutEndpoint = { ...payload, endpoint: undefined };
+  // Only a library path is somebody else's folder: an upload, a split or a combine names a file of
+  // ours, which the reader is looking at anyway.
+  return payload.source === 'LIBRARY' ? { ...withoutEndpoint, path: undefined } : withoutEndpoint;
 }
 
 // The years a shelf has documents in, newest first: the folders of a cabinet arranged by date
