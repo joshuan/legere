@@ -38,8 +38,15 @@ import {
   type UpdateDocumentMetaInput,
   type Viewer,
 } from '../../domain/repositories/document.repository';
-import { decodeCursor, decodeTextCursor, encodeCursor, encodeTextCursor } from './cursor';
+import {
+  decodeCursor,
+  decodeTextCursor,
+  encodeCursor,
+  encodeTextCursor,
+  type Cursor,
+} from './cursor';
 import { clientOf } from './prisma-client';
+import type { PrismaTx } from './prisma-unit-of-work';
 import { PrismaService } from './prisma.service';
 
 function toDomain(row: PrismaDocument): Document {
@@ -129,54 +136,93 @@ const UNREADABLE_FILE: Prisma.FileWhereInput = {
   refs: { none: { status: 'HASHED', library: { deletedAt: null } } },
 };
 
+// What a share can carry to this viewer: every live collection somebody shared with them by name or
+// with the whole instance, paired with the person who owns it (docs/03 §3.3.15).
+//
+// Read as values rather than written as a clause because the share branch of the rule below needs
+// `collection.ownerId = document.createdById` — a comparison between two tables. Prisma's object
+// filters compare a field to a value or to a field of the *same* model and refuse anything else, so
+// the raw dialect states it in one line and this one pairs each sharer with the collections they
+// shared. The pairing is what keeps the branch exact: a document is reached through a collection
+// only when that collection's owner is also its creator.
+type ShareReach = ReadonlyArray<{ ownerId: string; collectionIds: string[] }>;
+
+async function shareReach(client: PrismaTx, viewer: Viewer): Promise<ShareReach> {
+  if (viewer.role === 'ADMIN') return [];
+
+  const rows = await client.collection.findMany({
+    where: {
+      deletedAt: null,
+      shares: {
+        some: {
+          revokedAt: null,
+          // A share with no grantee is instance-wide (docs/03 §3.3.15).
+          OR: [{ granteeUserId: viewer.id }, { granteeUserId: null }],
+        },
+      },
+    },
+    select: { id: true, ownerId: true },
+  });
+
+  const byOwner = new Map<string, string[]>();
+  for (const row of rows) {
+    const owned = byOwner.get(row.ownerId);
+    if (owned === undefined) byOwner.set(row.ownerId, [row.id]);
+    else owned.push(row.id);
+  }
+  return [...byOwner].map(([ownerId, collectionIds]) => ({ ownerId, collectionIds }));
+}
+
 // The access rule of docs/03 §3.4, expressed once, in SQL, so a page of results never has to be
 // filtered afterwards — and no route can forget to apply it.
-function readableBy(viewer: Viewer): Prisma.DocumentWhereInput {
+function readableBy(viewer: Viewer, reach: ShareReach): Prisma.DocumentWhereInput {
   if (viewer.role === 'ADMIN') return {};
 
+  const branches: Prisma.DocumentWhereInput[] = [
+    // Through a library: any file of the document is a library file lying in a library the viewer
+    // can see. A ref that has gone MISSING still counts — it makes the document unavailable, not
+    // invisible, and the canonical PDF reads either way.
+    {
+      files: {
+        some: {
+          file: {
+            origin: 'LIBRARY',
+            refs: { some: { library: { deletedAt: null, ...visibleLibrary(viewer) } } },
+          },
+        },
+      },
+    },
+    // Or because they made it: an upload, a split, a combine (docs/03 §3.3.10).
+    { createdById: viewer.id },
+  ];
+
+  // Or because the person who made it shared it, in a collection of their own (docs/03 §3.3.15): a
+  // share carries the documents in the collection **that its owner created**, and nothing else.
+  //
+  // 🔒 Two conditions, and each is a hole without the other. Without "its owner created it", a
+  // grantee re-lends what they were lent: they add the borrowed document to a collection of their
+  // own and share that with the instance (SEC-01). Without "no library file of its own", a user
+  // widens a library, which is the admin's to control and not a user's to give away (docs/03 §3.4).
+  //
+  // "Owned by the viewer" is not an alternative here: a collection of the viewer's own only reaches
+  // documents the viewer created, which the branch above already grants.
+  if (reach.length > 0) {
+    branches.push({
+      files: { none: { file: { origin: 'LIBRARY' } } },
+      OR: reach.map(({ ownerId, collectionIds }) => ({
+        createdById: ownerId,
+        collectionItems: { some: { collectionId: { in: collectionIds } } },
+      })),
+    });
+  }
+
+  return { OR: branches };
+}
+
+// Newest first (docs/07 §7.3), so a page continues *below* the cursor.
+function cursorFilter(cursor: Cursor): Prisma.DocumentWhereInput {
   return {
-    OR: [
-      // Through a library: any file of the document is a library file lying in a library the viewer
-      // can see. A ref that has gone MISSING still counts — it makes the document unavailable, not
-      // invisible, and the canonical PDF reads either way.
-      {
-        files: {
-          some: {
-            file: {
-              origin: 'LIBRARY',
-              refs: { some: { library: { deletedAt: null, ...visibleLibrary(viewer) } } },
-            },
-          },
-        },
-      },
-      // Or because they made it: an upload, a split, a combine (docs/03 §3.3.10).
-      { createdById: viewer.id },
-      // Or because it was shared with them through a collection (docs/08 §8.5). 🔒 Only for a
-      // document with no library file of its own: a share never widens library visibility, which is
-      // the admin's to control and not a user's to give away (docs/03 §3.4, §3.3.15).
-      {
-        files: { none: { file: { origin: 'LIBRARY' } } },
-        collectionItems: {
-          some: {
-            collection: {
-              deletedAt: null,
-              OR: [
-                { ownerId: viewer.id },
-                {
-                  shares: {
-                    some: {
-                      revokedAt: null,
-                      // A share with no grantee is instance-wide (docs/03 §3.3.15).
-                      OR: [{ granteeUserId: viewer.id }, { granteeUserId: null }],
-                    },
-                  },
-                },
-              ],
-            },
-          },
-        },
-      },
-    ],
+    OR: [{ createdAt: { lt: cursor.at } }, { createdAt: cursor.at, id: { lt: cursor.id } }],
   };
 }
 
@@ -281,7 +327,7 @@ function availabilityFilter(availability: Availability): Prisma.DocumentWhereInp
 // The access rule of docs/03 §3.4 again, this time as SQL. Search ranks and limits inside the
 // query — a limit of 20 has to mean 20 readable rows — and the query builder cannot express
 // ts_rank or the vector operator, so the rule exists in both dialects. They are tested together by
-// the same e2e cases.
+// the same e2e cases, which is the only thing keeping them saying the same thing.
 function readableSql(viewer: Viewer): Prisma.Sql {
   if (viewer.role === 'ADMIN') return Prisma.sql`d.deleted_at IS NULL`;
 
@@ -316,14 +362,12 @@ function readableSql(viewer: Viewer): Prisma.Sql {
         JOIN collections c ON c.id = ci.collection_id
         WHERE ci.document_id = d.id
           AND c.deleted_at IS NULL
-          AND (
-            c.owner_id = ${viewer.id}::uuid
-            OR EXISTS (
-              SELECT 1 FROM collection_shares cs
-              WHERE cs.collection_id = c.id
-                AND cs.revoked_at IS NULL
-                AND (cs.grantee_user_id = ${viewer.id}::uuid OR cs.grantee_user_id IS NULL)
-            )
+          AND c.owner_id = d.created_by_id
+          AND EXISTS (
+            SELECT 1 FROM collection_shares cs
+            WHERE cs.collection_id = c.id
+              AND cs.revoked_at IS NULL
+              AND (cs.grantee_user_id = ${viewer.id}::uuid OR cs.grantee_user_id IS NULL)
           )
       ))
     )
@@ -495,9 +539,14 @@ export class PrismaDocumentRepository implements DocumentRepository {
   ): Promise<Array<{ year: number; count: number }>> {
     // 🔒 The same access rule as every list: a year is only a year if this viewer has a document in
     // it (docs/03 §3.4).
-    const rows = await clientOf(this.prisma, tx).document.groupBy({
+    const client = clientOf(this.prisma, tx);
+    const rows = await client.document.groupBy({
       by: ['documentDate'],
-      where: { deletedAt: null, documentDate: { not: null }, ...readableBy(viewer) },
+      where: {
+        deletedAt: null,
+        documentDate: { not: null },
+        ...readableBy(viewer, await shareReach(client, viewer)),
+      },
       _count: { _all: true },
     });
 
@@ -581,21 +630,19 @@ export class PrismaDocumentRepository implements DocumentRepository {
     tx?: TransactionHandle,
   ): Promise<DocumentPage> {
     const cursor = decodeCursor(query.cursor);
+    const client = clientOf(this.prisma, tx);
 
-    const rows = await clientOf(this.prisma, tx).document.findMany({
+    // 🔒 Three independent conditions, each of which may be an `OR` of its own, so they are ANDed
+    // as a list rather than spread into one object: spreading lets the last `OR` key win, and the
+    // last one here is the cursor — which would drop the access rule from every page but the first.
+    const rows = await client.document.findMany({
       where: {
         deletedAt: null,
-        ...readableBy(viewer),
-        ...filters(query),
-        ...(cursor === null
-          ? {}
-          : {
-              // Newest first (docs/07 §7.3), so the page continues *below* the cursor.
-              OR: [
-                { createdAt: { lt: cursor.at } },
-                { createdAt: cursor.at, id: { lt: cursor.id } },
-              ],
-            }),
+        AND: [
+          readableBy(viewer, await shareReach(client, viewer)),
+          filters(query),
+          ...(cursor === null ? [] : [cursorFilter(cursor)]),
+        ],
       },
       include: LIST_INCLUDE,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -777,20 +824,18 @@ export class PrismaDocumentRepository implements DocumentRepository {
     tx?: TransactionHandle,
   ): Promise<DocumentPage> {
     const cursor = decodeCursor(query.cursor);
+    const client = clientOf(this.prisma, tx);
 
-    const rows = await clientOf(this.prisma, tx).document.findMany({
+    const rows = await client.document.findMany({
       where: {
         deletedAt: null,
         collectionItems: { some: { collectionId } },
-        ...readableBy(viewer),
-        ...(cursor === null
-          ? {}
-          : {
-              OR: [
-                { createdAt: { lt: cursor.at } },
-                { createdAt: cursor.at, id: { lt: cursor.id } },
-              ],
-            }),
+        // 🔒 ANDed as a list for the reason `listReadable` gives: the access rule and the cursor
+        // are both an `OR`, and spread into one object only the cursor would survive.
+        AND: [
+          readableBy(viewer, await shareReach(client, viewer)),
+          ...(cursor === null ? [] : [cursorFilter(cursor)]),
+        ],
       },
       include: LIST_INCLUDE,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -843,7 +888,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
   ): Promise<DocumentDetail | null> {
     const client = clientOf(this.prisma, tx);
     const row = await client.document.findFirst({
-      where: { id, deletedAt: null, ...readableBy(viewer) },
+      where: { id, deletedAt: null, ...readableBy(viewer, await shareReach(client, viewer)) },
       include: {
         ...LIST_INCLUDE,
         createdBy: { select: { id: true, displayName: true } },

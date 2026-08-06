@@ -87,6 +87,41 @@ Three positions worth separating, because severity depends on which one a findin
 | [SEC-43](#sec-43) | Info | `npx prisma migrate deploy` at container start, with runtime DDL rights |
 | [SEC-44](#sec-44) | Info | An unvalidated cursor answers 500 instead of 422 |
 | [SEC-45](#sec-45) | Info | The security checklist of `08 §8.6` has never been ticked |
+| [SEC-46](#sec-46) | **Critical** | A cursor discards the access rule: any signed-in user reads every document |
+
+---
+
+## Critical
+
+### SEC-46
+**A cursor discards the access rule: any signed-in user reads every document**
+
+Found while fixing [SEC-01](#sec-01), not by the audit — recorded here because the register is
+where findings live, and because it is the most serious thing in it.
+
+`listReadable` and `listInCollection` in
+`src/server/infrastructure/persistence/prisma-document.repository.ts` built their `where` by
+spreading two objects into one:
+
+```ts
+{ ...readableBy(viewer), ...(cursor === undefined ? {} : { OR: keysetAfter(cursor) }) }
+```
+
+Both spreads carry an `OR` key, and the second wins. On any request that carries a cursor, the
+access predicate is not narrowed — it is **gone**, replaced by the keyset comparison.
+
+**Attack.** `GET /api/documents?cursor=<anything>` as any authenticated `USER`. The first page is
+filtered; every page after it is the whole instance — every restricted library, every other user's
+private upload. The cursor is opaque but trivially forgeable (`base64url(isoDate|uuid)`), so an
+attacker does not even need a first page to derive one from. This is the failure mode the audit
+looked for and reported absent, and it was absent — in the code path the audit read. It lives one
+spread later.
+
+**Fixed with [SEC-01](#sec-01)** — the conditions are ANDed as a list, and a regression test walks a
+second page and asserts the rule still holds there.
+
+**The lesson worth keeping:** an access rule expressed as an object that another object is spread
+over is one key collision away from not existing. It is now a list, where a collision is impossible.
 
 ---
 

@@ -7,10 +7,12 @@ import {
   listCollectionSharesResponseSchema,
   listCollectionsResponseSchema,
 } from '../../src/shared/contracts/collections';
+import { searchResponseSchema } from '../../src/shared/contracts/search';
 import {
   userLookupResponseSchema,
   createInviteResponseSchema,
 } from '../../src/shared/contracts/users';
+import { encodeCursor } from '../../src/server/infrastructure/persistence/cursor';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 import { seedDocument, seedLibrary } from '../helpers/documents';
@@ -97,10 +99,17 @@ describe('Collections (e2e)', () => {
 
   // A document made of our own bytes: no file of it lies on a volume, so it belongs to whoever made
   // it (docs/03 §3.3.10).
-  async function givenDerivedDocument(ownerId: string): Promise<string> {
+  async function givenDerivedDocument(
+    ownerId: string,
+    text: { title?: string; markdown?: string } = {},
+  ): Promise<string> {
     contentSeq += 1;
     const seeded = await seedDocument({
-      document: { title: `Uploaded ${contentSeq}`, createdById: ownerId },
+      document: {
+        title: text.title ?? `Uploaded ${contentSeq}`,
+        createdById: ownerId,
+        ...(text.markdown === undefined ? {} : { markdown: text.markdown }),
+      },
       files: [{ sizeBytes: 100n }],
     });
     return seeded.id;
@@ -111,10 +120,21 @@ describe('Collections (e2e)', () => {
     create: (body: Record<string, unknown>) =>
       api(app).post('/api/collections', body).set('Cookie', cookie),
     get: (id: string) => api(app).get(`/api/collections/${id}`).set('Cookie', cookie),
+    page: (id: string, query: string) =>
+      api(app).get(`/api/collections/${id}${query}`).set('Cookie', cookie),
     addItem: (id: string, documentId: string) =>
       api(app).post(`/api/collections/${id}/items`, { documentId }).set('Cookie', cookie),
     share: (id: string, granteeUserId: string | null) =>
       api(app).post(`/api/collections/${id}/shares`, { granteeUserId }).set('Cookie', cookie),
+    shares: (id: string) => api(app).get(`/api/collections/${id}/shares`).set('Cookie', cookie),
+    revokeShare: (id: string, shareId: string) =>
+      api(app).delete(`/api/collections/${id}/shares/${shareId}`).set('Cookie', cookie),
+    // The three ways a document is read, all behind the same guard (docs/08 §8.5).
+    document: (id: string) => api(app).get(`/api/documents/${id}`).set('Cookie', cookie),
+    markdown: (id: string) => api(app).get(`/api/documents/${id}/markdown`).set('Cookie', cookie),
+    canonical: (id: string) => api(app).get(`/api/documents/${id}/canonical`).set('Cookie', cookie),
+    // Search reaches documents through the other dialect of the same rule (docs/04 §4.3).
+    search: (word: string) => api(app).get(`/api/search?q=${word}&mode=text`).set('Cookie', cookie),
   });
 
   describe('CRUD', () => {
@@ -319,6 +339,191 @@ describe('Collections (e2e)', () => {
 
       // Reading a collection does not mean seeing who else has it.
       expect(asFriend.status).toBe(403);
+    });
+  });
+
+  // 🔒 A share is not a licence to re-share (docs/03 §3.3.15, docs/08 §8.5): what a share carries is
+  // the documents in the collection *that its owner created*, and nothing else. It takes three
+  // people to see the hole — one who lends, one who re-lends, and one who was lent nothing.
+  describe('re-sharing', () => {
+    type ReLending = {
+      owner: { id: string; cookie: string };
+      borrower: { id: string; cookie: string };
+      stranger: { id: string; cookie: string };
+      documentId: string;
+      lent: string;
+      relent: string;
+      word: string;
+    };
+
+    // The owner shares a collection holding a document of their own with the borrower; the borrower
+    // puts that document in a collection of their own and shares it with the whole instance.
+    async function givenReLentDocument(): Promise<ReLending> {
+      const owner = await inviteUser(`lender${seq}@legere.local`);
+      const borrower = await inviteUser(`borrower${seq}@legere.local`);
+      const stranger = await inviteUser(`stranger${seq}@legere.local`);
+
+      const word = `zeppelin${seq}`;
+      const documentId = await givenDerivedDocument(owner.id, {
+        title: `Private ${word}`,
+        markdown: `The ${word} is nobody else's business.`,
+      });
+
+      const lent = expectData(
+        await asUser(owner.cookie).create({ name: 'Lent' }),
+        collectionDtoSchema,
+      ).id;
+      expect((await asUser(owner.cookie).addItem(lent, documentId)).status).toBe(201);
+      await asUser(owner.cookie).share(lent, borrower.id);
+
+      // The borrower may read it, and may put it in a collection of their own: curating what you can
+      // read is what a collection is for (docs/03 §3.3.14).
+      expect((await asUser(borrower.cookie).document(documentId)).status).toBe(200);
+      const relent = expectData(
+        await asUser(borrower.cookie).create({ name: 'Relent' }),
+        collectionDtoSchema,
+      ).id;
+      expect((await asUser(borrower.cookie).addItem(relent, documentId)).status).toBe(201);
+      await asUser(borrower.cookie).share(relent, null);
+
+      return { owner, borrower, stranger, documentId, lent, relent, word };
+    }
+
+    it('does not carry a borrowed document to a third party through a second collection', async () => {
+      const { borrower, stranger, documentId, relent, word } = await givenReLentDocument();
+
+      // 🔒 The instance-wide share carries the collection; the borrowed document stays with the
+      // person who created it.
+      expect((await asUser(stranger.cookie).document(documentId)).status).toBe(404);
+      expect((await asUser(stranger.cookie).canonical(documentId)).status).toBe(404);
+      expect((await asUser(stranger.cookie).markdown(documentId)).status).toBe(404);
+      const opened = expectData(
+        await asUser(stranger.cookie).get(relent),
+        collectionDetailResponseSchema,
+      );
+      expect(opened.items.items).toEqual([]);
+
+      // The rule lives in two dialects and both must hold; search is the other one.
+      expect(
+        expectData(await asUser(stranger.cookie).search(word), searchResponseSchema).items,
+      ).toEqual([]);
+
+      // And what was actually lent still reads and still turns up in search.
+      expect((await asUser(borrower.cookie).document(documentId)).status).toBe(200);
+      expect(
+        expectData(await asUser(borrower.cookie).search(word), searchResponseSchema).items.map(
+          (hit) => hit.document.id,
+        ),
+      ).toEqual([documentId]);
+    });
+
+    it('takes the document back when the first share is revoked, with nothing surviving in the second collection', async () => {
+      const { owner, borrower, documentId, lent, relent, word } = await givenReLentDocument();
+
+      const shares = expectData(
+        await asUser(owner.cookie).shares(lent),
+        listCollectionSharesResponseSchema,
+      );
+      const revoked = await asUser(owner.cookie).revokeShare(lent, shares.items[0]?.id ?? '');
+      expect(revoked.status).toBe(200);
+
+      expect((await asUser(borrower.cookie).document(documentId)).status).toBe(404);
+      expect((await asUser(borrower.cookie).markdown(documentId)).status).toBe(404);
+      expect(
+        expectData(await asUser(borrower.cookie).search(word), searchResponseSchema).items,
+      ).toEqual([]);
+
+      // 🔒 The item the borrower kept is still in their collection; the access it used to carry is
+      // gone with the share that granted it.
+      const kept = expectData(
+        await asUser(borrower.cookie).get(relent),
+        collectionDetailResponseSchema,
+      );
+      expect(kept.items.items).toEqual([]);
+    });
+
+    it('refuses to revoke a share that belongs to another collection', async () => {
+      const owner = await inviteUser(`revoker${seq}@legere.local`);
+      const friend = await inviteUser(`revokee${seq}@legere.local`);
+      const shared = expectData(
+        await asUser(owner.cookie).create({ name: 'Shared' }),
+        collectionDtoSchema,
+      ).id;
+      const other = expectData(
+        await asUser(owner.cookie).create({ name: 'Other' }),
+        collectionDtoSchema,
+      ).id;
+      const share = expectData(
+        await asUser(owner.cookie).share(shared, friend.id),
+        collectionShareDtoSchema,
+      );
+
+      // The caller owns both collections, so authorization passes — and the write still has to stay
+      // inside the collection it was authorized for.
+      const wrong = await asUser(owner.cookie).revokeShare(other, share.id);
+      expect(wrong.status).toBe(404);
+      expect(expectError(wrong).code).toBe('NOT_FOUND');
+
+      const still = expectData(
+        await asUser(owner.cookie).shares(shared),
+        listCollectionSharesResponseSchema,
+      );
+      expect(still.items.map((item) => item.id)).toEqual([share.id]);
+      expect((await asUser(friend.cookie).get(shared)).status).toBe(200);
+    });
+
+    it('applies the access rule to a page that starts at a cursor, not only to the first page', async () => {
+      const owner = await inviteUser(`pager${seq}@legere.local`);
+      const friend = await inviteUser(`paged${seq}@legere.local`);
+
+      contentSeq += 1;
+      const libraryId = await seedLibrary({
+        visibility: 'RESTRICTED',
+        name: `Paged ${contentSeq}`,
+        rootPath: `paged-${contentSeq}`,
+      });
+      // Older, so it sorts onto the second page; behind a library neither of them may see.
+      const hidden = await seedDocument({
+        document: { title: 'Behind a library', createdAt: new Date('2026-01-01T00:00:00.000Z') },
+        libraryId,
+        files: [{ sizeBytes: 100n }],
+      });
+      const visible = await seedDocument({
+        document: {
+          title: 'The one they may read',
+          createdById: owner.id,
+          createdAt: new Date('2026-01-02T00:00:00.000Z'),
+        },
+        files: [{ sizeBytes: 100n }],
+      });
+
+      const collection = expectData(
+        await asUser(owner.cookie).create({ name: 'Mixed' }),
+        collectionDtoSchema,
+      ).id;
+      await testPrisma().collectionItem.createMany({
+        data: [
+          { collectionId: collection, documentId: hidden.id, addedById: owner.id },
+          { collectionId: collection, documentId: visible.id, addedById: owner.id },
+        ],
+      });
+      await asUser(owner.cookie).share(collection, friend.id);
+
+      const first = expectData(
+        await asUser(friend.cookie).page(collection, '?limit=1'),
+        collectionDetailResponseSchema,
+      );
+      expect(first.items.items.map((item) => item.id)).toEqual([visible.id]);
+
+      // 🔒 A cursor is opaque, not secret: anybody can write one. Continuing a page must not switch
+      // the access rule off — which is what happens when the rule and the cursor are both an `OR`
+      // spread into the same object and the cursor is spread last.
+      const cursor = encodeCursor({ at: new Date('2026-01-02T00:00:00.000Z'), id: visible.id });
+      const second = expectData(
+        await asUser(friend.cookie).page(collection, `?limit=10&cursor=${cursor}`),
+        collectionDetailResponseSchema,
+      );
+      expect(second.items.items).toEqual([]);
     });
   });
 

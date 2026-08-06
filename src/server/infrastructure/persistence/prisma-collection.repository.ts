@@ -218,9 +218,19 @@ export class PrismaCollectionRepository implements CollectionRepository {
   }
 
   // Revoking leaves the row: who was given access and when is worth keeping (docs/03 §3.3.15).
-  async revokeShare(shareId: string, revokedAt: Date, tx?: TransactionHandle): Promise<boolean> {
+  //
+  // 🔒 The `where` names the collection as well as the share. Authorization ran against the
+  // collection in the path, so a share id from somewhere else must miss rather than match — the id
+  // is a uuid only its owner can list, but a write scoped to less than it was authorized for is a
+  // hole waiting for the day the id leaks.
+  async revokeShare(
+    collectionId: string,
+    shareId: string,
+    revokedAt: Date,
+    tx?: TransactionHandle,
+  ): Promise<boolean> {
     const result = await clientOf(this.prisma, tx).collectionShare.updateMany({
-      where: { id: shareId, revokedAt: null },
+      where: { id: shareId, collectionId, revokedAt: null },
       data: { revokedAt },
     });
     return result.count > 0;

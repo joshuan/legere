@@ -460,7 +460,7 @@ Every task ends the same way: the scenario it fixes joins
 [`14 §14.8`](../14-coding-standards.md#148-testing) and
 [`scenario-coverage.md`](./scenario-coverage.md), with a test that fails on today's tree.
 
-- [ ] **M15.1 — A share is not a licence to re-share**
+- [x] **M15.1 — A share is not a licence to re-share**
   **Goal:** a document its owner shared with one person stops being publishable to the whole instance by that person.
   **Closes:** SEC-01, SEC-26
   **Docs:** [`03 §3.3.15`](../03-domain-model.md), [`03 §3.4`](../03-domain-model.md), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model)

@@ -52,6 +52,8 @@ describe('FsLibraryReader (integration)', () => {
         APP_BASE_URL: 'http://localhost:3000',
         DATABASE_URL: 'postgresql://legere:legere@localhost:5432/legere',
         AUTH_SECRET: 'x'.repeat(32),
+        S3_ACCESS_KEY_ID: 'test-access-key',
+        S3_SECRET_ACCESS_KEY: 'test-secret-key',
         LIBRARY_ROOT: root,
       }),
     );

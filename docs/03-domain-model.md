@@ -607,9 +607,19 @@ canReadDocument(user, doc):
   → ANY file of doc is a LIBRARY file with an active FileRef in an active library L where
         L.visibility == ALL_USERS or LibraryAccess(L, user) exists
     or doc.createdById == user.id
-    or doc is an item of an active collection C such that
-         C.ownerId == user.id
-         or an active CollectionShare(C, user) or CollectionShare(C, NULL) exists
+    or doc has NO library file at all, and is an item of an active collection C where
+         C.ownerId == doc.createdById                      — a share carries its owner's own work
+         and an active CollectionShare(C, user) or CollectionShare(C, NULL) exists
+
+# 🔒 Both conditions on that last branch are load-bearing, and neither is decoration:
+#   - no library file: a share never widens library visibility, which is the admin's to control
+#     and not a user's to give away (§3.3.14).
+#   - C.ownerId == doc.createdById (§3.3.15): without it, a document shared *with* somebody could
+#     be added by them to a collection of their own and shared onwards, to a third party or to the
+#     whole instance, with the creator neither asked nor able to see it. The plain
+#     `C.ownerId == user.id` alternative this branch used to carry is not lost by the change — a
+#     collection owner reading their own document is already covered by `doc.createdById == user.id`
+#     above, since the two are now required to be the same person.
 
 canEditDocumentMeta(user, doc):        # title, document type, the composition of files
   → canReadDocument via a library                 — collaborative editing

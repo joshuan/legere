@@ -248,7 +248,10 @@ export class RevokeShare {
   async execute(viewer: Viewer, id: string, shareId: string): Promise<{ ok: true }> {
     await requireManageable(this.collections, viewer, id);
 
-    const revoked = await this.collections.revokeShare(shareId, this.clock.now());
+    // 🔒 The share is revoked within the collection the caller was authorized for: a share id
+    // belonging to somebody else's collection is not a share this caller has, so it reads as
+    // missing (docs/08 §8.5).
+    const revoked = await this.collections.revokeShare(id, shareId, this.clock.now());
     if (!revoked) throw new NotFoundError('NOT_FOUND', 'Share not found');
     return { ok: true };
   }

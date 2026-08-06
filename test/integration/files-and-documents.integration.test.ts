@@ -468,8 +468,10 @@ describe('Files and documents (integration)', () => {
       // Readable to its creator: an upload nobody shared.
       const uploaded = await documents.create({ title: 'invoice uploaded', createdById: owner.id });
       await files.attach(uploaded.id, await createFile({ origin: 'MANAGED' }));
-      // Readable through a collection the stranger was given.
-      const shared = await documents.create({ title: 'invoice shared' });
+      // Readable through a collection the stranger was given. 🔒 Created by the collection's owner:
+      // a share carries the documents its owner made and nothing else (docs/03 §3.3.15), so a
+      // document nobody created is not something a collection can pass on.
+      const shared = await documents.create({ title: 'invoice shared', createdById: owner.id });
       await files.attach(shared.id, await createFile({ origin: 'MANAGED' }));
       const collection = await prisma.collection.create({
         data: { ownerId: owner.id, name: 'Shared' },

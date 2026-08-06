@@ -96,5 +96,12 @@ export abstract class CollectionRepository {
     tx?: TransactionHandle,
   ): Promise<CollectionShare>;
 
-  abstract revokeShare(shareId: string, revokedAt: Date, tx?: TransactionHandle): Promise<boolean>;
+  // Scoped by the collection, like `removeItem`: the caller was authorized for a collection, so a
+  // share id belonging to a different one is not theirs to revoke and answers as missing.
+  abstract revokeShare(
+    collectionId: string,
+    shareId: string,
+    revokedAt: Date,
+    tx?: TransactionHandle,
+  ): Promise<boolean>;
 }
