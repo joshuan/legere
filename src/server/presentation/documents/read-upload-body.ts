@@ -55,9 +55,18 @@ function fileNameFrom(req: Request, header: string): string {
 
   // Percent-encoded by the client; a name that is not encoded at all decodes to itself.
   const decoded = decodeSafely(value.trim());
-  // 🔒 Only the last segment: a name like `../../etc/passwd` must not travel anywhere as a path, and
-  // nothing downstream should have to remember that.
-  return decoded.replace(/^.*[\\/]/, '').slice(0, 255);
+  // 🔒 Control characters go first, and that order is the whole point: `.` in a JavaScript regular
+  // expression does not match a newline, so `%0A../../x` survived a strip that reads as if it could
+  // not. What came out still carried `..` and a separator, into a document title and into another
+  // container's multipart part.
+  // The rule guards against a control character reaching a pattern by accident; naming them is
+  // the entire point of this one.
+  // eslint-disable-next-line no-control-regex
+  const printable = decoded.replace(/[\u0000-\u001f\u007f]/g, '');
+  // 🔒 Then only the last segment: a name like `../../etc/passwd` must not travel anywhere as a
+  // path, and nothing downstream should have to remember that.
+  const segments = printable.split(/[\\/]/);
+  return (segments[segments.length - 1] ?? '').slice(0, 255);
 }
 
 function decodeSafely(value: string): string {
