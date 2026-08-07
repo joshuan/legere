@@ -247,14 +247,14 @@ services:
   db:
     image: pgvector/pgvector:pg16
     environment: { POSTGRES_USER: legere, POSTGRES_PASSWORD: legere, POSTGRES_DB: legere }
-    ports: ['5432:5432']
+    ports: ['127.0.0.1:5432:5432']
     volumes: ['db-data:/var/lib/postgresql/data']
   stirling:
     # Our own build too: the upstream image carries six tesseract languages, none of them
     # Cyrillic (ADR-018).
     image: legere-stirling:dev
     build: ./deploy/stirling
-    ports: ['8080:8080']
+    ports: ['127.0.0.1:8080:8080']
     # Stirling 2.x requires a login by default and answers 401 to every API call.
     environment: { SECURITY_ENABLELOGIN: 'false', SYSTEM_ENABLEANALYTICS: 'false' }
   docling:
@@ -262,16 +262,16 @@ services:
     image: legere-docling:dev
     build: ./deploy/docling
     environment: { DOCLING_SERVE_ENABLE_UI: 'false' }
-    ports: ['5001:5001']
+    ports: ['127.0.0.1:5001:5001']
   ollama:
     image: ollama/ollama:latest
-    ports: ['11434:11434']
+    ports: ['127.0.0.1:11434:11434']
     volumes: ['ollama-data:/root/.ollama']
   minio:
     image: minio/minio
     command: server /data --console-address ':9001'
     environment: { MINIO_ROOT_USER: legere, MINIO_ROOT_PASSWORD: legere-secret }
-    ports: ['9000:9000', '9001:9001']
+    ports: ['127.0.0.1:9000:9000', '127.0.0.1:9001:9001']
     volumes: ['minio-data:/data']
   createbuckets:
     image: minio/mc
@@ -311,9 +311,28 @@ COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/messages ./messages
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/next.config.mjs ./next.config.mjs
-EXPOSE 80
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server/main.js"]
+RUN mkdir -p .next/cache && chown node:node .next/cache
+USER node
+EXPOSE 8080
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/server/main.js"]
 ```
+
+🔒 Four details in that runtime stage are load-bearing, and each answers something the container
+would otherwise do:
+
+- **`USER node`** (uid 1000). The process decodes whatever the library holds — PDFs and images,
+  through native libraries — and nothing it does needs root. Everything copied above stays owned by
+  root and merely readable, so the running process cannot rewrite its own code.
+- **`PORT=8080`, `EXPOSE 8080`.** A port below 1024 needs a capability an unprivileged process does
+  not have outside Docker's own default. Which port the operator publishes is unchanged.
+- **`CHECKPOINT_DISABLE=1`.** The Prisma CLI otherwise checks for a newer version and caches the
+  answer under `$HOME` — a network call and a write, and the filesystem is read-only.
+- **`.next/cache` created and chowned.** It is the one path the process genuinely writes to: Next
+  makes it on the first render. Pre-creating it means the `tmpfs` the compose file mounts there
+  lands on a directory the runtime user already owns.
+
+The image still migrates itself when it is run without compose, so `docker run` remains a working
+deployment; the shipped stack overrides the command and migrates in a container of its own (§12.7).
 
 ## 12.7. Deployment (`deploy/`, shipped with the repository)
 
@@ -340,8 +359,30 @@ curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/init.sh 
 
 The stack is self-contained: the app, PostgreSQL with pgvector, Stirling-PDF, and MinIO with a
 one-shot bucket init. Only the app and MinIO publish a port; the database and Stirling stay on the
-internal network. Migrations apply themselves on start (§12.6). Pointing `S3_*` at a managed object
-store and deleting the two MinIO services is a supported edit, and is what a larger deployment does.
+internal network. Pointing `S3_*` at a managed object store and deleting the two MinIO services is a
+supported edit, and is what a larger deployment does.
+
+**Migrations run in a container of their own** — a one-shot `migrate` service the app waits for with
+`service_completed_successfully`. Two things follow: a second app replica cannot race a first one on
+the migration advisory lock, and the role that performs DDL is named in exactly one place, so a
+deployment that wants the application to hold a DML-only role changes `DATABASE_URL` there and
+nowhere else. That second role is **not** shipped yet: both services carry the same URL today, which
+is what keeps `statement_timeout` unset (§12.8) and is the remaining half of the audit's SEC-43.
+
+🔒 **The app container is unprivileged and cannot write to itself:** `user: '1000:1000'`,
+`cap_drop: [ALL]`, `no-new-privileges`, `read_only: true`, and a memory limit. Exactly two paths stay
+writable, both `tmpfs` and both throwaway — `/tmp`, and `/app/.next/cache`, which Next creates on the
+first render. A hole in a native image or PDF library then costs a container rather than a host. If
+`document-process` jobs start dying with exit code 137, `APP_MEMORY_LIMIT` is the knob: OCR and the
+conversion of a large scan are what need the room.
+
+🔒 **The app is not given the object store's root credentials.** `minio-init` creates a scoped
+service account whose policy reaches the `legere` bucket and nothing else — no other bucket, no user
+administration, no console — and the app is given that. `MINIO_ROOT_PASSWORD` stays for
+administration. Rotating the app's key is an edit to `.env` and the next `up`; the init step is
+idempotent and updates the account in place. One ceiling worth knowing, because MinIO reports it
+only as a failed container: a **service-account** secret may be at most 40 characters, so
+`MINIO_APP_PASSWORD` is generated shorter than the others.
 
 Two settings decide whether a fresh install works, and both are the first thing `.env.example`
 explains:

@@ -31,11 +31,13 @@ ask() {
 }
 
 # Hex, not base64: this ends up inside a postgres:// URL, where a stray `/` or `+` would truncate it.
+# The byte count is an argument because one of these secrets has a ceiling — see `random_hex 20`.
 random_hex() {
+  bytes=${1:-24}
   if command -v openssl >/dev/null 2>&1; then
-    openssl rand -hex 24
+    openssl rand -hex "$bytes"
   else
-    od -An -N24 -tx1 /dev/urandom | tr -d ' \n'
+    od -An -N"$bytes" -tx1 /dev/urandom | tr -d ' \n'
   fi
 }
 
@@ -94,6 +96,11 @@ sed \
   -e "s|^AUTH_SECRET=.*|AUTH_SECRET=$(random_hex)|" \
   -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(random_hex)|" \
   -e "s|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=$(random_hex)|" \
+  `# 20 bytes, not 24: MinIO refuses a *service account* secret longer than 40 characters, and 24` \
+  `# bytes of hex is 48. The root password above has no such ceiling, which is why this one is the` \
+  `# only place it bites — and it bites hard: minio-init exits 1 and the app never starts, because` \
+  `# it waits for that container to complete.` \
+  -e "s|^MINIO_APP_PASSWORD=.*|MINIO_APP_PASSWORD=$(random_hex 20)|" \
   .env.tmp >.env
 rm -f .env.tmp
 chmod 600 .env
@@ -105,7 +112,7 @@ cat <<EOF
 Done. Two files are here:
 
   docker-compose.yaml   the stack: Legere, PostgreSQL, Stirling-PDF, MinIO
-  .env                  your settings; the three secrets are generated, keep this file
+  .env                  your settings; the four secrets are generated, keep this file
 
 Library:  ${library_path}  (read-only — Legere never writes there)
 Address:  ${app_url}

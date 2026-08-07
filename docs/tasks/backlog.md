@@ -518,7 +518,7 @@ Every task ends the same way: the scenario it fixes joins
   **Docs:** [`05 §5.4–5.5`](../05-library-and-processing.md#54-job-queue-pg-boss), [`09 §9.1`](../09-file-storage.md), [`12 §12.4`](../12-build-config-run.md)
   **Acceptance:** every `sharp` pipeline declares a pixel budget and the process-wide cache and concurrency are set once at load, so a small file that decodes to a gigabyte fails its step with a recorded reason instead of ending the process — which in a one-process architecture is also the HTTP surface; every outbound call carries a timeout and reads its response through a bound, the captcha check included, because that one sits on the login path; `toBuffer` takes a maximum and library ingest refuses a file above it using the size it already knows before reading; the search headline runs over a bounded prefix of the Markdown and the text query is computed once rather than three times; a `statement_timeout` is set for the application role; each of these has a test that would hang or exhaust memory without it.
 
-- [ ] **M15.10 — The container is not root, and does not hold the keys to everything**
+- [x] **M15.10 — The container is not root, and does not hold the keys to everything**
   **Goal:** a hole in a native library stops being a hole in the host.
   **Closes:** SEC-09, SEC-14, SEC-22, SEC-43
   **Docs:** [`12 §12.6`](../12-build-config-run.md#126-dockerfile-one-image), [`12 §12.5`](../12-build-config-run.md#125-local-development), [`12 §12.8`](../12-build-config-run.md)

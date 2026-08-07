@@ -1,10 +1,16 @@
 # Local development dependencies only — the Legere app itself is NOT in this file
 # (it runs via `npm run dev`). See docs/12 §12.5 and docs/09 §9.4.
+#
+# 🔒 Every port here is published on `127.0.0.1` and nothing is reachable from the network. These
+# are development containers with development credentials — a database whose password is in this
+# repository, an object store with its admin console, and a document converter with authentication
+# switched off — and on café or corporate wifi `0.0.0.0` hands all three to whoever is on the same
+# subnet (docs/12 §12.5).
 services:
   db:
     image: pgvector/pgvector:pg16
     environment: { POSTGRES_USER: legere, POSTGRES_PASSWORD: legere, POSTGRES_DB: legere }
-    ports: ['5432:5432']
+    ports: ['127.0.0.1:5432:5432']
     volumes: ['db-data:/var/lib/postgresql/data']
   stirling:
     # Built rather than pulled, for the same reason Docling is: the upstream image carries six
@@ -13,7 +19,7 @@ services:
     # `docker build -t legere-stirling:dev deploy/stirling`.
     image: legere-stirling:dev
     build: ./deploy/stirling
-    ports: ['8080:8080']
+    ports: ['127.0.0.1:8080:8080']
     # Stirling 2.x requires a login by default and answers `401 Authentication required` to every
     # API call; Legere talks to it over the internal network without credentials (ADR-012), so the
     # login is turned off here and in the deployment example of docs/12 §12.6.
@@ -22,7 +28,7 @@ services:
     image: minio/minio
     command: server /data --console-address ':9001'
     environment: { MINIO_ROOT_USER: legere, MINIO_ROOT_PASSWORD: legere-secret }
-    ports: ['9000:9000', '9001:9001']
+    ports: ['127.0.0.1:9000:9000', '127.0.0.1:9001:9001']
     volumes: ['minio-data:/data']
   docling:
     # Built rather than pulled: the upstream image ships tesseract with English only, and our
@@ -33,7 +39,7 @@ services:
     build: ./deploy/docling
     environment:
       DOCLING_SERVE_ENABLE_UI: 'false'
-    ports: ['5001:5001']
+    ports: ['127.0.0.1:5001:5001']
   ollama:
     # The AI step (categories, languages, where a document is from) talks to anything
     # OpenAI-compatible; this is the one you can run without an account. Point .env at it:
@@ -45,7 +51,7 @@ services:
     # runs on CPU and a 7B model answers in tens of seconds rather than instantly. Fine for trying
     # the pipeline out; run ollama natively if you want it quick.
     image: ollama/ollama:latest
-    ports: ['11434:11434']
+    ports: ['127.0.0.1:11434:11434']
     volumes: ['ollama-data:/root/.ollama']
   createbuckets:
     image: minio/mc
