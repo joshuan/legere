@@ -93,9 +93,18 @@ a redirect to `/login` (see §10.5).
   Lists use `useInfiniteQuery` with `nextCursor`. Mutations invalidate the narrowest affected keys.
 - **Processing liveness:** the documents list and the viewer poll with `refetchInterval: 5000` while
   any visible document has `processing: true`; the admin queue dashboard polls every 5 s. The
-  viewer's other queries — the extracted text, the log — are **not** polled: they are invalidated
-  when a step changes state, which is the only moment either can change and is already being
-  watched. The log additionally polls while the document is processing, because an entry can appear
+  viewer's other queries — the extracted text, the log, **and the people and subject catalogues** —
+  are **not** polled: they are invalidated when a step changes state, which is the only moment any
+  of them can change and is already being watched. The catalogues are on that list because the
+  analysis writes to them ([`05 §5.5`](./05-library-and-processing.md)), and a list fetched when the
+  screen mounted has never heard of the names the step just created.
+- 🔒 **A control never depends on a catalogue alone for its labels.** Where an editor offers a
+  choice over rows that live behind their own query — people, subjects — its options are the union
+  of that catalogue and whatever the record being edited already carries. The two arrive from
+  different places at different times: the record is polled, the catalogue is fetched, and a row can
+  be on the record before it is in the catalogue (the analysis just made it) or on the record and
+  never in it again (somebody deleted it, and `03 §3.3.19` keeps the link). Given only the
+  catalogue, the select has no label for such a value and renders the raw id. The log additionally polls while the document is processing, because an entry can appear
   without a step moving — somebody else editing the same document. Artifacts served as URLs (the
   preview image, the canonical PDF) are keyed by the step that produces them: a `<img>` asked for
   before the file existed is a broken image the browser will never retry on its own

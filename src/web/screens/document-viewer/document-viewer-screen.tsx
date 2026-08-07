@@ -102,6 +102,11 @@ export function DocumentViewerScreen({
   useEffect(() => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.markdown(id) });
     void queryClient.invalidateQueries({ queryKey: documentKeys.events(id) });
+    // The catalogues belong on this list for the same reason and were missing from it: the analysis
+    // writes people and subjects (05 §5.5), so a list fetched when the screen mounted has never
+    // heard of the names the step just created — and the editor would offer no label for them.
+    void queryClient.invalidateQueries({ queryKey: personKeys.all });
+    void queryClient.invalidateQueries({ queryKey: subjectKeys.all });
   }, [stepsKey, id, queryClient]);
 
   const documentTypes = useQuery({ queryKey: documentTypeKeys.all, queryFn: documentTypeApi.list });
@@ -557,6 +562,17 @@ type Draft = {
 };
 
 // Everything about the document that is not the document, in one list: what the file is, what the
+// The catalogue first, then anything the document carries that the catalogue does not: a row is
+// identified by its id, and the catalogue's copy wins when both have one, since it is the one a
+// person can still choose.
+function mergeById<T extends { id: string }>(
+  catalogue: readonly T[],
+  onDocument: readonly T[],
+): T[] {
+  const seen = new Set(catalogue.map((entry) => entry.id));
+  return [...catalogue, ...onDocument.filter((entry) => !seen.has(entry.id))];
+}
+
 // pipeline made of it, where its bytes live — and, behind an Edit button, a way to correct the parts
 // a machine guessed (docs/11 §11.5).
 function DetailsPane({
@@ -588,6 +604,22 @@ function DetailsPane({
   const [kind, setKind] = useState('');
   const [reset, setReset] = useState<ResettableField[]>([]);
   const editing = draft !== null;
+
+  // 🔒 The options a value may take are the catalogue *and* whatever this document already carries.
+  // The two come from different places — the catalogue is fetched once, the document is polled — so
+  // a name the analysis wrote a moment ago is on the document before it is in the catalogue, and a
+  // name somebody deleted is on the document and never in it again. Given only the catalogue, the
+  // select finds no label for such a value and rc-select renders the raw id, which is where the
+  // UUIDs came from. Taking the union removes the whole class: a value always has a name, even when
+  // the catalogue is stale, was deleted from, or failed to load at all.
+  const personOptions = useMemo(
+    () => mergeById(people, document.people),
+    [people, document.people],
+  );
+  const subjectOptions = useMemo(
+    () => mergeById(subjects, document.subjects),
+    [subjects, document.subjects],
+  );
 
   const startEditing = (): void => {
     setReset([]);
@@ -818,7 +850,10 @@ function DetailsPane({
                   searchValue={search}
                   onSearch={setSearch}
                   onChange={(peopleIds: string[]) => setDraft({ ...draft, peopleIds })}
-                  options={people.map((person) => ({ value: person.id, label: person.name }))}
+                  options={personOptions.map((person) => ({
+                    value: person.id,
+                    label: person.name,
+                  }))}
                   // A name the catalogue does not have yet is added to it: the analyst does exactly
                   // that on its own, and whoever corrects it must not need an admin (03 §3.3.19).
                   dropdownRender={(menu) => (
@@ -869,7 +904,7 @@ function DetailsPane({
                   searchValue={subjectSearch}
                   onSearch={setSubjectSearch}
                   onChange={(subjectIds: string[]) => setDraft({ ...draft, subjectIds })}
-                  options={subjects.map((subject) => ({
+                  options={subjectOptions.map((subject) => ({
                     value: subject.id,
                     label: `${subject.name} · ${subject.kind}`,
                   }))}

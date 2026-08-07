@@ -937,4 +937,43 @@ describe('DocumentViewerScreen', () => {
       expect(screen.queryByRole('button', { name: enMessages.viewer.files.crop })).toBeNull();
     });
   });
+
+  // 🔒 The regression this exists for: the selected ids come from the document, which is polled,
+  // and the labels came only from the catalogue, which is fetched once when the screen mounts. The
+  // analysis creates people and subjects in between, so the editor had no option for them and
+  // rc-select fell back to rendering the raw value — a column of UUIDs where names belong.
+  describe('names the catalogue has not caught up with', () => {
+    it('labels a person the document carries and the catalogue has never heard of', async () => {
+      const unknownId = '11111111-2222-4333-8444-555555555555';
+      serve({ ...detail, people: [{ id: unknownId, name: 'Ivan Ivanović' }] });
+
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+      const details = within(screen.getByRole('tabpanel'));
+      await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+
+      expect(await details.findByText('Ivan Ivanović')).toBeInTheDocument();
+      expect(details.queryByText(unknownId)).toBeNull();
+    });
+
+    it('labels a subject the same way, kind and all', async () => {
+      const unknownId = '66666666-7777-4888-8999-000000000000';
+      serve({
+        ...detail,
+        subjects: [{ id: unknownId, kind: 'car', name: 'Zastava 750' }],
+      });
+
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+      const details = within(screen.getByRole('tabpanel'));
+      await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+
+      expect(await details.findByText('Zastava 750 · car')).toBeInTheDocument();
+      expect(details.queryByText(unknownId)).toBeNull();
+    });
+  });
 });

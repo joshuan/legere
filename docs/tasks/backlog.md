@@ -606,7 +606,7 @@ changes the work by an order of magnitude:
 3. **Grouping is real groups with real counts, from the server** — not headers drawn over whatever
    the current page happened to contain.
 
-- [ ] **M16.1 — The selects say names, not identifiers**
+- [x] **M16.1 — The selects say names, not identifiers**
   **Goal:** pressing Edit stops showing a column of UUIDs where people and subjects should be.
   **Docs:** [`10 §10.5`](../10-frontend-architecture.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
   **The mechanism:** the selected values come from the document, which is polled every five seconds; the option list comes from `/api/people` and `/api/subjects`, fetched once at mount and never again — no `refetchInterval`, `refetchOnWindowFocus` off, and the effect that reacts to a step changing state invalidates the extracted text and the log but not the catalogues. The analysis creates people and subjects *after* that list is frozen, so a value has no option and rc-select falls back to rendering the raw value. A reload fixes it, which is the instability that was reported.
