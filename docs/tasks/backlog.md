@@ -644,7 +644,7 @@ changes the work by an order of magnitude:
   **Docs:** [`07 §7.1`](../07-api-specification.md#71-conventions), [`07 §7.3`](../07-api-specification.md), [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen)
   **Acceptance:** a grouping endpoint answers `{ key, label, count }` for a chosen dimension under the filters in force, in the shape `GET /api/documents/years` already answers in — so the paginated envelope of `07 §7.1` is not broken, because a group's contents are the ordinary list filtered by that group's value; the dimensions offered are the ones that can be filtered, which is what makes the contents reachable at all; a document that belongs to several groups — it has two people — appears under each, and the documentation says so, because the alternative is a card that vanishes from a shelf it belongs on; the counts are the archive's, not the current page's.
 
-- [ ] **M16.8 — The whole page is the drop zone**
+- [x] **M16.8 — The whole page is the drop zone**
   **Goal:** dropping a file stops being a small target with no feedback.
   **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen), [`05 §5.1a`](../05-library-and-processing.md)
   **Acceptance:** a file dragged anywhere over the documents screen is caught, not only one dragged over the grid; while something is being dragged the page says so unmistakably and stops saying it the moment the drag ends or leaves the window — including the case a browser makes easy to get wrong, where entering a child element fires a leave for its parent; a drag that carries no file — text, a link — is ignored rather than promising something that will not happen.

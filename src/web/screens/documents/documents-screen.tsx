@@ -119,124 +119,129 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
   }, [documents]);
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Row align="middle" justify="space-between" gutter={[16, 16]}>
-        <Col>
-          <Typography.Title level={3} style={{ margin: 0 }}>
-            {t('documents.title')}
-          </Typography.Title>
-        </Col>
-        <Col>
-          {/* Anyone may add a document of their own; the library is the admin's business
-              (docs/11 §11.3). */}
-          <UploadButton onFiles={upload.send} />
-        </Col>
-      </Row>
+    // Everything on the screen is inside the drop zone, the empty state included: a file is dropped
+    // where the eye happens to be, and "not over the grid" is not a reason to refuse it
+    // (docs/11 §11.3).
+    <UploadDropZone onFiles={upload.send}>
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Row align="middle" justify="space-between" gutter={[16, 16]}>
+          <Col>
+            <Typography.Title level={3} style={{ margin: 0 }}>
+              {t('documents.title')}
+            </Typography.Title>
+          </Col>
+          <Col>
+            {/* Anyone may add a document of their own; the library is the admin's business
+                (docs/11 §11.3). */}
+            <UploadButton onFiles={upload.send} />
+          </Col>
+        </Row>
 
-      <Space wrap size="middle">
-        <DocumentFiltersBar value={filters} onChange={setFilters} />
-        <Button
-          onClick={() => {
-            setSelecting((on) => !on);
-            setSelected([]);
-          }}
-        >
-          {selecting ? t('documents.selection.cancel') : t('documents.selection.start')}
-        </Button>
-        {selecting && (
-          <Space>
-            <Typography.Text type="secondary">
-              {t('documents.selection.count', { count: selected.length })}
-            </Typography.Text>
-            <Button
-              type="primary"
-              // One document combined with nothing is the document it already was.
-              disabled={selected.length < 2}
-              loading={combine.isPending}
-              onClick={() => combine.mutate(selected)}
-            >
-              {t('documents.selection.combine')}
-            </Button>
-          </Space>
+        <Space wrap size="middle">
+          <DocumentFiltersBar value={filters} onChange={setFilters} />
+          <Button
+            onClick={() => {
+              setSelecting((on) => !on);
+              setSelected([]);
+            }}
+          >
+            {selecting ? t('documents.selection.cancel') : t('documents.selection.start')}
+          </Button>
+          {selecting && (
+            <Space>
+              <Typography.Text type="secondary">
+                {t('documents.selection.count', { count: selected.length })}
+              </Typography.Text>
+              <Button
+                type="primary"
+                // One document combined with nothing is the document it already was.
+                disabled={selected.length < 2}
+                loading={combine.isPending}
+                onClick={() => combine.mutate(selected)}
+              >
+                {t('documents.selection.combine')}
+              </Button>
+            </Space>
+          )}
+        </Space>
+
+        {/* Above the grid, and only while nothing is being looked for in particular: a proposal
+            about the whole shelf makes no sense over a filtered view of it (docs/11 §11.3). */}
+        {Object.keys(filters).length === 0 && (
+          <GroupingSuggestions
+            onCombine={(documentIds) => combine.mutate(documentIds)}
+            combining={combine.isPending}
+          />
+        )}
+
+        {documents.isPending ? (
+          <Spin />
+        ) : items.length === 0 && upload.items.length === 0 ? (
+          <Empty
+            description={
+              Object.keys(filters).length > 0
+                ? t('documents.empty.filtered')
+                : t('documents.empty.instance')
+            }
+          >
+            {/* No dark-pattern empty state: whoever can fix it is told how (docs/11 §11.14). */}
+            {Object.keys(filters).length === 0 && isAdmin && (
+              <Link href="/admin/libraries">
+                <Button type="primary">{t('documents.empty.addLibrary')}</Button>
+              </Link>
+            )}
+          </Empty>
+        ) : (
+          <>
+            <Row gutter={[16, 16]}>
+              {/* Ahead of everything: a file chosen a second ago is the newest thing here, and it is
+                  also the thing the person is waiting on (docs/11 §11.3). */}
+              {upload.items.map((queued) => (
+                <Col key={queued.key} xs={12} sm={8} md={6} lg={4} xl={4} xxl={4}>
+                  <UploadingCard upload={queued} onDismiss={() => upload.dismiss(queued.key)} />
+                </Col>
+              ))}
+              {items.map((document, index) => (
+                <Col
+                  key={document.id}
+                  xs={12}
+                  sm={8}
+                  md={6}
+                  lg={4}
+                  xl={4}
+                  xxl={4}
+                  // The one orchestrated moment of the screen (docs/11 §11.15): the grid deals
+                  // itself out 40 ms at a time. Only the first screenful is staggered — a card
+                  // arriving on page seven should appear, not perform.
+                  className={index < STAGGER_LIMIT ? 'legere-enter' : undefined}
+                  style={staggerStyle(index)}
+                >
+                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                    {selecting && (
+                      <Checkbox
+                        checked={selected.includes(document.id)}
+                        onChange={(event) =>
+                          setSelected((current) =>
+                            event.target.checked
+                              ? [...current, document.id]
+                              : current.filter((id) => id !== document.id),
+                          )
+                        }
+                      >
+                        {document.title}
+                      </Checkbox>
+                    )}
+                    <DocumentCard document={document} />
+                  </Space>
+                </Col>
+              ))}
+            </Row>
+            <div ref={sentinel} style={{ height: 1 }} />
+            {documents.isFetchingNextPage && <Spin />}
+          </>
         )}
       </Space>
-
-      {/* Above the grid, and only while nothing is being looked for in particular: a proposal about
-          the whole shelf makes no sense over a filtered view of it (docs/11 §11.3). */}
-      {Object.keys(filters).length === 0 && (
-        <GroupingSuggestions
-          onCombine={(documentIds) => combine.mutate(documentIds)}
-          combining={combine.isPending}
-        />
-      )}
-
-      {documents.isPending ? (
-        <Spin />
-      ) : items.length === 0 && upload.items.length === 0 ? (
-        <Empty
-          description={
-            Object.keys(filters).length > 0
-              ? t('documents.empty.filtered')
-              : t('documents.empty.instance')
-          }
-        >
-          {/* No dark-pattern empty state: whoever can fix it is told how (docs/11 §11.14). */}
-          {Object.keys(filters).length === 0 && isAdmin && (
-            <Link href="/admin/libraries">
-              <Button type="primary">{t('documents.empty.addLibrary')}</Button>
-            </Link>
-          )}
-        </Empty>
-      ) : (
-        <UploadDropZone onFiles={upload.send}>
-          <Row gutter={[16, 16]}>
-            {/* Ahead of everything: a file chosen a second ago is the newest thing here, and it is
-                also the thing the person is waiting on (docs/11 §11.3). */}
-            {upload.items.map((queued) => (
-              <Col key={queued.key} xs={12} sm={8} md={6} lg={4} xl={4} xxl={4}>
-                <UploadingCard upload={queued} onDismiss={() => upload.dismiss(queued.key)} />
-              </Col>
-            ))}
-            {items.map((document, index) => (
-              <Col
-                key={document.id}
-                xs={12}
-                sm={8}
-                md={6}
-                lg={4}
-                xl={4}
-                xxl={4}
-                // The one orchestrated moment of the screen (docs/11 §11.15): the grid deals itself
-                // out 40 ms at a time. Only the first screenful is staggered — a card arriving on
-                // page seven should appear, not perform.
-                className={index < STAGGER_LIMIT ? 'legere-enter' : undefined}
-                style={staggerStyle(index)}
-              >
-                <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                  {selecting && (
-                    <Checkbox
-                      checked={selected.includes(document.id)}
-                      onChange={(event) =>
-                        setSelected((current) =>
-                          event.target.checked
-                            ? [...current, document.id]
-                            : current.filter((id) => id !== document.id),
-                        )
-                      }
-                    >
-                      {document.title}
-                    </Checkbox>
-                  )}
-                  <DocumentCard document={document} />
-                </Space>
-              </Col>
-            ))}
-          </Row>
-          <div ref={sentinel} style={{ height: 1 }} />
-          {documents.isFetchingNextPage && <Spin />}
-        </UploadDropZone>
-      )}
-    </Space>
+    </UploadDropZone>
   );
 }
 

@@ -61,7 +61,17 @@ Onboarding when already onboarded → 404 page.
 - Infinite scroll (`useInfiniteQuery`). Card click → viewer. Empty state (fresh instance): "No
   documents yet. Ask your administrator to add a library." — with a CTA to `/admin/libraries` for
   admins, and the upload affordance below, which any user can act on.
-- **Upload** (header action, and a drop zone over the grid) is **a queue on the page, not a modal
+- **The whole screen takes a dropped file** — the heading, the filter bar, the empty space beside the
+  cards, not only the grid. Nothing is drawn until a drag is actually in progress; then an overlay
+  says so unmistakably and goes away the moment the drag ends, leaves the window or is abandoned. It
+  takes no pointer events itself, because a surface that swallowed the pointer would end the drag it
+  is announcing. Three details are behaviour, not decoration: the overlay survives the pointer
+  crossing into a child element (the browser fires a leave for the parent, and a zone that believes
+  it flickers — enters and leaves are counted in pairs instead); a drag carrying **no file** — text,
+  a link, a selection — is ignored entirely rather than promising an upload that cannot happen; and
+  the browser's own default for a file dropped on a page, which is to navigate away to it and lose
+  what the person was looking at, is taken away wherever it would fire.
+- **Upload** (header action, and the page-wide drop zone above) is **a queue on the page, not a modal
   over it**. The moment files are chosen they are cards in the grid — ahead of everything, since a
   file chosen a second ago is both the newest thing here and the thing being waited on — each marked
   `Waiting` and then `Uploading…`. They are sent to `POST /api/documents` **one at a time, in the
