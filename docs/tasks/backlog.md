@@ -590,3 +590,61 @@ Every task ends the same way: the scenario it fixes joins
   **Closes:** SEC-45
   **Docs:** [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist), [`14 §14.8`](../14-coding-standards.md#148-testing), [`tasks/scenario-coverage.md`](./scenario-coverage.md)
   **Acceptance:** every line of `08 §8.6` maps to the test that proves it, in the table that already exists for the mandatory scenarios, and a line with no test is either given one or struck from the checklist with a reason; the boxes are ticked only once their tests are green — two of them ("single-use invite links", "codes and tickets are never logged") were false when this audit ran, which is what a checklist nobody verifies is worth; `security-audit-2026-08.md` gains a closing note recording which findings were fixed, which were accepted, and by whom.
+
+## M16 — Reading the archive the way you keep it
+
+Two defects in the viewer, and the home screen learning to be arranged. Three decisions were taken
+before any of it was written down, because the documentation was silent on all three and each
+changes the work by an order of magnitude:
+
+1. **A chosen arrangement lives in the URL**, beside the filters that already live there
+   (`11 §11.3`). A view can be linked and bookmarked; it does not follow the person to another
+   screen, and that is the accepted cost.
+2. **"When did this document last change" means the newest entry in its journal** — any event, not
+   only a human edit. Nothing can rank documents by that today, so it becomes a column kept beside
+   the log.
+3. **Grouping is real groups with real counts, from the server** — not headers drawn over whatever
+   the current page happened to contain.
+
+- [ ] **M16.1 — The selects say names, not identifiers**
+  **Goal:** pressing Edit stops showing a column of UUIDs where people and subjects should be.
+  **Docs:** [`10 §10.5`](../10-frontend-architecture.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
+  **The mechanism:** the selected values come from the document, which is polled every five seconds; the option list comes from `/api/people` and `/api/subjects`, fetched once at mount and never again — no `refetchInterval`, `refetchOnWindowFocus` off, and the effect that reacts to a step changing state invalidates the extracted text and the log but not the catalogues. The analysis creates people and subjects *after* that list is frozen, so a value has no option and rc-select falls back to rendering the raw value. A reload fixes it, which is the instability that was reported.
+  **Acceptance:** the option list is the union of the catalogue and the names the document itself carries, so a value always has a label even when the catalogue has never heard of it, the request failed, or the row is gone; the catalogues are additionally invalidated when a step changes state, which is the rule `10 §10.5` already states for the viewer's other queries and forgot to extend to these two; a test drives a document whose people arrive after the screen mounted and asserts no UUID is rendered; `10 §10.5` names the catalogues alongside the queries it already lists.
+
+- [ ] **M16.2 — A name that is gone says so**
+  **Goal:** a person or subject that was deleted from the catalogue stops looking like one that was not.
+  **Docs:** [`03 §3.3.19–3.3.20`](../03-domain-model.md), [`07 §7.3`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-admin-catalogues-adminpeople-adminsubjects-adminsubject-kinds)
+  **They stay, and that is not the bug.** `03 §3.3.19`, `07 §7.3` and `11 §11.12a` all say the links survive a deletion, and the confirmation dialog says it to the operator's face — "they stay on the N documents that name them". Removing them would make a shipped sentence a lie. What is missing is any way to *tell*, and the DTO carries nothing to tell it with.
+  **Acceptance:** the document detail says, per person and per subject, whether the catalogue still holds it; the viewer strikes such a name through and says why on hover, in both the reading pane and the editor, where it is present but cannot be chosen again; `PATCH /api/documents/:id` refuses an id that has been deleted rather than silently re-linking it — which is what `03 §3.3.19` already promises when it says only new documents stop being able to name them; people and subjects behave identically, and a test proves each.
+
+- [ ] **M16.3 — A kind is not an object, and every name is a way in**
+  **Goal:** the details pane stops running two facts together, and starts leading somewhere.
+  **Docs:** [`07 §7.3`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`04 §4.4`](../04-database-schema.md)
+  **Acceptance:** the subject row becomes two — the kind and the object — rather than one line reading `name · kind`; every person, subject, kind, document type, year and place in the pane is a link to the documents filtered by it; the filters that do not exist yet are added to `GET /api/documents` — `country`, `city` and `subjectKindId` — with the index each needs, since `personId`, `subjectId`, `typeId` and `year` are already there and only the place was missing; `04 §4.4`'s index table is brought back in line, having gone stale when the document date arrived.
+
+- [ ] **M16.4 — Where the bytes actually are**
+  **Goal:** a document made of uploads stops being silent about where it lives.
+  **Docs:** [`07 §7.3`](../07-api-specification.md), [`09 §9.2`](../09-file-storage.md), [`11 §11.5a`](../11-ui-ux-spec.md)
+  **Acceptance:** a file's location is answered for every file rather than only for the ones on a volume — `refs` is empty for a managed file today, so the viewer says nothing at all about an upload; the object storage is named as such, with the key the bytes are under, in the same place a library file names its volume and path; 🔒 the key is a location and not a way in — it grants nothing without a signed URL, and the pane says so rather than looking like a link.
+
+- [ ] **M16.5 — The shelf can be arranged**
+  **Goal:** the newest-scanned order stops being the only one.
+  **Docs:** [`07 §7.1`](../07-api-specification.md#71-conventions), [`07 §7.3`](../07-api-specification.md), [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen), [`04 §4.4`](../04-database-schema.md)
+  **This one amends a rule.** `07 §7.1` says in as many words: "Sorting is fixed per endpoint; no arbitrary sort params in MVP." A closed enum of named orders is not an arbitrary sort param, and that sentence has to say so before any of this is written.
+  **Acceptance:** `GET /api/documents` takes a `sort` from a closed set — the document's own date (the default, newest first, with the undated *before* everything rather than after), when Legere first saw it, and when it last changed; 🔒 the cursor carries the order it was cut from and a request whose `sort` disagrees with its cursor is refused rather than quietly answered from the wrong column, because the encoding has no version and this is the change that decides how the next one is made; the two orders that no index serves get one — `(document_date DESC NULLS FIRST, id DESC)`, which the existing `NULLS LAST` index cannot be scanned backwards to produce; "when it last changed" is the newest entry in the document's journal, kept as a column beside it and written where every event is already routed through one method (`03 §3.3.18`), because ranking an archive by an aggregate over the log is not something an index can serve; a test walks a second page in every order and asserts the access rule still holds there, the way the collections test already does.
+
+- [ ] **M16.6 — The card shows what you came for**
+  **Goal:** the badges under a card stop being one fixed pair.
+  **Docs:** [`07 §7.3`](../07-api-specification.md), [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen)
+  **Acceptance:** `DocumentListDto` carries the fields a card may show — the document's date, its people, its subjects, its place, its languages — fetched per page in the batched way the file counts already are, and not one query per card; the home screen chooses which of them appear, the type and the extension included, so both can be switched off; the choice travels in the URL beside the filters; the four other screens that render the same card keep the arrangement they have today rather than inheriting a home-screen setting.
+
+- [ ] **M16.7 — Real groups, with real counts**
+  **Goal:** an archive can be looked at a shelf at a time without leaving the list.
+  **Docs:** [`07 §7.1`](../07-api-specification.md#71-conventions), [`07 §7.3`](../07-api-specification.md), [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen)
+  **Acceptance:** a grouping endpoint answers `{ key, label, count }` for a chosen dimension under the filters in force, in the shape `GET /api/documents/years` already answers in — so the paginated envelope of `07 §7.1` is not broken, because a group's contents are the ordinary list filtered by that group's value; the dimensions offered are the ones that can be filtered, which is what makes the contents reachable at all; a document that belongs to several groups — it has two people — appears under each, and the documentation says so, because the alternative is a card that vanishes from a shelf it belongs on; the counts are the archive's, not the current page's.
+
+- [ ] **M16.8 — The whole page is the drop zone**
+  **Goal:** dropping a file stops being a small target with no feedback.
+  **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen), [`05 §5.1a`](../05-library-and-processing.md)
+  **Acceptance:** a file dragged anywhere over the documents screen is caught, not only one dragged over the grid; while something is being dragged the page says so unmistakably and stops saying it the moment the drag ends or leaves the window — including the case a browser makes easy to get wrong, where entering a child element fires a leave for its parent; a drag that carries no file — text, a link — is ignored rather than promising something that will not happen.

@@ -59,6 +59,7 @@ disagree, the doc wins — and report the discrepancy.
 | M13 | A file is not a document | a document is an ordered list of files plus one canonical PDF |
 | M14 | Repairs and the operator's view | merges that hold, a queue that can be paused, an instance page |
 | M15 | Closing what the audit found | the findings of [`security-audit-2026-08.md`](./security-audit-2026-08.md), fixed and tested |
+| M16 | Reading the archive the way you keep it | two viewer defects; a home screen that can be sorted, arranged and grouped |
 
 Milestones are strictly sequential; tasks within a milestone are ordered by dependency.
 
