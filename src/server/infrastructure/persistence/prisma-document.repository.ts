@@ -1000,11 +1000,16 @@ export class PrismaDocumentRepository implements DocumentRepository {
     return {
       document: toDomain(row),
       documentType: row.documentType,
-      people: row.people.map((link) => ({ id: link.person.id, name: link.person.name })),
+      people: row.people.map((link) => ({
+        id: link.person.id,
+        name: link.person.name,
+        deleted: link.person.deletedAt !== null,
+      })),
       subjects: row.subjects.map((link) => ({
         id: link.subject.id,
         kind: link.subject.kind.name,
         name: link.subject.name,
+        deleted: link.subject.deletedAt !== null,
       })),
       files: fileViews,
       createdBy: row.createdBy,

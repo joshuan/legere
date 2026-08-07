@@ -133,12 +133,21 @@ export type AutoValues = z.infer<typeof autoValuesSchema>;
 
 export const documentDetailDtoSchema = documentListDtoSchema.extend({
   auto: autoValuesSchema,
-  // Who the document is about (docs/03 §3.3.19), in catalogue order.
-  people: z.array(z.object({ id: z.string().uuid(), name: z.string() })),
+  // Who the document is about (docs/03 §3.3.19), in catalogue order. `deleted` says the catalogue
+  // no longer holds this name: the link deliberately survives a deletion, so the only way to tell a
+  // name that is still a choice from one that is a record is to be told.
+  people: z.array(z.object({ id: z.string().uuid(), name: z.string(), deleted: z.boolean() })),
   // The date on the document, yyyy-mm-dd. Null when it has none, or none was found.
   documentDate: z.string().nullable(),
-  // What the document is about (docs/03 §3.3.20).
-  subjects: z.array(z.object({ id: z.string().uuid(), kind: z.string(), name: z.string() })),
+  // What the document is about (docs/03 §3.3.20); `deleted` as for people above.
+  subjects: z.array(
+    z.object({
+      id: z.string().uuid(),
+      kind: z.string(),
+      name: z.string(),
+      deleted: z.boolean(),
+    }),
+  ),
   ocrUsed: z.boolean(),
   // What this document is, in a few hundred characters (docs/03 §3.3.10).
   description: z.string().nullable(),

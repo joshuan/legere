@@ -562,6 +562,19 @@ type Draft = {
 };
 
 // Everything about the document that is not the document, in one list: what the file is, what the
+// A catalogue row is a living one by construction: `/api/people` and `/api/subjects` return only
+// what has not been deleted (docs/07 §7.3).
+function living<T>(row: T): T & { deleted: boolean } {
+  return { ...row, deleted: false };
+}
+
+function isDeleted(
+  options: ReadonlyArray<{ id: string; deleted: boolean }>,
+  value: unknown,
+): boolean {
+  return options.some((option) => option.id === value && option.deleted);
+}
+
 // The catalogue first, then anything the document carries that the catalogue does not: a row is
 // identified by its id, and the catalogue's copy wins when both have one, since it is the one a
 // person can still choose.
@@ -613,13 +626,35 @@ function DetailsPane({
   // UUIDs came from. Taking the union removes the whole class: a value always has a name, even when
   // the catalogue is stale, was deleted from, or failed to load at all.
   const personOptions = useMemo(
-    () => mergeById(people, document.people),
+    () => mergeById(people.map(living), document.people),
     [people, document.people],
   );
   const subjectOptions = useMemo(
-    () => mergeById(subjects, document.subjects),
+    () => mergeById(subjects.map(living), document.subjects),
     [subjects, document.subjects],
   );
+
+  // A name the catalogue has let go is struck through rather than hidden: the link survives a
+  // deletion on purpose (03 §3.3.19), and a reader looking at a document has no other way to tell a
+  // name that is still a choice from one that is only a record.
+  const nameOrRecord = (label: ReactNode, deleted: boolean | undefined): ReactNode =>
+    deleted !== true ? (
+      label
+    ) : (
+      <Tooltip title={t('viewer.details.deletedName')}>
+        <span style={{ textDecoration: 'line-through' }}>{label}</span>
+      </Tooltip>
+    );
+
+  // Keyed by the row's own id rather than by position: two people may share a name, and a list that
+  // reorders would otherwise carry a tooltip from one to the other.
+  const joinNames = (names: ReadonlyArray<{ id: string; node: ReactNode }>): ReactNode =>
+    names.map((name, index) => (
+      <Fragment key={name.id}>
+        {index > 0 && ', '}
+        {name.node}
+      </Fragment>
+    ));
 
   const startEditing = (): void => {
     setReset([]);
@@ -850,10 +885,18 @@ function DetailsPane({
                   searchValue={search}
                   onSearch={setSearch}
                   onChange={(peopleIds: string[]) => setDraft({ ...draft, peopleIds })}
+                  // A name the catalogue no longer holds stays here so it can be seen and taken
+                  // off, and cannot be put back on — which is what 03 §3.3.19 means when it says
+                  // only new documents stop being able to name it.
                   options={personOptions.map((person) => ({
                     value: person.id,
                     label: person.name,
+                    disabled: person.deleted,
                   }))}
+                  optionRender={(option) => nameOrRecord(option.label, option.data.disabled)}
+                  labelRender={(label) =>
+                    nameOrRecord(label.label, isDeleted(personOptions, label.value))
+                  }
                   // A name the catalogue does not have yet is added to it: the analyst does exactly
                   // that on its own, and whoever corrects it must not need an admin (03 §3.3.19).
                   dropdownRender={(menu) => (
@@ -882,7 +925,12 @@ function DetailsPane({
                   )}
                 />
               ) : (
-                document.people.map((person) => person.name).join(', ')
+                joinNames(
+                  document.people.map((person) => ({
+                    id: person.id,
+                    node: nameOrRecord(person.name, person.deleted),
+                  })),
+                )
               ),
             pending: state('analysis'),
             note: wasRead(
@@ -907,7 +955,12 @@ function DetailsPane({
                   options={subjectOptions.map((subject) => ({
                     value: subject.id,
                     label: `${subject.name} · ${subject.kind}`,
+                    disabled: subject.deleted,
                   }))}
+                  optionRender={(option) => nameOrRecord(option.label, option.data.disabled)}
+                  labelRender={(label) =>
+                    nameOrRecord(label.label, isDeleted(subjectOptions, label.value))
+                  }
                   // Adding one takes both halves — a name with no kind is not a thing anybody can
                   // file by — so the footer asks for the kind before it offers to add (03 §3.3.20).
                   dropdownRender={(menu) => (
@@ -954,7 +1007,12 @@ function DetailsPane({
                   )}
                 />
               ) : (
-                document.subjects.map((subject) => `${subject.name} · ${subject.kind}`).join(', ')
+                joinNames(
+                  document.subjects.map((subject) => ({
+                    id: subject.id,
+                    node: nameOrRecord(`${subject.name} · ${subject.kind}`, subject.deleted),
+                  })),
+                )
               ),
             pending: state('analysis'),
             note: wasRead(

@@ -656,7 +656,8 @@
       "subjectKind": "Kind",
       "addSubject": "Add “{name}”",
       "reset": "reset",
-      "editHint": "Edit — or press E"
+      "editHint": "Edit — or press E",
+      "deletedName": "No longer in the catalogue. It stays on this document as a record."
     },
     "addedToCollection": "Added to the collection",
     "log": {

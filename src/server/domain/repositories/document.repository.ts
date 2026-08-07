@@ -97,9 +97,9 @@ export type DocumentDetail = {
   document: Document;
   documentType: DocumentCategory | null;
   // Who the document is about (docs/03 §3.3.19).
-  people: Array<{ id: string; name: string }>;
+  people: Array<{ id: string; name: string; deleted: boolean }>;
   // And what it is about (docs/03 §3.3.20).
-  subjects: Array<{ id: string; kind: string; name: string }>;
+  subjects: Array<{ id: string; kind: string; name: string; deleted: boolean }>;
   // What it is made of, by position (docs/03 §3.3.17). Everything a list row derives — the count,
   // the first extension, the weight, the origin, the availability — is derivable from this.
   files: DocumentFileView[];

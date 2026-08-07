@@ -55,6 +55,16 @@ export class PrismaSubjectRepository extends SubjectRepository {
     return row === null ? null : toSubject(row);
   }
 
+  async findByIds(ids: string[], tx?: TransactionHandle): Promise<Subject[]> {
+    if (ids.length === 0) return [];
+    const rows = await clientOf(this.prisma, tx).subject.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      include: { kind: true },
+      orderBy: { name: 'asc' },
+    });
+    return rows.map(toSubject);
+  }
+
   async findByKindAndName(
     kindId: string,
     name: string,

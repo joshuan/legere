@@ -8,6 +8,10 @@ export abstract class SubjectRepository {
 
   abstract findById(id: string, tx?: TransactionHandle): Promise<Subject | null>;
 
+  // Living rows only, as for people: what comes back is what may still be chosen, so a caller can
+  // tell a name it may name a document with from one it may not (docs/03 §3.3.20).
+  abstract findByIds(ids: string[], tx?: TransactionHandle): Promise<Subject[]>;
+
   // Case-insensitively on the name, and within one kind: the kind is part of the identity, because
   // "Montenegro" the country and "Montenegro" the boat are two things (docs/04 §4.3).
   abstract findByKindAndName(

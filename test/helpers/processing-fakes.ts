@@ -1009,6 +1009,15 @@ export class InMemorySubjectRepository extends SubjectRepository {
     return Promise.resolve(this.subjects.get(id) ?? null);
   }
 
+  findByIds(ids: string[]): Promise<Subject[]> {
+    return Promise.resolve(
+      ids.flatMap((id) => {
+        const subject = this.subjects.get(id);
+        return subject === undefined ? [] : [subject];
+      }),
+    );
+  }
+
   findByKindAndName(kindId: string, name: string): Promise<Subject | null> {
     const wantedName = name.trim().toLowerCase();
     return Promise.resolve(

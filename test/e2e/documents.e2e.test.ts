@@ -729,6 +729,34 @@ describe('Documents (e2e)', () => {
       });
     });
 
+    // 🔒 03 §3.3.19: a deleted name stays on the documents that already name it, and no new document
+    // may take it. The second half was a promise nothing kept — the ids went straight to the link
+    // table.
+    it('keeps a deleted name on the document, and refuses to put it on another', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const named = await givenDocument({ libraryId: open, title: 'Named' });
+      const other = await givenDocument({ libraryId: open, title: 'Other' });
+      const person = await testPrisma().person.create({ data: { name: 'Petar Petrović' } });
+
+      await api(app)
+        .patch(`/api/documents/${named}`, { peopleIds: [person.id] })
+        .set('Cookie', adminCookie);
+      await api(app).delete(`/api/admin/people/${person.id}`).set('Cookie', adminCookie);
+
+      // Still there, and now saying it is only a record.
+      const detail = await api(app).get(`/api/documents/${named}`).set('Cookie', adminCookie);
+      expect(expectData(detail, documentDetailDtoSchema).people).toEqual([
+        { id: person.id, name: 'Petar Petrović', deleted: true },
+      ]);
+
+      // And it cannot be given to anything else.
+      const refused = await api(app)
+        .patch(`/api/documents/${other}`, { peopleIds: [person.id] })
+        .set('Cookie', adminCookie);
+      expect(refused.status).toBe(404);
+      expect(expectError(refused).code).toBe('PERSON_NOT_FOUND');
+    });
+
     it('finds a document by who and what it is about, and by the year it carries', async () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open, title: 'Lease' });

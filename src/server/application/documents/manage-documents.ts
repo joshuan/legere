@@ -185,10 +185,25 @@ export class UpdateDocumentMeta {
     }
 
     // People are a set, not a field on the row: sent whole, replaced whole (docs/03 §3.3.19).
+    //
+    // 🔒 And checked before they are written. A deleted name stays on the documents that already
+    // name it and no new document may take it — which is what 03 §3.3.19 says, and which nothing
+    // enforced: the ids went straight to the link table, so a name the catalogue had let go could be
+    // put back on any document by anyone who still had its id.
     if (input.peopleIds !== undefined) {
+      await assertAllNameable(
+        input.peopleIds,
+        await this.people.findByIds(input.peopleIds),
+        'PERSON_NOT_FOUND',
+      );
       await this.people.setForDocument(detail.document.id, input.peopleIds);
     }
     if (input.subjectIds !== undefined) {
+      await assertAllNameable(
+        input.subjectIds,
+        await this.subjects.findByIds(input.subjectIds),
+        'SUBJECT_NOT_FOUND',
+      );
       await this.subjects.setForDocument(detail.document.id, input.subjectIds);
     }
 
@@ -346,4 +361,20 @@ function describeChanges(
     changes.documentDate = { from: before.documentDate, to: after.documentDate };
   }
   return changes;
+}
+
+// Every id asked for has to come back from a lookup that returns only what may still be named. An id
+// that does not is either gone or invented, and both answer the same way: a caller holding the id of
+// something deleted has learned nothing about whether it ever existed.
+function assertAllNameable(
+  asked: readonly string[],
+  found: ReadonlyArray<{ id: string }>,
+  code: 'PERSON_NOT_FOUND' | 'SUBJECT_NOT_FOUND',
+): Promise<void> {
+  const living = new Set(found.map((row) => row.id));
+  const missing = asked.find((id) => !living.has(id));
+  if (missing !== undefined) {
+    return Promise.reject(new NotFoundError(code, 'That name is no longer in the catalogue'));
+  }
+  return Promise.resolve();
 }

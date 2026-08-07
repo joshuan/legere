@@ -357,6 +357,13 @@ confirmation says so rather than implying the documents change. A kind that stil
 be deleted at all, and its confirmation says that too instead of offering a button the server will
 refuse.
 
+**And the document says it too.** On the viewer's Details a name the catalogue no longer holds is
+**struck through**, with a tooltip saying it stays as a record — in the reading pane and in the
+editor alike, where it is present, cannot be chosen again, and can still be taken off. Without that
+mark the two states are indistinguishable: the link is meant to survive
+([`03 §3.3.19`](./03-domain-model.md)), so "still filed under this name" and "filed under a name
+nobody may use again" look identical, and the second is the one worth knowing about.
+
 **These are content, not administration.** A catalogue is what documents are filed by, and the people
 who file them are not necessarily the people who run the instance — so they live in the menu beside
 Documents and Browse, and anyone signed in reads them and adds to them, exactly as the API has always

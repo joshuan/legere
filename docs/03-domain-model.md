@@ -315,7 +315,7 @@ documents is one row — and correcting a spelling corrects all forty.
 | id | uuid | |
 | name | string | unique among living rows, case-insensitively |
 | note | string? | whatever tells two people of the same name apart, in the owner's own words |
-| createdAt / updatedAt / deletedAt | | soft delete (ADR-015): the links stay, only new documents stop being able to name them |
+| createdAt / updatedAt / deletedAt | | soft delete (ADR-015): the links stay, only new documents stop being able to name them. 🔒 Enforced, not merely offered: `PATCH /api/documents/:id` refuses a deleted id with `PERSON_NOT_FOUND` rather than re-linking it. A document that already names one says so — the detail carries `deleted: true` for that entry, and the viewer strikes it through, because a link that survives a deletion is a record and has to read as one |
 
 `DocumentPerson` links the two, many-to-many, **without a role**. A role — buyer, seller, payer — is
 real and wanted, but what the roles *are* is not knowable yet, and a half-guessed vocabulary is worse
@@ -353,7 +353,7 @@ and "the papers for the car" is how anybody actually looks for them.
 | kindId | uuid | which `SubjectKind` this is one of |
 | name | string | which one, as the document writes it |
 | note | string? | **how to recognise this one**: the address, the plate, the account number, the other party — whatever a document about it would mention. Written by hand, read by the analysis |
-| createdAt / updatedAt / deletedAt | | soft delete (ADR-015): the links stay |
+| createdAt / updatedAt / deletedAt | | soft delete (ADR-015): the links stay, and behave exactly as a deleted person's do (§3.3.19): refused on a new document, marked on an old one |
 
 Unique on `(kindId, lower(name))` among living rows: the same flat entered twice is the failure this
 table exists to prevent, and the kind is part of the identity because "Montenegro" the country and

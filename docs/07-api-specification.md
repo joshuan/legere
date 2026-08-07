@@ -123,7 +123,7 @@ reports as expired.
 | `GET /api/documents/:id/canonical` | 🔒 | 302 → signed URL of `canonical.pdf`, `Content-Disposition` chosen by `?download=1`. This **is** the document as far as reading and downloading go (`05 §5.5`); `409 CANONICAL_NOT_READY` while the step has not finished. The originals are one level down, under `/files/:fileId/content` |
 
 `DocumentListDto`: `{ id, title, fileCount, primaryExt, sizeBytes(string, the files together), pageCount, documentType: {id,slug,name}|null, availability, processing, origin, hasPreview, createdAt }`.
-`DocumentDetailDto` = list dto + `{ ocrUsed, typeSource, steps: {canonical, preview, markdown, analysis, vectorization}, processingError, failedStep, createdBy?, files: DocumentFileDto[] }`.
+`DocumentDetailDto` = list dto + `{ ocrUsed, typeSource, steps: {canonical, preview, markdown, analysis, vectorization}, processingError, failedStep, createdBy?, files: DocumentFileDto[], people: {id,name,deleted}[], subjects: {id,kind,name,deleted}[], documentDate, description, country, city, languages, auto }`. `deleted` says the catalogue no longer holds that name: the link survives a deletion on purpose (03 §3.3.19), so the flag is the only thing that distinguishes a name still worth choosing from one kept as a record.
 
 `DocumentFileDto` = `{ id, position, name, mimeType, ext, sizeBytes, origin: 'LIBRARY' | 'MANAGED', available: boolean, crop: { points: [[x,y] ×4] } | null, cropSource: 'NONE' | 'AUTO' | 'MANUAL', isImage, refs: [{ libraryId, libraryName, path, status }] }` — ordered by position; `refs` lists only libraries visible to the caller (ADMIN sees all) and is empty for a managed file.
 

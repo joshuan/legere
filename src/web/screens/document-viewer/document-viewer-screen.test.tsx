@@ -394,8 +394,8 @@ describe('DocumentViewerScreen', () => {
     // untouched — the order a multi-select puts them in is not an edit.
     serve({
       ...detail,
-      people: [{ id: PERSON_ID, name: 'Marija Petrović' }],
-      subjects: [{ id: SUBJECT_ID, kind: 'apartment', name: 'Njegoševa 5' }],
+      people: [{ id: PERSON_ID, name: 'Marija Petrović', deleted: false }],
+      subjects: [{ id: SUBJECT_ID, kind: 'apartment', name: 'Njegoševa 5', deleted: false }],
       documentDate: '2019-03-01',
     });
 
@@ -945,7 +945,7 @@ describe('DocumentViewerScreen', () => {
   describe('names the catalogue has not caught up with', () => {
     it('labels a person the document carries and the catalogue has never heard of', async () => {
       const unknownId = '11111111-2222-4333-8444-555555555555';
-      serve({ ...detail, people: [{ id: unknownId, name: 'Ivan Ivanović' }] });
+      serve({ ...detail, people: [{ id: unknownId, name: 'Ivan Ivanović', deleted: false }] });
 
       renderWithProviders(<DocumentViewerScreen id={ID} />);
       await userEvent.click(
@@ -962,7 +962,7 @@ describe('DocumentViewerScreen', () => {
       const unknownId = '66666666-7777-4888-8999-000000000000';
       serve({
         ...detail,
-        subjects: [{ id: unknownId, kind: 'car', name: 'Zastava 750' }],
+        subjects: [{ id: unknownId, kind: 'car', name: 'Zastava 750', deleted: false }],
       });
 
       renderWithProviders(<DocumentViewerScreen id={ID} />);
@@ -974,6 +974,37 @@ describe('DocumentViewerScreen', () => {
 
       expect(await details.findByText('Zastava 750 · car')).toBeInTheDocument();
       expect(details.queryByText(unknownId)).toBeNull();
+    });
+  });
+
+  // 🔒 A deleted name stays on the documents that name it — 03 §3.3.19, and the confirmation dialog
+  // says so to the operator's face. What was missing was any way for a reader to tell such a name
+  // from one the catalogue still holds.
+  describe('a name the catalogue has let go', () => {
+    const goneId = '99999999-8888-4777-8666-555555555555';
+
+    it('strikes it through where the document is read', async () => {
+      serve({ ...detail, people: [{ id: goneId, name: 'Petar Petrović', deleted: true }] });
+
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+
+      const name = await screen.findByText('Petar Petrović');
+      expect(name).toHaveStyle({ textDecoration: 'line-through' });
+    });
+
+    it('leaves a living name alone', async () => {
+      serve({ ...detail, people: [{ id: PERSON_ID, name: 'Marija Petrović', deleted: false }] });
+
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+
+      const name = await screen.findByText('Marija Petrović');
+      expect(name).not.toHaveStyle({ textDecoration: 'line-through' });
     });
   });
 });
