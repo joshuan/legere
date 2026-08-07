@@ -8,6 +8,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { afterAll, beforeAll, describe, expect, it, type TestContext } from 'vitest';
+import type { Delivery } from '../../src/server/application/ports/file-storage';
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
 import { loadConfig } from '../../src/server/infrastructure/config/app-config';
 import { S3FileStorage } from '../../src/server/infrastructure/storage/s3-file-storage';
@@ -22,6 +23,9 @@ const BUCKET = config.get('S3_BUCKET');
 // level — the server compiles to CommonJS, where top-level await does not exist — so it runs in
 // beforeAll and every test consults the result.
 const minio = { up: false };
+
+// A derived artifact, served the way the viewer and the grid ask for one (docs/09 §9.2).
+const INLINE_JPEG: Delivery = { disposition: 'inline', contentType: 'image/jpeg' };
 
 function itWithMinio(name: string, body: () => Promise<void>, timeoutMs?: number): void {
   it(
@@ -111,18 +115,49 @@ describe('S3FileStorage (integration, MinIO)', () => {
   );
 
   itWithMinio('serves a presigned URL to a client that carries no credentials', async () => {
-    const url = await files.getSignedUrl(previewKey, 300);
+    const url = await files.getSignedUrl(previewKey, 300, INLINE_JPEG);
 
     const response = await fetch(url);
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('rewritten');
     expect(new URL(url).searchParams.get('X-Amz-Expires')).toBe('300');
+    // What the URL says it is, is what the bucket answers with (docs/09 §9.2).
+    expect(response.headers.get('content-type')).toBe('image/jpeg');
+    expect(response.headers.get('content-disposition')).toBe('inline');
+  });
+
+  // 🔒 SEC-03: the object was written as a page, and the bucket still hands back something to save.
+  // The overrides ride on the URL rather than on the object, so bytes stored before this rule existed
+  // are covered by it too.
+  itWithMinio('serves an object stored as a page as bytes to save', async () => {
+    const key = `files/${documentId}/original.html`;
+    await files.put(key, Buffer.from('<script>alert(1)</script>'), 'text/html');
+
+    const response = await fetch(
+      await files.getSignedUrl(key, 300, {
+        disposition: 'attachment',
+        contentType: 'application/octet-stream',
+        fileName: 'report.html',
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('application/octet-stream');
+    expect(response.headers.get('content-disposition')).toContain('attachment');
+  });
+
+  itWithMinio('refuses a URL whose delivery has been edited after signing', async () => {
+    const url = new URL(await files.getSignedUrl(previewKey, 300, INLINE_JPEG));
+    url.searchParams.set('response-content-type', 'text/html');
+
+    // 🔒 The overrides are part of what is signed: softening them costs the signature (docs/09 §9.2).
+    expect((await fetch(url)).status).toBe(403);
   });
 
   itWithMinio(
     'rejects the same URL once its TTL has passed',
     async () => {
-      const url = await files.getSignedUrl(previewKey, 1);
+      const url = await files.getSignedUrl(previewKey, 1, INLINE_JPEG);
       await new Promise((resolve) => setTimeout(resolve, 2500));
 
       const response = await fetch(url);

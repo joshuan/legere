@@ -473,7 +473,7 @@ Every task ends the same way: the scenario it fixes joins
   **Docs:** [`10 §10.2`](../10-frontend-architecture.md), [`11 §11.2`](../11-ui-ux-spec.md)
   **Acceptance:** a `safeReturnTo` helper in `src/web/shared/lib` resolves the candidate against the current origin and keeps only `pathname + search + hash` when the origins match, falling back to `/documents` otherwise; it is applied at **both** sinks — the login form and the auth wizard — not at the one place that reads the query today, so the next feature to wire the prop inherits the guard; unit tests cover an absolute off-origin URL, protocol-relative `//host`, backslash variants, a same-origin path with a query and hash, and `javascript:`; the `javascript:` case is additionally checked in a real browser and the result recorded in the PR, because whether it navigates or executes decides whether this was a redirect or an XSS.
 
-- [ ] **M15.3 — Nothing uploaded can run in a browser**
+- [x] **M15.3 — Nothing uploaded can run in a browser**
   **Goal:** a file a user uploads is served as bytes to save, never as a page to execute.
   **Closes:** SEC-03
   **Docs:** [`09 §9.1`](../09-file-storage.md), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model)

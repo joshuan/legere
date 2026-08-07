@@ -7,6 +7,7 @@ import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/co
 import {
   documentDetailDtoSchema,
   documentMarkdownResponseSchema,
+  uploadDocumentResponseSchema,
 } from '../../src/shared/contracts/documents';
 import {
   cropSuggestionResponseSchema,
@@ -31,6 +32,17 @@ function bodyOf(res: { body: unknown; text?: string }): string {
 
 function sha256(body: Buffer | string): string {
   return createHash('sha256').update(body).digest('hex');
+}
+
+// What the bucket has been told to answer with. The overrides ride on the presigned URL (docs/09
+// §9.2), so the terms a browser will be served on are readable from the Location the API sends it to
+// — including in this suite, where the storage is the in-memory double.
+function deliveryOf(location: string | undefined): { contentType: string; disposition: string } {
+  const query = new URL(location ?? '', 'http://redirect.test').searchParams;
+  return {
+    contentType: query.get('response-content-type') ?? '',
+    disposition: query.get('response-content-disposition') ?? '',
+  };
 }
 
 // The files a document is made of (docs/05 §5.6, docs/07 §7.3): composing them, and reading them
@@ -272,6 +284,12 @@ describe('Document files (e2e)', () => {
       .postBinary(`/api/documents/${documentId}/files`, body)
       .set('Cookie', cookie)
       .set('X-File-Name', encodeURIComponent(fileName));
+
+  const uploadDocument = (body: Buffer, fileName: string, cookie = adminCookie) =>
+    api(app)
+      .postBinary('/api/documents', body)
+      .set('Cookie', cookie)
+      .set('X-Legere-Filename', encodeURIComponent(fileName));
 
   describe('adding a file', () => {
     it('appends the upload, stores its bytes and rebuilds the document', async () => {
@@ -677,6 +695,12 @@ describe('Document files (e2e)', () => {
 
       expect(res.status).toBe(302);
       expect(res.headers.location).toContain(managed.key);
+      // 🔒 The branch that used to return before anything was said about the bytes (SEC-03): it says
+      // it on the redirect, and the same terms are signed into the URL the browser leaves for.
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['content-disposition']).toContain('attachment');
+      expect(deliveryOf(res.headers.location).contentType).toBe('application/pdf');
+      expect(deliveryOf(res.headers.location).disposition).toContain('attachment');
     });
 
     it('marks the ref MISSING and answers DOCUMENT_UNAVAILABLE when the file has vanished', async () => {
@@ -734,6 +758,42 @@ describe('Document files (e2e)', () => {
       expect(thumb.headers.location).toContain(artifactKeys.thumbnail(documentId));
     });
 
+    it('still lets the pictures and the PDF the page shows render where they stand', async () => {
+      const { documentId } = await givenLibraryDocument();
+      await app.files.put(artifactKeys.canonicalPdf(documentId), PDF, 'application/pdf');
+
+      const [preview, thumb, canonical] = await Promise.all([
+        api(app)
+          .get(`/api/documents/${documentId}/preview`)
+          .set('Cookie', adminCookie)
+          .redirects(0),
+        api(app).get(`/api/documents/${documentId}/thumb`).set('Cookie', adminCookie).redirects(0),
+        api(app)
+          .get(`/api/documents/${documentId}/canonical`)
+          .set('Cookie', adminCookie)
+          .redirects(0),
+      ]);
+
+      // What the grid's <img> and the viewer's <object> point at: their own type, rendered in place
+      // (docs/11 §11.5b). Locking uploads down must not lock these down with them.
+      expect(deliveryOf(preview.headers.location)).toEqual({
+        contentType: 'image/jpeg',
+        disposition: 'inline',
+      });
+      expect(deliveryOf(thumb.headers.location)).toEqual({
+        contentType: 'image/jpeg',
+        disposition: 'inline',
+      });
+      expect(deliveryOf(canonical.headers.location)).toEqual({
+        contentType: 'application/pdf',
+        disposition: 'inline',
+      });
+      // Present all the same, on the branch that used to say nothing at all (SEC-03).
+      expect(preview.headers['x-content-type-options']).toBe('nosniff');
+      expect(canonical.headers['x-content-type-options']).toBe('nosniff');
+      expect(canonical.headers['content-disposition']).toBe('inline');
+    });
+
     it('404s a preview the pipeline never produced', async () => {
       const { documentId } = await givenLibraryDocument({ previewStatus: 'SKIPPED' });
 
@@ -744,6 +804,105 @@ describe('Document files (e2e)', () => {
       // Better than a redirect to a URL that 404s from the bucket instead.
       expect(res.status).toBe(404);
       expect(expectError(res).code).toBe('NOT_FOUND');
+    });
+  });
+
+  // 🔒 SEC-03. Below the magic-byte line the MIME of an upload is the uploader's own claim about
+  // their file, so a document library accepts, stores and hands back things a browser would run if
+  // it were told what they say they are. Nothing uploaded is served on terms a browser can act on.
+  describe('nothing uploaded is served as a page', () => {
+    const executable = [
+      // The two the detector believes on the strength of the name alone (docs/06 §6.3.3) …
+      { fileName: 'report.html', body: '<script>fetch("/api/admin/users")</script>' },
+      { fileName: 'report.htm', body: '<html><body>a page</body></html>' },
+      // … and two more: an XML whose processing instruction can point at a second upload, and an
+      // SVG, which is a document with scripts in it wearing the name of a picture.
+      { fileName: 'feed.xml', body: '<?xml-stylesheet href="evil.xsl"?><feed>text</feed>' },
+      { fileName: 'drawing.svg', body: '<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>' },
+    ];
+
+    for (const upload of executable) {
+      it(`hands back an uploaded ${upload.fileName} as bytes to save, not as a page`, async () => {
+        const created = await uploadDocument(Buffer.from(upload.body), upload.fileName);
+        expect(created.status).toBe(201);
+        const documentId = expectData(created, uploadDocumentResponseSchema).document.id;
+        const file = (await detailOf(documentId)).files[0];
+
+        const res = await api(app)
+          .get(`/api/documents/${documentId}/files/${file?.id ?? ''}/content`)
+          .set('Cookie', adminCookie)
+          .redirects(0);
+
+        expect(res.status).toBe(302);
+        // What the bucket has been told to answer with, signed into the URL so it cannot be edited
+        // out of it (docs/09 §9.2). Nothing here is a type a browser renders as a document.
+        expect(deliveryOf(res.headers.location).contentType).toBe('application/octet-stream');
+        expect(deliveryOf(res.headers.location).disposition).toContain('attachment');
+        expect(deliveryOf(res.headers.location).disposition).toContain(upload.fileName);
+        // And on the redirect itself, which said neither of these before.
+        expect(res.headers['x-content-type-options']).toBe('nosniff');
+        expect(res.headers['content-disposition']).toContain('attachment');
+
+        // Depth: the object was stored as something to save too, so a presign written without
+        // thinking about any of this still cannot serve a page (docs/09 §9.2).
+        const stored = await testPrisma().file.findFirstOrThrow({
+          where: { contentHash: sha256(upload.body) },
+        });
+        expect(app.files.get(artifactKeys.fileOriginal(stored.id, stored.ext)).contentType).toBe(
+          'application/octet-stream',
+        );
+      });
+    }
+
+    it('keeps the detected type on the row, so an HTML upload is still converted like one', async () => {
+      const created = await uploadDocument(Buffer.from('<html>a page</html>'), 'page.html');
+      const file = (await detailOf(expectData(created, uploadDocumentResponseSchema).document.id))
+        .files[0];
+
+      // The row is what the pipeline classifies from (docs/03 §3.3.10, docs/05 §5.5 step 1): serving
+      // it as bytes to save must not turn an office format into an unsupported one.
+      expect(file?.mimeType).toBe('text/html');
+      expect(file?.ext).toBe('html');
+    });
+
+    it('lets an uploaded picture keep its own type, since the crop editor loads it into an <img>', async () => {
+      const png = await sharp({
+        create: { width: 8, height: 8, channels: 3, background: '#ffffff' },
+      })
+        .png()
+        .toBuffer();
+      const created = await uploadDocument(png, 'passport.png');
+      const documentId = expectData(created, uploadDocumentResponseSchema).document.id;
+      const file = (await detailOf(documentId)).files[0];
+
+      const res = await api(app)
+        .get(`/api/documents/${documentId}/files/${file?.id ?? ''}/content`)
+        .set('Cookie', adminCookie)
+        .redirects(0);
+
+      // On the allow-list, so it says what it is — and is still something to save rather than a page
+      // to open, which an <img> does not care about (docs/09 §9.2).
+      expect(deliveryOf(res.headers.location)).toMatchObject({ contentType: 'image/png' });
+      expect(deliveryOf(res.headers.location).disposition).toContain('attachment');
+    });
+
+    it('serves a library file on the same terms, streamed rather than redirected', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({
+        files: [{ name: 'page.html', body: '<html>from the volume</html>', mimeType: 'text/html' }],
+      });
+
+      const res = await api(app)
+        .get(`/api/documents/${documentId}/files/${fileIds[0]}/content`)
+        .set('Cookie', adminCookie)
+        .buffer(true);
+
+      // One rule for an original, whichever storage holds it: our own origin serves the same bytes
+      // under the same two headers (docs/09 §9.1).
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toBe('application/octet-stream');
+      expect(res.headers['content-disposition']).toContain('attachment');
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(bodyOf(res)).toBe('<html>from the volume</html>');
     });
   });
 

@@ -9,7 +9,12 @@ import {
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl as presign } from '@aws-sdk/s3-request-presigner';
 import { Injectable } from '@nestjs/common';
-import { FileStorage, type StoredObjectInfo } from '../../application/ports/file-storage';
+import {
+  contentDispositionOf,
+  FileStorage,
+  type Delivery,
+  type StoredObjectInfo,
+} from '../../application/ports/file-storage';
 import { AppConfig } from '../config/app-config';
 
 // Bodies above this go up as a multipart upload, smaller ones as a single PutObject — the `Upload`
@@ -68,10 +73,22 @@ export class S3FileStorage extends FileStorage {
     return response.Body;
   }
 
-  getSignedUrl(key: string, ttlSec: number): Promise<string> {
-    return presign(this.presigner, new GetObjectCommand({ Bucket: this.bucket, Key: key }), {
-      expiresIn: ttlSec,
-    });
+  getSignedUrl(key: string, ttlSec: number, delivery: Delivery): Promise<string> {
+    return presign(
+      this.presigner,
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        // 🔒 What the object was written as does not decide what the bucket answers with: these two
+        // overrides replace its stored `Content-Type` and `Content-Disposition` for this URL, and
+        // they are part of what is signed — strip or edit either and the signature no longer
+        // matches, so the request is refused rather than served on softer terms (docs/09 §9.2).
+        // Being on the URL rather than on the object, this covers everything already in the bucket.
+        ResponseContentType: delivery.contentType,
+        ResponseContentDisposition: contentDispositionOf(delivery),
+      }),
+      { expiresIn: ttlSec },
+    );
   }
 
   async exists(key: string): Promise<boolean> {

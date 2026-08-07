@@ -166,6 +166,14 @@ Principles (the exact entity model — in 03):
   artifacts from the private S3 bucket are served via **short-lived signed URLs**, library sources —
   streamed through the application. There are no direct/unauthenticated file links; a signed URL is
   never published in the UI as a permanent one.
+- 🔒 Access decides *whether* bytes are served; it does not decide what they are allowed to be. An
+  original always comes back as something to save, never as something to render: its content type is
+  normalized against a short allow-list — the canonical PDF, and images, SVG excluded — and anything
+  else is `application/octet-stream`, with `Content-Disposition: attachment` and `nosniff`. The rule
+  is applied when the object is written *and* signed into the presigned URL, so an object stored
+  before the rule existed is still served under it. Without this, a `report.html` an ordinary user
+  uploads is stored as `text/html` and executes in the storage origin when anyone opens it
+  ([`09 §9.2`](./09-file-storage.md)).
 
 Guards: `SessionGuard` (authn) → `RolesGuard` (admin routes) → `DocumentAccessGuard`
 (resolves the document/library from path parameters + checks visibility/sharing).

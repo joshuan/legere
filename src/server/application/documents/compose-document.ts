@@ -32,7 +32,7 @@ import type { ImageTool } from '../ports/image-tool';
 import type { JobQueue } from '../ports/job-queue';
 import type { MimeDetector } from '../ports/mime-detector';
 import type { TransactionHandle, UnitOfWork } from '../ports/unit-of-work';
-import { originalKeyOf } from '../storage/artifact-keys';
+import { originalKeyOf, servableContentType } from '../storage/artifact-keys';
 import type { DocumentFileBytes } from './document-file-bytes';
 import { originOfDetail, toDetailDto } from './manage-documents';
 
@@ -123,7 +123,14 @@ export class AddDocumentFile {
     if (stored.created) {
       // After the commit: an object written for a transaction that then rolled back would be an
       // orphan for maintenance to sweep (docs/09 §9.5).
-      await this.storage.put(originalKeyOf(stored.file), input.bytes, upload.mimeType);
+      //
+      // 🔒 Stored as what it may be served as, not as what it says it is (docs/09 §9.2); the row
+      // keeps the detected MIME for everything that has to understand the file.
+      await this.storage.put(
+        originalKeyOf(stored.file),
+        input.bytes,
+        servableContentType(upload.mimeType),
+      );
     }
 
     return reload(this.documents, viewer, documentId);

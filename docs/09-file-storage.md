@@ -21,10 +21,11 @@ Two distinct storages with opposite rules:
   - the walker (`walk`) is an async iterator yielding `{ relPath, size, mtimeMs }`, depth-first,
     sorted by name for deterministic scans; unreadable directories are recorded as scan errors and
     skipped, they do not abort the scan.
-- Source download (`GET /api/documents/:id/source` for LIBRARY documents) picks the first `HASHED`
-  FileRef in a library visible to the caller and streams it with backpressure
-  (`Content-Length` = FileRef.size, `Content-Type` = document.mimeType,
-  `Content-Disposition: attachment; filename="<title>.<ext>"` RFC 5987-encoded). If the file vanished
+- Reading one original (`GET /api/documents/:id/files/:fileId/content`, `07 §7.3`) picks the first
+  `HASHED` FileRef in a library visible to the caller and streams it with backpressure
+  (`Content-Length` = FileRef.size, `Content-Disposition: attachment; filename="<file name>"`
+  RFC 5987-encoded, `X-Content-Type-Options: nosniff`, and `Content-Type` by the rule in §9.2 below —
+  the file's own type only when that is one a browser may safely render). If the file vanished
   between check and open (`ENOENT`) → mark the ref `MISSING`, respond `409 DOCUMENT_UNAVAILABLE`.
 - Range requests are **not** supported in MVP (the in-app viewers use the canonical PDF from S3,
   where presigned URLs support ranges natively).
@@ -56,7 +57,35 @@ files/{fileId}/original.{ext}          # a managed file's own bytes: an upload, 
   bodies > 8 MiB (SDK `Upload` helper). No client-side uploads, no POST policies.
 - **Reads by clients** use presigned GET URLs, TTL `SIGNED_URL_TTL_SEC` (default 300 s), issued only
   by endpoints that already passed the document access check; the API responds `302 Location:
-  <signed url>` so `<img src>`/`<embed>` work naturally with cookies on the same origin.
+  <signed url>` so `<img src>`/`<object data>` work naturally with cookies on the same origin.
+
+### 🔒 What a browser is told the bytes are
+
+Below the magic-byte line, the MIME of a file is its own **name's** claim about it (`06 §6.3.3`), so
+`report.html` is `text/html` because it is called that. That claim decides how a document is
+converted and what its row displays; it never decides what a browser is told, or the bucket would
+serve a page with a script in it from an origin the operator owns. One rule, applied at both ends of
+an object's life:
+
+- **Render allow-list.** `application/pdf`, `image/jpeg`, `image/png`, `image/gif`, `image/webp` — no
+  more. Everything else is `application/octet-stream`. The list holds exactly what has to render: the
+  canonical PDF the viewer embeds, the preview and thumbnail, and the pictures the crop editor points
+  an `<img>` at. The detected MIME stays on `File.mimeType` (`03 §3.3.16`) — format classification,
+  `isImageFile` and the UI read the row and never the object.
+- **Stored** (`upload`/`compose` → `put`): an object is written under its allow-listed type or under
+  `application/octet-stream`.
+- **Served** (`getSignedUrl`): every presign sets `ResponseContentType` and
+  `ResponseContentDisposition` on the `GetObjectCommand` from the `Delivery` its caller passed, so the
+  bucket answers on those terms whatever the object was stored as — which covers objects written
+  before this rule existed. Both overrides are part of what is signed: editing either out of the URL
+  invalidates the signature, and the request is refused rather than served on softer terms.
+- **Who gets `inline`:** the artifacts Legere builds itself — `canonical.pdf`, `preview.jpg`,
+  `thumb.jpg`. **Everything a person uploaded is `attachment`**, named as it arrived, whether it is
+  streamed from the volume or fetched from the bucket. A browser renders an attachment as nothing at
+  all, whatever its type claims.
+- The redirect responses carry `Content-Disposition` and `X-Content-Type-Options: nosniff` too. They
+  are courtesy — the browser leaves for the bucket without them — but no file-serving response of
+  Legere's is silent about how its bytes are meant to be treated.
 - The host is part of what gets signed, so when the bucket answers on a different name outside the
   server's network — a bundled MinIO is `http://minio:9000` inside a compose network and
   `http://localhost:9000` from the browser — `S3_PUBLIC_ENDPOINT` names the outside one and only
@@ -70,15 +99,26 @@ files/{fileId}/original.{ext}          # a managed file's own bytes: an upload, 
 ## 9.3. `FileStorage` port (normative)
 
 ```ts
+// How the bytes are meant to reach a browser. `attachment` carries the name a saved file gets;
+// `inline` needs none, because nothing is being saved.
+type Delivery =
+  | { disposition: 'inline'; contentType: string }
+  | { disposition: 'attachment'; contentType: string; fileName: string };
+
 abstract class FileStorage {
   abstract put(key: string, body: Readable | Buffer, contentType: string): Promise<void>;
   abstract getStream(key: string): Promise<Readable>;            // pipeline-internal reads
-  abstract getSignedUrl(key: string, ttlSec: number): Promise<string>;
+  // The delivery is not advice: the implementation binds it into the URL (§9.2).
+  abstract getSignedUrl(key: string, ttlSec: number, delivery: Delivery): Promise<string>;
   abstract exists(key: string): Promise<boolean>;
   abstract delete(key: string): Promise<void>;                   // maintenance only
   abstract list(prefix: string): Promise<{ key: string; size: number }[]>;  // maintenance only
 }
 ```
+
+`Delivery` is also what the API's own responses are written from, so the two ways bytes leave Legere
+— streamed through the app, or fetched from the bucket by the browser — state the same thing and
+cannot drift apart.
 
 Implementations: `S3FileStorage` (prod/dev), `InMemoryFileStorage` (unit/e2e tests). Integration
 tests for `S3FileStorage` run against MinIO locally ([`14 §14.8`](./14-coding-standards.md#148-testing)).

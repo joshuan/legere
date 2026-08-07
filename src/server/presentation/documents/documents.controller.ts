@@ -68,6 +68,7 @@ import {
   type ArtifactKind,
   type Download,
 } from '../../application/documents/download-document';
+import { contentDispositionOf } from '../../application/ports/file-storage';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
 import { SuggestGroupings } from '../../application/documents/suggest-groupings';
 import { UploadDocument } from '../../application/documents/upload-document';
@@ -275,7 +276,7 @@ export class DocumentsController {
     @UuidParam('fileId', 'FILE_NOT_FOUND', 'File') fileId: string,
     @Res() res: Response,
   ): Promise<void> {
-    send(res, await this.fileContent.execute(document, fileId), 'attachment');
+    send(res, await this.fileContent.execute(document, fileId));
   }
 
   // An update rather than a creation: nothing new appears, several documents become one
@@ -315,7 +316,7 @@ export class DocumentsController {
     @Res() res: Response,
   ): Promise<void> {
     const asAttachment = download === '1' || download === 'true';
-    send(res, await this.canonical.execute(document, asAttachment), 'attachment');
+    send(res, await this.canonical.execute(document, asAttachment));
   }
 
   private async sendArtifact(
@@ -323,8 +324,9 @@ export class DocumentsController {
     kind: ArtifactKind,
     res: Response,
   ): Promise<void> {
-    // Viewed rather than saved: these are what an <img> or <embed> on the page points at.
-    send(res, await this.artifactUrl.execute(document, kind), 'inline');
+    // Viewed rather than saved: these are what an <img> on the page points at, and the use case says
+    // so on the download it returns.
+    send(res, await this.artifactUrl.execute(document, kind));
   }
 
   // Admin only: reprocessing costs OCR and provider calls, and it rewrites artifacts.
@@ -341,31 +343,28 @@ export class DocumentsController {
 
 // A 302 to a signed URL, or the bytes themselves. The signed URL is short-lived and never published
 // as a permanent link (docs/08 §8.5), which is why the API redirects instead of returning it.
-function send(res: Response, download: Download, disposition: 'attachment' | 'inline'): void {
+function send(res: Response, download: Download): void {
+  // 🔒 Said before the branch, so both ways out say it: what this is, and that a browser may not
+  // decide otherwise. The redirect used to return above this block, which is how an uploaded page
+  // came back ready to run (SEC-03). The headers on a 302 are courtesy — the browser leaves for the
+  // bucket without them — so the same two terms are signed into the URL itself (docs/09 §9.2).
+  res.setHeader('Content-Disposition', contentDispositionOf(download.delivery));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
   if (download.kind === 'redirect') {
     res.redirect(302, download.url);
     return;
   }
 
-  res.setHeader('Content-Type', download.contentType);
+  res.setHeader('Content-Type', download.delivery.contentType);
   // Absent for the canonical PDF: only the bucket knows how big it is, and asking would cost a round
   // trip to save the client a progress bar.
   if (download.contentLength !== undefined) {
     res.setHeader('Content-Length', download.contentLength.toString());
   }
-  res.setHeader('Content-Disposition', contentDisposition(disposition, download.fileName));
-  // 🔒 A library file is user content served from our own origin: nothing here may be sniffed into
-  // something the browser decides to execute.
-  res.setHeader('X-Content-Type-Options', 'nosniff');
 
   // Backpressure comes from pipe (docs/09 §9.1); a read error after the headers are out can only be
   // signalled by dropping the connection.
   download.body.on('error', () => res.destroy());
   download.body.pipe(res);
-}
-
-// RFC 5987: a plain ASCII fallback plus the real name, so a Cyrillic title survives the trip.
-function contentDisposition(kind: 'attachment' | 'inline', fileName: string): string {
-  const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
-  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { artifactKeys, originalKeyOf } from './artifact-keys';
+import {
+  artifactKeys,
+  originalDelivery,
+  originalKeyOf,
+  servableContentType,
+} from './artifact-keys';
 
 // The layout is a persistence format: changing a key orphans every artifact already in the bucket,
 // so it is pinned here against docs/09 §9.2 rather than left to be re-derived.
@@ -42,5 +47,54 @@ describe('artifactKeys', () => {
 
   it('keeps documents apart', () => {
     expect(artifactKeys.preview('doc-a')).not.toBe(artifactKeys.preview('doc-b'));
+  });
+});
+
+// 🔒 The rule that stops an uploaded file being served as something a browser will run (SEC-03).
+describe('servableContentType', () => {
+  it('serves the canonical PDF and real pictures as themselves', () => {
+    expect(servableContentType('application/pdf')).toBe('application/pdf');
+    expect(servableContentType('image/jpeg')).toBe('image/jpeg');
+    expect(servableContentType('image/png')).toBe('image/png');
+    // Not on any hand-written list, and it must still draw: the product offers to crop it.
+    expect(servableContentType('image/avif')).toBe('image/avif');
+    expect(servableContentType('image/bmp')).toBe('image/bmp');
+  });
+
+  it('refuses to call anything a document a browser would render', () => {
+    expect(servableContentType('text/html')).toBe('application/octet-stream');
+    expect(servableContentType('application/xml')).toBe('application/octet-stream');
+    expect(servableContentType('text/xml')).toBe('application/octet-stream');
+    expect(servableContentType('application/xhtml+xml')).toBe('application/octet-stream');
+  });
+
+  // An image that is a document that can carry script. The one image type held back.
+  it('never serves an SVG as an SVG', () => {
+    expect(servableContentType('image/svg+xml')).toBe('application/octet-stream');
+    expect(servableContentType('IMAGE/SVG+XML')).toBe('application/octet-stream');
+  });
+
+  it('reads the type without its parameters, and without caring about case', () => {
+    expect(servableContentType('image/PNG; charset=binary')).toBe('image/png');
+    expect(servableContentType('  application/pdf  ')).toBe('application/pdf');
+    expect(servableContentType('')).toBe('application/octet-stream');
+  });
+});
+
+describe('originalDelivery', () => {
+  it('offers whatever a person uploaded as something to save, under the name it arrived with', () => {
+    expect(originalDelivery({ mimeType: 'text/html', name: 'report.html' })).toEqual({
+      disposition: 'attachment',
+      contentType: 'application/octet-stream',
+      fileName: 'report.html',
+    });
+  });
+
+  it('still says what a picture is, so the crop editor can load it', () => {
+    expect(originalDelivery({ mimeType: 'image/png', name: 'scan.png' })).toEqual({
+      disposition: 'attachment',
+      contentType: 'image/png',
+      fileName: 'scan.png',
+    });
   });
 });

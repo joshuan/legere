@@ -7,7 +7,7 @@ import type { FileStorage } from '../ports/file-storage';
 import type { JobQueue } from '../ports/job-queue';
 import type { MimeDetector } from '../ports/mime-detector';
 import type { UnitOfWork } from '../ports/unit-of-work';
-import { originalKeyOf } from '../storage/artifact-keys';
+import { originalKeyOf, servableContentType } from '../storage/artifact-keys';
 import { describeUpload, titleOf, type UploadedFile } from './compose-document';
 import { listItemOf, toListDto } from './manage-documents';
 
@@ -110,7 +110,14 @@ export class UploadDocument {
       // After the commit: an object written for a transaction that then rolled back would be an
       // orphan, and maintenance would have to sweep it (docs/09 §9.5). The pipeline is enqueued but
       // cannot outrun this — its first act is to read the rows it was given.
-      await this.storage.put(originalKeyOf(stored.file), input.bytes, upload.mimeType);
+      //
+      // 🔒 Stored as what it may be served as, not as what it says it is: the row keeps the detected
+      // MIME, and everything that has to understand the file reads the row (docs/09 §9.2).
+      await this.storage.put(
+        originalKeyOf(stored.file),
+        input.bytes,
+        servableContentType(upload.mimeType),
+      );
     }
 
     // Freshly created: nothing is processed yet, no documentType, no preview — but the grid can show

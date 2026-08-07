@@ -1,6 +1,11 @@
 import { Readable } from 'node:stream';
 import { buffer as readToBuffer } from 'node:stream/consumers';
-import { FileStorage, type StoredObjectInfo } from '../../application/ports/file-storage';
+import {
+  contentDispositionOf,
+  FileStorage,
+  type Delivery,
+  type StoredObjectInfo,
+} from '../../application/ports/file-storage';
 
 export type StoredObject = {
   body: Buffer;
@@ -24,11 +29,16 @@ export class InMemoryFileStorage extends FileStorage {
   }
 
   // Shaped like a presigned URL, TTL included, so assertions read the same against both
-  // implementations. Signing does not require the object to exist, just as it does not on S3.
-  getSignedUrl(key: string, ttlSec: number): Promise<string> {
-    return Promise.resolve(
-      `http://in-memory-storage.test/${encodeURI(key)}?X-Amz-Expires=${ttlSec}`,
-    );
+  // implementations. Signing does not require the object to exist, just as it does not on S3. The
+  // delivery rides on the URL the way S3 puts it there, so a test can see what a browser would be
+  // told without a bucket to ask.
+  getSignedUrl(key: string, ttlSec: number, delivery: Delivery): Promise<string> {
+    const query = new URLSearchParams({
+      'X-Amz-Expires': String(ttlSec),
+      'response-content-type': delivery.contentType,
+      'response-content-disposition': contentDispositionOf(delivery),
+    });
+    return Promise.resolve(`http://in-memory-storage.test/${encodeURI(key)}?${query.toString()}`);
   }
 
   exists(key: string): Promise<boolean> {

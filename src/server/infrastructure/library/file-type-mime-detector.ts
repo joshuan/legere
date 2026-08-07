@@ -15,6 +15,12 @@ function loadFileType(): Promise<FileTypeModule> {
 // Magic bytes first, extension only as a fallback for formats that have none (docs/06 §6.3.3).
 // Text and Markdown are exactly that case: their content is indistinguishable from any other bytes,
 // so the extension is the only signal available.
+//
+// 🔒 Which means what comes out of here below the magic-byte line is the uploader's own claim about
+// their file — `report.html` is `text/html` because it is called that. That claim is good enough to
+// decide how a document is converted and what its row displays; it is never good enough to decide
+// what a browser is told the bytes are. Serving normalizes it against a render allow-list, at the
+// two ends of the object's life (`servableContentType`, docs/09 §9.2, SEC-03).
 const TEXT_EXTENSIONS: Record<string, string> = {
   txt: 'text/plain',
   text: 'text/plain',

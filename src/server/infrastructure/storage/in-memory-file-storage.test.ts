@@ -50,9 +50,24 @@ describe('InMemoryFileStorage', () => {
   });
 
   it('hands out a URL carrying the TTL', async () => {
-    const url = new URL(await files.getSignedUrl(key, 300));
+    const url = new URL(
+      await files.getSignedUrl(key, 300, { disposition: 'inline', contentType: 'image/jpeg' }),
+    );
 
     expect(url.pathname).toBe(`/${key}`);
     expect(url.searchParams.get('X-Amz-Expires')).toBe('300');
+  });
+
+  it('carries the delivery on the URL the way a presigned one does', async () => {
+    const url = new URL(
+      await files.getSignedUrl(key, 300, {
+        disposition: 'attachment',
+        contentType: 'application/octet-stream',
+        fileName: 'report.html',
+      }),
+    );
+
+    expect(url.searchParams.get('response-content-type')).toBe('application/octet-stream');
+    expect(url.searchParams.get('response-content-disposition')).toContain('attachment');
   });
 });
