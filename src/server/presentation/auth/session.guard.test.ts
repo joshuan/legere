@@ -4,11 +4,13 @@ import { Test } from '@nestjs/testing';
 import { LoggerModule } from 'nestjs-pino';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
+import { AuthenticateApiToken } from '../../application/auth/authenticate-api-token';
 import {
-  AuthenticateApiToken,
-  type AuthenticatedCaller as TokenCaller,
-} from '../../application/auth/authenticate-api-token';
-import { AuthenticateSession } from '../../application/auth/authenticate-session';
+  AuthenticateSession,
+  type AuthenticatedCaller,
+} from '../../application/auth/authenticate-session';
+import type { User } from '../../domain/entities/user';
+import type { ApiToken } from '../../domain/repositories/api-token.repository';
 import { DomainExceptionFilter } from '../http/domain-exception.filter';
 import { SessionGuard } from './session.guard';
 
@@ -17,35 +19,44 @@ import { SessionGuard } from './session.guard';
 // it before routing — so the only way to see whether the guard would also refuse is to stand it up
 // without that middleware, which is exactly what a Nest testing module does.
 
-const OWNER = {
+const NOW = new Date('2026-08-06T12:00:00.000Z');
+
+const OWNER: User = {
   id: 'a3f0f1c2-0000-4000-8000-000000000001',
   email: 'owner@legere.local',
+  passwordHash: 'not used by this suite',
   displayName: 'Owner',
   role: 'USER',
   language: 'EN',
   theme: 'SYSTEM',
   deactivatedAt: null,
-} as const;
+  createdAt: NOW,
+};
 
-class FakeApiTokens extends AuthenticateApiToken {
+const TOKEN: ApiToken = {
+  id: 'a3f0f1c2-0000-4000-8000-000000000002',
+  userId: OWNER.id,
+  name: 'a backup script',
+  tokenHash: 'not used by this suite',
+  expiresAt: new Date('2026-11-06T12:00:00.000Z'),
+  lastUsedAt: null,
+  revokedAt: null,
+  createdAt: NOW,
+};
+
+// Stand-ins rather than subclasses: both use cases take repositories and a clock this suite has no
+// use for, and the guard only ever calls `execute`.
+class FakeApiTokens {
   resolved = 0;
 
-  constructor() {
-    super();
-  }
-
-  override execute(): Promise<TokenCaller> {
+  execute(): Promise<AuthenticatedCaller> {
     this.resolved += 1;
-    return Promise.resolve({ kind: 'API_TOKEN', user: OWNER, tokenId: 'token-id' });
+    return Promise.resolve({ kind: 'API_TOKEN', user: OWNER, apiToken: TOKEN });
   }
 }
 
-class FakeSessions extends AuthenticateSession {
-  constructor() {
-    super();
-  }
-
-  override execute(): Promise<never> {
+class FakeSessions {
+  execute(): Promise<AuthenticatedCaller> {
     return Promise.reject(new Error('this suite only presents bearer credentials'));
   }
 }
