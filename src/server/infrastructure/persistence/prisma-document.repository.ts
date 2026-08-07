@@ -374,6 +374,54 @@ function readableSql(viewer: Viewer): Prisma.Sql {
   `;
 }
 
+// The full-text search itself, as SQL (docs/04 §4.3, docs/07 §7.3).
+//
+// 🔒 Two stages, and the shape does as much of the work as the bound does: `matches` finds and ranks,
+// `LIMIT` cuts, and only then does ts_headline run — over at most `limit` rows, and over a bounded
+// prefix of each. Written as one flat SELECT it was ts_headline over the whole of an unbounded `text`
+// column holding OCR output, for every row the planner chose to project, on a request any signed-in
+// user can repeat as fast as they like. The tsquery is built once in a CTE of its own instead of
+// three times over — once for the match, once for the rank, once for the headline.
+//
+// `MATERIALIZED` on both is the point rather than a hint: without it the planner may fold either CTE
+// back into the outer query and undo exactly the two properties this shape exists for.
+//
+// Separated from the method so the query can be read without a database: every value still travels
+// as a bound parameter through `Prisma.sql`, and a test asserts that it does (docs/14 §14.1).
+export function searchByTextSql(
+  viewer: Viewer,
+  query: string,
+  filters: SearchFilters,
+  limit: number,
+): Prisma.Sql {
+  return Prisma.sql`
+    WITH q AS MATERIALIZED (
+      SELECT websearch_to_tsquery('simple', ${query}) AS tsq
+    ), matches AS MATERIALIZED (
+      SELECT d.id,
+             ts_rank(d.search_vector, q.tsq) AS score,
+             -- The cast is load-bearing: a JavaScript number binds as bigint, and there is no
+             -- left(text, bigint).
+             left(coalesce(d.markdown, d.title), ${MAX_HEADLINE_CHARS}::int) AS excerpt
+      FROM documents d, q
+      WHERE d.search_vector @@ q.tsq
+        AND ${readableSql(viewer)}
+        AND ${filtersSql(filters)}
+      ORDER BY score DESC, d.id
+      LIMIT ${limit}
+    )
+    SELECT m.id,
+           ts_headline(
+             'simple',
+             m.excerpt,
+             q.tsq,
+             'MaxFragments=2, MinWords=5, MaxWords=24, StartSel=<mark>, StopSel=</mark>'
+           ) AS snippet
+    FROM matches m, q
+    ORDER BY m.score DESC, m.id
+  `;
+}
+
 function filtersSql(filters: SearchFilters): Prisma.Sql {
   const clauses: Prisma.Sql[] = [Prisma.sql`TRUE`];
 
@@ -396,6 +444,19 @@ function filtersSql(filters: SearchFilters): Prisma.Sql {
 // processingError is capped at 2000 characters (docs/03 §3.3.10): a stack trace or an HTML error page
 // from a sibling container must not become the largest column in the table.
 const MAX_ERROR_CHARS = 2000;
+
+// 🔒 How much of a document's Markdown the search snippet is cut from. `documents.markdown` is an
+// unbounded `text` column holding OCR output — a 300-page scan is megabytes of it — and ts_headline
+// re-parses whatever it is given, once per row returned. A search of 50 rows is therefore work
+// proportional to the largest documents in the archive, on a request any signed-in user can repeat
+// as fast as they like (docs/07 §7.3).
+//
+// 8000 characters is about four pages of text, which is where a snippet is worth reading from: what
+// a document is about is said near its beginning, and the snippet shows two fragments of two dozen
+// words. Nothing about *which* documents match changes — matching is `search_vector`, generated over
+// the whole column (docs/04 §4.3) — so a term that appears only on page forty still finds its
+// document; the snippet then opens at the top of the text instead of at that term.
+const MAX_HEADLINE_CHARS = 8000;
 
 function truncate(message: string | null): string | null {
   if (message === null) return null;
@@ -726,21 +787,9 @@ export class PrismaDocumentRepository implements DocumentRepository {
   ): Promise<SearchMatch[]> {
     const client = clientOf(this.prisma, tx);
 
-    const rows = await client.$queryRaw<{ id: string; snippet: string }[]>`
-      SELECT d.id,
-             ts_headline(
-               'simple',
-               coalesce(d.markdown, d.title),
-               websearch_to_tsquery('simple', ${query}),
-               'MaxFragments=2, MinWords=5, MaxWords=24, StartSel=<mark>, StopSel=</mark>'
-             ) AS snippet
-      FROM documents d
-      WHERE d.search_vector @@ websearch_to_tsquery('simple', ${query})
-        AND ${readableSql(viewer)}
-        AND ${filtersSql(filters)}
-      ORDER BY ts_rank(d.search_vector, websearch_to_tsquery('simple', ${query})) DESC, d.id
-      LIMIT ${limit}
-    `;
+    const rows = await client.$queryRaw<{ id: string; snippet: string }[]>(
+      searchByTextSql(viewer, query, filters, limit),
+    );
 
     return this.hydrate(
       client,

@@ -189,4 +189,50 @@ describe('SharpImageTool', () => {
       expect({ width: raster.width, height: raster.height }).toEqual({ width: 80, height: 40 });
     });
   });
+
+  // 🔒 SEC-08: the pixel budget. Nest, Next and the queue workers share one process (docs/02
+  // ADR-002), so an image bomb that OOMs a processing step takes the HTTP surface with it — and the
+  // queue would then detonate it five more times (docs/05 §5.4).
+  describe('the pixel budget', () => {
+    it('refuses an image past the budget in every pipeline, cheaply and by name', async () => {
+      // 100 Mpx of one colour: three megabytes on disk, past the 80 Mpx budget, and ~300 MB of raw
+      // RGB if anything ever decoded it. Nothing does — the limit is checked off the header, before
+      // a pixel is read, which is why this test costs milliseconds instead of a gigabyte.
+      const bomb = await sharp({
+        create: { width: 10000, height: 10000, channels: 3, background: '#3355aa' },
+      })
+        .png({ compressionLevel: 1 })
+        .toBuffer();
+      expect(bomb.byteLength).toBeLessThan(8 * 1024 * 1024);
+
+      // Every entry point, because a budget one pipeline forgets is no budget: the step fails with
+      // a message that says what happened, and the process is still here to run the next document.
+      await expect(images.toJpegPreview(bomb, { maxDim: 400 })).rejects.toThrow(/pixel limit/);
+      await expect(images.contentBox(bomb)).rejects.toThrow(/pixel limit/);
+      await expect(images.grayscaleRaster(bomb, 400)).rejects.toThrow(/pixel limit/);
+      await expect(
+        images.applyCrop(bomb, {
+          points: [
+            [0.1, 0.1],
+            [0.9, 0.1],
+            [0.9, 0.9],
+            [0.1, 0.9],
+          ],
+        }),
+      ).rejects.toThrow(/pixel limit/);
+    });
+
+    it('still processes the largest scan a document archive actually produces', async () => {
+      // An A3 sheet at 600 dpi is 69.7 Mpx, which is the worst legitimate case and sits under the
+      // budget: the guard has to refuse bombs without refusing scanners.
+      const a3at600dpi = await sharp({
+        create: { width: 9922, height: 7016, channels: 3, background: '#ffffff' },
+      })
+        .png({ compressionLevel: 1 })
+        .toBuffer();
+
+      const preview = await images.toJpegPreview(a3at600dpi, { maxDim: 400 });
+      expect((await sharp(preview).metadata()).width).toBe(400);
+    });
+  });
 });

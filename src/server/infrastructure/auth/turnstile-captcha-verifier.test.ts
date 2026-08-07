@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helpers/outbound';
 import { loadConfig } from '../config/app-config';
 import { TurnstileCaptchaVerifier } from './turnstile-captcha-verifier';
 
@@ -64,5 +65,28 @@ describe('TurnstileCaptchaVerifier (configured)', () => {
 
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'));
     expect(await verifierWith('secret-key').verify('token', undefined)).toBe(false);
+  });
+
+  // 🔒 SEC-17, and the one call of the set that sits on the login request path: without a bound, a
+  // hung Cloudflare holds an HTTP handler of the single process that is also the whole product.
+  it('gives up in seconds on a verifier that answers nothing, and still fails closed', async () => {
+    const timeouts = stubTimeouts();
+    neverAnswers();
+
+    const call = verifierWith('secret-key').verify('token', undefined);
+    // Without the signal there is nothing to fire: the login request would wait here.
+    timeouts.expire();
+
+    expect(await call).toBe(false);
+    expect(timeouts.requested()).toEqual([5_000]);
+  });
+
+  it('fails closed on a verifier that answers without stopping', async () => {
+    const { response, produced } = endlessBody();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+
+    expect(await verifierWith('secret-key').verify('token', undefined)).toBe(false);
+    // Refused at the first chunk past 64 KiB rather than read into the request handler's memory.
+    expect(produced()).toBeLessThan(4);
   });
 });

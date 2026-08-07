@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
+import { readBoundedJson, readBoundedText } from '../../application/ports/binary-source';
 import {
   DocumentAnalyst,
   type DocumentTypeOption,
@@ -101,6 +102,20 @@ const MAX_KNOWN_NOTE_CHARS = 300;
 // contain the line that closes it (docs/05 §5.5 step 4).
 const NONCE_BYTES = 12;
 
+// 🔒 How long one look at a document may take. The runtime is whatever the operator pointed this at
+// — a local Ollama on a CPU, or somebody else's HTTP endpoint — and without a signal a hung one
+// holds a `document-process` worker until undici's 300 s, which a slow drip defeats outright
+// (docs/05 §5.4). Five minutes is generous for one completion even on a small CPU model, and short
+// enough that the step fails and retries rather than occupying one of the two workers there are.
+const TIMEOUT_MS = 5 * 60_000;
+
+// 🔒 And how much may come back. The answer is one JSON object of a dozen short fields; a model that
+// ignores the instruction and writes an essay is still kilobytes. 8 MiB leaves room for the most
+// verbose runtime and refuses one that answers with a stream instead. An error detail is a sentence,
+// and it is truncated to 300 characters below in any case.
+const MAX_ANSWER_BYTES = 8 * 1024 * 1024;
+const MAX_ERROR_BYTES = 64 * 1024;
+
 @Injectable()
 export class OpenAiCompatAnalyst extends DocumentAnalyst {
   private readonly baseUrl: string;
@@ -170,14 +185,19 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
           { role: 'user', content: fenceDocument(excerpt, nonce) },
         ],
       }),
+      // 🔒 Headers and body alike: when it fires, undici tears the body stream down too, so a
+      // runtime that answers and then drips cannot hold the worker either.
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
+      const detail = await readBoundedText(response, MAX_ERROR_BYTES).catch(() => '');
       throw new Error(`Analyst request failed with ${response.status}: ${truncate(detail)}`);
     }
 
-    const parsed = completionResponseSchema.safeParse(await response.json());
+    const parsed = completionResponseSchema.safeParse(
+      await readBoundedJson(response, MAX_ANSWER_BYTES),
+    );
     if (!parsed.success) throw new Error('Analyst returned an unreadable response');
 
     return readAnswer(parsed.data.choices[0]?.message.content ?? '', documentTypes);

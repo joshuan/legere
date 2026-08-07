@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { z } from 'zod';
+import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helpers/outbound';
 import type { DocumentTypeOption, KnownSubject } from '../../application/ports/document-analyst';
 import { loadConfig } from '../config/app-config';
 import { fenceDocument, OpenAiCompatAnalyst } from './openai-compat-analyst';
@@ -404,5 +405,39 @@ describe('OpenAiCompatAnalyst', () => {
     await expect(analyst({ CLASSIFIER_MODEL: '' }).analyze('text', CATEGORIES)).rejects.toThrow(
       /No document analyst/,
     );
+  });
+});
+
+// 🔒 SEC-17. There are two `document-process` workers by default (docs/05 §5.4): a runtime that
+// never answers takes half the pipeline with it, and undici's 300 s backstop is defeated by a drip.
+describe('OpenAiCompatAnalyst (a runtime that misbehaves)', () => {
+  it('gives up on a runtime that takes the document and then never answers', async () => {
+    const timeouts = stubTimeouts();
+    neverAnswers();
+
+    const call = analyst().analyze('text', CATEGORIES);
+    timeouts.expire();
+
+    await expect(call).rejects.toThrow(/timed out/i);
+    expect(timeouts.requested()).toEqual([5 * 60_000]);
+  });
+
+  it('refuses an answer that never stops arriving instead of reading it whole', async () => {
+    const { response, produced } = endlessBody();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+
+    await expect(analyst().analyze('text', CATEGORIES)).rejects.toThrow(
+      /larger than one step may hold/,
+    );
+    // 8 MiB in 64 KiB chunks is 128 of them, plus the one that crosses the bound.
+    expect(produced()).toBeLessThan(134);
+  });
+
+  it('bounds the error detail it quotes from a failing runtime', async () => {
+    const { response, produced } = endlessBody();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(response.body, { status: 500 }));
+
+    await expect(analyst().analyze('text', CATEGORIES)).rejects.toThrow(/failed with 500/);
+    expect(produced()).toBeLessThan(4);
   });
 });

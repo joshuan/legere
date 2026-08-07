@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helpers/outbound';
 import { loadConfig } from '../config/app-config';
 import { OpenAiCompatEmbeddings } from './openai-compat-embeddings';
 
@@ -115,5 +116,45 @@ describe('OpenAiCompatEmbeddings', () => {
     await expect(provider({ EMBEDDINGS_API_BASE_URL: '' }).embed(['x'])).rejects.toThrow(
       /No embeddings provider/,
     );
+  });
+});
+
+// 🔒 SEC-17. The provider is whatever the operator pointed this at, and a vectorization worker that
+// waits on it for ever is a worker the queue never gets back (docs/05 §5.4).
+describe('OpenAiCompatEmbeddings (a provider that misbehaves)', () => {
+  it('gives up on a provider that accepts the batch and then never answers', async () => {
+    const timeouts = stubTimeouts();
+    neverAnswers();
+
+    const call = provider().embed(['one chunk']);
+    // What the clock would have done two minutes later. Without the signal there is nothing to fire
+    // and nothing to fail: this call would sit here until the test itself timed out.
+    timeouts.expire();
+
+    await expect(call).rejects.toThrow(/timed out/i);
+    expect(timeouts.requested()).toEqual([2 * 60_000]);
+  });
+
+  it('refuses an answer that never stops arriving instead of reading it whole', async () => {
+    const { response, produced } = endlessBody();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+
+    // 🔒 A hostile — or simply broken — provider streaming gigabytes into a process that is also
+    // serving pages. The bound is 64 MiB, so this stops at a thousand chunks and not at the disk.
+    await expect(provider().embed(['x'])).rejects.toThrow(/larger than one step may hold/);
+    // 64 MiB in 64 KiB chunks is 1024 of them, plus the one that crosses the bound.
+    expect(produced()).toBeLessThan(1030);
+  });
+
+  it('bounds the error detail it quotes from a failing provider', async () => {
+    const { response, produced } = endlessBody();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(response.body, { status: 500, statusText: 'Server Error' }),
+    );
+
+    // The detail goes into the step error for the admin panel, so it is read — but a failure is not
+    // a licence to send a gigabyte either: 64 KiB, which is a thousand times more than a sentence.
+    await expect(provider().embed(['x'])).rejects.toThrow(/failed with 500/);
+    expect(produced()).toBeLessThan(4);
   });
 });

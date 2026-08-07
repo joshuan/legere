@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import { toBuffer, type BinarySource } from '../../application/ports/binary-source';
+import {
+  MAX_BINARY_BYTES,
+  readBoundedBody,
+  readBoundedJson,
+  readBoundedText,
+  toBuffer,
+  type BinarySource,
+} from '../../application/ports/binary-source';
 import {
   PdfToolbox,
   type FirstPageOptions,
@@ -22,6 +29,37 @@ const ENDPOINTS = {
   pageCount: '/api/v1/analysis/page-count',
   pdfToMarkdown: '/api/v1/convert/pdf/markdown',
 } as const;
+
+// 🔒 How long each of them may take. Without one, undici's 300 s header timeout is the only backstop
+// and a slow drip defeats it entirely: a wedged container would hold a processing worker for ever,
+// and there are only `document-process` concurrency of them (docs/05 §5.4). The budgets are what the
+// work costs on the slowest hardware this is meant to run on, and every one of them stays well under
+// the hour a `document-process` job has (docs/06 §6.8).
+//
+// Written as constants rather than as env knobs: an operator has no way to know what "the right
+// Stirling timeout" is, and an instance that needs a different one has a container problem to fix.
+const TIMEOUTS_MS: Record<keyof typeof ENDPOINTS, number> = {
+  // LibreOffice starting up and rendering an office document — the slow one of the conversions.
+  toPdf: 5 * 60_000,
+  // One page rasterized at 150 dpi.
+  pdfToImage: 2 * 60_000,
+  // Tesseract over every page of a scan, one language model per language asked for. The long pole of
+  // the whole pipeline, and the reason the budget is not simply one number for the container.
+  ocr: 30 * 60_000,
+  imagesToPdf: 5 * 60_000,
+  mergePdfs: 5 * 60_000,
+  // Rewriting a metadata dictionary; anything slower is a container in trouble.
+  updateMetadata: 60_000,
+  pageCount: 60_000,
+  pdfToMarkdown: 5 * 60_000,
+};
+
+// 🔒 And how much each may bring back. A PDF or a Markdown conversion is bounded like any other
+// document this instance holds in memory (`MAX_BINARY_BYTES`, docs/05 §5.4). The small answers — a
+// page count, an error detail that is truncated to 500 characters anyway — are bounded by what they
+// are for, so a container answering a one-field question with a gigabyte is refused at the first
+// chunk past the bound.
+const MAX_SMALL_ANSWER_BYTES = 64 * 1024;
 
 const DEFAULT_PREVIEW_DPI = 150;
 
@@ -46,7 +84,7 @@ export class StirlingPdfToolbox extends PdfToolbox {
     // LibreOffice picks its input filter from the extension, so the original name has to travel
     // with the bytes — an .xlsx uploaded as "file" would be read as something else entirely.
     form.append('fileInput', await blobOf(source.body), source.fileName);
-    return this.postForBytes(ENDPOINTS.toPdf, form);
+    return this.postForBytes('toPdf', form);
   }
 
   async pdfFirstPageJpg(source: BinarySource, options: FirstPageOptions = {}): Promise<Buffer> {
@@ -58,13 +96,13 @@ export class StirlingPdfToolbox extends PdfToolbox {
     form.append('singleOrMultiple', 'single');
     form.append('colorType', 'color');
     form.append('dpi', String(options.dpi ?? DEFAULT_PREVIEW_DPI));
-    return this.postForBytes(ENDPOINTS.pdfToImage, form);
+    return this.postForBytes('pdfToImage', form);
   }
 
   async pdfToMarkdown(source: BinarySource): Promise<string> {
     const form = new FormData();
     form.append('fileInput', await blobOf(source), 'input.pdf');
-    const bytes = await this.postForBytes(ENDPOINTS.pdfToMarkdown, form);
+    const bytes = await this.postForBytes('pdfToMarkdown', form);
     return unwrapLayoutTables(stripImagePlaceholders(bytes.toString('utf8')));
   }
 
@@ -81,7 +119,7 @@ export class StirlingPdfToolbox extends PdfToolbox {
     form.append('sidecar', 'false');
 
     try {
-      return await this.postForBytes(ENDPOINTS.ocr, form);
+      return await this.postForBytes('ocr', form);
     } catch (error) {
       throw missingLanguageData(error, languages) ?? error;
     }
@@ -98,7 +136,7 @@ export class StirlingPdfToolbox extends PdfToolbox {
     form.append('fitOption', 'maintainAspectRatio');
     form.append('colorType', 'color');
     form.append('autoRotate', 'false');
-    return this.postForBytes(ENDPOINTS.imagesToPdf, form);
+    return this.postForBytes('imagesToPdf', form);
   }
 
   async mergePdfs(parts: readonly BinarySource[]): Promise<Buffer> {
@@ -112,7 +150,7 @@ export class StirlingPdfToolbox extends PdfToolbox {
     }
     form.append('sortType', 'orderProvided');
     form.append('removeCertSign', 'false');
-    return this.postForBytes(ENDPOINTS.mergePdfs, form);
+    return this.postForBytes('mergePdfs', form);
   }
 
   async stampMetadata(source: BinarySource, metadata: PdfMetadata): Promise<Buffer> {
@@ -127,36 +165,42 @@ export class StirlingPdfToolbox extends PdfToolbox {
       form.append('creationDate', stirlingDate(metadata.date));
       form.append('modificationDate', stirlingDate(metadata.date));
     }
-    return this.postForBytes(ENDPOINTS.updateMetadata, form);
+    return this.postForBytes('updateMetadata', form);
   }
 
   async pdfPageCount(source: BinarySource): Promise<number> {
     const form = new FormData();
     form.append('fileInput', await blobOf(source), 'input.pdf');
 
-    const response = await this.post(ENDPOINTS.pageCount, form);
-    const parsed = pageCountSchema.safeParse(await response.json());
+    const response = await this.post('pageCount', form);
+    const parsed = pageCountSchema.safeParse(
+      await readBoundedJson(response, MAX_SMALL_ANSWER_BYTES),
+    );
     if (!parsed.success) throw new Error('Stirling returned an unreadable page count');
     return parsed.data.pageCount;
   }
 
-  private async postForBytes(path: string, form: FormData): Promise<Buffer> {
-    const response = await this.post(path, form);
-    return Buffer.from(await response.arrayBuffer());
+  private async postForBytes(endpoint: keyof typeof ENDPOINTS, form: FormData): Promise<Buffer> {
+    const response = await this.post(endpoint, form);
+    return readBoundedBody(response, MAX_BINARY_BYTES);
   }
 
-  private async post(path: string, form: FormData): Promise<Response> {
+  private async post(endpoint: keyof typeof ENDPOINTS, form: FormData): Promise<Response> {
+    const path = ENDPOINTS[endpoint];
     // The id of the step this call belongs to travels with it, so the same line can be found in
     // Stirling's log and in the document's (docs/03 §3.3.18).
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: 'POST',
       body: form,
       headers: callHeaders(),
+      // 🔒 The whole exchange, headers and body alike: when it fires, undici tears the body stream
+      // down too, so a container that answers and then drips cannot hold the worker either.
+      signal: AbortSignal.timeout(TIMEOUTS_MS[endpoint]),
     });
     if (!response.ok) {
       // The body carries Stirling's own message; it goes into the job error so the failure is
       // diagnosable from the admin panel instead of being just a status code.
-      const detail = await response.text().catch(() => '');
+      const detail = await readBoundedText(response, MAX_SMALL_ANSWER_BYTES).catch(() => '');
       throw new Error(
         `Stirling ${path} failed with ${response.status}${detail === '' ? '' : `: ${truncate(detail)}`}`,
       );

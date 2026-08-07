@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import { toBuffer, type BinarySource } from '../../application/ports/binary-source';
+import {
+  readBoundedJson,
+  readBoundedText,
+  toBuffer,
+  type BinarySource,
+} from '../../application/ports/binary-source';
 import { DocumentParser, type ParseOptions } from '../../application/ports/document-parser';
 import { AppConfig } from '../config/app-config';
 import { callHeaders } from '../logging/async-call-context';
@@ -19,6 +24,25 @@ const POLL_WAIT_SEC = 5;
 // document-process job's own hour (docs/06 §6.8).
 const BUDGET_MS = 5 * 60 * 1000;
 const BUDGET_WITH_CAPTIONS_MS = 55 * 60 * 1000;
+
+// 🔒 The budgets above bound the *conversion*; these bound each HTTP request that carries it, which
+// is a different thing and the one a wedged container defeats. Long-polling only keeps requests short
+// as long as the other end plays along: with no signal, undici's 300 s header timeout is the backstop
+// and a drip of one byte a minute defeats even that, holding a processing worker for ever
+// (docs/05 §5.4).
+//
+// Submitting means uploading the canonical PDF, so it gets room for a large one; a poll is asked to
+// wait `POLL_WAIT_SEC` and anything much past that is a container in trouble; collecting the result
+// is one JSON document off disk.
+const SUBMIT_TIMEOUT_MS = 5 * 60 * 1000;
+const POLL_TIMEOUT_MS = (POLL_WAIT_SEC + 25) * 1000;
+const RESULT_TIMEOUT_MS = 2 * 60 * 1000;
+
+// 🔒 And how much may come back. The result carries the whole document as Markdown — generous, but
+// bounded, because this process is also the HTTP surface (docs/02 ADR-002). A task acknowledgement,
+// a poll answer and an error detail are all a few fields.
+const MAX_RESULT_BYTES = 64 * 1024 * 1024;
+const MAX_SMALL_ANSWER_BYTES = 64 * 1024;
 
 // How big a picture has to be, as a share of the page, before it is worth describing. Docling's own
 // default is 5%, which quietly skips exactly the pictures a document archive cares about — a logo,
@@ -90,7 +114,9 @@ export class DoclingParser extends DocumentParser {
     const taskId = await this.submit(form);
     await this.awaitTask(taskId, this.describePictures ? BUDGET_WITH_CAPTIONS_MS : BUDGET_MS);
 
-    const result = conversionSchema.safeParse(await this.get(`${RESULT}/${taskId}`));
+    const result = conversionSchema.safeParse(
+      await this.get(`${RESULT}/${taskId}`, RESULT_TIMEOUT_MS, MAX_RESULT_BYTES),
+    );
     if (!result.success) throw new Error('Docling answered in a shape this version does not know');
 
     return stripImagePlaceholders(result.data.document.md_content ?? '');
@@ -102,9 +128,10 @@ export class DoclingParser extends DocumentParser {
       method: 'POST',
       body: form,
       headers: callHeaders(),
+      signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS),
     });
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
+      const detail = await readBoundedText(response, MAX_SMALL_ANSWER_BYTES).catch(() => '');
       // The one failure worth spelling out: captions need a model that is not in the stock image,
       // and "404" on its own sends nobody anywhere useful.
       const hint =
@@ -117,7 +144,7 @@ export class DoclingParser extends DocumentParser {
       );
     }
 
-    const accepted = taskSchema.safeParse(await response.json());
+    const accepted = taskSchema.safeParse(await readBoundedJson(response, MAX_SMALL_ANSWER_BYTES));
     if (!accepted.success) throw new Error('Docling accepted the document without a task id');
     return accepted.data.task_id;
   }
@@ -127,7 +154,13 @@ export class DoclingParser extends DocumentParser {
   private async awaitTask(taskId: string, budgetMs: number): Promise<void> {
     const deadline = Date.now() + budgetMs;
     for (;;) {
-      const state = taskSchema.safeParse(await this.get(`${POLL}/${taskId}?wait=${POLL_WAIT_SEC}`));
+      const state = taskSchema.safeParse(
+        await this.get(
+          `${POLL}/${taskId}?wait=${POLL_WAIT_SEC}`,
+          POLL_TIMEOUT_MS,
+          MAX_SMALL_ANSWER_BYTES,
+        ),
+      );
       if (!state.success) throw new Error('Docling reported a task state this version cannot read');
 
       if (state.data.task_status === 'success') return;
@@ -144,13 +177,17 @@ export class DoclingParser extends DocumentParser {
     }
   }
 
-  private async get(path: string): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}${path}`, { headers: callHeaders() });
+  private async get(path: string, timeoutMs: number, maxBytes: number): Promise<unknown> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      headers: callHeaders(),
+      // 🔒 Headers and body alike: when it fires, undici tears the body stream down too.
+      signal: AbortSignal.timeout(timeoutMs),
+    });
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
+      const detail = await readBoundedText(response, MAX_SMALL_ANSWER_BYTES).catch(() => '');
       throw new Error(`Docling ${path} failed with ${response.status}: ${detail.slice(0, 500)}`);
     }
-    return response.json();
+    return readBoundedJson(response, maxBytes);
   }
 }
 
@@ -161,9 +198,13 @@ function stripImagePlaceholders(markdown: string): string {
   return markdown.replace(/<!--\s*image\s*-->/g, '');
 }
 
-// Blob wants an ArrayBuffer; this views the same memory rather than copying the document.
-function viewOf(bytes: Buffer): ArrayBuffer {
-  const { buffer, byteOffset, byteLength } = bytes;
-  if (!(buffer instanceof ArrayBuffer)) return new Uint8Array(bytes).buffer;
-  return buffer.slice(byteOffset, byteOffset + byteLength);
+// A Buffer is a view over an ArrayBufferLike, which may in principle be shared memory, while Blob
+// accepts only a view over a plain ArrayBuffer. Re-viewing the very same bytes — `slice` here used to
+// copy them — keeps a large document from being held twice while it uploads (docs/05 §5.4).
+function viewOf(bytes: Buffer): Uint8Array<ArrayBuffer> {
+  const underlying = bytes.buffer;
+  if (!(underlying instanceof ArrayBuffer)) {
+    throw new Error('unexpected shared memory backing a document buffer');
+  }
+  return new Uint8Array(underlying, bytes.byteOffset, bytes.byteLength);
 }

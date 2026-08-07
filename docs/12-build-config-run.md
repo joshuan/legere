@@ -156,6 +156,15 @@ then looks broken rather than strict.
 (passed as Docker build-args, [`13 §13.3`](./13-ci-cd.md#133-githubworkflowsreleaseyml)); setting them
 at runtime has no effect.
 
+**What is deliberately not here.** The bounds that stop one expensive document from costing the whole
+instance — the pixel budget for images, how many bytes a step may hold, how long an outbound call may
+take, how much of the Markdown a search snippet is cut from — are constants in the code and not
+variables in this file. They are listed with their values and their reasons in
+[`05 §5.4a`](./05-library-and-processing.md#54a-what-one-document-may-cost). The reasoning is the
+same one that keeps `PDF_TEXT_MIN_CHARS_PER_PAGE` here and the OCR timeout there: an operator can
+tell how much text makes a page a scan, and cannot tell what the right Stirling timeout is. An
+instance that would need a different one has a container to fix.
+
 ## 12.4a. What production refuses to start with
 
 The schema above validates *shape*. A production instance — `NODE_ENV=production`, which both the
@@ -368,6 +377,40 @@ development stack of §12.5, which takes the same name from its directory — us
   `Secure` whenever `APP_BASE_URL` is `https://`, so TLS at the ingress remains the expectation.
 - **Scaling later:** a second app container is possible (sessions/queue are in Postgres, files in
   S3), but per-IP rate limits become per-instance — acceptable, documented limitation.
+
+### `statement_timeout` — where it belongs, and why it is not set yet
+
+🔒 Nothing sets one today, and no query the application issues can be relied on to stop on its own.
+Search is the one a signed-in caller can repeat at will; it is bounded from the application side
+([`05 §5.4a`](./05-library-and-processing.md#54a-what-one-document-may-cost)), but a bound inside a
+query is not a limit on the query, and the next expensive query will not have thought about it.
+
+It belongs **on the database role the application connects as**, and nowhere else:
+
+- Not on the connection string. `DATABASE_URL` is the operator's, it carries the password, and every
+  deployment writes its own; a limit appended to a value copied out of an example file survives
+  exactly until somebody edits it, and disappears silently rather than loudly.
+- Not in application code. `SET statement_timeout` applies to whichever pooled connection happened to
+  run it, which is a limit that holds for some queries and not others — the worst kind.
+- Not in a migration as it stands, which is the reason this is a note and not a line of SQL:
+  **migrations run as the same role the application uses.** A timeout low enough to be worth having
+  would kill the first `CREATE INDEX` over a large table, and an upgrade that cannot finish is a
+  worse failure than the one being prevented.
+
+What it takes is therefore one thing, and it is already a task of its own: the migration and the
+application must connect as **two different roles** — the split M15.10 introduces for privilege
+reasons ([`SEC-43`](./tasks/security-audit-2026-08.md#sec-43)). Once they are separate, one statement
+belongs beside the role creation in the deployment:
+
+```sql
+ALTER ROLE legere_app SET statement_timeout = '30s';
+```
+
+30 s: an order of magnitude above the slowest legitimate request the application makes (a hybrid
+search over a large archive is milliseconds; the pipeline's long work is in sibling containers, not
+in Postgres), and far below the point at which a caller has taken a connection out of circulation.
+Applied to the role rather than to the session, it survives reconnects and pool growth, and it cannot
+be forgotten by whoever writes the next query. The migration role keeps no timeout at all.
 
 ## 12.8a. Security headers
 

@@ -512,7 +512,7 @@ Every task ends the same way: the scenario it fixes joins
   **Docs:** [`13 §13.1–13.2`](../13-ci-cd.md), [`12 §12.6`](../12-build-config-run.md#126-dockerfile-one-image)
   **Acceptance:** `npm audit --omit=dev` reports nothing of high severity or above; `sharp` and `nodemailer` are on majors that carry the fixes and the breaking changes they bring are absorbed with the suite green; `ci.yml` declares a least-privilege `permissions:` block like `release.yml` already does; every third-party action is pinned to a commit SHA with the version in a comment; a dependency audit runs in CI and fails the build above a chosen threshold, and an image scan runs on release; Dependabot (or an equivalent) is configured so the next advisory arrives as a pull request rather than as an audit finding.
 
-- [ ] **M15.9 — One document cannot take down the server**
+- [x] **M15.9 — One document cannot take down the server**
   **Goal:** a file chosen to be expensive costs its own processing step and nothing else.
   **Closes:** SEC-08, SEC-17, SEC-20, SEC-25
   **Docs:** [`05 §5.4–5.5`](../05-library-and-processing.md#54-job-queue-pg-boss), [`09 §9.1`](../09-file-storage.md), [`12 §12.4`](../12-build-config-run.md)

@@ -6,6 +6,7 @@ import type { FileRepository } from '../../domain/repositories/file.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
 import { ContentHash } from '../../domain/value-objects/content-hash';
+import { chunkToBuffer, MAX_BINARY_BYTES } from '../ports/binary-source';
 import type { JobQueue } from '../ports/job-queue';
 import type { LibraryReader } from '../ports/library-reader';
 import type { MimeDetector } from '../ports/mime-detector';
@@ -17,6 +18,10 @@ export type FileIngestPayload = z.infer<typeof fileIngestPayloadSchema>;
 
 // Enough bytes for magic-byte detection across the formats file-type recognises.
 const HEAD_BYTES = 4100;
+
+// Raised when a file on the volume is larger than one step may hold. Named so the failed-job journal
+// shows what happened rather than a bare message, and so a test can assert on the kind.
+export class FileTooLargeError extends Error {}
 
 // `file-ingest` (docs/05 §5.3). Streams the file once to compute its SHA-256 — the content identity
 // that drives deduplication (ADR-009, one level down since ADR-021) — and then asks two questions in
@@ -52,6 +57,25 @@ export class HandleFileIngest extends JobHandler {
     const library = await this.libraries.findById(ref.libraryId);
     if (library === null || library.deletedAt !== null) return;
 
+    // 🔒 Refused before a single byte is read, on the size the scan already recorded (docs/03 §3.3.9).
+    // Hashing itself streams, but everything downstream of it does not: the canonical build reads
+    // this file whole into memory (`toBuffer`), and this process is also the HTTP surface
+    // (docs/02 ADR-002), so a 5 GB PDF dropped on a library volume would be ingested happily and
+    // then take the instance down one step later. `SCAN_MAX_FILES` bounds how many files a scan
+    // takes in, never how large one of them is (docs/05 §5.4).
+    //
+    // Thrown rather than recorded as a skip, unlike a pipeline step: there is no document to record
+    // it against yet — that is the thing this job would have created — and a `FileRef` has no field
+    // for a reason. The queue's failed-job journal in the admin panel is where it lands instead,
+    // with this message and a manual Retry beside it (docs/05 §5.4, docs/07 admin queue), and the
+    // retries cost three queries each because nothing was opened.
+    if (ref.size > BigInt(MAX_BINARY_BYTES)) {
+      throw new FileTooLargeError(
+        `${ref.path.value} is ${ref.size} bytes, past the ${MAX_BINARY_BYTES} bytes one step may ` +
+          'hold in memory. Legere leaves it on the volume rather than reading it.',
+      );
+    }
+
     const stream = await this.reader.openStream(
       { rootPath: library.rootPath, excludeGlobs: library.excludeGlobs },
       ref.path,
@@ -64,7 +88,10 @@ export class HandleFileIngest extends JobHandler {
     let size = 0n;
 
     for await (const chunk of stream) {
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      // Not `String(chunk)`: a chunk that arrives as a plain `Uint8Array` would stringify to the
+      // comma-joined decimal spelling of its bytes, and the file's identity — its SHA-256 — would be
+      // of that text instead of of the file (see `chunkToBuffer`).
+      const buffer = chunkToBuffer(chunk);
       hasher.update(buffer);
       size += BigInt(buffer.byteLength);
       if (headLength < HEAD_BYTES) {

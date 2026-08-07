@@ -123,6 +123,54 @@ Rules:
   upgrade that rebuilds an archive spreads over hours instead of filling the queue in one; the
   handler is idempotent, so being wrong costs one repeated run and never a broken document.
 
+## 5.4a. What one document may cost
+
+🔒 Nest, Next and the queue workers share one process
+([ADR-002](./02-architecture-overview.md#adr-002-one-processport-expressexpressadapter--nestjs--next)).
+A step that
+exhausts memory or waits for ever therefore does not fail one document — it takes the HTTP surface
+with it, and the retries above then do it four more times. Every place where the *content of a
+document* decides how much work happens is bounded:
+
+| Bound | Value | What it is for |
+|---|---|---|
+| Pixels decoded out of one image | 80 Mpx | sharp's own limit is a ceiling on what libvips can address (~268 Mpx), not a budget. A 16383×16383 single-colour PNG is a few hundred KB — far under `UPLOAD_MAX_BYTES` — and decodes to ~805 MB of raw RGB, with the perspective warp of §5.6 allocating an output of the same order. 80 Mpx clears the worst legitimate case (an A3 sheet at 600 dpi is 69.7 Mpx) and refuses the rest |
+| Bytes one step holds in memory | 256 MiB | The pipeline works on whole documents — hash it, convert it, upload it — so whatever it opens is a buffer for as long as the step runs. Deliberately above `UPLOAD_MAX_BYTES`: a file this instance accepted must still be processable |
+| A library file taken in at all | the same 256 MiB, refused **before the file is opened**, on the size the scan already recorded | `SCAN_MAX_FILES` bounds how many files a scan takes in, never how large one of them is. A 5 GB PDF dropped on a read-only volume is left where it is; the refusal is a failed `file-ingest` job in the queue journal, naming the file and the bound |
+| Bytes read back from one outbound call | 64 MiB for a document, a Markdown conversion or a batch of vectors; 64 KiB for a page count, a task acknowledgement or an error detail | A wedged — or hostile — sibling container answering with gigabytes. The body is read chunk by chunk and the sender is cancelled, so the refusal costs one chunk instead of the whole answer |
+| Characters of Markdown the search snippet is cut from | 8000 | `documents.markdown` is unbounded text holding OCR output; `ts_headline` re-parses whatever it is given, once per row returned ([`07 §7.3`](./07-api-spec.md)). Which documents match does not change — that is `search_vector`, generated over the whole column ([`04 §4.3`](./04-database-schema.md)) — only where the snippet is cut from |
+
+**Every outbound call carries a timeout.** Without one, undici's 300 s header timeout is the only
+backstop and a slow drip defeats it outright: a container that accepts a request and then says
+nothing holds a processing worker for ever, and there are only `document-process` concurrency of
+them. Each budget is what the work costs on the slowest hardware this is meant to run on, and each
+stays under the hour a `document-process` job has ([`06 §6.8`](./06-backend-architecture.md)):
+
+| Call | Budget |
+|---|---|
+| Stirling: OCR over every page | 30 min |
+| Stirling: office document → PDF, images → PDF, merge, PDF → Markdown | 5 min |
+| Stirling: PDF → first-page image | 2 min |
+| Stirling: page count, metadata stamp | 1 min |
+| Docling: submitting the canonical PDF / one long poll / collecting the result | 5 min / 30 s / 2 min |
+| The analyst reading one document | 5 min |
+| One batch of embeddings | 2 min |
+| The captcha check on the login path | 5 s |
+
+The captcha is the odd one out and the reason it is in this list at all: it is not a queue job but an
+HTTP request handler, so a hung verifier holds a *login*. It fails closed
+([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)), timeout included.
+
+All of these are **constants in the code, not settings**. An operator has no way to know what the
+right Stirling timeout is, and an instance that needs a different one has a container to fix rather
+than a knob to turn. A bound that fires is a step that fails, with its reason recorded against the
+document like any other failure (§5.5) — loudly, on one document, which is the direction this is
+meant to fail in.
+
+The one bound that is *not* in the application's gift is a `statement_timeout` on the database role;
+it belongs to the deployment and is written up in
+[`12 §12.8`](./12-build-config-run.md#128-production-notes).
+
 ## 5.5. Document processing pipeline (`document-process`)
 
 Steps run sequentially for a document; each step records its status
