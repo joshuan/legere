@@ -248,7 +248,20 @@ function filters(query: ListDocumentsInput): Prisma.DocumentWhereInput {
   }
   if (query.typeId !== undefined) where.typeId = query.typeId;
   if (query.personId !== undefined) where.people = { some: { personId: query.personId } };
-  if (query.subjectId !== undefined) where.subjects = { some: { subjectId: query.subjectId } };
+  // Both subject filters land on the same relation, so they are ANDed rather than assigned to the
+  // one `subjects` key: naming a kind and a thing of another kind must find nothing, not the thing.
+  if (query.subjectId !== undefined) {
+    and.push({ subjects: { some: { subjectId: query.subjectId } } });
+  }
+  // A kind, not a thing: served by `subjects(kind_id)` and `document_subjects(subject_id)`, which
+  // the schema already carries (docs/04 §4.4).
+  if (query.subjectKindId !== undefined) {
+    and.push({ subjects: { some: { subject: { kindId: query.subjectKindId } } } });
+  }
+  // Exact equality, on the value the document itself carries: the link that leads here was built
+  // from that value (docs/11 §11.5). The partial indexes of docs/04 §4.4 serve both.
+  if (query.country !== undefined) where.country = query.country;
+  if (query.city !== undefined) where.city = query.city;
   if (query.year !== undefined) {
     // A calendar year in UTC, which is the zone the DATE column is read and written in.
     where.documentDate = {
@@ -1007,6 +1020,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
       })),
       subjects: row.subjects.map((link) => ({
         id: link.subject.id,
+        kindId: link.subject.kindId,
         kind: link.subject.kind.name,
         name: link.subject.name,
         deleted: link.subject.deletedAt !== null,

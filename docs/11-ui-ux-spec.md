@@ -50,6 +50,12 @@ Onboarding when already onboarded → 404 page.
   (spinner tag "Processing"), `PARTIAL` ("Some files missing"), `UNAVAILABLE` (grey "Files missing").
 - **Filter bar:** library select, document type select, availability toggle, "processing only" toggle,
   origin (All / From libraries / Added here). Filters reflect in the URL query.
+  **The URL may carry more than the bar draws.** A name in a document's details pane is a link into
+  this screen (`§11.5`), so `personId`, `subjectId`, `subjectKindId`, `year`, `country` and `city`
+  arrive here without a control of their own. Every filter `GET /api/documents` takes is read out of
+  the URL, and one with no control is carried through when another filter changes rather than being
+  dropped by the first switch anybody touches — a link that only half works is worse than no link.
+  **Clear filters** takes them off, because it clears what is in force rather than what is drawn.
 - **Selection → Combine.** The multi-select that used to build a scan set now says what it means:
   tick documents in page order and press **Combine into one document**. Their files move into the
   first-picked document in that order, the emptied documents go away, and the viewer opens on the
@@ -154,6 +160,30 @@ before the metadata of the thing it names.
   **Subject** works the same way, except that adding one takes both halves — the dropdown footer asks
   for the kind before it offers to add, because a name with no kind is not a thing anybody can file
   by (03 §3.3.20).
+  **A kind is not an object, so the reading pane gives it a row of its own** — the kind, then the
+  object — instead of one line reading "Njegoševa 5 · apartment", which is two facts run together and
+  neither of them legible. Editing stays one control over subjects, because a subject *is* a kind plus
+  a name and choosing the halves apart would let somebody choose a pair that is not a row; while the
+  form is open the kind row simply follows what the select holds. **A kind is named once** however
+  many things of it the document is about: two flats say "flat" once, because the row answers what
+  sort of thing this is about and the row below answers which ones. When the kinds differ they are
+  listed as a set — deliberately not paired off position by position against the objects, which is
+  the running-together this split exists to end; each kind is still a way into everything of that
+  kind, and each object into itself.
+  **Every name in the pane is a way in.** The person, the subject, the kind, the document type, the
+  date and the place each link to the documents filed under them, because a detail read on one
+  document is how the next one is found. Where a facet already has a browse screen (`§11.4`) that is
+  the destination — it resolves its own heading on the server and shows the same card grid: a type to
+  `/browse/types/:id`, a person to `/browse/people/:id`, a subject to `/browse/subjects/:kind/:id`,
+  the date to its year at `/browse/years/:year`. The two that have none go to the home screen with
+  the filter in the URL, which is where filters live (`§11.3`): a **kind** to
+  `/documents?subjectKindId=…`, since `/browse/subjects/:kind` lists the *things* of a kind and what
+  is wanted here is the documents; and the **place**, which is two links rather than one — the city
+  within its country (`?country=…&city=…`, because "Bar" is a town in three of them) and the country
+  on its own (`?country=…`), because "everything from Montenegro" is a question people ask. A name
+  the catalogue has let go is the exception and stays plain struck-through text: the browse screen
+  resolves its heading from the live catalogue and answers 404 for a deleted row, so the link would
+  lead nowhere. A record is not a way in.
   Save sends **only the fields that changed** — an untouched document type must not travel, or every save
   would flip `typeSource` to `MANUAL` and a classifier's choice would silently become a person's.
   Cancel drops the draft. What the machine decided is kept: when the two differ, a
@@ -217,6 +247,15 @@ editable. One row per file, in page order: a thumbnail of the file, its name, ki
 `MISSING` tag when the volume no longer has it, and the library path underneath when it has one —
 where the bytes live is a fact about the file, and it belongs beside the file rather than in a
 section of its own.
+
+**Every file says where it is, not only the ones on a volume.** A managed file — an upload, or
+something Legere made — has no library path, and used to say nothing at all here, which left a
+document made of uploads looking like one with no whereabouts. It names **the object storage**, as
+such, and the key its bytes are under (`09 §9.2`), in that same line under the file. 🔒 As text, in
+the same monospace the library path uses, and **never as a link**: the key is a location and grants
+nothing on its own — the bucket is private and only a signed URL reads it — so anything that looked
+clickable would be a promise it will not keep. **Download** on the row is the way to the bytes, and
+it is right there.
 
 Per row: **Download** (this original alone), **Crop** for an image (§11.5c), **Move up / Move down**,
 and **Split off** — which says plainly what it does, "this file becomes its own document", because

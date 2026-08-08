@@ -28,6 +28,16 @@ export function DocumentFiltersBar({ value, onChange }: DocumentFiltersProps) {
     const next: DocumentFilters = {};
     if (merged.libraryId !== undefined) next.libraryId = merged.libraryId;
     if (merged.typeId !== undefined) next.typeId = merged.typeId;
+    // Filters that arrived from somewhere else — a name in the viewer's details pane is a link into
+    // this screen (docs/11 §11.5) — have no control here, and are carried through rather than dropped
+    // by the first switch anybody touches. "Clear filters" still takes them off, because it clears
+    // what is in force rather than what is drawn.
+    if (merged.personId !== undefined) next.personId = merged.personId;
+    if (merged.subjectId !== undefined) next.subjectId = merged.subjectId;
+    if (merged.subjectKindId !== undefined) next.subjectKindId = merged.subjectKindId;
+    if (merged.year !== undefined) next.year = merged.year;
+    if (merged.country !== undefined) next.country = merged.country;
+    if (merged.city !== undefined) next.city = merged.city;
     if (merged.availability !== undefined) next.availability = merged.availability;
     if (merged.processing !== undefined) next.processing = merged.processing;
     if (merged.origin !== undefined) next.origin = merged.origin;

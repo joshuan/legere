@@ -32,6 +32,7 @@ import {
 } from 'antd';
 import dayjs from 'dayjs';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { DefinitionList } from '../../shared/ui/definition-list';
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -603,7 +604,7 @@ function DetailsPane({
   documentTypes: Array<{ id: string; slug: string; name: string }>;
   people: Array<{ id: string; name: string }>;
   onCreatePerson: (name: string) => Promise<string>;
-  subjects: Array<{ id: string; kind: string; name: string }>;
+  subjects: Array<{ id: string; kindId: string; kind: string; name: string }>;
   subjectKinds: Array<{ id: string; name: string }>;
   onCreateSubject: (kind: string, name: string) => Promise<string>;
   onSave: (input: MetaChange) => void;
@@ -648,13 +649,54 @@ function DetailsPane({
 
   // Keyed by the row's own id rather than by position: two people may share a name, and a list that
   // reorders would otherwise carry a tooltip from one to the other.
+  //
+  // Nothing at all is the empty string rather than an empty array, so the row falls through to the
+  // definition list's em dash: "nothing was detected" is said out loud, and a blank cell reads as a
+  // rendering bug (docs/11 §11.5).
   const joinNames = (names: ReadonlyArray<{ id: string; node: ReactNode }>): ReactNode =>
-    names.map((name, index) => (
-      <Fragment key={name.id}>
-        {index > 0 && ', '}
-        {name.node}
-      </Fragment>
-    ));
+    names.length === 0
+      ? ''
+      : names.map((name, index) => (
+          <Fragment key={name.id}>
+            {index > 0 && ', '}
+            {name.node}
+          </Fragment>
+        ));
+
+  // Every name in the reading pane is a way into the documents filed under it (docs/11 §11.5) — a
+  // detail read on one document is how the next one is found.
+  //
+  // A name the catalogue has let go is the exception, and stays plain struck-through text: the browse
+  // screen it would point at resolves its own heading from the live catalogue and answers 404 for a
+  // deleted row (docs/11 §11.4), so the link would lead nowhere. A record is not a way in.
+  const wayIn = (label: string, href: string, deleted: boolean): ReactNode =>
+    deleted ? nameOrRecord(label, true) : <Link href={href}>{label}</Link>;
+
+  // Which subjects the pane is describing: the document's own, or — while the form is open — the ones
+  // the multi-select currently holds, so the kind row keeps up with what is being chosen.
+  const chosenSubjects = useMemo(
+    () =>
+      draft === null
+        ? document.subjects
+        : draft.subjectIds.flatMap((subjectId) => {
+            const found = subjectOptions.find((subject) => subject.id === subjectId);
+            return found === undefined ? [] : [found];
+          }),
+    [draft, document.subjects, subjectOptions],
+  );
+
+  // The kinds those subjects are filed under, each once. Several subjects of one kind — two flats,
+  // four vehicles — say "flat" once rather than repeating it per object: this row answers "what kind
+  // of thing is this about" and the row below answers "which ones". They are deliberately not paired
+  // off position by position, which is the running-together the split exists to end; when the kinds
+  // differ, each kind is still a way into everything of that kind, and each object into itself.
+  const kinds = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const subject of chosenSubjects) {
+      if (!seen.has(subject.kindId)) seen.set(subject.kindId, subject.kind);
+    }
+    return [...seen].map(([id, name]) => ({ id, name }));
+  }, [chosenSubjects]);
 
   const startEditing = (): void => {
     setReset([]);
@@ -859,7 +901,14 @@ function DetailsPane({
                 )
               ) : (
                 <Space size={4} wrap>
-                  {document.documentType?.name ?? ''}
+                  {/* The type is a folder that already has a screen of its own (docs/11 §11.4). */}
+                  {document.documentType === null ? (
+                    ''
+                  ) : (
+                    <Link href={`/browse/types/${document.documentType.id}`}>
+                      {document.documentType.name}
+                    </Link>
+                  )}
                   {/* Chosen by the classifier and not confirmed by anybody since (03 §3.3.10). */}
                   {document.typeSource === 'AUTO' && <Tag color="blue">{t('viewer.auto')}</Tag>}
                 </Space>
@@ -928,7 +977,7 @@ function DetailsPane({
                 joinNames(
                   document.people.map((person) => ({
                     id: person.id,
-                    node: nameOrRecord(person.name, person.deleted),
+                    node: wayIn(person.name, `/browse/people/${person.id}`, person.deleted),
                   })),
                 )
               ),
@@ -936,6 +985,35 @@ function DetailsPane({
             note: wasRead(
               (document.auto.people ?? []).join(', '),
               document.people.map((person) => person.name).join(', '),
+            ),
+          },
+          {
+            // A kind is not an object, so it is not printed as one (docs/11 §11.5). The row above
+            // says what sort of thing this document is about; the row below says which one. Editing
+            // stays a single control over subjects — a subject *is* a kind plus a name, and choosing
+            // the two apart would let somebody choose a pair that is not a row — so here the kinds
+            // simply follow what the select holds.
+            label: t('viewer.details.subjectKinds'),
+            value: joinNames(
+              kinds.map((subjectKind) => ({
+                id: subjectKind.id,
+                // Not a browse screen: `/browse/subjects/:kind` lists the *things* of a kind, and
+                // what is wanted here is the documents. The home screen carries the filter in its
+                // URL, which is where filters live (docs/11 §11.3).
+                node:
+                  draft !== null ? (
+                    subjectKind.name
+                  ) : (
+                    <Link href={documentsHref({ subjectKindId: subjectKind.id })}>
+                      {subjectKind.name}
+                    </Link>
+                  ),
+              })),
+            ),
+            pending: state('analysis'),
+            note: wasRead(
+              distinctKinds(document.auto.subjects ?? []),
+              kinds.map((subjectKind) => subjectKind.name).join(', '),
             ),
           },
           {
@@ -1010,40 +1088,52 @@ function DetailsPane({
                 joinNames(
                   document.subjects.map((subject) => ({
                     id: subject.id,
-                    node: nameOrRecord(`${subject.name} · ${subject.kind}`, subject.deleted),
+                    // The thing itself, without its kind trailing after it: the row above carries
+                    // that. `/browse/subjects/:kind/:id` is the shelf this thing already has.
+                    node: wayIn(
+                      subject.name,
+                      `/browse/subjects/${subject.kindId}/${subject.id}`,
+                      subject.deleted,
+                    ),
                   })),
                 )
               ),
             pending: state('analysis'),
             note: wasRead(
-              (document.auto.subjects ?? [])
-                .map((subject) => `${subject.name} · ${subject.kind}`)
-                .join(', '),
-              document.subjects.map((subject) => `${subject.name} · ${subject.kind}`).join(', '),
+              (document.auto.subjects ?? []).map((subject) => subject.name).join(', '),
+              document.subjects.map((subject) => subject.name).join(', '),
             ),
           },
           {
             label: t('viewer.details.documentDate'),
             value:
-              draft !== null
-                ? withReset(
-                    ['documentDate'],
-                    <DatePicker
-                      className="legere-field"
-                      aria-label={t('viewer.details.documentDate')}
-                      // The value is a calendar day, so it is held as yyyy-mm-dd and only becomes a
-                      // dayjs on the way into the picker: a Date would drag a time zone in with it.
-                      value={draft.documentDate === null ? null : dayjs(draft.documentDate)}
-                      onChange={(value) =>
-                        setDraft({
-                          ...draft,
-                          documentDate: value === null ? null : value.format('YYYY-MM-DD'),
-                        })
-                      }
-                    />,
-                    document.auto.date !== undefined && document.auto.date !== draft.documentDate,
-                  )
-                : formatDate(document.documentDate),
+              draft !== null ? (
+                withReset(
+                  ['documentDate'],
+                  <DatePicker
+                    className="legere-field"
+                    aria-label={t('viewer.details.documentDate')}
+                    // The value is a calendar day, so it is held as yyyy-mm-dd and only becomes a
+                    // dayjs on the way into the picker: a Date would drag a time zone in with it.
+                    value={draft.documentDate === null ? null : dayjs(draft.documentDate)}
+                    onChange={(value) =>
+                      setDraft({
+                        ...draft,
+                        documentDate: value === null ? null : value.format('YYYY-MM-DD'),
+                      })
+                    }
+                  />,
+                  document.auto.date !== undefined && document.auto.date !== draft.documentDate,
+                )
+              ) : // The whole day is the link, and it leads to its year: that is the folder the
+              // archive is arranged into, and it already has a screen (docs/11 §11.4).
+              yearOf(document.documentDate) === null ? (
+                formatDate(document.documentDate)
+              ) : (
+                <Link href={`/browse/years/${yearOf(document.documentDate) ?? ''}`}>
+                  {formatDate(document.documentDate)}
+                </Link>
+              ),
             pending: state('analysis'),
             note: wasRead(document.auto.date, document.documentDate ?? '', ['documentDate']),
           },
@@ -1108,7 +1198,7 @@ function DetailsPane({
                       autoPlace !==
                         placeOf(draft.city.trim() === '' ? null : draft.city.trim(), draft.country),
                   )
-                : placeOf(document.city, document.country),
+                : joinNames(placeWaysIn(document.city, document.country)),
             pending: state('analysis'),
             // One fact in two boxes, so putting it back puts both back — a reset city that kept
             // somebody's country would be a place that was never read anywhere.
@@ -1342,6 +1432,17 @@ function FilesSection({ document }: { document: DocumentDetailDto }) {
                       {`${ref.libraryName}: ${ref.path}`}
                     </Typography.Text>
                   ))}
+                  {/* The same answer for a file that lies on no volume: the object storage, named as
+                      such, and the key the bytes are under (docs/09 §9.2). A managed file used to say
+                      nothing at all here, which made an uploaded document look like one with no
+                      whereabouts.
+                      🔒 Text, never a link: the key is a location and grants nothing on its own —
+                      the bucket is private and only a signed URL reads it. */}
+                  {file.storageKey !== null && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }} code>
+                      {`${t('viewer.files.objectStorage')}: ${file.storageKey}`}
+                    </Typography.Text>
+                  )}
                 </Space>
               }
             />
@@ -1515,6 +1616,53 @@ function formatDate(date: string | null): string {
 
 function placeOf(city: string | null, country: string | null): string {
   return [city, displayCountry(country)].filter((part) => part !== null && part !== '').join(', ');
+}
+
+// The home screen, filtered — the address a filter already lives at (docs/11 §11.3). Used where no
+// browse screen exists for the facet: a kind, and a place.
+function documentsHref(filters: Record<string, string>): string {
+  return `/documents?${new URLSearchParams(filters).toString()}`;
+}
+
+// A place is one fact written in two boxes, and each box is a way in: the city inside its country,
+// because "Bar" is a town in three of them, and the country on its own, because "everything from
+// Montenegro" is a question people ask (docs/11 §11.5). Whichever half is missing is simply not
+// printed, exactly as `placeOf` prints it.
+function placeWaysIn(
+  city: string | null,
+  country: string | null,
+): Array<{ id: string; node: ReactNode }> {
+  const ways: Array<{ id: string; node: ReactNode }> = [];
+  if (city !== null && city !== '') {
+    ways.push({
+      id: 'city',
+      node: (
+        <Link href={documentsHref(country === null ? { city } : { country, city })}>{city}</Link>
+      ),
+    });
+  }
+  const countryName = displayCountry(country);
+  if (country !== null && countryName !== null && countryName !== '') {
+    ways.push({
+      id: 'country',
+      node: <Link href={documentsHref({ country })}>{countryName}</Link>,
+    });
+  }
+  return ways;
+}
+
+// The year a `yyyy-mm-dd` carries, or null when there is no date: the four leading digits, never a
+// Date, for the reason `formatDate` gives.
+function yearOf(date: string | null): string | null {
+  if (date === null) return null;
+  const year = date.slice(0, 4);
+  return /^\d{4}$/.test(year) ? year : null;
+}
+
+// The kinds the analysis read, each once and in the order it read them — the "read as" line for the
+// kind row, which shows the same de-duplicated set the row itself does.
+function distinctKinds(subjects: ReadonlyArray<{ kind: string }>): string {
+  return [...new Set(subjects.map((subject) => subject.kind))].join(', ');
 }
 
 // Every language Intl can name, plus the tags already on the document that are not among them —

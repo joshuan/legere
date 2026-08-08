@@ -652,6 +652,7 @@
       "addPerson": "Add “{name}”",
       "documentDate": "Date",
       "subjects": "About",
+      "subjectKinds": "Kind of thing",
       "subjectsPlaceholder": "Nothing yet",
       "subjectKind": "Kind",
       "addSubject": "Add “{name}”",
@@ -708,7 +709,8 @@
       "rebuilding": "The document is being rebuilt.",
       "missing": "Missing",
       "missingReason": "the volume no longer has it",
-      "cropped": "Cropped"
+      "cropped": "Cropped",
+      "objectStorage": "Object storage"
     }
   },
   "nav": {

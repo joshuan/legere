@@ -6,7 +6,11 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { availabilitySchema, documentStepSchema } from '../../../shared/contracts/documents';
+import {
+  availabilitySchema,
+  documentStepSchema,
+  listDocumentsQuerySchema,
+} from '../../../shared/contracts/documents';
 import { fileOriginSchema, stepStatusSchema } from '../../../shared/contracts/enums';
 import type { GroupingSuggestion } from '../../../shared/contracts/files';
 import {
@@ -246,6 +250,11 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
 }
 
 // Only values the contract knows survive the trip; a hand-edited URL cannot smuggle a filter in.
+//
+// Every filter `GET /api/documents` takes is read here, not only the ones the bar draws a control
+// for: a detail in the viewer is a link into this screen (docs/11 §11.5), and a link whose filter is
+// dropped on arrival is a link that does not work. The ones with no control of their own come off
+// through "Clear filters", which clears whatever is in force.
 function parseFilters(params: URLSearchParams): DocumentFilters {
   const filters: DocumentFilters = {};
 
@@ -254,6 +263,28 @@ function parseFilters(params: URLSearchParams): DocumentFilters {
 
   const typeId = params.get('typeId');
   if (typeId !== null) filters.typeId = typeId;
+
+  const personId = params.get('personId');
+  if (personId !== null) filters.personId = personId;
+
+  const subjectId = params.get('subjectId');
+  if (subjectId !== null) filters.subjectId = subjectId;
+
+  const subjectKindId = params.get('subjectKindId');
+  if (subjectKindId !== null) filters.subjectKindId = subjectKindId;
+
+  // Parsed by the contract's own schema rather than by hand: it is the thing that decides what a
+  // year, a country code and a city may be, and a bad one is left off instead of sent on.
+  const year = listDocumentsQuerySchema.shape.year.safeParse(params.get('year') ?? undefined);
+  if (year.success && year.data !== undefined) filters.year = year.data;
+
+  const country = listDocumentsQuerySchema.shape.country.safeParse(
+    params.get('country') ?? undefined,
+  );
+  if (country.success && country.data !== undefined) filters.country = country.data;
+
+  const city = listDocumentsQuerySchema.shape.city.safeParse(params.get('city') ?? undefined);
+  if (city.success && city.data !== undefined) filters.city = city.data;
 
   const availability = availabilitySchema.safeParse(params.get('availability'));
   if (availability.success) filters.availability = availability.data;

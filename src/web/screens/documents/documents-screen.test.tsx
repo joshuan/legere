@@ -17,6 +17,10 @@ const replace = vi.fn();
 const push = vi.fn();
 let currentSearch = '';
 
+// Filters that reach this screen as a link from somewhere else (docs/11 §11.5).
+const PERSON_ID = 'dddddddd-1111-4111-8111-111111111111';
+const KIND_ID = 'dddddddd-3333-4333-8333-333333333333';
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace, push }),
   usePathname: () => '/documents',
@@ -187,6 +191,49 @@ describe('DocumentsScreen', () => {
         '/documents?processing=true&step=preview&stepStatus=FAILED',
       ),
     );
+  });
+
+  // A name in the viewer's details pane is a link into this screen (docs/11 §11.5), and the filters
+  // it carries have no control of their own in the bar. They still have to survive the trip.
+  it('takes every filter the contract knows out of the URL, not only the ones the bar draws', async () => {
+    currentSearch = `personId=${PERSON_ID}&subjectKindId=${KIND_ID}&country=me&city=Podgorica&year=2019`;
+    const seen: string[] = [];
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        seen.push(new URL(request.url).search);
+        return HttpResponse.json(envelope({ items: [documentAt(1)], nextCursor: null }));
+      }),
+    );
+
+    renderWithProviders(<DocumentsScreen />);
+    await screen.findByText('Document 1');
+
+    expect(seen[0]).toContain(`personId=${PERSON_ID}`);
+    expect(seen[0]).toContain(`subjectKindId=${KIND_ID}`);
+    // Upper-cased on the way in by the contract's own schema, so `?country=me` is the same question.
+    expect(seen[0]).toContain('country=ME');
+    expect(seen[0]).toContain('city=Podgorica');
+    expect(seen[0]).toContain('year=2019');
+  });
+
+  it('keeps a filter that arrived by link while another one is changed', async () => {
+    currentSearch = `subjectKindId=${KIND_ID}`;
+
+    renderWithProviders(<DocumentsScreen />);
+    await screen.findByText('Document 1');
+
+    await userEvent.click(
+      screen.getByRole('switch', { name: enMessages.documents.filters.processingOnly }),
+    );
+
+    // Dropped by the first switch anybody touched, it would be a link that only half works.
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith(`/documents?subjectKindId=${KIND_ID}&processing=true`),
+    );
+
+    // And "Clear filters" still takes it off: it clears what is in force, not what is drawn.
+    await userEvent.click(screen.getByRole('button', { name: enMessages.documents.filters.clear }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents'));
   });
 
   it('ignores a filter value the contract does not know', async () => {

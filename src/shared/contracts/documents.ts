@@ -98,6 +98,15 @@ export const documentFileDtoSchema = z.object({
   cropSource: valueSourceSchema,
   // Where the same bytes lie on the volumes the caller can see; empty for a managed file.
   refs: z.array(documentFileRefSchema),
+  // The other half of the same question, for the file that has no volume: the key a MANAGED file's
+  // bytes lie under in the object storage (docs/09 §9.2). Null for a library file, whose location is
+  // its `refs`. Between the two, every file says where it is.
+  //
+  // 🔒 A location, not a way in: the key names an object in a private bucket and grants nothing
+  // without a signed URL, which only an endpoint that has already passed the access check issues.
+  // It also says nothing the caller was not already told — the layout is `files/{fileId}/original.{ext}`
+  // and both halves are on this very DTO.
+  storageKey: z.string().nullable(),
 });
 export type DocumentFileDto = z.infer<typeof documentFileDtoSchema>;
 
@@ -139,10 +148,13 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   people: z.array(z.object({ id: z.string().uuid(), name: z.string(), deleted: z.boolean() })),
   // The date on the document, yyyy-mm-dd. Null when it has none, or none was found.
   documentDate: z.string().nullable(),
-  // What the document is about (docs/03 §3.3.20); `deleted` as for people above.
+  // What the document is about (docs/03 §3.3.20); `deleted` as for people above. The kind travels by
+  // id as well as by name, because it is a row of its own (§3.3.20a) and a screen showing a subject
+  // shows both halves — and each half is a way into the documents filed under it (docs/11 §11.5).
   subjects: z.array(
     z.object({
       id: z.string().uuid(),
+      kindId: z.string().uuid(),
       kind: z.string(),
       name: z.string(),
       deleted: z.boolean(),
@@ -179,8 +191,20 @@ export const listDocumentsQuerySchema = paginationQuerySchema.extend({
   typeId: z.string().uuid().optional(),
   personId: z.string().uuid().optional(),
   subjectId: z.string().uuid().optional(),
+  // Every subject of one kind at once — "everything about a flat", whichever flat (docs/03 §3.3.20a).
+  subjectKindId: z.string().uuid().optional(),
   // The year on the document, not the year it was filed (docs/03 §3.3.10).
   year: z.coerce.number().int().min(1900).max(2100).optional(),
+  // Where the document is from. ISO 3166-1 alpha-2, upper-cased on the way in like the PATCH does,
+  // so `?country=me` and `?country=ME` are one question; the city is matched exactly as stored,
+  // which is what a link carrying a document's own place hands over (docs/07 §7.3).
+  country: z
+    .string()
+    .trim()
+    .length(2)
+    .transform((value) => value.toUpperCase())
+    .optional(),
+  city: z.string().trim().min(1).max(120).optional(),
   availability: availabilitySchema.optional(),
   processing: queryBoolean,
   origin: fileOriginSchema.optional(),

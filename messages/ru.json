@@ -652,6 +652,7 @@
       "addPerson": "Добавить «{name}»",
       "documentDate": "Дата документа",
       "subjects": "Объект",
+      "subjectKinds": "Вид объекта",
       "subjectsPlaceholder": "Пока ничего",
       "subjectKind": "Вид",
       "addSubject": "Добавить «{name}»",
@@ -708,7 +709,8 @@
       "rebuilding": "Документ пересобирается.",
       "missing": "Файла нет",
       "missingReason": "на томе его больше нет",
-      "cropped": "Обрезан"
+      "cropped": "Обрезан",
+      "objectStorage": "Объектное хранилище"
     }
   },
   "nav": {

@@ -356,6 +356,33 @@ describe('Documents (e2e)', () => {
       expect(detail.files[0]?.refs[0]).toMatchObject({ libraryId: open, status: 'HASHED' });
     });
 
+    // A location is answered for every file, not only for the ones lying on a volume: `refs` is
+    // empty for a managed file, which left an upload with no whereabouts at all (docs/09 §9.2).
+    it('answers where the bytes are for an upload as well as for a file on a volume', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const onVolume = await seedDocument({ libraryId: open });
+      // No library: an upload, or something Legere made (docs/03 §3.3.16).
+      const uploaded = await seedDocument({ files: [{ ext: 'jpg', mimeType: 'image/jpeg' }] });
+      const fileId = uploaded.fileIds[0] ?? '';
+
+      const managed = expectData(
+        await api(app).get(`/api/documents/${uploaded.id}`).set('Cookie', adminCookie),
+        documentDetailDtoSchema,
+      );
+      // The object storage, and the key the bytes are under — the layout of docs/09 §9.2, taken from
+      // the row rather than guessed, so a key written by an older version keeps resolving.
+      expect(managed.files[0]?.refs).toEqual([]);
+      expect(managed.files[0]?.storageKey).toBe(`files/${fileId}/original.jpg`);
+
+      // A library file has no object at all: its bytes stay on the volume, and its `refs` say where.
+      const library = expectData(
+        await api(app).get(`/api/documents/${onVolume.id}`).set('Cookie', adminCookie),
+        documentDetailDtoSchema,
+      );
+      expect(library.files[0]?.storageKey).toBeNull();
+      expect(library.files[0]?.refs).toHaveLength(1);
+    });
+
     it('hides file locations in libraries the caller cannot see, while an admin sees all of them', async () => {
       const open = await givenLibrary('ALL_USERS');
       const secret = await givenLibrary('RESTRICTED');
@@ -786,6 +813,81 @@ describe('Documents (e2e)', () => {
         year: 2019,
         count: 1,
       });
+    });
+
+    // The three filters the viewer's details pane needed and did not have (docs/07 §7.3): the kind
+    // of thing a document is about, and where it is from.
+    it('finds a document by the kind of thing it is about, and by where it is from', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const lease = await givenDocument({ libraryId: open, title: 'Lease' });
+      const other = await givenDocument({ libraryId: open, title: 'Service book' });
+      const flats = await testPrisma().subjectKind.create({ data: { name: 'apartment' } });
+      const cars = await testPrisma().subjectKind.create({ data: { name: 'car' } });
+      const flat = await testPrisma().subject.create({
+        data: { kindId: flats.id, name: 'Njegoševa 5' },
+      });
+      const car = await testPrisma().subject.create({
+        data: { kindId: cars.id, name: 'Zastava 750' },
+      });
+
+      await api(app)
+        .patch(`/api/documents/${lease}`, {
+          subjectIds: [flat.id],
+          country: 'ME',
+          city: 'Podgorica',
+        })
+        .set('Cookie', adminCookie);
+      await api(app)
+        .patch(`/api/documents/${other}`, { subjectIds: [car.id], country: 'RS', city: 'Bar' })
+        .set('Cookie', adminCookie);
+
+      // A kind rather than a named thing — every flat at once (docs/03 §3.3.20a) — and a place, in
+      // the two halves it is written in. `country=me` is the same question as `country=ME`, because
+      // the code is upper-cased on the way in exactly as the PATCH upper-cases it.
+      for (const query of [
+        `subjectKindId=${flats.id}`,
+        'country=ME',
+        'country=me',
+        'city=Podgorica',
+        'country=ME&city=Podgorica',
+      ]) {
+        const res = await api(app).get(`/api/documents?${query}`).set('Cookie', adminCookie);
+        const page = expectData(res, listDocumentsResponseSchema);
+        expect(page.items.map((item) => item.id)).toEqual([lease]);
+      }
+
+      // Two filters on the same relation are one question and not two: a kind together with a thing
+      // of another kind finds nothing, rather than finding the thing and forgetting the kind.
+      const crossed = await api(app)
+        .get(`/api/documents?subjectKindId=${flats.id}&subjectId=${car.id}`)
+        .set('Cookie', adminCookie);
+      expect(expectData(crossed, listDocumentsResponseSchema).items).toEqual([]);
+
+      // 🔒 And the access rule still decides who any of it answers for.
+      const stranger = await inviteUser(`placereader${seq}@legere.local`);
+      const restricted = await givenLibrary('RESTRICTED');
+      const hidden = await givenDocument({ libraryId: restricted, title: 'Hidden' });
+      await api(app)
+        .patch(`/api/documents/${hidden}`, { country: 'ME', city: 'Podgorica' })
+        .set('Cookie', adminCookie);
+      const asStranger = await api(app)
+        .get('/api/documents?country=ME')
+        .set('Cookie', stranger.cookie);
+      expect(
+        expectData(asStranger, listDocumentsResponseSchema).items.map((item) => item.id),
+      ).toEqual([lease]);
+
+      // The kind travels on the document too, so the pane can link a kind at all (docs/07 §7.3).
+      const detail = await api(app).get(`/api/documents/${lease}`).set('Cookie', adminCookie);
+      expect(expectData(detail, documentDetailDtoSchema).subjects).toEqual([
+        {
+          id: flat.id,
+          kindId: flats.id,
+          kind: 'apartment',
+          name: 'Njegoševa 5',
+          deleted: false,
+        },
+      ]);
     });
 
     it('rejects an empty patch', async () => {

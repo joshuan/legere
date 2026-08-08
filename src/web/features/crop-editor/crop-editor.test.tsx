@@ -44,6 +44,7 @@ function makeFile(crop: Crop | null): DocumentFileDto {
     crop,
     cropSource: crop === null ? 'NONE' : 'MANUAL',
     refs: [],
+    storageKey: `files/${FILE_ID}/original.jpg`,
   };
 }
 

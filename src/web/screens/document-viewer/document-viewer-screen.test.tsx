@@ -40,6 +40,8 @@ function fileOf(id: string, overrides: Partial<DocumentFileDto> = {}): DocumentF
     refs: [
       { libraryId: LIBRARY_ID, libraryName: 'Invoices', path: 'a/rental.pdf', status: 'HASHED' },
     ],
+    // A library file's bytes stay on the volume, so it has no object at all (docs/09 §9.2).
+    storageKey: null,
     ...overrides,
   };
 }
@@ -395,7 +397,9 @@ describe('DocumentViewerScreen', () => {
     serve({
       ...detail,
       people: [{ id: PERSON_ID, name: 'Marija Petrović', deleted: false }],
-      subjects: [{ id: SUBJECT_ID, kind: 'apartment', name: 'Njegoševa 5', deleted: false }],
+      subjects: [
+        { id: SUBJECT_ID, kindId: KIND_ID, kind: 'apartment', name: 'Njegoševa 5', deleted: false },
+      ],
       documentDate: '2019-03-01',
     });
 
@@ -916,6 +920,45 @@ describe('DocumentViewerScreen', () => {
       await waitFor(() => expect(appended).toBe('page-3.jpg'));
     });
 
+    // A file's location is answered for every file, not only for the ones lying on a volume: `refs`
+    // is empty for a managed file, and the section used to say nothing at all about an upload
+    // (docs/09 §9.2, docs/11 §11.5a).
+    it('names the object storage and the key for a file that lies on no volume', async () => {
+      const key = `files/${FIRST_FILE}/original.jpg`;
+      serve({
+        ...detail,
+        files: [
+          fileOf(FIRST_FILE, {
+            name: 'scan-01.jpg',
+            ext: 'jpg',
+            mimeType: 'image/jpeg',
+            isImage: true,
+            origin: 'MANAGED',
+            refs: [],
+            storageKey: key,
+          }),
+        ],
+      });
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+
+      const line = await screen.findByText(`${enMessages.viewer.files.objectStorage}: ${key}`);
+      expect(line).toBeInTheDocument();
+      // 🔒 A location, not a way in: the key grants nothing without a signed URL, so it is not
+      // dressed up as something to click.
+      expect(line.closest('a')).toBeNull();
+    });
+
+    it('says nothing about a bucket for a file whose bytes are on a volume', async () => {
+      await openFiles();
+
+      // A library file has no object at all (docs/09 §9.2) — its volume and path are its location.
+      expect(screen.getByText('Invoices: a/rental.pdf')).toBeInTheDocument();
+      expect(screen.queryByText(new RegExp(enMessages.viewer.files.objectStorage))).toBeNull();
+    });
+
     it('opens the crop editor on an image, and offers it on nothing else', async () => {
       await openFiles();
 
@@ -962,7 +1005,9 @@ describe('DocumentViewerScreen', () => {
       const unknownId = '66666666-7777-4888-8999-000000000000';
       serve({
         ...detail,
-        subjects: [{ id: unknownId, kind: 'car', name: 'Zastava 750', deleted: false }],
+        subjects: [
+          { id: unknownId, kindId: KIND_ID, kind: 'car', name: 'Zastava 750', deleted: false },
+        ],
       });
 
       renderWithProviders(<DocumentViewerScreen id={ID} />);
@@ -1005,6 +1050,140 @@ describe('DocumentViewerScreen', () => {
 
       const name = await screen.findByText('Marija Petrović');
       expect(name).not.toHaveStyle({ textDecoration: 'line-through' });
+    });
+  });
+
+  // A kind is not an object, and a detail read on one document is how the next one is found
+  // (docs/11 §11.5).
+  describe('a kind is not an object, and every name is a way in', () => {
+    const CAR_KIND = 'dddddddd-4444-4444-8444-444444444444';
+    const SECOND_FLAT = 'dddddddd-5555-4555-8555-555555555555';
+    const CAR = 'dddddddd-6666-4666-8666-666666666666';
+
+    // Two flats and a car: several subjects, of more than one kind, on one document.
+    const filed: DocumentDetailDto = {
+      ...detail,
+      documentType: { id: CATEGORY_ID, slug: 'contract', name: 'Contract' },
+      people: [{ id: PERSON_ID, name: 'Marija Petrović', deleted: false }],
+      subjects: [
+        {
+          id: SUBJECT_ID,
+          kindId: KIND_ID,
+          kind: 'apartment',
+          name: 'Njegoševa 5',
+          deleted: false,
+        },
+        {
+          id: SECOND_FLAT,
+          kindId: KIND_ID,
+          kind: 'apartment',
+          name: 'Njegoševa 7',
+          deleted: false,
+        },
+        { id: CAR, kindId: CAR_KIND, kind: 'car', name: 'Zastava 750', deleted: false },
+      ],
+      documentDate: '2019-03-01',
+    };
+
+    async function openDetails(document: DocumentDetailDto = filed): Promise<HTMLElement> {
+      serve(document);
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+      return screen.getByRole('tabpanel');
+    }
+
+    // The rows are a definition list, so a row is found by the label it is filed under.
+    function rowFor(panel: HTMLElement, label: string): HTMLElement {
+      const row = within(panel).getByText(label).closest('.legere-definition');
+      if (!(row instanceof HTMLElement)) throw new Error(`no row labelled ${label}`);
+      return row;
+    }
+
+    it('puts the kind and the object on rows of their own instead of one line reading name · kind', async () => {
+      const panel = await openDetails();
+
+      const kinds = within(rowFor(panel, enMessages.viewer.details.subjectKinds));
+      expect(kinds.getByText('apartment')).toBeInTheDocument();
+      expect(kinds.getByText('car')).toBeInTheDocument();
+
+      const objects = within(rowFor(panel, enMessages.viewer.details.subjects));
+      expect(objects.getByText('Njegoševa 5')).toBeInTheDocument();
+      expect(objects.getByText('Zastava 750')).toBeInTheDocument();
+      // The two facts stop being run together where the document is read.
+      expect(within(panel).queryByText('Njegoševa 5 · apartment')).toBeNull();
+      expect(within(panel).queryByText('Zastava 750 · car')).toBeNull();
+    });
+
+    it('names a kind once however many things of it the document is about', async () => {
+      const panel = await openDetails();
+
+      const kinds = rowFor(panel, enMessages.viewer.details.subjectKinds);
+      // Two flats, and "apartment" said once: the row answers what sort of thing, not how many.
+      expect(within(kinds).getAllByText('apartment')).toHaveLength(1);
+      expect(kinds.textContent).toContain('apartment, car');
+      // Both flats are still there, one row down.
+      const objects = within(rowFor(panel, enMessages.viewer.details.subjects));
+      expect(objects.getByText('Njegoševa 7')).toBeInTheDocument();
+    });
+
+    it('leads from every name to the documents filed under it', async () => {
+      const panel = await openDetails();
+
+      const href = (label: string, name: string | RegExp): string | null =>
+        within(rowFor(panel, label)).getByRole('link', { name }).getAttribute('href');
+
+      // The facets that already have a browse screen go to it — it resolves its own heading on the
+      // server and shows the same card grid (docs/11 §11.4).
+      expect(href(enMessages.viewer.details.documentType, 'Contract')).toBe(
+        `/browse/types/${CATEGORY_ID}`,
+      );
+      expect(href(enMessages.viewer.details.people, 'Marija Petrović')).toBe(
+        `/browse/people/${PERSON_ID}`,
+      );
+      expect(href(enMessages.viewer.details.subjects, 'Njegoševa 5')).toBe(
+        `/browse/subjects/${KIND_ID}/${SUBJECT_ID}`,
+      );
+      expect(href(enMessages.viewer.details.documentDate, /2019/)).toBe('/browse/years/2019');
+
+      // The two that have none go to the home screen with the filter in the URL (docs/11 §11.3).
+      expect(href(enMessages.viewer.details.subjectKinds, 'car')).toBe(
+        `/documents?subjectKindId=${CAR_KIND}`,
+      );
+      expect(href(enMessages.viewer.details.place, 'Podgorica')).toBe(
+        '/documents?country=ME&city=Podgorica',
+      );
+      expect(href(enMessages.viewer.details.place, 'Montenegro')).toBe('/documents?country=ME');
+    });
+
+    it('says an em dash where nothing was detected rather than leaving the row blank', async () => {
+      const panel = await openDetails({ ...filed, subjects: [], city: null, country: null });
+
+      // "an em dash where nothing was detected, which is honest and never looks broken"
+      // (docs/11 §11.5) — a row of links whose list is empty must not turn that into a blank.
+      for (const label of [
+        enMessages.viewer.details.subjectKinds,
+        enMessages.viewer.details.subjects,
+        enMessages.viewer.details.place,
+      ]) {
+        expect(within(rowFor(panel, label)).getByText('—')).toBeInTheDocument();
+      }
+    });
+
+    it('leaves a name the catalogue has let go a record rather than a way in', async () => {
+      const panel = await openDetails({
+        ...filed,
+        people: [{ id: PERSON_ID, name: 'Marija Petrović', deleted: true }],
+      });
+
+      // Struck through, as 03 §3.3.19 requires — and not a link, because the browse screen resolves
+      // its heading from the live catalogue and would answer 404.
+      const name = within(panel).getByText('Marija Petrović');
+      expect(name).toHaveStyle({ textDecoration: 'line-through' });
+      expect(
+        within(rowFor(panel, enMessages.viewer.details.people)).queryByRole('link'),
+      ).toBeNull();
     });
   });
 });

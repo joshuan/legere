@@ -98,8 +98,15 @@ export type DocumentDetail = {
   documentType: DocumentCategory | null;
   // Who the document is about (docs/03 §3.3.19).
   people: Array<{ id: string; name: string; deleted: boolean }>;
-  // And what it is about (docs/03 §3.3.20).
-  subjects: Array<{ id: string; kind: string; name: string; deleted: boolean }>;
+  // And what it is about (docs/03 §3.3.20). The kind is a row of its own (§3.3.20a), so it travels
+  // by id as well as by name.
+  subjects: Array<{
+    id: string;
+    kindId: string;
+    kind: string;
+    name: string;
+    deleted: boolean;
+  }>;
   // What it is made of, by position (docs/03 §3.3.17). Everything a list row derives — the count,
   // the first extension, the weight, the origin, the availability — is derivable from this.
   files: DocumentFileView[];
@@ -117,7 +124,13 @@ export type ListDocumentsInput = {
   origin?: FileOrigin | undefined;
   personId?: string | undefined;
   subjectId?: string | undefined;
+  // Every subject of one kind at once, rather than one named thing (docs/03 §3.3.20a).
+  subjectKindId?: string | undefined;
   year?: number | undefined;
+  // Where the document is from: the country code as stored (upper-case, ISO 3166-1 alpha-2) and the
+  // city exactly as the document writes it (docs/03 §3.3.10).
+  country?: string | undefined;
+  city?: string | undefined;
   // A pipeline step and the status it sits in, which are one filter and not two: what a queue
   // counter links to (docs/07 §7.3, docs/11 §11.13). Half of it is refused before it reaches here,
   // and half of it here filters nothing.

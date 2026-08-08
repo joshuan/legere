@@ -50,6 +50,15 @@ files/{fileId}/original.{ext}          # a managed file's own bytes: an upload, 
 - A `LIBRARY` file has no object at all: its bytes stay on the volume and are streamed from there.
   The canonical PDF is the one copy Legere keeps of a library document's content, which is why the
   document keeps reading after the volume is unplugged (05 §5.7).
+- **The key is part of the answer to "where is this file".** `DocumentFileDto.storageKey`
+  (`07 §7.3`) carries it, and the viewer prints it beside the file, naming the object storage as
+  such, in the same place a library file names its volume and path (`11 §11.5a`). A `LIBRARY` file's
+  is null, per the line above. 🔒 **A location, not a way in.** The key grants nothing: the bucket is
+  private, has no public ACL and no anonymous-read policy, and the only way to read an object is a
+  presigned URL issued by an endpoint that has already passed the document access check. It also
+  discloses nothing the caller was not already holding — the layout is `files/{fileId}/original.{ext}`
+  and both halves are on the same DTO. So it is rendered as text and never as a link: a location that
+  looks clickable is a promise the bucket will not keep.
 - Existence of an object ≡ the corresponding step status is `DONE` — the DB status is authoritative;
   the `maintenance` job may verify consistency but artifacts are always rewritten idempotently
   (`put` overwrites).

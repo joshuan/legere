@@ -487,7 +487,16 @@ Because of these raw statements, the corresponding plain `@unique` attributes ar
 indexes. `prisma migrate dev` generates the base DDL; the raw statements are appended to the generated
 `migration.sql` before committing.
 
+Later migrations follow the same rule, and it applies to plain indexes too: `documents(document_date)`
+and the two partial place indexes of §4.4 are written by hand, because `prisma migrate dev` proposes
+**dropping** every raw-SQL index it did not create, and because Prisma's `@@index` cannot express a
+`WHERE` at all. An index that exists only in a migration is the accepted cost of that; the table in
+§4.4 is where it is recorded, and it is the thing to keep in step.
+
 ## 4.4. Query patterns the schema must support (index rationale)
+
+Every filter `GET /api/documents` takes (`07 §7.3`) is in this table, because a filter nothing serves
+is a sequential scan of the archive on a request any signed-in user can repeat.
 
 | Query | Served by |
 |-------|-----------|
@@ -495,11 +504,21 @@ indexes. `prisma migrate dev` generates the base DDL; the raw statements are app
 | dedup: `File` by `contentHash` | partial unique index |
 | the files of one document, in order | `document_files` PK `(document_id, position)` |
 | the document a file belongs to | `document_files.file_id` unique |
-| document list, newest first, filtered by document type/library | `documents(created_at DESC)`, `documents(type_id)`, `file_refs(library_id, status)` + join |
-| availability check for a document | `file_refs(document_id)` index |
+| document list, newest first | `documents(created_at DESC)` — the cursor's own order (`07 §7.1`) |
+| filter by document type | `documents(type_id)` |
+| filter by library | `file_refs(library_id, status)` + join through `document_files` |
+| availability and origin for a document | derived from its files: `document_files` PK + `file_refs(file_id)` |
+| filter by person | `document_people(person_id)` index; the PK `(document_id, person_id)` closes the join |
+| filter by subject | `document_subjects(subject_id)` index, PK `(document_id, subject_id)` |
+| filter by subject **kind** | the same two, then `subjects(kind_id)` — a kind needs no index of its own |
+| filter/browse by year, "what happened in March" | `documents(document_date DESC NULLS LAST)` (raw SQL, §4.3) |
+| filter by place | `documents(country) WHERE country IS NOT NULL`, `documents(city) WHERE city IS NOT NULL` — partial, because the analysis finds a place for only some documents and an index over the rest would be NULL entries nothing looks up (raw SQL, §4.3) |
+| filter by pipeline step + status | none: five low-cardinality enum columns, and the queue screen's counters bound the answer |
 | FTS | GIN on `search_vector`, query via `websearch_to_tsquery('simple', $1)` |
 | semantic search | HNSW cosine on `document_chunks.embedding`, `ORDER BY embedding <=> $1 LIMIT k` |
+| the events of one document, newest first | `document_events(document_id, at DESC)` |
 | admin scan journal | `scan_runs(library_id, started_at DESC)` |
+| at most one RUNNING scan per library | `scan_runs_running_uq` partial unique index |
 | authenticating a bearer token, once per request | `api_tokens.token_hash` unique index |
 | a user's own token list | `api_tokens(user_id)` index |
 

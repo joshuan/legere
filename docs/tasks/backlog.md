@@ -618,12 +618,12 @@ changes the work by an order of magnitude:
   **They stay, and that is not the bug.** `03 §3.3.19`, `07 §7.3` and `11 §11.12a` all say the links survive a deletion, and the confirmation dialog says it to the operator's face — "they stay on the N documents that name them". Removing them would make a shipped sentence a lie. What is missing is any way to *tell*, and the DTO carries nothing to tell it with.
   **Acceptance:** the document detail says, per person and per subject, whether the catalogue still holds it; the viewer strikes such a name through and says why on hover, in both the reading pane and the editor, where it is present but cannot be chosen again; `PATCH /api/documents/:id` refuses an id that has been deleted rather than silently re-linking it — which is what `03 §3.3.19` already promises when it says only new documents stop being able to name them; people and subjects behave identically, and a test proves each.
 
-- [ ] **M16.3 — A kind is not an object, and every name is a way in**
+- [x] **M16.3 — A kind is not an object, and every name is a way in**
   **Goal:** the details pane stops running two facts together, and starts leading somewhere.
   **Docs:** [`07 §7.3`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`04 §4.4`](../04-database-schema.md)
   **Acceptance:** the subject row becomes two — the kind and the object — rather than one line reading `name · kind`; every person, subject, kind, document type, year and place in the pane is a link to the documents filtered by it; the filters that do not exist yet are added to `GET /api/documents` — `country`, `city` and `subjectKindId` — with the index each needs, since `personId`, `subjectId`, `typeId` and `year` are already there and only the place was missing; `04 §4.4`'s index table is brought back in line, having gone stale when the document date arrived.
 
-- [ ] **M16.4 — Where the bytes actually are**
+- [x] **M16.4 — Where the bytes actually are**
   **Goal:** a document made of uploads stops being silent about where it lives.
   **Docs:** [`07 §7.3`](../07-api-specification.md), [`09 §9.2`](../09-file-storage.md), [`11 §11.5a`](../11-ui-ux-spec.md)
   **Acceptance:** a file's location is answered for every file rather than only for the ones on a volume — `refs` is empty for a managed file today, so the viewer says nothing at all about an upload; the object storage is named as such, with the key the bytes are under, in the same place a library file names its volume and path; 🔒 the key is a location and not a way in — it grants nothing without a signed URL, and the pane says so rather than looking like a link.

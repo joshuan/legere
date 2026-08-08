@@ -32,6 +32,7 @@ import type {
   Viewer,
 } from '../../domain/repositories/document.repository';
 import type { Clock } from '../ports/clock';
+import { originalKeyOf } from '../storage/artifact-keys';
 
 // GET /api/documents (docs/07 §7.3). The filter set is fixed and the access rule lives in the
 // query, so a page of thirty is thirty documents this caller may actually read.
@@ -276,7 +277,9 @@ export function toListDto(item: DocumentListItem): DocumentListDto {
 }
 
 // One file of a document, in page order (docs/07 §7.3). `refs` are already filtered to the libraries
-// the caller may see, so a file with three homes may show one.
+// the caller may see, so a file with three homes may show one — and `storageKey` answers the same
+// question for the file that has no volume at all, so a location is answered for every file rather
+// than only for the ones lying on one (docs/09 §9.2).
 export function toFileDto(file: DocumentFileView): DocumentFileDto {
   return {
     id: file.id,
@@ -291,6 +294,10 @@ export function toFileDto(file: DocumentFileView): DocumentFileDto {
     crop: file.crop,
     cropSource: file.cropSource,
     refs: file.refs,
+    // A LIBRARY file has no object at all — its bytes stay on the volume (docs/09 §9.2) — so it has
+    // no key rather than a derived one. A MANAGED file's key is what the row recorded, falling back
+    // to the layout for a row written before the key was stored.
+    storageKey: file.origin === 'MANAGED' ? originalKeyOf(file) : null,
   };
 }
 
