@@ -577,7 +577,7 @@ Every task ends the same way: the scenario it fixes joins
   **Docs:** [`08 §8.2a`](../08-auth-and-authorization.md#82a-api-tokens-read-only), [`08 §8.4`](../08-auth-and-authorization.md#84-csrf-rate-limiting-captcha), [`02 §2.2`](../02-architecture-overview.md#22-entry-point-servermaints-integration-contract)
   **Acceptance:** the session guard refuses to resolve a bearer credential on an unsafe method, so the middleware in front of it stops being the only thing standing between a read-only token and a write — which is what `08 §8.2a` already claims happens; the origin check covers every mutating request rather than every mutating `/api` request, or a lint rule makes it impossible to add a route outside `/api` that could accept one, and `02 §2.2` records which of the two was chosen; a test mutates through the guard with the middleware removed and is refused.
 
-- [ ] **M15.19 — Two questions the audit could not answer**
+- [x] **M15.19 — Two questions the audit could not answer**
   **Goal:** decide, in the documentation, two things that are currently accidents rather than choices.
   **Closes:** SEC-40, SEC-41
   **Blocked on a decision:** both behaviours match what `docs/07` and `docs/08` say today. They are here because the consequence looks unintended, not because the code disagrees with the docs — so the owner decides, and the doc changes, before anything is written.

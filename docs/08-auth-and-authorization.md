@@ -282,6 +282,17 @@ Principles (the exact entity model — in 03):
 - **Library → visibility.** Each library has a visibility setting: "all users" or an explicit list. A
   document from a library is visible to whoever the library is visible to (a document whose files live
   in several libraries is visible given access to at least one).
+  🔒 That sentence covers the case it was written for — the same bytes discovered on two volumes,
+  where deduplication makes one document out of them — and it is also a **licence to bridge two
+  libraries by hand**, deliberately. A user holding grants on an open library and a restricted one
+  may combine a document from the second into a document from the first, and the rebuilt canonical
+  PDF and Markdown then carry its pages to everyone who can see the first. This is allowed because
+  the alternative is worse: composing a document out of files is the product's central act
+  ([`05 §5.6`](./05-library-and-processing.md)), and a rule that let a person read two things and
+  refused to let them put those two things together would be arbitrary from where they stand. The
+  boundary that does hold is that they must already be able to read both — a combine grants its
+  author nothing they did not have. Byte access is unaffected: a file whose only home is a library
+  the reader cannot see still refuses to stream.
 - **Documents nobody found on a volume** — an upload, a split, a combine — belong to their creator;
   visible to them and to whoever they share with.
 - **Sharing.** A user can make their folders/collections (and derived documents) shared: with specific

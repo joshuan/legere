@@ -320,6 +320,20 @@ A document owns no source bytes of its own: those belong to its files
 
 ### 3.3.19. Person
 
+🔒 **The catalogue is instance-wide, and that is a decision rather than an oversight.** Every signed-in
+user reads every person and every subject, with the count of documents each holds — and those rows
+are written by the analysis step reading document text, including text inside libraries that reader
+cannot open. So a name can be learned here that its documents would not reveal. The catalogue is kept
+this way because it is what documents are *filed by*: a shared vocabulary that everyone corrects and
+merges is the point of it (§3.3.20a), and one scoped per reader would fracture into as many
+vocabularies as there are grants, with merges that mean different things to different people. What is
+protected is the documents themselves — the drill-down applies the access rule
+([`03 §3.4`](#34-access-model-authoritative-summary)), so a name may be visible while everything filed
+under it is not. An instance where that trade is wrong is an instance that should not put those
+documents in the same Legere.
+
+
+
 Who a document is about: the parties to a contract, the passenger on a ticket, the patient in a
 report. A shared catalogue rather than names written on each document, so the same person on forty
 documents is one row — and correcting a spelling corrects all forty.
