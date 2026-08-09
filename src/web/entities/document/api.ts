@@ -1,5 +1,6 @@
 import {
   documentDetailDtoSchema,
+  documentGroupsResponseSchema,
   documentMarkdownResponseSchema,
   listDocumentsResponseSchema,
   uploadDocumentResponseSchema,
@@ -9,10 +10,12 @@ import {
   reprocessResponseSchema,
   type DocumentDetailDto,
   type DocumentEventPage,
+  type DocumentFilters,
+  type DocumentGroupBy,
+  type DocumentGroupsResponse,
   type DocumentSort,
   type DocumentYearsResponse,
   type DocumentMarkdownResponse,
-  type ListDocumentsQuery,
   type ListDocumentsResponse,
   type ReprocessRequest,
   type ReprocessResponse,
@@ -30,9 +33,11 @@ import { okResponseSchema, type OkResponse } from '../../../shared/contracts/use
 import { apiClient, uploadFile } from '../../shared/api';
 
 // Filters as the grid holds them: everything optional, everything mirrored in the URL (docs/11 §11.3).
+// The contract's own set, so one added there arrives here rather than being kept in step by hand.
 // The chosen order is not one of them — it lives in the URL beside them and survives "Clear
-// filters", because arranging a shelf is not the same as narrowing it (docs/11 §11.3).
-export type DocumentFilters = Omit<ListDocumentsQuery, 'limit' | 'cursor' | 'sort'>;
+// filters", because arranging a shelf is not the same as narrowing it (docs/11 §11.3); neither is
+// the grouping, nor which fields a card shows.
+export type { DocumentFilters };
 
 // How the grid is arranged, as one of the named orders of docs/07 §7.1. Absent is the default —
 // the date on the document — and leaves no trace in the URL, the way an unset filter does not.
@@ -75,6 +80,19 @@ export const documentApi = {
 
   years: (): Promise<DocumentYearsResponse> =>
     apiClient.get('/api/documents/years', { schema: documentYearsResponseSchema }),
+
+  // The shelves of one dimension, counted under the filters given (docs/07 §7.3). Which filters
+  // those are is the caller's decision: the screen leaves out the one the shelves themselves set,
+  // or picking a shelf would collapse the list of them to the shelf being stood on (docs/11 §11.3).
+  groups: (by: DocumentGroupBy, filters: DocumentFilters): Promise<DocumentGroupsResponse> =>
+    apiClient.get('/api/documents/groups', {
+      schema: documentGroupsResponseSchema,
+      query: {
+        ...filters,
+        ...(filters.processing === undefined ? {} : { processing: String(filters.processing) }),
+        by,
+      },
+    }),
 
   events: (id: string): Promise<DocumentEventPage> =>
     apiClient.get(`/api/documents/${id}/events`, { schema: documentEventPageSchema }),
@@ -132,5 +150,9 @@ export const documentKeys = {
   markdown: (id: string) => ['document', id, 'markdown'] as const,
   events: (id: string) => ['document', id, 'events'] as const,
   years: ['documents', 'years'] as const,
+  // Counted under whatever filters were in force, so those are part of the key: the same dimension
+  // over a narrower shelf is a different answer (docs/07 §7.3).
+  groups: (by: DocumentGroupBy, filters: DocumentFilters) =>
+    ['documents', 'groups', by, filters] as const,
   groupingSuggestions: ['documents', 'grouping-suggestions'] as const,
 };

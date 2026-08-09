@@ -13,9 +13,12 @@ import {
   type CreateDocumentInput,
   type ProcessingUpdate,
   type DocumentDetail,
+  type DocumentFilterInput,
+  type DocumentGroupCount,
   type DocumentPage,
   type SearchMatch,
   type StepStatusCounters,
+  type Viewer,
 } from '../../src/server/domain/repositories/document.repository';
 import {
   FileRepository,
@@ -35,7 +38,7 @@ import {
   type UpdateLibraryInput,
 } from '../../src/server/domain/repositories/library.repository';
 import { RelativePath } from '../../src/server/domain/value-objects/relative-path';
-import type { Crop, DocumentStep } from '../../src/shared/contracts/documents';
+import type { Crop, DocumentGroupBy, DocumentStep } from '../../src/shared/contracts/documents';
 import type { StepStatus } from '../../src/shared/contracts/enums';
 import { toBuffer, type BinarySource } from '../../src/server/application/ports/binary-source';
 import { ImageTool, type JpegPreviewOptions } from '../../src/server/application/ports/image-tool';
@@ -230,6 +233,20 @@ export class InMemoryDocumentRepository extends DocumentRepository {
 
   listYears(): Promise<Array<{ year: number; count: number }>> {
     return unused('listYears');
+  }
+
+  // Whatever a test puts here is what the shelves are; what it was asked is kept, so a caller can
+  // be held to passing the filters on and nothing else (docs/07 §7.3).
+  groups: DocumentGroupCount[] | null = null;
+  asked: { viewer: Viewer; by: DocumentGroupBy; filters: DocumentFilterInput } | null = null;
+
+  countByGroup(
+    viewer: Viewer,
+    by: DocumentGroupBy,
+    filters: DocumentFilterInput,
+  ): Promise<DocumentGroupCount[]> {
+    this.asked = { viewer, by, filters };
+    return this.groups === null ? unused('countByGroup') : Promise.resolve(this.groups);
   }
 
   readonly updatedAt = new Map<string, Date>();

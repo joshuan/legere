@@ -28,6 +28,13 @@ const document1 = {
   origin: 'LIBRARY',
   hasPreview: false,
   createdAt: '2026-01-01T00:00:00.000Z',
+  // What a card may show (docs/07 §7.3); this screen keeps the arrangement it has always had.
+  documentDate: null,
+  people: [],
+  subjects: [],
+  country: null,
+  city: null,
+  languages: [],
 };
 
 const detail = {

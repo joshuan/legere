@@ -37,6 +37,12 @@ export const documentCategorySchema = z.object({
   name: z.string(),
 });
 
+// A name the document carries, with the row it came from: a person or a subject as a card says it
+// (docs/03 §3.3.19–3.3.20). The id travels because it is also the key of the shelf that name makes
+// (§7.3 grouping) — the name alone would not lead anywhere.
+export const documentNameSchema = z.object({ id: z.string().uuid(), name: z.string() });
+export type DocumentName = z.infer<typeof documentNameSchema>;
+
 export const documentListDtoSchema = z.object({
   id: z.string().uuid(),
   title: z.string(),
@@ -54,6 +60,25 @@ export const documentListDtoSchema = z.object({
   origin: fileOriginSchema,
   hasPreview: z.boolean(),
   createdAt: z.string().datetime(),
+
+  // --- what a card may show besides its title (docs/11 §11.3) ----------------------------------
+  //
+  // Carried for every row of every page, whether or not the screen asked for it: which of them a
+  // card draws is the reader's choice and lives in their URL, not in the request. They are read for
+  // a whole page in two batched queries — the people and the subjects of `document_id IN (…)` — and
+  // never one query per card (docs/04 §4.4).
+  //
+  // The date on the document, yyyy-mm-dd. Null when it has none, or none was found.
+  documentDate: z.string().nullable(),
+  // Who and what it is about, in catalogue order. Whether the catalogue still holds a name is the
+  // viewer's business rather than a card's (docs/11 §11.5), so `deleted` is on the detail DTO only.
+  people: z.array(documentNameSchema),
+  subjects: z.array(documentNameSchema),
+  // Where it is from: ISO 3166-1 alpha-2, and the city as the document writes it.
+  country: z.string().nullable(),
+  city: z.string().nullable(),
+  // BCP-47 tags, most likely first (docs/03 §3.3.10).
+  languages: z.array(z.string()),
 });
 export type DocumentListDto = z.infer<typeof documentListDtoSchema>;
 
@@ -142,12 +167,11 @@ export type AutoValues = z.infer<typeof autoValuesSchema>;
 
 export const documentDetailDtoSchema = documentListDtoSchema.extend({
   auto: autoValuesSchema,
-  // Who the document is about (docs/03 §3.3.19), in catalogue order. `deleted` says the catalogue
-  // no longer holds this name: the link deliberately survives a deletion, so the only way to tell a
-  // name that is still a choice from one that is a record is to be told.
+  // Who the document is about (docs/03 §3.3.19), in catalogue order. The same list the card gets,
+  // plus what only the viewer needs: `deleted` says the catalogue no longer holds this name. The
+  // link deliberately survives a deletion, so the only way to tell a name that is still a choice
+  // from one that is a record is to be told.
   people: z.array(z.object({ id: z.string().uuid(), name: z.string(), deleted: z.boolean() })),
-  // The date on the document, yyyy-mm-dd. Null when it has none, or none was found.
-  documentDate: z.string().nullable(),
   // What the document is about (docs/03 §3.3.20); `deleted` as for people above. The kind travels by
   // id as well as by name, because it is a row of its own (§3.3.20a) and a screen showing a subject
   // shows both halves — and each half is a way into the documents filed under it (docs/11 §11.5).
@@ -167,11 +191,8 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   typeSource: valueSourceSchema,
   steps: documentStepsSchema,
   skipReasons: documentSkipReasonsSchema,
-  // BCP-47 tags, most likely first (docs/03 §3.3.10).
-  languages: z.array(z.string()),
-  // ISO 3166-1 alpha-2, and the city as the document writes it.
-  country: z.string().nullable(),
-  city: z.string().nullable(),
+  // `documentDate`, `languages`, `country` and `city` are the list DTO's own now: a card may show
+  // any of them (docs/11 §11.3), so the detail inherits them rather than repeating them.
   processingError: z.string().nullable(),
   failedStep: z.string().nullable(),
   files: z.array(documentFileDtoSchema),
@@ -205,8 +226,10 @@ export const DOCUMENT_SORTS: readonly DocumentSort[] = documentSortSchema.option
 // The shelf as somebody keeps it, not as a machine filled it: the date on the paper.
 export const DEFAULT_DOCUMENT_SORT: DocumentSort = 'documentDate';
 
-export const listDocumentsQuerySchema = paginationQuerySchema.extend({
-  sort: documentSortSchema.default(DEFAULT_DOCUMENT_SORT),
+// What narrows a shelf, written once (docs/07 §7.3). The list takes them beside its pagination and
+// its order; the grouping endpoint takes exactly the same set beside the dimension it counts by, so
+// a group's count is computed under the filters the reader is actually looking through.
+export const documentFiltersSchema = z.object({
   libraryId: z.string().uuid().optional(),
   typeId: z.string().uuid().optional(),
   personId: z.string().uuid().optional(),
@@ -233,6 +256,11 @@ export const listDocumentsQuerySchema = paginationQuerySchema.extend({
   step: documentStepSchema.optional(),
   stepStatus: stepStatusSchema.optional(),
 });
+export type DocumentFilters = z.infer<typeof documentFiltersSchema>;
+
+export const listDocumentsQuerySchema = paginationQuerySchema
+  .merge(documentFiltersSchema)
+  .extend({ sort: documentSortSchema.default(DEFAULT_DOCUMENT_SORT) });
 export type ListDocumentsQuery = z.infer<typeof listDocumentsQuerySchema>;
 
 export const listDocumentsResponseSchema = paginatedSchema(documentListDtoSchema);
@@ -243,6 +271,69 @@ export const documentYearsResponseSchema = z.object({
   items: z.array(z.object({ year: z.number().int(), count: z.number().int().nonnegative() })),
 });
 export type DocumentYearsResponse = z.infer<typeof documentYearsResponseSchema>;
+
+// The dimensions a shelf may be grouped by (docs/07 §7.3, docs/11 §11.3).
+//
+// Every one of them is a filter `GET /api/documents` already takes, and that is not a coincidence:
+// a group is only a shelf if its contents can be reached, and what reaches them is the ordinary
+// list filtered by the group's own key. Two rules picked this set out of the filters:
+//
+//  - a group's key must *identify* a shelf, which the four state filters (`availability`,
+//    `processing`, `origin`, `step`+`stepStatus`) do not — they say what the machine is doing with a
+//    document, not what the document is about, and the filter bar already draws every value of them;
+//  - a group's count must be a count of *documents*, which is exact only where the dimension meets a
+//    document at most once. `libraryId` and `subjectKindId` are left out for that reason and no
+//    other: a document holds many files in one library (and one file may lie at two paths in it),
+//    and it may name two subjects of the same kind, so counting either would count joins, not
+//    documents. Both remain filters, reachable from the viewer's details pane (docs/11 §11.5).
+export const documentGroupBySchema = z.enum([
+  'type',
+  'person',
+  'subject',
+  'year',
+  'country',
+  'city',
+]);
+export type DocumentGroupBy = z.infer<typeof documentGroupBySchema>;
+
+export const DOCUMENT_GROUP_BY: readonly DocumentGroupBy[] = documentGroupBySchema.options;
+
+// Which filter a group's key belongs in — the link between a shelf and its contents, stated once so
+// neither side can invent it (docs/11 §11.3).
+export const DOCUMENT_GROUP_FILTER = {
+  type: 'typeId',
+  person: 'personId',
+  subject: 'subjectId',
+  year: 'year',
+  country: 'country',
+  city: 'city',
+} as const satisfies Record<DocumentGroupBy, keyof DocumentFilters>;
+
+export const listDocumentGroupsQuerySchema = documentFiltersSchema.extend({
+  by: documentGroupBySchema,
+});
+export type ListDocumentGroupsQuery = z.infer<typeof listDocumentGroupsQuerySchema>;
+
+// One shelf: what to put in the dimension's filter, what to call it, and how many documents are on
+// it under the filters in force. A document belonging to several groups — two people, two
+// subjects — is counted on each of them, because the alternative is a card missing from a shelf it
+// belongs on (docs/07 §7.3).
+export const documentGroupSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  count: z.number().int().nonnegative(),
+});
+export type DocumentGroup = z.infer<typeof documentGroupSchema>;
+
+// An aggregate, not a page of resources: bounded rather than paginated (docs/07 §7.1), in the shape
+// `GET /api/documents/years` already answers in.
+export const documentGroupsResponseSchema = z.object({ items: z.array(documentGroupSchema) });
+export type DocumentGroupsResponse = z.infer<typeof documentGroupsResponseSchema>;
+
+// How many shelves an answer may hold, biggest first. A dimension with more than this is not a
+// control anybody can use, and an unbounded aggregate on a request any signed-in caller can repeat
+// is not something to serve either (docs/07 §7.3).
+export const MAX_DOCUMENT_GROUPS = 100;
 
 // POST /api/documents — an upload (docs/05 §5.1a). `created: false` means the content was already
 // here and the caller was allowed to see it, so this is the document it resolved to.

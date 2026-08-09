@@ -38,6 +38,13 @@ const hit = {
     origin: 'LIBRARY',
     hasPreview: true,
     createdAt: '2026-01-01T00:00:00.000Z',
+    // What a card may show (docs/07 §7.3); the results keep the arrangement they have always had.
+    documentDate: null,
+    people: [],
+    subjects: [],
+    country: null,
+    city: null,
+    languages: [],
   },
   score: 0.0166,
   snippet: 'the <mark>deposit</mark> is due before occupancy',

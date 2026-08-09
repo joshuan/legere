@@ -18,7 +18,10 @@ human-readable index and must stay in sync with them.
   "session only". Mutations additionally pass the fail-closed Origin check
   ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)).
 - **Pagination:** cursor-based: request `?limit=` (default 30, max 100) `&cursor=` (opaque);
-  response `{ data: { items: [...], nextCursor: string | null } }`.
+  response `{ data: { items: [...], nextCursor: string | null } }`. An **aggregate** is not a list of
+  resources and is not paginated: `GET /api/documents/years` and `GET /api/documents/groups` answer a
+  bounded `{ items }` of counts with no cursor, and what those counts stand for is reached through
+  the ordinary paginated list filtered by them (`§7.3`).
 - **Sorting** is fixed per endpoint (documented below) unless the endpoint declares a **closed enum
   of named orders**, which it takes as `?sort=`. A named order is not an arbitrary sort param: every
   value is spelled out in the contract, has an index behind it (`04 §4.4`), and a name the enum does
@@ -127,7 +130,8 @@ reports as expired.
 |---------------|------|-------|
 | `POST /api/documents` | 🔒 | **upload**: the file as the raw request body, its name in `X-Legere-Filename` (RFC 5987 or plain). Mime detected from content; `UPLOAD_MAX_BYTES` cap → 413. Deduplicated by **file** (ADR-009, ADR-021): bytes that are already a file resolve to that file's document when the caller may read it (`200`), and to `409 DOCUMENT_DUPLICATE` when they may not. Otherwise `201` with a new document holding the new file, processing already enqueued |
 | `GET /api/documents` | 🔒 | paginated; `sort?` = `documentDate` (default) \| `createdAt` \| `lastEventAt` — the closed set of named orders of §7.1, all three newest-first with the id as the tiebreak (see below); filters: `libraryId?`, `typeId?`, `personId?`, `subjectId?`, `subjectKindId?` (every subject of that kind at once, 03 §3.3.20a), `year?`, `country?` (ISO 3166-1 alpha-2, upper-cased on the way in like the PATCH does, so `?country=me` is the same question), `city?` (matched exactly as stored, which is what a link carrying a document's own place hands over), `availability?` (`AVAILABLE`\|`PARTIAL`\|`UNAVAILABLE`), `processing?` (bool), `origin?` (`LIBRARY`\|`MANAGED`), `step?` + `stepStatus?` (given together: the documents whose named pipeline step sits in that status — what a queue counter links to, 11 §11.13); only documents the caller can read. Every one of them is what a name in the viewer's details pane links to (11 §11.5); `subjectId` and `subjectKindId` given together are one question and not two — a kind with a thing of another kind finds nothing |
-| `GET /api/documents/years` | 🔒 | `{ items: [{ year, count }] }`, newest first — the years the caller's documents carry (11 §11.4). Declared before `:id`, or the router reads "years" as a document id |
+| `GET /api/documents/years` | 🔒 | `{ items: [{ year, count }] }`, newest first — the years the caller's documents carry (11 §11.4). Declared before `:id`, or the router reads "years" as a document id
+| `GET /api/documents/groups?by=` | 🔒 | `{ items: [{ key, label, count }] }` — the shelves of one dimension under the filters in force (see below). `by` = `type`\|`person`\|`subject`\|`year`\|`country`\|`city`; takes **every filter `GET /api/documents` takes** and no pagination. Declared before `:id`, like the years |
 | `GET /api/documents/:id` | 🔒 | → `DocumentDetailDto`, including `auto` — what the pipeline decided before anybody corrected it (03 §3.3.10) |
 | `PATCH /api/documents/:id` | 🔒 | `{ title?, description?, languages?, country?, city?, typeId?, peopleIds?, subjectIds?, documentDate? }` per canEditDocumentMeta (03 §3.4); setting typeId flips `typeSource` to MANUAL (null → NONE), and setting `title` flips `titleSource` to MANUAL, after which no analysis renames the document. `languages` are BCP-47 tags, `country` ISO 3166-1 alpha-2 (upper-cased on the way in), `city` free text; all three are corrections of what detection guessed (03 §3.3.10). `reset: ('title'\|'description'\|'documentType'\|'languages'\|'country'\|'city'\|'documentDate')[]` puts fields back to what the pipeline read and, for the title and the document type, restores `AUTO` — it is applied after the explicit values, so a payload carrying both ends with the reset |
 | `DELETE /api/documents/:id` | 🔒ᴬ | soft delete |
@@ -158,8 +162,55 @@ last changed, and keeps the column non-null.
 `422 CURSOR_SORT_MISMATCH` rather than a page read off the wrong column (§7.1). A client changing
 the order therefore starts the list again, which is what it wanted anyway.
 
-`DocumentListDto`: `{ id, title, fileCount, primaryExt, sizeBytes(string, the files together), pageCount, documentType: {id,slug,name}|null, availability, processing, origin, hasPreview, createdAt }`.
-`DocumentDetailDto` = list dto + `{ ocrUsed, typeSource, steps: {canonical, preview, markdown, analysis, vectorization}, processingError, failedStep, createdBy?, files: DocumentFileDto[], people: {id,name,deleted}[], subjects: {id,kindId,kind,name,deleted}[], documentDate, description, country, city, languages, auto }`. `deleted` says the catalogue no longer holds that name: the link survives a deletion on purpose (03 §3.3.19), so the flag is the only thing that distinguishes a name still worth choosing from one kept as a record. A subject carries its kind by id as well as by name, because the kind is a row of its own (03 §3.3.20a) and each half is a way into the documents filed under it (11 §11.5).
+**The shelves of a dimension: `GET /api/documents/groups?by=`** (the control that chooses one is
+`11 §11.3`). An answer is `{ items: [{ key, label, count }] }` — the same bounded `{ items }` shape
+`/years` uses, and for the same reason: these are counts, not resources, so there is nothing to
+paginate and the envelope of §7.1 is not broken by having no cursor. **A group's contents are the
+ordinary list filtered by that group's `key`**, which is what makes a shelf reachable at all — and
+why every dimension offered is one `GET /api/documents` can filter by:
+
+| `by` | The shelf | Its `key` goes in | `label` |
+|---|---|---|---|
+| `type` | the document type (`03 §3.3.12`) | `typeId` | the type's name |
+| `person` | who the document is about (`03 §3.3.19`) | `personId` | the person's name |
+| `subject` | what it is about (`03 §3.3.20`) | `subjectId` | the subject's name, without its kind — the two are separate facts (`11 §11.5`) |
+| `year` | the year on the paper | `year` | the year itself |
+| `country` / `city` | where it is from | `country` / `city` | the value as the document carries it: an ISO code, a city as written |
+
+Two rules chose that set out of the filters, and both are about not answering a wrong number:
+
+- a group's key must **identify** a shelf. `availability`, `processing`, `origin` and
+  `step`+`stepStatus` say what the machine is doing with a document rather than what the document is
+  about, and the filter bar already draws every value of them (`11 §11.3`);
+- a group's count must be a count of **documents**, which is exact only where the dimension meets a
+  document at most once — a column of the document, or a link table whose primary key holds it once
+  (`04 §4.4`). `libraryId` and `subjectKindId` are left out for that reason and no other: a document
+  holds many files in one library (and one file may lie at two paths in it), and it may name two
+  subjects of the same kind, so counting either would count joins. Both remain filters.
+
+**A document on several shelves appears on each of them.** One naming two people is counted under
+both, and the same for subjects. The alternative — counting it once, wherever "once" fell — is a card
+missing from a shelf it belongs on, which is worse than a total larger than the archive. And a
+document with **no value** in the dimension — no type read, no date, no place — is on no shelf of it
+rather than on an "unknown" one: the filters have no way to say "typeId is null", so such a shelf
+would be one whose contents nothing could open. The counts therefore need not add up to the number
+of documents, in either direction.
+
+**The counts are the archive's under the filters in force, not the current page's**: they are
+computed by the database over everything the filters select, so a page of thirty may sit under a
+shelf that says 812. 🔒 And they are computed under the same access rule as the list itself
+(`03 §3.4`): a count over documents this caller may not open would be a leak dressed as a number, and
+a shelf they can reach nothing through does not exist for them. At most **100 shelves** come back,
+fullest first with the label breaking a tie — a dimension is unbounded (a person, a city), and an
+unbounded aggregate on a request any signed-in caller can repeat is not something to serve.
+
+`DocumentListDto`: `{ id, title, fileCount, primaryExt, sizeBytes(string, the files together), pageCount, documentType: {id,slug,name}|null, availability, processing, origin, hasPreview, createdAt, documentDate, people: {id,name}[], subjects: {id,name}[], country, city, languages }`.
+The last six are **what a card may show** (`11 §11.3`): they travel on every row of every page whether
+or not the screen draws them, because which of them appear is the reader's choice and lives in their
+URL rather than in the request. They cost the page two more queries and not one per card — the people
+and the subjects of `document_id IN (…)`, both index-served by the link tables' own primary keys
+(`04 §4.4`).
+`DocumentDetailDto` = list dto + `{ ocrUsed, typeSource, steps: {canonical, preview, markdown, analysis, vectorization}, processingError, failedStep, createdBy?, files: DocumentFileDto[], people: {id,name,deleted}[], subjects: {id,kindId,kind,name,deleted}[], description, auto }`. The people and subjects are the list's own, said more fully: `deleted` says the catalogue no longer holds that name — the link survives a deletion on purpose (03 §3.3.19), so the flag is the only thing that distinguishes a name still worth choosing from one kept as a record, and it is on the detail because that is where a name can still be chosen. A subject carries its kind by id as well as by name, because the kind is a row of its own (03 §3.3.20a) and each half is a way into the documents filed under it (11 §11.5).
 
 `DocumentFileDto` = `{ id, position, name, mimeType, ext, sizeBytes, origin: 'LIBRARY' | 'MANAGED', available: boolean, crop: { points: [[x,y] ×4] } | null, cropSource: 'NONE' | 'AUTO' | 'MANUAL', isImage, refs: [{ libraryId, libraryName, path, status }], storageKey: string | null }` — ordered by position; `refs` lists only libraries visible to the caller (ADMIN sees all) and is empty for a managed file. **A location is answered for every file**, and the two fields divide it: `refs` for bytes on a volume, `storageKey` for the object in the bucket a `MANAGED` file's bytes lie under (`09 §9.2`), null for a `LIBRARY` file, which has no object at all. 🔒 The key is a location and not a way in — the bucket is private and only a signed URL reads it, issued by an endpoint that has already passed the access check — and it discloses nothing new either: the layout is `files/{fileId}/original.{ext}` and both halves are already on this DTO.
 

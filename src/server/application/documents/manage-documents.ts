@@ -1,12 +1,15 @@
-import type {
-  DocumentDetailDto,
-  DocumentEventPage,
-  DocumentFileDto,
-  DocumentYearsResponse,
-  DocumentListDto,
-  ListDocumentsQuery,
-  ListDocumentsResponse,
-  UpdateDocumentRequest,
+import {
+  MAX_DOCUMENT_GROUPS,
+  type DocumentDetailDto,
+  type DocumentEventPage,
+  type DocumentFileDto,
+  type DocumentGroupsResponse,
+  type DocumentYearsResponse,
+  type DocumentListDto,
+  type ListDocumentGroupsQuery,
+  type ListDocumentsQuery,
+  type ListDocumentsResponse,
+  type UpdateDocumentRequest,
 } from '../../../shared/contracts/documents';
 import type { FileOrigin } from '../../../shared/contracts/enums';
 import {
@@ -99,6 +102,24 @@ export class ListDocumentYears {
 
   async execute(viewer: Viewer): Promise<DocumentYearsResponse> {
     return { items: await this.documents.listYears(viewer) };
+  }
+}
+
+// GET /api/documents/groups (docs/07 §7.3): the shelves of one dimension, under the filters in
+// force. Not a page of documents and not paginated — a group's contents are the ordinary list
+// filtered by that group's key, which is why every dimension offered is one the list can filter by.
+export class ListDocumentGroups {
+  constructor(private readonly documents: DocumentRepository) {}
+
+  async execute(viewer: Viewer, query: ListDocumentGroupsQuery): Promise<DocumentGroupsResponse> {
+    const { by, ...filters } = query;
+    const groups = await this.documents.countByGroup(viewer, by, filters);
+
+    // The fullest shelf first — that is where the archive actually is — with the label breaking a
+    // tie so two runs of the same question answer in the same order. The cap is what keeps an
+    // aggregate over an unbounded dimension (a city, a person) a bounded answer (docs/07 §7.1).
+    const ordered = [...groups].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    return { items: ordered.slice(0, MAX_DOCUMENT_GROUPS) };
   }
 }
 
@@ -273,6 +294,14 @@ export function toListDto(item: DocumentListItem): DocumentListDto {
     origin: item.origin,
     hasPreview: document.steps.preview === 'DONE',
     createdAt: document.createdAt.toISOString(),
+    // What a card may show besides its title (docs/11 §11.3). Sent whatever the caller draws:
+    // which of them appear is a choice made in the reader's URL, not in the request.
+    documentDate: document.documentDate,
+    people: item.people,
+    subjects: item.subjects,
+    country: document.country,
+    city: document.city,
+    languages: document.languages,
   };
 }
 
@@ -314,6 +343,10 @@ export function listItemOf(detail: DocumentDetail): DocumentListItem {
     sizeBytes: files.reduce((total, file) => total + file.sizeBytes, 0n),
     origin: originOf(files.map((file) => file.origin)),
     availability: availabilityOf(files.map((file) => file.available)),
+    // The names without what only the viewer needs: whether the catalogue still holds one is the
+    // detail's own answer, and it is kept below (docs/11 §11.5).
+    people: detail.people.map(({ id, name }) => ({ id, name })),
+    subjects: detail.subjects.map(({ id, name }) => ({ id, name })),
   };
 }
 
@@ -333,13 +366,11 @@ export function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     typeSource: document.typeSource,
     steps: document.steps,
     skipReasons: document.skipReasons,
-    languages: document.languages,
     auto: document.auto,
+    // The list DTO carries these names too; here they say in addition whether the catalogue still
+    // holds each one (docs/03 §3.3.19–3.3.20).
     people: detail.people,
     subjects: detail.subjects,
-    documentDate: document.documentDate,
-    country: document.country,
-    city: document.city,
     processingError: document.processingError,
     failedStep: document.failedStep,
     files: detail.files.map(toFileDto),

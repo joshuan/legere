@@ -45,9 +45,27 @@ Onboarding when already onboarded → 404 page.
 ## 11.3. Documents (`/documents`) — the home screen
 
 - **Grid of cards** (responsive, 2–6 columns): thumbnail (`/thumb`; file-type icon fallback while
-  `previewStatus != DONE`), title (2-line ellipsis), document type tag, extension badge, a **file
-  count** when the document is made of more than one ("7 files"), and status badges: `processing`
-  (spinner tag "Processing"), `PARTIAL` ("Some files missing"), `UNAVAILABLE` (grey "Files missing").
+  `previewStatus != DONE`), title (2-line ellipsis), a **file count** when the document is made of
+  more than one ("7 files"), and status badges: `processing` (spinner tag "Processing"), `PARTIAL`
+  ("Some files missing"), `UNAVAILABLE` (grey "Files missing").
+- **What else a card says is chosen here** (a multi-select beside the order): the **file type**
+  badge, the **document type**, the **date on the document**, the **people**, the **subjects**, the
+  **place** and the **languages**. The extension and the document type are in that set rather than
+  fixed, so both can be switched off: what you came for differs by archive, and somebody filing
+  scans by person does not need to be told PDF forty times. The names are drawn as one line of
+  secondary text each, cut off rather than wrapped, so a document naming eight people does not make
+  a card eight rows taller; everything else is a tag. A field the document has no value for draws
+  nothing at all.
+  **The state badges are not in the set.** A card may say less about what a document *is*, never
+  less about what is happening to it — hiding "Processing" or "Files missing" would be a card that
+  lies by omission.
+  **The choice lives in the URL** under the same rule as the order (`card=date,people`), and an
+  empty value is a real choice — "title only" — which is why *absence*, not emptiness, is what means
+  the default. It does not follow the person to another screen: **the four other screens that render
+  this card — browse, a facet, a collection, the search results — keep the arrangement they have
+  today** (`ext` + `type`), rather than inheriting a setting made here.
+  `DocumentListDto` carries all of them on every row whether or not they are drawn (`07 §7.3`),
+  fetched per page in the batched way the file counts already are — never one query per card.
 - **Filter bar:** library select, document type select, availability toggle, "processing only" toggle,
   origin (All / From libraries / Added here). Filters reflect in the URL query.
   **The URL may carry more than the bar draws.** A name in a document's details pane is a link into
@@ -70,6 +88,18 @@ Onboarding when already onboarded → 404 page.
   rather than being sent on. It does not follow the person to another screen — the four other
   screens that render this grid keep the order they have — and that is the accepted cost of putting
   it in the URL rather than in a profile.
+- **Grouping** (a select beside the order): **none** (the default), by **document type**, **person**,
+  **subject**, **year**, **country** or **city** — the dimensions of `GET /api/documents/groups`
+  (`07 §7.3`). Choosing one draws a row of shelves above the grid, each one a label and **the real
+  count from the server** — the archive's under the filters in force, not a header over whatever the
+  current page happened to contain. Pressing a shelf puts its key into that dimension's filter, so
+  the grid below becomes that shelf's contents; pressing the shelf being stood on comes back off it.
+  A document belonging to several shelves — it names two people — is on each of them (`07 §7.3`).
+  **The shelves themselves are counted under every filter in force except the one a shelf sets**: with
+  it there would be exactly one shelf left to choose and no way back to the others.
+  Like the order, this is not a filter: it lives in the URL (`groupBy=person`), **Clear filters**
+  leaves it alone, and a `groupBy` the contract does not know means no grouping rather than a request
+  the API would refuse.
 - **Selection → Combine.** The multi-select that used to build a scan set now says what it means:
   tick documents in page order and press **Combine into one document**. Their files move into the
   first-picked document in that order, the emptied documents go away, and the viewer opens on the

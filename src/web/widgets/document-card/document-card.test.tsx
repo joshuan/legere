@@ -22,6 +22,12 @@ const base: DocumentListDto = {
   origin: 'LIBRARY',
   hasPreview: true,
   createdAt: '2026-01-01T00:00:00.000Z',
+  documentDate: '2026-02-03',
+  people: [{ id: 'cccccccc-3333-4333-8333-333333333333', name: 'Ana Petrović' }],
+  subjects: [{ id: 'dddddddd-4444-4444-8444-444444444444', name: 'Njegoševa 12' }],
+  country: 'ME',
+  city: 'Podgorica',
+  languages: ['sr', 'en'],
 };
 
 describe('DocumentCard', () => {
@@ -75,6 +81,75 @@ describe('DocumentCard', () => {
 
     renderWithProviders(<DocumentCard document={{ ...base, availability: 'UNAVAILABLE' }} />);
     expect(screen.queryByText(enMessages.documents.badges.partial)).not.toBeInTheDocument();
+  });
+
+  // Which of a document's own facts a card draws is the reader's choice (docs/11 §11.3); the card
+  // that is not asked keeps the arrangement it has always had.
+  describe('the fields it is asked for', () => {
+    it('shows the extension and the type by default, and nothing else it could have', () => {
+      renderWithProviders(<DocumentCard document={base} />);
+
+      expect(screen.getByText('PDF')).toBeInTheDocument();
+      expect(screen.getByText('Contract')).toBeInTheDocument();
+      expect(screen.queryByText('2026-02-03')).toBeNull();
+      expect(screen.queryByText('Ana Petrović')).toBeNull();
+      expect(screen.queryByText('Njegoševa 12')).toBeNull();
+      expect(screen.queryByText('Podgorica, ME')).toBeNull();
+      expect(screen.queryByText('SR')).toBeNull();
+    });
+
+    it('draws the date, the names, the place and the languages when asked for them', () => {
+      renderWithProviders(
+        <DocumentCard
+          document={base}
+          fields={['date', 'people', 'subjects', 'place', 'languages']}
+        />,
+      );
+
+      expect(screen.getByText('2026-02-03')).toBeInTheDocument();
+      expect(screen.getByText('Ana Petrović')).toBeInTheDocument();
+      expect(screen.getByText('Njegoševa 12')).toBeInTheDocument();
+      expect(screen.getByText('Podgorica, ME')).toBeInTheDocument();
+      expect(screen.getByText('SR')).toBeInTheDocument();
+      expect(screen.getByText('EN')).toBeInTheDocument();
+    });
+
+    it('switches off the extension badge and the document type like any other field', () => {
+      renderWithProviders(<DocumentCard document={base} fields={[]} />);
+
+      expect(screen.queryByText('PDF')).toBeNull();
+      expect(screen.queryByText('Contract')).toBeNull();
+      // The title is not a choice, and neither is a state badge: a card may say less about what a
+      // document is, never less about what is happening to it (docs/11 §11.3).
+      expect(screen.getByText('Rental agreement 2026')).toBeInTheDocument();
+    });
+
+    it('says nothing at all about a field the document has no value for', () => {
+      renderWithProviders(
+        <DocumentCard
+          document={{
+            ...base,
+            documentDate: null,
+            people: [],
+            subjects: [],
+            country: null,
+            city: null,
+            languages: [],
+          }}
+          fields={['date', 'people', 'subjects', 'place', 'languages']}
+        />,
+      );
+
+      // An empty line where a date would be is worse than no line: the card is a glance.
+      expect(screen.queryByText('2026-02-03')).toBeNull();
+      expect(screen.queryByText('Podgorica, ME')).toBeNull();
+    });
+
+    it('names a place by whichever half of it is known', () => {
+      renderWithProviders(<DocumentCard document={{ ...base, city: null }} fields={['place']} />);
+
+      expect(screen.getByText('ME')).toBeInTheDocument();
+    });
   });
 
   it('says how many files a document is made of, and only when it is more than one', () => {

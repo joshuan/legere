@@ -429,6 +429,49 @@ describe('Files and documents (integration)', () => {
       ]);
     });
 
+    // What a card may show besides its title (docs/07 §7.3, docs/11 §11.3): read for a whole page
+    // at once, like the files it is derived from.
+    it('carries the names a page is about, read for the whole page rather than per row', async () => {
+      const lease = await documents.create({ title: 'Lease' });
+      const service = await documents.create({ title: 'Service book' });
+      await files.attach(lease.id, await createFile());
+      await files.attach(service.id, await createFile());
+      const [ana, marko] = await Promise.all([
+        prisma.person.create({ data: { name: 'Ana Petrović' } }),
+        prisma.person.create({ data: { name: 'Marko Marković' } }),
+      ]);
+      const kind = await prisma.subjectKind.create({ data: { name: 'apartment' } });
+      const flat = await prisma.subject.create({ data: { kindId: kind.id, name: 'Njegoševa 5' } });
+      await prisma.documentPerson.createMany({
+        data: [
+          { documentId: lease.id, personId: ana.id },
+          { documentId: lease.id, personId: marko.id },
+          { documentId: service.id, personId: marko.id },
+        ],
+      });
+      await prisma.documentSubject.create({
+        data: { documentId: lease.id, subjectId: flat.id },
+      });
+
+      // One `document_id IN (…)` per link table for the whole page, which is what makes carrying
+      // the names on every card affordable; the shape of the read is the guarantee (docs/04 §4.4).
+      const page = await documents.listReadable(admin, { limit: 10, sort: 'createdAt' });
+
+      const byTitle = new Map(page.items.map((item) => [item.document.title, item]));
+      // In catalogue order, and each document with its own names rather than the page's.
+      expect(byTitle.get('Lease')?.people.map((person) => person.name)).toEqual([
+        'Ana Petrović',
+        'Marko Marković',
+      ]);
+      expect(byTitle.get('Service book')?.people.map((person) => person.name)).toEqual([
+        'Marko Marković',
+      ]);
+      expect(byTitle.get('Lease')?.subjects.map((subject) => subject.name)).toEqual([
+        'Njegoševa 5',
+      ]);
+      expect(byTitle.get('Service book')?.subjects).toEqual([]);
+    });
+
     it('hides the refs of a library the caller cannot see (docs/07 §7.3)', async () => {
       const secret = await createLibrary('secret', 'RESTRICTED');
       const open = await createLibrary('open', 'ALL_USERS');
@@ -551,6 +594,131 @@ describe('Files and documents (integration)', () => {
       });
 
       expect(await documents.listYears(reader)).toEqual([{ year: 2019, count: 1 }]);
+    });
+
+    it('counts a shelf only over the documents the viewer may read', async () => {
+      const reader = await createUser('reader4@legere.local');
+      const restricted = await createLibrary('restricted', 'RESTRICTED');
+      const open = await createLibrary('open', 'ALL_USERS');
+      const mine = await libraryDocument(open, 'Mine', 'mine.pdf');
+      const hidden = await libraryDocument(restricted, 'Hidden', 'hidden.pdf');
+      const person = await prisma.person.create({ data: { name: 'Ana Petrović' } });
+      await prisma.documentPerson.createMany({
+        data: [
+          { documentId: mine.documentId, personId: person.id },
+          { documentId: hidden.documentId, personId: person.id },
+        ],
+      });
+
+      // 🔒 The same rule as every list: a count is a statement about the archive, and one made over
+      // documents this reader may not open would be a leak dressed as a number (docs/03 §3.4).
+      expect(await documents.countByGroup(reader, 'person', {})).toEqual([
+        { key: person.id, label: 'Ana Petrović', count: 1 },
+      ]);
+      const asAdmin = await createUser('groupadmin@legere.local', 'ADMIN');
+      expect(await documents.countByGroup(asAdmin, 'person', {})).toEqual([
+        { key: person.id, label: 'Ana Petrović', count: 2 },
+      ]);
+    });
+  });
+
+  // --- the shelves of a dimension (docs/07 §7.3) -----------------------------------------------
+
+  describe('counting the shelves of a dimension', () => {
+    let admin: Viewer;
+
+    beforeEach(async () => {
+      admin = await createUser('shelfadmin@legere.local', 'ADMIN');
+    });
+
+    const documentAbout = async (
+      title: string,
+      about: { people?: string[]; subjects?: string[]; date?: string; city?: string },
+    ): Promise<string> => {
+      const document = await documents.create({ title });
+      await files.attach(document.id, await createFile({ origin: 'MANAGED' }));
+      await prisma.document.update({
+        where: { id: document.id },
+        data: {
+          ...(about.date === undefined
+            ? {}
+            : { documentDate: new Date(`${about.date}T00:00:00Z`) }),
+          ...(about.city === undefined ? {} : { city: about.city }),
+        },
+      });
+      await prisma.documentPerson.createMany({
+        data: (about.people ?? []).map((personId) => ({ documentId: document.id, personId })),
+      });
+      await prisma.documentSubject.createMany({
+        data: (about.subjects ?? []).map((subjectId) => ({
+          documentId: document.id,
+          subjectId,
+        })),
+      });
+      return document.id;
+    };
+
+    it('puts a document that belongs to two shelves on both of them', async () => {
+      const ana = await prisma.person.create({ data: { name: 'Ana Petrović' } });
+      const marko = await prisma.person.create({ data: { name: 'Marko Marković' } });
+      await documentAbout('Lease', { people: [ana.id, marko.id] });
+      await documentAbout('Service book', { people: [marko.id] });
+
+      const shelves = await documents.countByGroup(admin, 'person', {});
+
+      // Counted on each, because the alternative is a card missing from a shelf it belongs on.
+      expect(new Map(shelves.map((shelf) => [shelf.label, shelf.count]))).toEqual(
+        new Map([
+          ['Ana Petrović', 1],
+          ['Marko Marković', 2],
+        ]),
+      );
+      // And the key is what the shelf's own filter takes, so its contents are reachable.
+      const key = shelves.find((shelf) => shelf.label === 'Ana Petrović')?.key;
+      expect(key).toBe(ana.id);
+      const contents = await documents.listReadable(admin, { limit: 10, personId: key });
+      expect(contents.items.map((item) => item.document.title)).toEqual(['Lease']);
+    });
+
+    it('counts the archive under the filters in force, not the whole of it', async () => {
+      const kind = await prisma.subjectKind.create({ data: { name: 'apartment' } });
+      const flat = await prisma.subject.create({ data: { kindId: kind.id, name: 'Njegoševa 5' } });
+      const ana = await prisma.person.create({ data: { name: 'Ana Petrović' } });
+      await documentAbout('Lease', { people: [ana.id], subjects: [flat.id] });
+      await documentAbout('Letter', { people: [ana.id] });
+
+      expect(await documents.countByGroup(admin, 'person', {})).toEqual([
+        { key: ana.id, label: 'Ana Petrović', count: 2 },
+      ]);
+      // The same shelf, seen through a filter: one of the two is about that flat.
+      expect(await documents.countByGroup(admin, 'person', { subjectId: flat.id })).toEqual([
+        { key: ana.id, label: 'Ana Petrović', count: 1 },
+      ]);
+    });
+
+    it('groups by the year on the paper and by the place the document names', async () => {
+      await documentAbout('Older', { date: '2019-03-01', city: 'Podgorica' });
+      await documentAbout('Same year', { date: '2019-11-02', city: 'Podgorica' });
+      await documentAbout('Newer', { date: '2024-05-05', city: 'Bar' });
+      // No date and no place read off it: on no shelf of either dimension rather than on a shelf
+      // whose contents no filter could name.
+      await documentAbout('Unread', {});
+
+      const years = await documents.countByGroup(admin, 'year', {});
+      const cities = await documents.countByGroup(admin, 'city', {});
+
+      expect(new Map(years.map((shelf) => [shelf.key, shelf.count]))).toEqual(
+        new Map([
+          ['2019', 2],
+          ['2024', 1],
+        ]),
+      );
+      expect(new Map(cities.map((shelf) => [shelf.key, shelf.count]))).toEqual(
+        new Map([
+          ['Podgorica', 2],
+          ['Bar', 1],
+        ]),
+      );
     });
   });
 

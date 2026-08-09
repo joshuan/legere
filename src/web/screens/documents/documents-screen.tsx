@@ -20,11 +20,15 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   DEFAULT_DOCUMENT_SORT,
+  DOCUMENT_GROUP_BY,
+  DOCUMENT_GROUP_FILTER,
   DOCUMENT_SORTS,
   availabilitySchema,
+  documentGroupBySchema,
   documentSortSchema,
   documentStepSchema,
   listDocumentsQuerySchema,
+  type DocumentGroupBy,
   type DocumentSort,
 } from '../../../shared/contracts/documents';
 import { fileOriginSchema, stepStatusSchema } from '../../../shared/contracts/enums';
@@ -36,7 +40,14 @@ import {
   type DocumentFilters,
 } from '../../entities/document';
 import { DocumentFiltersBar } from '../../features/document-filters';
-import { DocumentCard } from '../../widgets/document-card';
+import {
+  DEFAULT_DOCUMENT_CARD_FIELDS,
+  DOCUMENT_CARD_FIELDS,
+  DocumentCard,
+  formatDocumentCardFields,
+  parseDocumentCardFields,
+  type DocumentCardField,
+} from '../../widgets/document-card';
 import {
   UploadButton,
   UploadDropZone,
@@ -64,28 +75,33 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
   const { message } = App.useApp();
 
   // The URL is the single source of truth for the filters, so a filtered view can be linked,
-  // bookmarked and reloaded (docs/11 §11.3). The chosen order lives there beside them, for the same
-  // reason and at the same accepted cost: it can be linked, and it does not follow the person to
-  // another screen.
-  const filters = useMemo(() => parseFilters(searchParams), [searchParams]);
-  const sort = useMemo(() => parseSort(searchParams), [searchParams]);
+  // bookmarked and reloaded (docs/11 §11.3). Everything else about the view lives there beside
+  // them — the chosen order, which fields the cards show, and what the shelf is grouped by — for the
+  // same reason and at the same accepted cost: it can be linked, and it does not follow the person
+  // to another screen.
+  const view = useMemo(() => parseView(searchParams), [searchParams]);
+  const { filters, sort, fields, groupBy } = view;
 
-  // Filters and order are written together, because they share one query string: changing either
-  // must not drop the other. The default order leaves no trace, the way an unset filter does not.
+  // The four are written together, because they share one query string: changing any of them must
+  // not drop the others. A default leaves no trace, the way an unset filter does not.
   const setView = useCallback(
-    (nextFilters: DocumentFilters, nextSort: DocumentSort) => {
+    (patch: Partial<DocumentsView>) => {
+      const next = { ...view, ...patch };
       const params = new URLSearchParams();
-      for (const [key, value] of Object.entries(nextFilters)) {
+      for (const [key, value] of Object.entries(next.filters)) {
         if (value !== undefined) params.set(key, String(value));
       }
-      if (nextSort !== DEFAULT_DOCUMENT_SORT) params.set('sort', nextSort);
+      if (next.sort !== DEFAULT_DOCUMENT_SORT) params.set('sort', next.sort);
+      const card = formatDocumentCardFields(next.fields);
+      if (card !== null) params.set('card', card);
+      if (next.groupBy !== null) params.set('groupBy', next.groupBy);
       const query = params.toString();
       router.replace(query === '' ? pathname : `${pathname}?${query}`);
     },
-    [pathname, router],
+    [pathname, router, view],
   );
 
-  const setFilters = useCallback((next: DocumentFilters) => setView(next, sort), [setView, sort]);
+  const setFilters = useCallback((next: DocumentFilters) => setView({ filters: next }), [setView]);
 
   const documents = useInfiniteQuery({
     queryKey: documentKeys.list(filters, sort),
@@ -180,11 +196,43 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
             style={{ minWidth: 200 }}
             aria-label={t('documents.sort.label')}
             value={sort}
-            onChange={(next) => setView(filters, next)}
+            onChange={(next) => setView({ sort: next })}
             options={DOCUMENT_SORTS.map((option) => ({
               value: option,
               label: t(`documents.sort.options.${option}`),
             }))}
+          />
+          {/* What the cards say about themselves. Not a filter either: it changes what is drawn on a
+              card, not which cards there are, and it travels in the URL so a view stays one link
+              (docs/11 §11.3). */}
+          <Select<DocumentCardField[]>
+            mode="multiple"
+            allowClear
+            maxTagCount="responsive"
+            style={{ minWidth: 220 }}
+            aria-label={t('documents.card.label')}
+            placeholder={t('documents.card.none')}
+            value={[...fields]}
+            onChange={(next) => setView({ fields: next })}
+            options={DOCUMENT_CARD_FIELDS.map((option) => ({
+              value: option,
+              label: t(`documents.card.options.${option}`),
+            }))}
+          />
+          {/* Real shelves with real counts, from the server: not headers drawn over whatever this
+              page happened to hold (docs/11 §11.3). */}
+          <Select<DocumentGroupBy | ''>
+            style={{ minWidth: 180 }}
+            aria-label={t('documents.groupBy.label')}
+            value={groupBy ?? ''}
+            onChange={(next) => setView({ groupBy: next === '' ? null : next })}
+            options={[
+              { value: '', label: t('documents.groupBy.none') },
+              ...DOCUMENT_GROUP_BY.map((option) => ({
+                value: option,
+                label: t(`documents.groupBy.options.${option}`),
+              })),
+            ]}
           />
           <Button
             onClick={() => {
@@ -211,6 +259,16 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
             </Space>
           )}
         </Space>
+
+        {/* The shelves themselves, above the grid: press one and the grid below is that shelf,
+            because a group's contents are the ordinary list filtered by its key (docs/11 §11.3). */}
+        {groupBy !== null && (
+          <DocumentGroupBar
+            by={groupBy}
+            filters={filters}
+            onPick={(key) => setFilters(withGroup(filters, groupBy, key))}
+          />
+        )}
 
         {/* Above the grid, and only while nothing is being looked for in particular: a proposal
             about the whole shelf makes no sense over a filtered view of it (docs/11 §11.3). */}
@@ -278,7 +336,7 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
                         {document.title}
                       </Checkbox>
                     )}
-                    <DocumentCard document={document} />
+                    <DocumentCard document={document} fields={fields} />
                   </Space>
                 </Col>
               ))}
@@ -290,6 +348,27 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
       </Space>
     </UploadDropZone>
   );
+}
+
+// Everything the URL says about how this screen is being looked at (docs/11 §11.3): what is being
+// narrowed, how it is arranged, what the cards say, and what it is grouped by. One object because
+// they share one query string.
+type DocumentsView = {
+  filters: DocumentFilters;
+  sort: DocumentSort;
+  fields: readonly DocumentCardField[];
+  groupBy: DocumentGroupBy | null;
+};
+
+function parseView(params: URLSearchParams): DocumentsView {
+  return {
+    filters: parseFilters(params),
+    sort: parseSort(params),
+    // Absent means the arrangement the card has always had; empty means "title only", which is a
+    // choice somebody made and not the absence of one.
+    fields: parseDocumentCardFields(params.get('card')) ?? DEFAULT_DOCUMENT_CARD_FIELDS,
+    groupBy: parseGroupBy(params),
+  };
 }
 
 // Only values the contract knows survive the trip; a hand-edited URL cannot smuggle a filter in.
@@ -360,6 +439,78 @@ function parseFilters(params: URLSearchParams): DocumentFilters {
 function parseSort(params: URLSearchParams): DocumentSort {
   const parsed = documentSortSchema.safeParse(params.get('sort'));
   return parsed.success ? parsed.data : DEFAULT_DOCUMENT_SORT;
+}
+
+// And the grouping, by the same rule: a dimension the contract does not offer is no grouping at all
+// rather than a request the API would refuse (docs/11 §11.3).
+function parseGroupBy(params: URLSearchParams): DocumentGroupBy | null {
+  const parsed = documentGroupBySchema.safeParse(params.get('groupBy'));
+  return parsed.success ? parsed.data : null;
+}
+
+// Standing on a shelf, or stepping off it: the group's key goes into the filter that dimension is
+// reachable by, and pressing the shelf already being stood on comes back off it (docs/11 §11.3).
+function withGroup(filters: DocumentFilters, by: DocumentGroupBy, key: string): DocumentFilters {
+  const param = DOCUMENT_GROUP_FILTER[by];
+  const next: DocumentFilters = { ...filters };
+  if (String(filters[param] ?? '') === key) {
+    delete next[param];
+    return next;
+  }
+  // The year is the one dimension whose filter is a number rather than a string; every other key is
+  // an id or a place, and travels as it came.
+  if (param === 'year') next.year = Number(key);
+  else next[param] = key;
+  return next;
+}
+
+// The shelves of one dimension, counted by the server under the filters in force (docs/07 §7.3).
+function DocumentGroupBar({
+  by,
+  filters,
+  onPick,
+}: {
+  by: DocumentGroupBy;
+  filters: DocumentFilters;
+  onPick: (key: string) => void;
+}) {
+  const t = useTranslations();
+  const param = DOCUMENT_GROUP_FILTER[by];
+  // Counted under every filter in force *except* the one a shelf itself sets: with it, picking a
+  // shelf would leave exactly one shelf to pick, and there would be no way back to the others.
+  const scope = useMemo(() => {
+    const narrowed: DocumentFilters = { ...filters };
+    delete narrowed[param];
+    return narrowed;
+  }, [filters, param]);
+
+  const groups = useQuery({
+    queryKey: documentKeys.groups(by, scope),
+    queryFn: () => documentApi.groups(by, scope),
+  });
+
+  if (groups.isPending) return <Spin size="small" />;
+
+  const items = groups.data?.items ?? [];
+  if (items.length === 0) {
+    return <Typography.Text type="secondary">{t('documents.groupBy.empty')}</Typography.Text>;
+  }
+
+  const standingOn = String(filters[param] ?? '');
+  return (
+    <Space size={[8, 8]} wrap>
+      {items.map((group) => (
+        <Button
+          key={group.key}
+          size="small"
+          type={group.key === standingOn ? 'primary' : 'default'}
+          onClick={() => onPick(group.key)}
+        >
+          {t('documents.groupBy.shelf', { label: group.label, count: group.count })}
+        </Button>
+      ))}
+    </Space>
+  );
 }
 
 // Dismissing a suggestion lasts the session and nothing longer: the server proposes, and it never

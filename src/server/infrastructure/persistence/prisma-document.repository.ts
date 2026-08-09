@@ -15,6 +15,7 @@ import {
   autoValuesSchema,
   type AutoValues,
   type Availability,
+  type DocumentGroupBy,
   type DocumentSort,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
@@ -30,7 +31,10 @@ import {
   type DocumentDetail,
   type DocumentFileRefView,
   type DocumentFileView,
+  type DocumentFilterInput,
+  type DocumentGroupCount,
   type DocumentListItem,
+  type DocumentName,
   type DocumentPage,
   type ListDocumentsInput,
   type ProcessingUpdate,
@@ -293,7 +297,7 @@ function visibleLibrary(viewer: Viewer): Prisma.LibraryWhereInput {
   return { OR: [{ visibility: 'ALL_USERS' }, { access: { some: { userId: viewer.id } } }] };
 }
 
-function filters(query: ListDocumentsInput): Prisma.DocumentWhereInput {
+function filters(query: DocumentFilterInput): Prisma.DocumentWhereInput {
   const where: Prisma.DocumentWhereInput = {};
   // Every file-shaped filter is another clause on `files`, so they are collected into one AND list
   // rather than overwriting each other on a single key.
@@ -686,15 +690,120 @@ export class PrismaDocumentRepository implements DocumentRepository {
       _count: { _all: true },
     });
 
-    const years = new Map<number, number>();
-    for (const row of rows) {
-      if (row.documentDate === null) continue;
-      const year = row.documentDate.getUTCFullYear();
-      years.set(year, (years.get(year) ?? 0) + row._count._all);
-    }
-    return [...years.entries()]
+    return [...countYears(rows).entries()]
       .map(([year, count]) => ({ year, count }))
       .sort((a, b) => b.year - a.year);
+  }
+
+  // The shelves of one dimension, counted under the filters in force (docs/07 §7.3).
+  //
+  // 🔒 Both halves of the question are the list's own: `readableBy` decides which documents are
+  // counted at all, and `filters` narrows them exactly as the grid is narrowed — so a group's count
+  // is the number of documents that group's own filter would put on the screen, and never a count
+  // over documents this viewer cannot open (docs/03 §3.4). Written through the query builder rather
+  // than as raw SQL for that reason: a second dialect of the filter set is a second thing to keep
+  // in step, and the one that drifts is the one nobody reads.
+  //
+  // Every dimension is counted by grouping either a column of the document or a link table whose
+  // primary key holds the document once — which is why the two filters that meet a document many
+  // times (`libraryId`, `subjectKindId`) are not offered as dimensions (docs/07 §7.3).
+  async countByGroup(
+    viewer: Viewer,
+    by: DocumentGroupBy,
+    filter: DocumentFilterInput,
+    tx?: TransactionHandle,
+  ): Promise<DocumentGroupCount[]> {
+    const client = clientOf(this.prisma, tx);
+    const where: Prisma.DocumentWhereInput = {
+      deletedAt: null,
+      AND: [readableBy(viewer, await shareReach(client, viewer)), filters(filter)],
+    };
+
+    switch (by) {
+      case 'year': {
+        const rows = await client.document.groupBy({
+          by: ['documentDate'],
+          where: { ...where, documentDate: { not: null } },
+          _count: { _all: true },
+        });
+        return [...countYears(rows).entries()].map(([year, count]) => ({
+          key: String(year),
+          label: String(year),
+          count,
+        }));
+      }
+      case 'country': {
+        const rows = await client.document.groupBy({
+          by: ['country'],
+          where: { ...where, country: { not: null } },
+          _count: { _all: true },
+        });
+        return rows.flatMap((row) =>
+          row.country === null
+            ? []
+            : // The label is what the document carries: an ISO code, which is what the link a
+              // viewer follows from the details pane carries too (docs/11 §11.5).
+              [{ key: row.country, label: row.country, count: row._count._all }],
+        );
+      }
+      case 'city': {
+        const rows = await client.document.groupBy({
+          by: ['city'],
+          where: { ...where, city: { not: null } },
+          _count: { _all: true },
+        });
+        return rows.flatMap((row) =>
+          row.city === null ? [] : [{ key: row.city, label: row.city, count: row._count._all }],
+        );
+      }
+      case 'type': {
+        const rows = await client.document.groupBy({
+          by: ['typeId'],
+          where: { ...where, typeId: { not: null } },
+          _count: { _all: true },
+        });
+        const counts = new Map(
+          rows.flatMap((row) =>
+            row.typeId === null ? [] : [[row.typeId, row._count._all] as const],
+          ),
+        );
+        // Soft-deleted types are not excluded: the documents filed under one keep it, and a shelf
+        // whose label vanished would be a shelf nobody could name (docs/03 §3.3.12).
+        const types = await client.documentType.findMany({
+          where: { id: { in: [...counts.keys()] } },
+          select: { id: true, name: true },
+        });
+        return labelled(types, counts);
+      }
+      case 'person': {
+        const rows = await client.documentPerson.groupBy({
+          by: ['personId'],
+          where: { document: where },
+          _count: { _all: true },
+        });
+        const counts = new Map(rows.map((row) => [row.personId, row._count._all] as const));
+        // Deleted names included, for the reason the type is: the link survives the deletion
+        // (docs/03 §3.3.19), so the documents are still there to be looked at.
+        const people = await client.person.findMany({
+          where: { id: { in: [...counts.keys()] } },
+          select: { id: true, name: true },
+        });
+        return labelled(people, counts);
+      }
+      case 'subject': {
+        const rows = await client.documentSubject.groupBy({
+          by: ['subjectId'],
+          where: { document: where },
+          _count: { _all: true },
+        });
+        const counts = new Map(rows.map((row) => [row.subjectId, row._count._all] as const));
+        const subjects = await client.subject.findMany({
+          where: { id: { in: [...counts.keys()] } },
+          select: { id: true, name: true },
+        });
+        return labelled(subjects, counts);
+      }
+    }
   }
 
   async listStalePendingIds(
@@ -975,18 +1084,42 @@ export class PrismaDocumentRepository implements DocumentRepository {
     };
   }
 
-  // A whole page of rows plus what their files say about them, in two queries for the page rather
-  // than two per row (docs/03 §3.3.10).
+  // A whole page of rows plus what their files and their names say about them — four queries for
+  // the page rather than four per row (docs/03 §3.3.10, docs/07 §7.3).
   private async toItems(rows: ListRow[], tx?: TransactionHandle): Promise<DocumentListItem[]> {
     if (rows.length === 0) return [];
 
-    const byDocument = await this.files.listForDocuments(
-      rows.map((row) => row.id),
-      tx,
-    );
+    const ids = rows.map((row) => row.id);
+    const client = clientOf(this.prisma, tx);
+    const byDocument = await this.files.listForDocuments(ids, tx);
     const liveRefs = await this.files.countLiveRefsForFiles(
       [...byDocument.values()].flat().map((file) => file.id),
       tx,
+    );
+
+    // Who and what the page is about: one query each, for all of it. Both link tables have a
+    // composite primary key beginning with `document_id`, so `document_id IN (…)` is index-served
+    // (docs/04 §4.4) — which is what makes carrying these on every card affordable at all.
+    const peopleRows = await client.documentPerson.findMany({
+      where: { documentId: { in: ids } },
+      select: { documentId: true, person: { select: { id: true, name: true } } },
+      // Catalogue order, like the detail: a card must not shuffle its names between two renders.
+      // A deleted person keeps their place — the link survives the deletion (docs/03 §3.3.19).
+      orderBy: [{ documentId: 'asc' }, { person: { name: 'asc' } }],
+    });
+    const subjectRows = await client.documentSubject.findMany({
+      where: { documentId: { in: ids } },
+      select: { documentId: true, subject: { select: { id: true, name: true } } },
+      orderBy: [{ documentId: 'asc' }, { subject: { name: 'asc' } }],
+    });
+
+    const people = groupNames(
+      ids,
+      peopleRows.map((row) => ({ documentId: row.documentId, name: row.person })),
+    );
+    const subjects = groupNames(
+      ids,
+      subjectRows.map((row) => ({ documentId: row.documentId, name: row.subject })),
     );
 
     return rows.map((row) => {
@@ -999,6 +1132,8 @@ export class PrismaDocumentRepository implements DocumentRepository {
         sizeBytes: files.reduce((total, file) => total + file.sizeBytes, 0n),
         origin: originOf(files.map((file) => file.origin)),
         availability: availabilityOf(files.map((file) => readable(file, liveRefs))),
+        people: people.get(row.id) ?? [],
+        subjects: subjects.get(row.id) ?? [],
       };
     });
   }
@@ -1135,4 +1270,40 @@ export class PrismaDocumentRepository implements DocumentRepository {
 // One file's readability, from the batch of ref counts the page was measured with.
 function readable(file: DocumentFile, liveRefs: Map<string, number>): boolean {
   return isFileReadable(file.origin, liveRefs.get(file.id) ?? 0);
+}
+
+// A DATE column grouped by day, folded into the calendar years it falls in — read in UTC, which is
+// the zone the column is written and queried in (docs/07 §7.3).
+function countYears(
+  rows: ReadonlyArray<{ documentDate: Date | null; _count: { _all: number } }>,
+): Map<number, number> {
+  const years = new Map<number, number>();
+  for (const row of rows) {
+    if (row.documentDate === null) continue;
+    const year = row.documentDate.getUTCFullYear();
+    years.set(year, (years.get(year) ?? 0) + row._count._all);
+  }
+  return years;
+}
+
+// Counts by id, paired with the names the catalogue gives those ids. A row whose catalogue entry has
+// gone missing entirely is dropped rather than shown as a blank shelf.
+function labelled(
+  names: ReadonlyArray<{ id: string; name: string }>,
+  counts: ReadonlyMap<string, number>,
+): DocumentGroupCount[] {
+  return names.flatMap((row) => {
+    const count = counts.get(row.id);
+    return count === undefined ? [] : [{ key: row.id, label: row.name, count }];
+  });
+}
+
+// A page's worth of link rows, back into a list per document and in the order they were read.
+function groupNames(
+  documentIds: readonly string[],
+  rows: ReadonlyArray<{ documentId: string; name: DocumentName }>,
+): Map<string, DocumentName[]> {
+  const byDocument = new Map<string, DocumentName[]>(documentIds.map((id) => [id, []]));
+  for (const row of rows) byDocument.get(row.documentId)?.push(row.name);
+  return byDocument;
 }

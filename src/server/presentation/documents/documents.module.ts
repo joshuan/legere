@@ -3,6 +3,7 @@ import {
   DeleteDocument,
   GetDocument,
   ListDocumentEvents,
+  ListDocumentGroups,
   ListDocumentYears,
   ListDocuments,
   UpdateDocumentMeta,
@@ -251,6 +252,12 @@ function downloadSettings(config: AppConfig): DownloadSettings {
       provide: ListDocumentYears,
       useFactory: (documents: DocumentRepository): ListDocumentYears =>
         new ListDocumentYears(documents),
+      inject: [DocumentRepository],
+    },
+    {
+      provide: ListDocumentGroups,
+      useFactory: (documents: DocumentRepository): ListDocumentGroups =>
+        new ListDocumentGroups(documents),
       inject: [DocumentRepository],
     },
     {

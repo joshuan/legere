@@ -1,6 +1,7 @@
 import type {
   AutoValues,
   Availability,
+  DocumentGroupBy,
   DocumentSort,
   DocumentStep,
 } from '../../../shared/contracts/documents';
@@ -68,8 +69,12 @@ export type DocumentCategory = {
   name: string;
 };
 
+// A name a document carries and the row it came from (docs/03 §3.3.19–3.3.20).
+export type DocumentName = { id: string; name: string };
+
 // A document plus what the list DTO needs and the row itself does not carry (docs/07 §7.3): all of
-// it derived from the files the document holds, none of it stored (docs/03 §3.3.10).
+// it derived from the files the document holds, none of it stored (docs/03 §3.3.10) — except the
+// names, which are links of their own.
 export type DocumentListItem = {
   document: Document;
   documentType: DocumentCategory | null;
@@ -80,6 +85,10 @@ export type DocumentListItem = {
   sizeBytes: bigint;
   origin: FileOrigin;
   availability: Availability;
+  // Who and what the document is about, for the card that may show either (docs/11 §11.3). Read for
+  // a whole page at once, like the files above, and never one query per row.
+  people: DocumentName[];
+  subjects: DocumentName[];
 };
 
 export type DocumentFileRefView = {
@@ -118,13 +127,9 @@ export type DocumentDetail = {
   createdBy: { id: string; displayName: string } | null;
 };
 
-export type ListDocumentsInput = {
-  limit: number;
-  cursor?: string | undefined;
-  // Which of the named orders of docs/07 §7.1 to read the shelf in. Absent means the default — the
-  // date on the document — because a repository is asked the same question by callers that never
-  // saw a query string.
-  sort?: DocumentSort | undefined;
+// What narrows a list, and — unchanged, because a shelf and its groups must agree — what narrows a
+// count per group (docs/07 §7.3).
+export type DocumentFilterInput = {
   libraryId?: string | undefined;
   typeId?: string | undefined;
   availability?: Availability | undefined;
@@ -145,6 +150,24 @@ export type ListDocumentsInput = {
   // and half of it here filters nothing.
   step?: DocumentStep | undefined;
   stepStatus?: StepStatus | undefined;
+};
+
+export type ListDocumentsInput = DocumentFilterInput & {
+  limit: number;
+  cursor?: string | undefined;
+  // Which of the named orders of docs/07 §7.1 to read the shelf in. Absent means the default — the
+  // date on the document — because a repository is asked the same question by callers that never
+  // saw a query string.
+  sort?: DocumentSort | undefined;
+};
+
+// One shelf of a dimension: the value to filter by, what to call it, and how many documents of the
+// filtered archive are on it (docs/07 §7.3). Unordered — which shelf comes first is the answer's
+// shape, not the query's, and is decided one layer up.
+export type DocumentGroupCount = {
+  key: string;
+  label: string;
+  count: number;
 };
 
 export type DocumentPage = {
@@ -222,6 +245,19 @@ export abstract class DocumentRepository {
     viewer: Viewer,
     tx?: TransactionHandle,
   ): Promise<Array<{ year: number; count: number }>>;
+
+  // How many documents each shelf of one dimension holds, under the same filters the list is being
+  // read through (docs/07 §7.3). A document on several shelves — two people — is counted on each.
+  //
+  // 🔒 Counted under the access rule, exactly as the list is: a count is a statement about the
+  // archive, and a group whose only document this viewer may not read is not a group that exists
+  // for them (docs/03 §3.4).
+  abstract countByGroup(
+    viewer: Viewer,
+    by: DocumentGroupBy,
+    filters: DocumentFilterInput,
+    tx?: TransactionHandle,
+  ): Promise<DocumentGroupCount[]>;
 
   // The read model, in one of the named orders of docs/07 §7.1, filtered by what the viewer may
   // read (docs/03 §3.4). 🔒 A cursor carries the order it was cut from; one that disagrees with the

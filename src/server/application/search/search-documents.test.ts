@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { documentFixture, FakeEmbeddingProvider } from '../../../../test/helpers/processing-fakes';
 import {
   DocumentRepository,
+  type DocumentGroupCount,
   type SearchMatch,
 } from '../../domain/repositories/document.repository';
 import { SearchDocuments } from './search-documents';
@@ -19,6 +20,8 @@ function match(id: string, rank: number, snippet: string | null): SearchMatch {
       sizeBytes: 1024n,
       origin: 'LIBRARY',
       availability: 'AVAILABLE',
+      people: [],
+      subjects: [],
     },
     rank,
     snippet,
@@ -49,6 +52,10 @@ class StubSearchRepository extends DocumentRepository {
   }
   listYears(): Promise<Array<{ year: number; count: number }>> {
     throw new Error('listYears is not part of search');
+  }
+
+  countByGroup(): Promise<DocumentGroupCount[]> {
+    throw new Error('countByGroup is not part of search');
   }
 
   listStalePendingIds(): Promise<string[]> {

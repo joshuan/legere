@@ -131,6 +131,9 @@ export class UploadDocument {
         sizeBytes: stored.file.sizeBytes,
         origin: 'MANAGED',
         availability: 'AVAILABLE',
+        // Nothing has read it yet, so it is about nobody and nothing (docs/03 §3.3.19–3.3.20).
+        people: [],
+        subjects: [],
       }),
       created: true,
     };

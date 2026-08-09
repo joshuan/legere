@@ -522,6 +522,8 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 | availability and origin for a document | derived from its files: `document_files` PK + `file_refs(file_id)` |
 | filter by person | `document_people(person_id)` index; the PK `(document_id, person_id)` closes the join |
 | filter by subject | `document_subjects(subject_id)` index, PK `(document_id, subject_id)` |
+| the people and subjects of a **page** of documents (`07 §7.3`, the card fields) | the same two PKs, read from the left: `document_id IN (…)` once per link table per page, never once per row |
+| counting the shelves of a dimension (`GET /api/documents/groups`) | the index the same filter already uses, plus the grouped column: `documents(type_id)` and `documents(document_date …)` for `type` and `year`, the two partial place indexes for `country`/`city`, and `document_people`/`document_subjects` grouped by their own key for `person`/`subject`. Nothing new — every dimension is a column of the document or a link table whose PK holds the document once, which is exactly what makes its count a count of documents (`07 §7.3`) |
 | filter by subject **kind** | the same two, then `subjects(kind_id)` — a kind needs no index of its own |
 | filter/browse by year, "what happened in March" | `documents(document_date DESC NULLS LAST)` (raw SQL, §4.3) |
 | filter by place | `documents(country) WHERE country IS NOT NULL`, `documents(city) WHERE city IS NOT NULL` — partial, because the analysis finds a place for only some documents and an index over the rest would be NULL entries nothing looks up (raw SQL, §4.3) |

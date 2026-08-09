@@ -3,6 +3,7 @@ import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/co
 import {
   documentDetailDtoSchema,
   documentEventPageSchema,
+  documentGroupsResponseSchema,
   documentYearsResponseSchema,
   listDocumentsResponseSchema,
 } from '../../src/shared/contracts/documents';
@@ -504,6 +505,177 @@ describe('Documents (e2e)', () => {
         expect(res.status).toBe(422);
         expect(expectError(res).code).toBe('VALIDATION_FAILED');
       });
+    });
+
+    // What a card may show besides its title, on every row of every page (docs/07 §7.3).
+    it('carries the date, the names, the place and the languages of every row', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open, title: 'Lease' });
+      const person = await testPrisma().person.create({ data: { name: 'Marija Petrović' } });
+      const kind = await testPrisma().subjectKind.create({ data: { name: 'apartment' } });
+      const subject = await testPrisma().subject.create({
+        data: { kindId: kind.id, name: 'Njegoševa 5' },
+      });
+      await api(app)
+        .patch(`/api/documents/${documentId}`, {
+          peopleIds: [person.id],
+          subjectIds: [subject.id],
+          documentDate: '2019-03-01',
+          country: 'me',
+          city: 'Podgorica',
+          languages: ['sr', 'en'],
+        })
+        .set('Cookie', adminCookie);
+
+      const [item] = expectData(await listAs(adminCookie), listDocumentsResponseSchema).items;
+
+      // Sent whatever the screen draws: which of them a card shows is the reader's choice, and it
+      // lives in their URL rather than in this request (docs/11 §11.3).
+      expect(item?.documentDate).toBe('2019-03-01');
+      expect(item?.people).toEqual([{ id: person.id, name: 'Marija Petrović' }]);
+      expect(item?.subjects).toEqual([{ id: subject.id, name: 'Njegoševa 5' }]);
+      expect(item?.country).toBe('ME');
+      expect(item?.city).toBe('Podgorica');
+      expect(item?.languages).toEqual(['sr', 'en']);
+    });
+  });
+
+  // Real shelves with real counts, under the filters in force (docs/07 §7.3).
+  describe('grouping', () => {
+    const groupsAs = (cookie: string, query: string) =>
+      api(app).get(`/api/documents/groups?${query}`).set('Cookie', cookie);
+
+    const nameOn = async (documentId: string, personIds: string[]) => {
+      await api(app)
+        .patch(`/api/documents/${documentId}`, { peopleIds: personIds })
+        .set('Cookie', adminCookie);
+    };
+
+    it('answers a shelf per value, biggest first, with its key and its label', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const lease = await givenDocument({ libraryId: open, title: 'Lease' });
+      const letter = await givenDocument({ libraryId: open, title: 'Letter' });
+      const ana = await testPrisma().person.create({ data: { name: 'Ana Petrović' } });
+      const marko = await testPrisma().person.create({ data: { name: 'Marko Marković' } });
+      await nameOn(lease, [ana.id, marko.id]);
+      await nameOn(letter, [marko.id]);
+
+      const answer = expectData(
+        await groupsAs(adminCookie, 'by=person'),
+        documentGroupsResponseSchema,
+      );
+
+      // A document about two people is on both shelves — the alternative is a card that vanishes
+      // from a shelf it belongs on — and the fullest shelf comes first.
+      expect(answer.items).toEqual([
+        { key: marko.id, label: 'Marko Marković', count: 2 },
+        { key: ana.id, label: 'Ana Petrović', count: 1 },
+      ]);
+
+      // A group's contents are the ordinary list filtered by that group's key, which is what makes
+      // the shelf reachable at all (docs/07 §7.3).
+      const contents = expectData(
+        await listAs(adminCookie, `?personId=${ana.id}`),
+        listDocumentsResponseSchema,
+      );
+      expect(contents.items.map((item) => item.id)).toEqual([lease]);
+    });
+
+    it('counts the archive under the filters in force, not the page on screen', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const other = await givenLibrary('ALL_USERS');
+      const ana = await testPrisma().person.create({ data: { name: 'Ana Petrović' } });
+      for (const libraryId of [open, open, other]) {
+        await nameOn(await givenDocument({ libraryId, title: 'Paper' }), [ana.id]);
+      }
+
+      // A page of one on the screen, and a shelf that says three: the number is the archive's
+      // under the filters, not a header drawn over what this page happened to hold (docs/07 §7.3).
+      const page = expectData(await listAs(adminCookie, '?limit=1'), listDocumentsResponseSchema);
+      expect(page.items).toHaveLength(1);
+      const whole = expectData(
+        await groupsAs(adminCookie, 'by=person'),
+        documentGroupsResponseSchema,
+      );
+      expect(whole.items).toEqual([{ key: ana.id, label: 'Ana Petrović', count: 3 }]);
+
+      const narrowed = expectData(
+        await groupsAs(adminCookie, `by=person&libraryId=${other}`),
+        documentGroupsResponseSchema,
+      );
+      expect(narrowed.items).toEqual([{ key: ana.id, label: 'Ana Petrović', count: 1 }]);
+    });
+
+    it('counts only the documents the caller may read', async () => {
+      const user = await inviteUser(`grouper${seq}@legere.local`);
+      const open = await givenLibrary('ALL_USERS');
+      const restricted = await givenLibrary('RESTRICTED');
+      const ana = await testPrisma().person.create({ data: { name: 'Ana Petrović' } });
+      const marko = await testPrisma().person.create({ data: { name: 'Marko Marković' } });
+      await nameOn(await givenDocument({ libraryId: open, title: 'Open' }), [ana.id]);
+      await nameOn(await givenDocument({ libraryId: restricted, title: 'Behind a library' }), [
+        ana.id,
+        marko.id,
+      ]);
+
+      const asUser = expectData(
+        await groupsAs(user.cookie, 'by=person'),
+        documentGroupsResponseSchema,
+      );
+
+      // 🔒 A count over documents this reader may not open would be a leak dressed as a number, and
+      // a shelf they can reach nothing through is not a shelf that exists for them (docs/03 §3.4).
+      expect(asUser.items).toEqual([{ key: ana.id, label: 'Ana Petrović', count: 1 }]);
+      expect(
+        expectData(await groupsAs(adminCookie, 'by=person'), documentGroupsResponseSchema).items,
+      ).toEqual([
+        { key: ana.id, label: 'Ana Petrović', count: 2 },
+        { key: marko.id, label: 'Marko Marković', count: 1 },
+      ]);
+    });
+
+    it('groups by the year on the paper and by the type of the document', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const type = await testPrisma().documentType.create({
+        data: { slug: 'lease', name: 'Lease' },
+      });
+      const dated = await givenDocument({ libraryId: open, typeId: type.id, title: 'Dated' });
+      await api(app)
+        .patch(`/api/documents/${dated}`, { documentDate: '2019-03-01' })
+        .set('Cookie', adminCookie);
+      // Neither dated nor typed: on no shelf of either dimension, because a shelf nothing can be
+      // filtered to is a shelf nobody can open (docs/07 §7.3).
+      await givenDocument({ libraryId: open, title: 'Unread' });
+
+      expect(
+        expectData(await groupsAs(adminCookie, 'by=year'), documentGroupsResponseSchema).items,
+      ).toEqual([{ key: '2019', label: '2019', count: 1 }]);
+      expect(
+        expectData(await groupsAs(adminCookie, 'by=type'), documentGroupsResponseSchema).items,
+      ).toEqual([{ key: type.id, label: 'Lease', count: 1 }]);
+    });
+
+    it('refuses a dimension that is not one of the offered ones', async () => {
+      // `libraryId` filters, but a document holds many files in one library, so a count over it
+      // would count joins rather than documents (docs/07 §7.3).
+      for (const query of ['by=library', 'by=subjectKind', 'by=processing', '']) {
+        const refused = await groupsAs(adminCookie, query);
+        expect(refused.status).toBe(422);
+        expect(expectError(refused).code).toBe('VALIDATION_FAILED');
+      }
+    });
+
+    it('refuses half a step filter here too, because half a filter is a wrong number', async () => {
+      const refused = await groupsAs(adminCookie, 'by=person&step=preview');
+
+      expect(refused.status).toBe(422);
+      expect(expectError(refused).code).toBe('VALIDATION_FAILED');
+    });
+
+    it('refuses the whole endpoint to an anonymous caller', async () => {
+      const refused = await api(app).get('/api/documents/groups?by=person');
+
+      expect(refused.status).toBe(401);
     });
   });
 

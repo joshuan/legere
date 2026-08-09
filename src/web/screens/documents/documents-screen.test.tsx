@@ -41,6 +41,13 @@ function documentAt(index: number, overrides: Partial<DocumentListDto> = {}): Do
     origin: 'LIBRARY',
     hasPreview: false,
     createdAt: '2026-01-01T00:00:00.000Z',
+    // What a card may show, carried on every row whether or not this reader draws it (docs/07 §7.3).
+    documentDate: '2026-02-03',
+    people: [{ id: PERSON_ID, name: 'Ana Petrović' }],
+    subjects: [],
+    country: 'ME',
+    city: 'Podgorica',
+    languages: ['sr'],
     ...overrides,
   };
 }
@@ -251,6 +258,162 @@ describe('DocumentsScreen', () => {
 
     // A hand-edited URL cannot smuggle a filter past the contract.
     expect(seen[0] ?? '').not.toContain('availability');
+  });
+
+  // Which of a document's own facts the cards draw, chosen here and carried in the URL beside the
+  // filters (docs/11 §11.3).
+  describe('what the cards show', () => {
+    it('draws the extension and the type until it is told otherwise', async () => {
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      expect(screen.getAllByText('PDF')).toHaveLength(2);
+      expect(screen.queryByText('Ana Petrović')).toBeNull();
+    });
+
+    it('draws the fields the URL names instead, extension and type included', async () => {
+      currentSearch = 'card=people,date';
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      expect(screen.getAllByText('Ana Petrović')).toHaveLength(2);
+      expect(screen.getAllByText('2026-02-03')).toHaveLength(2);
+      // Both of the old badges are a choice now, and this URL did not choose them.
+      expect(screen.queryByText('PDF')).toBeNull();
+    });
+
+    it('writes a change to the choice back into the URL, beside the filters', async () => {
+      currentSearch = 'processing=true';
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      await userEvent.click(
+        screen.getByRole('combobox', { name: enMessages.documents.card.label }),
+      );
+      await userEvent.click(await screen.findByTitle(enMessages.documents.card.options.people));
+
+      // The filter in force is untouched: arranging a card is not narrowing a shelf.
+      await waitFor(() =>
+        expect(replace).toHaveBeenCalledWith('/documents?processing=true&card=ext%2Ctype%2Cpeople'),
+      );
+    });
+
+    it('takes an empty choice as "title only" rather than as no choice at all', async () => {
+      currentSearch = 'card=';
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      // An empty value is somebody having switched everything off; absence is what means "default".
+      expect(screen.queryByText('PDF')).toBeNull();
+      expect(screen.queryByText('Ana Petrović')).toBeNull();
+      expect(screen.getAllByText('Document 1')).toHaveLength(1);
+    });
+
+    it('says nothing in the URL once the choice is the default one again', async () => {
+      currentSearch = 'card=ext';
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      await userEvent.click(
+        screen.getByRole('combobox', { name: enMessages.documents.card.label }),
+      );
+      await userEvent.click(await screen.findByTitle(enMessages.documents.card.options.type));
+
+      // Back at what the card has always shown, so it leaves no trace — like an unset filter.
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents'));
+    });
+  });
+
+  // Real shelves with real counts, from the server (docs/11 §11.3).
+  describe('grouping', () => {
+    const GROUPS = [
+      { key: PERSON_ID, label: 'Ana Petrović', count: 12 },
+      { key: 'dddddddd-2222-4222-8222-222222222222', label: 'Marko Marković', count: 3 },
+    ];
+
+    it('asks for no shelves at all until a dimension is chosen', async () => {
+      let asked = 0;
+      server.use(
+        http.get('/api/documents/groups', () => {
+          asked += 1;
+          return HttpResponse.json(envelope({ items: GROUPS }));
+        }),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      expect(asked).toBe(0);
+    });
+
+    it('counts the shelves under the filters in force, minus the one a shelf itself sets', async () => {
+      currentSearch = `groupBy=person&processing=true&personId=${PERSON_ID}`;
+      const seen: string[] = [];
+      server.use(
+        http.get('/api/documents/groups', ({ request }) => {
+          seen.push(new URL(request.url).search);
+          return HttpResponse.json(envelope({ items: GROUPS }));
+        }),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+
+      expect(await screen.findByRole('button', { name: 'Ana Petrović · 12' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Marko Marković · 3' })).toBeInTheDocument();
+
+      expect(seen[0]).toContain('by=person');
+      expect(seen[0]).toContain('processing=true');
+      // With `personId` in it there would be one shelf to choose and no way back to the others.
+      expect(seen[0] ?? '').not.toContain('personId');
+    });
+
+    it('stands on a shelf by filtering the list by its key', async () => {
+      currentSearch = 'groupBy=person';
+      server.use(
+        http.get('/api/documents/groups', () => HttpResponse.json(envelope({ items: GROUPS }))),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Ana Petrović · 12' }));
+
+      // A group's contents are the ordinary list filtered by that group's value (docs/07 §7.3).
+      await waitFor(() =>
+        expect(replace).toHaveBeenCalledWith(`/documents?personId=${PERSON_ID}&groupBy=person`),
+      );
+    });
+
+    it('steps off the shelf it is standing on when that shelf is pressed again', async () => {
+      currentSearch = `groupBy=person&personId=${PERSON_ID}`;
+      server.use(
+        http.get('/api/documents/groups', () => HttpResponse.json(envelope({ items: GROUPS }))),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Ana Petrović · 12' }));
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents?groupBy=person'));
+    });
+
+    it('ignores a dimension the contract does not offer', async () => {
+      currentSearch = 'groupBy=library';
+      let asked = 0;
+      server.use(
+        http.get('/api/documents/groups', () => {
+          asked += 1;
+          return HttpResponse.json(envelope({ items: [] }));
+        }),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      // A hand-edited URL falls back to no grouping rather than earning a 422 (docs/11 §11.3).
+      expect(asked).toBe(0);
+    });
   });
 
   it('tells a fresh instance what to do about it, and only offers the fix to an admin', async () => {
@@ -565,8 +728,8 @@ function detailOf(index: number): Record<string, unknown> {
   return {
     ...documentAt(index),
     auto: {},
+    // The detail says in addition whether the catalogue still holds each name (docs/03 §3.3.19).
     people: [],
-    documentDate: null,
     subjects: [],
     ocrUsed: false,
     description: null,

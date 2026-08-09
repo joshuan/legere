@@ -574,6 +574,33 @@
         "lastEventAt": "Last changed"
       }
     },
+    "card": {
+      "label": "Card shows",
+      "none": "Title only",
+      "options": {
+        "ext": "File type",
+        "type": "Document type",
+        "date": "Date on the document",
+        "people": "People",
+        "subjects": "Subjects",
+        "place": "Place",
+        "languages": "Languages"
+      }
+    },
+    "groupBy": {
+      "label": "Group by",
+      "none": "No grouping",
+      "empty": "Nothing to group by here.",
+      "shelf": "{label} · {count}",
+      "options": {
+        "type": "Document type",
+        "person": "Person",
+        "subject": "Subject",
+        "year": "Year",
+        "country": "Country",
+        "city": "City"
+      }
+    },
     "empty": {
       "instance": "No documents yet. Ask your administrator to add a library.",
       "filtered": "Nothing matches these filters.",

@@ -17,12 +17,15 @@ import {
   type PaginationQuery,
 } from '../../../shared/contracts/common';
 import {
+  listDocumentGroupsQuerySchema,
   listDocumentsQuerySchema,
   reprocessRequestSchema,
   updateDocumentRequestSchema,
   type DocumentDetailDto,
   type DocumentEventPage,
+  type DocumentGroupsResponse,
   type DocumentYearsResponse,
+  type ListDocumentGroupsQuery,
   type ListDocumentsQuery,
   type ListDocumentsResponse,
   type ReprocessRequest,
@@ -48,6 +51,7 @@ import {
   DeleteDocument,
   GetDocument,
   ListDocumentEvents,
+  ListDocumentGroups,
   ListDocumentYears,
   ListDocuments,
   UpdateDocumentMeta,
@@ -87,9 +91,19 @@ import { attachedFileName, readUploadBody, uploadFileName } from './read-upload-
 // would answer with every document and still look like a filtered list, which is the kind of wrong
 // answer nobody notices. The pairing lives here rather than in the shared contract, because the
 // contract is the shape both sides send and this is a rule about a request.
-const listDocumentsQuery = listDocumentsQuerySchema.refine(
-  (query) => (query.step === undefined) === (query.stepStatus === undefined),
-  { message: 'step and stepStatus must be given together' },
+function stepAndStatusTogether(query: { step?: unknown; stepStatus?: unknown }): boolean {
+  return (query.step === undefined) === (query.stepStatus === undefined);
+}
+
+const PAIR_STEP = { message: 'step and stepStatus must be given together' };
+
+const listDocumentsQuery = listDocumentsQuerySchema.refine(stepAndStatusTogether, PAIR_STEP);
+
+// The grouping takes the same filters as the list, so it takes the same rule about them: a count
+// under half a filter would be a wrong number that looks like a right one.
+const listDocumentGroupsQuery = listDocumentGroupsQuerySchema.refine(
+  stepAndStatusTogether,
+  PAIR_STEP,
 );
 
 // Documents (docs/07 §7.3). Guard order: SessionGuard → RolesGuard → DocumentAccessGuard
@@ -105,6 +119,7 @@ export class DocumentsController {
     private readonly reprocess: ReprocessDocument,
     private readonly events: ListDocumentEvents,
     private readonly years: ListDocumentYears,
+    private readonly groups: ListDocumentGroups,
     private readonly canonical: DownloadDocumentCanonical,
     private readonly fileContent: DownloadDocumentFile,
     private readonly artifactUrl: GetDocumentArtifactUrl,
@@ -146,6 +161,17 @@ export class DocumentsController {
   @Get('years')
   async getYears(@CurrentUser() user: User): Promise<Envelope<DocumentYearsResponse>> {
     return successEnvelope(await this.years.execute({ id: user.id, role: user.role }));
+  }
+
+  // The shelves of one dimension under the filters in force (docs/07 §7.3, docs/11 §11.3): an
+  // aggregate, so a bounded `{ items }` rather than a page — a group's contents are the ordinary
+  // list filtered by that group's key. Before `:id`, like the years.
+  @Get('groups')
+  async getGroups(
+    @CurrentUser() user: User,
+    @ZodQuery(listDocumentGroupsQuery) query: ListDocumentGroupsQuery,
+  ): Promise<Envelope<DocumentGroupsResponse>> {
+    return successEnvelope(await this.groups.execute({ id: user.id, role: user.role }, query));
   }
 
   // "These look like one document" (docs/05 §5.6a): computed on every request, never stored. Before

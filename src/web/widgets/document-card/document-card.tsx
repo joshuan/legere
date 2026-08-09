@@ -7,16 +7,30 @@ import Link from 'next/link';
 import { useState } from 'react';
 import type { DocumentListDto } from '../../../shared/contracts/documents';
 import { documentFiles } from '../../entities/document';
+import { DEFAULT_DOCUMENT_CARD_FIELDS, type DocumentCardField } from './card-fields';
 
 // One card in the grid (docs/11 §11.3). The thumbnail is a plain <img>: the API 302s to a signed
 // URL and the browser follows it, so no JavaScript is involved in fetching it (docs/10 §10.8).
-export function DocumentCard({ document }: { document: DocumentListDto }) {
+//
+// `fields` is which of the document's own facts to draw. It defaults to the arrangement the card
+// always had, so the four screens that render it without asking — browse, facets, a collection, the
+// search results — keep what they have rather than inheriting the home screen's choice.
+export function DocumentCard({
+  document,
+  fields = DEFAULT_DOCUMENT_CARD_FIELDS,
+}: {
+  document: DocumentListDto;
+  fields?: readonly DocumentCardField[];
+}) {
   const t = useTranslations();
   // A thumbnail can be missing even when the step says DONE — an artifact swept from the bucket, a
   // document deleted mid-scroll. The icon is the honest fallback rather than a broken image.
   const [thumbFailed, setThumbFailed] = useState(false);
   const { token } = theme.useToken();
   const showThumb = document.hasPreview && !thumbFailed;
+  const shows = (field: DocumentCardField): boolean => fields.includes(field);
+  // As a person would say where something is, and only the halves that are known.
+  const place = [document.city, document.country].filter((part) => part !== null).join(', ');
 
   return (
     <Link href={`/documents/${document.id}`} style={{ display: 'block', height: '100%' }}>
@@ -74,7 +88,7 @@ export function DocumentCard({ document }: { document: DocumentListDto }) {
         </Tooltip>
 
         <Space size={[4, 4]} wrap>
-          {document.primaryExt !== '' && (
+          {shows('ext') && document.primaryExt !== '' && (
             <Tag style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.04em' }}>
               {document.primaryExt.toUpperCase()}
             </Tag>
@@ -84,7 +98,22 @@ export function DocumentCard({ document }: { document: DocumentListDto }) {
           {document.fileCount > 1 && (
             <Tag>{t('documents.badges.files', { count: document.fileCount })}</Tag>
           )}
-          {document.documentType !== null && <Tag color="blue">{document.documentType.name}</Tag>}
+          {shows('type') && document.documentType !== null && (
+            <Tag color="blue">{document.documentType.name}</Tag>
+          )}
+          {/* The date written on the paper, not the day it was filed (docs/03 §3.3.10) — absent
+              from the badge row entirely while nobody has read one. */}
+          {shows('date') && document.documentDate !== null && <Tag>{document.documentDate}</Tag>}
+          {shows('place') && place !== '' && <Tag>{place}</Tag>}
+          {shows('languages') &&
+            document.languages.map((language) => (
+              <Tag
+                key={language}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.04em' }}
+              >
+                {language.toUpperCase()}
+              </Tag>
+            ))}
           {document.processing && (
             <Tag icon={<LoadingOutlined />} color="processing">
               {t('documents.badges.processing')}
@@ -99,7 +128,31 @@ export function DocumentCard({ document }: { document: DocumentListDto }) {
             <Tag color="default">{t('documents.badges.unavailable')}</Tag>
           )}
         </Space>
+        {/* Names, not badges: who and what the document is about is read as a line of text, and one
+            line of it — a document naming eight people must not make a card eight rows taller
+            (docs/11 §11.3). */}
+        {shows('people') && document.people.length > 0 && (
+          <NameLine names={document.people.map((person) => person.name)} />
+        )}
+        {shows('subjects') && document.subjects.length > 0 && (
+          <NameLine names={document.subjects.map((subject) => subject.name)} />
+        )}
       </Card>
     </Link>
+  );
+}
+
+// One line of names, cut off rather than wrapped, with the whole list on hover.
+function NameLine({ names }: { names: string[] }) {
+  const joined = names.join(', ');
+  return (
+    <Typography.Paragraph
+      type="secondary"
+      ellipsis={{ rows: 1 }}
+      title={joined}
+      style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }}
+    >
+      {joined}
+    </Typography.Paragraph>
   );
 }
