@@ -186,7 +186,27 @@ const queryBoolean = z
   .transform((value) => value === 'true')
   .optional();
 
+// How a shelf may be arranged (docs/07 §7.1, docs/11 §11.3). A closed set of named orders, not an
+// arbitrary sort parameter: each one names a column the schema carries an index for, and a name the
+// enum does not hold is a validation failure rather than a slow query.
+//
+// - `documentDate` — the date written on the paper (docs/03 §3.3.10), newest first, and the undated
+//   *before* everything: a document whose date nobody has read yet is the one still wanting
+//   attention, and burying it under a century of dated ones is how it stays unread.
+// - `createdAt` — when Legere first saw it. The order every list had before this existed.
+// - `lastEventAt` — the newest entry in the document's journal, whatever kind (docs/03 §3.3.18).
+//   Deliberately *not* `updatedAt`, which the pipeline bumps whenever it rewrites a step status and
+//   which two raw writes skip entirely: it is an honest "row touched" and a dishonest "edited".
+export const documentSortSchema = z.enum(['documentDate', 'createdAt', 'lastEventAt']);
+export type DocumentSort = z.infer<typeof documentSortSchema>;
+
+export const DOCUMENT_SORTS: readonly DocumentSort[] = documentSortSchema.options;
+
+// The shelf as somebody keeps it, not as a machine filled it: the date on the paper.
+export const DEFAULT_DOCUMENT_SORT: DocumentSort = 'documentDate';
+
 export const listDocumentsQuerySchema = paginationQuerySchema.extend({
+  sort: documentSortSchema.default(DEFAULT_DOCUMENT_SORT),
   libraryId: z.string().uuid().optional(),
   typeId: z.string().uuid().optional(),
   personId: z.string().uuid().optional(),

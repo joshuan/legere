@@ -10,10 +10,12 @@ import {
   type SkipReasons,
 } from '../../domain/entities/document';
 import {
+  DEFAULT_DOCUMENT_SORT,
   DOCUMENT_STEPS,
   autoValuesSchema,
   type AutoValues,
   type Availability,
+  type DocumentSort,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
 import {
@@ -39,11 +41,11 @@ import {
   type Viewer,
 } from '../../domain/repositories/document.repository';
 import {
-  decodeCursor,
+  decodeDocumentCursor,
   decodeTextCursor,
-  encodeCursor,
+  encodeDocumentCursor,
   encodeTextCursor,
-  type Cursor,
+  type DocumentCursor,
 } from './cursor';
 import { clientOf } from './prisma-client';
 import type { PrismaTx } from './prisma-unit-of-work';
@@ -219,11 +221,71 @@ function readableBy(viewer: Viewer, reach: ShareReach): Prisma.DocumentWhereInpu
   return { OR: branches };
 }
 
-// Newest first (docs/07 §7.3), so a page continues *below* the cursor.
-function cursorFilter(cursor: Cursor): Prisma.DocumentWhereInput {
-  return {
-    OR: [{ createdAt: { lt: cursor.at } }, { createdAt: cursor.at, id: { lt: cursor.id } }],
-  };
+// The three orders a document list may be read in (docs/07 §7.1). Each is newest-first with `id`
+// as the tiebreak, so a page always continues *below* the cursor, and each is served by an index of
+// its own (docs/04 §4.4).
+const ORDER_BY: Record<DocumentSort, Prisma.DocumentOrderByWithRelationInput[]> = {
+  // The undated *before* everything: a document whose date nobody has read yet is the one still
+  // wanting attention, and NULLS LAST would file it behind a century of dated ones.
+  documentDate: [{ documentDate: { sort: 'desc', nulls: 'first' } }, { id: 'desc' }],
+  createdAt: [{ createdAt: 'desc' }, { id: 'desc' }],
+  lastEventAt: [{ lastEventAt: 'desc' }, { id: 'desc' }],
+};
+
+// The sort key of the last row of a page, in the shape the cursor carries it: `yyyy-mm-dd` for the
+// date on the document — null when it has none — and an ISO timestamp for the two clock orders.
+function cursorKeyOf(sort: DocumentSort, row: PrismaDocument): string | null {
+  switch (sort) {
+    case 'documentDate':
+      return row.documentDate === null ? null : row.documentDate.toISOString().slice(0, 10);
+    case 'createdAt':
+      return row.createdAt.toISOString();
+    case 'lastEventAt':
+      return row.lastEventAt.toISOString();
+  }
+}
+
+function nextCursorOf(sort: DocumentSort, rows: ListRow[], limit: number): string | null {
+  const last = rows.slice(0, limit).at(-1);
+  if (rows.length <= limit || last === undefined) return null;
+  return encodeDocumentCursor({ sort, key: cursorKeyOf(sort, last), id: last.id });
+}
+
+// 🔒 The keyset predicate for one order. Every branch of it is an `OR`, which is exactly why every
+// caller ANDs it into a list rather than spreading it into the `where` object: spread, the last
+// `OR` key wins and the access rule disappears from page two.
+function cursorFilter(cursor: DocumentCursor): Prisma.DocumentWhereInput {
+  switch (cursor.sort) {
+    case 'createdAt': {
+      const at = new Date(cursor.key ?? '');
+      return { OR: [{ createdAt: { lt: at } }, { createdAt: at, id: { lt: cursor.id } }] };
+    }
+    case 'lastEventAt': {
+      const at = new Date(cursor.key ?? '');
+      return { OR: [{ lastEventAt: { lt: at } }, { lastEventAt: at, id: { lt: cursor.id } }] };
+    }
+    case 'documentDate': {
+      // A nullable sort key, so the predicate has three branches rather than two: the undated rows
+      // are a block of their own ahead of the dated ones, and which block the cursor sits in decides
+      // what "below it" means.
+      if (cursor.key === null) {
+        return {
+          OR: [
+            // Still inside the undated block, continuing by id …
+            { documentDate: null, id: { lt: cursor.id } },
+            // … and then the whole dated block, all of which sorts after it.
+            { documentDate: { not: null } },
+          ],
+        };
+      }
+      // Inside the dated block. `lt` and the equality both exclude NULL in SQL, so the undated rows
+      // this page already passed cannot come back.
+      const date = new Date(`${cursor.key}T00:00:00.000Z`);
+      return {
+        OR: [{ documentDate: { lt: date } }, { documentDate: date, id: { lt: cursor.id } }],
+      };
+    }
+  }
 }
 
 function visibleLibrary(viewer: Viewer): Prisma.LibraryWhereInput {
@@ -703,7 +765,11 @@ export class PrismaDocumentRepository implements DocumentRepository {
     query: ListDocumentsInput,
     tx?: TransactionHandle,
   ): Promise<DocumentPage> {
-    const cursor = decodeCursor(query.cursor);
+    // 🔒 The cursor names the order it was cut from, and one that names another order is refused
+    // rather than read off this column (docs/07 §7.1): a keyset predicate applied to the wrong
+    // column does not fail, it answers — skipping and repeating rows while looking like a page.
+    const sort = query.sort ?? DEFAULT_DOCUMENT_SORT;
+    const cursor = decodeDocumentCursor(query.cursor, sort);
     const client = clientOf(this.prisma, tx);
 
     // 🔒 Three independent conditions, each of which may be an `OR` of its own, so they are ANDed
@@ -719,18 +785,14 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ],
       },
       include: LIST_INCLUDE,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: ORDER_BY[sort],
       take: query.limit + 1,
     });
 
-    const page = rows.slice(0, query.limit);
-    const last = page.at(-1);
-    const nextCursor =
-      rows.length > query.limit && last !== undefined
-        ? encodeCursor({ at: last.createdAt, id: last.id })
-        : null;
-
-    return { items: await this.toItems(page, tx), nextCursor };
+    return {
+      items: await this.toItems(rows.slice(0, query.limit), tx),
+      nextCursor: nextCursorOf(sort, rows, query.limit),
+    };
   }
 
   // Documents whose files sit directly in one folder, by title (docs/07 §7.3). The folder match is
@@ -885,7 +947,10 @@ export class PrismaDocumentRepository implements DocumentRepository {
     query: { limit: number; cursor?: string | undefined },
     tx?: TransactionHandle,
   ): Promise<DocumentPage> {
-    const cursor = decodeCursor(query.cursor);
+    // A collection has one order and takes no `sort` (docs/07 §7.1), so the cursor it cuts names
+    // that one — and the shared predicate below reads the column the name says, not the column this
+    // method happens to have ordered by.
+    const cursor = decodeDocumentCursor(query.cursor, 'createdAt');
     const client = clientOf(this.prisma, tx);
 
     const rows = await client.document.findMany({
@@ -900,18 +965,13 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ],
       },
       include: LIST_INCLUDE,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: ORDER_BY.createdAt,
       take: query.limit + 1,
     });
 
-    const page = rows.slice(0, query.limit);
-    const last = page.at(-1);
     return {
-      items: await this.toItems(page, tx),
-      nextCursor:
-        rows.length > query.limit && last !== undefined
-          ? encodeCursor({ at: last.createdAt, id: last.id })
-          : null,
+      items: await this.toItems(rows.slice(0, query.limit), tx),
+      nextCursor: nextCursorOf('createdAt', rows, query.limit),
     };
   }
 

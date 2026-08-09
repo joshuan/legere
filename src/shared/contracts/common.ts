@@ -38,6 +38,9 @@ export const ERROR_CODES = [
   'DOCUMENT_UNAVAILABLE',
   'ONBOARDING_CLOSED',
   'VALIDATION_FAILED',
+  // 🔒 A cursor names the order it was cut from (docs/07 §7.1). Answering it from another column
+  // would silently skip or repeat documents, so the request is refused instead of guessed at.
+  'CURSOR_SORT_MISMATCH',
   'LIBRARY_PATH_INVALID',
   'FILE_NOT_IMAGE',
   'EMAIL_CODE_INVALID',

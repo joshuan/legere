@@ -56,6 +56,20 @@ Onboarding when already onboarded → 404 page.
   the URL, and one with no control is carried through when another filter changes rather than being
   dropped by the first switch anybody touches — a link that only half works is worse than no link.
   **Clear filters** takes them off, because it clears what is in force rather than what is drawn.
+- **Order** (a select beside the filter bar, not inside it): **Date on the document** (the default),
+  **Date added**, **Last changed** — the three named orders of `GET /api/documents?sort=`
+  (`07 §7.1`). The default arranges the shelf the way somebody keeps it rather than the way a machine
+  filled it, and puts the documents **whose date nobody has read yet first**, because those are the
+  ones still wanting attention. "Last changed" means the newest entry in the document's journal, of
+  any kind (`03 §3.3.18`).
+  **The choice lives in the URL**, beside the filters and under the same rule: a view can be linked,
+  bookmarked and reloaded. It is deliberately *not* a filter — **Clear filters** leaves it alone,
+  the empty state does not count it, and the suggestion cards above the grid still appear on an
+  unfiltered shelf however it is arranged. The default leaves no trace in the query string, the way
+  an unset filter does not, and a `?sort=` the contract does not know falls back to the default
+  rather than being sent on. It does not follow the person to another screen — the four other
+  screens that render this grid keep the order they have — and that is the accepted cost of putting
+  it in the URL rather than in a profile.
 - **Selection → Combine.** The multi-select that used to build a scan set now says what it means:
   tick documents in page order and press **Combine into one document**. Their files move into the
   first-picked document in that order, the emptied documents go away, and the viewer opens on the

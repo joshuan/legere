@@ -18,8 +18,23 @@ human-readable index and must stay in sync with them.
   "session only". Mutations additionally pass the fail-closed Origin check
   ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)).
 - **Pagination:** cursor-based: request `?limit=` (default 30, max 100) `&cursor=` (opaque);
-  response `{ data: { items: [...], nextCursor: string | null } }`. Sorting is fixed per endpoint
-  (documented below); no arbitrary sort params in MVP.
+  response `{ data: { items: [...], nextCursor: string | null } }`.
+- **Sorting** is fixed per endpoint (documented below) unless the endpoint declares a **closed enum
+  of named orders**, which it takes as `?sort=`. A named order is not an arbitrary sort param: every
+  value is spelled out in the contract, has an index behind it (`04 §4.4`), and a name the enum does
+  not hold is a `VALIDATION_FAILED`, not a sequential scan. `GET /api/documents` is the only such
+  endpoint today (`§7.3`); every other list keeps exactly one order and takes no `sort` at all.
+- **The cursor carries the question it was cut from.** It is an opaque base64url string, and
+  opaque is not secret — anybody can write one — so it is versioned, and where a list offers more
+  than one order it also names the order the page was cut in. Two rules follow, and they are the
+  rules for the next change to the encoding as much as for this one:
+  - a cursor this version **cannot read** — a stale version, a key that does not fit its order — is
+    not an error: the list starts from the beginning, because a client cannot repair an opaque
+    string, and this is also how a page held open across a deploy recovers;
+  - 🔒 a cursor this version **can read but which names another order** is refused with
+    `422 CURSOR_SORT_MISMATCH`. A keyset predicate applied to the wrong column does not fail — it
+    answers, skipping and repeating rows while looking like an ordinary page, and here there is a
+    right answer, so quietly giving the wrong one is worse than saying no.
 - **IDs** are UUIDs in paths. Path params are validated; malformed UUID → 404 (not 422).
 
 ## 7.2. Error codes
@@ -43,6 +58,7 @@ human-readable index and must stay in sync with them.
 | 409 | `DOCUMENT_UNAVAILABLE` | source download when all refs MISSING |
 | 410 | `ONBOARDING_CLOSED` | onboarding after first user exists |
 | 422 | `VALIDATION_FAILED` | Zod failure (`details.issues`) |
+| 422 | `CURSOR_SORT_MISMATCH` | a cursor cut from one named order handed to a request asking for another (§7.1) |
 | 422 | `LIBRARY_PATH_INVALID` | path outside root / not a directory |
 | 422 | `FILE_NOT_IMAGE` | cropping something that is not an image |
 | 400 | `EMAIL_CODE_INVALID`, `REGISTRATION_TICKET_INVALID`, `INVITE_INVALID`, `RESET_INVALID`, `CAPTCHA_FAILED` | auth flows |
@@ -110,7 +126,7 @@ reports as expired.
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `POST /api/documents` | 🔒 | **upload**: the file as the raw request body, its name in `X-Legere-Filename` (RFC 5987 or plain). Mime detected from content; `UPLOAD_MAX_BYTES` cap → 413. Deduplicated by **file** (ADR-009, ADR-021): bytes that are already a file resolve to that file's document when the caller may read it (`200`), and to `409 DOCUMENT_DUPLICATE` when they may not. Otherwise `201` with a new document holding the new file, processing already enqueued |
-| `GET /api/documents` | 🔒 | paginated, newest first; filters: `libraryId?`, `typeId?`, `personId?`, `subjectId?`, `subjectKindId?` (every subject of that kind at once, 03 §3.3.20a), `year?`, `country?` (ISO 3166-1 alpha-2, upper-cased on the way in like the PATCH does, so `?country=me` is the same question), `city?` (matched exactly as stored, which is what a link carrying a document's own place hands over), `availability?` (`AVAILABLE`\|`PARTIAL`\|`UNAVAILABLE`), `processing?` (bool), `origin?` (`LIBRARY`\|`MANAGED`), `step?` + `stepStatus?` (given together: the documents whose named pipeline step sits in that status — what a queue counter links to, 11 §11.13); only documents the caller can read. Every one of them is what a name in the viewer's details pane links to (11 §11.5); `subjectId` and `subjectKindId` given together are one question and not two — a kind with a thing of another kind finds nothing |
+| `GET /api/documents` | 🔒 | paginated; `sort?` = `documentDate` (default) \| `createdAt` \| `lastEventAt` — the closed set of named orders of §7.1, all three newest-first with the id as the tiebreak (see below); filters: `libraryId?`, `typeId?`, `personId?`, `subjectId?`, `subjectKindId?` (every subject of that kind at once, 03 §3.3.20a), `year?`, `country?` (ISO 3166-1 alpha-2, upper-cased on the way in like the PATCH does, so `?country=me` is the same question), `city?` (matched exactly as stored, which is what a link carrying a document's own place hands over), `availability?` (`AVAILABLE`\|`PARTIAL`\|`UNAVAILABLE`), `processing?` (bool), `origin?` (`LIBRARY`\|`MANAGED`), `step?` + `stepStatus?` (given together: the documents whose named pipeline step sits in that status — what a queue counter links to, 11 §11.13); only documents the caller can read. Every one of them is what a name in the viewer's details pane links to (11 §11.5); `subjectId` and `subjectKindId` given together are one question and not two — a kind with a thing of another kind finds nothing |
 | `GET /api/documents/years` | 🔒 | `{ items: [{ year, count }] }`, newest first — the years the caller's documents carry (11 §11.4). Declared before `:id`, or the router reads "years" as a document id |
 | `GET /api/documents/:id` | 🔒 | → `DocumentDetailDto`, including `auto` — what the pipeline decided before anybody corrected it (03 §3.3.10) |
 | `PATCH /api/documents/:id` | 🔒 | `{ title?, description?, languages?, country?, city?, typeId?, peopleIds?, subjectIds?, documentDate? }` per canEditDocumentMeta (03 §3.4); setting typeId flips `typeSource` to MANUAL (null → NONE), and setting `title` flips `titleSource` to MANUAL, after which no analysis renames the document. `languages` are BCP-47 tags, `country` ISO 3166-1 alpha-2 (upper-cased on the way in), `city` free text; all three are corrections of what detection guessed (03 §3.3.10). `reset: ('title'\|'description'\|'documentType'\|'languages'\|'country'\|'city'\|'documentDate')[]` puts fields back to what the pipeline read and, for the title and the document type, restores `AUTO` — it is applied after the explicit values, so a payload carrying both ends with the reset |
@@ -121,6 +137,26 @@ reports as expired.
 | `GET /api/documents/:id/preview` | 🔒 | 302 → signed URL of `preview.jpg` (404 `NOT_FOUND` if step not DONE) |
 | `GET /api/documents/:id/thumb` | 🔒 | 302 → signed URL of `thumb.jpg` |
 | `GET /api/documents/:id/canonical` | 🔒 | 302 → signed URL of `canonical.pdf`, `Content-Disposition` chosen by `?download=1`. This **is** the document as far as reading and downloading go (`05 §5.5`); `409 CANONICAL_NOT_READY` while the step has not finished. The originals are one level down, under `/files/:fileId/content` |
+
+**The three orders of `GET /api/documents?sort=`** (§7.1; the control that chooses them is `11 §11.3`):
+
+| `sort` | Means | Ordering |
+|---|---|---|
+| `documentDate` *(default)* | the date written on the paper (`03 §3.3.10`) | `document_date DESC NULLS FIRST, id DESC` — newest first, and **the undated before everything**: a document whose date nobody has read yet is the one still wanting attention, and NULLS LAST files it behind a century of dated ones |
+| `createdAt` | when Legere first saw it | `created_at DESC, id DESC` — the order every list had before this existed |
+| `lastEventAt` | when it last changed: the newest entry in the document's journal, of **any** type (`03 §3.3.18`) | `last_event_at DESC, id DESC` |
+
+`lastEventAt` is deliberately **not** `updatedAt`: the pipeline bumps that whenever it rewrites a
+step status, and two raw writes skip Prisma's stamping altogether, so it is an honest "row touched"
+and a dishonest "edited". It is a column kept beside the log rather than `max(document_events.at)`
+computed per row, because ranking an archive by an aggregate over the log is not something an index
+can serve (`03 §3.3.18`, `04 §4.4`). A document with **no journal entries at all** reads as the
+moment it came into being — its `createdAt` — which is the only honest thing to say about when it
+last changed, and keeps the column non-null.
+
+🔒 The cursor names which of the three it was cut from; changing `sort` mid-pagination earns
+`422 CURSOR_SORT_MISMATCH` rather than a page read off the wrong column (§7.1). A client changing
+the order therefore starts the list again, which is what it wanted anyway.
 
 `DocumentListDto`: `{ id, title, fileCount, primaryExt, sizeBytes(string, the files together), pageCount, documentType: {id,slug,name}|null, availability, processing, origin, hasPreview, createdAt }`.
 `DocumentDetailDto` = list dto + `{ ocrUsed, typeSource, steps: {canonical, preview, markdown, analysis, vectorization}, processingError, failedStep, createdBy?, files: DocumentFileDto[], people: {id,name,deleted}[], subjects: {id,kindId,kind,name,deleted}[], documentDate, description, country, city, languages, auto }`. `deleted` says the catalogue no longer holds that name: the link survives a deletion on purpose (03 §3.3.19), so the flag is the only thing that distinguishes a name still worth choosing from one kept as a record. A subject carries its kind by id as well as by name, because the kind is a row of its own (03 §3.3.20a) and each half is a way into the documents filed under it (11 §11.5).

@@ -41,6 +41,7 @@
       "DOCUMENT_UNAVAILABLE": "Исходный файл сейчас недоступен.",
       "ONBOARDING_CLOSED": "Этот экземпляр уже настроен.",
       "VALIDATION_FAILED": "Проверьте выделенные поля.",
+      "CURSOR_SORT_MISMATCH": "Порядок изменился, пока страница была открыта. Обновите её.",
       "LIBRARY_PATH_INVALID": "Этот путь не является папкой внутри тома библиотеки.",
       "EMAIL_CODE_INVALID": "Неверный код.",
       "REGISTRATION_TICKET_INVALID": "Шаг истёк. Начните заново.",
@@ -563,6 +564,14 @@
         "DONE": "готово",
         "FAILED": "ошибка",
         "SKIPPED": "пропущено"
+      }
+    },
+    "sort": {
+      "label": "Порядок",
+      "options": {
+        "documentDate": "По дате документа",
+        "createdAt": "По дате добавления",
+        "lastEventAt": "По последнему изменению"
       }
     },
     "empty": {

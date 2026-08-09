@@ -221,6 +221,7 @@ one; the canonical is rebuildable from them at any moment, so it is an artifact 
 | typeId | uuid? | |
 | typeSource | ValueSource | default `NONE`; `MANUAL` is never overwritten by auto |
 | createdById | uuid? | who created this document by hand: an upload, a split, a combine. `NULL` for a document a library scan found |
+| lastEventAt | timestamptz | when this document last changed: the `at` of the newest entry in its journal (§3.3.18), of any type. Never null — see below |
 | createdAt / updatedAt / deletedAt | | |
 
 **Languages.** A document may be written in more than one — a bilingual contract has parallel
@@ -230,6 +231,19 @@ where the same language exists in two of them: Serbian is `sr-Cyrl` or `sr-Latn`
 The set decides which languages OCR is given, and a wrong one costs accuracy — `EUR` read with
 Cyrillic in the set comes back as `ЕОВ` — so below a length threshold the answer is an empty list
 rather than a guess.
+
+**When it last changed.** Three timestamps say three different things and only one of them is an
+answer to that question. `createdAt` is when Legere first saw the document. `updatedAt` is when this
+*row* was last written — the pipeline bumps it every time it rewrites a step status, and the two
+`$executeRaw` merges of `autoValues` and `skipReasons` bypass Prisma's stamping entirely, so it is
+an honest "row touched" and a dishonest "edited". `lastEventAt` is the newest entry in the
+document's journal (§3.3.18), whatever kind it is: a step finishing, a file attaching, somebody
+correcting a field. It exists as a column rather than as `max(document_events.at)` because ranking
+an archive by an aggregate over the log is not something an index can serve (`07 §7.1`,
+`04 §4.4`), and it is maintained where every event is already written — §3.3.18's single write
+site — so it cannot drift from the log it means. A document with **no entries at all** reads as its
+own `createdAt`: the moment it came into being is the only honest thing to say about when it last
+changed, and it keeps the column non-null.
 
 **The date on it.** `createdAt` is when Legere first saw the file; `documentDate` is what the paper
 says. A contract from 2019 scanned yesterday is a 2019 document, and a shelf sorted by when somebody
@@ -495,6 +509,15 @@ reason an operation fails: a document that processed correctly but could not be 
 still a processed document. Every step status the pipeline writes produces an entry, routed through
 one method rather than recorded at each call site — a log is only worth reading if nothing is
 missing from it.
+
+**The newest entry, kept beside the document.** "When did this document last change" is the `at` of
+the newest entry here, and an archive is ranked by it (`07 §7.1`). `max(document_events.at)` per row
+is a correlated aggregate no index can serve, so the answer is denormalised onto
+`Document.lastEventAt` (§3.3.10) — and it is written by **this** single write site, the same one
+every event already goes through, which is what makes the column and the log the same fact rather
+than two facts that drift. The write moves the value forward only (`GREATEST`), so two entries of
+one run landing out of order cannot undo the newer one, and it deliberately leaves `updatedAt`
+alone: recording that something happened is not itself an edit of the document.
 
 ### 3.3.11. DocumentChunk
 | Field | Type | Notes |

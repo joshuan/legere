@@ -7,6 +7,7 @@ import {
   listDocumentsResponseSchema,
 } from '../../src/shared/contracts/documents';
 import { createInviteResponseSchema, okResponseSchema } from '../../src/shared/contracts/users';
+import { encodeDocumentCursor } from '../../src/server/infrastructure/persistence/cursor';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 import { seedDocument, seedLibrary } from '../helpers/documents';
@@ -131,7 +132,12 @@ describe('Documents (e2e)', () => {
       });
       const user = await inviteUser(`reader${seq}@legere.local`);
 
-      const page = expectData(await listAs(user.cookie), listDocumentsResponseSchema);
+      // Neither carries a date of its own, so this asks for the order that has one to compare
+      // (docs/07 §7.1); what the default does with the undated is its own test below.
+      const page = expectData(
+        await listAs(user.cookie, '?sort=createdAt'),
+        listDocumentsResponseSchema,
+      );
 
       expect(page.items.map((item) => item.id)).toEqual([newer, older]);
       expect(page.items[0]).toMatchObject({
@@ -227,6 +233,182 @@ describe('Documents (e2e)', () => {
       const seen = [...first.items, ...second.items, ...third.items].map((item) => item.id);
       expect(new Set(seen).size).toBe(5);
       expect(third.nextCursor).toBeNull();
+    });
+
+    // The three named orders of docs/07 §7.1, and the cursor that names which one it was cut from.
+    describe('order', () => {
+      // Every page of a list, walked one row at a time, so the keyset predicate is exercised at
+      // every boundary rather than only at the first one.
+      async function walk(cookie: string, sort: string): Promise<string[]> {
+        const ids: string[] = [];
+        let cursor: string | null = null;
+        for (let page = 0; page < 10; page += 1) {
+          const query: string =
+            cursor === null
+              ? `?sort=${sort}&limit=1`
+              : `?sort=${sort}&limit=1&cursor=${encodeURIComponent(cursor)}`;
+          const answer = expectData(await listAs(cookie, query), listDocumentsResponseSchema);
+          ids.push(...answer.items.map((item) => item.id));
+          cursor = answer.nextCursor;
+          if (cursor === null) break;
+        }
+        return ids;
+      }
+
+      it('arranges the shelf by the date on the paper, with the undated ahead of everything', async () => {
+        const open = await givenLibrary('ALL_USERS');
+        const old = await seedDocument({
+          document: { title: 'Old', documentDate: new Date('2019-01-01T00:00:00.000Z') },
+          libraryId: open,
+        });
+        const recent = await seedDocument({
+          document: { title: 'Recent', documentDate: new Date('2024-05-05T00:00:00.000Z') },
+          libraryId: open,
+        });
+        // No date read off it yet: the one still wanting attention, and the default puts it first
+        // rather than burying it behind a century of dated ones (docs/07 §7.1).
+        const undated = await seedDocument({ document: { title: 'Undated' }, libraryId: open });
+
+        const page = expectData(await listAs(adminCookie), listDocumentsResponseSchema);
+
+        expect(page.items.map((item) => item.id)).toEqual([undated.id, recent.id, old.id]);
+        // And it is the default, so asking for it by name is the same answer.
+        expect(await walk(adminCookie, 'documentDate')).toEqual([undated.id, recent.id, old.id]);
+      });
+
+      it('walks the undated block and the dated one as a single order, one page at a time', async () => {
+        const open = await givenLibrary('ALL_USERS');
+        const undated = [
+          await seedDocument({ document: { title: 'U1' }, libraryId: open }),
+          await seedDocument({ document: { title: 'U2' }, libraryId: open }),
+        ];
+        const dated = [
+          await seedDocument({
+            document: { title: 'D1', documentDate: new Date('2024-05-05T00:00:00.000Z') },
+            libraryId: open,
+          }),
+          await seedDocument({
+            document: { title: 'D2', documentDate: new Date('2019-01-01T00:00:00.000Z') },
+            libraryId: open,
+          }),
+        ];
+
+        const walked = await walk(adminCookie, 'documentDate');
+
+        // Nothing repeated, nothing dropped, and the boundary between the two blocks crossed once.
+        expect(new Set(walked).size).toBe(4);
+        expect(walked.slice(0, 2).sort()).toEqual(undated.map((seeded) => seeded.id).sort());
+        expect(walked.slice(2)).toEqual([dated[0]?.id, dated[1]?.id]);
+      });
+
+      it('arranges the shelf by the newest entry in the document journal, whatever wrote it', async () => {
+        const open = await givenLibrary('ALL_USERS');
+        const first = await givenDocument({ libraryId: open, title: 'Filed first' });
+        const second = await givenDocument({ libraryId: open, title: 'Filed second' });
+
+        // Neither has been touched, so both read as the moment they came into being.
+        expect(
+          expectData(await listAs(adminCookie, '?sort=lastEventAt'), listDocumentsResponseSchema)
+            .items[0]?.id,
+        ).toBe(second);
+
+        // An edit writes a META_CHANGED entry through the one method every event goes through
+        // (docs/03 §3.3.18), and the column beside the log moves with it.
+        const renamed = await api(app)
+          .patch(`/api/documents/${first}`, { title: 'Corrected' })
+          .set('Cookie', adminCookie);
+        expect(renamed.status).toBe(200);
+
+        expect(await walk(adminCookie, 'lastEventAt')).toEqual([first, second]);
+        // And the other two orders are unmoved by it: an edit is not a re-filing.
+        expect(await walk(adminCookie, 'createdAt')).toEqual([second, first]);
+      });
+
+      it('refuses a cursor cut from another order rather than answering off the wrong column', async () => {
+        const open = await givenLibrary('ALL_USERS');
+        await givenDocument({ libraryId: open, title: 'One' });
+        await givenDocument({ libraryId: open, title: 'Two' });
+
+        const byArrival = expectData(
+          await listAs(adminCookie, '?sort=createdAt&limit=1'),
+          listDocumentsResponseSchema,
+        );
+        expect(byArrival.nextCursor).not.toBeNull();
+        const cursor = encodeURIComponent(byArrival.nextCursor ?? '');
+
+        // 🔒 A cursor is opaque, not secret, and a keyset predicate read off the wrong column does
+        // not fail — it answers, skipping and repeating rows (docs/07 §7.1).
+        const crossed = await listAs(adminCookie, `?sort=documentDate&limit=1&cursor=${cursor}`);
+        expect(crossed.status).toBe(422);
+        expect(expectError(crossed).code).toBe('CURSOR_SORT_MISMATCH');
+
+        // The same cursor, asked the question it was cut from, still works.
+        const continued = expectData(
+          await listAs(adminCookie, `?sort=createdAt&limit=1&cursor=${cursor}`),
+          listDocumentsResponseSchema,
+        );
+        expect(continued.items).toHaveLength(1);
+      });
+
+      it('rejects an order that is not one of the named ones', async () => {
+        const refused = await listAs(adminCookie, '?sort=title');
+
+        expect(refused.status).toBe(422);
+        expect(expectError(refused).code).toBe('VALIDATION_FAILED');
+      });
+
+      it('applies the access rule to a second page in every order, not only to the first', async () => {
+        const user = await inviteUser(`pager${seq}@legere.local`);
+        const restricted = await givenLibrary('RESTRICTED');
+        // Older in all three orders, so it lands on page two of every one of them — and behind a
+        // library this reader was never granted.
+        await seedDocument({
+          document: {
+            title: 'Behind a library',
+            createdAt: new Date('2026-01-01T00:00:00.000Z'),
+            lastEventAt: new Date('2026-01-01T00:00:00.000Z'),
+            documentDate: new Date('2019-01-01T00:00:00.000Z'),
+          },
+          libraryId: restricted,
+        });
+        const visible = await seedDocument({
+          document: {
+            title: 'The one they may read',
+            createdById: user.id,
+            createdAt: new Date('2026-01-02T00:00:00.000Z'),
+            lastEventAt: new Date('2026-01-02T00:00:00.000Z'),
+            documentDate: new Date('2020-01-01T00:00:00.000Z'),
+          },
+        });
+
+        // The last row of page one, in each order's own spelling of "here is where I stopped".
+        const pages = [
+          { sort: 'documentDate', key: '2020-01-01' },
+          { sort: 'createdAt', key: '2026-01-02T00:00:00.000Z' },
+          { sort: 'lastEventAt', key: '2026-01-02T00:00:00.000Z' },
+        ] as const;
+
+        for (const { sort, key } of pages) {
+          const first = expectData(
+            await listAs(user.cookie, `?sort=${sort}&limit=1`),
+            listDocumentsResponseSchema,
+          );
+          expect(first.items.map((item) => item.id)).toEqual([visible.id]);
+
+          // 🔒 Anybody can write a cursor. Continuing a page must not switch the access rule off —
+          // which is what happens when the rule and the cursor are both an `OR` spread into one
+          // object and the cursor is spread last.
+          const forged = encodeDocumentCursor({ sort, key, id: visible.id });
+          const second = expectData(
+            await listAs(
+              user.cookie,
+              `?sort=${sort}&limit=10&cursor=${encodeURIComponent(forged)}`,
+            ),
+            listDocumentsResponseSchema,
+          );
+          expect(second.items).toEqual([]);
+        }
+      });
     });
 
     describe('filters', () => {

@@ -9,6 +9,7 @@ import {
   reprocessResponseSchema,
   type DocumentDetailDto,
   type DocumentEventPage,
+  type DocumentSort,
   type DocumentYearsResponse,
   type DocumentMarkdownResponse,
   type ListDocumentsQuery,
@@ -29,7 +30,13 @@ import { okResponseSchema, type OkResponse } from '../../../shared/contracts/use
 import { apiClient, uploadFile } from '../../shared/api';
 
 // Filters as the grid holds them: everything optional, everything mirrored in the URL (docs/11 §11.3).
-export type DocumentFilters = Omit<ListDocumentsQuery, 'limit' | 'cursor'>;
+// The chosen order is not one of them — it lives in the URL beside them and survives "Clear
+// filters", because arranging a shelf is not the same as narrowing it (docs/11 §11.3).
+export type DocumentFilters = Omit<ListDocumentsQuery, 'limit' | 'cursor' | 'sort'>;
+
+// How the grid is arranged, as one of the named orders of docs/07 §7.1. Absent is the default —
+// the date on the document — and leaves no trace in the URL, the way an unset filter does not.
+export type DocumentListOptions = { sort?: DocumentSort | undefined; cursor?: string | undefined };
 
 // Document endpoints (docs/07 §7.3).
 export const documentApi = {
@@ -37,13 +44,17 @@ export const documentApi = {
   upload: (file: File): Promise<UploadDocumentResponse> =>
     uploadFile('/api/documents', file, { schema: uploadDocumentResponseSchema }),
 
-  list: (filters: DocumentFilters, cursor?: string): Promise<ListDocumentsResponse> =>
+  list: (
+    filters: DocumentFilters,
+    options: DocumentListOptions = {},
+  ): Promise<ListDocumentsResponse> =>
     apiClient.get('/api/documents', {
       schema: listDocumentsResponseSchema,
       query: {
         ...filters,
         ...(filters.processing === undefined ? {} : { processing: String(filters.processing) }),
-        ...(cursor === undefined ? {} : { cursor }),
+        ...(options.sort === undefined ? {} : { sort: options.sort }),
+        ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
       },
     }),
 
@@ -114,7 +125,9 @@ export const documentFiles = {
 };
 
 export const documentKeys = {
-  list: (filters: DocumentFilters) => ['documents', filters] as const,
+  // The order is part of the key: rearranging the shelf is a different answer to a different
+  // question, not the same page re-drawn (docs/11 §11.3).
+  list: (filters: DocumentFilters, sort?: DocumentSort) => ['documents', filters, sort] as const,
   detail: (id: string) => ['document', id] as const,
   markdown: (id: string) => ['document', id, 'markdown'] as const,
   events: (id: string) => ['document', id, 'events'] as const,

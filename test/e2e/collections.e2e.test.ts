@@ -12,7 +12,7 @@ import {
   userLookupResponseSchema,
   createInviteResponseSchema,
 } from '../../src/shared/contracts/users';
-import { encodeCursor } from '../../src/server/infrastructure/persistence/cursor';
+import { encodeDocumentCursor } from '../../src/server/infrastructure/persistence/cursor';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 import { seedDocument, seedLibrary } from '../helpers/documents';
@@ -518,7 +518,11 @@ describe('Collections (e2e)', () => {
       // 🔒 A cursor is opaque, not secret: anybody can write one. Continuing a page must not switch
       // the access rule off — which is what happens when the rule and the cursor are both an `OR`
       // spread into the same object and the cursor is spread last.
-      const cursor = encodeCursor({ at: new Date('2026-01-02T00:00:00.000Z'), id: visible.id });
+      const cursor = encodeDocumentCursor({
+        sort: 'createdAt',
+        key: '2026-01-02T00:00:00.000Z',
+        id: visible.id,
+      });
       const second = expectData(
         await asUser(friend.cookie).page(collection, `?limit=10&cursor=${cursor}`),
         collectionDetailResponseSchema,

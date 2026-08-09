@@ -493,6 +493,16 @@ and the two partial place indexes of §4.4 are written by hand, because `prisma 
 `WHERE` at all. An index that exists only in a migration is the accepted cost of that; the table in
 §4.4 is where it is recorded, and it is the thing to keep in step.
 
+The dividing line is what the schema language can say, not habit: an index Prisma **can** express
+stays in `schema.prisma` as `@@index`, and only what it cannot goes into raw SQL. `@@index` cannot
+say `WHERE`, cannot say `NULLS FIRST`, and cannot mix a sorted expression with a second column — so
+`documents(document_date DESC NULLS FIRST, id DESC)`, which serves the default order of
+`GET /api/documents` (`07 §7.1`), is hand-written, while `documents(last_event_at DESC)`, which
+serves the order beside it, is an `@@index` like `documents(created_at DESC)` already is. Note that
+the `NULLS FIRST` index does **not** replace `documents(document_date DESC NULLS LAST)`: an index
+scanned backwards yields `ASC NULLS FIRST`, which is the wrong order among the dated rows, so the
+two orders need two indexes and both stay.
+
 ## 4.4. Query patterns the schema must support (index rationale)
 
 Every filter `GET /api/documents` takes (`07 §7.3`) is in this table, because a filter nothing serves
@@ -504,7 +514,9 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 | dedup: `File` by `contentHash` | partial unique index |
 | the files of one document, in order | `document_files` PK `(document_id, position)` |
 | the document a file belongs to | `document_files.file_id` unique |
-| document list, newest first | `documents(created_at DESC)` — the cursor's own order (`07 §7.1`) |
+| document list ordered by when Legere first saw it (`?sort=createdAt`) | `documents(created_at DESC)` |
+| document list ordered by the date on the paper, undated first (`?sort=documentDate`, the default) | `documents(document_date DESC NULLS FIRST, id DESC)` (raw SQL, §4.3) — a separate index from the `NULLS LAST` one below, which cannot be scanned backwards to produce it; `id` is in the index because a DATE ties constantly and the cursor needs the tiebreak to continue a page inside one day |
+| document list ordered by when it last changed (`?sort=lastEventAt`) | `documents(last_event_at DESC)` — the denormalised newest journal entry (`03 §3.3.18`); `max(document_events.at)` is a correlated aggregate no index serves |
 | filter by document type | `documents(type_id)` |
 | filter by library | `file_refs(library_id, status)` + join through `document_files` |
 | availability and origin for a document | derived from its files: `document_files` PK + `file_refs(file_id)` |

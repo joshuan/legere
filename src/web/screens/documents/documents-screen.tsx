@@ -1,15 +1,31 @@
 'use client';
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Card, Checkbox, Col, Empty, Row, Space, Spin, Typography } from 'antd';
+import {
+  App,
+  Button,
+  Card,
+  Checkbox,
+  Col,
+  Empty,
+  Row,
+  Select,
+  Space,
+  Spin,
+  Typography,
+} from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
+  DEFAULT_DOCUMENT_SORT,
+  DOCUMENT_SORTS,
   availabilitySchema,
+  documentSortSchema,
   documentStepSchema,
   listDocumentsQuerySchema,
+  type DocumentSort,
 } from '../../../shared/contracts/documents';
 import { fileOriginSchema, stepStatusSchema } from '../../../shared/contracts/enums';
 import type { GroupingSuggestion } from '../../../shared/contracts/files';
@@ -48,26 +64,40 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
   const { message } = App.useApp();
 
   // The URL is the single source of truth for the filters, so a filtered view can be linked,
-  // bookmarked and reloaded (docs/11 §11.3).
+  // bookmarked and reloaded (docs/11 §11.3). The chosen order lives there beside them, for the same
+  // reason and at the same accepted cost: it can be linked, and it does not follow the person to
+  // another screen.
   const filters = useMemo(() => parseFilters(searchParams), [searchParams]);
+  const sort = useMemo(() => parseSort(searchParams), [searchParams]);
 
-  const setFilters = useCallback(
-    (next: DocumentFilters) => {
+  // Filters and order are written together, because they share one query string: changing either
+  // must not drop the other. The default order leaves no trace, the way an unset filter does not.
+  const setView = useCallback(
+    (nextFilters: DocumentFilters, nextSort: DocumentSort) => {
       const params = new URLSearchParams();
-      for (const [key, value] of Object.entries(next)) {
+      for (const [key, value] of Object.entries(nextFilters)) {
         if (value !== undefined) params.set(key, String(value));
       }
+      if (nextSort !== DEFAULT_DOCUMENT_SORT) params.set('sort', nextSort);
       const query = params.toString();
       router.replace(query === '' ? pathname : `${pathname}?${query}`);
     },
     [pathname, router],
   );
 
+  const setFilters = useCallback((next: DocumentFilters) => setView(next, sort), [setView, sort]);
+
   const documents = useInfiniteQuery({
-    queryKey: documentKeys.list(filters),
+    queryKey: documentKeys.list(filters, sort),
     // The first page has no cursor; every later one carries the previous page's nextCursor, and an
     // empty string stands for "from the beginning" so the parameter can stay a plain string.
-    queryFn: ({ pageParam }) => documentApi.list(filters, pageParam === '' ? undefined : pageParam),
+    //
+    // 🔒 The order goes with every page, cursor included: the cursor names the order it was cut
+    // from, and the API refuses one that disagrees rather than answering off the wrong column
+    // (docs/07 §7.1). Changing the order changes the query key, so a page is never continued with a
+    // cursor cut from the previous one.
+    queryFn: ({ pageParam }) =>
+      documentApi.list(filters, { sort, ...(pageParam === '' ? {} : { cursor: pageParam }) }),
     initialPageParam: '',
     getNextPageParam: (last) => last.nextCursor ?? undefined,
     refetchInterval: (query) =>
@@ -143,6 +173,19 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
 
         <Space wrap size="middle">
           <DocumentFiltersBar value={filters} onChange={setFilters} />
+          {/* Arranging the shelf, not narrowing it: the order sits beside the filters and outlives
+              "Clear filters", which takes off what is in force rather than how it is laid out
+              (docs/11 §11.3). */}
+          <Select<DocumentSort>
+            style={{ minWidth: 200 }}
+            aria-label={t('documents.sort.label')}
+            value={sort}
+            onChange={(next) => setView(filters, next)}
+            options={DOCUMENT_SORTS.map((option) => ({
+              value: option,
+              label: t(`documents.sort.options.${option}`),
+            }))}
+          />
           <Button
             onClick={() => {
               setSelecting((on) => !on);
@@ -307,6 +350,16 @@ function parseFilters(params: URLSearchParams): DocumentFilters {
   }
 
   return filters;
+}
+
+// The chosen arrangement, read the same way and by the same rule: through the contract's own schema,
+// so a hand-edited `?sort=whatever` falls back to the default instead of earning a 422 (docs/11
+// §11.3). It is deliberately not a filter — "Clear filters" leaves it alone, the empty state does
+// not count it, and the suggestion cards above the grid still appear on an unfiltered shelf however
+// it is arranged.
+function parseSort(params: URLSearchParams): DocumentSort {
+  const parsed = documentSortSchema.safeParse(params.get('sort'));
+  return parsed.success ? parsed.data : DEFAULT_DOCUMENT_SORT;
 }
 
 // Dismissing a suggestion lasts the session and nothing longer: the server proposes, and it never

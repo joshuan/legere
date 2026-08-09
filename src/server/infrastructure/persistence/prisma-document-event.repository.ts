@@ -39,7 +39,8 @@ export class PrismaDocumentEventRepository extends DocumentEventRepository {
   }
 
   async record(event: NewDocumentEvent, tx?: TransactionHandle): Promise<void> {
-    await clientOf(this.prisma, tx).documentEvent.create({
+    const client = clientOf(this.prisma, tx);
+    const row = await client.documentEvent.create({
       data: {
         documentId: event.documentId,
         type: event.type,
@@ -47,6 +48,20 @@ export class PrismaDocumentEventRepository extends DocumentEventRepository {
         payload: event.payload ?? {},
       },
     });
+
+    // "When did this document last change" is the newest entry in this log (docs/03 §3.3.18), and
+    // ranking an archive by an aggregate over it is not something an index can serve — so the answer
+    // is kept beside the document and written here, at the one write site every event goes through.
+    // A log nothing is missing from is exactly what makes the column trustworthy.
+    //
+    // `GREATEST` rather than an assignment: two entries of the same run can be written out of the
+    // order they happened in, and the newest must not be undone by a straggler. Raw rather than the
+    // typed client on purpose — `updated_at` is not touched, because this is not an edit of the
+    // document, and because `updated_at` is the very column this one exists to stop standing in for.
+    await client.$executeRaw`
+      UPDATE documents
+         SET last_event_at = GREATEST(last_event_at, ${row.at}::timestamptz)
+       WHERE id = ${event.documentId}::uuid`;
   }
 
   async listForDocument(

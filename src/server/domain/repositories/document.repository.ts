@@ -1,4 +1,9 @@
-import type { AutoValues, Availability, DocumentStep } from '../../../shared/contracts/documents';
+import type {
+  AutoValues,
+  Availability,
+  DocumentSort,
+  DocumentStep,
+} from '../../../shared/contracts/documents';
 import type {
   ValueSource,
   FileOrigin,
@@ -116,6 +121,10 @@ export type DocumentDetail = {
 export type ListDocumentsInput = {
   limit: number;
   cursor?: string | undefined;
+  // Which of the named orders of docs/07 §7.1 to read the shelf in. Absent means the default — the
+  // date on the document — because a repository is asked the same question by callers that never
+  // saw a query string.
+  sort?: DocumentSort | undefined;
   libraryId?: string | undefined;
   typeId?: string | undefined;
   availability?: Availability | undefined;
@@ -214,7 +223,9 @@ export abstract class DocumentRepository {
     tx?: TransactionHandle,
   ): Promise<Array<{ year: number; count: number }>>;
 
-  // The read model, newest first, filtered by what the viewer may read (docs/03 §3.4).
+  // The read model, in one of the named orders of docs/07 §7.1, filtered by what the viewer may
+  // read (docs/03 §3.4). 🔒 A cursor carries the order it was cut from; one that disagrees with the
+  // requested `sort` is refused rather than answered from the wrong column.
   abstract listReadable(
     viewer: Viewer,
     query: ListDocumentsInput,

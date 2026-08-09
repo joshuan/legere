@@ -628,7 +628,7 @@ changes the work by an order of magnitude:
   **Docs:** [`07 §7.3`](../07-api-specification.md), [`09 §9.2`](../09-file-storage.md), [`11 §11.5a`](../11-ui-ux-spec.md)
   **Acceptance:** a file's location is answered for every file rather than only for the ones on a volume — `refs` is empty for a managed file today, so the viewer says nothing at all about an upload; the object storage is named as such, with the key the bytes are under, in the same place a library file names its volume and path; 🔒 the key is a location and not a way in — it grants nothing without a signed URL, and the pane says so rather than looking like a link.
 
-- [ ] **M16.5 — The shelf can be arranged**
+- [x] **M16.5 — The shelf can be arranged**
   **Goal:** the newest-scanned order stops being the only one.
   **Docs:** [`07 §7.1`](../07-api-specification.md#71-conventions), [`07 §7.3`](../07-api-specification.md), [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen), [`04 §4.4`](../04-database-schema.md)
   **This one amends a rule.** `07 §7.1` says in as many words: "Sorting is fixed per endpoint; no arbitrary sort params in MVP." A closed enum of named orders is not an arbitrary sort param, and that sentence has to say so before any of this is written.

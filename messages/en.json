@@ -41,6 +41,7 @@
       "DOCUMENT_UNAVAILABLE": "The original file is currently unavailable.",
       "ONBOARDING_CLOSED": "This instance has already been set up.",
       "VALIDATION_FAILED": "Please check the highlighted fields.",
+      "CURSOR_SORT_MISMATCH": "The order changed while this page was open. Reload to see it.",
       "LIBRARY_PATH_INVALID": "This path is not a folder inside the library volume.",
       "EMAIL_CODE_INVALID": "This code is not correct.",
       "REGISTRATION_TICKET_INVALID": "This step has expired. Please start again.",
@@ -563,6 +564,14 @@
         "DONE": "done",
         "FAILED": "failed",
         "SKIPPED": "skipped"
+      }
+    },
+    "sort": {
+      "label": "Order",
+      "options": {
+        "documentDate": "Date on the document",
+        "createdAt": "Date added",
+        "lastEventAt": "Last changed"
       }
     },
     "empty": {

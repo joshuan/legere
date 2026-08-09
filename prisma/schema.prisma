@@ -301,6 +301,11 @@ model Document {
   createdById         String?                  @map("created_by_id") @db.Uuid
   createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  // When this document last changed: the newest entry in its journal, whatever kind (docs/03
+  // §3.3.18). Denormalised because ranking an archive by max(document_events.at) is a correlated
+  // aggregate no index serves; maintained by the one method every event is written through. Never
+  // null — a document with no journal at all reads as the moment it came into being.
+  lastEventAt         DateTime                 @default(now()) @map("last_event_at") @db.Timestamptz(6)
   deletedAt           DateTime?                @map("deleted_at") @db.Timestamptz(6)
 
   documentType    DocumentType?     @relation(fields: [typeId], references: [id])
@@ -314,6 +319,9 @@ model Document {
 
   @@index([typeId])
   @@index([createdAt(sort: Desc)])
+  // "When it last changed", newest first (docs/07 §7.1). Expressible here, unlike the document-date
+  // order it sits beside, which needs NULLS FIRST and lives in raw SQL (docs/04 §4.3).
+  @@index([lastEventAt(sort: Desc)])
   @@map("documents")
 }
 
