@@ -71,8 +71,19 @@ export class VerifyEmailCode {
   // Both purposes share the endpoint; the series that exists for this address decides which flow
   // the caller is in. A missing or expired series reads as an invalid code — the caller learns
   // nothing about which of the two it was.
+  //
+  // 🔒 A reset wins over a registration when both exist, and the order is the whole point. A reset
+  // series exists only because an admin issued one against an account that is already here; a
+  // registration series against the same address can be created by anyone holding an invite
+  // (§8.1.2). Taking registration first therefore let a stranger's series swallow the attempts of
+  // the owner's real reset — five correctly typed codes burning a series they never asked for
+  // (docs/08 §8.4, security audit SEC-19). An address with no account can have no reset series, so
+  // ordinary sign-up is untouched.
+  //
+  // The code is deliberately *not* consulted here: the attempt counter is the only gate, and
+  // comparing before it would let a guess be tested without being counted.
   private async findUsableSeries(email: string, now: Date) {
-    const purposes: VerificationPurpose[] = ['REGISTRATION', 'PASSWORD_RESET'];
+    const purposes: VerificationPurpose[] = ['PASSWORD_RESET', 'REGISTRATION'];
     for (const purpose of purposes) {
       const found = await this.verifications.findActive(email, purpose);
       if (found !== null && isCodeUsable(found, now)) return found;

@@ -905,3 +905,19 @@ checklist of [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist)
 to its tests in [`scenario-coverage.md`](./scenario-coverage.md#the-security-checklist-of-08-86).
 That is the whole point of [SEC-45](#sec-45), and the reason this register ends with a note instead
 of a set of ticks.
+
+### Addendum — SEC-19
+
+The note above recorded SEC-19 as still open, and it was: M15.13's line in the backlog claimed it,
+its commit did not, and the invite/throttle half had never been written. It is closed now, in
+`fix(auth): an invite names somebody, and a reset keeps its own allowance`. Three changes, because
+the finding was three things wearing one id: an invite with an `emailHint` refuses a registration
+started for any other address; the daily send cap is keyed by address **and** purpose, so sign-up
+letters cannot spend what a password reset needs; and where both series exist for one address, a
+code is checked against the **reset** — the one an admin issued against an account that is already
+here — rather than against whichever the loop reached first.
+
+Worth recording because it was nearly a second finding: the first attempt chose between the two
+series by comparing the presented code against each. That would have let a guess be tested without
+being counted, moving the attempt cap out of the way of the very brute force it exists to stop. The
+existing concurrency tests caught it, which is the argument for having written them.

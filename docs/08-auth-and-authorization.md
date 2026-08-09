@@ -20,7 +20,10 @@ permanently answers 404/redirect (a race between two onboardings is resolved by 
 
 ### 8.1.2. Admin invite
 - An admin creates a `UserInvite` in the admin panel: the future user's role (`USER`/`ADMIN`),
-  optionally an email hint. They get a **single-use link** `APP_BASE_URL/invite/<token>` (an opaque
+  optionally an email hint. 🔒 The hint is **binding where it is given**: a registration started
+  with that link for any other address is refused. It stays optional — an invite without one is an
+  invitation to whoever holds the link — but an invite that names somebody is an invitation to them,
+  not a licence to send this instance's letters wherever the holder likes. They get a **single-use link** `APP_BASE_URL/invite/<token>` (an opaque
   token; only its `tokenHash` is stored in the DB; TTL 7 days by default; revocable).
 - The invitee opens the link → goes through the 3-step registration (§8.1.3) → the account is created
   with the role from the invite, the invite is marked used (`acceptedById/acceptedAt`).
@@ -212,6 +215,15 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   check is mounted above the `/api` dispatcher, not on `/api`: which requests may change state is
   not a question of where a route happens to be mounted, and a Next route handler or server action
   added later would otherwise inherit the session cookie with no check at all.
+- 🔒 **The per-address caps are per *purpose*.** A sign-up letter and a reset letter draw on separate
+  daily allowances, and where an address has both an active registration and an active reset series,
+  the **reset** is the one a code is checked against. Both follow from the same attack: an invite
+  holder can start a registration for any address (§8.1.2 binds an invite to its `emailHint` where
+  there is one, which closes most of it), and with one shared counter those letters would spend the
+  allowance a password reset needs — and a stale registration series would swallow the attempts of
+  the reset its owner actually asked for. A code is never compared while choosing between series:
+  the attempt counter is the only gate, and a comparison in front of it would be a guess that was
+  tested without being counted.
 - **Rate limiting:** layer 1 — per-IP in-memory (`@nestjs/throttler`) on `/api/auth/*` and
   `/api/invites/*` (incl. protection against Argon2 flooding); layer 2 — per-email: `register/start`
   ≤1 code/60 s and ≤5/day; `register/verify` ≤5 wrong attempts → the record is burned; `login` — an

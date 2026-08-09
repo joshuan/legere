@@ -68,7 +68,7 @@ export class StartRegistration {
     if (existing !== null && this.tooSoon(existing.createdAt, now)) {
       throw new RateLimitedError('RATE_LIMITED', 'A code was already sent recently');
     }
-    if (!this.throttle.canSend(email)) {
+    if (!this.throttle.canSend(email, purpose)) {
       throw new RateLimitedError('RATE_LIMITED', 'Too many codes requested for this address');
     }
 
@@ -82,7 +82,7 @@ export class StartRegistration {
       inviteId,
       passwordResetId,
     });
-    this.throttle.record(email);
+    this.throttle.record(email, purpose);
 
     const alreadyRegistered = (await this.users.findActiveByEmail(email)) !== null;
     await this.email.send({
@@ -126,6 +126,16 @@ export class StartRegistration {
     if (input.inviteToken !== undefined) {
       const invite = await this.invites.findByTokenHash(this.tokens.hash(input.inviteToken));
       if (invite === null || !isInviteValid(invite, now)) {
+        throw new AuthFlowError('INVITE_INVALID', 'Invite link is not valid');
+      }
+      // 🔒 An invite carrying a hint is an invite to *that* address. Without this, one valid link
+      // let a stranger send this instance's letters to anybody they chose — an email bomb wearing
+      // the operator's return address, and, since the daily cap used to be shared across purposes,
+      // a way to deny a real user their password reset for a day (docs/08 §8.1.2, audit SEC-19).
+      // The hint stays optional: an invite without one is still an invite to whoever holds it.
+      // The address arrives normalized by the contract (trim + lower); the hint is whatever an
+      // admin typed, so it is normalized here to be compared with it.
+      if (invite.emailHint !== null && invite.emailHint.trim().toLowerCase() !== input.email) {
         throw new AuthFlowError('INVITE_INVALID', 'Invite link is not valid');
       }
       return { purpose: 'REGISTRATION', inviteId: invite.id, passwordResetId: null };

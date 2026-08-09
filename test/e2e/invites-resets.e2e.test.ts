@@ -444,4 +444,52 @@ describe('Invites and password resets (e2e)', () => {
       expect(expectError(res).code).toBe('USER_NOT_FOUND');
     });
   });
+
+  // 🔒 SEC-19: one valid invite used to let a stranger send this instance's letters to any address
+  // they chose, and — while the daily cap was shared across purposes — thereby deny that address a
+  // password reset for a day.
+  describe('an invite is an invitation to somebody', () => {
+    it('refuses a registration started for an address the invite does not name', async () => {
+      const invite = await api(app)
+        .post('/api/admin/invites', { role: 'USER', emailHint: 'wanted@legere.local' })
+        .set('Cookie', adminCookie);
+      const token = tokenFrom(expectData(invite, createInviteResponseSchema).url);
+
+      const refused = await api(app).post('/api/auth/register/start', {
+        email: 'somebody-else@legere.local',
+        inviteToken: token,
+      });
+
+      expect(refused.status).toBe(400);
+      expect(expectError(refused).code).toBe('INVITE_INVALID');
+    });
+
+    it('still lets an invite with no hint be taken by whoever holds it', async () => {
+      const invite = await api(app)
+        .post('/api/admin/invites', { role: 'USER' })
+        .set('Cookie', adminCookie);
+      const token = tokenFrom(expectData(invite, createInviteResponseSchema).url);
+
+      const started = await api(app).post('/api/auth/register/start', {
+        email: 'anybody@legere.local',
+        inviteToken: token,
+      });
+
+      expect(started.status).toBe(200);
+    });
+
+    it('ignores the case and the spacing an admin typed the hint with', async () => {
+      const invite = await api(app)
+        .post('/api/admin/invites', { role: 'USER', emailHint: '  Wanted@Legere.Local ' })
+        .set('Cookie', adminCookie);
+      const token = tokenFrom(expectData(invite, createInviteResponseSchema).url);
+
+      const started = await api(app).post('/api/auth/register/start', {
+        email: 'wanted@legere.local',
+        inviteToken: token,
+      });
+
+      expect(started.status).toBe(200);
+    });
+  });
 });
