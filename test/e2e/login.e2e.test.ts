@@ -255,6 +255,22 @@ describe('Login and sessions (e2e)', () => {
       expect(res.status).toBe(403);
       expect(expectError(res).code).toBe('FORBIDDEN');
     });
+
+    // 🔒 docs/08 §8.4: the check is mounted above the `/api` dispatcher, not on `/api`. Nothing
+    // outside `/api` accepts a mutation today — the handler below is the stub standing in for Next
+    // — and that is precisely why this holds now: the day a route handler or a server action is
+    // added, it inherits the origin check instead of inheriting the session cookie without one.
+    it('guards a mutation that never reaches /api at all', async () => {
+      const refused = await request(app.baseUrl).post('/whatever-next-may-serve').send({});
+      expect(refused.status).toBe(403);
+      expect(expectError(refused).code).toBe('FORBIDDEN');
+
+      const allowed = await request(app.baseUrl)
+        .post('/whatever-next-may-serve')
+        .set('Origin', APP_ORIGIN)
+        .send({});
+      expect(allowed.status).toBe(200);
+    });
   });
 
   describe('per-IP throttling', () => {

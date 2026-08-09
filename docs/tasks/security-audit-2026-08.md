@@ -6,8 +6,9 @@ invoices, with a read-only library volume, closed registration, and two roles (`
 
 The register below is the evidence behind milestone **M15** in [`backlog.md`](./backlog.md). Each
 finding has a stable id (`SEC-nn`); backlog tasks reference those ids, so a task can be traced to the
-code path it came from and back. Nothing here has been fixed — this document records the state of
-the tree at `v0.6.0` (`a56af49`).
+code path it came from and back. Nothing in the body below has been fixed — it records the state of
+the tree at `v0.6.0` (`a56af49`) and is left that way on purpose. What became of each finding is the
+[closing note](#closing-note--what-became-of-the-register) at the end.
 
 ## Method
 
@@ -806,3 +807,101 @@ volume is mounted `:ro`; no docker socket is mounted anywhere; `deploy/init.sh` 
 with `openssl rand`, writes `chmod 600`, and refuses to overwrite an existing `.env`. Error responses
 leak nothing — unknown exceptions become a bare `500 INTERNAL` with the stack logged server-side
 only.
+
+---
+
+## Closing note — what became of the register
+
+Written at the end of milestone **M15**, which existed to close this register, and as the last act of
+[M15.20](./backlog.md). Of 46 findings: **39 fixed**, **2 fixed in part**, **2 accepted as decisions
+rather than defects**, **2 still open**, and this note closes the last one. Every decision below was
+taken by the repository's owner in the commit named beside it; where a decision changed what the
+product *is* rather than how it is built, `docs/` moved first and the commit says which section
+(golden rule 3).
+
+### Fixed
+
+| Backlog task | Findings | Commit |
+|---|---|---|
+| [M15.1](./backlog.md) — a share is not a licence to re-share | SEC-01, SEC-26, SEC-46 | `4a629e1` |
+| M15.2 — a login lands where it started | SEC-02 | `9178455` |
+| M15.3 — nothing uploaded runs in a browser | SEC-03 | `425f46e` |
+| M15.4 — an invite is used once | SEC-04, SEC-24, SEC-28 | `727f5d9` |
+| M15.5 — a log is not a place to keep credentials | SEC-10, SEC-18 | `7181cbb` |
+| M15.6 — the server knows who is really calling | SEC-05, SEC-36 | `5a5aeaf` |
+| M15.7 — headers that say no | SEC-06, SEC-37 | `bff7132` |
+| M15.8 — dependencies with known holes | SEC-07, SEC-21 | `2270fe7` |
+| M15.9 — one document cannot take down the server | SEC-08, SEC-17, SEC-20, SEC-25 | `ee94c23` |
+| M15.10 — the container is not root | SEC-09, SEC-14, SEC-22 (SEC-43 in part) | `d562b37` |
+| M15.11 — configuration that refuses to run insecurely | SEC-15, SEC-23, SEC-39 | `a101819`, `60e36c1` |
+| M15.12 — the archive cannot be talked into leaking | SEC-11 in part | `2e67b83` |
+| M15.13 — a lockout that cannot be pointed at somebody | SEC-12 | `2270fe7` |
+| M15.14 — the event log respects the same walls | SEC-13 | `f9207f9` |
+| M15.15 — inputs stay inside their bounds | SEC-16, SEC-29, SEC-30, SEC-31, SEC-32, SEC-33, SEC-44 | `d442f6b`, `7181cbb` |
+| M15.16 — an account has a history | SEC-34 | `b5fcd16` |
+| M15.17 — a user can look after their own account | SEC-35 | `2270fe7` |
+| M15.18 — the second layers the documentation promises | SEC-27, SEC-42 | `bff7132` |
+| M15.20 — the checklist stops being decoration | SEC-45 | this commit |
+
+[SEC-46](#sec-46) is the one nobody looked for: it was found *while* fixing SEC-01, it was the most
+serious thing in the register, and it is the argument for reading a fix's neighbourhood rather than
+its diff.
+
+### Fixed in part
+
+- **[SEC-11](#sec-11) — prompt injection.** The disclosure half is closed: the fence is drawn per
+  call from `randomBytes` and the excerpt is stripped of it, the catalogue and the instructions moved
+  into the system message, and the document travels alone as data (`2e67b83`, [`05 §5.5`](../05-library-and-processing.md)).
+  The **poisoning** half stands: analysis still creates people and subjects straight from the model's
+  answer, so a document can still put a row in everybody's catalogue. Closing it means a confirmation
+  step with a schema and a screen behind it, which is a feature, not a patch.
+- **[SEC-43](#sec-43) — DDL rights at runtime.** Migrations now run in a one-shot container with no
+  `npx` in the start path (`d562b37`). The **second Postgres role** is not shipped: both services
+  still carry the owner's URL, so the application can still change the schema — which is also what
+  keeps `statement_timeout` unset. [`12 §12.7`](../12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)
+  and [`12 §12.8`](../12-build-config-run.md#128-production-notes) say so rather than leaving it to
+  be discovered.
+
+### Accepted, not fixed
+
+Two findings were behaviours the documentation already described, flagged because the consequence
+looked unintended. Both were decided in `6c8e289` (M15.19) and the decision lives in the document
+that owns the behaviour — so the next reader meets a choice, not an oversight.
+
+- **[SEC-40](#sec-40) — instance-wide catalogues.** Accepted:
+  [`03 §3.3.19`](../03-domain-model.md). A catalogue is what documents are *filed by*, and one
+  scoped per reader would fracture into as many vocabularies as there are grants. What is protected
+  is the documents: the drill-down applies the access rule, so a name may be visible while everything
+  filed under it is not.
+- **[SEC-41](#sec-41) — a cross-library combine.** Accepted:
+  [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model). Composing a document out of
+  files is the product's central act, and a rule that let somebody read two things and refused to let
+  them put those two things together would be arbitrary from where they stand. The boundary that
+  holds is that they must already be able to read both — a combine grants its author nothing they did
+  not have.
+
+### Still open
+
+- **[SEC-19](#sec-19) — an invite is not bound to its `emailHint`.** The backlog lists this under
+  M15.13, but the commit that carried M15.13 (`2270fe7`) names SEC-12 for it and not SEC-19 — and
+  correctly, because the code is unchanged. `StartRegistration` never reads `emailHint`, `EmailSendThrottle.canSend(email)` is
+  still keyed on the address across both purposes, and `findUsableSeries` still prefers a
+  `REGISTRATION` series over a `PASSWORD_RESET` one rather than the one whose code matches. So
+  flooding an address with sign-up letters can still deny it a password reset for a day. The fifth
+  acceptance item of that task — surviving a restart — was answered the other way, deliberately, in
+  [`08 §8.4.1b`](../08-auth-and-authorization.md#841b-what-the-throttles-forget-when-the-process-restarts).
+  This needs a task of its own.
+- **[SEC-38](#sec-38) — tokens in a URL path segment.** Still true of
+  `GET /api/invites/:token` and `GET /api/password-resets/:token`
+  ([`07 §7.3`](../07-api-specification.md)). Two of the three things that made it dangerous are gone:
+  the request log now writes a route shape rather than the token (`7181cbb`), and `Referrer-Policy`
+  is now sent deliberately instead of being left to a browser default (`bff7132`). Moving the
+  credential out of the URL entirely is the end state and needs a `docs/07` change first.
+
+### What replaces this document
+
+Nothing here is a live checklist. From now on the claims live where they can be run: the security
+checklist of [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist), mapped line by line
+to its tests in [`scenario-coverage.md`](./scenario-coverage.md#the-security-checklist-of-08-86).
+That is the whole point of [SEC-45](#sec-45), and the reason this register ends with a note instead
+of a set of ticks.

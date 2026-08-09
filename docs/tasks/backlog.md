@@ -585,7 +585,7 @@ Every task ends the same way: the scenario it fixes joins
   **The questions:** (1) the people, subject and subject-kind catalogues are instance-wide, with global document counts, and their rows are mined by analysis from documents the reader may not open — is a name extracted from a restricted library meant to be visible to everyone? If not, the count becomes viewer-scoped and rows a viewer can reach nothing through disappear. (2) A user holding grants on two libraries can combine a document from the restricted one into a document from the open one, and the rebuilt PDF and Markdown then carry its pages to everyone who can see the open library — is `08 §8.5`'s "visible given access to at least one" a statement about deduplicated identical bytes, or a licence to bridge two libraries by hand?
   **Acceptance:** each question is answered in the document that owns it, and whichever answer is chosen has a test proving the behaviour is now deliberate.
 
-- [ ] **M15.20 — The security checklist stops being decoration**
+- [x] **M15.20 — The security checklist stops being decoration**
   **Goal:** `08 §8.6` becomes a set of claims something proves, like the mandatory scenarios already are.
   **Closes:** SEC-45
   **Docs:** [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist), [`14 §14.8`](../14-coding-standards.md#148-testing), [`tasks/scenario-coverage.md`](./scenario-coverage.md)

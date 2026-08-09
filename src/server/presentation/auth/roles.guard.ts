@@ -5,7 +5,9 @@ import type { UserRole } from '../../../shared/contracts/enums';
 import { ForbiddenError } from '../../domain/errors/domain-error';
 import { callerOf } from './current-user';
 
-const ROLES_KEY = 'legereRoles';
+// Exported so the route inventory of `route-guards.test.ts` can read what a route declares rather
+// than trusting that a `RolesGuard` in the chain was given anything to enforce.
+export const ROLES_KEY = 'legereRoles';
 
 // @Roles('ADMIN') on a route or controller; runs after SessionGuard (docs/06 §6.4).
 export const Roles = (...roles: UserRole[]): MethodDecorator & ClassDecorator =>

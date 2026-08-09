@@ -318,32 +318,62 @@ Guards: `SessionGuard` (authn) → `RolesGuard` (admin routes) → `DocumentAcce
 
 ## 8.6. Security checklist
 
-- [ ] No open registration: one-time first-admin onboarding + single-use invite links
+🔒 **A box here is ticked because a test proves it, and for no other reason.** Every line is mapped to
+the test that makes its claim in
+[`tasks/scenario-coverage.md`](./tasks/scenario-coverage.md#the-security-checklist-of-08-86), by file
+and by the `it(...)` string, so any line can be re-run rather than re-believed. A line no test covers
+stays empty and says what is missing instead of quietly reading as done.
+
+This is what the list was worth before: it was written as an intent, never verified, and the audit of
+August 2026 found two of its lines **false** at the moment it read them — invite links were not
+single-use ([SEC-04](./tasks/security-audit-2026-08.md#sec-04)) and invite and reset tokens were
+written to the request log in plaintext ([SEC-10](./tasks/security-audit-2026-08.md#sec-10)). Both are
+fixed; the habit that let them sit here unnoticed is what
+[SEC-45](./tasks/security-audit-2026-08.md#sec-45) is about.
+
+- [x] No open registration: one-time first-admin onboarding + single-use invite links
       (tokenHash, TTL, revocation).
-- [ ] Registration — 3 steps with an email code (HMAC hash, TTL 10 min, ≤5 attempts); the `User` is
+- [x] Registration — 3 steps with an email code (HMAC hash, TTL 10 min, ≤5 attempts); the `User` is
       created only at step 3 via a single-use ticket.
-- [ ] Login: a single `INVALID_CREDENTIALS` + dummy verify; Argon2id; no JWT.
-- [ ] The login backoff never locks an account out: the password is verified before the streak is
+- [x] Login: a single `INVALID_CREDENTIALS` + dummy verify; Argon2id; no JWT.
+- [x] The login backoff never locks an account out: the password is verified before the streak is
       read, a correct one signs in and clears it, and a failure against an unknown address is
       refused with the same code at the same attempt as one against an address that exists (§8.4.1a).
-- [ ] Session: an opaque token stored as a hash, new per login, revoked on logout; cookie
-      httpOnly/SameSite=Lax/Secure(prod).
-- [ ] A user can list and end their own sessions, and change their own password with the current one
+- [x] Session: an opaque token stored as a hash, new per login, revoked on logout; cookie
+      httpOnly/SameSite=Lax/Secure — the last one whenever `APP_BASE_URL` is `https://`, which is
+      not the same as production and §8.2 says why.
+- [x] A user can list and end their own sessions, and change their own password with the current one
       — which ends every other session of theirs and keeps the one that asked (§8.1.6a, §8.2).
-- [ ] Mutations — fail-closed `csrfOriginCheck`; per-IP + per-email rate limiting; CAPTCHA on
-      login/start.
-- [ ] API tokens: hashed at rest, shown once, mandatory expiry, revoked with the owner; a mutating
+- [x] Mutations — fail-closed `csrfOriginCheck`, above the dispatcher rather than on `/api` (§8.4);
+      per-IP + per-email rate limiting; CAPTCHA on login/start.
+- [x] API tokens: hashed at rest, shown once, mandatory expiry, revoked with the owner; a mutating
       request carrying one is refused before routing (§8.2a).
-- [ ] `passwordHash`/`tokenHash`/codes/tickets and email bodies are never serialized or logged —
+- [x] `passwordHash`/`tokenHash`/codes/tickets and email bodies are never serialized or logged —
       including by the request log, which writes the shape of a route and not the token in it, drops
       the query string, and removes the filename headers ([`06 §6.7`](./06-backend-architecture.md#67-logging));
       including when no mail server is configured, where the letter is recorded as its recipient and
       subject and its body is dropped (§8.1.8).
-- [ ] Every protected route — `SessionGuard` (+ `RolesGuard`/`DocumentAccessGuard`); file endpoints —
+- [x] Every protected route — `SessionGuard` (+ `RolesGuard`/`DocumentAccessGuard`); file endpoints —
       under the same authorization; the S3 bucket is private, signed URLs with a short TTL only.
-- [ ] Libraries are mounted `:ro`; paths validated against the root (no path traversal/symlinks out).
-- [ ] The last active admin is protected (`LAST_ADMIN`).
-- [ ] SMTP credentials from a secret manager; the FROM domain with SPF/DKIM.
+      "Every" is read off the route table mechanically, not asserted route by route.
+- [x] Library paths are validated against the root: no traversal, no symlink leaving the volume
+      during a scan, and a root reached through an intermediate symlink is refused at creation.
+- [ ] Libraries are mounted `:ro`. **Deployment, not code** — the other half of what used to be one
+      line with the box above, separated because only one of the two is this side's to prove. The
+      mount is a line in `deploy/docker-compose.yaml`
+      ([`12 §12.7`](./12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)), and
+      an instance whose operator mounted the volume read-write behaves identically as far as any test
+      here can see. The application's own promise — it never opens a library file for writing
+      ([`09 §9.1`](./09-file-storage.md)) — is a different thing from the kernel refusing the write.
+- [x] The last active admin is protected (`LAST_ADMIN`).
+- [ ] SMTP credentials from a secret manager; the `SMTP_FROM` domain with SPF/DKIM. **Deployment,
+      not code**, and no test here can assert either: both are properties of the environment the
+      operator builds. What actually ships is weaker than "a secret manager" and says so —
+      `deploy/init.sh` generates the secrets and writes them into a `chmod 600` `.env`
+      ([`12 §12.7`](./12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)) —
+      and the SPF/DKIM requirement is a production note with the failure mode it causes
+      ([`12 §12.8`](./12-build-config-run.md#128-production-notes)). Left unticked on purpose: an
+      empty box that names the gap is worth more than a ticked one nobody checked.
 
 ## 8.7. Open questions
 
