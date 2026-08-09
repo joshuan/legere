@@ -1,0 +1,53 @@
+# 🔒 SEC-07/SEC-21. The mechanical reason a native image decoder with four open CVEs sat in the
+# image unnoticed was that nothing in this repository ever looked. `npm audit` in CI (13 §13.2) is
+# the alarm; this is the thing that arrives with the fix already written. An advisory becomes a pull
+# request that CI checks, rather than a finding somebody has to notice first.
+#
+# Updates are grouped so the week's patches land as one reviewable pull request per ecosystem, and
+# majors are left ungrouped: those are the ones that need a person to read a migration guide.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    # A lockfile change is regenerated the house way (`npm run deps:relock`) when a bump needs more
+    # than the version Dependabot writes; `versioning-strategy` keeps the range in package.json in
+    # step with what the lockfile resolves, so the two never drift apart silently.
+    versioning-strategy: increase-if-necessary
+    groups:
+      production-patches:
+        dependency-type: production
+        update-types: [minor, patch]
+      development-patches:
+        dependency-type: development
+        update-types: [minor, patch]
+    commit-message:
+      prefix: fix(deps)
+      prefix-development: chore(deps)
+
+  # The pipeline itself is a dependency: every action here is pinned to a commit SHA (13 §13.2–13.3),
+  # which is only safe if something moves the pin when the action is fixed. Dependabot rewrites the
+  # SHA and the version comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: ci(deps)
+
+  # The base images. `npm audit` sees the lockfile and nothing below it; the Alpine and Python layers
+  # under the application are where the native libraries live.
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /deploy/docling
+      - /deploy/stirling
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(deps)

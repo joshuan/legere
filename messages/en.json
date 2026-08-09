@@ -60,6 +60,7 @@
       "SUBJECT_KIND_NOT_FOUND": "This kind is no longer in the list.",
       "SUBJECT_KIND_IN_USE": "This kind still holds things. Remove or move them first.",
       "API_TOKEN_NOT_FOUND": "This API token no longer exists.",
+      "SESSION_NOT_FOUND": "This session no longer exists.",
       "READ_ONLY_TOKEN": "An API token may only read; use the app to make changes.",
       "FILE_NOT_FOUND": "This file is no longer part of this document.",
       "DOCUMENT_LAST_FILE": "A document keeps at least one file. Delete the document instead.",
@@ -136,6 +137,36 @@
       "DARK": "Dark"
     },
     "saved": "Saved",
+    "password": {
+      "title": "Password",
+      "description": "Change your password without asking anyone. Everywhere else this account is signed in gets signed out — this browser stays.",
+      "current": "Current password",
+      "currentRequired": "Enter your current password",
+      "next": "New password",
+      "nextRequired": "Choose a new password",
+      "lengthHint": "Between {min} and {max} characters",
+      "confirm": "Repeat the new password",
+      "confirmRequired": "Repeat the new password",
+      "confirmMismatch": "The two do not match",
+      "submit": "Change password",
+      "changed": "Password changed. Other sessions signed out: {count}."
+    },
+    "sessions": {
+      "title": "Signed-in devices",
+      "description": "Every browser currently signed in as you. End any of them — a session you do not recognise is one to end now.",
+      "empty": "No other sessions.",
+      "current": "This device",
+      "unknownDevice": "Unknown device",
+      "revoke": "Sign out",
+      "revokeConfirm": "Sign this device out? Whoever holds that session has to sign in again.",
+      "revokeCurrentConfirm": "This is the device you are using. Signing it out ends this session too.",
+      "revoked": "Signed out",
+      "columns": {
+        "device": "Device",
+        "started": "Signed in",
+        "expires": "Expires"
+      }
+    },
     "apiTokens": {
       "title": "API tokens",
       "description": "A token lets a script read this instance through the API as you — and never change anything. It is shown once, when you create it.",

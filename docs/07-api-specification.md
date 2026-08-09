@@ -51,11 +51,11 @@ human-readable index and must stay in sync with them.
 | HTTP | Code | Where |
 |------|------|-------|
 | 401 | `UNAUTHENTICATED` | no/invalid session |
-| 401 | `INVALID_CREDENTIALS` | login |
+| 401 | `INVALID_CREDENTIALS` | login; the current password of `POST /api/me/password` ([`08 §8.1.6a`](./08-auth-and-authorization.md)) |
 | 403 | `FORBIDDEN` | authz failure, CSRF failure, deactivated user |
 | 403 | `READ_ONLY_TOKEN` | a mutating request carrying an `Authorization: Bearer` header ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)) |
 | 404 | `NOT_FOUND` | unknown route/malformed id |
-| 404 | `USER_NOT_FOUND`, `LIBRARY_NOT_FOUND`, `DOCUMENT_NOT_FOUND`, `DOCUMENT_TYPE_NOT_FOUND`, `COLLECTION_NOT_FOUND`, `FILE_NOT_FOUND`, `INVITE_NOT_FOUND`, `API_TOKEN_NOT_FOUND` | resource lookups (incl. soft-deleted) |
+| 404 | `USER_NOT_FOUND`, `LIBRARY_NOT_FOUND`, `DOCUMENT_NOT_FOUND`, `DOCUMENT_TYPE_NOT_FOUND`, `COLLECTION_NOT_FOUND`, `FILE_NOT_FOUND`, `INVITE_NOT_FOUND`, `API_TOKEN_NOT_FOUND`, `SESSION_NOT_FOUND` | resource lookups (incl. soft-deleted); a session belonging to somebody else is *not found* rather than forbidden ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions)) |
 | 409 | `EMAIL_ALREADY_REGISTERED` | registration race |
 | 409 | `LAST_ADMIN` | demote/deactivate/delete last admin |
 | 409 | `DOCUMENT_DUPLICATE` | upload whose content already exists as a document the caller may not read |
@@ -89,6 +89,9 @@ human-readable index and must stay in sync with them.
 | `GET /api/password-resets/:token` | — | → `{ email(masked), expiresAt, valid: boolean }` |
 | `GET /api/me` | 🔒 | → `UserDto` |
 | `PATCH /api/me` | 🔒 | `{ displayName?, language?, theme? }` → `UserDto` (also refreshes `NEXT_LOCALE` cookie) |
+| `POST /api/me/password` | 🔒 session | `{ currentPassword, newPassword }` → `{ revoked }` — an authenticated rotation ([`08 §8.1.6a`](./08-auth-and-authorization.md)); wrong current → `401 INVALID_CREDENTIALS`; revokes every **other** session of the caller and keeps this one, `revoked` counting them |
+| `GET /api/me/sessions` | 🔒 session | own live sessions, newest first → `{ items: SessionDto[] }` |
+| `DELETE /api/me/sessions/:id` | 🔒 session, owner | revoke → `{ ok: true }`; already revoked is not an error, `404 SESSION_NOT_FOUND` for somebody else's; revoking the current one is allowed and clears `sid` |
 | `GET /api/me/api-tokens` | 🔒 | own tokens, newest first; usable ones and the recently dead alike, never a secret → `{ items: ApiTokenDto[] }` |
 | `POST /api/me/api-tokens` | 🔒 | `{ name, expiresInDays? }` (1…365, default `API_TOKEN_TTL_DAYS`) → `{ token, apiToken: ApiTokenDto }` — `token` appears in this response and nowhere else |
 | `DELETE /api/me/api-tokens/:id` | 🔒 owner | revoke → `{ ok: true }`; already revoked is not an error, `404 API_TOKEN_NOT_FOUND` for somebody else's |
@@ -96,6 +99,12 @@ human-readable index and must stay in sync with them.
 `ApiTokenDto` = `{ id, name, createdAt, expiresAt, lastUsedAt, revokedAt, status: 'ACTIVE' | 'EXPIRED' | 'REVOKED' }`.
 `status` is derived on read rather than stored, so a token that expired while nobody was looking
 reports as expired.
+
+`SessionDto` = `{ id, userAgent, current, createdAt, expiresAt }` — never the token or its hash.
+`current` marks the session the request itself is carrying. **🔒 session** in the table above means
+the route needs a cookie session: an `Authorization: Bearer` credential is refused with `403
+FORBIDDEN` on the read and `403 READ_ONLY_TOKEN` on the two mutations, because a token has no
+session and cannot answer "which of these is you" ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions)).
 
 `UserDto`: `{ id, email, displayName, role, language, theme, createdAt }` — never contains hashes.
 

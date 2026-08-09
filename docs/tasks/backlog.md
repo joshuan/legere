@@ -506,7 +506,7 @@ Every task ends the same way: the scenario it fixes joins
   **Options (decide in the PR description):** (1) helmet with a permissive CSP in `Report-Only` — fifteen lines, works unchanged with Ant Design's CSS-in-JS, delivers `frame-ancestors`, HSTS, nosniff and `Referrer-Policy` immediately, but `script-src 'unsafe-inline'` is a floor rather than a defence and must not be mistaken for one; (2) a nonce-based CSP threaded through the Ant Design registry — the only option that actually stops the XSS in SEC-03, and the most expensive: nonces disable static optimization and the custom Express dispatcher needs care; (3) the non-CSP headers globally now plus a strict `default-src 'none'` on `/api` only, with the page CSP deferred to a tracked task. Recommended: 3 now, 2 next; not 1 alone.
   **Acceptance:** every response carries `X-Content-Type-Options`, `Referrer-Policy`, a frame policy that refuses embedding, and — only when the instance is served over HTTPS — HSTS, because turning it on for the `http://<lan-ip>` deployments `08 §8.2` deliberately supports would lock their operators out; the policy is built from `AppConfig` at boot rather than written as a constant, because presigned URLs point the browser at `S3_PUBLIC_ENDPOINT` and a static policy would block the viewer; neither Express nor Next advertises itself; a test asserts the header set on a page response and on an `/api` response, and the deferred page CSP is a task in this backlog rather than a comment.
 
-- [ ] **M15.8 — Dependencies with known holes, and a pipeline that would have said so**
+- [x] **M15.8 — Dependencies with known holes, and a pipeline that would have said so**
   **Goal:** the image stops shipping a native image decoder with four open CVEs, and stops being able to do it again quietly.
   **Closes:** SEC-07, SEC-21
   **Docs:** [`13 §13.1–13.2`](../13-ci-cd.md), [`12 §12.6`](../12-build-config-run.md#126-dockerfile-one-image)
@@ -537,7 +537,7 @@ Every task ends the same way: the scenario it fixes joins
   **Options (decide in the PR description):** (1) a nonce-delimited fence with the nonce stripped from the excerpt — five lines, removes the escape but not an obedient model; (2) instructions and catalogue in the system message, the excerpt alone in the user message, stated as data — cheap and standard, soft by nature; (3) stop putting the instance-wide catalogue next to untrusted text, or scope it to what the document's owner can already see — the only one that removes the disclosure rather than raising its cost, at some cost to classification quality; (4) let analysis link to existing people and subjects freely but require confirmation before a **new** catalogue row is created — removes the poisoning permanently, adds a review step. Recommended: 1+2+3 for the disclosure, 4 for the poisoning.
   **Acceptance:** a fixture document whose text instructs the model to copy the known-subjects list into a field does not produce a document whose title, description, people or subjects contain another user's catalogue entries; the excerpt cannot terminate its own delimiter; whatever is chosen for new catalogue rows, an operator can tell from the UI which rows analysis proposed and which a person confirmed.
 
-- [ ] **M15.13 — A lockout that cannot be pointed at somebody**
+- [x] **M15.13 — A lockout that cannot be pointed at somebody**
   **Goal:** knowing an address stops being enough to keep its owner out indefinitely.
   **Closes:** SEC-12, SEC-19
   **Blocked on a decision:** the current behaviour is exactly what `08 §8.4` specifies, so this task cannot start until `docs/08` says something different. Bring the options to the owner first.
@@ -564,7 +564,7 @@ Every task ends the same way: the scenario it fixes joins
   **Docs:** [`06 §6.7`](../06-backend-architecture.md), [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist)
   **Acceptance:** a successful login, a failed login, a lockout, an invite issued and accepted, a password reset issued and completed, a role change, a deactivation, a session revocation and an API token created or revoked each emit one structured record naming the actor, the target, the request id and the time; the records carry no token, code or password, and a test asserts that; the request id is the one the request already has, so a record joins to its request; where these records go, and how long they live, is written down in `06 §6.7`.
 
-- [ ] **M15.17 — A user can look after their own account**
+- [x] **M15.17 — A user can look after their own account**
   **Goal:** somebody who thinks their password leaked can change it without asking an administrator.
   **Closes:** SEC-35
   **Blocked on a decision:** `08 §8.1.7` rules out self-service *recovery*; an authenticated *rotation* is a different thing and simply absent. `docs/08` has to say which of these it wants before code is written.

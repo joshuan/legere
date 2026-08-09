@@ -15,6 +15,39 @@ described in the repository (example only — [`12 §12.7`](./12-build-config-ru
   validation.
 - On `main`/tags: build and push a single Docker image. **No deploy job.**
 
+### The pipeline is itself an attack surface
+
+CI runs `npm ci` — that is, third-party lifecycle scripts — on every push to `main`, and the release
+pipeline publishes the image every deployment pulls. Four rules follow, and every workflow in this
+repository keeps all four (SEC-21):
+
+- **A `permissions:` block in every workflow.** Without one the job takes the repository default,
+  which may be read-write; with one, `GITHUB_TOKEN` is `contents: read` and a job that publishes asks
+  for `packages: write` on itself rather than granting it to the whole file.
+- **Third-party actions pinned to a commit SHA**, with the version in a trailing comment. A major tag
+  is mutable: `@v4` is whatever its owner last moved it to. The comment is what a person reads and
+  what Dependabot rewrites together with the SHA.
+- **A dependency audit that can fail the build.** `npm audit --omit=dev --audit-level=high` runs in
+  `build-and-test` *before* `npm ci`, so an advisory is reported before the packages it concerns get
+  to run their install scripts. `npm audit` reads the lockfile and needs no `node_modules`.
+- **An image scan on release.** The audit sees the lockfile and nothing below it; the base image is
+  where the native libraries live — including libvips, whose four CVEs (SEC-07) are the reason this
+  section exists.
+
+The threshold is deliberate. `--omit=dev` is what ships in the image and `high` is the severity that
+warrants stopping a merge; a moderate advisory in a linter is a Dependabot pull request, not a red
+`main`. The image scan reports `HIGH,CRITICAL` and skips findings with no fix available, because a
+finding nobody can act on is a broken build nobody can fix.
+
+### Dependabot
+
+`.github/dependabot.yml` watches three ecosystems weekly — npm at the root, `github-actions` (which
+keeps the SHA pins above from freezing), and `docker` for the three base images (`/`,
+`/deploy/docling`, `/deploy/stirling`). Minor and patch updates are grouped into one pull request per
+ecosystem; majors come one at a time, because those are the ones that need a person to read a
+migration guide. This is the half of the answer the audit does not give: `npm audit` says something
+is wrong, Dependabot arrives with the fix already written and CI green or not on it.
+
 ## 13.2. `.github/workflows/ci.yml`
 
 ```yaml
@@ -23,6 +56,9 @@ on:
   pull_request:
   push:
     branches: [main]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -53,15 +89,16 @@ jobs:
       S3_SECRET_ACCESS_KEY: test
       NEXT_PUBLIC_TURNSTILE_SITE_KEY: ''
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version-file: .nvmrc, cache: npm }
+      - run: npm audit --omit=dev --audit-level=high   # before install: no lifecycle script has run yet
       - run: npm ci
       - run: npm run db:generate
       - run: npm run db:migrate          # apply migrations to the test DB
       - run: npm run typecheck
       - run: npm run lint
-      - run: npm run test
+      - run: npm run test:coverage       # domain+application floor of 14 §14.8, enforced
       - run: npm run build
 ```
 
@@ -88,6 +125,10 @@ emulated arm64 makes `prisma generate` fall back to its wasm engine, which rejec
 `env("DATABASE_URL")` in the schema (P1012). Native runners also build in roughly a third of the
 time.
 
+A third job, `scan`, reads the published tag back and fails on a fixed HIGH or CRITICAL finding. It
+runs *after* publication rather than over a locally built image so that what is reported is the
+artifact deployments pull, and it is the only job in the file that does not get `packages: write`.
+
 ```yaml
 name: Release
 on:
@@ -96,8 +137,7 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: read
-  packages: write
+  contents: read      # `packages: write` is granted per job, to the two that publish
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
@@ -111,16 +151,17 @@ jobs:
           - { platform: linux/amd64, runner: ubuntu-latest }
           - { platform: linux/arm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
+    permissions: { contents: read, packages: write }
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile
@@ -135,12 +176,28 @@ jobs:
   merge:
     needs: build
     runs-on: ubuntu-latest
+    permissions: { contents: read, packages: write }
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
     steps:
       # …digests downloaded, metadata-action computes the tags…
       - run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf "${IMAGE}@sha256:%s " *)
+
+  scan:
+    needs: merge
+    runs-on: ubuntu-latest
+    permissions: { contents: read, packages: read }
+    steps:
+      # …ghcr login…
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ needs.merge.outputs.version }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
 ```
 
 - Image: `ghcr.io/<owner>/legere`, tags `main`, `sha-…`, `vX.Y.Z` (+ `latest` for semver tags).
@@ -160,6 +217,10 @@ jobs:
 - [ ] Secrets only in GitHub Secrets; `deploy/` ships a compose file and a `.env.example` of
       placeholders, never a real secret ([`12 §12.7`](./12-build-config-run.md)).
 - [ ] Branch protection active before the first feature PR.
+- [ ] Every workflow declares `permissions:`; no file grants more than the job that needs it.
+- [ ] Every third-party action pinned to a commit SHA, version in the trailing comment.
+- [ ] `npm audit --omit=dev --audit-level=high` in `build-and-test`, before `npm ci`.
+- [ ] Image scan on release; `.github/dependabot.yml` covers npm, `github-actions` and docker.
 
 ## 13.6. Open questions
 

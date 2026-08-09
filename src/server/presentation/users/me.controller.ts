@@ -1,12 +1,20 @@
-import { Controller, Get, Patch, Res, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpStatus, Patch, Post, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import type { UserDto } from '../../../shared/contracts/auth';
 import type { Envelope } from '../../../shared/contracts/common';
-import { updateMeRequestSchema, type UpdateMeRequest } from '../../../shared/contracts/users';
+import {
+  changePasswordRequestSchema,
+  updateMeRequestSchema,
+  type ChangePasswordRequest,
+  type ChangePasswordResponse,
+  type UpdateMeRequest,
+} from '../../../shared/contracts/users';
+import { ChangePassword } from '../../application/auth/change-password';
 import { GetMe, UpdateMe } from '../../application/users/manage-me';
+import type { Session } from '../../domain/entities/session';
 import type { User } from '../../domain/entities/user';
 import { AppConfig } from '../../infrastructure/config/app-config';
-import { CurrentUser } from '../auth/current-user';
+import { CurrentSession, CurrentUser } from '../auth/current-user';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { setLocaleCookie } from '../http/session-cookie';
@@ -19,6 +27,7 @@ export class MeController {
   constructor(
     private readonly getMe: GetMe,
     private readonly updateMe: UpdateMe,
+    private readonly changePassword: ChangePassword,
     private readonly config: AppConfig,
   ) {}
 
@@ -37,5 +46,25 @@ export class MeController {
     // Keep SSR in step with the chosen language (docs/10 §10.3).
     setLocaleCookie(res, this.config, updated.language);
     return successEnvelope(updated);
+  }
+
+  // POST /api/me/password (docs/08 §8.1.6a). `@CurrentSession()` is what keeps this browser signed
+  // in while every other session of the same user ends — and it is unreachable with an API token,
+  // which is right: a read-only credential has no business rotating the password behind it.
+  @Post('password')
+  @HttpCode(HttpStatus.OK)
+  async password(
+    @CurrentUser() user: User,
+    @CurrentSession() session: Session,
+    @ZodBody(changePasswordRequestSchema) body: ChangePasswordRequest,
+  ): Promise<Envelope<ChangePasswordResponse>> {
+    return successEnvelope(
+      await this.changePassword.execute({
+        userId: user.id,
+        currentSessionId: session.id,
+        currentPassword: body.currentPassword,
+        newPassword: body.newPassword,
+      }),
+    );
   }
 }

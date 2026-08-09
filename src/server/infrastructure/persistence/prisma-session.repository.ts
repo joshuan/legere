@@ -35,6 +35,19 @@ export class PrismaSessionRepository implements SessionRepository {
     return row === null ? null : toDomain(row);
   }
 
+  async findById(id: string, tx?: TransactionHandle): Promise<Session | null> {
+    const row = await clientOf(this.prisma, tx).session.findUnique({ where: { id } });
+    return row === null ? null : toDomain(row);
+  }
+
+  async listActiveForUser(userId: string, now: Date, tx?: TransactionHandle): Promise<Session[]> {
+    const rows = await clientOf(this.prisma, tx).session.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: now } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(toDomain);
+  }
+
   async revoke(id: string, revokedAt: Date, tx?: TransactionHandle): Promise<void> {
     await clientOf(this.prisma, tx).session.update({ where: { id }, data: { revokedAt } });
   }
@@ -42,6 +55,19 @@ export class PrismaSessionRepository implements SessionRepository {
   async revokeAllForUser(userId: string, revokedAt: Date, tx?: TransactionHandle): Promise<number> {
     const result = await clientOf(this.prisma, tx).session.updateMany({
       where: { userId, revokedAt: null },
+      data: { revokedAt },
+    });
+    return result.count;
+  }
+
+  async revokeAllForUserExcept(
+    userId: string,
+    exceptSessionId: string,
+    revokedAt: Date,
+    tx?: TransactionHandle,
+  ): Promise<number> {
+    const result = await clientOf(this.prisma, tx).session.updateMany({
+      where: { userId, revokedAt: null, id: { not: exceptSessionId } },
       data: { revokedAt },
     });
     return result.count;

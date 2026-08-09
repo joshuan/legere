@@ -5,9 +5,10 @@ import { EmailSendThrottle } from '../../application/ports/email-send-throttle';
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const MAX_CODES_PER_DAY = 5;
 
-// Sliding 24 h window per address (docs/08 §8.4). In-memory, so the cap is per instance and resets
-// on restart; the 60 s cap that guards against rapid-fire abuse is enforced from persisted state in
-// StartRegistration, which survives both.
+// Sliding 24 h window per address (docs/08 §8.4). 🔒 In-memory, so the cap is per instance and
+// resets on restart — a deliberate limitation, recorded with its cost in docs/08 §8.4. The 60 s cap
+// that guards against rapid-fire abuse is enforced from persisted state in StartRegistration, which
+// survives both, so a restart loses the daily ceiling and not the floor under it.
 @Injectable()
 export class InMemoryEmailSendThrottle extends EmailSendThrottle {
   private readonly sends = new Map<string, number[]>();

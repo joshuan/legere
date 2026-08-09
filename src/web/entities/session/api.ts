@@ -17,7 +17,16 @@ import {
   type RegisterVerifyResponse,
   type UserDto,
 } from '../../../shared/contracts/auth';
-import type { UpdateMeRequest } from '../../../shared/contracts/users';
+import {
+  changePasswordResponseSchema,
+  listSessionsResponseSchema,
+  okResponseSchema,
+  type ChangePasswordRequest,
+  type ChangePasswordResponse,
+  type ListSessionsResponse,
+  type OkResponse,
+  type UpdateMeRequest,
+} from '../../../shared/contracts/users';
 import { apiClient } from '../../shared/api';
 
 // Session/account endpoints (docs/07 §7.3). Each call names the contract schema its response is
@@ -47,6 +56,16 @@ export const sessionApi = {
   updateMe: (body: UpdateMeRequest): Promise<UserDto> =>
     apiClient.patch('/api/me', { schema: userDtoSchema, body }),
 
+  // An authenticated rotation (docs/08 §8.1.6a): every other session of this user ends with it.
+  changePassword: (body: ChangePasswordRequest): Promise<ChangePasswordResponse> =>
+    apiClient.post('/api/me/password', { schema: changePasswordResponseSchema, body }),
+
+  listSessions: (): Promise<ListSessionsResponse> =>
+    apiClient.get('/api/me/sessions', { schema: listSessionsResponseSchema }),
+
+  revokeSession: (id: string): Promise<OkResponse> =>
+    apiClient.delete(`/api/me/sessions/${id}`, { schema: okResponseSchema }),
+
   previewInvite: (token: string): Promise<InvitePreview> =>
     apiClient.get(`/api/invites/${encodeURIComponent(token)}`, { schema: invitePreviewSchema }),
 
@@ -59,6 +78,7 @@ export const sessionApi = {
 // Query keys for the session slice (docs/10 §10.5).
 export const sessionKeys = {
   me: ['me'] as const,
+  sessions: ['me', 'sessions'] as const,
   onboarding: ['auth', 'onboarding'] as const,
   invite: (token: string) => ['invite', token] as const,
   passwordReset: (token: string) => ['password-reset', token] as const,

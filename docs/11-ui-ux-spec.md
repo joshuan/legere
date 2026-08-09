@@ -368,6 +368,26 @@ Profile card: display name, email (read-only), language (English/Русский)
 An admin also sees a line pointing at **Administration → Instance** (§11.13a): this page is about
 the person, that one is about the server.
 
+**Password card** ([`08 §8.1.6a`](./08-auth-and-authorization.md)): current password, new password,
+and a repeat of the new one — the repeat is the client's own idea, since a typo in a string nobody
+can read back is a lockout waiting to happen, and it never leaves the browser. The card says in one
+line what changing the password does beyond changing it: everywhere else this account is signed in
+gets signed out, and this browser stays. On success the fields clear and a toast names how many
+other sessions ended; a wrong current password surfaces as `INVALID_CREDENTIALS` like any other
+error. This card is *not* a way back in for somebody locked out — that is still an admin's reset
+link (§11.2) — and the login screen says so rather than linking here.
+
+**Sessions card** ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions)): a table of
+the browsers currently signed in as this user — device (the user agent, or "Unknown device" when
+there is none, with a tag on the row that is asking), signed in, expires — and a **Sign out** button
+per row behind a confirm popover. The confirmation for the current row says something different,
+because it ends the session doing the asking; when it does, the server clears the cookie and the
+screen goes to `/login` rather than sitting on a page that starts failing one request at a time.
+Dead sessions are not listed at all: unlike a revoked API token, which is a record of something you
+handed out, a revoked session is a browser that has already stopped mattering. It sits beside the
+API tokens card because both answer one question — what is currently able to act as me — and both
+are the user's own to revoke without an admin.
+
 **API tokens card** ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)): a table
 of the user's own tokens — name, status tag (Active/Expired/Revoked), created, expires, last used
 ("never" until it is used) — with a **Revoke** button per living row (confirm popover) and a

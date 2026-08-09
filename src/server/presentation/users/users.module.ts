@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AuthenticateApiToken } from '../../application/auth/authenticate-api-token';
+import { ChangePassword } from '../../application/auth/change-password';
 import { Clock } from '../../application/ports/clock';
+import { PasswordHasher } from '../../application/ports/password-hasher';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import {
@@ -15,6 +17,7 @@ import {
   RevokeApiToken,
 } from '../../application/users/manage-api-tokens';
 import { GetMe, UpdateMe } from '../../application/users/manage-me';
+import { ListMySessions, RevokeMySession } from '../../application/users/manage-sessions';
 import {
   CreatePasswordReset,
   PreviewPasswordReset,
@@ -37,6 +40,7 @@ import { AdminInvitesController } from './admin-invites.controller';
 import { AdminUsersController } from './admin-users.controller';
 import { InvitesController } from './invites.controller';
 import { MeApiTokensController } from './me-api-tokens.controller';
+import { MeSessionsController } from './me-sessions.controller';
 import { MeController } from './me.controller';
 import { PasswordResetsController } from './password-resets.controller';
 
@@ -46,6 +50,7 @@ import { PasswordResetsController } from './password-resets.controller';
   controllers: [
     MeController,
     MeApiTokensController,
+    MeSessionsController,
     InvitesController,
     PasswordResetsController,
     AdminInvitesController,
@@ -134,6 +139,29 @@ import { PasswordResetsController } from './password-resets.controller';
       provide: UpdateMe,
       useFactory: (users: UserRepository): UpdateMe => new UpdateMe(users),
       inject: [UserRepository],
+    },
+    {
+      provide: ChangePassword,
+      useFactory: (
+        users: UserRepository,
+        sessions: SessionRepository,
+        hasher: PasswordHasher,
+        unitOfWork: UnitOfWork,
+        clock: Clock,
+      ): ChangePassword => new ChangePassword(users, sessions, hasher, unitOfWork, clock),
+      inject: [UserRepository, SessionRepository, PasswordHasher, UnitOfWork, Clock],
+    },
+    {
+      provide: ListMySessions,
+      useFactory: (sessions: SessionRepository, clock: Clock): ListMySessions =>
+        new ListMySessions(sessions, clock),
+      inject: [SessionRepository, Clock],
+    },
+    {
+      provide: RevokeMySession,
+      useFactory: (sessions: SessionRepository, clock: Clock): RevokeMySession =>
+        new RevokeMySession(sessions, clock),
+      inject: [SessionRepository, Clock],
     },
     {
       provide: ListUsers,

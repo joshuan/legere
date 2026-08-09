@@ -2,8 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { Clock } from '../../application/ports/clock';
 import { LoginAttempts } from '../../application/ports/login-attempts';
 
-// Backoff starts after five consecutive failures and doubles per failure, capped so an account is
-// never locked out permanently (docs/08 §8.4).
+// Backoff starts at the fifth consecutive failure and doubles per failure, capped at fifteen
+// minutes (docs/08 §8.4). Nothing here can lock an account out: the window is consulted only after
+// a wrong password, so the owner's own password still opens the door mid-streak.
+//
+// 🔒 In memory, so a restart clears every streak. That is a deliberate limitation rather than an
+// oversight — see docs/08 §8.4 for what it costs and what fixing it would take.
 export const FAILURES_BEFORE_BACKOFF = 5;
 const BASE_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 15 * 60 * 1000;

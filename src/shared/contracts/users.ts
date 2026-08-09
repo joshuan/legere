@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PASSWORD_MAX_LENGTH, passwordSchema } from './auth';
 import { paginatedSchema, paginationQuerySchema } from './common';
 import { languageSchema, themeSchema, userRoleSchema } from './enums';
 
@@ -15,6 +16,41 @@ export const updateMeRequestSchema = z
     message: 'At least one field must be provided',
   });
 export type UpdateMeRequest = z.infer<typeof updateMeRequestSchema>;
+
+// POST /api/me/password — an authenticated rotation, not a recovery (docs/08 §8.1.6a). The current
+// password is required, and the new one passes the same rule as one chosen at sign-up: the two
+// differ only in that a password already in use must remain presentable however weak it is.
+export const changePasswordRequestSchema = z
+  .object({
+    currentPassword: z.string().min(1).max(PASSWORD_MAX_LENGTH),
+    newPassword: passwordSchema,
+  })
+  .refine((value) => value.currentPassword !== value.newPassword, {
+    message: 'The new password must differ from the current one',
+    path: ['newPassword'],
+  });
+export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
+
+// `revoked` counts the *other* sessions ended by the change; this one survives it (docs/08 §8.1.6a).
+export const changePasswordResponseSchema = z.object({
+  revoked: z.number().int().nonnegative(),
+});
+export type ChangePasswordResponse = z.infer<typeof changePasswordResponseSchema>;
+
+// GET /api/me/sessions — the caller's own live sessions (docs/08 §8.2). Nothing here identifies a
+// session to anybody but its owner: the token and its hash stay on the server.
+export const sessionDtoSchema = z.object({
+  id: z.string().uuid(),
+  userAgent: z.string().nullable(),
+  // Which row is the browser asking the question, so the UI can warn before it signs itself out.
+  current: z.boolean(),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+});
+export type SessionDto = z.infer<typeof sessionDtoSchema>;
+
+export const listSessionsResponseSchema = z.object({ items: z.array(sessionDtoSchema) });
+export type ListSessionsResponse = z.infer<typeof listSessionsResponseSchema>;
 
 // GET /api/admin/users — paginated, sorted by createdAt asc.
 export const adminUserDtoSchema = z.object({

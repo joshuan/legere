@@ -146,19 +146,35 @@ describe('Login and sessions (e2e)', () => {
     const email = 'backoff@legere.local';
     await onboard(email);
 
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
+    // The first four are plain refusals; the fifth opens the backoff window (docs/08 §8.4).
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
       const res = await login({ email, password: 'wrong-passphrase' });
       expect(res.status).toBe(401);
     }
-
-    // The sixth is refused outright, even with the right password.
-    const throttled = await login({ email, password: PASSWORD });
+    const throttled = await login({ email, password: 'wrong-passphrase' });
     expect(throttled.status).toBe(429);
     expect(expectError(throttled).code).toBe('RATE_LIMITED');
 
     // Another address is unaffected — the backoff is per email, not global.
     const other = await login({ email: 'someone-else@legere.local', password: PASSWORD });
     expect(other.status).toBe(401);
+  });
+
+  // 🔒 SEC-12: knowing an address used to be enough to keep its owner out for ever, because the
+  // streak was consulted before the password was (docs/08 §8.4).
+  it('lets the owner sign in while somebody else is failing against their address', async () => {
+    const email = 'victim@legere.local';
+    await onboard(email);
+
+    for (let attempt = 1; attempt <= 12; attempt += 1) {
+      await login({ email, password: 'wrong-passphrase' });
+    }
+    // Deep enough that the old backoff had reached its fifteen-minute cap.
+    expect((await login({ email, password: 'wrong-passphrase' })).status).toBe(429);
+
+    const signedIn = await login({ email, password: PASSWORD });
+    expect(signedIn.status).toBe(200);
+    expect(cookieNamed(signedIn, 'sid')).toBeDefined();
   });
 
   it('clears the failure streak after a successful login', async () => {
@@ -175,6 +191,25 @@ describe('Login and sessions (e2e)', () => {
       expect((await login({ email, password: 'wrong-passphrase' })).status).toBe(401);
     }
     expect((await login({ email, password: PASSWORD })).status).toBe(200);
+  });
+
+  // 🔒 The streak must not become an oracle: an address nobody registered has to reach the backoff
+  // on the same failure and answer the same thing (docs/08 §8.1.4).
+  it('backs an unknown address off exactly as it backs off one that exists', async () => {
+    const email = 'known-here@legere.local';
+    await onboard(email);
+
+    const known: number[] = [];
+    const unknown: number[] = [];
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
+      known.push((await login({ email, password: 'wrong-passphrase' })).status);
+      unknown.push(
+        (await login({ email: 'nobody-here@legere.local', password: 'wrong-passphrase' })).status,
+      );
+    }
+
+    expect(unknown).toEqual(known);
+    expect(known).toEqual([401, 401, 401, 401, 429, 429]);
   });
 
   describe('CSRF (fail-closed origin check)', () => {

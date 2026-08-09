@@ -2,14 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FakeSessionTokens,
   FixedClock,
+  InMemorySessionRepository,
   InMemoryUserRepository,
   StubCaptchaVerifier,
 } from '../../../../test/helpers/fakes';
 import { Argon2PasswordHasher } from '../../infrastructure/auth/argon2-password-hasher';
 import { InMemoryLoginAttempts } from '../../infrastructure/auth/in-memory-login-attempts';
-import { SessionRepository } from '../../domain/repositories/session.repository';
-import type { Session } from '../../domain/entities/session';
-import type { CreateSessionInput } from '../../domain/repositories/session.repository';
 import { IssueSession } from './issue-session';
 import { Login } from './login';
 
@@ -23,51 +21,6 @@ class CountingPasswordHasher extends Argon2PasswordHasher {
   override verify(hash: string, password: string): Promise<boolean> {
     this.verified.push(hash);
     return super.verify(hash, password);
-  }
-}
-
-class InMemorySessionRepository extends SessionRepository {
-  readonly sessions: Session[] = [];
-  private counter = 0;
-
-  constructor(private readonly clock: FixedClock) {
-    super();
-  }
-
-  create(input: CreateSessionInput): Promise<Session> {
-    this.counter += 1;
-    const session: Session = {
-      id: `session-${this.counter}`,
-      tokenHash: input.tokenHash,
-      userId: input.userId,
-      userAgent: input.userAgent,
-      createdAt: this.clock.now(),
-      expiresAt: input.expiresAt,
-      revokedAt: null,
-    };
-    this.sessions.push(session);
-    return Promise.resolve(session);
-  }
-
-  findByTokenHash(tokenHash: string): Promise<Session | null> {
-    return Promise.resolve(this.sessions.find((s) => s.tokenHash === tokenHash) ?? null);
-  }
-
-  revoke(id: string, revokedAt: Date): Promise<void> {
-    const session = this.sessions.find((s) => s.id === id);
-    if (session !== undefined) session.revokedAt = revokedAt;
-    return Promise.resolve();
-  }
-
-  revokeAllForUser(userId: string, revokedAt: Date): Promise<number> {
-    let revoked = 0;
-    for (const session of this.sessions) {
-      if (session.userId === userId && session.revokedAt === null) {
-        session.revokedAt = revokedAt;
-        revoked += 1;
-      }
-    }
-    return Promise.resolve(revoked);
   }
 }
 
@@ -175,26 +128,83 @@ describe('Login', () => {
     ).rejects.toMatchObject({ code: 'CAPTCHA_FAILED' });
   });
 
-  it('applies an exponential backoff after five failures and clears it on success', async () => {
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
-      await expect(
-        context.useCase.execute({
-          email: 'user@legere.local',
-          password: 'not-the-password',
-          userAgent: null,
-        }),
-      ).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
+  it('applies an exponential backoff to repeated failures against one address', async () => {
+    const wrong = () =>
+      context.useCase.execute({
+        email: 'user@legere.local',
+        password: 'not-the-password',
+        userAgent: null,
+      });
+
+    // The first four are plain refusals; the fifth is where the window opens (docs/08 §8.4).
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      await expect(wrong()).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' });
     }
+    await expect(wrong()).rejects.toMatchObject({ code: 'RATE_LIMITED', httpStatus: 429 });
 
-    await expect(
-      context.useCase.execute({ email: 'user@legere.local', password: PASSWORD, userAgent: null }),
-    ).rejects.toMatchObject({ code: 'RATE_LIMITED' });
-
-    // The window passes and the right password works again, which resets the streak.
+    // And it grows: a failure inside the window doubles the wait for the next one.
     context.clock.advance(1_001);
+    await expect(wrong()).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    expect(context.attempts.retryAfterMs('user@legere.local')).toBe(2_000);
+  });
+
+  it('signs the owner in mid-backoff, because the password is checked before the streak', async () => {
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      await context.useCase
+        .execute({ email: 'user@legere.local', password: 'not-the-password', userAgent: null })
+        .catch(() => undefined);
+    }
+    // 🔒 The streak is deep enough to be a lockout under the old order (docs/08 §8.4, SEC-12).
+    expect(context.attempts.retryAfterMs('user@legere.local')).toBeGreaterThan(0);
+
     await expect(
       context.useCase.execute({ email: 'user@legere.local', password: PASSWORD, userAgent: null }),
-    ).resolves.toBeDefined();
+    ).resolves.toMatchObject({ user: { email: 'user@legere.local' } });
+
+    // Success clears it whatever it said, so the next wrong guess starts from zero again.
     expect(context.attempts.retryAfterMs('user@legere.local')).toBe(0);
   });
+
+  it('backs an unknown address off exactly as it backs off one that exists', async () => {
+    const fail = (email: string) =>
+      context.useCase
+        .execute({ email, password: 'not-the-password', userAgent: null })
+        .catch((error: unknown) => error);
+
+    const known = [];
+    const unknown = [];
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      known.push(await fail('user@legere.local'));
+      unknown.push(await fail('nobody@legere.local'));
+    }
+
+    // 🔒 Failure for failure the two addresses answer the same thing, so the streak cannot be used
+    // to ask whether an account exists (docs/08 §8.1.4).
+    expect(unknown.map(codeOf)).toEqual(known.map(codeOf));
+    expect(codeOf(known[4])).toBe('RATE_LIMITED');
+  });
+
+  it('spends one verification per attempt whether or not the address is in backoff', async () => {
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
+      await context.useCase
+        .execute({ email: 'user@legere.local', password: 'not-the-password', userAgent: null })
+        .catch(() => undefined);
+    }
+    context.hasher.verified.length = 0;
+
+    // Refused as a rate limit, and still paid for: nothing answers before the hash is computed, so
+    // a fast 429 and a slow 401 can never be told apart by a clock (docs/08 §8.1.4, §8.4).
+    await context.useCase
+      .execute({ email: 'user@legere.local', password: 'not-the-password', userAgent: null })
+      .catch(() => undefined);
+    await context.useCase
+      .execute({ email: 'nobody@legere.local', password: 'not-the-password', userAgent: null })
+      .catch(() => undefined);
+
+    expect(context.hasher.verified).toHaveLength(2);
+  });
 });
+
+function codeOf(error: unknown): unknown {
+  return error instanceof Object && 'code' in error ? error.code : error;
+}

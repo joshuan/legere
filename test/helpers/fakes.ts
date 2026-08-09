@@ -139,6 +139,23 @@ export class InMemorySessionRepository extends SessionRepository {
     );
   }
 
+  findById(id: string): Promise<Session | null> {
+    return Promise.resolve(this.sessions.find((session) => session.id === id) ?? null);
+  }
+
+  listActiveForUser(userId: string, now: Date): Promise<Session[]> {
+    return Promise.resolve(
+      this.sessions
+        .filter(
+          (session) =>
+            session.userId === userId &&
+            session.revokedAt === null &&
+            session.expiresAt.getTime() > now.getTime(),
+        )
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()),
+    );
+  }
+
   revoke(id: string, revokedAt: Date): Promise<void> {
     const session = this.sessions.find((candidate) => candidate.id === id);
     if (session !== undefined) session.revokedAt = revokedAt;
@@ -146,9 +163,28 @@ export class InMemorySessionRepository extends SessionRepository {
   }
 
   revokeAllForUser(userId: string, revokedAt: Date): Promise<number> {
+    return this.revokeMatching(
+      (session) => session.userId === userId && session.revokedAt === null,
+      revokedAt,
+    );
+  }
+
+  revokeAllForUserExcept(
+    userId: string,
+    exceptSessionId: string,
+    revokedAt: Date,
+  ): Promise<number> {
+    return this.revokeMatching(
+      (session) =>
+        session.userId === userId && session.revokedAt === null && session.id !== exceptSessionId,
+      revokedAt,
+    );
+  }
+
+  private revokeMatching(matches: (session: Session) => boolean, revokedAt: Date): Promise<number> {
     let revoked = 0;
     for (const session of this.sessions) {
-      if (session.userId === userId && session.revokedAt === null) {
+      if (matches(session)) {
         session.revokedAt = revokedAt;
         revoked += 1;
       }

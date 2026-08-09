@@ -16,6 +16,7 @@ export const ERROR_MESSAGE_KEYS: Record<ErrorCode | 'NETWORK', string> = {
   FILE_NOT_FOUND: 'errors.codes.FILE_NOT_FOUND',
   INVITE_NOT_FOUND: 'errors.codes.INVITE_NOT_FOUND',
   API_TOKEN_NOT_FOUND: 'errors.codes.API_TOKEN_NOT_FOUND',
+  SESSION_NOT_FOUND: 'errors.codes.SESSION_NOT_FOUND',
   READ_ONLY_TOKEN: 'errors.codes.READ_ONLY_TOKEN',
   EMAIL_ALREADY_REGISTERED: 'errors.codes.EMAIL_ALREADY_REGISTERED',
   LAST_ADMIN: 'errors.codes.LAST_ADMIN',

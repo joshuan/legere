@@ -65,9 +65,39 @@ to the user out of band. The user opens the link and passes the same 3-step flow
 user's sessions. Entities — [`03 §3.3.5`](./03-domain-model.md#335-passwordreset); endpoints —
 [`07 §7.3`](./07-api-specification.md#73-endpoints).
 
+### 8.1.6a. Password change (self-service, authenticated)
+`POST /api/me/password { currentPassword, newPassword }` — a signed-in user replaces their own
+password without asking anybody. This is a **rotation**, not the recovery §8.1.7 rules out: the
+caller is already authenticated and proves it a second time with the password being replaced, so
+nothing here is a way in for somebody who is locked out.
+
+- The current password is verified with the same `PasswordHasher` as login; wrong → `401
+  INVALID_CREDENTIALS`. There is no enumeration question to answer — who is asking was settled by
+  the session guard — so the answer can be plain.
+- The new password passes the rule of §8.1.3 step 3 (8–128 + the denylist) and must differ from the
+  current one.
+- 🔒 **Every other session of that user is revoked**, and the one making the request is kept. Someone
+  rotating a password because they believe it leaked has to be able to end the sessions the leak
+  bought; the session they are sitting in is the one they can vouch for, and signing them out of it
+  would make the safe action the annoying one. The write and the revocation share a transaction: a
+  password changed without them would leave stolen sessions alive under a password their owner
+  believes they have already replaced.
+- The response carries how many other sessions ended, so the UI can say it.
+- Reachable with a **session only**. It is a mutation, so a bearer credential is refused before
+  routing (§8.2a) — a read-only token has no business rotating the password behind it.
+- API tokens are deliberately **not** revoked by a password change: a token is a separate credential
+  with its own list and its own revocation (§8.2a), and killing a backup script because somebody
+  changed their password is a surprise nobody asked for. The sessions card and the tokens card sit
+  next to each other on `/settings` precisely so both can be dealt with in one visit.
+
 ### 8.1.7. Not in the MVP
-No self-service password recovery ("Contact your administrator"), no email change, no MFA. Email
-verification always exists (protection against address squatting).
+No self-service password **recovery** — a person who cannot sign in is told to contact their
+administrator, who issues the single-use link of §8.1.6. That is about *recovery*, and it does not
+rule out rotation: a user who **can** sign in changes their own password under §8.1.6a, which asks
+for something only they know and therefore needs nobody's help.
+
+Also not in the MVP: no email change, no MFA. Email verification always exists (protection against
+address squatting).
 
 ### 8.1.8. Local development
 SMTP not configured → `LogEmailSender`, which records that a letter was not sent — its recipient and
@@ -95,6 +125,36 @@ which is how a developer signs in without mail at all.
   instance on `http://<lan-ip>` unable to hold a session at all — the operator's choice to run
   without TLS should cost them encryption, not the ability to log in. Any deployment reachable over
   HTTPS gets the attribute, in production or not.
+
+**A user's own sessions.** `GET /api/me/sessions` lists the caller's **live** sessions — when each
+started, the user agent it carries, and which one is asking — and `DELETE /api/me/sessions/:id` ends
+any of them ([`07 §7.3`](./07-api-specification.md#73-endpoints)). Revoked and expired rows are left
+out: unlike an API token, whose history answers "what did I hand out", a dead session is a fact about
+a browser that has already stopped mattering. Revoking the current one is allowed and clears the
+cookie with it — signing this device out from the list is what the list is for. Somebody else's
+session answers `404 SESSION_NOT_FOUND`, not `403`: that it exists at all is none of their business.
+Both routes need a **session**, not a token: "which of these is you" is a question a bearer
+credential has no answer to, so it is refused with `403 FORBIDDEN` rather than crashing. An admin
+could already end anybody's sessions (§8.3); this is the same power in the hands of the person the
+sessions belong to, because a credential you cannot see is a credential you cannot revoke.
+
+**Lifetime: 30 days absolute, and no idle timeout.** A session dies when it is revoked, when its
+owner is deactivated, or when the 30 days set at login run out — not because nobody used it for a
+while. An idle timeout was considered and **not** adopted: this is a self-hosted archive somebody
+consults every few weeks, an idle clock would sign them out between visits for a threat (a browser
+left open on a shared machine) that the revocation list above already answers deliberately. A role
+change does not re-issue the session either — the role is re-read from the user on every request
+(§8.2a makes the same promise for tokens), so a demotion takes effect immediately without touching
+the session at all.
+
+🔒 **What `COOKIE_DOMAIN` costs.** Unset (the default), `sid` is a host-only cookie: only the exact
+host the app is served from ever receives it. Set to `example.com`, the browser sends it to
+`example.com` **and every subdomain of it** — `wiki.example.com`, `grafana.example.com`, whatever
+else the operator runs there, including anything they do not control. One XSS or one hostile app on
+any sibling subdomain then reads a session for this instance; the same applies to a subdomain
+somebody else can take over. Set it only when Legere genuinely spans several hostnames under one
+domain, and treat every sibling as being inside the trust boundary when you do
+([`12 §12.4`](./12-build-config-run.md)).
 
 ## 8.2a. API tokens (read-only)
 
@@ -154,10 +214,66 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   added later would otherwise inherit the session cookie with no check at all.
 - **Rate limiting:** layer 1 — per-IP in-memory (`@nestjs/throttler`) on `/api/auth/*` and
   `/api/invites/*` (incl. protection against Argon2 flooding); layer 2 — per-email: `register/start`
-  ≤1 code/60 s and ≤5/day; `register/verify` ≤5 wrong attempts → the record is burned; `login` —
-  exponential backoff after 5 failures. Exceeding → `429 RATE_LIMITED`; all errors are generic.
+  ≤1 code/60 s and ≤5/day; `register/verify` ≤5 wrong attempts → the record is burned; `login` — an
+  exponential backoff on **failures**, specified below. Exceeding → `429 RATE_LIMITED`; all errors
+  are generic.
 - **CAPTCHA:** Cloudflare Turnstile on login and register/start; a `CaptchaVerifier` port; keys not set
   (dev) → no-op.
+
+### 8.4.1a. The login backoff, and what it may never do
+
+🔒 **The password is checked first; only a failure is delayed.** One login attempt runs in this
+order: CAPTCHA → look the address up → verify a password hash → and *then*, on a failure only,
+record the failure and read the backoff. Consecutive failures against one address are counted, and
+from the fifth each further failure answers `429 RATE_LIMITED` for a window that starts at one
+second and doubles per failure to a cap of fifteen minutes. A **correct** password signs in
+whatever the streak says, and clears it.
+
+This is the whole point, and it is a change from what this document used to specify. The backoff
+used to be read *before* the password: five wrong guesses against an address, then one request every
+fifteen minutes, and its rightful owner could never sign in again — knowing the correct password did
+not help, because nothing looked at it. That made an email address a remote lockout weapon at about
+96 requests a day per victim (SEC-12). The rule that replaces it: **a backoff may slow an attacker
+down, and it may never stand between an account and its own password.**
+
+What the inversion costs, and why it is affordable: an unauthenticated caller now spends one Argon2
+verification per request, because the expensive operation moved in front of the cheap gate. That is
+bounded on purpose — password hashing runs behind a concurrency gate of two (`ConcurrencyGate` in
+`Argon2PasswordHasher`, which is the "protection against Argon2 flooding" the rate-limiting bullet
+above names), so a login flood queues instead of holding every libuv thread, and the per-IP
+throttler stands in front of the controller. The cost was already being paid
+on the most common path anyway: every attempt against an address that exists always verified a hash.
+
+🔒 **The refusal must stay indistinguishable.** Exactly one verification happens per attempt on every
+path — an address nobody registered is verified against a dummy hash (§8.1.4) — and the streak is
+never consulted before that verification, so a fast `429` and a slow `401` cannot be told apart by a
+clock. Failures are recorded for unknown addresses too, so an address that does not exist reaches
+the backoff on the same attempt and answers the same code as one that does. Neither the answer nor
+its timing may be allowed to say whether an account exists.
+
+### 8.4.1b. What the throttles forget when the process restarts
+
+🔒 The login streaks (`InMemoryLoginAttempts`) and the per-address daily email cap
+(`InMemoryEmailSendThrottle`) live **in the process**, so a restart clears both, and two instances
+behind a load balancer would each keep their own. This is a **deliberate limitation**, recorded here
+rather than left to be discovered:
+
+- **Neither has a home in the schema** ([`04 §4.1`](./04-database-schema.md)): persisting them means
+  a table, a migration, a write on every failed login and a sweep for old rows — real cost for a
+  self-hosted instance that mostly has one process and one user.
+- **What a restart costs is now small.** Since §8.4.1a the login streak can no longer lock anybody
+  out; losing it hands an attacker a few free guesses, which the per-IP throttler and the Argon2
+  gate still charge for. The 60-second floor between two verification codes is enforced from the
+  `EmailVerification` row and therefore **survives** a restart; only the daily ceiling of five is
+  lost, so a restart loosens the cap without removing the brake under it.
+- **The remaining exposure** is an attacker who can make the process restart at will — a crash loop —
+  who would then reset the daily email cap on demand. Anybody with that power has a denial of
+  service already, which is the larger problem.
+
+Persisting both is the right answer for a multi-instance deployment and stays on the table; it is a
+forward-only migration plus a repository, and nothing in the ports has to change to allow it. The
+per-IP throttler already documents the same per-instance limitation
+([`12 §12.8`](./12-build-config-run.md)).
 
 ## 8.5. Content access model
 
@@ -196,8 +312,13 @@ Guards: `SessionGuard` (authn) → `RolesGuard` (admin routes) → `DocumentAcce
 - [ ] Registration — 3 steps with an email code (HMAC hash, TTL 10 min, ≤5 attempts); the `User` is
       created only at step 3 via a single-use ticket.
 - [ ] Login: a single `INVALID_CREDENTIALS` + dummy verify; Argon2id; no JWT.
+- [ ] The login backoff never locks an account out: the password is verified before the streak is
+      read, a correct one signs in and clears it, and a failure against an unknown address is
+      refused with the same code at the same attempt as one against an address that exists (§8.4.1a).
 - [ ] Session: an opaque token stored as a hash, new per login, revoked on logout; cookie
       httpOnly/SameSite=Lax/Secure(prod).
+- [ ] A user can list and end their own sessions, and change their own password with the current one
+      — which ends every other session of theirs and keeps the one that asked (§8.1.6a, §8.2).
 - [ ] Mutations — fail-closed `csrfOriginCheck`; per-IP + per-email rate limiting; CAPTCHA on
       login/start.
 - [ ] API tokens: hashed at rest, shown once, mandatory expiry, revoked with the owner; a mutating

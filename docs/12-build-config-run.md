@@ -5,6 +5,16 @@
 - Node **26** (exact version pinned in `.nvmrc` at scaffolding; always `nvm use`).
 - npm only; one `package.json`, `package-lock.json` committed. `pnpm`/`yarn`/`bun` forbidden.
 - TypeScript **7**, `strict`. Dev/test transpilation — SWC (ADR-017); prod server build — `tsc`.
+- The lockfile is authoritative and is regenerated with `npm run deps:relock` — the install runs in a
+  `node:26-alpine` container with `--ignore-scripts`, so the resolution matches the image's platform
+  and no dependency's install script runs on the developer's machine to produce it.
+- **`overrides` are for advisories a direct dependency will not let go of**, never for pinning a
+  version somebody prefers. A transitive package with an open advisory whose parent pins it exactly
+  is the only case: `next` pins `postcss` to an exact version and takes `sharp` as an optional
+  dependency a major behind, and `eslint-plugin-boundaries` pins `handlebars` exactly (SEC-07). Each
+  entry raises the package to the version the upstream project itself already ships, and comes out
+  again when the parent catches up — CI's `npm audit` ([`13 §13.1`](./13-ci-cd.md#131-principles)) is
+  what says when it has not.
 
 ## 12.2. npm scripts (authoritative)
 

@@ -4,9 +4,10 @@ on:
     branches: [main]
     tags: ['v*']
 
+# 🔒 SEC-21. Read-only by default; `packages: write` is granted to the two jobs that publish and
+# withheld from the one that only reads the published image back.
 permissions:
   contents: read
-  packages: write
 
 # Each platform builds on a runner of its own architecture and pushes an untagged manifest by digest;
 # a final job stitches the digests into one multi-platform tag. The obvious alternative — one job
@@ -27,16 +28,22 @@ jobs:
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      # 🔒 SEC-21. Every third-party action is pinned to a commit SHA — a major tag is mutable, and
+      # this pipeline holds `packages: write` over the image every deployment pulls. The version in
+      # the comment is what a person reads and what Dependabot rewrites alongside the SHA.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile
@@ -53,7 +60,7 @@ jobs:
           touch "/tmp/digests/${DIGEST#sha256:}"
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: digest-${{ strategy.job-index }}
           path: /tmp/digests/*
@@ -62,20 +69,25 @@ jobs:
   merge:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: /tmp/digests
           pattern: digest-*
           merge-multiple: true
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.IMAGE }}
           tags: |
@@ -90,3 +102,28 @@ jobs:
             $(printf "${IMAGE}@sha256:%s " *)
       - name: Show what was published
         run: docker buildx imagetools inspect "${IMAGE}:${{ steps.meta.outputs.version }}"
+
+  # 🔒 SEC-07/SEC-21. `npm audit` in CI covers what the lockfile declares; it says nothing about the
+  # Alpine packages and the native libraries underneath — which is exactly where the libvips CVEs
+  # that started this lived. The scan runs after publication and on the tag that was published, so
+  # what is reported is the artifact deployments pull, not an approximation of it.
+  scan:
+    needs: merge
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:${{ needs.merge.outputs.version }}
+          severity: HIGH,CRITICAL
+          # A finding nobody can act on is a broken build nobody can fix: an unfixed base-image CVE
+          # has no upgrade to take. Fixed ones do, and those fail the job.
+          ignore-unfixed: true
+          exit-code: '1'

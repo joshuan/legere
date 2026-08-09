@@ -14,6 +14,9 @@ export const ERROR_CODES = [
   'FILE_NOT_FOUND',
   'INVITE_NOT_FOUND',
   'API_TOKEN_NOT_FOUND',
+  // 🔒 Somebody else's session is not found rather than forbidden: that it exists at all is none
+  // of the caller's business (docs/08 §8.2).
+  'SESSION_NOT_FOUND',
   // 🔒 A bearer token may read and nothing else, refused before routing (docs/08 §8.2a).
   'READ_ONLY_TOKEN',
   'EMAIL_ALREADY_REGISTERED',

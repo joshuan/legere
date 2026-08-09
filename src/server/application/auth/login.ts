@@ -32,6 +32,13 @@ const DUMMY_PASSWORD = 'dummy-password-for-constant-time-login';
 
 // POST /api/auth/login (docs/08 §8.1.4). Login never creates an account; a successful attempt always
 // gets a brand-new session, which is what makes the flow immune to session fixation (docs/08 §8.2).
+//
+// 🔒 The password is checked before anything is refused, and the per-address backoff of docs/08 §8.4
+// applies to failures only. Gating on the streak first made knowing an address enough to keep its
+// owner out for ever: five wrong guesses, then one request every fifteen minutes, and the right
+// password never got looked at. The cost of the inversion is that an unauthenticated caller can
+// spend one Argon2 verification per request; that is bounded by the hashing gate the hasher runs
+// behind (`ConcurrencyGate`) and by the per-IP throttler in front of this controller.
 export class Login {
   private dummyHash: Promise<string> | null = null;
 
@@ -48,21 +55,21 @@ export class Login {
       throw new AuthFlowError('CAPTCHA_FAILED', 'CAPTCHA verification failed');
     }
 
-    const retryAfterMs = this.attempts.retryAfterMs(input.email);
-    if (retryAfterMs > 0) {
-      throw new RateLimitedError('RATE_LIMITED', 'Too many failed attempts; try again later');
-    }
-
     const user = await this.users.findActiveByEmail(input.email);
-    if (user === null) {
-      // Spend the same time as a real verification would, then answer identically.
-      await this.hasher.verify(await this.dummy(), input.password);
-      this.attempts.recordFailure(input.email);
-      throw new InvalidCredentialsError();
-    }
+    // Exactly one verification per attempt, whichever branch this is: an address nobody registered
+    // is checked against a dummy hash, so neither the answer nor the time it took says whether the
+    // account exists (docs/08 §8.1.4). The streak is not consulted before this line — reading it
+    // here would answer some attempts without hashing and hand back the timing oracle.
+    const passwordHash = user?.passwordHash ?? (await this.dummy());
+    const matches = await this.hasher.verify(passwordHash, input.password);
 
-    if (!(await this.hasher.verify(user.passwordHash, input.password))) {
+    if (user === null || !matches) {
       this.attempts.recordFailure(input.email);
+      // Only a failure is delayed, and the delay is the same for an address that exists and one
+      // that does not — the failure was recorded either way, so both reach the window together.
+      if (this.attempts.retryAfterMs(input.email) > 0) {
+        throw new RateLimitedError('RATE_LIMITED', 'Too many failed attempts; try again later');
+      }
       throw new InvalidCredentialsError();
     }
 
@@ -73,6 +80,7 @@ export class Login {
       throw new ForbiddenError('This account is deactivated');
     }
 
+    // Whatever the streak said. A correct password is the proof the backoff exists to wait for.
     this.attempts.clear(input.email);
     const { token } = await this.issueSession.execute(user.id, input.userAgent);
     return { user: toUserDto(user), sessionToken: token };
