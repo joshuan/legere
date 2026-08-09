@@ -25,7 +25,10 @@ permanently answers 404/redirect (a race between two onboardings is resolved by 
 - The invitee opens the link → goes through the 3-step registration (§8.1.3) → the account is created
   with the role from the invite, the invite is marked used (`acceptedById/acceptedAt`).
 - Token properties: high-entropy, single-use, stored only as a hash, with a TTL, revocable; it is a
-  bearer secret — never logged.
+  bearer secret — never logged. 🔒 It travels in a path segment, which is the one place a URL is
+  written down by default, so the request serializer logs the *shape* of a route and never its
+  values ([`06 §6.7`](./06-backend-architecture.md#67-logging)): `GET /api/invites/:x`. The same
+  holds for the reset link of §8.1.6.
 
 ### 8.1.3. The three account-setup steps (shared by onboarding, invites, and password resets)
 A `User` is not created until email ownership is proven and a password is set. The intermediate state
@@ -67,8 +70,16 @@ No self-service password recovery ("Contact your administrator"), no email chang
 verification always exists (protection against address squatting).
 
 ### 8.1.8. Local development
-SMTP not configured → `LogEmailSender` prints the code to the log. CAPTCHA keys not set → no-op. The
-seed creates an admin and a user with the password `password`.
+SMTP not configured → `LogEmailSender`, which records that a letter was not sent — its recipient and
+its subject — and never what was in it. 🔒 Every body this application composes carries the six-digit
+code of §8.1.3, and a log is read by more people than a database is, so there is no level at which
+printing it is safe; the code exists in the letter and nowhere else. Going through registration on a
+laptop therefore needs somewhere for mail to land: a local catcher costs one command
+([`12 §12.5`](./12-build-config-run.md#125-local-development)). A production instance refuses to
+start with no `SMTP_HOST` at all ([`12 §12.4a`](./12-build-config-run.md#124a-what-production-refuses-to-start-with)).
+
+CAPTCHA keys not set → no-op. The seed creates an admin and a user with the password `password`,
+which is how a developer signs in without mail at all.
 
 ## 8.2. Server-side sessions
 
@@ -191,7 +202,11 @@ Guards: `SessionGuard` (authn) → `RolesGuard` (admin routes) → `DocumentAcce
       login/start.
 - [ ] API tokens: hashed at rest, shown once, mandatory expiry, revoked with the owner; a mutating
       request carrying one is refused before routing (§8.2a).
-- [ ] `passwordHash`/`tokenHash`/codes/tickets and email bodies are never serialized or logged.
+- [ ] `passwordHash`/`tokenHash`/codes/tickets and email bodies are never serialized or logged —
+      including by the request log, which writes the shape of a route and not the token in it, drops
+      the query string, and removes the filename headers ([`06 §6.7`](./06-backend-architecture.md#67-logging));
+      including when no mail server is configured, where the letter is recorded as its recipient and
+      subject and its body is dropped (§8.1.8).
 - [ ] Every protected route — `SessionGuard` (+ `RolesGuard`/`DocumentAccessGuard`); file endpoints —
       under the same authorization; the S3 bucket is private, signed URLs with a short TTL only.
 - [ ] Libraries are mounted `:ro`; paths validated against the root (no path traversal/symlinks out).

@@ -1,12 +1,10 @@
 import { Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import { type Envelope } from '../../../shared/contracts/common';
 import {
-  paginationQuerySchema,
-  type Envelope,
-  type PaginationQuery,
-} from '../../../shared/contracts/common';
-import {
+  listQueueFailuresQuerySchema,
   reprocessByStepRequestSchema,
   updateQueueSettingsRequestSchema,
+  type ListQueueFailuresQuery,
   type ListQueueFailuresResponse,
   type QueueOverviewResponse,
   type QueueSettingsDto,
@@ -101,9 +99,11 @@ export class AdminQueueController {
     return successEnvelope(await this.overview.execute());
   }
 
+  // 🔒 The cursor is the `failedAt` of the last row, and is validated as one: an unreadable cursor
+  // is a malformed query parameter here, not an opaque string to start over from (docs/07 §7.1).
   @Get('failures')
   async listFailures(
-    @ZodQuery(paginationQuerySchema) query: PaginationQuery,
+    @ZodQuery(listQueueFailuresQuerySchema) query: ListQueueFailuresQuery,
   ): Promise<Envelope<ListQueueFailuresResponse>> {
     return successEnvelope(await this.failures.execute(query));
   }

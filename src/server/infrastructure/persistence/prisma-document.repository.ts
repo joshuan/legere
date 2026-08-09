@@ -51,6 +51,7 @@ import {
   encodeTextCursor,
   type DocumentCursor,
 } from './cursor';
+import { folderPrefixPattern } from './like';
 import { clientOf } from './prisma-client';
 import type { PrismaTx } from './prisma-unit-of-work';
 import { PrismaService } from './prisma.service';
@@ -916,6 +917,8 @@ export class PrismaDocumentRepository implements DocumentRepository {
   ): Promise<DocumentPage> {
     const client = clientOf(this.prisma, tx);
     const cursor = decodeTextCursor(query.cursor);
+    // 🔒 The pattern is escaped, the offset counts the folder itself — see `folderPrefixPattern`.
+    const below = folderPrefixPattern(folder);
 
     const keys = await client.$queryRaw<{ id: string; title: string }[]>`
       SELECT DISTINCT d.id, d.title
@@ -924,7 +927,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
       JOIN file_refs f ON f.file_id = df.file_id
       WHERE d.deleted_at IS NULL
         AND f.library_id = ${libraryId}::uuid
-        AND (${folder} = '' OR f.path LIKE ${folder} || '/%')
+        AND (${folder} = '' OR f.path LIKE ${below} ESCAPE '\\')
         AND position('/' in CASE
               WHEN ${folder} = '' THEN f.path
               ELSE substring(f.path from char_length(${folder}) + 2)

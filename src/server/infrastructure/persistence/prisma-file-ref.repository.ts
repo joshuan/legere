@@ -9,6 +9,7 @@ import {
   type FolderSummary,
 } from '../../domain/repositories/file-ref.repository';
 import { RelativePath } from '../../domain/value-objects/relative-path';
+import { folderPrefixPattern } from './like';
 import { clientOf } from './prisma-client';
 import { PrismaService } from './prisma.service';
 
@@ -160,6 +161,8 @@ export class PrismaFileRefRepository implements FileRefRepository {
     folder: string,
     tx?: TransactionHandle,
   ): Promise<FolderSummary[]> {
+    // 🔒 The pattern is escaped, the offset counts the folder itself — see `folderPrefixPattern`.
+    const below = folderPrefixPattern(folder);
     const rows = await clientOf(this.prisma, tx).$queryRaw<{ name: string; count: bigint }[]>`
       WITH below AS (
         SELECT df.document_id,
@@ -171,7 +174,7 @@ export class PrismaFileRefRepository implements FileRefRepository {
         JOIN document_files df ON df.file_id = f.file_id
         JOIN documents d ON d.id = df.document_id AND d.deleted_at IS NULL
         WHERE f.library_id = ${libraryId}::uuid
-          AND (${folder} = '' OR f.path LIKE ${folder} || '/%')
+          AND (${folder} = '' OR f.path LIKE ${below} ESCAPE '\\')
       )
       SELECT split_part(rel, '/', 1) AS name, count(DISTINCT document_id) AS count
       FROM below

@@ -37,7 +37,7 @@ const CONSEQUENCE_KEYS: Record<Consequence, string> = {
   ANALYSIS_USES_EMBEDDINGS_PROVIDER:
     'admin.instance.consequences.ANALYSIS_USES_EMBEDDINGS_PROVIDER',
   ANALYSIS_SKIPPED_NO_MODEL: 'admin.instance.consequences.ANALYSIS_SKIPPED_NO_MODEL',
-  EMAIL_CODES_TO_LOG: 'admin.instance.consequences.EMAIL_CODES_TO_LOG',
+  EMAIL_UNDELIVERABLE: 'admin.instance.consequences.EMAIL_UNDELIVERABLE',
   COOKIE_NOT_SHARED_WITH_SUBDOMAINS:
     'admin.instance.consequences.COOKIE_NOT_SHARED_WITH_SUBDOMAINS',
   CAPTCHA_DISABLED: 'admin.instance.consequences.CAPTCHA_DISABLED',

@@ -150,10 +150,31 @@ invalid/missing required vars → process exits with a readable message. The ful
 
 ## 6.7. Logging
 
-`nestjs-pino` (pino, JSON to stdout; pretty in dev). Every request gets a `requestId` (uuid) —
-propagated into job payloads it triggers (`meta.requestId`) for traceability. **Never logged:**
-passwords, tokens, codes, session ids, email bodies, signed URLs. Job handlers log
-`{ job, payload-ids, durationMs, outcome }`.
+`nestjs-pino` (pino, JSON to stdout; pretty in development only — a transport is a worker thread,
+and a test asserting what the process did *not* emit has to be able to read what it did). Every
+request gets a `requestId` (uuid) — propagated into job payloads it triggers (`meta.requestId`) for
+traceability. **Never logged:** passwords, tokens, codes, session ids, email bodies, signed URLs.
+Job handlers log `{ job, payload-ids, durationMs, outcome }`.
+
+🔒 **A request line says the route, not the request.** `pino-http` logs the URL of everything it
+serves, and two links this product hands out carry a bearer credential in a path segment
+([`08 §8.1.2`](./08-auth-and-authorization.md#812-admin-invite),
+[`08 §8.1.6`](./08-auth-and-authorization.md#816-password-reset-admin-initiated)). The `req`
+serializer therefore rewrites the URL into the shape of its route before anything is written:
+
+| In the request | In the log | Why |
+|---|---|---|
+| `/api/invites/<43 chars of base64url>` | `/api/invites/:x` | A path segment survives only when it is plainly part of a route — lower-case letters and hyphens, no longer than a word. It is an allow-list, not two exceptions: the next route to put a secret in a path would not think to add itself to a deny-list |
+| `/api/documents/<uuid>/files` | `/api/documents/:x/files` | Identifiers share the fate of tokens; `requestId` already ties a line to the rest of its request, and handlers log the ids they act on deliberately |
+| `?q=<what somebody searched for>` | dropped whole | A search of one's own archive is as private as the archive. No query parameter is worth keeping at the cost of a rule that has to know which ones are safe |
+| `X-Legere-Filename` / `X-File-Name` | removed | A file's name is often the most sensitive metadata an archive holds — one `biopsy-results.pdf` says what a folder of PDFs does not |
+| `Cookie`, `Authorization`, `Set-Cookie` | removed | Session and API-token material |
+
+Express's own `req.route.path` would name the parameters (`:token` rather than `:x`) and is
+deliberately unused: it is empty exactly when a request never reached its handler — throttled,
+refused by the origin check, an unknown route — which is when a URL carrying a token is most likely
+to be the one being logged. `req.query` and `req.params` are dropped from the serialized shape
+entirely, since Express fills both with the same material the URL is scrubbed of.
 
 ## 6.8. Queue integration (pg-boss)
 

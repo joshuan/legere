@@ -161,7 +161,7 @@ describe('describeInstance', () => {
     });
 
     it('says mail is unconfigured in terms of what happens to the codes', () => {
-      expect(rowFor('SMTP_HOST').consequence).toBe('EMAIL_CODES_TO_LOG');
+      expect(rowFor('SMTP_HOST').consequence).toBe('EMAIL_UNDELIVERABLE');
       expect(rowFor('SMTP_HOST', { SMTP_HOST: 'smtp.example.com' }).consequence).toBeNull();
     });
 

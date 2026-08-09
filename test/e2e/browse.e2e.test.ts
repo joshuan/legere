@@ -178,6 +178,46 @@ describe('Browse (e2e)', () => {
     expect(view.documents.items).toEqual([]);
   });
 
+  it('reads a path holding LIKE metacharacters literally (🔒)', async () => {
+    const libraryId = await givenLibrary();
+    // A folder whose name is a wildcard, a sibling that a wildcard would swallow, and a document
+    // one level down in each.
+    await givenFileAt(libraryId, '%/inside.pdf', 'Inside the odd folder');
+    await givenFileAt(libraryId, 'invoices/2026/january.pdf', 'January');
+    await givenFileAt(libraryId, 'a_b/underscored.pdf', 'Underscored');
+    await givenFileAt(libraryId, 'axb/not-underscored.pdf', 'Not underscored');
+
+    // 🔒 Unescaped, `%` is the pattern `%/%` — every path in the library — so this folder would
+    // answer with the whole volume, at an offset that means nothing (docs/05 §5.1).
+    const wildcard = expectData(
+      await browse(libraryId, adminCookie, `?path=${encodeURIComponent('%')}`),
+      browseResponseSchema,
+    );
+    expect(wildcard.path).toBe('%');
+    expect(wildcard.folders).toEqual([]);
+    expect(wildcard.documents.items.map((item) => item.title)).toEqual(['Inside the odd folder']);
+
+    // `_` matches one character of anything, so `a_b` would also answer for `axb`.
+    const underscore = expectData(
+      await browse(libraryId, adminCookie, '?path=a_b'),
+      browseResponseSchema,
+    );
+    expect(underscore.documents.items.map((item) => item.title)).toEqual(['Underscored']);
+
+    // And the view from the root still names all four folders, each counted once. Order left to the
+    // database here: where `%` falls among letters is a question about its collation, not about this.
+    const root = expectData(await browse(libraryId, adminCookie), browseResponseSchema);
+    expect(root.folders).toHaveLength(4);
+    expect(root.folders).toEqual(
+      expect.arrayContaining([
+        { name: '%', documentCount: 1 },
+        { name: 'a_b', documentCount: 1 },
+        { name: 'axb', documentCount: 1 },
+        { name: 'invoices', documentCount: 1 },
+      ]),
+    );
+  });
+
   it('shows an empty view for a folder that holds nothing', async () => {
     const libraryId = await givenLibrary();
     await givenFileAt(libraryId, 'invoices/a.pdf');

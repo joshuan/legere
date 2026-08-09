@@ -1,7 +1,7 @@
 import express, { type Express } from 'express';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
-import { FILENAME_HEADER, uploadFileName } from './read-upload-body';
+import { FILENAME_HEADER, isRawBodyRoute, uploadFileName } from './read-upload-body';
 
 // The header is read off a real request, because that is the only way `req.headers` behaves the way
 // the function expects — arrays for repeats, lowercased names, no decoding done for us.
@@ -55,5 +55,31 @@ describe('uploadFileName', () => {
 
   it('bounds the length', async () => {
     expect((await nameFrom(`${'x'.repeat(400)}.pdf`)).length).toBe(255);
+  });
+});
+
+// 🔒 Both routes that read the body raw, and nothing else (docs/05 §5.1a). The list is what the
+// wiring in server/main.ts exempts from the body parsers; a route that reads the body raw and is not
+// here answers "the uploaded file is empty".
+describe('isRawBodyRoute', () => {
+  it('names every route whose body is the file itself', () => {
+    expect(isRawBodyRoute('POST', '/documents')).toBe(true);
+    expect(isRawBodyRoute('POST', '/documents/11111111-1111-4111-8111-111111111111/files')).toBe(
+      true,
+    );
+  });
+
+  it('leaves every other route to the parsers', () => {
+    // Same path, a method that sends JSON.
+    expect(isRawBodyRoute('PATCH', '/documents/11111111-1111-4111-8111-111111111111/files')).toBe(
+      false,
+    );
+    expect(isRawBodyRoute('GET', '/documents')).toBe(false);
+    expect(isRawBodyRoute('POST', '/documents/11111111-1111-4111-8111-111111111111/combine')).toBe(
+      false,
+    );
+    expect(isRawBodyRoute('POST', '/collections')).toBe(false);
+    // Not a prefix match: a route that merely starts the same way is somebody else's.
+    expect(isRawBodyRoute('POST', '/documents/x/files/y')).toBe(false);
   });
 });

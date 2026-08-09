@@ -12,6 +12,21 @@ The data model here is described conceptually; exact fields/indexes — in 03/04
 - **Invariant 🔒:** the application opens library files for reading only. The volume is mounted `:ro` —
   writing is impossible even with a bug in the code. All paths are validated against the library root
   (path-traversal protection: `..` and symlinks leading outside the volume are ignored).
+- 🔒 **A path is checked against the filesystem, not only against the string.** The lexical guard —
+  no `..`, no drive letter, no UNC prefix, and the resolved path still under the root — cannot see a
+  symlink, and `lstat` declines to follow only the *last* component of a path. So a library root is
+  additionally resolved with `realpath` and required to land inside the volume: with `incoming` a
+  link to `/etc`, `incoming/ssl` passes every lexical test there is and would hand the walker a tree
+  that is not in the library. The same check answers the admin directory picker, so such a path is
+  never offered as a candidate either. The walk itself needs no equivalent — it `lstat`s every entry
+  and skips anything that is not a plain file or directory, so a link is never descended.
+- 🔒 **A browsed path is a name, not a pattern.** `?path=` on the browse endpoint reaches a SQL
+  `LIKE` prefix, where `%` and `_` are wildcards; both are escaped, so a folder called `50%` matches
+  the folder called `50%` and nothing else. Unescaped, `?path=%` answered for every path in the
+  library at an offset computed from a one-character folder — not a way into anything the caller
+  could not already click on, but a wrong answer, and a sequential scan of the whole table to reach
+  it. Escaping rather than a `path >= x AND path < y` range on purpose: a range only means "this
+  prefix" when the column orders byte-wise, and no database collation is pinned.
 
 ## 5.1a. Uploads
 
@@ -33,6 +48,13 @@ library volume, which stays read-only for the whole product (ADR-004).
   the same collections and sharing. The only differences are where the bytes live and who owns it.
 - `UPLOAD_MAX_BYTES` (default 100 MiB) caps a single upload; a larger body is refused with
   `413`/`VALIDATION_FAILED` before anything is stored.
+- 🔒 **The body is the file, so no body parser may touch these routes** — `POST /api/documents` and
+  `POST /api/documents/:id/files`, the two of them. A parser drains the stream and the handler is
+  handed an empty request (`Content-Type: application/json`, or curl with no explicit type, which
+  sends `application/x-www-form-urlencoded`); over a mebibyte it is body-parser's own 500 instead,
+  long before `UPLOAD_MAX_BYTES` can answer 413. The exempt routes are therefore **declared in one
+  place**, beside the function that reads the raw body, rather than matched at the wiring by a path
+  equality that covered the first of the two and silently missed the second.
 
 ## 5.2. Scanning and change detection
 
@@ -215,7 +237,11 @@ they are served to the client via short-lived signed URLs after an access check.
 3. **Markdown extraction** — the canonical PDF goes through **Docling** (ADR-018), which has a layout model:
    headings stay headings and tables stay tables, instead of being flattened into a wall of text.
    With `DOCLING_URL` empty the step falls back to Stirling's converter, which reads the text and
-   loses that structure. Docling can also write a caption under every picture — off by default,
+   loses that structure. What that fallback then tidies up — Stirling's image placeholders, and the
+   Markdown tables it invents for a page whose *layout* is a table — is text derived from a PDF
+   somebody uploaded, so 🔒 every pattern applied to it is linear in the length of a line: a
+   megabyte-long one costs a millisecond rather than minutes of a worker pinned to a core.
+   Docling can also write a caption under every picture — off by default,
    because it is slow enough to matter ([`12 §12.4`](./12-build-config-run.md)).
    - the PDF has a text layer (a meaningful-text threshold, measured over the extracted text divided
      by the page count) → that text is the Markdown;

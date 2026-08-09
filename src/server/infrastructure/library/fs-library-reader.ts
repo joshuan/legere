@@ -68,7 +68,14 @@ export class FsLibraryReader extends LibraryReader {
   async isDirectory(relPath: RelativePath): Promise<boolean> {
     const absolute = this.resolveInsideRoot(this.libraryRoot, relPath);
     const stats = await lstat(absolute).catch(() => null);
-    return stats !== null && stats.isDirectory();
+    if (stats === null || !stats.isDirectory()) return false;
+
+    // 🔒 And then the same question asked of the filesystem rather than of the string (docs/05 §5.1).
+    // `lstat` declines to follow only the *last* component: with `incoming` a symlink to `/etc`,
+    // `incoming/ssl` lstats as a perfectly ordinary directory and the lexical check above sees
+    // nothing wrong with it either, because nothing in the path says `..`. A library rooted there
+    // would hand the walker a tree outside the volume.
+    return resolvesInsideRoot(this.libraryRoot, absolute);
   }
 
   // Depth-first and name-sorted, so two scans of an unchanged tree produce identical sequences
@@ -142,8 +149,10 @@ function isInside(base: string, candidate: string): boolean {
   return rel !== '' && !rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel);
 }
 
-// Exported for the library-creation check: a rootPath may be given as a real path that resolves —
-// via symlinks — outside the volume, which must be refused (🔒 docs/05 §5.1).
+// The library-creation check of `isDirectory` above, and the reason it is a separate function: a
+// rootPath may be given as a real path that resolves — via symlinks on any component but the last —
+// outside the volume, which must be refused (🔒 docs/05 §5.1). Exported so a test can exercise the
+// containment rule on its own, without a directory to go with it.
 export async function resolvesInsideRoot(root: string, absolute: string): Promise<boolean> {
   const [realRoot, realTarget] = await Promise.all([
     realpath(resolve(root)).catch(() => null),

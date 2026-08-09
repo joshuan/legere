@@ -71,14 +71,17 @@ services:
       S3_SECRET_ACCESS_KEY: ${MINIO_APP_PASSWORD:?set MINIO_APP_PASSWORD}
       S3_FORCE_PATH_STYLE: 'true'
       SIGNED_URL_TTL_SEC: ${SIGNED_URL_TTL_SEC:-300}
-      # Empty SMTP_HOST prints the sign-up codes to `docker compose logs app` instead of mailing
-      # them — enough to create the first admin, not enough to invite anyone.
+      # 🔒 Required, and the app refuses to start without it: the six-digit code that creates,
+      # verifies and recovers every account arrives by email and is written nowhere else — least of
+      # all to this container's log, which is where it used to go. Set ALLOW_UNCONFIGURED_EMAIL to
+      # run with no mail server anyway, knowing nobody can sign up (docs/12 §12.4a).
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_SECURE: ${SMTP_SECURE:-false}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-Legere <no-reply@example.com>}
+      ALLOW_UNCONFIGURED_EMAIL: ${ALLOW_UNCONFIGURED_EMAIL:-false}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
       OCR_LANGUAGES: ${OCR_LANGUAGES:-rus+eng}
       # Empty = categorization and vector search stay switched off, and the UI says so.

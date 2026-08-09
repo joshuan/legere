@@ -38,6 +38,12 @@ human-readable index and must stay in sync with them.
     `422 CURSOR_SORT_MISMATCH`. A keyset predicate applied to the wrong column does not fail — it
     answers, skipping and repeating rows while looking like an ordinary page, and here there is a
     right answer, so quietly giving the wrong one is worse than saying no.
+
+  One list is outside this: `GET /api/admin/queue/failures` reads pg-boss's own tables, which Prisma
+  does not model (`04 §4.2`), and its cursor is the `failedAt` timestamp of the last row returned.
+  Being a timestamp it is validated as one — 🔒 anything else is `422 VALIDATION_FAILED`, a malformed
+  query parameter rather than an opaque string to start over from, because an unparsed one reaches
+  the driver as an `Invalid Date` and answers 500.
 - **IDs** are UUIDs in paths. Path params are validated; malformed UUID → 404 (not 422).
 
 ## 7.2. Error codes
@@ -60,7 +66,7 @@ human-readable index and must stay in sync with them.
 | 409 | `CANONICAL_NOT_READY` | the canonical PDF has not been built yet |
 | 409 | `DOCUMENT_UNAVAILABLE` | source download when all refs MISSING |
 | 410 | `ONBOARDING_CLOSED` | onboarding after first user exists |
-| 422 | `VALIDATION_FAILED` | Zod failure (`details.issues`) |
+| 422 | `VALIDATION_FAILED` | Zod failure (`details.issues`) — including the timestamp cursor of `GET /api/admin/queue/failures` (§7.1) |
 | 422 | `CURSOR_SORT_MISMATCH` | a cursor cut from one named order handed to a request asking for another (§7.1) |
 | 422 | `LIBRARY_PATH_INVALID` | path outside root / not a directory |
 | 422 | `FILE_NOT_IMAGE` | cropping something that is not an image |
@@ -123,7 +129,7 @@ reports as expired.
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `GET /api/libraries` | 🔒 | libraries visible to the caller: `{ id, name }` — used for filters and browse roots |
-| `GET /api/libraries/:id/browse?path=&cursor=` | 🔒 | virtual folder view derived from FileRef paths: `{ path, folders: [{ name, documentCount }], documents: { items: [DocumentListDto], nextCursor } }`; folders sorted by name, documents by title |
+| `GET /api/libraries/:id/browse?path=&cursor=` | 🔒 | virtual folder view derived from FileRef paths: `{ path, folders: [{ name, documentCount }], documents: { items: [DocumentListDto], nextCursor } }`; folders sorted by name, documents by title. 🔒 `path` names a folder and nothing else: `%` and `_` are letters here, matched literally rather than as the `LIKE` wildcards they are underneath (`05 §5.1`) |
 
 ### Documents
 | Method & path | Auth | Notes |
@@ -276,7 +282,7 @@ answer with the whole `DocumentDetailDto`, because a composition change is never
 
 | Method & path | Auth | Notes |
 |---------------|------|-------|
-| `POST /api/documents/:id/files` | 🔒 canEdit | the file **is** the body (as `POST /api/documents`), name in `X-Legere-Filename` (`X-File-Name` is accepted too); appended last. `413` over `UPLOAD_MAX_BYTES`, `409 FILE_ALREADY_IN_DOCUMENT` when those bytes already live in another document |
+| `POST /api/documents/:id/files` | 🔒 canEdit | the file **is** the body (as `POST /api/documents`, and exempt from the body parsers on the same terms — `05 §5.1a`), name in `X-Legere-Filename` (`X-File-Name` is accepted too); appended last. `413` over `UPLOAD_MAX_BYTES`, `409 FILE_ALREADY_IN_DOCUMENT` when those bytes already live in another document |
 | `PATCH /api/documents/:id/files` | 🔒 canEdit | `{ order: [fileId, ...] }` — the complete order, every file exactly once (`422 VALIDATION_FAILED` otherwise) |
 | `PATCH /api/documents/:id/files/:fileId` | 🔒 canEdit | `{ crop: { points: [[x,y] ×4] } \| null }` — normalized `0…1`, clockwise from top-left; `null` clears it. `422 FILE_NOT_IMAGE` for anything but an image |
 | `DELETE /api/documents/:id/files/:fileId` | 🔒 canEdit | **split**: the file leaves and becomes its own document → `{ document, splitDocumentId }`. `409 DOCUMENT_LAST_FILE` when it is the only one |
@@ -289,7 +295,7 @@ answer with the whole `DocumentDetailDto`, because a composition change is never
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `GET /api/admin/queue/overview` | 🔒ᴬ | per queue: `{ name, queued, active, failedRecent }` + document step counters + `storage: { objects, bytes, measuredAt } \| null` (hourly aggregate, `null` before the first `maintenance` run) |
-| `GET /api/admin/queue/failures` | 🔒ᴬ | paginated failed jobs: `{ jobId, queue, payload, error, failedAt, retryCount }` |
+| `GET /api/admin/queue/failures` | 🔒ᴬ | paginated failed jobs: `{ jobId, queue, payload, error, failedAt, retryCount }`, newest first; `cursor` is the `failedAt` of the last row and is validated as a timestamp (§7.1) |
 | `POST /api/admin/queue/failures/:jobId/retry` | 🔒ᴬ | re-enqueues a copy of the job → `{ ok: true }` |
 | `GET /api/admin/queue/settings` | 🔒ᴬ | → `{ concurrency: { <queue>: number }, unitConcurrency }` — every queue, with the env defaults where nothing is stored (03 §3.3.21) |
 | `PATCH /api/admin/queue/settings` | 🔒ᴬ | the same shape, sent whole; values are clamped to 1…32 rather than refused, and the workers are re-registered immediately so the change needs no restart. `paused` is the list of queues whose workers are not registered at all: jobs still arrive and wait, nothing consumes them (05 §5.4) |
@@ -299,7 +305,7 @@ answer with the whole `DocumentDetailDto`, because a composition change is never
 
 | Method & path | Auth | Notes |
 |---------------|------|-------|
-| `GET /api/admin/instance` | 🔒ᴬ | the effective configuration, grouped, as the process actually resolved it: `{ groups: [{ key, settings: [{ key, value, source, consequence }] }] }`. 🔒 **A secret is never a value here** — a password, an API key, a token or a secret key appears as `source: 'SET'` with no value, or `'UNSET'`; everything else carries what it resolved to, with `source: 'ENV'` when the environment set it and `'DEFAULT'` when nothing did. `DATABASE_URL` is decomposed into host, port, database and user, and its password is not one of them. `consequence` says what a value nobody set costs, and travels as an UPPER_SNAKE token the client localizes (`EMAIL_CODES_TO_LOG`, `ANALYSIS_SKIPPED_NO_PROVIDER`, …) — never as prose, which would arrive in one language on a page rendered in another; `null` where a blank costs nothing |
+| `GET /api/admin/instance` | 🔒ᴬ | the effective configuration, grouped, as the process actually resolved it: `{ groups: [{ key, settings: [{ key, value, source, consequence }] }] }`. 🔒 **A secret is never a value here** — a password, an API key, a token or a secret key appears as `source: 'SET'` with no value, or `'UNSET'`; everything else carries what it resolved to, with `source: 'ENV'` when the environment set it and `'DEFAULT'` when nothing did. `DATABASE_URL` is decomposed into host, port, database and user, and its password is not one of them. `consequence` says what a value nobody set costs, and travels as an UPPER_SNAKE token the client localizes (`EMAIL_UNDELIVERABLE`, `ANALYSIS_SKIPPED_NO_PROVIDER`, …) — never as prose, which would arrive in one language on a page rendered in another; `null` where a blank costs nothing |
 
 ### Health
 | Method & path | Auth | Notes |

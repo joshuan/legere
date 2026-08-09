@@ -298,8 +298,17 @@ function renderTableBlock(rows: string[]): string[] {
     .flatMap((cell) => [cell, '']);
 }
 
+// 🔒 Trimmed first, and then one quantifier over one character class (docs/05 §5.5). What stood here
+// — `/^\s*\|[\s:|-]+\|?\s*$/` — had three quantifiers that all accept a space, so a run of them
+// could be divided between `[\s:|-]+` and the trailing `\s*` in every way there is: measured
+// polynomial, 16 000 spaces after the pipe taking 167 ms and 64 000 taking 2.7 s, which puts a
+// megabyte-long line at roughly ten minutes of a Markdown worker pinned to a core. The line is
+// Markdown derived from a PDF somebody uploaded. The form below cannot backtrack across
+// alternatives because there are none: it is linear, and a megabyte costs about a millisecond.
+const SEPARATOR_ROW = /^\|[\s:|-]*$/;
+
 function isSeparatorRow(row: string): boolean {
-  return /^\s*\|[\s:|-]+\|?\s*$/.test(row);
+  return SEPARATOR_ROW.test(row.trim());
 }
 
 function splitRow(row: string): string[] {

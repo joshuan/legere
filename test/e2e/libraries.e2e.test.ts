@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
 import {
@@ -33,11 +33,17 @@ describe('Libraries (e2e)', () => {
   // LIBRARY_ROOT for the test process (test/setup.server.ts); the fixtures below live inside it.
   const libraryRoot = process.env.LIBRARY_ROOT ?? '/tmp/test-library';
 
+  // 🔒 A tree that is not in the volume, reached from inside it through a symlink (docs/05 §5.1).
+  const outsideRoot = join(dirname(libraryRoot), 'legere-outside-the-volume');
+
   beforeAll(async () => {
     await mkdir(join(libraryRoot, 'invoices', '2026'), { recursive: true });
     await mkdir(join(libraryRoot, 'receipts'), { recursive: true });
     await mkdir(join(libraryRoot, 'invoices2'), { recursive: true });
     await writeFile(join(libraryRoot, 'loose.pdf'), 'not a directory');
+
+    await mkdir(join(outsideRoot, 'ssl'), { recursive: true });
+    await symlink(outsideRoot, join(libraryRoot, 'incoming')).catch(() => undefined);
 
     app = await createTestApp();
   });
@@ -145,6 +151,23 @@ describe('Libraries (e2e)', () => {
             : 'LIBRARY_PATH_INVALID',
         );
       }
+    });
+
+    it('rejects a root reached through an intermediate symlink (🔒)', async () => {
+      // `incoming` is a link out of the volume. `lstat` follows every component but the last, so
+      // `incoming/ssl` looks like an ordinary directory, and nothing in the string says `..` — the
+      // path has to be resolved against the filesystem to be refused (docs/05 §5.1).
+      const res = await createLibrary({ name: 'Smuggled', rootPath: 'incoming/ssl' });
+
+      expect(res.status).toBe(422);
+      expect(expectError(res).code).toBe('LIBRARY_PATH_INVALID');
+      expect(await testPrisma().library.count()).toBe(0);
+
+      // The picker refuses to walk into it either, so it is never offered as a candidate.
+      const candidates = await api(app)
+        .get('/api/admin/library-path-candidates?path=incoming/ssl')
+        .set('Cookie', adminCookie);
+      expect(candidates.status).toBe(422);
     });
 
     it('rejects a duplicate path and either direction of nesting', async () => {

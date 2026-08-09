@@ -207,10 +207,10 @@
         "ANALYSIS_SKIPPED_NO_PROVIDER": "No provider for the analysis: the step is skipped, so no document type, place, description or title is suggested.",
         "ANALYSIS_USES_EMBEDDINGS_PROVIDER": "The analysis reuses the embeddings provider.",
         "ANALYSIS_SKIPPED_NO_MODEL": "No model to ask: the analysis step is skipped.",
-        "EMAIL_CODES_TO_LOG": "No mail server is configured: verification and invite codes are printed to the application log instead of being sent.",
         "COOKIE_NOT_SHARED_WITH_SUBDOMAINS": "The session cookie is bound to the host that issued it and is not shared with subdomains.",
         "CAPTCHA_DISABLED": "CAPTCHA is disabled: login and registration accept requests without a challenge.",
-        "CAPTCHA_WIDGET_ABSENT": "No CAPTCHA widget is rendered. This value is baked into the client bundle at build time, so setting it at runtime has no effect."
+        "CAPTCHA_WIDGET_ABSENT": "No CAPTCHA widget is rendered. This value is baked into the client bundle at build time, so setting it at runtime has no effect.",
+        "EMAIL_UNDELIVERABLE": "No mail server is configured: letters are not sent, and the code inside one is written nowhere at all — nobody can sign up, verify an address or finish a password reset."
       },
       "keys": {
         "NODE_ENV": "Mode",

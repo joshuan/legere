@@ -493,7 +493,7 @@ it is describing would be worse than no page.
 A value that is not configured reads as **Not set** with the consequence beside it where there is
 one — "AI analysis: not configured, the step is skipped" — because a blank is only useful next to
 what it costs. The server does not write that sentence: it sends a `consequence` token
-(`EMAIL_CODES_TO_LOG`, `ANALYSIS_SKIPPED_NO_PROVIDER`, …) and the page renders
+(`EMAIL_UNDELIVERABLE`, `ANALYSIS_SKIPPED_NO_PROVIDER`, …) and the page renders
 `admin.instance.consequences.<TOKEN>` from the message catalog, so the explanation arrives in the
 same language as the label above it.
 

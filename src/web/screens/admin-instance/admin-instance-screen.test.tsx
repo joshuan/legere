@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApiMock, envelope, errorEnvelope } from '../../../../test/helpers/msw';
-import { renderWithProviders } from '../../../../test/helpers/render';
+import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { AdminInstanceScreen } from './admin-instance-screen';
 
 const instance = {
@@ -34,7 +34,7 @@ const instance = {
           key: 'SMTP_HOST',
           value: null,
           source: 'DEFAULT',
-          consequence: 'EMAIL_CODES_TO_LOG',
+          consequence: 'EMAIL_UNDELIVERABLE',
         },
         { key: 'SMTP_PASSWORD', value: null, source: 'SET', consequence: null },
       ],
@@ -98,11 +98,9 @@ describe('AdminInstanceScreen', () => {
     const smtp = within(rowFor('SMTP host'));
     expect(smtp.getByText('Not set')).toBeInTheDocument();
     // The server sends a token; the page shows the sentence, in the locale everything else is in.
-    expect(smtp.queryByText('EMAIL_CODES_TO_LOG')).not.toBeInTheDocument();
+    expect(smtp.queryByText('EMAIL_UNDELIVERABLE')).not.toBeInTheDocument();
     expect(
-      smtp.getByText(
-        'No mail server is configured: verification and invite codes are printed to the application log instead of being sent.',
-      ),
+      smtp.getByText(enMessages.admin.instance.consequences.EMAIL_UNDELIVERABLE),
     ).toBeInTheDocument();
 
     // A value that is there says nothing extra beside it.

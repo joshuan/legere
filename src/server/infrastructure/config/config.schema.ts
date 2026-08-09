@@ -35,13 +35,19 @@ export const configSchema = z.object({
   TURNSTILE_SECRET_KEY: z.string().default(''),
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: z.string().default(''),
 
-  // email (empty SMTP_HOST → LogEmailSender)
+  // email (empty SMTP_HOST → LogEmailSender, which delivers nothing)
   SMTP_HOST: z.string().default(''),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_SECURE: envBoolean(false),
   SMTP_USER: z.string().default(''),
   SMTP_PASSWORD: z.string().default(''),
   SMTP_FROM: z.string().default('Legere <no-reply@example.com>'),
+  // 🔒 Permission to run an instance that cannot send mail (docs/12 §12.4a). Every account is
+  // created, verified and recovered through a six-digit code that arrives by email and is written
+  // nowhere else — not to the log, which is where it used to go — so an empty SMTP_HOST in
+  // production is an instance nobody can sign up to, and production refuses to start on it. Setting
+  // this says that is wanted: an archive whose accounts already exist, or a mail server being fixed.
+  ALLOW_UNCONFIGURED_EMAIL: envBoolean(false),
 
   // library volume
   LIBRARY_ROOT: z.string().min(1).default('/library'),

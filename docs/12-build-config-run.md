@@ -59,13 +59,14 @@ COOKIE_DOMAIN=                               # empty in dev; set consciously in 
 TURNSTILE_SECRET_KEY=                        # empty = CAPTCHA disabled
 NEXT_PUBLIC_TURNSTILE_SITE_KEY=              # build-time (baked into the client bundle)
 
-# --- email (empty SMTP_HOST = LogEmailSender: codes go to the app log) ---
-SMTP_HOST=
+# --- email (empty SMTP_HOST = LogEmailSender: the letter is dropped, never printed) ---
+SMTP_HOST=                                   # a local catcher makes registration work on a laptop (§12.5)
 SMTP_PORT=587
 SMTP_SECURE=false                            # 465 → true, 587 → false
 SMTP_USER=
 SMTP_PASSWORD=
 SMTP_FROM="Legere <no-reply@example.com>"
+ALLOW_UNCONFIGURED_EMAIL=false               # production refuses an empty SMTP_HOST without this (§12.4a)
 
 # --- library volume ---
 LIBRARY_ROOT=./dev-library                   # the folder `npm run dev` reads; the container overrides this with /library
@@ -168,9 +169,10 @@ instance that would need a different one has a container to fix.
 ## 12.4a. What production refuses to start with
 
 The schema above validates *shape*. A production instance — `NODE_ENV=production`, which both the
-image and `deploy/docker-compose.yaml` set — is held to more than that, because the values this
-repository publishes so a reader can copy a file and see the app start are values anybody can read
-on GitHub. `loadConfig` collects every problem and refuses to boot, in the same multi-line form the
+image and `deploy/docker-compose.yaml` set — is held to more than that, for two reasons: the values
+this repository publishes so a reader can copy a file and see the app start are values anybody can
+read on GitHub, and a setting that is merely a convenience on a laptop can be a way in on a
+deployment. `loadConfig` collects every problem and refuses to boot, in the same multi-line form the
 schema errors use:
 
 | Refused | Why |
@@ -178,18 +180,26 @@ schema errors use:
 | `AUTH_SECRET` equal to the example in `.env.example` | It is the HMAC key for email verification codes, and it is published |
 | `S3_SECRET_ACCESS_KEY` equal to `legere-secret` | Same, for the bucket holding every derived artifact |
 | The browser-facing bucket origin equal to `APP_BASE_URL`'s | 🔒 The viewer embeds the canonical PDF from a presigned URL, and a PDF viewer runs script in the origin that served it. Different origins is what keeps a document in the archive from scripting the app; put them on one and it can. The check reads `S3_PUBLIC_ENDPOINT`, or `S3_ENDPOINT` when no public one is set ([`09 §9.2`](./09-file-storage.md)) |
+| An empty `SMTP_HOST`, unless `ALLOW_UNCONFIGURED_EMAIL=true` | 🔒 Every account is created, verified and recovered by typing a six-digit code that arrives by email ([`08 §8.1.3`](./08-auth-and-authorization.md)), and that code exists in the letter and nowhere else — the log fallback records a letter's recipient and subject and drops its body (§8.1.8). So an instance with no mail server is an instance nobody can sign up to, and it says so at boot rather than at the sign-up form. It used to print the code instead, which made "can read `docker compose logs`" mean "can take over any account" |
+
+`ALLOW_UNCONFIGURED_EMAIL` is the way to run without mail on purpose — an archive whose accounts
+already exist, a relay being repaired. It buys the *boot*, not the letters: registration,
+verification and password resets still cannot complete, and the startup warning says so on every
+start, which is how a deliberate setting is noticed once it has outlived its reason.
 
 `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` carry **no defaults at all**: a credential that works
 without being set is a credential published in this repository. Every path that runs the app supplies
 them — `.env` in development, the compose file in a deployment, `test/setup.server.ts` in CI.
 
-Two things are warned about at startup rather than refused, because an operator may want them:
+Three things are warned about at startup rather than refused, because an operator may want them:
 
 - `APP_BASE_URL` that is not `https://` — session cookies then travel without the `Secure` attribute
   ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions) explains why that follows the
   address rather than `NODE_ENV`), and so does everything else.
 - A development instance running on a published example value — the warning says production will
   refuse it, so the surprise happens on a laptop and not on a deploy.
+- An empty `SMTP_HOST` — on a laptop that is the normal state and the warning is the early notice
+  that the three-step flow cannot complete; in production it can only be reached by asking for it.
 
 ## 12.5. Local development
 
@@ -203,6 +213,23 @@ npm run db:migrate:dev
 npm run db:seed         # admin@legere.local / password; library over dev-library/
 npm run dev             # one process on :3000
 ```
+
+**Reading a sign-up code locally.** `npm run db:seed` is the way in — `admin@legere.local` /
+`password` — and it is enough for everything but the three-step flow itself. To go through
+registration, an invite or a reset on a laptop, mail needs somewhere to land: the code is in the
+letter and in no log, on purpose ([`08 §8.1.8`](./08-auth-and-authorization.md#818-local-development)).
+Any catcher does; one command and two lines of `.env`:
+
+```bash
+docker run -d --name mailpit -p 1025:1025 -p 8025:8025 axllent/mailpit   # letters at http://localhost:8025
+```
+```dotenv
+SMTP_HOST=localhost
+SMTP_PORT=1025
+```
+
+It is not in `docker compose up` because it is not part of the product: the dev stack holds the
+services Legere talks to in production, and a mail catcher is a thing to read letters with.
 
 **Trying the AI step locally.** The dev stack includes `ollama`, which speaks the same
 OpenAI-compatible API as any hosted provider, so nothing but `.env` changes between them:
@@ -338,8 +365,8 @@ deployment; the shipped stack overrides the command and migrates in a container 
 
 `deploy/` is the supported way to run Legere: `init.sh`, `docker-compose.yaml` and `.env.example`.
 The root `README.md` quickstart is `curl … /deploy/init.sh | bash` — the script asks for the document
-folder (creating it when it does not exist), downloads the compose file, writes a `.env` with three
-generated secrets, and offers to start. They ship **in** the repository on purpose: a self-hosted
+folder (creating it when it does not exist) and for a mail server, downloads the compose file,
+writes a `.env` with three generated secrets, and offers to start. They ship **in** the repository on purpose: a self-hosted
 product whose install instructions are "write your own compose file" is a product nobody installs.
 
 What must never ship is a secret, and none does: `.env.example` carries empty placeholders, `init.sh`
@@ -384,6 +411,17 @@ idempotent and updates the account in place. One ceiling worth knowing, because 
 only as a failed container: a **service-account** secret may be at most 40 characters, so
 `MINIO_APP_PASSWORD` is generated shorter than the others.
 
+🔒 **The script asks for SMTP, and stops rather than starting a stack that cannot mail.** The
+six-digit code that creates the first administrator arrives by email and is written nowhere else
+(§12.4a), so an install without it is an install with no way in — and the app refuses to boot in
+that state, which as a first experience is a container restarting in a loop. Answering the mail
+questions is therefore part of the install; leaving the host blank ends the script with the two
+steps that finish it (`SMTP_HOST` in `.env`, then `docker compose up -d`) and the opt-in for running
+without mail on purpose. The port answers for `SMTP_SECURE` — 465 is implicit TLS, 587 is STARTTLS,
+and mismatching that pair is the commonest mail failure there is. What is typed goes into `.env` by
+string replacement rather than through `sed`, because `&`, `|` and a backslash are all legal in a
+mail password and all mean something in a `sed` replacement.
+
 Two settings decide whether a fresh install works, and both are the first thing `.env.example`
 explains:
 
@@ -404,11 +442,18 @@ development stack of §12.5, which takes the same name from its directory — us
 ## 12.8. Production notes
 
 - **Backups:** PostgreSQL dumps + S3 bucket replication. The library volume is the user's own data.
-- **First run:** open the site → onboarding creates the first admin → add a library in
+- **First run:** configure `SMTP_HOST` **before** the first start — `init.sh` asks for it, and the
+  app refuses to boot without it (§12.4a) — then open the site → onboarding asks for an address and
+  emails it a six-digit code → that code creates the first administrator → add a library in
   `/admin/libraries` pointing at the mounted folder → watch the first scan in the queue dashboard.
-- **Email pitfalls:** unset `SMTP_HOST` = codes only in container logs (demo fallback — fine for a
-  single-admin start, useless for inviting others). `SMTP_SECURE` must match the port (465→true,
-  587→false); `SMTP_FROM` domain must be authorized (SPF/DKIM) or providers will 5xx/spam-folder you.
+  🔒 There is no other way to obtain that code, and deliberately so: it used to be readable in
+  `docker compose logs app`, which made log access equal to account takeover. If mail is broken and
+  the instance must come up anyway, `ALLOW_UNCONFIGURED_EMAIL=true` starts it — with no path to a
+  first administrator until a mail server exists.
+- **Email pitfalls:** `SMTP_SECURE` must match the port (465→true, 587→false); `SMTP_FROM` domain
+  must be authorized (SPF/DKIM) or providers will 5xx/spam-folder you. A letter that could not be
+  sent is a log line naming the recipient and the subject and never the body, so "did it try?" is
+  answerable from the log and "what was the code?" is not.
 - **Behind a proxy:** set `TRUST_PROXY` — `1` for a single ingress, a larger number for a chain, or
   a value Express understands (`loopback`, a CIDR list). It is **empty by default**, and that is
   deliberate: with it on, `req.ip` comes from `X-Forwarded-For`, which the client writes. Publish the

@@ -8,6 +8,27 @@ export const FILENAME_HEADER = 'x-legere-filename';
 // The same, for a file added to an existing document (docs/07 §7.3 "Document files").
 export const ATTACHED_FILENAME_HEADER = 'x-file-name';
 
+// 🔒 The routes whose body **is** the file, declared here rather than at the wiring, next to the
+// function every one of them calls (docs/05 §5.1a, docs/07 §7.3). Paths are relative to `/api`.
+//
+// No body parser may touch these: `express.urlencoded` swallows the stream whole — curl with no
+// explicit `Content-Type` sends exactly that, and `Content-Type: application/json` does the same
+// through `express.json` — leaving the handler an empty request, and body-parser's own 1 MiB limit
+// answers 500 long before `UPLOAD_MAX_BYTES` answers 413. The wiring used to test `path ===
+// '/documents'`, which quietly covered the first of these two and not the second: uploading a file
+// worked, attaching the same file to a document did not, and nothing said why. One list, so adding a
+// third raw-body route is a line here rather than a bug that surfaces months later.
+const RAW_BODY_ROUTES: readonly { method: string; path: RegExp }[] = [
+  // POST /api/documents — a new document from an uploaded file.
+  { method: 'POST', path: /^\/documents\/?$/ },
+  // POST /api/documents/:id/files — another file for a document that exists.
+  { method: 'POST', path: /^\/documents\/[^/]+\/files\/?$/ },
+];
+
+export function isRawBodyRoute(method: string, path: string): boolean {
+  return RAW_BODY_ROUTES.some((route) => route.method === method && route.path.test(path));
+}
+
 // Reads the request body into memory, refusing anything over the cap **while it streams** rather
 // than after: a 500 MiB upload to a 100 MiB instance costs one buffer's worth of memory and a closed
 // socket, not half a gigabyte of it (docs/05 §5.1a).

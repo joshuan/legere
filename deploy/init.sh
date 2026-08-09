@@ -30,6 +30,37 @@ ask() {
   printf '%s' "$answer"
 }
 
+# The same, without echoing what is typed: this one reads an SMTP password.
+ask_secret() {
+  local prompt="$1" answer=''
+  if [ "$HAVE_TTY" = yes ]; then
+    printf '%s' "$prompt" >/dev/tty
+    IFS= read -rs answer </dev/tty || answer=''
+    printf '\n' >/dev/tty
+  fi
+  printf '%s' "$answer"
+}
+
+# Sets one key in the .env just written, by string comparison rather than by sed: the values below
+# are typed by a person, and `&`, `|` and a backslash all mean something in a sed replacement — a
+# mail password containing one would land in the file mangled, and the failure would show up much
+# later as "the server rejects our credentials". The temporary file is created private, because one
+# of those values is that password.
+set_env_value() {
+  local key="$1" value="$2" line
+  (
+    umask 077
+    : >.env.new
+  )
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "${key}="*) printf '%s=%s\n' "$key" "$value" ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done <.env >>.env.new
+  mv .env.new .env
+}
+
 # Hex, not base64: this ends up inside a postgres:// URL, where a stray `/` or `+` would truncate it.
 # The byte count is an argument because one of these secrets has a ceiling — see `random_hex 20`.
 random_hex() {
@@ -80,6 +111,38 @@ if [ -z "$port" ]; then
 fi
 port="${port:-3000}"
 
+# 🔒 Mail is not an optional extra. The six-digit code that creates the first administrator —
+# and every account, verification and password reset after it — arrives by email and is written
+# nowhere else: not to `docker compose logs`, not to a file. Asking here is the difference between
+# a working install and a container that refuses to start and has to be diagnosed.
+printf '\nMail. Legere emails the six-digit sign-up code, including the first administrator'"'"'s,\n'
+printf 'and never writes it to the log. Leave the host empty to set this up later.\n\n'
+
+smtp_host="${SMTP_HOST:-}"
+if [ -z "$smtp_host" ]; then
+  smtp_host=$(ask 'SMTP host, e.g. smtp.example.com []: ')
+fi
+
+smtp_port=587
+smtp_user=''
+smtp_password=''
+smtp_from='Legere <no-reply@example.com>'
+if [ -n "$smtp_host" ]; then
+  smtp_port=$(ask 'SMTP port [587]: ')
+  smtp_port="${smtp_port:-587}"
+  smtp_user=$(ask 'SMTP username (blank = no authentication): ')
+  if [ -n "$smtp_user" ]; then
+    smtp_password=$(ask_secret 'SMTP password: ')
+  fi
+  smtp_from_answer=$(ask "From address [${smtp_from}]: ")
+  smtp_from="${smtp_from_answer:-$smtp_from}"
+fi
+
+# 465 is implicit TLS and 587 is STARTTLS; mismatching the pair is the commonest mail failure there
+# is, and the port is the half the operator actually knows.
+smtp_secure=false
+if [ "$smtp_port" = 465 ]; then smtp_secure=true; fi
+
 printf 'Fetching docker-compose.yaml…\n'
 curl -fsSL "${BASE_URL}/docker-compose.yaml" -o docker-compose.yaml ||
   die "could not download docker-compose.yaml from ${BASE_URL}"
@@ -103,6 +166,14 @@ sed \
   -e "s|^MINIO_APP_PASSWORD=.*|MINIO_APP_PASSWORD=$(random_hex 20)|" \
   .env.tmp >.env
 rm -f .env.tmp
+
+set_env_value SMTP_HOST "$smtp_host"
+set_env_value SMTP_PORT "$smtp_port"
+set_env_value SMTP_SECURE "$smtp_secure"
+set_env_value SMTP_USER "$smtp_user"
+set_env_value SMTP_PASSWORD "$smtp_password"
+set_env_value SMTP_FROM "$smtp_from"
+
 chmod 600 .env
 
 app_url=$(grep -E '^APP_BASE_URL=' .env | cut -d= -f2-)
@@ -121,6 +192,25 @@ Putting TLS in front of it later? Change APP_BASE_URL and S3_PUBLIC_ENDPOINT in 
 addresses — the session cookie takes its Secure attribute from them.
 
 EOF
+
+# 🔒 Nothing is started without mail, because nothing would work: the first administrator is created
+# by typing a code that arrives in an inbox, and no other copy of it exists. Legere refuses to start
+# in this state; saying so here is friendlier than a container restarting in a loop.
+if [ -z "$smtp_host" ]; then
+  cat <<EOF
+Mail is not configured yet, and Legere will not start without it: the sign-up code of the first
+administrator is emailed and written nowhere else — not to the log, not to a file.
+
+  1. put SMTP_HOST (with SMTP_PORT / SMTP_USER / SMTP_PASSWORD / SMTP_FROM) in .env
+  2. docker compose up -d
+
+To run without mail anyway — an instance whose accounts already exist, a relay being repaired —
+set ALLOW_UNCONFIGURED_EMAIL=true in .env. Nobody can sign up, verify an address or finish a
+password reset on such an instance.
+
+EOF
+  exit 0
+fi
 
 # Starting containers is not something to do behind someone's back: without a terminal to ask, the
 # script stops here and says what to run.
@@ -141,10 +231,11 @@ docker compose up -d
 
 cat <<EOF
 
-Legere is starting. Open ${app_url} and create the first admin.
+Legere is starting. Open ${app_url} and create the first administrator.
 
-The six-digit sign-up code goes to the log until you configure SMTP:
+The six-digit sign-up code is emailed to the address you type — it is never written to the log. If
+it does not arrive, ${smtp_host} is where to look:
 
-  docker compose logs app | grep 'Legere code'
+  docker compose logs app | grep -i smtp
 
 EOF

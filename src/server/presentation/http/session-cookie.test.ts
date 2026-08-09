@@ -63,7 +63,13 @@ describe('setSessionCookie', () => {
     // no say in it (docs/08 §8.2).
     setSessionCookie(
       res,
-      config({ APP_BASE_URL: 'http://192.168.1.10:3000', NODE_ENV: 'production' }),
+      // A mail server, because a production instance without one refuses to start (docs/12 §12.4a);
+      // it has nothing to do with the cookie, which is the point of the case.
+      config({
+        APP_BASE_URL: 'http://192.168.1.10:3000',
+        NODE_ENV: 'production',
+        SMTP_HOST: 'smtp.legere.example',
+      }),
       'token',
     );
 

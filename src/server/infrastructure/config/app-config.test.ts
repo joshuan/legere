@@ -53,6 +53,8 @@ describe('loadConfig', () => {
       ...MINIMAL,
       NODE_ENV: 'production',
       APP_BASE_URL: 'https://legere.example',
+      // A mail server, because a production instance without one refuses to start (see below).
+      SMTP_HOST: 'smtp.legere.example',
     };
 
     it('refuses the example AUTH_SECRET published in this repository', () => {
@@ -107,6 +109,29 @@ describe('loadConfig', () => {
       ).toThrowError(/same origin/);
     });
 
+    // 🔒 SEC-18: the shipped deployment is the unconfigured one, and the code that used to be
+    // readable in its log is not written anywhere now — so an instance with no mail server is one
+    // nobody can sign up to, and it says so at boot instead of at the sign-up form.
+    it('refuses an empty SMTP_HOST, because the code has nowhere to go and is never logged', () => {
+      const { SMTP_HOST: _smtp, ...withoutSmtp } = PRODUCTION;
+
+      expect(() => loadConfig(withoutSmtp)).toThrowError(
+        /Refusing to start in production[\s\S]*SMTP_HOST is empty/,
+      );
+      expect(() => loadConfig({ ...withoutSmtp, SMTP_HOST: '' })).toThrowError(
+        /SMTP_HOST is empty/,
+      );
+    });
+
+    it('runs without mail when the operator asks for it in writing', () => {
+      const { SMTP_HOST: _smtp, ...withoutSmtp } = PRODUCTION;
+
+      const config = loadConfig({ ...withoutSmtp, ALLOW_UNCONFIGURED_EMAIL: 'true' });
+
+      expect(config.get('SMTP_HOST')).toBe('');
+      expect(configWarnings(config).join('\n')).toMatch(/SMTP_HOST is empty/);
+    });
+
     it('lets development run on exactly what production refuses', () => {
       const config = loadConfig({
         ...MINIMAL,
@@ -132,6 +157,15 @@ describe('configWarnings', () => {
     );
 
     expect(warnings.join('\n')).not.toMatch(/Secure/);
+  });
+
+  it('says that an instance without a mail server can create no account at all', () => {
+    const warnings = configWarnings(loadConfig({ ...MINIMAL }));
+
+    expect(warnings.join('\n')).toMatch(/SMTP_HOST is empty/);
+
+    const configured = configWarnings(loadConfig({ ...MINIMAL, SMTP_HOST: 'smtp.example.com' }));
+    expect(configured.join('\n')).not.toMatch(/SMTP_HOST/);
   });
 
   it('warns in development about the value production will refuse', () => {

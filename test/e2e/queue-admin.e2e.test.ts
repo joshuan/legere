@@ -325,6 +325,35 @@ describe('Reprocess and queue administration (e2e)', () => {
       expect(jobs.filter((job) => job.state === 'created')).toHaveLength(1);
     });
 
+    it('pages by the timestamp of the last failure it returned', async () => {
+      const documentId = await givenProcessedDocument();
+      await api(app).post(`/api/documents/${documentId}/reprocess`).set('Cookie', adminCookie);
+      await givenFailedJob();
+
+      const first = expectData(
+        await api(app).get('/api/admin/queue/failures').set('Cookie', adminCookie),
+        listQueueFailuresResponseSchema,
+      );
+      const failedAt = first.items[0]?.failedAt ?? '';
+
+      // The cursor is exclusive: asking again from the failure just read returns nothing more.
+      const next = await api(app)
+        .get(`/api/admin/queue/failures?cursor=${encodeURIComponent(failedAt)}`)
+        .set('Cookie', adminCookie);
+      expect(expectData(next, listQueueFailuresResponseSchema).items).toEqual([]);
+    });
+
+    it('refuses a cursor that is not a timestamp rather than answering 500 (🔒)', async () => {
+      const res = await api(app)
+        .get('/api/admin/queue/failures?cursor=x')
+        .set('Cookie', adminCookie);
+
+      // 🔒 `new Date('x')` reaching the driver is a 500 for what is plainly a malformed query
+      // parameter (docs/07 §7.1–7.2).
+      expect(res.status).toBe(422);
+      expect(expectError(res).code).toBe('VALIDATION_FAILED');
+    });
+
     it('404s a retry for a job that is not there', async () => {
       const res = await api(app)
         .post('/api/admin/queue/failures/11111111-1111-4111-8111-111111111111/retry')

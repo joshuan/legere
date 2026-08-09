@@ -195,6 +195,30 @@ describe('StirlingPdfToolbox', () => {
     expect(markdown).toContain('Invoice');
   });
 
+  it('reads a megabyte-long table row without pinning the worker to a core (🔒)', async () => {
+    // A line of Markdown derived from somebody's PDF: a pipe, a run of spaces, and one character
+    // that is not separator punctuation. The pattern that stood here divided that run between two
+    // quantifiers that both accept a space, every way there is (docs/05 §5.5).
+    const rowOf = (spaces: number): string => `|${' '.repeat(spaces)}x`;
+    const timeToRead = async (line: string): Promise<{ markdown: string; elapsed: number }> => {
+      mockStirling(new Response(line, { headers: { 'content-type': 'text/markdown' } }));
+      const started = performance.now();
+      const markdown = await toolbox().pdfToMarkdown(Buffer.from('pdf'));
+      return { markdown, elapsed: performance.now() - started };
+    };
+
+    // The small case first, and deliberately: the old pattern took 2.7 s over this one, so a
+    // regression fails here in seconds instead of blocking the worker for the minutes the next line
+    // would cost it.
+    const small = await timeToRead(rowOf(64_000));
+    expect(small.elapsed).toBeLessThan(500);
+
+    const megabyte = await timeToRead(rowOf(1024 * 1024));
+    // Not a separator row, so the text it holds survives — the row is unchanged, just cheap to test.
+    expect(megabyte.markdown).toContain('x');
+    expect(megabyte.elapsed).toBeLessThan(1_000);
+  }, 20_000);
+
   it('reads the page count out of the analysis answer', async () => {
     mockStirling(Response.json({ pageCount: 7, encrypted: false }));
 

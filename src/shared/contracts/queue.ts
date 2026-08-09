@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paginationQuerySchema } from './common';
 import { stepStatusSchema } from './enums';
 import { documentStepSchema } from './documents';
 
@@ -65,6 +66,15 @@ export const listQueueFailuresResponseSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type ListQueueFailuresResponse = z.infer<typeof listQueueFailuresResponseSchema>;
+
+// 🔒 The one list whose cursor is not the opaque base64url string of docs/07 §7.1: this page is read
+// out of pg-boss's own tables, which Prisma does not model (docs/04 §4.2), and its cursor is the
+// `failedAt` of the last row returned. Said so here, because a cursor nobody validates reaches
+// `new Date(cursor)` and the driver answers a 500 for what is plainly a malformed query parameter.
+export const listQueueFailuresQuerySchema = paginationQuerySchema.extend({
+  cursor: z.string().datetime().optional(),
+});
+export type ListQueueFailuresQuery = z.infer<typeof listQueueFailuresQuerySchema>;
 
 export const retryJobResponseSchema = z.object({ ok: z.literal(true) });
 export type RetryJobResponse = z.infer<typeof retryJobResponseSchema>;

@@ -15,6 +15,7 @@ import {
 } from '../src/server/infrastructure/config/app-config';
 import { buildPinoHttpOptions } from '../src/server/infrastructure/logging/logger.options';
 import { WorkerRegistry } from '../src/server/infrastructure/queue/worker-registry';
+import { isRawBodyRoute } from '../src/server/presentation/documents/read-upload-body';
 import { csrfOriginCheck } from '../src/server/presentation/http/csrf.middleware';
 import { errorEnvelope } from '../src/server/presentation/http/envelope';
 import { readOnlyBearer } from '../src/server/presentation/http/read-only-bearer.middleware';
@@ -69,11 +70,11 @@ export async function wireServer(
   // + global prefix + dispatcher; nestjs-pino remains the Nest application logger.
   server.use('/api', pinoHttp(buildPinoHttpOptions(loadConfig())));
   server.use('/api', cookieParser());
-  // The upload route takes the file as the body itself (docs/07 §7.3), so no parser may touch it:
-  // urlencoded would swallow the stream whole — curl without an explicit Content-Type sends exactly
-  // that — leaving the handler an empty request, and body-parser's own size limit would answer 500
-  // long before ours answers 413.
-  const isUpload = (req: Request): boolean => req.method === 'POST' && req.path === '/documents';
+  // 🔒 The upload routes take the file as the body itself (docs/07 §7.3), so no parser may touch
+  // them. Which routes those are is declared once, beside the function that reads them, rather than
+  // matched by a path equality here that a second route can silently miss — which is exactly what
+  // happened to `POST /documents/:id/files`.
+  const isUpload = (req: Request): boolean => isRawBodyRoute(req.method, req.path);
   server.use('/api', (req, res, next) =>
     isUpload(req) ? next() : express.json({ limit: '1mb' })(req, res, next),
   );

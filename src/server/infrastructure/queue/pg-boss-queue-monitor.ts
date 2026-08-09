@@ -69,7 +69,7 @@ export class PgBossQueueMonitor extends QueueMonitor {
   // Keyset pagination on completed_on: failures are read newest-first and the cursor is the
   // timestamp of the last row returned.
   async failedJobs(cursor?: string, limit = DEFAULT_PAGE_SIZE): Promise<FailedJobPage> {
-    const before = cursor === undefined ? null : new Date(cursor);
+    const before = parseCursor(cursor);
     const take = Math.min(Math.max(limit, 1), 100);
 
     const rows = await this.prisma.$queryRaw<FailedRow[]>`
@@ -122,6 +122,16 @@ export class PgBossQueueMonitor extends QueueMonitor {
       return false;
     }
   }
+}
+
+// 🔒 The contract has already refused a cursor that is not a timestamp, with a 422 naming the field
+// (docs/07 §7.1). This is the second check, and it exists because the first one is a schema on a
+// route: an `Invalid Date` reaching `${before}::timestamptz` is a driver error — a 500 for what was
+// only ever a malformed query parameter — so nothing but a real date leaves this function.
+function parseCursor(cursor: string | undefined): Date | null {
+  if (cursor === undefined) return null;
+  const at = new Date(cursor);
+  return Number.isNaN(at.getTime()) ? null : at;
 }
 
 function isQueueName(name: string): name is QueueName {

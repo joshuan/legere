@@ -486,7 +486,7 @@ Every task ends the same way: the scenario it fixes joins
   **Docs:** [`08 §8.1.2`](../08-auth-and-authorization.md#812-admin-invite), [`08 §8.1.6`](../08-auth-and-authorization.md#816-password-reset-admin-initiated)
   **Acceptance:** `CompleteRegistration` re-checks `isInviteValid` **inside** the transaction and `markAccepted` is a conditional write whose zero-row result is `INVITE_INVALID`, so two completions racing on one invite produce exactly one account; the same for a password reset — validity and the target account's active state are re-read at completion, and `markUsed` is conditional; verifying an email code makes the attempt counter the gate rather than a value read before it is written, so N concurrent guesses consume N attempts; tests cover one invite driven to completion twice (sequentially and concurrently), an account deactivated inside the ticket window, and a burst of concurrent verifies.
 
-- [ ] **M15.5 — A log is not a place to keep credentials**
+- [x] **M15.5 — A log is not a place to keep credentials**
   **Goal:** reading the application log stops being a way to take over an account.
   **Closes:** SEC-10, SEC-18
   **Docs:** [`08 §8.1.2`](../08-auth-and-authorization.md#812-admin-invite), [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist), [`12 §12.4`](../12-build-config-run.md)
@@ -552,7 +552,7 @@ Every task ends the same way: the scenario it fixes joins
   **Options (decide in the PR description):** (1) filter the recorded path by library visibility, which needs the event payload to carry its `libraryId` — forward-only, with older rows falling back to redacted; (2) strip the path from library-sourced events for non-admins, mirroring what the same function already does for the internal endpoint — one line, ships today, and loses a useful detail for readers who *could* see that library; (3) stop recording the event when known bytes turn up in a second library, which loses provenance `03 §3.3.18` exists to keep. Recommended: 2 now, 1 once the payload carries the library.
   **Acceptance:** a user who may read a document because its bytes also live in a library they can see does not learn, from `GET /api/documents/:id/events`, the path those bytes occupy in a library they cannot; the same document's `refs` already hide that path, and a test asserts the two answers agree.
 
-- [ ] **M15.15 — Inputs stay inside their bounds**
+- [x] **M15.15 — Inputs stay inside their bounds**
   **Goal:** the small sharp edges found across parsing, matching and path handling stop being there.
   **Closes:** SEC-16, SEC-29, SEC-30, SEC-31, SEC-32, SEC-33, SEC-44
   **Docs:** [`05 §5.1`](../05-library-and-processing.md), [`07 §7.1–7.2`](../07-api-specification.md#71-conventions), [`14 §14.4`](../14-coding-standards.md)

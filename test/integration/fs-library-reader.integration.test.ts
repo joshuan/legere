@@ -30,7 +30,7 @@ describe('FsLibraryReader (integration)', () => {
     await mkdir(join(root, 'archive'), { recursive: true });
     await mkdir(join(root, '.hidden-dir'), { recursive: true });
     await mkdir(join(root, 'node_modules', 'pkg'), { recursive: true });
-    await mkdir(outside, { recursive: true });
+    await mkdir(join(outside, 'ssl'), { recursive: true });
 
     await writeFile(join(root, 'top.pdf'), 'top');
     await writeFile(join(root, 'invoices', 'a.pdf'), 'aa');
@@ -171,6 +171,18 @@ describe('FsLibraryReader (integration)', () => {
     expect(await reader.isDirectory(RelativePath.parse('top.pdf'))).toBe(false);
     expect(await reader.isDirectory(RelativePath.parse('nope'))).toBe(false);
     expect(await reader.isDirectory(RelativePath.root())).toBe(true);
+  });
+
+  it('refuses a directory reached through an intermediate symlink (🔒)', async () => {
+    // 🔒 The creation-time twin of the walk fixture above. `escape-dir` is a link out of the volume,
+    // and `lstat` declines to follow only the *last* component — so `escape-dir/ssl` reads as an
+    // ordinary directory, and nothing in the string says `..` for the lexical check to catch. A
+    // library rooted there would hand the walker a tree outside the volume (docs/05 §5.1).
+    expect(await reader.isDirectory(RelativePath.parse('escape-dir/ssl'))).toBe(false);
+    // The link itself is not a directory either — lstat never followed it in the first place.
+    expect(await reader.isDirectory(RelativePath.parse('escape-dir'))).toBe(false);
+    // And a real directory of the volume is still one.
+    expect(await reader.isDirectory(RelativePath.parse('invoices/2026'))).toBe(true);
   });
 
   it('records an unreadable directory as an error and keeps scanning', async (ctx) => {

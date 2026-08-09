@@ -336,6 +336,27 @@ describe('Document files (e2e)', () => {
       expect((await detailOf(first.documentId)).files).toHaveLength(1);
     });
 
+    it('takes the file whatever Content-Type the client puts on it (🔒)', async () => {
+      const { documentId } = await givenLibraryDocument();
+
+      // 🔒 The body is the file, so no parser may touch this route either — and until the raw-body
+      // routes were declared in one place, only `POST /api/documents` was exempt. A parser reading
+      // this drains the stream and the handler answers "the uploaded file is empty"; over 1 MiB it
+      // answers body-parser's own 500 (docs/05 §5.1a).
+      const res = await api(app)
+        .post(`/api/documents/${documentId}/files`)
+        .set('Cookie', adminCookie)
+        .set('X-File-Name', 'attached.txt')
+        .type('application/json')
+        .send('{"not":"a document, just bytes"}');
+
+      expect(res.status).toBe(201);
+      const detail = expectData(res, documentDetailDtoSchema);
+      expect(detail.files).toHaveLength(2);
+      expect(detail.files[1]).toMatchObject({ name: 'attached.txt', origin: 'MANAGED' });
+      expect(Number(detail.files[1]?.sizeBytes)).toBeGreaterThan(0);
+    });
+
     it('refuses a body with no name at all', async () => {
       const { documentId } = await givenLibraryDocument();
 

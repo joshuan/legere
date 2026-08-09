@@ -81,6 +81,18 @@ function productionRefusals(config: AppConfig): readonly string[] {
     }
   }
 
+  // 🔒 An instance with no mail server cannot create an account: the six-digit code of every
+  // registration, verification and reset (docs/08 §8.1.3) arrives by email and is written nowhere
+  // else — the log fallback records that a letter was not sent and never what was in it. That used
+  // to be the shipped default, which made "can read the container log" mean "can take over any
+  // account". Refusing it here is what keeps the demo path from being reached by accident on a real
+  // instance; an operator who wants it says so (docs/12 §12.4a, security audit SEC-18).
+  if (config.get('SMTP_HOST') === '' && !config.get('ALLOW_UNCONFIGURED_EMAIL')) {
+    refusals.push(
+      'SMTP_HOST is empty — nobody can sign up, verify an address or finish a password reset, because the code is emailed and never logged; configure SMTP, or set ALLOW_UNCONFIGURED_EMAIL=true to run without mail deliberately',
+    );
+  }
+
   // 🔒 The document viewer embeds the canonical PDF from a presigned URL, and a PDF viewer runs
   // script in the origin that served it. That is harmless only while the bucket is a *different*
   // origin from the app: put them on one, and any document in the archive can script the app
@@ -104,6 +116,15 @@ export function configWarnings(config: AppConfig): readonly string[] {
   if (!config.usesHttps) {
     warnings.push(
       'APP_BASE_URL is not https — session cookies travel without the Secure attribute, and so does everything else',
+    );
+  }
+
+  // On a laptop this is the surprise worth having at boot rather than at the sign-up form; in
+  // production it can only be reached deliberately (ALLOW_UNCONFIGURED_EMAIL), and repeating it at
+  // every start is how an operator notices the deliberate thing has outlived its reason.
+  if (config.get('SMTP_HOST') === '') {
+    warnings.push(
+      'SMTP_HOST is empty — a letter is recorded as its recipient and subject, delivered to nobody, and the code inside it is written nowhere at all; registration, verification and password resets cannot complete until a mail server is configured (docs/12 §12.5)',
     );
   }
 

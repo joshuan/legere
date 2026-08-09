@@ -116,7 +116,7 @@ export function describeInstance(config: AppConfig): InstanceResponse {
       {
         key: 'email',
         settings: [
-          s('SMTP_HOST', when(blank('SMTP_HOST'), 'EMAIL_CODES_TO_LOG')),
+          s('SMTP_HOST', when(blank('SMTP_HOST'), 'EMAIL_UNDELIVERABLE')),
           s('SMTP_PORT'),
           s('SMTP_SECURE'),
           s('SMTP_USER'),

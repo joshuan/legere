@@ -55,8 +55,9 @@ Docling for reading documents into structured Markdown, and MinIO for the artifa
 <http://localhost:3000> and:
 
 1. the first visit offers **onboarding**: an email, a six-digit code, a password, and you are the
-   instance's first admin. Until you configure SMTP the code goes to `docker compose logs app` — that
-   is enough to create the first account, and not enough to invite anyone else;
+   instance's first admin. The code arrives by email and is written nowhere else — not to the log —
+   so `SMTP_HOST` has to be set before the first start. `init.sh` asks for it, and Legere refuses to
+   boot without it rather than letting you find out at the sign-up form;
 2. **Admin → Libraries → Add**: pick a folder inside the mounted volume. The first scan starts
    immediately, and every file becomes a document — deduplicated by content, so the same bytes in two
    places stay one document;
