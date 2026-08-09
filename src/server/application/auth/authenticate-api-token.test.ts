@@ -3,6 +3,7 @@ import {
   FakeSessionTokens,
   FixedClock,
   InMemoryUserRepository,
+  RecordingSecurityEvents,
 } from '../../../../test/helpers/fakes';
 import {
   ApiTokenRepository,
@@ -75,6 +76,7 @@ describe('API tokens', () => {
   let users: InMemoryUserRepository;
   let tokens: FakeSessionTokens;
   let create: CreateApiToken;
+  let events: RecordingSecurityEvents;
   let authenticate: AuthenticateApiToken;
   let userId: string;
 
@@ -83,7 +85,8 @@ describe('API tokens', () => {
     apiTokens = new InMemoryApiTokenRepository(clock);
     users = new InMemoryUserRepository(clock);
     tokens = new FakeSessionTokens();
-    create = new CreateApiToken(apiTokens, tokens, clock, 90);
+    events = new RecordingSecurityEvents();
+    create = new CreateApiToken(apiTokens, tokens, clock, 90, events);
     authenticate = new AuthenticateApiToken(apiTokens, users, tokens, clock);
 
     const user = await users.create({
@@ -132,7 +135,7 @@ describe('API tokens', () => {
     await expect(authenticate.execute(created.token)).rejects.toBeInstanceOf(UnauthenticatedError);
 
     clock.advance(-2 * 24 * 60 * 60 * 1000);
-    await new RevokeApiToken(apiTokens, clock).execute(userId, created.apiToken.id);
+    await new RevokeApiToken(apiTokens, clock, events).execute(userId, created.apiToken.id);
     await expect(authenticate.execute(created.token)).rejects.toBeInstanceOf(UnauthenticatedError);
   });
 
@@ -163,7 +166,7 @@ describe('API tokens', () => {
     const list = new ListApiTokens(apiTokens, clock);
     const shortLived = await create.execute(userId, { name: 'a day', expiresInDays: 1 });
     const revoked = await create.execute(userId, { name: 'revoked' });
-    await new RevokeApiToken(apiTokens, clock).execute(userId, revoked.apiToken.id);
+    await new RevokeApiToken(apiTokens, clock, events).execute(userId, revoked.apiToken.id);
 
     clock.advance(2 * 24 * 60 * 60 * 1000);
     const items = (await list.execute(userId)).items;
@@ -184,7 +187,24 @@ describe('API tokens', () => {
     });
 
     await expect(
-      new RevokeApiToken(apiTokens, clock).execute(stranger.id, created.apiToken.id),
+      new RevokeApiToken(apiTokens, clock, events).execute(stranger.id, created.apiToken.id),
     ).rejects.toMatchObject({ code: 'API_TOKEN_NOT_FOUND' });
+  });
+
+  // 🔒 SEC-34 (docs/06 §6.7). A token is a credential; both ends of its life are account history.
+  it('records a token issued and revoked without ever recording the token', async () => {
+    const created = await create.execute(userId, { name: 'export script' });
+    await new RevokeApiToken(apiTokens, clock, events).execute(userId, created.apiToken.id);
+
+    expect(events.names()).toEqual(['api_token.created', 'api_token.revoked']);
+    expect(events.only('api_token.created')).toEqual({
+      event: 'api_token.created',
+      actor: { userId },
+      target: { userId, id: created.apiToken.id },
+    });
+    expect(JSON.stringify(events.records)).not.toContain(created.token);
+    // Revoking twice is not an event twice: the second call changes nothing.
+    await new RevokeApiToken(apiTokens, clock, events).execute(userId, created.apiToken.id);
+    expect(events.names()).toHaveLength(2);
   });
 });

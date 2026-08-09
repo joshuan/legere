@@ -4,6 +4,7 @@ import {
   FixedClock,
   InMemorySessionRepository,
   InMemoryUserRepository,
+  RecordingSecurityEvents,
   StubCaptchaVerifier,
 } from '../../../../test/helpers/fakes';
 import { Argon2PasswordHasher } from '../../infrastructure/auth/argon2-password-hasher';
@@ -31,7 +32,8 @@ async function build(captcha = new StubCaptchaVerifier()) {
   const hasher = new CountingPasswordHasher();
   const attempts = new InMemoryLoginAttempts(clock);
   const issueSession = new IssueSession(sessions, new FakeSessionTokens(), clock, 30);
-  const useCase = new Login(users, hasher, captcha, attempts, issueSession);
+  const events = new RecordingSecurityEvents();
+  const useCase = new Login(users, hasher, captcha, attempts, issueSession, events);
 
   await users.create({
     email: 'user@legere.local',
@@ -41,7 +43,7 @@ async function build(captcha = new StubCaptchaVerifier()) {
     language: 'EN',
   });
 
-  return { useCase, clock, users, sessions, attempts, hasher };
+  return { useCase, clock, users, sessions, attempts, hasher, events };
 }
 
 describe('Login', () => {
@@ -202,6 +204,100 @@ describe('Login', () => {
       .catch(() => undefined);
 
     expect(context.hasher.verified).toHaveLength(2);
+  });
+
+  // 🔒 SEC-34 (docs/06 §6.7): an account has a history, and the login flow writes most of it.
+  it('records a sign-in against the account, the address and the address it came from', async () => {
+    await context.useCase.execute({
+      email: 'user@legere.local',
+      password: PASSWORD,
+      ip: '203.0.113.7',
+      userAgent: null,
+    });
+    const user = await context.users.findActiveByEmail('user@legere.local');
+
+    expect(context.events.only('login.succeeded')).toEqual({
+      event: 'login.succeeded',
+      actor: { userId: user?.id, ip: '203.0.113.7' },
+      target: { userId: user?.id, email: 'user@legere.local' },
+      detail: {},
+    });
+  });
+
+  it('records a refused attempt without saying whether the address exists', async () => {
+    const fail = (email: string) =>
+      context.useCase
+        .execute({ email, password: 'not-the-password', ip: '203.0.113.7', userAgent: null })
+        .catch(() => undefined);
+
+    await fail('user@legere.local');
+    await fail('nobody@legere.local');
+
+    // 🔒 Two records identical but for the address that was typed: the use case has just looked the
+    // account up and deliberately does not say what it found, so reading the log enumerates no
+    // better than calling the endpoint does (docs/08 §8.1.4).
+    const [known, unknown] = context.events.records;
+    expect(known).toEqual({
+      event: 'login.failed',
+      actor: { userId: null, ip: '203.0.113.7' },
+      target: { email: 'user@legere.local' },
+      detail: { reason: 'INVALID_CREDENTIALS' },
+    });
+    expect(unknown).toEqual({ ...known, target: { email: 'nobody@legere.local' } });
+  });
+
+  it('records the backoff refusal as an event of its own, and only one record per attempt', async () => {
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      await context.useCase
+        .execute({ email: 'user@legere.local', password: 'not-the-password', userAgent: null })
+        .catch(() => undefined);
+    }
+
+    expect(context.events.names()).toEqual([
+      'login.failed',
+      'login.failed',
+      'login.failed',
+      'login.failed',
+      'login.throttled',
+    ]);
+    expect(context.events.only('login.throttled').target).toEqual({
+      email: 'user@legere.local',
+    });
+  });
+
+  it('records a blocked account against the account, since its password was proved', async () => {
+    const user = await context.users.findActiveByEmail('user@legere.local');
+    if (user === null) throw new Error('missing user');
+    await context.users.update(user.id, { deactivatedAt: context.clock.now() });
+
+    await context.useCase
+      .execute({ email: 'user@legere.local', password: PASSWORD, userAgent: null })
+      .catch(() => undefined);
+
+    expect(context.events.only('login.failed')).toEqual({
+      event: 'login.failed',
+      actor: { userId: user.id },
+      target: { userId: user.id, email: 'user@legere.local' },
+      detail: { reason: 'ACCOUNT_DEACTIVATED' },
+    });
+  });
+
+  it('records a CAPTCHA refusal, and never the password or the captcha token', async () => {
+    const blocked = await build(new StubCaptchaVerifier(false));
+
+    await blocked.useCase
+      .execute({
+        email: 'user@legere.local',
+        password: PASSWORD,
+        captchaToken: 'captcha-token-value',
+        userAgent: null,
+      })
+      .catch(() => undefined);
+
+    const record = blocked.events.only('login.failed');
+    expect(record.detail).toEqual({ reason: 'CAPTCHA_FAILED' });
+    expect(JSON.stringify(record)).not.toContain(PASSWORD);
+    expect(JSON.stringify(record)).not.toContain('captcha-token-value');
   });
 });
 

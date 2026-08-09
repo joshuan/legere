@@ -12,6 +12,7 @@ import {
   type ApiTokenRepository,
 } from '../../domain/repositories/api-token.repository';
 import type { Clock } from '../ports/clock';
+import type { SecurityEvents } from '../ports/security-events';
 import type { SessionTokens } from '../ports/session-tokens';
 import { API_TOKEN_PREFIX } from '../auth/authenticate-api-token';
 
@@ -25,6 +26,7 @@ export class CreateApiToken {
     private readonly tokens: SessionTokens,
     private readonly clock: Clock,
     private readonly defaultTtlDays: number,
+    private readonly events: SecurityEvents,
   ) {}
 
   async execute(userId: string, input: CreateApiTokenRequest): Promise<CreateApiTokenResponse> {
@@ -37,6 +39,14 @@ export class CreateApiToken {
       name: input.name,
       tokenHash: this.tokens.hash(plaintext),
       expiresAt: new Date(now.getTime() + days * MS_PER_DAY),
+    });
+
+    // A new credential exists: the row that says so, never the plaintext leaving in the response
+    // and never the name the owner gave it, which is theirs to write and could be anything.
+    this.events.record({
+      event: 'api_token.created',
+      actor: { userId },
+      target: { userId, id: created.id },
     });
 
     return { token: plaintext, apiToken: toApiTokenDto(created, now) };
@@ -64,6 +74,7 @@ export class RevokeApiToken {
   constructor(
     private readonly apiTokens: ApiTokenRepository,
     private readonly clock: Clock,
+    private readonly events: SecurityEvents,
   ) {}
 
   async execute(userId: string, id: string): Promise<void> {
@@ -74,6 +85,11 @@ export class RevokeApiToken {
     if (token.revokedAt !== null) return;
 
     await this.apiTokens.revoke(id, this.clock.now());
+    this.events.record({
+      event: 'api_token.revoked',
+      actor: { userId },
+      target: { userId, id },
+    });
   }
 }
 

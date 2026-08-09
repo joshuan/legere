@@ -8,6 +8,7 @@ import { Logger as PinoLogger } from 'nestjs-pino';
 import next from 'next';
 import { pinoHttp } from 'pino-http';
 import { AppModule } from '../src/server/app.module';
+import { CallContext } from '../src/server/application/ports/call-context';
 import {
   AppConfig,
   configWarnings,
@@ -16,6 +17,7 @@ import {
 import { buildPinoHttpOptions } from '../src/server/infrastructure/logging/logger.options';
 import { WorkerRegistry } from '../src/server/infrastructure/queue/worker-registry';
 import { isRawBodyRoute } from '../src/server/presentation/documents/read-upload-body';
+import { callContextMiddleware } from '../src/server/presentation/http/call-context.middleware';
 import { csrfOriginCheck } from '../src/server/presentation/http/csrf.middleware';
 import { errorEnvelope } from '../src/server/presentation/http/envelope';
 import { readOnlyBearer } from '../src/server/presentation/http/read-only-bearer.middleware';
@@ -69,6 +71,9 @@ export async function wireServer(
   // via nestjs-pino's Nest middleware, which does not run reliably behind the shared Express instance
   // + global prefix + dispatcher; nestjs-pino remains the Nest application logger.
   server.use('/api', pinoHttp(buildPinoHttpOptions(loadConfig())));
+  // Immediately after it, so everything the request goes on to do can be tied back to the id the
+  // line above just minted — the account journal of docs/06 §6.7 reads it from here.
+  server.use('/api', callContextMiddleware(nestApp.get(CallContext)));
   server.use('/api', cookieParser());
   // 🔒 The upload routes take the file as the body itself (docs/07 §7.3), so no parser may touch
   // them. Which routes those are is declared once, beside the function that reads them, rather than

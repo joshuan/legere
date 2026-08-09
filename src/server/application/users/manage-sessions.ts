@@ -3,6 +3,7 @@ import type { Session } from '../../domain/entities/session';
 import { NotFoundError } from '../../domain/errors/domain-error';
 import type { SessionRepository } from '../../domain/repositories/session.repository';
 import type { Clock } from '../ports/clock';
+import type { SecurityEvents } from '../ports/security-events';
 
 // A user's own sessions (docs/07 §7.3, docs/08 §8.2). An admin can already end somebody's sessions;
 // this is the same power in the hands of the person it belongs to, next to the API tokens they
@@ -30,6 +31,7 @@ export class RevokeMySession {
   constructor(
     private readonly sessions: SessionRepository,
     private readonly clock: Clock,
+    private readonly events: SecurityEvents,
   ) {}
 
   async execute(userId: string, id: string): Promise<void> {
@@ -40,6 +42,14 @@ export class RevokeMySession {
     if (session.revokedAt !== null) return;
 
     await this.sessions.revoke(id, this.clock.now());
+    // The same event an admin's revoke-all produces, with the owner as its own actor: what an
+    // incident asks is which sessions ended and who ended them (docs/06 §6.7).
+    this.events.record({
+      event: 'session.revoked',
+      actor: { userId },
+      target: { userId, id },
+      detail: { sessions: 1 },
+    });
   }
 }
 

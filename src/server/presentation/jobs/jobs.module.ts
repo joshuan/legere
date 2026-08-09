@@ -6,7 +6,7 @@ import { HandleMaintenance } from '../../application/jobs/handle-maintenance';
 import type { ProcessingSettings } from '../../application/jobs/processing-settings';
 import { BuildCanonical } from '../../application/documents/build-canonical';
 import { CallContext } from '../../application/ports/call-context';
-import { AsyncLocalCallContext } from '../../infrastructure/logging/async-call-context';
+import { LoggingModule } from '../../infrastructure/logging/logging.module';
 import { Clock } from '../../application/ports/clock';
 import { DocumentAnalyst } from '../../application/ports/document-analyst';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
@@ -60,10 +60,11 @@ function processingSettings(config: AppConfig): ProcessingSettings {
 // Registration happens on module init; the workers themselves start in bootstrap step 5, after the
 // whole container is ready.
 @Module({
+  // The correlation id a pipeline step is run under (docs/03 §3.3.18) comes from here, and so does
+  // the account journal; a job and an HTTP request open the same kind of context (docs/06 §6.7).
+  // Named explicitly although the module is global, so this graph stands up on its own in a test.
+  imports: [LoggingModule],
   providers: [
-    // The correlation id a pipeline step is run under (docs/03 §3.3.18). Bound here because the
-    // jobs are what open a call; an HTTP request already has an id of its own (docs/06 §6.7).
-    { provide: CallContext, useClass: AsyncLocalCallContext },
     // What the analysis writes in (docs/05 §5.5); read per run, so a change needs no restart.
     {
       provide: AnalysisSettings,

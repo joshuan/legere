@@ -10,6 +10,11 @@ import type { UserRepository } from '../../domain/repositories/user.repository';
 import type { CaptchaVerifier } from '../ports/captcha-verifier';
 import type { LoginAttempts } from '../ports/login-attempts';
 import type { PasswordHasher } from '../ports/password-hasher';
+import type {
+  SecurityEventDetail,
+  SecurityEventName,
+  SecurityEvents,
+} from '../ports/security-events';
 import { toUserDto } from './complete-registration';
 import type { IssueSession } from './issue-session';
 
@@ -48,10 +53,12 @@ export class Login {
     private readonly captcha: CaptchaVerifier,
     private readonly attempts: LoginAttempts,
     private readonly issueSession: IssueSession,
+    private readonly events: SecurityEvents,
   ) {}
 
   async execute(input: LoginInput): Promise<LoginResult> {
     if (!(await this.captcha.verify(input.captchaToken, input.ip))) {
+      this.record('login.failed', input, {}, { reason: 'CAPTCHA_FAILED' });
       throw new AuthFlowError('CAPTCHA_FAILED', 'CAPTCHA verification failed');
     }
 
@@ -68,8 +75,10 @@ export class Login {
       // Only a failure is delayed, and the delay is the same for an address that exists and one
       // that does not — the failure was recorded either way, so both reach the window together.
       if (this.attempts.retryAfterMs(input.email) > 0) {
+        this.record('login.throttled', input, {}, {});
         throw new RateLimitedError('RATE_LIMITED', 'Too many failed attempts; try again later');
       }
+      this.record('login.failed', input, {}, { reason: 'INVALID_CREDENTIALS' });
       throw new InvalidCredentialsError();
     }
 
@@ -77,13 +86,39 @@ export class Login {
     // caller has already proven they know the password (docs/07 §7.2 lists 403 for a deactivated
     // user). Deactivation also revoked the sessions, so nothing else needs undoing.
     if (!isUserActive(user)) {
+      // The one refusal whose record names the account: somebody just proved they hold the password
+      // of a blocked account, which an operator wants to see against the account and not only
+      // against the address.
+      this.record('login.failed', input, { userId: user.id }, { reason: 'ACCOUNT_DEACTIVATED' });
       throw new ForbiddenError('This account is deactivated');
     }
 
     // Whatever the streak said. A correct password is the proof the backoff exists to wait for.
     this.attempts.clear(input.email);
     const { token } = await this.issueSession.execute(user.id, input.userAgent);
+    this.record('login.succeeded', input, { userId: user.id }, {});
     return { user: toUserDto(user), sessionToken: token };
+  }
+
+  // 🔒 Every login record has the same shape whatever the outcome, and every one of them names the
+  // address that was *attempted* rather than an account that was found (docs/06 §6.7). The use case
+  // knows perfectly well whether the address exists — it has just looked — and deliberately does not
+  // say: docs/08 §8.1.4 gives both cases the same answer at the same cost precisely so that login is
+  // not an enumeration oracle, and a log line that told them apart would hand that oracle to
+  // everyone who can read a log, which is more people than can read the database. What the record
+  // repeats is what the caller sent, and nothing the server knows.
+  private record(
+    event: SecurityEventName,
+    input: LoginInput,
+    target: { userId?: string },
+    detail: SecurityEventDetail,
+  ): void {
+    this.events.record({
+      event,
+      actor: { userId: target.userId ?? null, ...(input.ip === undefined ? {} : { ip: input.ip }) },
+      target: { ...target, email: input.email },
+      detail,
+    });
   }
 
   private dummy(): Promise<string> {

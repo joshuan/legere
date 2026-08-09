@@ -47,39 +47,45 @@ export class AdminUsersController {
     return successEnvelope(await this.listUsers.execute(query));
   }
 
+  // Each of the four below takes the calling admin as well as the target: a change of authority is
+  // recorded against whoever made it (docs/06 §6.7).
   @Patch(':id')
   async update(
     @UuidParam('id', 'USER_NOT_FOUND', 'User') id: string,
     @ZodBody(updateUserRequestSchema) body: UpdateUserRequest,
+    @CurrentUser() admin: User,
   ): Promise<Envelope<AdminUserDto>> {
     // The schema guarantees at least one field; role is the only one today.
     const role = body.role;
     if (role === undefined) throw new Error('unreachable: schema requires a role');
-    return successEnvelope(await this.changeUserRole.execute(id, role));
+    return successEnvelope(await this.changeUserRole.execute(id, role, admin.id));
   }
 
   @Post(':id/deactivate')
   @HttpCode(HttpStatus.OK)
   async deactivate(
     @UuidParam('id', 'USER_NOT_FOUND', 'User') id: string,
+    @CurrentUser() admin: User,
   ): Promise<Envelope<AdminUserDto>> {
-    return successEnvelope(await this.deactivateUser.execute(id));
+    return successEnvelope(await this.deactivateUser.execute(id, admin.id));
   }
 
   @Post(':id/reactivate')
   @HttpCode(HttpStatus.OK)
   async reactivate(
     @UuidParam('id', 'USER_NOT_FOUND', 'User') id: string,
+    @CurrentUser() admin: User,
   ): Promise<Envelope<AdminUserDto>> {
-    return successEnvelope(await this.reactivateUser.execute(id));
+    return successEnvelope(await this.reactivateUser.execute(id, admin.id));
   }
 
   @Post(':id/revoke-sessions')
   @HttpCode(HttpStatus.OK)
   async revokeSessions(
     @UuidParam('id', 'USER_NOT_FOUND', 'User') id: string,
+    @CurrentUser() admin: User,
   ): Promise<Envelope<RevokeSessionsResponse>> {
-    return successEnvelope(await this.revokeUserSessions.execute(id));
+    return successEnvelope(await this.revokeUserSessions.execute(id, admin.id));
   }
 
   @Post(':id/password-reset')

@@ -12,6 +12,7 @@ import { EmailSendThrottle } from '../../application/ports/email-send-throttle';
 import { EmailSender } from '../../application/ports/email-sender';
 import { LoginAttempts } from '../../application/ports/login-attempts';
 import { PasswordHasher } from '../../application/ports/password-hasher';
+import { SecurityEvents } from '../../application/ports/security-events';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { VerificationCodes } from '../../application/ports/verification-codes';
@@ -38,8 +39,16 @@ import { sessionGuardProviders } from './session-guard.providers';
         captcha: CaptchaVerifier,
         attempts: LoginAttempts,
         issueSession: IssueSession,
-      ): Login => new Login(users, hasher, captcha, attempts, issueSession),
-      inject: [UserRepository, PasswordHasher, CaptchaVerifier, LoginAttempts, IssueSession],
+        events: SecurityEvents,
+      ): Login => new Login(users, hasher, captcha, attempts, issueSession, events),
+      inject: [
+        UserRepository,
+        PasswordHasher,
+        CaptchaVerifier,
+        LoginAttempts,
+        IssueSession,
+        SecurityEvents,
+      ],
     },
     {
       provide: Logout,
@@ -127,6 +136,7 @@ import { sessionGuardProviders } from './session-guard.providers';
         issueSession: IssueSession,
         unitOfWork: UnitOfWork,
         clock: Clock,
+        events: SecurityEvents,
       ): CompleteRegistration =>
         new CompleteRegistration(
           users,
@@ -139,6 +149,7 @@ import { sessionGuardProviders } from './session-guard.providers';
           issueSession,
           unitOfWork,
           clock,
+          events,
         ),
       inject: [
         UserRepository,
@@ -151,6 +162,7 @@ import { sessionGuardProviders } from './session-guard.providers';
         IssueSession,
         UnitOfWork,
         Clock,
+        SecurityEvents,
       ],
     },
   ],

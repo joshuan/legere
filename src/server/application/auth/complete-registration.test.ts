@@ -8,6 +8,7 @@ import {
   InMemorySessionRepository,
   InMemoryUserInviteRepository,
   InMemoryUserRepository,
+  RecordingSecurityEvents,
 } from '../../../../test/helpers/fakes';
 import { ImmediateUnitOfWork } from '../../../../test/helpers/processing-fakes';
 import { CompleteRegistration } from './complete-registration';
@@ -40,6 +41,7 @@ function build(
   const verifications = new InMemoryEmailVerificationRepository(clock);
   const sessions = new InMemorySessionRepository(clock);
   const tokens = new FakeSessionTokens();
+  const events = new RecordingSecurityEvents();
 
   const useCase = new CompleteRegistration(
     users,
@@ -52,9 +54,10 @@ function build(
     new IssueSession(sessions, tokens, clock, 30),
     new ImmediateUnitOfWork(),
     clock,
+    events,
   );
 
-  return { useCase, clock, users, verifications, invites, resets, sessions, tokens };
+  return { useCase, clock, users, verifications, invites, resets, sessions, tokens, events };
 }
 
 type Context = ReturnType<typeof build>;
@@ -258,5 +261,80 @@ describe('CompleteRegistration', () => {
     expect((await context.users.findById(target.id))?.passwordHash).toBe(
       'hashed:the-old-passphrase',
     );
+  });
+
+  // 🔒 SEC-34 (docs/06 §6.7). The three ways this endpoint ends are three different facts about an
+  // account, and each is written down once — after the commit, so a refused completion writes none.
+  it('records an accepted invite with the role it granted, and never the ticket', async () => {
+    seedInvite(context, {});
+    const ticket = await issueTicket(context, { email: INVITEE, inviteId: 'invite-1' });
+
+    const result = await context.useCase.execute({
+      ticket,
+      password: PASSWORD,
+      language: 'EN',
+      userAgent: null,
+    });
+
+    const record = context.events.only('invite.accepted');
+    expect(record).toEqual({
+      event: 'invite.accepted',
+      actor: { userId: result.user.id },
+      target: { userId: result.user.id, id: 'invite-1' },
+      detail: { role: 'ADMIN' },
+    });
+    expect(JSON.stringify(record)).not.toContain(ticket);
+    expect(JSON.stringify(record)).not.toContain(PASSWORD);
+  });
+
+  it('records the first administrator as an account created rather than an invite', async () => {
+    const ticket = await issueTicket(context, { email: INVITEE });
+
+    const result = await context.useCase.execute({
+      ticket,
+      password: PASSWORD,
+      language: 'EN',
+      userAgent: null,
+    });
+
+    expect(context.events.only('account.created')).toEqual({
+      event: 'account.created',
+      actor: { userId: result.user.id },
+      target: { userId: result.user.id },
+      detail: { role: 'ADMIN' },
+    });
+  });
+
+  it('records a completed reset with the sessions it ended, and never the ticket', async () => {
+    const { target, reset } = await seedResetTarget(context);
+    await context.sessions.create({
+      tokenHash: 'hash:an-old-browser',
+      userId: target.id,
+      userAgent: 'an old browser',
+      expiresAt: new Date(context.clock.now().getTime() + 86_400_000),
+    });
+    const ticket = await issueTicket(context, { email: target.email, passwordResetId: reset.id });
+
+    await context.useCase.execute({ ticket, password: PASSWORD, language: 'EN', userAgent: null });
+
+    const record = context.events.only('password_reset.completed');
+    expect(record).toEqual({
+      event: 'password_reset.completed',
+      actor: { userId: target.id },
+      target: { userId: target.id, id: reset.id },
+      detail: { sessions: 1 },
+    });
+    expect(JSON.stringify(record)).not.toContain(ticket);
+  });
+
+  it('records nothing when the completion is refused', async () => {
+    seedInvite(context, { revokedAt: context.clock.now() });
+    const ticket = await issueTicket(context, { email: INVITEE, inviteId: 'invite-1' });
+
+    await context.useCase
+      .execute({ ticket, password: PASSWORD, language: 'EN', userAgent: null })
+      .catch(() => undefined);
+
+    expect(context.events.records).toEqual([]);
   });
 });

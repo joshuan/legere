@@ -16,6 +16,7 @@ import {
 import type { UserRepository } from '../../domain/repositories/user.repository';
 import type { Clock } from '../ports/clock';
 import type { PasswordHasher } from '../ports/password-hasher';
+import type { SecurityEvent, SecurityEvents } from '../ports/security-events';
 import type { SessionTokens } from '../ports/session-tokens';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import type { IssueSession } from './issue-session';
@@ -52,6 +53,7 @@ export class CompleteRegistration {
     private readonly issueSession: IssueSession,
     private readonly unitOfWork: UnitOfWork,
     private readonly clock: Clock,
+    private readonly events: SecurityEvents,
   ) {}
 
   async execute(input: CompleteRegistrationInput): Promise<CompleteRegistrationResult> {
@@ -59,7 +61,7 @@ export class CompleteRegistration {
     const ticketHash = this.tokens.hash(input.ticket);
     const passwordHash = await this.hasher.hash(input.password);
 
-    return this.unitOfWork.run(async (tx) => {
+    const completed = await this.unitOfWork.run(async (tx) => {
       const verification = await this.verifications.findByTicketHash(ticketHash, tx);
       if (verification === null || !isTicketUsable(verification, now)) {
         throw new AuthFlowError(
@@ -69,7 +71,7 @@ export class CompleteRegistration {
       }
       await this.verifications.markConsumed(verification.id, now, tx);
 
-      const user =
+      const { user, event } =
         verification.purpose === 'PASSWORD_RESET'
           ? await this.resetPassword(verification.passwordResetId, passwordHash, now, tx)
           : await this.createUser(
@@ -82,8 +84,13 @@ export class CompleteRegistration {
             );
 
       const { token } = await this.issueSession.execute(user.id, input.userAgent, tx);
-      return { user: toUserDto(user), sessionToken: token };
+      return { user, event, token };
     });
+
+    // After the commit, never inside it: an account that rolled back is not an account that was
+    // created, and a journal that says otherwise is worse than one that says nothing (docs/06 §6.7).
+    this.events.record(completed.event);
+    return { user: toUserDto(completed.user), sessionToken: completed.token };
   }
 
   private async createUser(
@@ -93,7 +100,7 @@ export class CompleteRegistration {
     now: Date,
     input: CompleteRegistrationInput,
     tx: unknown,
-  ): Promise<User> {
+  ): Promise<{ user: User; event: SecurityEvent }> {
     // Role comes from the invite; a tokenless series can only exist while onboarding is open
     // (StartRegistration enforces that), so its user is the first admin.
     let role: 'ADMIN' | 'USER' = 'ADMIN';
@@ -135,8 +142,26 @@ export class CompleteRegistration {
       if (!accepted) {
         throw new AuthFlowError('INVITE_INVALID', 'Invite link is not valid');
       }
+      return {
+        user,
+        event: {
+          event: 'invite.accepted',
+          actor: { userId: user.id },
+          target: { userId: user.id, id: inviteId },
+          detail: { role },
+        },
+      };
     }
-    return user;
+    return {
+      user,
+      // The one account nobody invited: the first administrator of the instance (docs/08 §8.1.1).
+      event: {
+        event: 'account.created',
+        actor: { userId: user.id },
+        target: { userId: user.id },
+        detail: { role },
+      },
+    };
   }
 
   // Reset series: the password changes and every existing session dies (docs/08 §8.1.6). The new
@@ -147,7 +172,7 @@ export class CompleteRegistration {
     passwordHash: string,
     now: Date,
     tx: unknown,
-  ): Promise<User> {
+  ): Promise<{ user: User; event: SecurityEvent }> {
     if (passwordResetId === null) {
       throw new AuthFlowError('RESET_INVALID', 'Password reset link is not valid');
     }
@@ -172,8 +197,16 @@ export class CompleteRegistration {
     }
 
     const user = await this.users.update(reset.userId, { passwordHash }, tx);
-    await this.sessions.revokeAllForUser(user.id, now, tx);
-    return user;
+    const sessions = await this.sessions.revokeAllForUser(user.id, now, tx);
+    return {
+      user,
+      event: {
+        event: 'password_reset.completed',
+        actor: { userId: user.id },
+        target: { userId: user.id, id: reset.id },
+        detail: { sessions },
+      },
+    };
   }
 }
 

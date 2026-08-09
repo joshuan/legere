@@ -4,6 +4,7 @@ import { ChangePassword } from '../../application/auth/change-password';
 import { Clock } from '../../application/ports/clock';
 import { PasswordHasher } from '../../application/ports/password-hasher';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
+import { SecurityEvents } from '../../application/ports/security-events';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import {
   CreateInvite,
@@ -75,9 +76,10 @@ import { PasswordResetsController } from './password-resets.controller';
         tokens: SessionTokens,
         clock: Clock,
         config: AppConfig,
+        events: SecurityEvents,
       ): CreateApiToken =>
-        new CreateApiToken(apiTokens, tokens, clock, config.get('API_TOKEN_TTL_DAYS')),
-      inject: [ApiTokenRepository, SessionTokens, Clock, AppConfig],
+        new CreateApiToken(apiTokens, tokens, clock, config.get('API_TOKEN_TTL_DAYS'), events),
+      inject: [ApiTokenRepository, SessionTokens, Clock, AppConfig, SecurityEvents],
     },
     {
       provide: ListApiTokens,
@@ -87,9 +89,12 @@ import { PasswordResetsController } from './password-resets.controller';
     },
     {
       provide: RevokeApiToken,
-      useFactory: (apiTokens: ApiTokenRepository, clock: Clock): RevokeApiToken =>
-        new RevokeApiToken(apiTokens, clock),
-      inject: [ApiTokenRepository, Clock],
+      useFactory: (
+        apiTokens: ApiTokenRepository,
+        clock: Clock,
+        events: SecurityEvents,
+      ): RevokeApiToken => new RevokeApiToken(apiTokens, clock, events),
+      inject: [ApiTokenRepository, Clock, SecurityEvents],
     },
     {
       provide: CreateInvite,
@@ -98,8 +103,10 @@ import { PasswordResetsController } from './password-resets.controller';
         tokens: SessionTokens,
         clock: Clock,
         config: AppConfig,
-      ): CreateInvite => new CreateInvite(invites, tokens, clock, config.get('APP_BASE_URL')),
-      inject: [UserInviteRepository, SessionTokens, Clock, AppConfig],
+        events: SecurityEvents,
+      ): CreateInvite =>
+        new CreateInvite(invites, tokens, clock, config.get('APP_BASE_URL'), events),
+      inject: [UserInviteRepository, SessionTokens, Clock, AppConfig, SecurityEvents],
     },
     {
       provide: ListInvites,
@@ -109,9 +116,12 @@ import { PasswordResetsController } from './password-resets.controller';
     },
     {
       provide: RevokeInvite,
-      useFactory: (invites: UserInviteRepository, clock: Clock): RevokeInvite =>
-        new RevokeInvite(invites, clock),
-      inject: [UserInviteRepository, Clock],
+      useFactory: (
+        invites: UserInviteRepository,
+        clock: Clock,
+        events: SecurityEvents,
+      ): RevokeInvite => new RevokeInvite(invites, clock, events),
+      inject: [UserInviteRepository, Clock, SecurityEvents],
     },
     {
       provide: PreviewInvite,
@@ -130,9 +140,17 @@ import { PasswordResetsController } from './password-resets.controller';
         tokens: SessionTokens,
         clock: Clock,
         config: AppConfig,
+        events: SecurityEvents,
       ): CreatePasswordReset =>
-        new CreatePasswordReset(users, resets, tokens, clock, config.get('APP_BASE_URL')),
-      inject: [UserRepository, PasswordResetRepository, SessionTokens, Clock, AppConfig],
+        new CreatePasswordReset(users, resets, tokens, clock, config.get('APP_BASE_URL'), events),
+      inject: [
+        UserRepository,
+        PasswordResetRepository,
+        SessionTokens,
+        Clock,
+        AppConfig,
+        SecurityEvents,
+      ],
     },
     { provide: GetMe, useFactory: (): GetMe => new GetMe() },
     {
@@ -148,8 +166,16 @@ import { PasswordResetsController } from './password-resets.controller';
         hasher: PasswordHasher,
         unitOfWork: UnitOfWork,
         clock: Clock,
-      ): ChangePassword => new ChangePassword(users, sessions, hasher, unitOfWork, clock),
-      inject: [UserRepository, SessionRepository, PasswordHasher, UnitOfWork, Clock],
+        events: SecurityEvents,
+      ): ChangePassword => new ChangePassword(users, sessions, hasher, unitOfWork, clock, events),
+      inject: [
+        UserRepository,
+        SessionRepository,
+        PasswordHasher,
+        UnitOfWork,
+        Clock,
+        SecurityEvents,
+      ],
     },
     {
       provide: ListMySessions,
@@ -159,9 +185,12 @@ import { PasswordResetsController } from './password-resets.controller';
     },
     {
       provide: RevokeMySession,
-      useFactory: (sessions: SessionRepository, clock: Clock): RevokeMySession =>
-        new RevokeMySession(sessions, clock),
-      inject: [SessionRepository, Clock],
+      useFactory: (
+        sessions: SessionRepository,
+        clock: Clock,
+        events: SecurityEvents,
+      ): RevokeMySession => new RevokeMySession(sessions, clock, events),
+      inject: [SessionRepository, Clock, SecurityEvents],
     },
     {
       provide: ListUsers,
@@ -170,9 +199,12 @@ import { PasswordResetsController } from './password-resets.controller';
     },
     {
       provide: ChangeUserRole,
-      useFactory: (users: UserRepository, unitOfWork: UnitOfWork): ChangeUserRole =>
-        new ChangeUserRole(users, unitOfWork),
-      inject: [UserRepository, UnitOfWork],
+      useFactory: (
+        users: UserRepository,
+        unitOfWork: UnitOfWork,
+        events: SecurityEvents,
+      ): ChangeUserRole => new ChangeUserRole(users, unitOfWork, events),
+      inject: [UserRepository, UnitOfWork, SecurityEvents],
     },
     {
       provide: DeactivateUser,
@@ -183,8 +215,9 @@ import { PasswordResetsController } from './password-resets.controller';
         resets: PasswordResetRepository,
         unitOfWork: UnitOfWork,
         clock: Clock,
+        events: SecurityEvents,
       ): DeactivateUser =>
-        new DeactivateUser(users, sessions, apiTokens, resets, unitOfWork, clock),
+        new DeactivateUser(users, sessions, apiTokens, resets, unitOfWork, clock, events),
       inject: [
         UserRepository,
         SessionRepository,
@@ -192,12 +225,14 @@ import { PasswordResetsController } from './password-resets.controller';
         PasswordResetRepository,
         UnitOfWork,
         Clock,
+        SecurityEvents,
       ],
     },
     {
       provide: ReactivateUser,
-      useFactory: (users: UserRepository): ReactivateUser => new ReactivateUser(users),
-      inject: [UserRepository],
+      useFactory: (users: UserRepository, events: SecurityEvents): ReactivateUser =>
+        new ReactivateUser(users, events),
+      inject: [UserRepository, SecurityEvents],
     },
     {
       provide: RevokeUserSessions,
@@ -205,8 +240,9 @@ import { PasswordResetsController } from './password-resets.controller';
         users: UserRepository,
         sessions: SessionRepository,
         clock: Clock,
-      ): RevokeUserSessions => new RevokeUserSessions(users, sessions, clock),
-      inject: [UserRepository, SessionRepository, Clock],
+        events: SecurityEvents,
+      ): RevokeUserSessions => new RevokeUserSessions(users, sessions, clock, events),
+      inject: [UserRepository, SessionRepository, Clock, SecurityEvents],
     },
     {
       provide: PreviewPasswordReset,

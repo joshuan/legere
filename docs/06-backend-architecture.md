@@ -176,6 +176,80 @@ refused by the origin check, an unknown route — which is when a URL carrying a
 to be the one being logged. `req.query` and `req.params` are dropped from the serialized shape
 entirely, since Express fills both with the same material the URL is scrubbed of.
 
+### 6.7.1. The account journal
+
+🔒 A request line says that `POST /api/auth/login` answered 200. It does not say **whose** account,
+**which** invite, or that somebody's role changed — the document event journal
+([`03 §3.3.18`](./03-domain-model.md)) covers documents, not accounts. So account-affecting facts are
+written as records of their own, and after an incident they are what answers *who signed in, from
+where, and when their authority changed*.
+
+**The port.** `SecurityEvents.record(event)` in `src/server/application/ports/security-events.ts`;
+the pino-backed `PinoSecurityEvents` implements it in `infrastructure/logging`. Use cases depend on
+the port, so the layer that knows the facts stays framework-free (§6.1). `record` returns nothing
+and throws nothing: no account operation may fail, or wait, because a record could not be written.
+
+**The record.** One JSON line, at `info`, with `context: "security"`:
+
+| Field | What it is |
+|---|---|
+| `event` | one of the names below, e.g. `login.failed` |
+| `actor` | `{ userId, ip? }` — who did it. `userId` is null when the caller had not proved who they were; `ip` is carried by the login events only, because "from where" is the question they exist to answer, and every other record joins to a request line that already holds `remoteAddress` |
+| `target` | `{ userId?, email?, id? }` — the account it was done to, the address a caller *claimed*, and the invite / reset / session / token row it was about |
+| `detail` | a closed shape — `reason`, `role`, `fromRole`, `sessions`. Deliberately not a free-form bag: that is how a token, a code or a password eventually reaches a log line, and the type is what makes "records carry no credential" a property of the compiler rather than of review |
+| `requestId` | the id the request already has — `pino-http` minted it, answered with it as `X-Request-Id` and wrote it on the request line. A record therefore joins to its own request, and through it to the address, the method and the route |
+| `time` | pino's, in epoch milliseconds |
+| `msg` | `security.<event>`, so the stream can be filtered by prefix where the reader does not parse JSON |
+
+The id reaches the application layer through the `CallContext` port
+(`AsyncLocalStorage`, the same one a pipeline step opens — [`03 §3.3.18`](./03-domain-model.md)): an
+Express middleware mounted directly after `pino-http` runs the rest of every `/api` request inside
+it. Off a request — a cron, a job — `requestId` is `null` rather than invented.
+
+**What is recorded**
+
+| Event | Emitted by | Actor / target |
+|---|---|---|
+| `login.succeeded` `login.failed` `login.throttled` | `Login` | the address attempted; the account only once a correct password has named it |
+| `account.created` | `CompleteRegistration` (onboarding) | the first administrator ([`08 §8.1.1`](./08-auth-and-authorization.md)) |
+| `invite.issued` `invite.accepted` `invite.revoked` | `CreateInvite` / `CompleteRegistration` / `RevokeInvite` | the admin, then the account the link created |
+| `password_reset.issued` `password_reset.completed` | `CreatePasswordReset` / `CompleteRegistration` | the admin who issued it, then the owner who spent it |
+| `password.changed` | `ChangePassword` | the owner, with the sessions the change ended ([`08 §8.1.6a`](./08-auth-and-authorization.md#816a-password-change-self-service-authenticated)) |
+| `role.changed` `account.deactivated` `account.reactivated` | `ChangeUserRole` / `DeactivateUser` / `ReactivateUser` | the admin who made it, against the account it happened to |
+| `session.revoked` | `RevokeUserSessions` / `RevokeMySession` | whoever ended them — an admin, or the owner |
+| `api_token.created` `api_token.revoked` | `CreateApiToken` / `RevokeApiToken` | the owner, and the row ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)) |
+
+Nothing is recorded when nothing happened: a role set to the role it already had, a session revoked
+twice, a refused completion. A record inside a transaction is written after it commits — an account
+that rolled back was not created, and a journal that says otherwise is worse than one that says
+nothing.
+
+🔒 **A failed login names the address, not the account.** The record says the address that was
+*attempted*, exactly as the caller typed it, and does not say whether an account answers to it — the
+use case knows, because it has just looked, and deliberately does not tell. `08 §8.1.4` gives the
+existing and the non-existing address the same answer at the same cost precisely so that login is
+not an enumeration oracle; a record that told them apart would not have closed that oracle, only
+moved it to whoever can read a log, which is more people than can read the database. The two records
+therefore have identical fields and differ in the address alone. A refusal names the account in one
+case only — when a *correct* password was presented to a deactivated one — and there the caller has
+already proved the account exists.
+
+**Where they go, and how long they live.** The same stream as everything else: one JSON line on
+stdout, which in the shipped deployment is `docker compose logs app`
+([`12 §12.7`](./12-build-config-run.md)). Not a second stream and not a file: the container runs with
+a read-only root filesystem ([`12 §12.6`](./12-build-config-run.md#126-dockerfile-one-image)), so a
+file beside the process would be a place nothing rotates, nothing ships and `docker compose logs`
+cannot show. Retention is therefore **the container log driver's, not the application's** — Legere
+enforces none and stores none of this in the database. The shipped compose sets the `json-file`
+driver's `max-size` and `max-file` on the `app` service (defaults: 10 MB × 5, overridable through
+`LOG_MAX_SIZE` / `LOG_MAX_FILES`), so the honest statement is: *these records survive as long as the
+last few tens of megabytes of that container's output, and no longer.* An operator who needs an
+account history that outlives a rotation — or a restart with `docker compose down` — must ship the
+stream somewhere that keeps it; the format is one JSON object per line and `context: "security"`
+selects it. Two consequences worth stating rather than discovering: the stream contains account
+email addresses, so it is as private as the instance is; and deleting a user does not delete their
+history from a log already written.
+
 ## 6.8. Queue integration (pg-boss)
 
 - One `PgBoss` instance per process, started in bootstrap step 5 (§2.2) with `schema: 'pgboss'` on

@@ -35,6 +35,11 @@ import { PasswordHasher } from '../../src/server/application/ports/password-hash
 import { EmailSendThrottle } from '../../src/server/application/ports/email-send-throttle';
 import { EmailSender, type EmailMessage } from '../../src/server/application/ports/email-sender';
 import {
+  SecurityEvents,
+  type SecurityEvent,
+  type SecurityEventName,
+} from '../../src/server/application/ports/security-events';
+import {
   SessionTokens,
   type GeneratedToken,
 } from '../../src/server/application/ports/session-tokens';
@@ -86,6 +91,28 @@ export class CollectingEmailSender extends EmailSender {
   send(message: EmailMessage): Promise<void> {
     this.sent.push(message);
     return Promise.resolve();
+  }
+}
+
+// The account journal a use case writes to (docs/06 §6.7), kept where a test can read it back.
+export class RecordingSecurityEvents extends SecurityEvents {
+  readonly records: SecurityEvent[] = [];
+
+  record(event: SecurityEvent): void {
+    this.records.push(event);
+  }
+
+  names(): SecurityEventName[] {
+    return this.records.map((record) => record.event);
+  }
+
+  only(name: SecurityEventName): SecurityEvent {
+    const matches = this.records.filter((record) => record.event === name);
+    const [first] = matches;
+    if (first === undefined || matches.length !== 1) {
+      throw new Error(`Expected exactly one ${name}, got ${matches.length}`);
+    }
+    return first;
   }
 }
 

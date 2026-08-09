@@ -4,6 +4,7 @@ import type { SessionRepository } from '../../domain/repositories/session.reposi
 import type { UserRepository } from '../../domain/repositories/user.repository';
 import type { Clock } from '../ports/clock';
 import type { PasswordHasher } from '../ports/password-hasher';
+import type { SecurityEvents } from '../ports/security-events';
 import type { UnitOfWork } from '../ports/unit-of-work';
 
 export type ChangePasswordInput = {
@@ -30,6 +31,7 @@ export class ChangePassword {
     private readonly hasher: PasswordHasher,
     private readonly unitOfWork: UnitOfWork,
     private readonly clock: Clock,
+    private readonly events: SecurityEvents,
   ) {}
 
   async execute(input: ChangePasswordInput): Promise<ChangePasswordResponse> {
@@ -49,15 +51,23 @@ export class ChangePassword {
 
     // One transaction: a password written without the revocation that goes with it would leave the
     // stolen sessions alive under a password their owner believes they have just replaced.
-    return this.unitOfWork.run(async (tx) => {
+    const { revoked } = await this.unitOfWork.run(async (tx) => {
       await this.users.update(user.id, { passwordHash }, tx);
-      const revoked = await this.sessions.revokeAllForUserExcept(
+      const sessions = await this.sessions.revokeAllForUserExcept(
         user.id,
         input.currentSessionId,
         now,
         tx,
       );
-      return { revoked };
+      return { revoked: sessions };
     });
+
+    this.events.record({
+      event: 'password.changed',
+      actor: { userId: user.id },
+      target: { userId: user.id },
+      detail: { sessions: revoked },
+    });
+    return { revoked };
   }
 }

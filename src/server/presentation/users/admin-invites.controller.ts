@@ -44,8 +44,9 @@ export class AdminInvitesController {
   @Delete(':id')
   async revoke(
     @UuidParam('id', 'INVITE_NOT_FOUND', 'Invite') id: string,
+    @CurrentUser() admin: User,
   ): Promise<Envelope<OkResponse>> {
-    await this.revokeInvite.execute(id);
+    await this.revokeInvite.execute(id, admin.id);
     return successEnvelope({ ok: true });
   }
 }

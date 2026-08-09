@@ -8,6 +8,7 @@ import {
 } from '../../domain/repositories/password-reset.repository';
 import type { UserRepository } from '../../domain/repositories/user.repository';
 import type { Clock } from '../ports/clock';
+import type { SecurityEvents } from '../ports/security-events';
 import type { SessionTokens } from '../ports/session-tokens';
 
 // Reset links live a day (docs/03 §3.3.5).
@@ -22,6 +23,7 @@ export class CreatePasswordReset {
     private readonly tokens: SessionTokens,
     private readonly clock: Clock,
     private readonly appBaseUrl: string,
+    private readonly events: SecurityEvents,
   ) {}
 
   async execute(userId: string, createdById: string): Promise<CreatePasswordResetResponse> {
@@ -35,7 +37,15 @@ export class CreatePasswordReset {
 
     const { token, hash } = this.tokens.generate();
     const expiresAt = new Date(this.clock.now().getTime() + RESET_TTL_MS);
-    await this.resets.create({ userId, tokenHash: hash, createdById, expiresAt });
+    const reset = await this.resets.create({ userId, tokenHash: hash, createdById, expiresAt });
+
+    // One admin can hand any account a new password; that is worth a line of its own, naming both
+    // of them. The link itself is a bearer credential and is never recorded (docs/06 §6.7).
+    this.events.record({
+      event: 'password_reset.issued',
+      actor: { userId: createdById },
+      target: { userId, id: reset.id },
+    });
 
     return {
       url: new URL(`/reset/${token}`, this.appBaseUrl).toString(),

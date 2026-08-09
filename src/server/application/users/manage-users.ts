@@ -7,6 +7,7 @@ import type { PasswordResetRepository } from '../../domain/repositories/password
 import type { SessionRepository } from '../../domain/repositories/session.repository';
 import type { UserRepository } from '../../domain/repositories/user.repository';
 import type { Clock } from '../ports/clock';
+import type { SecurityEvents } from '../ports/security-events';
 import type { UnitOfWork } from '../ports/unit-of-work';
 
 // GET /api/admin/users — cursor-paginated, createdAt ascending (docs/07 §7.3).
@@ -25,17 +26,29 @@ export class ChangeUserRole {
   constructor(
     private readonly users: UserRepository,
     private readonly unitOfWork: UnitOfWork,
+    private readonly events: SecurityEvents,
   ) {}
 
-  async execute(userId: string, role: UserRole): Promise<AdminUserDto> {
-    return this.unitOfWork.run(async (tx) => {
-      const user = await requireUser(this.users, userId, tx);
-      if (user.role === role) return toAdminUserDto(user);
+  async execute(userId: string, role: UserRole, actorId: string): Promise<AdminUserDto> {
+    const { user, fromRole } = await this.unitOfWork.run(async (tx) => {
+      const existing = await requireUser(this.users, userId, tx);
+      if (existing.role === role) return { user: existing, fromRole: null };
 
-      if (role !== 'ADMIN') await assertNotLastAdmin(this.users, user, tx);
+      if (role !== 'ADMIN') await assertNotLastAdmin(this.users, existing, tx);
 
-      return toAdminUserDto(await this.users.update(userId, { role }, tx));
+      return { user: await this.users.update(userId, { role }, tx), fromRole: existing.role };
     });
+
+    // Nothing is recorded when nothing moved: a journal of no-ops is a journal nobody reads.
+    if (fromRole !== null) {
+      this.events.record({
+        event: 'role.changed',
+        actor: { userId: actorId },
+        target: { userId },
+        detail: { fromRole, role },
+      });
+    }
+    return toAdminUserDto(user);
   }
 }
 
@@ -50,35 +63,57 @@ export class DeactivateUser {
     private readonly resets: PasswordResetRepository,
     private readonly unitOfWork: UnitOfWork,
     private readonly clock: Clock,
+    private readonly events: SecurityEvents,
   ) {}
 
-  async execute(userId: string): Promise<AdminUserDto> {
+  async execute(userId: string, actorId: string): Promise<AdminUserDto> {
     const now = this.clock.now();
-    return this.unitOfWork.run(async (tx) => {
-      const user = await requireUser(this.users, userId, tx);
-      if (!isUserActive(user)) return toAdminUserDto(user);
+    const { user, sessions } = await this.unitOfWork.run(async (tx) => {
+      const existing = await requireUser(this.users, userId, tx);
+      if (!isUserActive(existing)) return { user: existing, sessions: null };
 
-      await assertNotLastAdmin(this.users, user, tx);
+      await assertNotLastAdmin(this.users, existing, tx);
 
       const updated = await this.users.update(userId, { deactivatedAt: now }, tx);
-      await this.sessions.revokeAllForUser(userId, now, tx);
+      const revoked = await this.sessions.revokeAllForUser(userId, now, tx);
       // A blocked account keeps no credentials, and a token is a credential (docs/03 §3.3.22).
       await this.apiTokens.revokeAllForUser(userId, now, tx);
       await this.resets.revokeAllForUser(userId, now, tx);
-      return toAdminUserDto(updated);
+      return { user: updated, sessions: revoked };
     });
+
+    if (sessions !== null) {
+      this.events.record({
+        event: 'account.deactivated',
+        actor: { userId: actorId },
+        target: { userId },
+        detail: { sessions },
+      });
+    }
+    return toAdminUserDto(user);
   }
 }
 
 // POST /api/admin/users/:id/reactivate — the inverse; sessions are not restored, the user signs in
 // again.
 export class ReactivateUser {
-  constructor(private readonly users: UserRepository) {}
+  constructor(
+    private readonly users: UserRepository,
+    private readonly events: SecurityEvents,
+  ) {}
 
-  async execute(userId: string): Promise<AdminUserDto> {
+  async execute(userId: string, actorId: string): Promise<AdminUserDto> {
     const user = await requireUser(this.users, userId);
     if (isUserActive(user)) return toAdminUserDto(user);
-    return toAdminUserDto(await this.users.update(userId, { deactivatedAt: null }));
+
+    const updated = await this.users.update(userId, { deactivatedAt: null });
+    this.events.record({
+      event: 'account.reactivated',
+      actor: { userId: actorId },
+      target: { userId },
+      detail: { role: updated.role },
+    });
+    return toAdminUserDto(updated);
   }
 }
 
@@ -88,11 +123,18 @@ export class RevokeUserSessions {
     private readonly users: UserRepository,
     private readonly sessions: SessionRepository,
     private readonly clock: Clock,
+    private readonly events: SecurityEvents,
   ) {}
 
-  async execute(userId: string): Promise<{ revoked: number }> {
+  async execute(userId: string, actorId: string): Promise<{ revoked: number }> {
     await requireUser(this.users, userId);
     const revoked = await this.sessions.revokeAllForUser(userId, this.clock.now());
+    this.events.record({
+      event: 'session.revoked',
+      actor: { userId: actorId },
+      target: { userId },
+      detail: { sessions: revoked },
+    });
     return { revoked };
   }
 }

@@ -7,6 +7,7 @@ import { AuthInfrastructureModule } from './infrastructure/auth/auth-infrastruct
 import { AppConfig } from './infrastructure/config/app-config';
 import { ConfigModule } from './infrastructure/config/config.module';
 import { buildLoggerOptions } from './infrastructure/logging/logger.options';
+import { LoggingModule } from './infrastructure/logging/logging.module';
 import { PdfModule } from './infrastructure/pdf/pdf.module';
 import { PersistenceModule } from './infrastructure/persistence/persistence.module';
 import { QueueModule } from './infrastructure/queue/queue.module';
@@ -38,6 +39,7 @@ import { UsersModule } from './presentation/users/users.module';
     // Per-IP rate limiting (docs/06 §6.4, docs/08 §8.4). The guard is applied per route rather than
     // globally, so it covers /api/auth/* and /api/invites/* without throttling the health probe.
     ThrottlerModule.forRoot([{ name: 'auth', ttl: 60_000, limit: 20 }]),
+    LoggingModule,
     PersistenceModule,
     AuthInfrastructureModule,
     StorageModule,

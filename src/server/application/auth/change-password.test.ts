@@ -4,6 +4,7 @@ import {
   FixedClock,
   InMemorySessionRepository,
   InMemoryUserRepository,
+  RecordingSecurityEvents,
 } from '../../../../test/helpers/fakes';
 import { ImmediateUnitOfWork } from '../../../../test/helpers/processing-fakes';
 import { ChangePassword } from './change-password';
@@ -18,7 +19,15 @@ async function build() {
   const users = new InMemoryUserRepository(clock);
   const sessions = new InMemorySessionRepository(clock);
   const hasher = new FakePasswordHasher();
-  const useCase = new ChangePassword(users, sessions, hasher, new ImmediateUnitOfWork(), clock);
+  const events = new RecordingSecurityEvents();
+  const useCase = new ChangePassword(
+    users,
+    sessions,
+    hasher,
+    new ImmediateUnitOfWork(),
+    clock,
+    events,
+  );
 
   const user = await users.create({
     email: 'user@legere.local',
@@ -41,7 +50,7 @@ async function build() {
     );
   }
 
-  return { useCase, users, sessions, hasher, clock, user, current: created[0] };
+  return { useCase, users, sessions, hasher, clock, user, events, current: created[0] };
 }
 
 // An authenticated password rotation (docs/08 §8.1.6a).
@@ -92,5 +101,26 @@ describe('ChangePassword', () => {
     expect(await context.hasher.verify(stored?.passwordHash ?? '', PASSWORD)).toBe(true);
     const alive = await context.sessions.listActiveForUser(context.user.id, context.clock.now());
     expect(alive).toHaveLength(3);
+    // 🔒 A refused rotation is not a rotation: nothing joins the account's history (docs/06 §6.7).
+    expect(context.events.records).toEqual([]);
+  });
+
+  it('records the rotation and how many sessions it ended, and neither password', async () => {
+    await context.useCase.execute({
+      userId: context.user.id,
+      currentSessionId: context.current?.id ?? '',
+      currentPassword: PASSWORD,
+      newPassword: NEXT_PASSWORD,
+    });
+
+    const record = context.events.only('password.changed');
+    expect(record).toEqual({
+      event: 'password.changed',
+      actor: { userId: context.user.id },
+      target: { userId: context.user.id },
+      detail: { sessions: 2 },
+    });
+    expect(JSON.stringify(record)).not.toContain(PASSWORD);
+    expect(JSON.stringify(record)).not.toContain(NEXT_PASSWORD);
   });
 });

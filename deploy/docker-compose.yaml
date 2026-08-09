@@ -96,6 +96,15 @@ services:
       - ${LIBRARY_PATH:?set LIBRARY_PATH to the folder holding your documents}:/library:ro
     ports:
       - '${APP_PORT:-3000}:8080'
+    # 🔒 The account journal lives in this stream and nowhere else (docs/06 §6.7.1): the root
+    # filesystem is read-only, so a file beside the process would be a place nothing rotates and
+    # `docker compose logs` cannot show. Rotation is therefore the driver's, and these are the knobs
+    # — an operator who needs a history that outlives it ships the stream somewhere that keeps it.
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-10m}
+        max-file: '${LOG_MAX_FILES:-5}'
 
   # The schema, applied once per `up` by a container that exits. Two things follow: a second app
   # replica cannot race a first one on the migration advisory lock, and the role that performs DDL

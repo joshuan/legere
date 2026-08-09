@@ -558,7 +558,7 @@ Every task ends the same way: the scenario it fixes joins
   **Docs:** [`05 §5.1`](../05-library-and-processing.md), [`07 §7.1–7.2`](../07-api-specification.md#71-conventions), [`14 §14.4`](../14-coding-standards.md)
   **Acceptance:** an exclude glob whose wildcards multiply is refused by the contract rather than compiled, and the matcher is built once per scan instead of recompiled per directory entry; a browse path containing `%` or `_` matches literally, and the folder listing and its offsets agree; a filename header containing control characters is stripped of them before the path is split, so nothing with a newline reaches a title, an S3 key or another container's multipart part; the library-creation check calls the `realpath` containment function that already exists, so a root reached through an intermediate symlink is refused, and a fixture proves it; both raw-body upload routes are exempt from the body parsers, declared in one place rather than by a path equality that the second route silently missed; the table-separator test is bounded so a megabyte-long line costs nothing; an unparseable cursor answers 422 rather than 500.
 
-- [ ] **M15.16 — An account has a history**
+- [x] **M15.16 — An account has a history**
   **Goal:** after an incident it is possible to say who signed in, from where, and when their authority changed.
   **Closes:** SEC-34
   **Docs:** [`06 §6.7`](../06-backend-architecture.md), [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist)

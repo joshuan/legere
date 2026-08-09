@@ -11,6 +11,7 @@ import {
   type UserInviteRepository,
 } from '../../domain/repositories/user-invite.repository';
 import type { Clock } from '../ports/clock';
+import type { SecurityEvents } from '../ports/security-events';
 import type { SessionTokens } from '../ports/session-tokens';
 
 // Invites default to a week (docs/03 §3.3.4).
@@ -24,6 +25,7 @@ export class CreateInvite {
     private readonly tokens: SessionTokens,
     private readonly clock: Clock,
     private readonly appBaseUrl: string,
+    private readonly events: SecurityEvents,
   ) {}
 
   async execute(input: CreateInviteRequest, createdById: string): Promise<CreateInviteResponse> {
@@ -36,6 +38,18 @@ export class CreateInvite {
       emailHint: input.emailHint ?? null,
       createdById,
       expiresAt,
+    });
+
+    // The row and the role it grants, never the link: the token in `url` above is a bearer
+    // credential and is returned exactly once, to the admin who asked (docs/06 §6.7).
+    this.events.record({
+      event: 'invite.issued',
+      actor: { userId: createdById },
+      target: {
+        id: invite.id,
+        ...(invite.emailHint === null ? {} : { email: invite.emailHint }),
+      },
+      detail: { role: invite.role },
     });
 
     return {
@@ -65,12 +79,19 @@ export class RevokeInvite {
   constructor(
     private readonly invites: UserInviteRepository,
     private readonly clock: Clock,
+    private readonly events: SecurityEvents,
   ) {}
 
-  async execute(id: string): Promise<void> {
+  async execute(id: string, actorId: string): Promise<void> {
     const invite = await this.invites.findById(id);
     if (invite === null) throw new NotFoundError('INVITE_NOT_FOUND', 'Invite not found');
     await this.invites.revoke(id, this.clock.now());
+    this.events.record({
+      event: 'invite.revoked',
+      actor: { userId: actorId },
+      target: { id },
+      detail: { role: invite.role },
+    });
   }
 }
 
