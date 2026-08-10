@@ -14,6 +14,13 @@ RUN npx prisma generate && npm run build && npm prune --omit=dev
 FROM node:26-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+# 🔒 SEC-07. The base image ships npm and corepack; this stage runs neither — the command below is
+# `node` and the Prisma binary out of `node_modules`. What they do contribute is their own bundled
+# dependency trees, which is what the release scan keeps failing on (npm's `brace-expansion`,
+# `ip-address`) — advisories against code that never runs here and that no lockfile of ours can fix.
+# A production image with no package manager in it cannot install anything either.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 # 8080, not 80: the process is not root (see USER below) and a privileged port then depends on the
 # runtime's `net.ipv4.ip_unprivileged_port_start` — 0 under Docker, 1024 elsewhere. The published
 # port is the operator's choice either way (docs/12 §12.7).

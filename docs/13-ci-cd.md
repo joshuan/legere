@@ -39,6 +39,14 @@ warrants stopping a merge; a moderate advisory in a linter is a Dependabot pull 
 `main`. The image scan reports `HIGH,CRITICAL` and skips findings with no fix available, because a
 finding nobody can act on is a broken build nobody can fix.
 
+`ignore-unfixed` sorts findings by whether *someone* has a patch, which is not the same question as
+whether *we* can apply one. Release 0.7.0 failed the scan on two advisories against npm's own bundled
+`brace-expansion` and `ip-address` — fixed upstream, unreachable from our lockfile, and living in a
+package manager the runtime never invokes. The answer is neither an ignore file nor a wait for the
+base image: the runtime stage deletes npm and corepack outright (§12.6). It is the general shape of
+the fix for this class — a scanner reporting code the image does not need is telling you to remove
+the code, and only a suppression list would let the finding survive as an entry nobody rereads.
+
 ### Dependabot
 
 `.github/dependabot.yml` watches three ecosystems weekly — npm at the root, `github-actions` (which

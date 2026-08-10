@@ -340,6 +340,8 @@ RUN npx prisma generate && npm run build && npm prune --omit=dev
 FROM node:26-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/dist ./dist
@@ -354,7 +356,7 @@ EXPOSE 8080
 CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/server/main.js"]
 ```
 
-🔒 Four details in that runtime stage are load-bearing, and each answers something the container
+🔒 Five details in that runtime stage are load-bearing, and each answers something the container
 would otherwise do:
 
 - **`USER node`** (uid 1000). The process decodes whatever the library holds — PDFs and images,
@@ -367,6 +369,13 @@ would otherwise do:
 - **`.next/cache` created and chowned.** It is the one path the process genuinely writes to: Next
   makes it on the first render. Pre-creating it means the `tmpfs` the compose file mounts there
   lands on a directory the runtime user already owns.
+- **npm and corepack deleted** (SEC-07). The stage runs `node` and the Prisma binary out of
+  `node_modules`; the package manager the base image ships is never invoked. It is not neutral
+  weight, though — it brings a dependency tree of its own, which is what the release scan of §13.3
+  reports against (npm's bundled `brace-expansion` and `ip-address`): advisories against code that
+  never runs here, with no fix available to us until the base image takes one. Deleting the thing
+  answers both halves — the finding goes away because the code goes away, and a container that has
+  been talked into running a command can no longer install anything with it.
 
 The image still migrates itself when it is run without compose, so `docker run` remains a working
 deployment; the shipped stack overrides the command and migrates in a container of its own (§12.7).
