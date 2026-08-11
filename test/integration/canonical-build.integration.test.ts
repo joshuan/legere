@@ -246,6 +246,7 @@ function documentRow(id: string) {
     pageCount: null,
     title: 'Document',
     description: null,
+    pageFormat: 'AUTO' as const,
     titleSource: 'NONE' as const,
     markdown: null,
     steps: {

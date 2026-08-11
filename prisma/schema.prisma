@@ -71,6 +71,13 @@ enum ValueSource {
   MANUAL
 }
 
+// What shape the pages of the canonical take (docs/05 §5.5 step 1). AUTO reads it off the files.
+enum PageFormat {
+  AUTO
+  A4
+  MATCH_SOURCE
+}
+
 enum ScanRunStatus {
   RUNNING
   DONE
@@ -295,6 +302,7 @@ model Document {
   ocrUsed             Boolean                  @default(false) @map("ocr_used")
   // A file name is not a title anybody chose, so a fresh document is NONE and the analysis may name
   // it; a person titling it makes it MANUAL, and no machine touches it again (docs/03 §3.3.10).
+  pageFormat          PageFormat               @default(AUTO) @map("page_format")
   titleSource         ValueSource              @default(NONE) @map("title_source")
   typeId              String?                  @map("type_id") @db.Uuid
   typeSource          ValueSource              @default(NONE) @map("type_source")

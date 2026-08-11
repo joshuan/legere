@@ -20,6 +20,12 @@ export type PdfMetadata = {
   date: Date | null;
 };
 
+// The size every page is brought to once the document has been read (docs/05 §5.5 step 1).
+export type PageScale = {
+  pageSize: 'A4';
+  orientation: 'PORTRAIT' | 'LANDSCAPE';
+};
+
 // Every operation on a binary format is delegated to the sibling Stirling-PDF container (ADR-012):
 // LibreOffice and tesseract inside our own image would add gigabytes to it. Results come back as
 // buffers — page-sized artifacts, immediately handed to FileStorage.
@@ -40,8 +46,15 @@ export abstract class PdfToolbox {
   abstract ocrPdf(source: BinarySource, languages: readonly string[]): Promise<Buffer>;
 
   // One page per image, in the order given (docs/05 §5.5 step 1): this is how a photographed page
-  // becomes a page of the canonical PDF.
+  // becomes a page of the canonical PDF. The page takes the shape of the image rather than a fixed
+  // sheet, because a page that is half empty margin is a page OCR cannot read — the format is given
+  // afterwards, by `scalePages`.
   abstract imagesToPdf(images: readonly NamedBinary[]): Promise<Buffer>;
+
+  // Every page onto a named size, keeping what is on them (docs/05 §5.5 step 1). Run *after* the
+  // text layer exists: the text is vector and scales with the page, so a document can be strictly A4
+  // and searchable at once. Run before, it would be the thing that made it unreadable.
+  abstract scalePages(source: BinarySource, geometry: PageScale): Promise<Buffer>;
 
   // The parts of a document, in position order, into one PDF (docs/05 §5.5 step 1). A single-part
   // document never gets here — its part already is the canonical.

@@ -40,6 +40,7 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `FileRefStatus` | `DISCOVERED`, `HASHED`, `MISSING` | |
 | `FileOrigin` | `LIBRARY`, `MANAGED` | where a file's bytes live: on the read-only volume (addressed by `FileRef`s) or in our own bucket (uploaded from a browser, or produced by us). A document's own origin is derived from its files rather than stored — see §3.3.10 |
 | `StepStatus` | `PENDING`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes `PENDING` reads as "stuck". The mark is best-effort and never the reason a job fails |
+| `PageFormat` | `AUTO`, `A4`, `MATCH_SOURCE` | what shape the pages of the canonical take (`05 §5.5` step 1). `AUTO` reads it off the pictures the pages were made from |
 | `ValueSource` | `NONE`, `AUTO`, `MANUAL` | who decided a value: nobody, the pipeline, a person. Carried by `typeSource` and `titleSource` — one vocabulary, because it is one question |
 | `ScanRunStatus` | `RUNNING`, `DONE`, `FAILED` | |
 | `VerificationPurpose` | `REGISTRATION`, `PASSWORD_RESET` | on `EmailVerification` |
@@ -217,6 +218,7 @@ one; the canonical is rebuildable from them at any moment, so it is an artifact 
 | city | string? | free text, as written in the document |
 | failedStep | string? | which step produced `processingError` |
 | ocrUsed | bool | whether Markdown came from OCR |
+| pageFormat | PageFormat | default `AUTO`; changing it rebuilds the canonical, because the shape of a page is decided while the page is being made (`05 §5.5` step 1) |
 | titleSource | ValueSource | default `NONE` — the file name is not a choice; `MANUAL` is never overwritten by auto |
 | typeId | uuid? | |
 | typeSource | ValueSource | default `NONE`; `MANUAL` is never overwritten by auto |

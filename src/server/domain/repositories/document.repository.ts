@@ -6,6 +6,7 @@ import type {
   DocumentStep,
 } from '../../../shared/contracts/documents';
 import type {
+  PageFormat,
   ValueSource,
   FileOrigin,
   FileRefStatus,
@@ -46,6 +47,7 @@ export type ProcessingUpdate = {
   typeId?: string | null;
   typeSource?: ValueSource;
   title?: string;
+  pageFormat?: PageFormat;
   titleSource?: ValueSource;
   description?: string | null;
 };
@@ -185,6 +187,7 @@ export type UpdateDocumentMetaInput = {
   city?: string | null;
   typeId?: string | null;
   typeSource?: ValueSource;
+  pageFormat?: PageFormat;
 };
 
 // One row of a search result before it becomes a DTO (docs/07 §7.3).

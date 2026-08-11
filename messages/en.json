@@ -718,6 +718,12 @@
       "peoplePlaceholder": "Nobody yet",
       "addPerson": "Add “{name}”",
       "documentDate": "Date",
+      "pageFormat": "Page format",
+      "pageFormats": {
+        "AUTO": "Automatic",
+        "A4": "A4",
+        "MATCH_SOURCE": "Match the source"
+      },
       "subjects": "About",
       "subjectKinds": "Kind of thing",
       "subjectsPlaceholder": "Nothing yet",

@@ -69,6 +69,7 @@ const rebuilt: DocumentDetailDto = {
   subjects: [],
   ocrUsed: false,
   description: null,
+  pageFormat: 'AUTO',
   titleSource: 'NONE',
   typeSource: 'NONE',
   steps: {

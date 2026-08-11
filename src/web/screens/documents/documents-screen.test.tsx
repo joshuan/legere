@@ -733,6 +733,7 @@ function detailOf(index: number): Record<string, unknown> {
     subjects: [],
     ocrUsed: false,
     description: null,
+    pageFormat: 'AUTO',
     titleSource: 'NONE',
     typeSource: 'NONE',
     steps: {

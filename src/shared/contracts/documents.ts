@@ -3,6 +3,7 @@ import { paginatedSchema, paginationQuerySchema } from './common';
 import {
   valueSourceSchema,
   documentEventTypeSchema,
+  pageFormatSchema,
   fileOriginSchema,
   fileRefStatusSchema,
   stepSkipReasonSchema,
@@ -187,6 +188,7 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   ocrUsed: z.boolean(),
   // What this document is, in a few hundred characters (docs/03 §3.3.10).
   description: z.string().nullable(),
+  pageFormat: pageFormatSchema,
   titleSource: valueSourceSchema,
   typeSource: valueSourceSchema,
   steps: documentStepsSchema,
@@ -381,6 +383,9 @@ export const updateDocumentRequestSchema = z
     peopleIds: z.array(z.string().uuid()).max(20).optional(),
     documentDate: isoDateSchema.nullable().optional(),
     subjectIds: z.array(z.string().uuid()).max(20).optional(),
+    // What shape its pages should be. Changing it rebuilds the canonical, because the shape of a
+    // page is decided while it is being made (docs/05 §5.5 step 1).
+    pageFormat: pageFormatSchema.optional(),
     // Put a field back to what the pipeline read. Not the same as sending that value by hand: a
     // reset documentType becomes AUTO again, so it stops claiming a person chose it (docs/03 §3.3.10).
     reset: z.array(resettableFieldSchema).min(1).max(RESETTABLE_FIELDS.length).optional(),

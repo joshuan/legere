@@ -14,6 +14,11 @@ export type JpegPreviewOptions = {
 export abstract class ImageTool {
   abstract toJpegPreview(source: BinarySource, options: JpegPreviewOptions): Promise<Buffer>;
 
+  // How big the picture is, in pixels. Read for one reason: the shape of a page is decided from the
+  // shape of what it was made from, and a photograph of a sheet has to be told from a photograph of
+  // a receipt before either becomes a page (docs/05 §5.5 step 1).
+  abstract dimensions(source: BinarySource): Promise<{ width: number; height: number }>;
+
   // The bounding box of what is actually on the image — the uniform border a scanner leaves around
   // a page, trimmed away — expressed as a quadrilateral, because that is what a crop is
   // (docs/03 §3.3.16). This is the fallback the corner detector answers with when it finds no page

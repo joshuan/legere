@@ -81,6 +81,7 @@ function toDomain(row: PrismaDocument): Document {
     failedStep: row.failedStep,
     ocrUsed: row.ocrUsed,
     description: row.description,
+    pageFormat: row.pageFormat,
     titleSource: row.titleSource,
     typeId: row.typeId,
     typeSource: row.typeSource,

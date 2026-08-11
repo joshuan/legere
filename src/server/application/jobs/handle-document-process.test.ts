@@ -235,7 +235,9 @@ describe('HandleDocumentProcess', () => {
         },
       ]);
       expect(pdfs.calls).toContainEqual({ method: 'imagesToPdf', fileName: 'page-0000.jpg' });
-      expect(canonicalOf()).toBe('image-pdf(cropped(0.1,0.2):photo)');
+      // Wrapped in the format the page ends up at: a photograph of a sheet becomes A4, and it
+      // becomes it *after* the crop and the recognition (docs/05 §5.5 step 1).
+      expect(canonicalOf()).toBe('scaled-A4-PORTRAIT(image-pdf(cropped(0.1,0.2):photo))');
     });
 
     it('lays an uncropped image on a page exactly as it arrived', async () => {
@@ -247,7 +249,7 @@ describe('HandleDocumentProcess', () => {
 
       expect(images.crops).toEqual([]);
       expect(pdfs.calls).toContainEqual({ method: 'imagesToPdf', fileName: 'page-0000.png' });
-      expect(canonicalOf()).toBe('image-pdf(photo)');
+      expect(canonicalOf()).toBe('scaled-A4-PORTRAIT(image-pdf(photo))');
     });
 
     it('converts an office document, and plain text through the same door', async () => {
@@ -382,7 +384,9 @@ describe('HandleDocumentProcess', () => {
 
       // 🔒 The searchable PDF becomes the canonical; until this release the OCR pass was run and
       // thrown away (docs/05 §5.5 step 1).
-      expect(canonicalOf()).toBe('ocr-pdf');
+      // 🔒 The order the archive depends on: recognised first, given its format second. The other
+      // way round the page carries white margins into the recognizer and comes back blank.
+      expect(canonicalOf()).toBe('scaled-A4-PORTRAIT(ocr-pdf)');
       expect(stateOf().ocrUsed).toBe(true);
       expect(methodsCalled()).toContain('ocrPdf');
     });
@@ -579,6 +583,8 @@ describe('HandleDocumentProcess', () => {
       await givenDocument([{ file: { mimeType: 'image/png', ext: 'png' }, bytes: 'photo' }]);
       pdfs.markdownByContent.set('image-pdf(photo)', '');
       pdfs.markdownByContent.set('ocr-pdf', ['', '   '].join('\n\n'));
+      // Step 3 reads the finished canonical, which is the formatted one.
+      pdfs.markdownByContent.set('scaled-A4-PORTRAIT(ocr-pdf)', ['', '   '].join('\n\n'));
 
       await run();
 

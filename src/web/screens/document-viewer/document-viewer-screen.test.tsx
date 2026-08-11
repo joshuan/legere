@@ -61,6 +61,7 @@ const detail: DocumentDetailDto = {
   createdAt: '2026-01-02T10:00:00.000Z',
   ocrUsed: true,
   description: null,
+  pageFormat: 'AUTO',
   titleSource: 'NONE',
   typeSource: 'NONE',
   skipReasons: {},

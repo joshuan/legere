@@ -1,5 +1,7 @@
+import type { PageFormat } from '../../../shared/contracts/enums';
 import type { Document } from '../../domain/entities/document';
 import { classifyFormat } from '../../domain/entities/document-format';
+import { pageGeometryOf, type SourceShape } from '../../domain/entities/document-page-geometry';
 import { hasUsableTextLayer } from '../../domain/entities/document-text';
 import { ocrLanguagesOf } from '../../domain/entities/document-language';
 import type { File } from '../../domain/entities/file';
@@ -39,6 +41,11 @@ export type CanonicalBuild =
   // no files at all. The canonical is not built, and it is nobody's failure.
   | { kind: 'nothingToBuild'; unsupported: number };
 
+// One file, converted. `shape` is the picture it came from, when it came from one — the pages of a
+// PDF or of an office document were laid out by whoever produced them, and this pipeline does not
+// second-guess that (docs/05 §5.5 step 1).
+type Part = { pdf: Buffer; shape: SourceShape | null };
+
 export class BuildCanonical {
   constructor(
     private readonly files: FileRepository,
@@ -63,19 +70,31 @@ export class BuildCanonical {
     const ordered = [...files].sort((a, b) => a.position - b.position);
     const parts = await inBatches(ordered, unitConcurrency, (file) => this.partOf(file));
 
-    const pages = parts.filter((part): part is Buffer => part !== null);
-    const unsupported = parts.length - pages.length;
-    if (pages.length === 0) return { kind: 'nothingToBuild', unsupported };
+    const built = parts.filter((part): part is Part => part !== null);
+    const unsupported = parts.length - built.length;
+    if (built.length === 0) return { kind: 'nothingToBuild', unsupported };
 
+    const pages = built.map((part) => part.pdf);
     // A single-part document skips the merge and keeps its part (docs/05 §5.5 step 1).
     const merged =
       pages.length === 1 ? (pages[0] ?? Buffer.alloc(0)) : await this.pdfs.mergePdfs(pages);
     const pageCount = await this.pdfs.pdfPageCount(merged);
     const readable = await this.ensureTextLayer(document, merged, pageCount);
 
+    // 🔒 The format is applied *after* the text layer exists, never before. Recognition happens in
+    // the shape the page was made in — a page that is half white margin defeats the recognizer
+    // outright — and the text it produces is vector, so it survives the page being scaled. That
+    // ordering is what lets one archive be strictly A4 and searchable at the same time
+    // (docs/05 §5.5 step 1).
+    const shaped = await this.applyFormat(
+      readable.pdf,
+      built.flatMap((part) => (part.shape === null ? [] : [part.shape])),
+      document.pageFormat,
+    );
+
     return {
       kind: 'built',
-      pdf: await this.stamp(document, readable.pdf),
+      pdf: await this.stamp(document, shaped),
       pageCount,
       ocrUsed: readable.ocrUsed,
       unsupported,
@@ -85,10 +104,13 @@ export class BuildCanonical {
   // One file, one part. An image becomes a page; a PDF is already pages; anything with a printed
   // form is converted; and a format nothing can render contributes nothing at all rather than
   // failing the document (docs/05 §5.5 step 1).
-  private async partOf(file: DocumentFile): Promise<Buffer | null> {
+  //
+  // An image part also says what shape it was: the format of the finished canonical is read off the
+  // pictures it was made from, and by the time the parts are merged that is no longer visible.
+  private async partOf(file: DocumentFile): Promise<Part | null> {
     const format = classifyFormat(file.mimeType);
 
-    if (format === 'PDF') return toBuffer(await this.open(file));
+    if (format === 'PDF') return { pdf: await toBuffer(await this.open(file)), shape: null };
 
     if (format === 'IMAGE') {
       // The crop is applied here and nowhere else: the original file is never rewritten, and the
@@ -97,12 +119,21 @@ export class BuildCanonical {
         file.crop === null
           ? await toBuffer(await this.open(file))
           : await this.images.applyCrop(await this.open(file), file.crop);
-      return this.pdfs.imagesToPdf([{ body: page, fileName: pageNameOf(file) }]);
+      // Measured after the crop, because the crop is what the page will be: a photograph taken at an
+      // angle and straightened to the paper's own corners is a sheet, whatever the snapshot was.
+      const shape = await this.images.dimensions(page);
+      return {
+        pdf: await this.pdfs.imagesToPdf([{ body: page, fileName: pageNameOf(file) }]),
+        shape,
+      };
     }
 
     if (format === 'OFFICE' || format === 'TEXT') {
       // The converter picks its input filter from the extension, so the file keeps its own name.
-      return this.pdfs.toPdf({ body: await this.open(file), fileName: file.name });
+      return {
+        pdf: await this.pdfs.toPdf({ body: await this.open(file), fileName: file.name }),
+        shape: null,
+      };
     }
 
     return null;
@@ -127,6 +158,30 @@ export class BuildCanonical {
     if (languages.length === 0) return { pdf: merged, ocrUsed: false };
 
     return { pdf: await this.pdfs.ocrPdf(merged, languages), ocrUsed: true };
+  }
+
+  // The last pass of step 1: every page onto the size this document is filed under. `null` means
+  // the pages keep the shape they were built in — which is what a receipt, a panorama or a document
+  // made of PDFs somebody else laid out should do (docs/05 §5.5 step 1).
+  //
+  // Best-effort like the stamping below: a document whose pages could not be resized is still the
+  // document, and losing a finished canonical over the shape of its sheet would be a poor trade.
+  private async applyFormat(
+    pdf: Buffer,
+    shapes: readonly SourceShape[],
+    format: PageFormat,
+  ): Promise<Buffer> {
+    const geometry = pageGeometryOf(shapes, format);
+    if (geometry.pageSize === null) return pdf;
+
+    try {
+      return await this.pdfs.scalePages(pdf, {
+        pageSize: geometry.pageSize,
+        orientation: geometry.orientation,
+      });
+    } catch {
+      return pdf;
+    }
   }
 
   // Best-effort, by the spec: a PDF with the wrong `/Title` is still the document, so a container

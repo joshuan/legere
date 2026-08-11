@@ -288,6 +288,7 @@ model Document {
   city                 String?        @map("city")
   failedStep           String?        @map("failed_step")
   ocrUsed              Boolean        @default(false) @map("ocr_used")
+  pageFormat       PageFormat  @default(AUTO) @map("page_format")
   titleSource      ValueSource @default(NONE) @map("title_source")
   typeId           String?        @map("type_id") @db.Uuid
   typeSource       ValueSource @default(NONE) @map("type_source")

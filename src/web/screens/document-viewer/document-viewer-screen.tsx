@@ -47,7 +47,11 @@ import {
   type DocumentFileDto,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
-import type { StepStatus } from '../../../shared/contracts/enums';
+import {
+  pageFormatSchema,
+  type PageFormat,
+  type StepStatus,
+} from '../../../shared/contracts/enums';
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
@@ -547,8 +551,13 @@ type MetaChange = {
   peopleIds?: string[];
   subjectIds?: string[];
   documentDate?: string | null;
+  pageFormat?: PageFormat;
   reset?: ResettableField[];
 };
+
+// The shapes a person may file a document under (docs/05 §5.5 step 1), in the order they are
+// offered: what the pipeline decided, then the two ways of overruling it.
+const PAGE_FORMATS = pageFormatSchema.options;
 
 // What a person may correct, while they are correcting it. Held apart from the document so that
 // nothing is sent until Save: a select that writes on every keystroke turns a glance into an edit.
@@ -560,6 +569,7 @@ type Draft = {
   languages: string[];
   country: string | null;
   city: string;
+  pageFormat: PageFormat;
 };
 
 // Everything about the document that is not the document, in one list: what the file is, what the
@@ -705,6 +715,7 @@ function DetailsPane({
       peopleIds: document.people.map((person) => person.id),
       subjectIds: document.subjects.map((subject) => subject.id),
       documentDate: document.documentDate,
+      pageFormat: document.pageFormat,
       languages: document.languages,
       country: document.country,
       city: document.city ?? '',
@@ -750,6 +761,7 @@ function DetailsPane({
     const about = document.subjects.map((subject) => subject.id);
     if (!sameIds(draft.subjectIds, about)) change.subjectIds = draft.subjectIds;
     // A calendar day, compared as the plain `yyyy-mm-dd` it is held as.
+    if (draft.pageFormat !== document.pageFormat) change.pageFormat = draft.pageFormat;
     if (!reset.includes('documentDate') && draft.documentDate !== document.documentDate) {
       change.documentDate = draft.documentDate;
     }
@@ -1136,6 +1148,27 @@ function DetailsPane({
               ),
             pending: state('analysis'),
             note: wasRead(document.auto.date, document.documentDate ?? '', ['documentDate']),
+          },
+          {
+            label: t('viewer.details.pageFormat'),
+            // The one field here that is an instruction rather than a correction: saving it rebuilds
+            // the canonical, and the pages the reader is looking at change shape (docs/05 §5.5).
+            value:
+              draft !== null ? (
+                <Select
+                  className="legere-field"
+                  aria-label={t('viewer.details.pageFormat')}
+                  value={draft.pageFormat}
+                  onChange={(value: PageFormat) => setDraft({ ...draft, pageFormat: value })}
+                  options={PAGE_FORMATS.map((value) => ({
+                    value,
+                    label: t(`viewer.details.pageFormats.${value}`),
+                  }))}
+                />
+              ) : (
+                t(`viewer.details.pageFormats.${document.pageFormat}`)
+              ),
+            pending: state('canonical'),
           },
           {
             label: t('viewer.details.languages'),

@@ -55,5 +55,10 @@ export type DocumentEventType = z.infer<typeof documentEventTypeSchema>;
 export const valueSourceSchema = z.enum(['NONE', 'AUTO', 'MANUAL']);
 export type ValueSource = z.infer<typeof valueSourceSchema>;
 
+// What shape the pages of the canonical PDF take (docs/05 §5.5 step 1). `AUTO` reads the shape off
+// the files themselves; the other two are a person overruling that reading.
+export const pageFormatSchema = z.enum(['AUTO', 'A4', 'MATCH_SOURCE']);
+export type PageFormat = z.infer<typeof pageFormatSchema>;
+
 export const scanRunStatusSchema = z.enum(['RUNNING', 'DONE', 'FAILED']);
 export type ScanRunStatus = z.infer<typeof scanRunStatusSchema>;

@@ -12,6 +12,7 @@ import {
   PdfToolbox,
   type FirstPageOptions,
   type NamedBinary,
+  type PageScale,
   type PdfMetadata,
 } from '../../application/ports/pdf-toolbox';
 import { AppConfig } from '../config/app-config';
@@ -28,6 +29,7 @@ const ENDPOINTS = {
   updateMetadata: '/api/v1/misc/update-metadata',
   pageCount: '/api/v1/analysis/page-count',
   pdfToMarkdown: '/api/v1/convert/pdf/markdown',
+  scalePages: '/api/v1/general/scale-pages',
 } as const;
 
 // 🔒 How long each of them may take. Without one, undici's 300 s header timeout is the only backstop
@@ -52,6 +54,8 @@ const TIMEOUTS_MS: Record<keyof typeof ENDPOINTS, number> = {
   updateMetadata: 60_000,
   pageCount: 60_000,
   pdfToMarkdown: 5 * 60_000,
+  // Rewriting page boxes and the transform on their content — pages, not pixels.
+  scalePages: 2 * 60_000,
 };
 
 // 🔒 And how much each may bring back. A PDF or a Markdown conversion is bounded like any other
@@ -133,10 +137,25 @@ export class StirlingPdfToolbox extends PdfToolbox {
     for (const image of images) {
       form.append('fileInput', await blobOf(image.body), image.fileName);
     }
-    form.append('fitOption', 'maintainAspectRatio');
+    // The page takes the shape of the image, not the other way round. `maintainAspectRatio` fits the
+    // image onto a portrait sheet and pads the rest with white, and that padding is what blinds the
+    // recognizer that reads this page next (docs/05 §5.5 step 1). The format comes afterwards, from
+    // `scalePages`, by which time there is a text layer to carry along.
+    form.append('fitOption', 'fitDocumentToImage');
     form.append('colorType', 'color');
     form.append('autoRotate', 'false');
     return this.postForBytes('imagesToPdf', form);
+  }
+
+  async scalePages(source: BinarySource, geometry: PageScale): Promise<Buffer> {
+    const form = new FormData();
+    form.append('fileInput', await blobOf(source), 'input.pdf');
+    form.append('pageSize', geometry.pageSize);
+    form.append('orientation', geometry.orientation);
+    // The content keeps its size relative to the page: this call is about the sheet, not about
+    // magnifying what is printed on it.
+    form.append('scaleFactor', '1');
+    return this.postForBytes('scalePages', form);
   }
 
   async mergePdfs(parts: readonly BinarySource[]): Promise<Buffer> {

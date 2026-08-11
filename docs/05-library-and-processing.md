@@ -202,7 +202,7 @@ not block steps independent of it (no preview — text is still extracted, and v
 ```
 files ──► (1) canonical PDF ──► (2) JPG preview ──► (3) Markdown ──► (4) analysis ──► (5) vectorization
             │
-            └─ per file: crop (images) → to PDF → merge in order → text layer → metadata
+            └─ per file: crop (images) → to PDF → merge in order → text layer → page format → metadata
 ```
 
 All derived artifacts (the canonical PDF, previews, Markdown files) are saved to the private S3 bucket
@@ -211,10 +211,12 @@ through the `FileStorage` port
 they are served to the client via short-lived signed URLs after an access check.
 
 1. **Canonical PDF — for every document, always** (ADR-021). One artifact, `canonical.pdf`, built
-   from the document's files in their order, rebuildable from them at any time. Four passes:
+   from the document's files in their order, rebuildable from them at any time. Five passes:
    1. **Each file becomes a PDF part**, `unitConcurrency` of them at a time (§5.4):
       - an image → its crop applied when it has one (a perspective transform of the stored
-        quadrilateral, §5.6), then one page via Stirling `img → pdf`;
+        quadrilateral, §5.6), then one page via Stirling `img → pdf` — **on a page the shape of the
+        image**, not on a fixed sheet, and the image's shape is measured after the crop, because the
+        crop is what the page will be;
       - a PDF → itself, as is; its pages are the part;
       - an office format, plain text or Markdown → Stirling `file → pdf`;
       - a format nothing can render → the file contributes no page, and the step records
@@ -226,7 +228,25 @@ they are served to the client via short-lived signed URLs after an access check.
       the document's own languages and the **searchable** PDF becomes the canonical. This is where
       `ocrUsed` is decided, and it is why a scan is a text-selectable PDF rather than a picture of
       one. Until this release that OCR pass was run and thrown away.
-   4. **Metadata is stamped**: the document's title and its creation date, best-effort — a failure
+   4. **The format is applied** — and only here, after the text layer exists. Which format is the
+      document's own `pageFormat`: `A4`, `MATCH_SOURCE`, or `AUTO`, which reads it off the pictures
+      the pages were made from. A document whose pages are all *sheet-shaped* — a ratio within 8% of
+      √2, which holds the A series, a scan with a little skew and the 3:2 and 4:3 a camera produces —
+      becomes A4 in the orientation those pages are already in; anything else keeps the shape it was
+      photographed in, because a receipt on A4 is a stamp in the middle of an empty sheet. Mixed
+      shapes count as not sheet-shaped: normalising them all would letterbox whichever disagreed. A
+      document made only of PDFs and office files is left alone — those pages were laid out by
+      whoever produced them.
+      🔒 **The order is not an implementation detail.** Recognition happens in the shape the page was
+      built in, and the format is applied to the result. A page fitted onto a sheet it does not match
+      gains white margins, and a recognizer thresholds a page as a whole: the margins take over the
+      histogram and the paper's own grey goes to the wrong side of it together with every letter.
+      Measured on a landscape photograph of an A4 page — zero characters from the whole sheet, 649
+      from the same pixels with the margins cropped away. Applied afterwards it costs nothing: the
+      text layer is vector and scales with the page, which is what lets one archive be strictly A4
+      *and* searchable rather than a choice between the two. Best-effort, like the stamping below: a
+      document whose pages could not be resized is still the document.
+   5. **Metadata is stamped**: the document's title and its creation date, best-effort — a failure
       here is logged and does not fail the step, because a PDF with the wrong `/Title` is still the
       document.
    The result is written to `documents/{id}/canonical.pdf` and its page count onto the document.

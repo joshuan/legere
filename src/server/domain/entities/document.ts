@@ -1,5 +1,6 @@
 import type { AutoValues, Availability } from '../../../shared/contracts/documents';
 import type {
+  PageFormat,
   ValueSource,
   FileOrigin,
   StepSkipReason,
@@ -30,6 +31,8 @@ export type Document = {
   // What this document is, for somebody who has never seen it (docs/03 §3.3.10).
   description: string | null;
   // Who called it that: nobody (the file name), the analysis, or a person (docs/03 §3.3.10).
+  // The shape its pages are filed under; AUTO until somebody decides otherwise (docs/05 §5.5 step 1).
+  pageFormat: PageFormat;
   titleSource: ValueSource;
   // The extracted Markdown representation (docs/03 §3.3.10); null until step 3 has run, and also
   // when the step ran and found no text at all.

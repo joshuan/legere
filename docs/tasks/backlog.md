@@ -653,7 +653,7 @@ changes the work by an order of magnitude:
 
 ## M17 — A page that can be read
 
-- [ ] **M17.1 — A page keeps the shape of what it was made from**
+- [x] **M17.1 — A page keeps the shape of what it was made from**
   **Goal:** the canonical stops stamping every photograph onto a portrait A4 — and stops blinding the recognizer that has to read it.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`05 §5.6`](../05-library-and-processing.md#56-composing-a-document-out-of-files), [`03 §3.3.10`](../03-domain-model.md), [`04 §4.4`](../04-database-schema.md), [`07 §7.3`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md)
   **This one is a bug with a feature around it.** Measured on a real document — a landscape photograph of an A4 page, laid on a portrait A4 sheet: tesseract reads **0 characters** from the rendered page in every segmentation mode, and **649** from the same pixels with the white bands cropped away. The margins dominate the histogram, the threshold lands on the paper's own grey, and the text goes with it. The step reports `DONE` and `ocrUsed: true` over an empty result, so the Markdown is empty, the analysis sees only a file name, and the document is unsearchable — one flag deep, three steps wide.

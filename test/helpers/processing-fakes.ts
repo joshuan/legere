@@ -55,6 +55,7 @@ import {
   PdfToolbox,
   type FirstPageOptions,
   type NamedBinary,
+  type PageScale,
   type PdfMetadata,
 } from '../../src/server/application/ports/pdf-toolbox';
 import {
@@ -133,6 +134,7 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
   return {
     id: DOCUMENT_ID,
     description: null,
+    pageFormat: 'AUTO',
     titleSource: 'NONE',
     pageCount: null,
     title: 'Invoice 2026-01',
@@ -654,6 +656,16 @@ export class FakePdfToolbox extends PdfToolbox {
     return this.markdownByContent.get(content) ?? this.defaultMarkdown;
   }
 
+  // Every page onto a named size, once the text layer is there to be carried along
+  // (docs/05 §5.5 step 1). The result names the geometry, so a test can assert *what* was asked for
+  // and — because the call is recorded in order — that it came after the OCR and not before it.
+  async scalePages(source: BinarySource, geometry: PageScale): Promise<Buffer> {
+    this.check('scalePages', `${geometry.pageSize}:${geometry.orientation}`);
+    return Buffer.from(
+      `scaled-${geometry.pageSize}-${geometry.orientation}(${await describe(source)})`,
+    );
+  }
+
   async imagesToPdf(images: readonly NamedBinary[]): Promise<Buffer> {
     // The names are the interesting part: page order is item order (docs/05 §5.5 step 1).
     this.check('imagesToPdf', images.map((image) => image.fileName).join(','));
@@ -711,6 +723,9 @@ export class FakeDocumentParser extends DocumentParser {
 
 export class FakeImageTool extends ImageTool {
   readonly resizes: ResizeCall[] = [];
+  // What every image is reported to be, unless a test says otherwise: an A4 sheet standing up, which
+  // is what most of an archive is.
+  size: { width: number; height: number } = { width: 2480, height: 3508 };
   // What was handed to each of the other three, so what the pipeline asked for is observable.
   readonly crops: Array<{ input: string; crop: Crop }> = [];
   readonly contentBoxes: string[] = [];
@@ -747,6 +762,11 @@ export class FakeImageTool extends ImageTool {
     this.contentBoxes.push(await describe(source));
     if (this.failing) throw new Error('sharp: unsupported image format');
     return this.box;
+  }
+
+  async dimensions(source: BinarySource): Promise<{ width: number; height: number }> {
+    await describe(source);
+    return this.size;
   }
 
   async grayscaleRaster(source: BinarySource, maxDim: number): Promise<GrayscaleRaster> {

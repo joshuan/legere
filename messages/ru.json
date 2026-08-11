@@ -718,6 +718,12 @@
       "peoplePlaceholder": "Пока никого",
       "addPerson": "Добавить «{name}»",
       "documentDate": "Дата документа",
+      "pageFormat": "Формат страницы",
+      "pageFormats": {
+        "AUTO": "Автоматически",
+        "A4": "A4",
+        "MATCH_SOURCE": "Как в исходнике"
+      },
       "subjects": "Объект",
       "subjectKinds": "Вид объекта",
       "subjectsPlaceholder": "Пока ничего",

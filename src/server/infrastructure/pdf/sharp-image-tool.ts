@@ -44,6 +44,22 @@ const TRIM_THRESHOLD = 10;
 
 @Injectable()
 export class SharpImageTool extends ImageTool {
+  async dimensions(source: BinarySource): Promise<{ width: number; height: number }> {
+    const {
+      width = 0,
+      height = 0,
+      orientation,
+    } = await sharp(await toBuffer(source), INPUT).metadata();
+
+    // 🔒 As it will be *shown*, not as it is stored. A photograph taken sideways carries its
+    // rotation in EXIF, and `metadata` reports the stored size: orientations 5 through 8 are the
+    // quarter turns, and for those the stored width is the displayed height. Read the wrong way
+    // round, a portrait page would be laid out landscape — and every viewer would disagree with us
+    // about which way up the document is.
+    const quarterTurned = orientation !== undefined && orientation >= 5 && orientation <= 8;
+    return quarterTurned ? { width: height, height: width } : { width, height };
+  }
+
   async toJpegPreview(source: BinarySource, options: JpegPreviewOptions): Promise<Buffer> {
     return (
       sharp(await toBuffer(source), INPUT)
