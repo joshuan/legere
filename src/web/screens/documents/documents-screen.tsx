@@ -321,23 +321,23 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
                   className={index < STAGGER_LIMIT ? 'legere-enter' : undefined}
                   style={staggerStyle(index)}
                 >
-                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                    {selecting && (
-                      <Checkbox
-                        checked={selected.includes(document.id)}
-                        onChange={(event) =>
-                          setSelected((current) =>
-                            event.target.checked
-                              ? [...current, document.id]
-                              : current.filter((id) => id !== document.id),
-                          )
+                  <DocumentCard
+                    document={document}
+                    fields={fields}
+                    {...(selecting
+                      ? {
+                          selection: {
+                            picked: selected.includes(document.id),
+                            onToggle: () =>
+                              setSelected((current) =>
+                                current.includes(document.id)
+                                  ? current.filter((id) => id !== document.id)
+                                  : [...current, document.id],
+                              ),
+                          },
                         }
-                      >
-                        {document.title}
-                      </Checkbox>
-                    )}
-                    <DocumentCard document={document} fields={fields} />
-                  </Space>
+                      : {})}
+                  />
                 </Col>
               ))}
             </Row>

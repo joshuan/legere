@@ -15,12 +15,18 @@ import { DEFAULT_DOCUMENT_CARD_FIELDS, type DocumentCardField } from './card-fie
 // `fields` is which of the document's own facts to draw. It defaults to the arrangement the card
 // always had, so the four screens that render it without asking — browse, facets, a collection, the
 // search results — keep what they have rather than inheriting the home screen's choice.
+// While the grid is picking documents the card is the target, not the tick in its corner: aiming at
+// a checkbox is not what choosing feels like (docs/11 §11.3). `selection` being present *is* the
+// mode — the card stops being a link for as long as it is there, so one gesture never means two
+// things on one screen.
 export function DocumentCard({
   document,
   fields = DEFAULT_DOCUMENT_CARD_FIELDS,
+  selection,
 }: {
   document: DocumentListDto;
   fields?: readonly DocumentCardField[];
+  selection?: { picked: boolean; onToggle: () => void };
 }) {
   const t = useTranslations();
   // A thumbnail can be missing even when the step says DONE — an artifact swept from the bucket, a
@@ -32,11 +38,17 @@ export function DocumentCard({
   // As a person would say where something is, and only the halves that are known.
   const place = [document.city, document.country].filter((part) => part !== null).join(', ');
 
-  return (
-    <Link href={`/documents/${document.id}`} style={{ display: 'block', height: '100%' }}>
+  const card = (
       <Card
         hoverable
         styles={{ body: { padding: 12 } }}
+        // Picked from across the grid, not by reading a corner. The outline is drawn on the card
+        // itself so that a glance over a full screen answers "which ones did I take?".
+        style={
+          selection?.picked === true
+            ? { outline: `2px solid ${token.colorPrimary}`, outlineOffset: -2 }
+            : {}
+        }
         cover={
           <div
             style={{
@@ -138,6 +150,39 @@ export function DocumentCard({
           <NameLine names={document.subjects.map((subject) => subject.name)} />
         )}
       </Card>
+  );
+
+  if (selection !== undefined) {
+    // A button, not a div with a handler: the keyboard reaches it the way it reaches the link this
+    // card is the rest of the time, and a hit area only a mouse can use is half a fix.
+    return (
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={selection.picked}
+        aria-label={document.title}
+        onClick={selection.onToggle}
+        style={{
+          display: 'block',
+          height: '100%',
+          width: '100%',
+          padding: 0,
+          border: 'none',
+          background: 'none',
+          textAlign: 'inherit',
+          font: 'inherit',
+          color: 'inherit',
+          cursor: 'pointer',
+        }}
+      >
+        {card}
+      </button>
+    );
+  }
+
+  return (
+    <Link href={`/documents/${document.id}`} style={{ display: 'block', height: '100%' }}>
+      {card}
     </Link>
   );
 }

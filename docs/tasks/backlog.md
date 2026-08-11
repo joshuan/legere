@@ -669,7 +669,7 @@ changes the work by an order of magnitude:
   **Docs:** [`03 §3.3.18`](../03-domain-model.md), [`07 §7.3`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md)
   **Acceptance:** every `STEP_FINISHED` carries the duration of the step — the pair of entries already brackets it, so this is what the reader should not have to subtract by hand; the steps that call a model record what it reported spending, which the client currently drops on the floor: `usage` is not in the response schema at all, so prompt and completion tokens are read and kept; the steps that recognise record what they produced — characters extracted, pages OCR'd, whether OCR ran — because "it took four minutes" and "it returned nothing" are the two halves of the same question; the details pane shows them next to the step they belong to.
 
-- [ ] **M17.4 — While picking, the card is the target**
+- [x] **M17.4 — While picking, the card is the target**
   **Goal:** choosing documents stops being an exercise in aiming at a checkbox.
   **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen)
   **Acceptance:** while the grid is in selection mode the whole card toggles the document instead of opening it — the card is the hit area, and the checkbox becomes what it looks like, a state rather than the only way in; leaving selection mode gives the card its link back, so the mode is the only thing that decides what a press means and there is never a screen where the same gesture does two things; the card says which mode it is in without being read — a picked one is visibly picked from across the grid, not by a tick in its corner; the keyboard reaches it the way it reaches a link, because a hit area that only a mouse can use is half a fix.

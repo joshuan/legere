@@ -101,7 +101,11 @@ Onboarding when already onboarded → 404 page.
   leaves it alone, and a `groupBy` the contract does not know means no grouping rather than a request
   the API would refuse.
 - **Selection → Combine.** The multi-select that used to build a scan set now says what it means:
-  tick documents in page order and press **Combine into one document**. Their files move into the
+  tick documents in page order and press **Combine into one document**. While the grid is picking,
+  **the card is the target** — the whole of it, not the tick in its corner — and it stops being a
+  link for as long as that lasts, so one gesture never means two things on one screen; a picked card
+  is visibly picked from across the grid; and the keyboard reaches it the way it reaches the link it
+  is the rest of the time, because a hit area only a mouse can use is half a fix. Their files move into the
   first-picked document in that order, the emptied documents go away, and the viewer opens on the
   result while it rebuilds (`05 §5.6`). Any documents can be combined, not only images.
 - **"These look like one document."** Above the grid, at most three suggestion cards

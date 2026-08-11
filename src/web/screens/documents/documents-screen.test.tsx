@@ -598,6 +598,43 @@ describe('DocumentsScreen', () => {
   });
 
   describe('combining documents from the grid (docs/11 §11.3)', () => {
+    it('picks a document by its card, and does not open it while picking', async () => {
+      renderWithProviders(<DocumentsScreen />);
+      await userEvent.click(
+        await screen.findByRole('button', { name: enMessages.documents.selection.start }),
+      );
+
+      // The card *is* the checkbox while picking: the whole of it, not a tick in its corner.
+      const card = screen.getByRole('checkbox', { name: 'Document 2' });
+      expect(card).toHaveAttribute('aria-checked', 'false');
+      await userEvent.click(card);
+      expect(card).toHaveAttribute('aria-checked', 'true');
+
+      // 🔒 And the same press does not also open the document: one gesture, one meaning.
+      expect(screen.queryByRole('link', { name: /Document 2/ })).not.toBeInTheDocument();
+
+      await userEvent.click(card);
+      expect(card).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('gives the card its link back the moment picking stops', async () => {
+      renderWithProviders(<DocumentsScreen />);
+      const start = await screen.findByRole('button', {
+        name: enMessages.documents.selection.start,
+      });
+      await userEvent.click(start);
+      expect(screen.getByRole('checkbox', { name: 'Document 2' })).toBeInTheDocument();
+
+      await userEvent.click(
+        screen.getByRole('button', { name: enMessages.documents.selection.cancel }),
+      );
+
+      // Nothing on the grid answers as a checkbox any more: the mode is the only thing deciding what
+      // a press means, so leaving it hands the card back to the link it is the rest of the time.
+      expect(screen.queryByRole('checkbox', { name: 'Document 2' })).not.toBeInTheDocument();
+      expect(screen.getByText('Document 2')).toBeInTheDocument();
+    });
+
     it('moves the files into the first-picked document, in the order they were ticked', async () => {
       let combined: unknown = null;
       let target = '';
