@@ -1385,9 +1385,9 @@ describe('HandleDocumentProcess', () => {
       pdfTextMinCharsPerPage: MIN_CHARS_PER_PAGE,
       chunkTargetChars: 200,
       chunkOverlapChars: 40,
-        analystExcerptChars: 0,
-        analystMaxPageImages: 20,
-        analystPageImageMaxDim: 1200,
+      analystExcerptChars: 0,
+      analystMaxPageImages: 20,
+      analystPageImageMaxDim: 1200,
     };
     return new HandleDocumentProcess(
       documents,

@@ -47,10 +47,6 @@ export type DocumentProcessPayload = z.infer<typeof documentProcessPayloadSchema
 const PREVIEW_QUALITY = 80;
 const THUMB_QUALITY = 75;
 
-// How much of a document the analyst is shown. A documentType is decided by what a document is, which
-// is visible in its first page or two — sending a 200-page contract would cost tokens for nothing.
-const ANALYST_EXCERPT_CHARS = 4000;
-
 // What step 1 left behind for every step after it. There is one artifact now, whatever the document
 // was made of, so the later steps have one question to ask: is the canonical there (ADR-021)?
 type Canonical =

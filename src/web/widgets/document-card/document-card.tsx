@@ -39,117 +39,117 @@ export function DocumentCard({
   const place = [document.city, document.country].filter((part) => part !== null).join(', ');
 
   const card = (
-      <Card
-        hoverable
-        styles={{ body: { padding: 12 } }}
-        // Picked from across the grid, not by reading a corner. The outline is drawn on the card
-        // itself so that a glance over a full screen answers "which ones did I take?".
-        style={
-          selection?.picked === true
-            ? { outline: `2px solid ${token.colorPrimary}`, outlineOffset: -2 }
-            : {}
-        }
-        cover={
-          <div
-            style={{
-              height: 168,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              // The shelf behind the page: distinct from both the page and the card, so the card
-              // keeps a visible top edge (docs/11 §11.15).
-              background: 'var(--legere-well)',
-              borderBottom: `1px solid ${token.colorBorderSecondary}`,
-              overflow: 'hidden',
-            }}
-          >
-            {showThumb ? (
-              // The URL is an API route that 302s to a signed URL; next/image would proxy and
-              // cache private content through a shared optimizer (docs/10 §10.8).
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={documentFiles.thumb(document.id)}
-                alt=""
-                loading="lazy"
-                onError={() => setThumbFailed(true)}
-                style={{
-                  maxHeight: '100%',
-                  maxWidth: '100%',
-                  objectFit: 'contain',
-                  // A page has an edge; a floating bitmap does not.
-                  boxShadow: token.boxShadowTertiary,
-                }}
-              />
-            ) : (
-              <FileTextOutlined
-                style={{ fontSize: 38, color: token.colorTextQuaternary }}
-                aria-hidden
-              />
-            )}
-          </div>
-        }
-      >
-        <Tooltip title={document.title}>
-          <Typography.Paragraph
-            ellipsis={{ rows: 2 }}
-            style={{ marginBottom: 8, minHeight: 44 }}
-            title={document.title}
-          >
-            {document.title}
-          </Typography.Paragraph>
-        </Tooltip>
+    <Card
+      hoverable
+      styles={{ body: { padding: 12 } }}
+      // Picked from across the grid, not by reading a corner. The outline is drawn on the card
+      // itself so that a glance over a full screen answers "which ones did I take?".
+      style={
+        selection?.picked === true
+          ? { outline: `2px solid ${token.colorPrimary}`, outlineOffset: -2 }
+          : {}
+      }
+      cover={
+        <div
+          style={{
+            height: 168,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            // The shelf behind the page: distinct from both the page and the card, so the card
+            // keeps a visible top edge (docs/11 §11.15).
+            background: 'var(--legere-well)',
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            overflow: 'hidden',
+          }}
+        >
+          {showThumb ? (
+            // The URL is an API route that 302s to a signed URL; next/image would proxy and
+            // cache private content through a shared optimizer (docs/10 §10.8).
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={documentFiles.thumb(document.id)}
+              alt=""
+              loading="lazy"
+              onError={() => setThumbFailed(true)}
+              style={{
+                maxHeight: '100%',
+                maxWidth: '100%',
+                objectFit: 'contain',
+                // A page has an edge; a floating bitmap does not.
+                boxShadow: token.boxShadowTertiary,
+              }}
+            />
+          ) : (
+            <FileTextOutlined
+              style={{ fontSize: 38, color: token.colorTextQuaternary }}
+              aria-hidden
+            />
+          )}
+        </div>
+      }
+    >
+      <Tooltip title={document.title}>
+        <Typography.Paragraph
+          ellipsis={{ rows: 2 }}
+          style={{ marginBottom: 8, minHeight: 44 }}
+          title={document.title}
+        >
+          {document.title}
+        </Typography.Paragraph>
+      </Tooltip>
 
-        <Space size={[4, 4]} wrap>
-          {shows('ext') && document.primaryExt !== '' && (
-            <Tag style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.04em' }}>
-              {document.primaryExt.toUpperCase()}
-            </Tag>
-          )}
-          {/* Only when it is made of more than one: "1 file" is a fact about every document, and a
+      <Space size={[4, 4]} wrap>
+        {shows('ext') && document.primaryExt !== '' && (
+          <Tag style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.04em' }}>
+            {document.primaryExt.toUpperCase()}
+          </Tag>
+        )}
+        {/* Only when it is made of more than one: "1 file" is a fact about every document, and a
               badge that is always there says nothing (docs/11 §11.3). */}
-          {document.fileCount > 1 && (
-            <Tag>{t('documents.badges.files', { count: document.fileCount })}</Tag>
-          )}
-          {shows('type') && document.documentType !== null && (
-            <Tag color="blue">{document.documentType.name}</Tag>
-          )}
-          {/* The date written on the paper, not the day it was filed (docs/03 §3.3.10) — absent
+        {document.fileCount > 1 && (
+          <Tag>{t('documents.badges.files', { count: document.fileCount })}</Tag>
+        )}
+        {shows('type') && document.documentType !== null && (
+          <Tag color="blue">{document.documentType.name}</Tag>
+        )}
+        {/* The date written on the paper, not the day it was filed (docs/03 §3.3.10) — absent
               from the badge row entirely while nobody has read one. */}
-          {shows('date') && document.documentDate !== null && <Tag>{document.documentDate}</Tag>}
-          {shows('place') && place !== '' && <Tag>{place}</Tag>}
-          {shows('languages') &&
-            document.languages.map((language) => (
-              <Tag
-                key={language}
-                style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.04em' }}
-              >
-                {language.toUpperCase()}
-              </Tag>
-            ))}
-          {document.processing && (
-            <Tag icon={<LoadingOutlined />} color="processing">
-              {t('documents.badges.processing')}
+        {shows('date') && document.documentDate !== null && <Tag>{document.documentDate}</Tag>}
+        {shows('place') && place !== '' && <Tag>{place}</Tag>}
+        {shows('languages') &&
+          document.languages.map((language) => (
+            <Tag
+              key={language}
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.04em' }}
+            >
+              {language.toUpperCase()}
             </Tag>
-          )}
-          {/* Some of it can be read and some of it cannot — which is a different thing from a
+          ))}
+        {document.processing && (
+          <Tag icon={<LoadingOutlined />} color="processing">
+            {t('documents.badges.processing')}
+          </Tag>
+        )}
+        {/* Some of it can be read and some of it cannot — which is a different thing from a
               document nobody can open, and it is worth saying which (docs/03 §3.3.10). */}
-          {document.availability === 'PARTIAL' && (
-            <Tag color="warning">{t('documents.badges.partial')}</Tag>
-          )}
-          {document.availability === 'UNAVAILABLE' && (
-            <Tag color="default">{t('documents.badges.unavailable')}</Tag>
-          )}
-        </Space>
-        {/* Names, not badges: who and what the document is about is read as a line of text, and one
+        {document.availability === 'PARTIAL' && (
+          <Tag color="warning">{t('documents.badges.partial')}</Tag>
+        )}
+        {document.availability === 'UNAVAILABLE' && (
+          <Tag color="default">{t('documents.badges.unavailable')}</Tag>
+        )}
+      </Space>
+      {/* Names, not badges: who and what the document is about is read as a line of text, and one
             line of it — a document naming eight people must not make a card eight rows taller
             (docs/11 §11.3). */}
-        {shows('people') && document.people.length > 0 && (
-          <NameLine names={document.people.map((person) => person.name)} />
-        )}
-        {shows('subjects') && document.subjects.length > 0 && (
-          <NameLine names={document.subjects.map((subject) => subject.name)} />
-        )}
-      </Card>
+      {shows('people') && document.people.length > 0 && (
+        <NameLine names={document.people.map((person) => person.name)} />
+      )}
+      {shows('subjects') && document.subjects.length > 0 && (
+        <NameLine names={document.subjects.map((subject) => subject.name)} />
+      )}
+    </Card>
   );
 
   if (selection !== undefined) {

@@ -374,9 +374,7 @@ describe('DocumentsScreen', () => {
       const asked: string[] = [];
       server.use(
         http.get('/api/documents/groups', () =>
-          HttpResponse.json(
-            envelope({ items: [...GROUPS, { key: null, label: '', count: 7 }] }),
-          ),
+          HttpResponse.json(envelope({ items: [...GROUPS, { key: null, label: '', count: 7 }] })),
         ),
         http.get('/api/documents', ({ request }) => {
           asked.push(new URL(request.url).search);

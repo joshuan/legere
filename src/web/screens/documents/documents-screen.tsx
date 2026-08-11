@@ -1,19 +1,7 @@
 'use client';
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  App,
-  Button,
-  Card,
-  Checkbox,
-  Col,
-  Empty,
-  Row,
-  Select,
-  Space,
-  Spin,
-  Typography,
-} from 'antd';
+import { App, Button, Card, Col, Empty, Row, Select, Space, Spin, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -539,9 +527,7 @@ function DocumentGroupSection({
   // A named group is the ordinary list filtered by its key; the group that has no key is the
   // ordinary list asked for what this dimension cannot place.
   const scope: DocumentFilters =
-    group.key === null
-      ? { ...filters, unassigned: by }
-      : withGroup(filters, by, group.key);
+    group.key === null ? { ...filters, unassigned: by } : withGroup(filters, by, group.key);
 
   const documents = useInfiniteQuery({
     queryKey: documentKeys.list(scope, sort),
