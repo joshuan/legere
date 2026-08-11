@@ -22,7 +22,7 @@ import type { SubjectRepository } from '../../domain/repositories/subject.reposi
 import type { BuildCanonical } from '../documents/build-canonical';
 import type { BinarySource } from '../ports/binary-source';
 import type { CallContext } from '../ports/call-context';
-import type { DocumentAnalysis, DocumentAnalyst } from '../ports/document-analyst';
+import type { DocumentAnalysis, DocumentAnalyst, PageImage } from '../ports/document-analyst';
 import type { EmbeddingProvider } from '../ports/embedding-provider';
 import type { FileStorage } from '../ports/file-storage';
 import type { ImageTool } from '../ports/image-tool';
@@ -267,7 +267,7 @@ export class HandleDocumentProcess extends JobHandler {
     }
 
     try {
-      const page = await this.pdfs.pdfFirstPageJpg(await this.openCanonical(document));
+      const page = await this.pdfs.pdfPageJpg(await this.openCanonical(document));
 
       const [preview, thumb] = await Promise.all([
         this.images.toJpegPreview(page, {
@@ -367,6 +367,33 @@ export class HandleDocumentProcess extends JobHandler {
     return tidyMarkdown(await this.pdfs.pdfToMarkdown(readable));
   }
 
+  // The pages of the document as pictures, for the model to read beside the text — and to judge the
+  // text against (docs/05 §5.5 step 4). A document is a picture before it is a string: a scan whose
+  // recognition found nothing has no text to be analysed from at all, and the only reason nobody
+  // noticed was that the step reported success over an empty result.
+  //
+  // Best-effort throughout: a page that will not render is a page the model does not get, and an
+  // analysis on the text alone is worth more than a failed step.
+  private async pagesFor(document: Document): Promise<PageImage[]> {
+    const wanted = Math.min(document.pageCount ?? 0, this.settings.analystMaxPageImages);
+    if (wanted <= 0 || document.steps.canonical !== 'DONE') return [];
+
+    const pages: PageImage[] = [];
+    for (let page = 1; page <= wanted; page += 1) {
+      try {
+        const rendered = await this.pdfs.pdfPageJpg(await this.openCanonical(document), { page });
+        pages.push({
+          bytes: await this.images.toJpegPreview(rendered, {
+            maxDim: this.settings.analystPageImageMaxDim,
+          }),
+        });
+      } catch {
+        break;
+      }
+    }
+    return pages;
+  }
+
   // Step 4. One look at the document: which of the active documentTypes it belongs to, and where it is
   // from. An unconfigured provider is not a failure — it is an instance that runs without AI at all
   // (docs/05 §5.5).
@@ -391,7 +418,7 @@ export class HandleDocumentProcess extends JobHandler {
       const documentTypes = await this.documentTypes.listActive();
       const kinds = await this.subjectKinds.listActive();
       const analysis = await this.analyst.analyze(
-        analystExcerpt(document),
+        analystExcerpt(document, this.settings.analystExcerptChars),
         documentTypes.map(({ slug: value, name, description }) => ({
           slug: value,
           name,
@@ -408,6 +435,7 @@ export class HandleDocumentProcess extends JobHandler {
         // Read per run rather than at start-up: changing it takes effect on the next document
         // (docs/05 §5.5).
         (await this.analysisSettings.read()).language,
+        await this.pagesFor(document),
       );
 
       await this.linkPeople(document, analysis.people);
@@ -435,6 +463,9 @@ export class HandleDocumentProcess extends JobHandler {
           ...(analysis.languages.length > 0 ? { languages: analysis.languages } : {}),
           country: analysis.country,
           city: analysis.city,
+          // Kept beside what the machine read, because it is a judgement about exactly that: how
+          // much of the document the stored text actually is (docs/05 §5.5 step 4).
+          ...(analysis.textQuality === null ? {} : { textQuality: analysis.textQuality }),
         },
       });
     } catch (error) {
@@ -605,11 +636,13 @@ function placeUpdate(document: Document, analysis: DocumentAnalysis): Processing
 
 // Title first: it is often the most telling thing about a document, and it is there even when the
 // text layer is empty.
-function analystExcerpt(document: Document): string {
-  return [document.title, document.markdown ?? '']
-    .join('\n\n')
-    .trim()
-    .slice(0, ANALYST_EXCERPT_CHARS);
+// What the analyst reads: the document's name and the whole of its text. Capped only when an
+// instance says so — `0` is no cap, and it is the default. The 4000 characters this used to take
+// were the opening of a document, which is a letterhead: enough to tell a bank from a landlord and
+// nothing like enough to tell one contract from another (docs/05 §5.5 step 4).
+function analystExcerpt(document: Document, maxChars: number): string {
+  const whole = [document.title, document.markdown ?? ''].join('\n\n').trim();
+  return maxChars > 0 ? whole.slice(0, maxChars) : whole;
 }
 
 // Keeps only the entries this run is allowed to write, so a subset reprocess never resets the

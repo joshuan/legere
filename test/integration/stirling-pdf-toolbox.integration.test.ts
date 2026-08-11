@@ -51,7 +51,7 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
   );
 
   itWithStirling('renders the first page as a JPEG', async () => {
-    const jpeg = await pdfs.pdfFirstPageJpg(pdfWithText(['Front page', 'Back page']));
+    const jpeg = await pdfs.pdfPageJpg(pdfWithText(['Front page', 'Back page']));
     const meta = await sharp(jpeg).metadata();
 
     expect(meta.format).toBe('jpeg');
@@ -62,8 +62,8 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
 
   itWithStirling('renders at the requested resolution', async () => {
     const [low, high] = await Promise.all([
-      pdfs.pdfFirstPageJpg(pdfWithText(['Page']), { dpi: 72 }),
-      pdfs.pdfFirstPageJpg(pdfWithText(['Page']), { dpi: 200 }),
+      pdfs.pdfPageJpg(pdfWithText(['Page']), { dpi: 72 }),
+      pdfs.pdfPageJpg(pdfWithText(['Page']), { dpi: 200 }),
     ]);
 
     const [lowMeta, highMeta] = await Promise.all([sharp(low).metadata(), sharp(high).metadata()]);

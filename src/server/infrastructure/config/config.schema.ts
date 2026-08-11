@@ -105,6 +105,12 @@ export const configSchema = z.object({
   THUMB_MAX_DIM: z.coerce.number().int().positive().default(400),
   CHUNK_TARGET_CHARS: z.coerce.number().int().positive().default(1000),
   CHUNK_OVERLAP_CHARS: z.coerce.number().int().nonnegative().default(200),
+  // How much of a document the analyst is shown. 0 — the default — is all of it: a cap left a model
+  // naming a contract from its letterhead (docs/05 §5.5 step 4).
+  ANALYST_EXCERPT_CHARS: z.coerce.number().int().nonnegative().default(0),
+  // And how many of its pages travel as pictures beside that text.
+  ANALYST_MAX_PAGE_IMAGES: z.coerce.number().int().nonnegative().default(20),
+  ANALYST_PAGE_IMAGE_MAX_DIM: z.coerce.number().int().positive().default(1200),
   QUEUE_CONCURRENCY_INGEST: z.coerce.number().int().positive().default(4),
   QUEUE_CONCURRENCY_PROCESS: z.coerce.number().int().positive().default(2),
   // How many independent units inside one job run at once — the pages of a scan set being cropped,

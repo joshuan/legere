@@ -32,6 +32,7 @@ import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file
 import { BuildCanonical } from '../documents/build-canonical';
 import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
 import { AnalysisSettings } from '../settings/analysis-settings';
+import type { ProcessingSettings } from './processing-settings';
 import { HandleDocumentProcess } from './handle-document-process';
 
 const PREVIEW_MAX_DIM = 1600;
@@ -60,6 +61,8 @@ describe('HandleDocumentProcess', () => {
   let images: FakeImageTool;
   let documentTypes: InMemoryCategoryRepository;
   let analyst: FakeAnalyst;
+  // Mutable, so a test can say what step 4 is allowed to be shown without rebuilding the handler.
+  let settings: ProcessingSettings;
   let people: InMemoryPersonRepository;
   let subjects: InMemorySubjectRepository;
   let subjectKinds: InMemorySubjectKindRepository;
@@ -96,13 +99,18 @@ describe('HandleDocumentProcess', () => {
 
     libraries.add(libraryFixture());
 
-    const settings = {
+    settings = {
       previewMaxDim: PREVIEW_MAX_DIM,
       thumbMaxDim: THUMB_MAX_DIM,
       ocrLanguages: ['rus', 'eng'],
       pdfTextMinCharsPerPage: MIN_CHARS_PER_PAGE,
       chunkTargetChars: 200,
       chunkOverlapChars: 40,
+      analystExcerptChars: 0,
+      // Off for the suite: what the analyst is shown has its own tests, and every other test here
+      // counts renders and resizes that step 4 would otherwise add to.
+      analystMaxPageImages: 0,
+      analystPageImageMaxDim: 1200,
     };
 
     handler = new HandleDocumentProcess(
@@ -517,7 +525,7 @@ describe('HandleDocumentProcess', () => {
 
     it('keeps a rendering failure out of the canonical', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
-      pdfs.failOn('pdfFirstPageJpg');
+      pdfs.failOn('pdfPageJpg');
 
       await run();
 
@@ -791,6 +799,70 @@ describe('HandleDocumentProcess', () => {
       expect(call?.excerpt).toBe('March invoice\n\nRecognized text from the scan');
     });
 
+    it('shows the analyst the whole text, not the opening of it', async () => {
+      // Four thousand characters used to be the cap, and the opening of a document is its
+      // letterhead: enough to tell a bank from a landlord, nowhere near enough to tell one contract
+      // from another (docs/05 §5.5 step 4).
+      const long = `${'a'.repeat(4_000)}TAIL`;
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      pdfs.defaultMarkdown = long;
+
+      await run();
+
+      expect(analyst.calls[0]?.excerpt).toContain('TAIL');
+    });
+
+    it('obeys an instance that does want the text cut', async () => {
+      settings.analystExcerptChars = 20;
+      const long = `${'a'.repeat(4_000)}TAIL`;
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      pdfs.defaultMarkdown = long;
+
+      await run();
+
+      expect(analyst.calls[0]?.excerpt).toHaveLength(20);
+    });
+
+    it('shows it the pages as well, capped at what an instance allows', async () => {
+      settings.analystMaxPageImages = 2;
+      pdfs.pageCount = 5;
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      // A document is a picture before it is a string: this is what lets the model answer at all on
+      // a scan whose recognition found nothing, and what it judges the text against.
+      expect(analyst.calls[0]?.pages).toBe(2);
+    });
+
+    it('analyses on the text alone when the pages will not render', async () => {
+      settings.analystMaxPageImages = 3;
+      pdfs.pageCount = 3;
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      pdfs.failures.add('pdfPageJpg');
+
+      await run();
+
+      // A missing picture is not a reason to learn nothing — and the preview failing is its own
+      // step's business, not step 4's (docs/05 §5.5).
+      expect(analyst.calls).toHaveLength(1);
+      expect(analyst.calls[0]?.pages).toBe(0);
+      expect(stateOf().steps.analysis).toBe('DONE');
+    });
+
+    it('keeps the verdict on how well the text was extracted', async () => {
+      settings.analystMaxPageImages = 1;
+      pdfs.pageCount = 1;
+      analyst.answer = { ...analyst.answer, textQuality: 'NONE' };
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      // The signal nobody had: recognition that returned nothing reported success, and the only way
+      // to notice was to open the document (docs/05 §5.5 step 4).
+      expect(stateOf().auto.textQuality).toBe('NONE');
+    });
+
     it('records no documentType when the model answers with a slug nobody defined', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       // 🔒 A hallucinated documentType must not become a real one (docs/05 §5.5 step 4).
@@ -847,6 +919,7 @@ describe('HandleDocumentProcess', () => {
         people: [],
         date: null,
         subjects: [],
+        textQuality: null,
       };
 
       await run();
@@ -873,6 +946,7 @@ describe('HandleDocumentProcess', () => {
         people: ['evgenii shershnev', 'Marija Petrović'],
         date: null,
         subjects: [],
+        textQuality: null,
       };
 
       await run();
@@ -904,6 +978,7 @@ describe('HandleDocumentProcess', () => {
           // The same thing said twice, differently cased: one row, not two.
           { kind: 'Apartment', name: 'njegoševa 5, AP. 12' },
         ],
+        textQuality: null,
       };
 
       await run();
@@ -925,6 +1000,7 @@ describe('HandleDocumentProcess', () => {
         people: [],
         date: '2026-07-25',
         subjects: [],
+        textQuality: null,
       };
 
       await run();
@@ -952,6 +1028,7 @@ describe('HandleDocumentProcess', () => {
         people: ['Marija Petrović'],
         date: null,
         subjects: [],
+        textQuality: null,
       };
 
       await run();
@@ -981,6 +1058,7 @@ describe('HandleDocumentProcess', () => {
         people: [],
         date: null,
         subjects: [],
+        textQuality: null,
       };
 
       await run();
@@ -1232,14 +1310,14 @@ describe('HandleDocumentProcess', () => {
       ]);
       expect(stateOf().steps.preview).toBe('DONE');
       // Twice through the same path: two renders, two pairs of resizes, one set of objects.
-      expect(pdfs.calls.filter((call) => call.method === 'pdfFirstPageJpg')).toHaveLength(2);
+      expect(pdfs.calls.filter((call) => call.method === 'pdfPageJpg')).toHaveLength(2);
       expect(images.resizes).toHaveLength(4);
       expect(stateOf().steps.markdown).toBe('DONE');
     });
 
     it('clears an earlier failure when the re-run succeeds', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
-      pdfs.failOn('pdfFirstPageJpg');
+      pdfs.failOn('pdfPageJpg');
       await run();
       expect(stateOf().failedStep).toBe('preview');
 
@@ -1281,6 +1359,9 @@ describe('HandleDocumentProcess', () => {
       pdfTextMinCharsPerPage: MIN_CHARS_PER_PAGE,
       chunkTargetChars: 200,
       chunkOverlapChars: 40,
+        analystExcerptChars: 0,
+        analystMaxPageImages: 20,
+        analystPageImageMaxDim: 1200,
     };
     return new HandleDocumentProcess(
       documents,

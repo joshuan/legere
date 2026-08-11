@@ -10,7 +10,7 @@ import {
 } from '../../application/ports/binary-source';
 import {
   PdfToolbox,
-  type FirstPageOptions,
+  type PageRenderOptions,
   type NamedBinary,
   type PageScale,
   type PdfMetadata,
@@ -91,10 +91,10 @@ export class StirlingPdfToolbox extends PdfToolbox {
     return this.postForBytes('toPdf', form);
   }
 
-  async pdfFirstPageJpg(source: BinarySource, options: FirstPageOptions = {}): Promise<Buffer> {
+  async pdfPageJpg(source: BinarySource, options: PageRenderOptions = {}): Promise<Buffer> {
     const form = new FormData();
     form.append('fileInput', await blobOf(source), 'input.pdf');
-    form.append('pageNumbers', '1');
+    form.append('pageNumbers', String(options.page ?? 1));
     form.append('imageFormat', 'jpeg');
     // "single" returns the image itself; "multiple" would wrap even a one-page result in a zip.
     form.append('singleOrMultiple', 'single');

@@ -53,7 +53,7 @@ import {
 } from '../../src/server/application/ports/library-reader';
 import {
   PdfToolbox,
-  type FirstPageOptions,
+  type PageRenderOptions,
   type NamedBinary,
   type PageScale,
   type PdfMetadata,
@@ -61,6 +61,8 @@ import {
 import {
   DocumentAnalyst,
   type DocumentTypeOption,
+  type KnownSubject,
+  type PageImage,
   type DocumentAnalysis,
 } from '../../src/server/application/ports/document-analyst';
 import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
@@ -633,8 +635,8 @@ export class FakePdfToolbox extends PdfToolbox {
     return Promise.resolve(Buffer.from('converted-pdf'));
   }
 
-  pdfFirstPageJpg(_source: BinarySource, _options?: FirstPageOptions): Promise<Buffer> {
-    this.check('pdfFirstPageJpg');
+  pdfPageJpg(_source: BinarySource, _options?: PageRenderOptions): Promise<Buffer> {
+    this.check('pdfPageJpg');
     return Promise.resolve(Buffer.from('rendered-page'));
   }
 
@@ -1116,9 +1118,16 @@ export class FakeAnalyst extends DocumentAnalyst {
     people: [],
     date: null,
     subjects: [],
+    textQuality: null,
   };
   failing = false;
-  readonly calls: Array<{ excerpt: string; documentTypes: readonly DocumentTypeOption[] }> = [];
+  readonly calls: Array<{
+    excerpt: string;
+    documentTypes: readonly DocumentTypeOption[];
+    // How many pages travelled with the text: a document is a picture before it is a string, and
+    // a test that cares about step 4's input cares about this (docs/05 §5.5 step 4).
+    pages: number;
+  }> = [];
 
   get isConfigured(): boolean {
     return this.configured;
@@ -1132,8 +1141,12 @@ export class FakeAnalyst extends DocumentAnalyst {
   analyze(
     excerpt: string,
     documentTypes: readonly DocumentTypeOption[],
+    _subjectKinds?: readonly string[],
+    _knownSubjects?: readonly KnownSubject[],
+    _language?: string,
+    pages: readonly PageImage[] = [],
   ): Promise<DocumentAnalysis> {
-    this.calls.push({ excerpt, documentTypes });
+    this.calls.push({ excerpt, documentTypes, pages: pages.length });
     if (this.failing) return Promise.reject(new Error('Analyst request failed with 503'));
     return Promise.resolve(this.answer);
   }

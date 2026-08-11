@@ -6,6 +6,7 @@ import {
   DocumentAnalyst,
   type DocumentTypeOption,
   type DocumentAnalysis,
+  type PageImage,
   type KnownSubject,
 } from '../../application/ports/document-analyst';
 import { AppConfig } from '../config/app-config';
@@ -28,6 +29,7 @@ const answerSchema = z.object({
   people: z.array(z.string()).optional(),
   date: z.string().nullish(),
   subjects: z.array(z.object({ kind: z.string(), name: z.string() })).optional(),
+  textQuality: z.string().nullish(),
 });
 
 const SYSTEM_PROMPT = [
@@ -40,8 +42,15 @@ const SYSTEM_PROMPT = [
   '"city": "<the city the document belongs to, as written, or null>",',
   '"people": ["<the people this document is about, as it names them>"],',
   '"date": "<the date written on the document, yyyy-mm-dd, or null>",',
-  '"subjects": [{"kind": "<apartment, car, country, company…>", "name": "<which one>"}]}.',
+  '"subjects": [{"kind": "<apartment, car, country, company…>", "name": "<which one>"}],',
+  '"textQuality": "<GOOD, PARTIAL or NONE — only when you are shown the pages>"}.',
   'Never invent a slug that is not on the list.',
+  'When the pages of the document are shown to you as pictures, compare them with the text you were',
+  'given and answer textQuality: GOOD when the text is what the pages say, PARTIAL when parts of it',
+  'are missing or garbled, NONE when the pages carry writing and the text does not. Judge the text,',
+  'not the document: a blank page whose text is empty is GOOD. Shown no pictures, omit the field —',
+  'and read the pictures for everything else too, because a page nobody could recognise is still a',
+  'page you can read.',
   'The title names this document the way its owner would: what it is, and which one — "Rental',
   'agreement, Njegoševa 12", "Electricity bill, March 2026". Write it in the language of the',
   'document, in one line, without the file name and without quotes. Null if the text says too little',
@@ -153,6 +162,7 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     subjectKinds: readonly string[] = [],
     knownSubjects: readonly KnownSubject[] = [],
     language = '',
+    pages: readonly PageImage[] = [],
   ): Promise<DocumentAnalysis> {
     if (!this.isConfigured) throw new Error('No document analyst is configured');
 
@@ -182,7 +192,25 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
             role: 'system',
             content: systemMessage(documentTypes, subjectKinds, knownSubjects, language, nonce),
           },
-          { role: 'user', content: fenceDocument(excerpt, nonce) },
+          {
+            role: 'user',
+            // The text, and — when there are any — the pages it was taken from. Both are the
+            // document rather than instructions, so both travel in the same fenced user message
+            // (docs/05 §5.5 step 4). The pictures are what lets the model say the text is wrong:
+            // the whole point of showing them is that a scan can lie by being empty.
+            content:
+              pages.length === 0
+                ? fenceDocument(excerpt, nonce)
+                : [
+                    { type: 'text', text: fenceDocument(excerpt, nonce) },
+                    ...pages.map((page) => ({
+                      type: 'image_url',
+                      image_url: {
+                        url: `data:image/jpeg;base64,${page.bytes.toString('base64')}`,
+                      },
+                    })),
+                  ],
+          },
         ],
       }),
       // 🔒 Headers and body alike: when it fires, undici tears the body stream down too, so a
@@ -336,6 +364,7 @@ function readAnswer(
       people: [],
       date: null,
       subjects: [],
+      textQuality: null,
     };
   }
 
@@ -349,7 +378,16 @@ function readAnswer(
     people: pickPeople(parsed.data.people ?? []),
     date: pickDate(parsed.data.date),
     subjects: pickSubjects(parsed.data.subjects ?? []),
+    textQuality: pickTextQuality(parsed.data.textQuality),
   };
+}
+
+// A verdict, or nothing. Anything the model invents outside the three words is read as "it did not
+// say", because a made-up grade is worse than a missing one: this field exists to be trusted
+// (docs/05 §5.5 step 4).
+function pickTextQuality(value: unknown): DocumentAnalysis['textQuality'] {
+  const named = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  return named === 'GOOD' || named === 'PARTIAL' || named === 'NONE' ? named : null;
 }
 
 // One line, trimmed, capped. A model asked for a title sometimes answers with the first paragraph

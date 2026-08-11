@@ -91,6 +91,9 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
         pdfTextMinCharsPerPage: 20,
         chunkTargetChars: 200,
         chunkOverlapChars: 40,
+        analystExcerptChars: 0,
+        analystMaxPageImages: 20,
+        analystPageImageMaxDim: 1200,
       },
     );
 

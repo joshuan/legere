@@ -290,9 +290,21 @@ not configured, no document types defined, no text to embed, or a document type 
    cheaper than two, and because it needs exactly what a model has and a detector has not: a train
    ticket that says `ŽPCG` and `PODGORICA` is Montenegrin, and nothing in its text says so. Each
    field is validated on its own, so an invented document type slug does not discard a good country. The
-   step **fills blanks only**: languages the offline detector found stand (it read the whole text,
-   not a 4000-character excerpt), and a place somebody filled in by hand stays — clearing a field is
-   how you ask for it to be inferred again. With no document types defined the step still runs, because
+   step **fills blanks only**: languages the offline detector found stand — it reads what it is given
+   with no cost per character, which a model does not — and a place somebody filled in by hand stays;
+   clearing a field is how you ask for it to be inferred again.
+   **What it is shown is the document, not the opening of it.** The whole of the extracted text, and
+   the pages themselves as pictures — at most `ANALYST_MAX_PAGE_IMAGES` (default 20) of them, past
+   which a document is a book rather than a paper and its text carries it. `ANALYST_EXCERPT_CHARS`
+   caps the text for an instance that wants it capped; `0`, the default, does not. The pictures are
+   not decoration: a scan whose recognition found nothing has no text to be analysed from at all, and
+   a document is a picture before it is a string. Pages that will not render are pages the model does
+   not get — the analysis still runs on the text, because a missing picture is not a reason to learn
+   nothing.
+   And because it has seen both, it answers **how well the text represents the document** —
+   `GOOD`, `PARTIAL` or `NONE`, kept beside the rest of what the machine read (`03 §3.3.10`). This is
+   the signal that was missing: recognition that returned nothing reported success, the text was
+   stored empty, and the only way to find out was to open the document. With no document types defined the step still runs, because
    the place is worth the call.
    **It is shown the catalogue it is filing into**: the kinds already in use, and the things
    themselves with their notes (03 §3.3.20). After the first months an archive stops meeting new

@@ -79,6 +79,9 @@ describe('Document processing (integration)', () => {
       pdfTextMinCharsPerPage: 32,
       chunkTargetChars: 200,
       chunkOverlapChars: 40,
+        analystExcerptChars: 0,
+        analystMaxPageImages: 20,
+        analystPageImageMaxDim: 1200,
     };
 
     handler = new HandleDocumentProcess(

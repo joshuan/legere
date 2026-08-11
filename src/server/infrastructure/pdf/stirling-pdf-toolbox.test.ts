@@ -65,7 +65,7 @@ describe('StirlingPdfToolbox', () => {
   it('asks for page 1 as a single JPEG, not a zip of pages', async () => {
     const spy = mockStirling(new Response('jpeg-bytes'));
 
-    await toolbox().pdfFirstPageJpg(Readable.from([Buffer.from('%PDF-')]));
+    await toolbox().pdfPageJpg(Readable.from([Buffer.from('%PDF-')]));
 
     const { url, form } = sentRequest(spy);
     expect(url).toBe('http://stirling:8080/api/v1/convert/pdf/img');
@@ -78,7 +78,7 @@ describe('StirlingPdfToolbox', () => {
   it('renders at the requested resolution when one is given', async () => {
     const spy = mockStirling(new Response('jpeg-bytes'));
 
-    await toolbox().pdfFirstPageJpg(Buffer.from('%PDF-'), { dpi: 300 });
+    await toolbox().pdfPageJpg(Buffer.from('%PDF-'), { dpi: 300 });
 
     expect(sentRequest(spy).form.get('dpi')).toBe('300');
   });
@@ -263,7 +263,7 @@ describe('StirlingPdfToolbox', () => {
     const context = new AsyncLocalCallContext();
 
     await context.run('11111111-1111-4111-8111-111111111111', () =>
-      toolbox().pdfFirstPageJpg(Buffer.from('%PDF-')),
+      toolbox().pdfPageJpg(Buffer.from('%PDF-')),
     );
 
     const [, init] = spy.mock.calls[0] ?? [];
@@ -274,7 +274,7 @@ describe('StirlingPdfToolbox', () => {
   it('sends no id outside a call, rather than inventing one', async () => {
     const spy = mockStirling(pdfResponse());
 
-    await toolbox().pdfFirstPageJpg(Buffer.from('%PDF-'));
+    await toolbox().pdfPageJpg(Buffer.from('%PDF-'));
 
     const [, init] = spy.mock.calls[0] ?? [];
     const headers = init instanceof Object && 'headers' in init ? init.headers : undefined;

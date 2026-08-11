@@ -163,6 +163,9 @@ export const autoValuesSchema = z.object({
   languages: z.array(z.string()).optional(),
   country: z.string().nullish(),
   city: z.string().nullish(),
+  // How well the stored text represents the document, judged by the analyst against the pages it was
+  // shown (docs/05 §5.5 step 4). Absent when it was shown none, and so had nothing to compare.
+  textQuality: z.enum(['GOOD', 'PARTIAL', 'NONE']).nullish(),
 });
 export type AutoValues = z.infer<typeof autoValuesSchema>;
 

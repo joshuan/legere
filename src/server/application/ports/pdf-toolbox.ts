@@ -6,7 +6,10 @@ export type NamedBinary = {
   fileName: string;
 };
 
-export type FirstPageOptions = {
+export type PageRenderOptions = {
+  // Which page, 1-based. The preview wants the first; the analyst wants each of the first few
+  // (docs/05 §5.5 steps 2 and 4).
+  page?: number;
   // Rendering resolution. Higher means a sharper preview and a slower, larger render; the caller
   // downscales the result to the configured preview dimensions afterwards.
   dpi?: number;
@@ -39,8 +42,9 @@ export abstract class PdfToolbox {
   // a document is a PDF whatever it arrived as, so text goes through here too.
   abstract toPdf(source: NamedBinary): Promise<Buffer>;
 
-  // First page of a PDF as a JPEG — the raw material for preview.jpg and thumb.jpg (step 2).
-  abstract pdfFirstPageJpg(source: BinarySource, options?: FirstPageOptions): Promise<Buffer>;
+  // One page of a PDF as a JPEG — the raw material for preview.jpg and thumb.jpg (step 2), and the
+  // pages the analyst is shown (step 4). Defaults to the first.
+  abstract pdfPageJpg(source: BinarySource, options?: PageRenderOptions): Promise<Buffer>;
 
   // Adds a text layer to a scanned PDF (step 3), with tesseract language codes such as ['rus','eng'].
   abstract ocrPdf(source: BinarySource, languages: readonly string[]): Promise<Buffer>;

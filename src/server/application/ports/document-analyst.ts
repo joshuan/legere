@@ -43,7 +43,16 @@ export type DocumentAnalysis = {
   date: string | null;
   // What the document is about: the kind of thing and which one (docs/03 §3.3.20).
   subjects: Array<{ kind: string; name: string }>;
+  // How well the text this analysis was given represents the document, judged against the pages it
+  // was shown (docs/05 §5.5 step 4). The signal nobody had: an OCR pass that recognised nothing
+  // reported success, and the only way to notice was to open the document. `null` when the model
+  // was shown no pages and so has nothing to compare the text against.
+  textQuality: 'GOOD' | 'PARTIAL' | 'NONE' | null;
 };
+
+// A page of the document as the model is shown it (docs/05 §5.5 step 4): a JPEG, already scaled
+// down — a model reads a page, it does not print it.
+export type PageImage = { bytes: Buffer };
 
 // The AI step is optional in the same way vectorization is (docs/05 §5.5 step 4): unconfigured
 // means SKIPPED, not failed.
@@ -65,5 +74,8 @@ export abstract class DocumentAnalyst {
     // What to write in: a BCP-47 tag, or empty for the language of the document itself
     // (docs/05 §5.5).
     language: string,
+    // The pages themselves, when there are any to show. A scan whose recognition found nothing has
+    // no text to be analysed from — and a document is a picture before it is a string.
+    pages?: readonly PageImage[],
   ): Promise<DocumentAnalysis>;
 }

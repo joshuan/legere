@@ -295,6 +295,7 @@ describe('OpenAiCompatAnalyst', () => {
         people: [],
         date: null,
         subjects: [],
+        textQuality: null,
       });
       expect(spy).toHaveBeenCalledTimes(1);
     });
@@ -318,6 +319,7 @@ describe('OpenAiCompatAnalyst', () => {
         // 🔒 Upper-cased: a stored 'me' would never match a lookup for 'ME'.
         country: 'ME',
         city: 'Podgorica',
+        textQuality: null,
       });
     });
 

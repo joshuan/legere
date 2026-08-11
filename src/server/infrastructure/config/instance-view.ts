@@ -86,6 +86,9 @@ export function describeInstance(config: AppConfig): InstanceResponse {
           s('THUMB_MAX_DIM'),
           s('CHUNK_TARGET_CHARS'),
           s('CHUNK_OVERLAP_CHARS'),
+          s('ANALYST_EXCERPT_CHARS'),
+          s('ANALYST_MAX_PAGE_IMAGES'),
+          s('ANALYST_PAGE_IMAGE_MAX_DIM'),
         ],
       },
       {
