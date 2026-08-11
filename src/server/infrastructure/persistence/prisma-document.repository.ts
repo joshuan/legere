@@ -330,6 +330,12 @@ function filters(query: DocumentFilterInput): Prisma.DocumentWhereInput {
   // from that value (docs/11 §11.5). The partial indexes of docs/04 §4.4 serve both.
   if (query.country !== undefined) where.country = query.country;
   if (query.city !== undefined) where.city = query.city;
+  // The documents one dimension cannot place. Expressed as the absence it is — a null column, an
+  // empty relation — rather than as a sentinel value, because there is no id that means "none"
+  // (docs/07 §7.3).
+  if (query.unassigned !== undefined) {
+    and.push(unassignedIn(query.unassigned));
+  }
   if (query.year !== undefined) {
     // A calendar year in UTC, which is the zone the DATE column is read and written in.
     where.documentDate = {
@@ -501,6 +507,24 @@ export function searchByTextSql(
     FROM matches m, q
     ORDER BY m.score DESC, m.id
   `;
+}
+
+// What "has no value here" means, one dimension at a time (docs/11 §11.3).
+function unassignedIn(dimension: DocumentGroupBy): Prisma.DocumentWhereInput {
+  switch (dimension) {
+    case 'type':
+      return { typeId: null };
+    case 'year':
+      return { documentDate: null };
+    case 'country':
+      return { country: null };
+    case 'city':
+      return { city: null };
+    case 'person':
+      return { people: { none: {} } };
+    case 'subject':
+      return { subjects: { none: {} } };
+  }
 }
 
 function filtersSql(filters: SearchFilters): Prisma.Sql {
@@ -721,6 +745,14 @@ export class PrismaDocumentRepository implements DocumentRepository {
       AND: [readableBy(viewer, await shareReach(client, viewer)), filters(filter)],
     };
 
+    // The group everything else is in, counted with the same access rule and the same filters as the
+    // shelves beside it. Zero means there is nothing to show and the section is not drawn at all.
+    const unplaced = await client.document.count({
+      where: { AND: [where, unassignedIn(by)] },
+    });
+    const rest = (groups: DocumentGroupCount[]): DocumentGroupCount[] =>
+      unplaced === 0 ? groups : [...groups, { key: null, label: '', count: unplaced }];
+
     switch (by) {
       case 'year': {
         const rows = await client.document.groupBy({
@@ -728,11 +760,13 @@ export class PrismaDocumentRepository implements DocumentRepository {
           where: { ...where, documentDate: { not: null } },
           _count: { _all: true },
         });
-        return [...countYears(rows).entries()].map(([year, count]) => ({
-          key: String(year),
-          label: String(year),
-          count,
-        }));
+        return rest(
+          [...countYears(rows).entries()].map(([year, count]) => ({
+            key: String(year),
+            label: String(year),
+            count,
+          })),
+        );
       }
       case 'country': {
         const rows = await client.document.groupBy({
@@ -740,12 +774,14 @@ export class PrismaDocumentRepository implements DocumentRepository {
           where: { ...where, country: { not: null } },
           _count: { _all: true },
         });
-        return rows.flatMap((row) =>
-          row.country === null
-            ? []
-            : // The label is what the document carries: an ISO code, which is what the link a
-              // viewer follows from the details pane carries too (docs/11 §11.5).
-              [{ key: row.country, label: row.country, count: row._count._all }],
+        return rest(
+          rows.flatMap((row) =>
+            row.country === null
+              ? []
+              : // The label is what the document carries: an ISO code, which is what the link a
+                // viewer follows from the details pane carries too (docs/11 §11.5).
+                [{ key: row.country, label: row.country, count: row._count._all }],
+          ),
         );
       }
       case 'city': {
@@ -754,8 +790,10 @@ export class PrismaDocumentRepository implements DocumentRepository {
           where: { ...where, city: { not: null } },
           _count: { _all: true },
         });
-        return rows.flatMap((row) =>
-          row.city === null ? [] : [{ key: row.city, label: row.city, count: row._count._all }],
+        return rest(
+          rows.flatMap((row) =>
+            row.city === null ? [] : [{ key: row.city, label: row.city, count: row._count._all }],
+          ),
         );
       }
       case 'type': {
@@ -775,7 +813,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
           where: { id: { in: [...counts.keys()] } },
           select: { id: true, name: true },
         });
-        return labelled(types, counts);
+        return rest(labelled(types, counts));
       }
       case 'person': {
         const rows = await client.documentPerson.groupBy({
@@ -790,7 +828,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
           where: { id: { in: [...counts.keys()] } },
           select: { id: true, name: true },
         });
-        return labelled(people, counts);
+        return rest(labelled(people, counts));
       }
       case 'subject': {
         const rows = await client.documentSubject.groupBy({
@@ -803,7 +841,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
           where: { id: { in: [...counts.keys()] } },
           select: { id: true, name: true },
         });
-        return labelled(subjects, counts);
+        return rest(labelled(subjects, counts));
       }
     }
   }

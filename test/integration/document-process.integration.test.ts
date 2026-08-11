@@ -219,7 +219,7 @@ describe('Document processing (integration)', () => {
     const documentId = await givenLibraryDocument();
     // A sibling container answering with a full HTML error page is the realistic case.
     pdfs.failureDetail = '<html><body>Internal Server Error</body></html>'.repeat(200);
-    pdfs.failOn('pdfFirstPageJpg');
+    pdfs.failOn('pdfPageJpg');
 
     await handler.handle({ documentId });
 

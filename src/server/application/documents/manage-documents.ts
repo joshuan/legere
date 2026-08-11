@@ -120,8 +120,13 @@ export class ListDocumentGroups {
     // The fullest shelf first — that is where the archive actually is — with the label breaking a
     // tie so two runs of the same question answer in the same order. The cap is what keeps an
     // aggregate over an unbounded dimension (a city, a person) a bounded answer (docs/07 §7.1).
-    const ordered = [...groups].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-    return { items: ordered.slice(0, MAX_DOCUMENT_GROUPS) };
+    const named = groups.filter((group) => group.key !== null);
+    const ordered = [...named].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    // 🔒 Last, and outside the cap: the group of everything the dimension cannot place is not one
+    // shelf among many, and dropping it off the end of a capped list would take those documents off
+    // the screen rather than off a shelf (docs/11 §11.3).
+    const unplaced = groups.filter((group) => group.key === null);
+    return { items: [...ordered.slice(0, MAX_DOCUMENT_GROUPS), ...unplaced] };
   }
 }
 

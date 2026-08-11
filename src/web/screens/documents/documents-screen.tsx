@@ -28,6 +28,7 @@ import {
   documentSortSchema,
   documentStepSchema,
   listDocumentsQuerySchema,
+  type DocumentGroup,
   type DocumentGroupBy,
   type DocumentSort,
 } from '../../../shared/contracts/documents';
@@ -260,16 +261,6 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
           )}
         </Space>
 
-        {/* The shelves themselves, above the grid: press one and the grid below is that shelf,
-            because a group's contents are the ordinary list filtered by its key (docs/11 §11.3). */}
-        {groupBy !== null && (
-          <DocumentGroupBar
-            by={groupBy}
-            filters={filters}
-            onPick={(key) => setFilters(withGroup(filters, groupBy, key))}
-          />
-        )}
-
         {/* Above the grid, and only while nothing is being looked for in particular: a proposal
             about the whole shelf makes no sense over a filtered view of it (docs/11 §11.3). */}
         {Object.keys(filters).length === 0 && (
@@ -279,7 +270,18 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
           />
         )}
 
-        {documents.isPending ? (
+        {/* Grouped, the grid is drawn a section at a time, each one a heading and its own cards
+            (docs/11 §11.3). Nothing is filtered by looking at it: leaving the grouping leaves the
+            archive where it was. */}
+        {groupBy !== null ? (
+          <DocumentGroupSections
+            by={groupBy}
+            filters={filters}
+            sort={sort}
+            fields={fields}
+            {...(selecting ? { selection: { selected, setSelected } } : {})}
+          />
+        ) : documents.isPending ? (
           <Spin />
         ) : items.length === 0 && upload.items.length === 0 ? (
           <Empty
@@ -465,51 +467,139 @@ function withGroup(filters: DocumentFilters, by: DocumentGroupBy, key: string): 
 }
 
 // The shelves of one dimension, counted by the server under the filters in force (docs/07 §7.3).
-function DocumentGroupBar({
+type SectionSelection = {
+  selected: string[];
+  setSelected: (update: (current: string[]) => string[]) => void;
+};
+
+// The grid, arranged into the groups of one dimension (docs/11 §11.3). The headings and their counts
+// come from the server, under the filters in force, so a heading says how much the archive holds
+// rather than how much has been scrolled to.
+function DocumentGroupSections({
   by,
   filters,
-  onPick,
+  sort,
+  fields,
+  selection,
 }: {
   by: DocumentGroupBy;
   filters: DocumentFilters;
-  onPick: (key: string) => void;
+  sort: DocumentSort;
+  fields: readonly DocumentCardField[];
+  selection?: SectionSelection;
 }) {
   const t = useTranslations();
-  const param = DOCUMENT_GROUP_FILTER[by];
-  // Counted under every filter in force *except* the one a shelf itself sets: with it, picking a
-  // shelf would leave exactly one shelf to pick, and there would be no way back to the others.
-  const scope = useMemo(() => {
-    const narrowed: DocumentFilters = { ...filters };
-    delete narrowed[param];
-    return narrowed;
-  }, [filters, param]);
-
   const groups = useQuery({
-    queryKey: documentKeys.groups(by, scope),
-    queryFn: () => documentApi.groups(by, scope),
+    queryKey: documentKeys.groups(by, filters),
+    queryFn: () => documentApi.groups(by, filters),
   });
 
-  if (groups.isPending) return <Spin size="small" />;
+  if (groups.isPending) return <Spin />;
 
   const items = groups.data?.items ?? [];
   if (items.length === 0) {
     return <Typography.Text type="secondary">{t('documents.groupBy.empty')}</Typography.Text>;
   }
 
-  const standingOn = String(filters[param] ?? '');
   return (
-    <Space size={[8, 8]} wrap>
+    <Space direction="vertical" size={24} style={{ width: '100%' }}>
       {items.map((group) => (
-        <Button
-          key={group.key}
-          size="small"
-          type={group.key === standingOn ? 'primary' : 'default'}
-          onClick={() => onPick(group.key)}
-        >
-          {t('documents.groupBy.shelf', { label: group.label, count: group.count })}
-        </Button>
+        <DocumentGroupSection
+          key={group.key ?? '\u0000unassigned'}
+          by={by}
+          group={group}
+          filters={filters}
+          sort={sort}
+          fields={fields}
+          {...(selection === undefined ? {} : { selection })}
+        />
       ))}
     </Space>
+  );
+}
+
+// One section: its heading, and as many of its documents as have been asked for. Paged on its own,
+// because one cursor cannot walk a grid whose order is now two levels deep (docs/11 §11.3).
+function DocumentGroupSection({
+  by,
+  group,
+  filters,
+  sort,
+  fields,
+  selection,
+}: {
+  by: DocumentGroupBy;
+  group: DocumentGroup;
+  filters: DocumentFilters;
+  sort: DocumentSort;
+  fields: readonly DocumentCardField[];
+  selection?: SectionSelection;
+}) {
+  const t = useTranslations();
+  // A named group is the ordinary list filtered by its key; the group that has no key is the
+  // ordinary list asked for what this dimension cannot place.
+  const scope: DocumentFilters =
+    group.key === null
+      ? { ...filters, unassigned: by }
+      : withGroup(filters, by, group.key);
+
+  const documents = useInfiniteQuery({
+    queryKey: documentKeys.list(scope, sort),
+    queryFn: ({ pageParam }) =>
+      documentApi.list(scope, { sort, ...(pageParam === '' ? {} : { cursor: pageParam }) }),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+  });
+
+  const items = (documents.data?.pages ?? []).flatMap((page) => page.items);
+
+  return (
+    <section>
+      <Typography.Title level={5} style={{ marginTop: 0 }}>
+        {/* The count is the archive's, the cards are as many as have been fetched — so the heading
+            is a fact about the group rather than about the scrolling (docs/11 §11.3). */}
+        {group.key === null
+          ? t('documents.groupBy.unassigned', { count: group.count })
+          : t('documents.groupBy.shelf', { label: group.label, count: group.count })}
+      </Typography.Title>
+      {documents.isPending ? (
+        <Spin size="small" />
+      ) : (
+        <Row gutter={[16, 16]}>
+          {items.map((document) => (
+            <Col key={document.id} xs={12} sm={8} md={6} lg={4} xl={4} xxl={4}>
+              <DocumentCard
+                document={document}
+                fields={fields}
+                {...(selection === undefined
+                  ? {}
+                  : {
+                      selection: {
+                        picked: selection.selected.includes(document.id),
+                        onToggle: () =>
+                          selection.setSelected((current) =>
+                            current.includes(document.id)
+                              ? current.filter((id) => id !== document.id)
+                              : [...current, document.id],
+                          ),
+                      },
+                    })}
+              />
+            </Col>
+          ))}
+        </Row>
+      )}
+      {documents.hasNextPage === true && (
+        <Button
+          type="link"
+          loading={documents.isFetchingNextPage}
+          onClick={() => void documents.fetchNextPage()}
+          style={{ paddingLeft: 0 }}
+        >
+          {t('documents.groupBy.more')}
+        </Button>
+      )}
+    </section>
   );
 }
 

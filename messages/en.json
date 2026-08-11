@@ -630,7 +630,9 @@
         "year": "Year",
         "country": "Country",
         "city": "City"
-      }
+      },
+      "unassigned": "Not filed ({count})",
+      "more": "Show more"
     },
     "empty": {
       "instance": "No documents yet. Ask your administrator to add a library.",

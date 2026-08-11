@@ -350,8 +350,8 @@ describe('DocumentsScreen', () => {
       expect(asked).toBe(0);
     });
 
-    it('counts the shelves under the filters in force, minus the one a shelf itself sets', async () => {
-      currentSearch = `groupBy=person&processing=true&personId=${PERSON_ID}`;
+    it('draws a section per group, with the count the server gave', async () => {
+      currentSearch = 'groupBy=person&processing=true';
       const seen: string[] = [];
       server.use(
         http.get('/api/documents/groups', ({ request }) => {
@@ -362,40 +362,53 @@ describe('DocumentsScreen', () => {
 
       renderWithProviders(<DocumentsScreen />);
 
-      expect(await screen.findByRole('button', { name: 'Ana Petrović · 12' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Marko Marković · 3' })).toBeInTheDocument();
-
+      // Headings, not buttons: pressing a group is not how a grouped grid is read (docs/11 §11.3).
+      expect(await screen.findByText('Ana Petrović · 12')).toBeInTheDocument();
+      expect(screen.getByText('Marko Marković · 3')).toBeInTheDocument();
       expect(seen[0]).toContain('by=person');
       expect(seen[0]).toContain('processing=true');
-      // With `personId` in it there would be one shelf to choose and no way back to the others.
-      expect(seen[0] ?? '').not.toContain('personId');
     });
 
-    it('stands on a shelf by filtering the list by its key', async () => {
+    it('fetches each section under its own key, and the last one under none', async () => {
+      currentSearch = 'groupBy=person';
+      const asked: string[] = [];
+      server.use(
+        http.get('/api/documents/groups', () =>
+          HttpResponse.json(
+            envelope({ items: [...GROUPS, { key: null, label: '', count: 7 }] }),
+          ),
+        ),
+        http.get('/api/documents', ({ request }) => {
+          asked.push(new URL(request.url).search);
+          return HttpResponse.json(envelope({ items: [], nextCursor: null }));
+        }),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+      // 🔒 The group the dimension cannot place has a section of its own: without it those documents
+      // would not be filtered out of view but silently absent from it (docs/11 §11.3).
+      expect(await screen.findByText('Not filed (7)')).toBeInTheDocument();
+
+      await waitFor(() =>
+        expect(asked.some((search) => search.includes(`personId=${PERSON_ID}`))).toBe(true),
+      );
+      await waitFor(() =>
+        expect(asked.some((search) => search.includes('unassigned=person'))).toBe(true),
+      );
+    });
+
+    it('sets no filter by being looked at', async () => {
       currentSearch = 'groupBy=person';
       server.use(
         http.get('/api/documents/groups', () => HttpResponse.json(envelope({ items: GROUPS }))),
       );
 
       renderWithProviders(<DocumentsScreen />);
-      await userEvent.click(await screen.findByRole('button', { name: 'Ana Petrović · 12' }));
+      await screen.findByText('Ana Petrović · 12');
 
-      // A group's contents are the ordinary list filtered by that group's value (docs/07 §7.3).
-      await waitFor(() =>
-        expect(replace).toHaveBeenCalledWith(`/documents?personId=${PERSON_ID}&groupBy=person`),
-      );
-    });
-
-    it('steps off the shelf it is standing on when that shelf is pressed again', async () => {
-      currentSearch = `groupBy=person&personId=${PERSON_ID}`;
-      server.use(
-        http.get('/api/documents/groups', () => HttpResponse.json(envelope({ items: GROUPS }))),
-      );
-
-      renderWithProviders(<DocumentsScreen />);
-      await userEvent.click(await screen.findByRole('button', { name: 'Ana Petrović · 12' }));
-
-      await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents?groupBy=person'));
+      // Grouping arranges the grid; it does not narrow the archive, so leaving it leaves the
+      // archive where it was (docs/11 §11.3).
+      expect(replace).not.toHaveBeenCalled();
     });
 
     it('ignores a dimension the contract does not offer', async () => {

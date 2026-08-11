@@ -676,7 +676,10 @@ describe('Files and documents (integration)', () => {
       // And the key is what the shelf's own filter takes, so its contents are reachable.
       const key = shelves.find((shelf) => shelf.label === 'Ana Petrović')?.key;
       expect(key).toBe(ana.id);
-      const contents = await documents.listReadable(admin, { limit: 10, personId: key });
+      const contents = await documents.listReadable(admin, {
+        limit: 10,
+        ...(key === null || key === undefined ? {} : { personId: key }),
+      });
       expect(contents.items.map((item) => item.document.title)).toEqual(['Lease']);
     });
 
@@ -700,8 +703,10 @@ describe('Files and documents (integration)', () => {
       await documentAbout('Older', { date: '2019-03-01', city: 'Podgorica' });
       await documentAbout('Same year', { date: '2019-11-02', city: 'Podgorica' });
       await documentAbout('Newer', { date: '2024-05-05', city: 'Bar' });
-      // No date and no place read off it: on no shelf of either dimension rather than on a shelf
-      // whose contents no filter could name.
+      // No date and no place read off it. Not on a shelf of either dimension — it belongs to the
+      // group of everything the dimension cannot place, which is what `key: null` is: without it a
+      // grouped grid would leave this document silently absent rather than filtered out
+      // (docs/11 §11.3).
       await documentAbout('Unread', {});
 
       const years = await documents.countByGroup(admin, 'year', {});
@@ -711,14 +716,25 @@ describe('Files and documents (integration)', () => {
         new Map([
           ['2019', 2],
           ['2024', 1],
+          [null, 1],
         ]),
       );
       expect(new Map(cities.map((shelf) => [shelf.key, shelf.count]))).toEqual(
         new Map([
           ['Podgorica', 2],
           ['Bar', 1],
+          [null, 1],
         ]),
       );
+    });
+
+    it('finds the documents a dimension cannot place, which is what that group links to', async () => {
+      await documentAbout('Dated', { date: '2019-03-01' });
+      await documentAbout('Undated', {});
+
+      const found = await documents.listReadable(admin, { limit: 10, unassigned: 'year' });
+
+      expect(found.items.map((item) => item.document.title)).toEqual(['Undated']);
     });
   });
 

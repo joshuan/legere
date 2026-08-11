@@ -234,6 +234,16 @@ export const DEFAULT_DOCUMENT_SORT: DocumentSort = 'documentDate';
 // What narrows a shelf, written once (docs/07 §7.3). The list takes them beside its pagination and
 // its order; the grouping endpoint takes exactly the same set beside the dimension it counts by, so
 // a group's count is computed under the filters the reader is actually looking through.
+export const documentGroupBySchema = z.enum([
+  'type',
+  'person',
+  'subject',
+  'year',
+  'country',
+  'city',
+]);
+export type DocumentGroupBy = z.infer<typeof documentGroupBySchema>;
+
 export const documentFiltersSchema = z.object({
   libraryId: z.string().uuid().optional(),
   typeId: z.string().uuid().optional(),
@@ -253,6 +263,11 @@ export const documentFiltersSchema = z.object({
     .transform((value) => value.toUpperCase())
     .optional(),
   city: z.string().trim().min(1).max(120).optional(),
+  // The documents that have no value in one dimension: the section a grouped grid needs for
+  // everything the shelves cannot hold (docs/11 §11.3). Named as a dimension rather than smuggled
+  // into the filter above it as a magic value, because "no type" is a different question from "this
+  // type" and a uuid column has no room to say it.
+  unassigned: documentGroupBySchema.optional(),
   availability: availabilitySchema.optional(),
   processing: queryBoolean,
   origin: fileOriginSchema.optional(),
@@ -291,15 +306,6 @@ export type DocumentYearsResponse = z.infer<typeof documentYearsResponseSchema>;
 //    other: a document holds many files in one library (and one file may lie at two paths in it),
 //    and it may name two subjects of the same kind, so counting either would count joins, not
 //    documents. Both remain filters, reachable from the viewer's details pane (docs/11 §11.5).
-export const documentGroupBySchema = z.enum([
-  'type',
-  'person',
-  'subject',
-  'year',
-  'country',
-  'city',
-]);
-export type DocumentGroupBy = z.infer<typeof documentGroupBySchema>;
 
 export const DOCUMENT_GROUP_BY: readonly DocumentGroupBy[] = documentGroupBySchema.options;
 
@@ -324,7 +330,11 @@ export type ListDocumentGroupsQuery = z.infer<typeof listDocumentGroupsQuerySche
 // subjects — is counted on each of them, because the alternative is a card missing from a shelf it
 // belongs on (docs/07 §7.3).
 export const documentGroupSchema = z.object({
-  key: z.string(),
+  // `null` is the group of documents that have no value in this dimension — no type, no date, nobody
+  // named on them. It is not a shelf a person chose to make; it is where everything else is, and
+  // without it a grouped grid would not filter those documents out of view but leave them silently
+  // absent from it (docs/11 §11.3).
+  key: z.string().nullable(),
   label: z.string(),
   count: z.number().int().nonnegative(),
 });

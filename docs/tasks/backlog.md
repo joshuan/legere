@@ -674,7 +674,7 @@ changes the work by an order of magnitude:
   **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen)
   **Acceptance:** while the grid is in selection mode the whole card toggles the document instead of opening it — the card is the hit area, and the checkbox becomes what it looks like, a state rather than the only way in; leaving selection mode gives the card its link back, so the mode is the only thing that decides what a press means and there is never a screen where the same gesture does two things; the card says which mode it is in without being read — a picked one is visibly picked from across the grid, not by a tick in its corner; the keyboard reaches it the way it reaches a link, because a hit area that only a mouse can use is half a fix.
 
-- [ ] **M17.5 — Grouping that groups**
+- [x] **M17.5 — Grouping that groups**
   **Goal:** choosing a grouping arranges the grid into groups with headings, instead of offering shortcuts into a filter.
   **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen), [`07 §7.3`](../07-api-specification.md)
   **This one amends a rule.** `11 §11.3` currently specifies the opposite in as many words: "Pressing a shelf puts its key into that dimension's filter, so the grid below becomes that shelf's contents". That sentence, and the paragraph explaining why the shelves are counted under every filter except their own, are what this task rewrites — the shelves stop being a way into a filter and become the headings of the grid itself.

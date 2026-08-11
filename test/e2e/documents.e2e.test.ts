@@ -643,16 +643,30 @@ describe('Documents (e2e)', () => {
       await api(app)
         .patch(`/api/documents/${dated}`, { documentDate: '2019-03-01' })
         .set('Cookie', adminCookie);
-      // Neither dated nor typed: on no shelf of either dimension, because a shelf nothing can be
-      // filtered to is a shelf nobody can open (docs/07 §7.3).
+      // Neither dated nor typed: not on a shelf of either dimension, but in the group of everything
+      // the dimension cannot place — which comes last and is reachable by `unassigned=`
+      // (docs/07 §7.3, docs/11 §11.3).
       await givenDocument({ libraryId: open, title: 'Unread' });
 
       expect(
         expectData(await groupsAs(adminCookie, 'by=year'), documentGroupsResponseSchema).items,
-      ).toEqual([{ key: '2019', label: '2019', count: 1 }]);
+      ).toEqual([
+        { key: '2019', label: '2019', count: 1 },
+        { key: null, label: '', count: 1 },
+      ]);
       expect(
         expectData(await groupsAs(adminCookie, 'by=type'), documentGroupsResponseSchema).items,
-      ).toEqual([{ key: type.id, label: 'Lease', count: 1 }]);
+      ).toEqual([
+        { key: type.id, label: 'Lease', count: 1 },
+        { key: null, label: '', count: 1 },
+      ]);
+
+      // And that group's contents are the ordinary list, asked for what the dimension cannot place.
+      const unplaced = expectData(
+        await api(app).get('/api/documents?unassigned=year').set('Cookie', adminCookie),
+        listDocumentsResponseSchema,
+      );
+      expect(unplaced.items.map((item) => item.title)).toEqual(['Unread']);
     });
 
     it('refuses a dimension that is not one of the offered ones', async () => {

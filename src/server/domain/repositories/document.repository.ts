@@ -146,6 +146,9 @@ export type DocumentFilterInput = {
   // Every subject of one kind at once, rather than one named thing (docs/03 §3.3.20a).
   subjectKindId?: string | undefined;
   year?: number | undefined;
+  // The documents one dimension cannot place: no type, no date, nobody named on them
+  // (docs/11 §11.3).
+  unassigned?: DocumentGroupBy | undefined;
   // Where the document is from: the country code as stored (upper-case, ISO 3166-1 alpha-2) and the
   // city exactly as the document writes it (docs/03 §3.3.10).
   country?: string | undefined;
@@ -170,7 +173,8 @@ export type ListDocumentsInput = DocumentFilterInput & {
 // filtered archive are on it (docs/07 §7.3). Unordered — which shelf comes first is the answer's
 // shape, not the query's, and is decided one layer up.
 export type DocumentGroupCount = {
-  key: string;
+  // `null` is the group of everything this dimension cannot place (docs/11 §11.3).
+  key: string | null;
   label: string;
   count: number;
 };

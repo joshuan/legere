@@ -90,13 +90,21 @@ Onboarding when already onboarded → 404 page.
   it in the URL rather than in a profile.
 - **Grouping** (a select beside the order): **none** (the default), by **document type**, **person**,
   **subject**, **year**, **country** or **city** — the dimensions of `GET /api/documents/groups`
-  (`07 §7.3`). Choosing one draws a row of shelves above the grid, each one a label and **the real
-  count from the server** — the archive's under the filters in force, not a header over whatever the
-  current page happened to contain. Pressing a shelf puts its key into that dimension's filter, so
-  the grid below becomes that shelf's contents; pressing the shelf being stood on comes back off it.
-  A document belonging to several shelves — it names two people — is on each of them (`07 §7.3`).
-  **The shelves themselves are counted under every filter in force except the one a shelf sets**: with
-  it there would be exactly one shelf left to choose and no way back to the others.
+  (`07 §7.3`). Choosing one draws the grid **as sections**: a heading with the group's label and
+  **the real count from the server** — the archive's under the filters in force, not a header over
+  whatever the current page happened to contain — and that group's cards beneath it. Grouping
+  arranges the grid; it does not narrow it, so nothing is filtered by being looked at and leaving the
+  grouping leaves the archive where it was.
+  🔒 **A section for the documents the dimension cannot place**, last and outside the cap on how many
+  groups are returned. `countByGroup` excludes nulls by construction, and without that section those
+  documents would not be filtered out of view but silently absent from it — in an archive of 35 that
+  is 9 with no type, 11 with no date, 17 with nobody named on them. Its contents are the ordinary
+  list asked for what has no value in that dimension (`unassigned=`, `07 §7.3`).
+  A document belonging to several groups — it names two people — is drawn in **each** of them, which
+  was already true of the counts and becomes visible once they are headings.
+  **Each section pages on its own**: one cursor cannot walk a grid whose order is two levels deep, so
+  the count in a heading is the archive's while the cards under it are as many as have been asked
+  for.
   Like the order, this is not a filter: it lives in the URL (`groupBy=person`), **Clear filters**
   leaves it alone, and a `groupBy` the contract does not know means no grouping rather than a request
   the API would refuse.
