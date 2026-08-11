@@ -1,3 +1,4 @@
+import { FixedClock } from '../helpers/fakes';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { BuildCanonical } from '../../src/server/application/documents/build-canonical';
@@ -121,6 +122,7 @@ describe('Document processing (integration)', () => {
       new FakeCallContext(),
       new AnalysisSettings(new InMemorySettingsRepository()),
       settings,
+      new FixedClock(),
     );
 
     await truncateAll();

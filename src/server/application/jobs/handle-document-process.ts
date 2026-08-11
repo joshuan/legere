@@ -22,6 +22,8 @@ import type { SubjectRepository } from '../../domain/repositories/subject.reposi
 import type { BuildCanonical } from '../documents/build-canonical';
 import type { BinarySource } from '../ports/binary-source';
 import type { CallContext } from '../ports/call-context';
+import type { StepStatus } from '../../../shared/contracts/enums';
+import type { Clock } from '../ports/clock';
 import type { DocumentAnalysis, DocumentAnalyst, PageImage } from '../ports/document-analyst';
 import type { EmbeddingProvider } from '../ports/embedding-provider';
 import type { FileStorage } from '../ports/file-storage';
@@ -85,9 +87,15 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly calls: CallContext,
     private readonly analysisSettings: AnalysisSettings,
     private readonly settings: ProcessingSettings,
+    private readonly clock: Clock,
   ) {
     super();
   }
+
+  // When the step in progress began. One entry at a time: the pipeline runs a document's steps one
+  // after another, and the pair of journal entries that brackets a step is exactly what should not
+  // have to be subtracted by hand to answer "how long did this take?" (docs/03 §3.3.18).
+  private startedAt: number | null = null;
 
   async handle(rawPayload: unknown): Promise<void> {
     const payload = documentProcessPayloadSchema.parse(rawPayload);
@@ -167,9 +175,20 @@ export class HandleDocumentProcess extends JobHandler {
             : {}),
           ...this.serviceOf(step),
           ...(requestId === null ? {} : { requestId }),
+          ...this.cost(status),
+          ...(update.metrics ?? {}),
         },
       });
     }
+  }
+
+  // What the step spent. Only on the entry that settles it: a step in progress has spent nothing
+  // yet, and a duration on a RUNNING entry would be a duration of nothing (docs/03 §3.3.18).
+  private cost(status: StepStatus): { durationMs?: number } {
+    if (status === 'RUNNING' || this.startedAt === null) return {};
+    const durationMs = this.clock.now().getTime() - this.startedAt;
+    this.startedAt = null;
+    return { durationMs };
   }
 
   // Which service does a step, and where it lives. A step the pipeline does by itself — resizing an
@@ -208,6 +227,7 @@ export class HandleDocumentProcess extends JobHandler {
     // (docs/03 §3.3.18).
     return this.calls.run(randomUUID(), async () => {
       const steps: Partial<DocumentSteps> = { [step]: 'RUNNING' };
+      this.startedAt = this.clock.now().getTime();
       await this.write(documentId, { steps });
       return work();
     });
@@ -234,6 +254,7 @@ export class HandleDocumentProcess extends JobHandler {
       await this.files.put(artifactKeys.canonicalPdf(document.id), built.pdf, 'application/pdf');
       await this.write(document.id, {
         steps: { canonical: 'DONE' },
+        metrics: { pages: built.pageCount, ocrUsed: built.ocrUsed },
         // Some file of it contributed no page. The step is done and incomplete — which is a
         // different thing from failed, and worth saying out loud (docs/05 §5.5 step 1).
         skipReasons: { canonical: built.unsupported > 0 ? 'UNSUPPORTED_FORMAT' : null },
@@ -312,6 +333,9 @@ export class HandleDocumentProcess extends JobHandler {
       const detected = detectLanguages(markdown);
       await this.write(document.id, {
         steps: { markdown: 'DONE' },
+        // 🔒 "It took four minutes" and "it returned nothing" are the two halves of one question,
+        // and only one of them was ever written down (docs/03 §3.3.18).
+        metrics: { chars: markdown.length, ocrUsed: canonical.ocrUsed || ocrUsed },
         // Empty means "nothing to read", which is different from "not extracted yet"; the column
         // stays null so search and the viewer can tell those apart.
         markdown: markdown === '' ? null : markdown,
@@ -447,6 +471,7 @@ export class HandleDocumentProcess extends JobHandler {
         documentTypes.find((documentType) => documentType.slug === analysis.typeSlug) ?? null;
       await this.write(document.id, {
         steps: { analysis: 'DONE' },
+        metrics: { ...(analysis.usage ?? {}) },
         typeId: chosen?.id ?? null,
         typeSource: chosen === null ? 'NONE' : 'AUTO',
         ...titleUpdate(document, analysis),

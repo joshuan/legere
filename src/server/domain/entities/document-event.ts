@@ -25,6 +25,13 @@ export type DocumentEventPayload = {
   service?: string | undefined;
   endpoint?: string | undefined;
   requestId?: string | undefined;
+  // What the step cost and what it produced (docs/03 §3.3.18).
+  durationMs?: number | undefined;
+  chars?: number | undefined;
+  pages?: number | undefined;
+  ocrUsed?: boolean | undefined;
+  promptTokens?: number | undefined;
+  completionTokens?: number | undefined;
   source?: string | undefined;
   library?: string | undefined;
   path?: string | undefined;

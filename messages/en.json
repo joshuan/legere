@@ -750,7 +750,15 @@
       "change": "{field}: {from} → {to}",
       "when": "When",
       "what": "What happened",
-      "who": "Who"
+      "who": "Who",
+      "cost": {
+        "ms": "{value} ms",
+        "seconds": "{value} s",
+        "pages": "{value} pages",
+        "chars": "{value} characters",
+        "ocr": "recognised",
+        "tokens": "{prompt}+{completion} tokens"
+      }
     },
     "crop": {
       "title": "Crop this page",

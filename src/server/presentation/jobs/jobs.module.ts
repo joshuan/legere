@@ -200,6 +200,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         calls: CallContext,
         analysisSettings: AnalysisSettings,
         config: AppConfig,
+        clock: Clock,
       ): HandleDocumentProcess =>
         new HandleDocumentProcess(
           documents,
@@ -220,6 +221,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           calls,
           analysisSettings,
           processingSettings(config),
+          clock,
         ),
       inject: [
         DocumentRepository,
@@ -240,6 +242,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         CallContext,
         AnalysisSettings,
         AppConfig,
+        Clock,
       ],
     },
     {

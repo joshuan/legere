@@ -750,7 +750,15 @@
       "change": "{field}: {from} → {to}",
       "when": "Когда",
       "what": "Что произошло",
-      "who": "Кто"
+      "who": "Кто",
+      "cost": {
+        "ms": "{value} мс",
+        "seconds": "{value} с",
+        "pages": "страниц: {value}",
+        "chars": "символов: {value}",
+        "ocr": "распознано",
+        "tokens": "токенов: {prompt}+{completion}"
+      }
     },
     "crop": {
       "title": "Обрезать страницу",

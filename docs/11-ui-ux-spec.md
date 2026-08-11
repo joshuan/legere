@@ -267,6 +267,10 @@ before the metadata of the thing it names.
   reason. Entries the pipeline wrote have no author — an em dash in the Who column, which is how
   "the machine did this" is said. A table rather than a timeline: a log is scanned for the one row
   that matters, and columns that line up are what makes scanning possible.
+  **A settled step also says what it cost:** how long it took, and — where the step answers them —
+  how many pages it worked over, how many characters came out, whether recognition ran, and what a
+  model reported spending, beside the step they belong to (`03 §3.3.18`). Only the numbers that step
+  actually reported: a missing one is not a zero.
   **A step also says who did the work:** the service it went to, and the id it was asked under, in
   monospace under the sentence — values to be copied into a `grep`, not read (03 §3.3.18). The same
   id is on the started and the finished entry, and on the request the service itself logged, so

@@ -1556,6 +1556,14 @@ function LogPane({ id, active, processing }: { id: string; active: boolean; proc
                     .join(' · ')}
                 </Typography.Text>
               )}
+              {/* What the step cost and what came out of it, beside the step it belongs to: "it
+                  took four minutes" and "it returned nothing" are the two halves of one question
+                  (docs/03 §3.3.18). */}
+              {stepCost(event, t).length > 0 && (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {stepCost(event, t).join(' · ')}
+                </Typography.Text>
+              )}
             </Space>
           ),
         },
@@ -1777,4 +1785,31 @@ function displayLanguage(tag: string): string {
   } catch {
     return tag;
   }
+}
+
+// The numbers a step answered with, in the order somebody asks them: how long, how much came out,
+// what it cost (docs/03 §3.3.18). Only the ones the step actually reported — a missing number is
+// not a zero.
+function stepCost(event: DocumentEventDto, t: ReturnType<typeof useTranslations>): string[] {
+  const { payload } = event;
+  const parts: string[] = [];
+  if (payload.durationMs !== undefined) {
+    parts.push(
+      payload.durationMs < 1000
+        ? t('viewer.log.cost.ms', { value: payload.durationMs })
+        : t('viewer.log.cost.seconds', { value: Math.round(payload.durationMs / 100) / 10 }),
+    );
+  }
+  if (payload.pages !== undefined) parts.push(t('viewer.log.cost.pages', { value: payload.pages }));
+  if (payload.chars !== undefined) parts.push(t('viewer.log.cost.chars', { value: payload.chars }));
+  if (payload.ocrUsed === true) parts.push(t('viewer.log.cost.ocr'));
+  if (payload.promptTokens !== undefined || payload.completionTokens !== undefined) {
+    parts.push(
+      t('viewer.log.cost.tokens', {
+        prompt: payload.promptTokens ?? 0,
+        completion: payload.completionTokens ?? 0,
+      }),
+    );
+  }
+  return parts;
 }

@@ -417,6 +417,15 @@ export const documentEventDtoSchema = z.object({
     service: z.string().optional(),
     endpoint: z.string().optional(),
     requestId: z.string().optional(),
+    // What the step cost and what it produced (docs/03 §3.3.18). The pair of entries already
+    // brackets the step, and subtracting two timestamps by hand is not a thing a reader should have
+    // to do to answer "how long did this take, and did it read anything?".
+    durationMs: z.number().optional(),
+    chars: z.number().optional(),
+    pages: z.number().optional(),
+    ocrUsed: z.boolean().optional(),
+    promptTokens: z.number().optional(),
+    completionTokens: z.number().optional(),
     source: z.string().optional(),
     library: z.string().optional(),
     path: z.string().optional(),

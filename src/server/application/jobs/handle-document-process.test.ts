@@ -32,6 +32,7 @@ import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file
 import { BuildCanonical } from '../documents/build-canonical';
 import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
 import { AnalysisSettings } from '../settings/analysis-settings';
+import { FixedClock } from '../../../../test/helpers/fakes';
 import type { ProcessingSettings } from './processing-settings';
 import { HandleDocumentProcess } from './handle-document-process';
 
@@ -63,6 +64,7 @@ describe('HandleDocumentProcess', () => {
   let analyst: FakeAnalyst;
   // Mutable, so a test can say what step 4 is allowed to be shown without rebuilding the handler.
   let settings: ProcessingSettings;
+  let clock: FixedClock;
   let people: InMemoryPersonRepository;
   let subjects: InMemorySubjectRepository;
   let subjectKinds: InMemorySubjectKindRepository;
@@ -99,6 +101,7 @@ describe('HandleDocumentProcess', () => {
 
     libraries.add(libraryFixture());
 
+    clock = new FixedClock();
     settings = {
       previewMaxDim: PREVIEW_MAX_DIM,
       thumbMaxDim: THUMB_MAX_DIM,
@@ -142,6 +145,7 @@ describe('HandleDocumentProcess', () => {
       calls,
       new AnalysisSettings(new InMemorySettingsRepository()),
       settings,
+      clock,
     );
   });
 
@@ -850,6 +854,28 @@ describe('HandleDocumentProcess', () => {
       expect(stateOf().steps.analysis).toBe('DONE');
     });
 
+    it('writes down what the step cost and what it produced', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      analyst.answer = { ...analyst.answer, usage: { promptTokens: 900, completionTokens: 40 } };
+
+      await run();
+
+      const finished = events.events.filter((event) => event.type === 'STEP_FINISHED');
+      const markdown = finished.find((event) => event.payload?.step === 'markdown');
+      const analysis = finished.find((event) => event.payload?.step === 'analysis');
+      // The journal already bracketed every step; what it never said was how long the bracket was,
+      // and whether anything came out of it (docs/03 §3.3.18).
+      expect(markdown?.payload?.durationMs).toBeTypeOf('number');
+      // The text that was actually stored, whichever branch produced it — read back off the
+      // document rather than assumed, because the count is only useful if it is that one.
+      expect(markdown?.payload?.chars).toBe(stateOf().markdown?.length);
+      expect(analysis?.payload?.promptTokens).toBe(900);
+      expect(analysis?.payload?.completionTokens).toBe(40);
+      // A step in progress has spent nothing yet.
+      const started = events.events.find((event) => event.type === 'STEP_STARTED');
+      expect(started?.payload?.durationMs).toBeUndefined();
+    });
+
     it('keeps the verdict on how well the text was extracted', async () => {
       settings.analystMaxPageImages = 1;
       pdfs.pageCount = 1;
@@ -1392,6 +1418,7 @@ describe('HandleDocumentProcess', () => {
       calls,
       new AnalysisSettings(new InMemorySettingsRepository()),
       settings,
+      new FixedClock(),
     );
   }
 });

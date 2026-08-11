@@ -29,6 +29,9 @@ export type CreateDocumentInput = {
 // its own outcome and nothing else, so progress is visible while the rest of the run continues.
 export type ProcessingUpdate = {
   steps?: Partial<DocumentSteps>;
+  // What this step produced or spent, for the entry that settles it (docs/03 §3.3.18). Not columns
+  // on the document: they belong to one run of one step, and the journal is where a run lives.
+  metrics?: StepMetrics;
   // Merged into what is already there, one step at a time — the pipeline settles steps separately
   // (docs/03 §3.3.10). Setting a step's reason to null clears it, which is what a re-run does.
   skipReasons?: Partial<Record<keyof DocumentSteps, StepSkipReason | null>>;
@@ -188,6 +191,22 @@ export type UpdateDocumentMetaInput = {
   typeId?: string | null;
   typeSource?: ValueSource;
   pageFormat?: PageFormat;
+};
+
+// The numbers a step can answer with. Every one of them is a question somebody asks of a document
+// that came out wrong: how long did it take, how much did it cost, and did it actually read anything
+// (docs/03 §3.3.18).
+export type StepMetrics = {
+  // Characters of text the step produced — the half of "it took four minutes" that says whether the
+  // four minutes bought anything.
+  chars?: number;
+  // Pages it worked over, and whether recognition had to be run at all.
+  pages?: number;
+  ocrUsed?: boolean;
+  // What a model reported spending. Read from the provider's own accounting rather than counted
+  // here, because only it knows what its tokenizer did.
+  promptTokens?: number;
+  completionTokens?: number;
 };
 
 // One row of a search result before it becomes a DTO (docs/07 §7.3).

@@ -496,8 +496,17 @@ somebody corrected it, and who corrected it.
 | documentId | uuid | cascade on physical delete; a soft-deleted document keeps its log (ADR-015) |
 | type | DocumentEventType | `CREATED`, `FILE_ATTACHED`, `FILE_MISSING`, `QUEUED`, `STEP_STARTED`, `STEP_FINISHED`, `META_CHANGED` |
 | actorId | uuid? | who did it; **null is the pipeline acting on its own** |
-| payload | json | what the entry needs to be readable: `step`, `status`, `reason`, `error`, `steps`, `source`, `path`, `changes` (field → `{from, to}`), and for a step: `service`, `endpoint`, `requestId` |
+| payload | json | what the entry needs to be readable: `step`, `status`, `reason`, `error`, `steps`, `source`, `path`, `changes` (field → `{from, to}`), and for a step: `service`, `endpoint`, `requestId`, and what it cost — `durationMs`, `chars`, `pages`, `ocrUsed`, `promptTokens`, `completionTokens` |
 | at | timestamptz | |
+
+**What it cost.** The entry that *settles* a step says how long it took (`durationMs`) — the pair of
+entries already brackets it, and subtracting two timestamps by hand is not a thing a reader should
+have to do — what came out of it (`chars` of text, `pages` worked over, whether `ocrUsed`), and what
+a model reported spending (`promptTokens`, `completionTokens`, read from the provider's own
+accounting because only it knows what its tokenizer did). A step in progress reports none of them: it
+has spent nothing yet. A missing number is not a zero — it means that step does not answer that
+question. "It took four minutes" and "it returned nothing" are the two halves of one question, and
+until this the log answered neither.
 
 **Which service did it.** A step that talks to a container records which one (`service`), where it
 lives (`endpoint`) and the id it was asked under (`requestId`). The id is generated per step and

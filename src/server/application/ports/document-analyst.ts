@@ -48,6 +48,8 @@ export type DocumentAnalysis = {
   // reported success, and the only way to notice was to open the document. `null` when the model
   // was shown no pages and so has nothing to compare the text against.
   textQuality: 'GOOD' | 'PARTIAL' | 'NONE' | null;
+  // What the provider reported spending on this call, when it reports it at all (docs/03 §3.3.18).
+  usage?: { promptTokens?: number; completionTokens?: number };
 };
 
 // A page of the document as the model is shown it (docs/05 §5.5 step 4): a JPEG, already scaled

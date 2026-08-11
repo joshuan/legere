@@ -296,6 +296,7 @@ describe('OpenAiCompatAnalyst', () => {
         date: null,
         subjects: [],
         textQuality: null,
+        usage: {},
       });
       expect(spy).toHaveBeenCalledTimes(1);
     });
@@ -320,6 +321,7 @@ describe('OpenAiCompatAnalyst', () => {
         country: 'ME',
         city: 'Podgorica',
         textQuality: null,
+        usage: {},
       });
     });
 

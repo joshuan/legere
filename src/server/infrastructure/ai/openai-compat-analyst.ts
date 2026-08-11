@@ -15,6 +15,14 @@ import { callHeaders } from '../logging/async-call-context';
 // Chat-completions, the shape every OpenAI-compatible runtime implements (docs/06 §6.3.3).
 const completionResponseSchema = z.object({
   choices: z.array(z.object({ message: z.object({ content: z.string().nullable() }) })).min(1),
+  // What the provider says it spent. Read from its own accounting rather than counted here: only it
+  // knows what its tokenizer did (docs/03 §3.3.18). Absent from providers that do not report it.
+  usage: z
+    .object({
+      prompt_tokens: z.number().int().nonnegative().optional(),
+      completion_tokens: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
 });
 
 // The answer we ask for. Every field is optional and validated separately, so a model that gets the
@@ -228,7 +236,17 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     );
     if (!parsed.success) throw new Error('Analyst returned an unreadable response');
 
-    return readAnswer(parsed.data.choices[0]?.message.content ?? '', documentTypes);
+    return {
+      ...readAnswer(parsed.data.choices[0]?.message.content ?? '', documentTypes),
+      usage: {
+        ...(parsed.data.usage?.prompt_tokens === undefined
+          ? {}
+          : { promptTokens: parsed.data.usage.prompt_tokens }),
+        ...(parsed.data.usage?.completion_tokens === undefined
+          ? {}
+          : { completionTokens: parsed.data.usage.completion_tokens }),
+      },
+    };
   }
 }
 
