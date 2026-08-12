@@ -815,7 +815,10 @@
     "people": "Люди",
     "subjects": "Объекты",
     "subjectKinds": "Виды объектов",
-    "documentTypes": "Типы документов"
+    "documentTypes": "Типы документов",
+    "version": "Версия {version}",
+    "collapse": "Свернуть меню",
+    "expand": "Развернуть меню"
   },
   "browse": {
     "library": "Библиотека",

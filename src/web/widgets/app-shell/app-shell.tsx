@@ -6,8 +6,10 @@ import {
   FileTextOutlined,
   FolderOpenOutlined,
   InfoCircleOutlined,
+  LeftOutlined,
   LogoutOutlined,
   SearchOutlined,
+  RightOutlined,
   SettingOutlined,
   TagsOutlined,
   TeamOutlined,
@@ -26,7 +28,17 @@ import { useErrorMessage } from '../../shared/lib';
 
 // The authenticated shell (docs/11 §11.1): a collapsible sider with the product's sections, and a
 // top bar carrying the global search box.
-export function AppShell({ user, children }: { user: UserDto; children: ReactNode }) {
+export function AppShell({
+  user,
+  version,
+  children,
+}: {
+  user: UserDto;
+  // The build this process is (docs/11 §11.1). Read on the server from the package the image was
+  // built from, so it cannot disagree with the image's own tag.
+  version: string;
+  children: ReactNode;
+}) {
   const t = useTranslations();
   const router = useRouter();
   const pathname = usePathname();
@@ -168,10 +180,15 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Layout.Sider
+        className="legere-sider"
         width={240}
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
+        // Ant's own trigger is a 48px slab across the foot of the menu — the loudest thing in a
+        // column of quiet type, for the least important control on it (docs/11 §11.15). Ours is a
+        // hairline strip at the very bottom instead.
+        trigger={null}
         style={{ borderInlineEnd: `1px solid ${token.colorBorderSecondary}` }}
       >
         {/* The wordmark in the display face, over a hairline — a title page, not a logo slot
@@ -202,31 +219,79 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
           selectedKeys={[selectedKey(pathname, items)]}
           items={items}
         />
-        <Menu
-          mode="inline"
-          selectable={false}
-          items={[
-            {
-              key: 'settings',
-              icon: <SettingOutlined />,
-              label: <Link href="/settings">{t('nav.settings')}</Link>,
-            },
-            {
-              key: 'logout',
-              icon: <LogoutOutlined />,
-              label: t('nav.logout'),
-              disabled: logout.isPending,
-              onClick: () => logout.mutate(),
-            },
-          ]}
-        />
+        {/* The foot of the column: who is signed in, the two things they may do about it, which
+            build this is, and the way to narrow the column — in that order, ending with the
+            quietest (docs/11 §11.1). Pushed to the bottom rather than following the menu, so it sits
+            still while the menu grows. */}
+        <div style={{ marginTop: 'auto' }}>
+          <div
+            style={{
+              padding: collapsed ? '12px 0' : '12px 20px',
+              borderTop: `1px solid ${token.colorBorderSecondary}`,
+              textAlign: collapsed ? 'center' : 'start',
+            }}
+          >
+            {collapsed ? (
+              // Collapsed, a name would be a truncated word; an initial is still the person.
+              <Typography.Text strong title={user.displayName}>
+                {user.displayName.slice(0, 1).toUpperCase()}
+              </Typography.Text>
+            ) : (
+              <Space size={8} wrap>
+                <Typography.Text style={{ fontWeight: 500 }}>{user.displayName}</Typography.Text>
+                {user.role === 'ADMIN' && (
+                  <Tag color="gold" style={{ marginInlineEnd: 0 }}>
+                    {t('nav.administration')}
+                  </Tag>
+                )}
+              </Space>
+            )}
+          </div>
+          <Menu
+            mode="inline"
+            selectable={false}
+            items={[
+              {
+                key: 'settings',
+                icon: <SettingOutlined />,
+                label: <Link href="/settings">{t('nav.settings')}</Link>,
+              },
+              {
+                key: 'logout',
+                icon: <LogoutOutlined />,
+                label: t('nav.logout'),
+                disabled: logout.isPending,
+                onClick: () => logout.mutate(),
+              },
+            ]}
+          />
+          {/* Which build this is. Small and grey on purpose: nobody comes looking for it until
+              something is wrong, and then it is the first thing asked for (docs/11 §11.1). */}
+          {!collapsed && (
+            <div style={{ padding: '4px 20px 0' }}>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {t('nav.version', { version })}
+              </Typography.Text>
+            </div>
+          )}
+          <button
+            type="button"
+            aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}
+            aria-expanded={!collapsed}
+            onClick={() => setCollapsed(!collapsed)}
+            className="legere-sider-trigger"
+            style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }}
+          >
+            {collapsed ? <RightOutlined /> : <LeftOutlined />}
+          </button>
+        </div>
       </Layout.Sider>
 
       <Layout>
         <Layout.Header
           style={{ borderBottom: `1px solid ${token.colorBorderSecondary}`, lineHeight: 'normal' }}
         >
-          <Space style={{ width: '100%', height: '100%', justifyContent: 'space-between' }}>
+          <Space style={{ width: '100%', height: '100%' }}>
             <Input.Search
               allowClear
               size="large"
@@ -238,14 +303,6 @@ export function AppShell({ user, children }: { user: UserDto; children: ReactNod
                 if (q !== '') router.push(`/search?q=${encodeURIComponent(q)}`);
               }}
             />
-            <Space size={10}>
-              {user.role === 'ADMIN' && (
-                <Tag color="gold" style={{ marginInlineEnd: 0 }}>
-                  {t('nav.administration')}
-                </Tag>
-              )}
-              <Typography.Text style={{ fontWeight: 500 }}>{user.displayName}</Typography.Text>
-            </Space>
           </Space>
         </Layout.Header>
 

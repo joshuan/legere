@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { AppShell } from '../../web/widgets/app-shell';
 import { PATHNAME_HEADER } from '../../middleware';
+import { APP_VERSION } from '../_server/app-version';
 import { currentUser } from '../_server/current-user';
 
 // Session guard for the authenticated area (docs/10 §10.2): an async server component that asks the
@@ -17,5 +18,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     const returnTo = (await headers()).get(PATHNAME_HEADER) ?? '/documents';
     redirect(`/login?returnTo=${encodeURIComponent(returnTo)}`);
   }
-  return <AppShell user={user}>{children}</AppShell>;
+  return (
+    <AppShell user={user} version={APP_VERSION}>
+      {children}
+    </AppShell>
+  );
 }

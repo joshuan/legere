@@ -52,7 +52,7 @@ describe('AppShell', () => {
     );
 
     renderWithProviders(
-      <AppShell user={USER}>
+      <AppShell user={USER} version="9.9.9">
         <p>content</p>
       </AppShell>,
     );
@@ -71,7 +71,7 @@ describe('AppShell', () => {
     );
 
     renderWithProviders(
-      <AppShell user={USER}>
+      <AppShell user={USER} version="9.9.9">
         <p>content</p>
       </AppShell>,
     );
@@ -88,7 +88,7 @@ describe('AppShell', () => {
 
   it('offers every section, and the admin area only to an admin', () => {
     renderWithProviders(
-      <AppShell user={USER}>
+      <AppShell user={USER} version="9.9.9">
         <p>content</p>
       </AppShell>,
     );
@@ -104,9 +104,51 @@ describe('AppShell', () => {
     expect(screen.getAllByText(enMessages.nav.administration).length).toBeGreaterThan(0);
   });
 
+  it('says which build this is, at the foot of the menu', async () => {
+    renderWithProviders(
+      <AppShell user={USER} version="9.9.9">
+        <p>content</p>
+      </AppShell>,
+    );
+
+    // Nobody comes looking for it until something is wrong, and then it is the first thing asked
+    // for (docs/11 §11.1).
+    expect(await screen.findByText('Version 9.9.9')).toBeInTheDocument();
+  });
+
+  it('signs the person in the foot of the column, not the corner of the page', async () => {
+    renderWithProviders(
+      <AppShell user={USER} version="9.9.9">
+        <p>content</p>
+      </AppShell>,
+    );
+
+    const name = await screen.findByText(USER.displayName);
+    // Who is signed in belongs with what they may do about it — settings, logout — rather than in
+    // the top bar, which is for the screen being read (docs/11 §11.1).
+    expect(name.closest('aside')).not.toBeNull();
+  });
+
+  it('narrows the column with a control that says what it does', async () => {
+    renderWithProviders(
+      <AppShell user={USER} version="9.9.9">
+        <p>content</p>
+      </AppShell>,
+    );
+
+    const trigger = await screen.findByRole('button', { name: enMessages.nav.collapse });
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.click(trigger);
+
+    expect(await screen.findByRole('button', { name: enMessages.nav.expand })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
+
   it('keeps the admin section away from a regular user', async () => {
     renderWithProviders(
-      <AppShell user={{ ...USER, role: 'USER' }}>
+      <AppShell user={{ ...USER, role: 'USER' }} version="9.9.9">
         <p>content</p>
       </AppShell>,
     );
@@ -117,7 +159,7 @@ describe('AppShell', () => {
 
   it('every navigable item points at a route the app actually has', () => {
     renderWithProviders(
-      <AppShell user={USER}>
+      <AppShell user={USER} version="9.9.9">
         <p>content</p>
       </AppShell>,
     );

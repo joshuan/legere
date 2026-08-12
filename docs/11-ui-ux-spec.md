@@ -16,10 +16,26 @@ Authenticated layout: left **Sider** (collapsible) + content. Menu:
 | Collections | `/collections` | all |
 | Catalogues ▸ People / Subjects / Subject kinds / Document types | `/people`, `/subjects`, `/subject-kinds`, `/document-types` | all |
 | Administration ▸ Libraries / Users / Queue | `/admin/*` | ADMIN |
-| (footer) Settings, user avatar + name, Logout | `/settings` | all |
+| (footer) user name + role, Settings, Logout, version, collapse | `/settings` | all |
+
+**The foot of the column**, bottom-last in that order: who is signed in — the name, and the role
+where it is worth saying — then the two things they may do about it, then which build this is, then
+the way to narrow the column. Pushed to the bottom rather than following the menu, so it sits still
+while the menu grows. Collapsed, the name becomes an initial and the version goes: a truncated word
+is not a name and a number nobody can read is not a version.
+
+**The version** is read on the server from the package the image was built from, not from an
+environment variable somebody has to remember to set — so the number on the screen and the tag on the
+image cannot drift apart. Small and grey: nobody comes looking for it until something is wrong, and
+then it is the first thing asked for.
+
+🔒 **The control that narrows the column is the narrowest thing on it.** A hairline strip, not the
+48px slab a component library offers by default — that was the loudest element in a column of quiet
+type, spent on the least important decision on the screen (`§11.15`). It says what it is on hover and
+on focus, and never before.
 
 Top bar of content area: screen title, contextual actions, a global search input (submits to
-`/search?q=`).
+`/search?q=`). **Not** the signed-in name: who you are travels with what you may do about it.
 
 ## 11.2. Auth screens
 

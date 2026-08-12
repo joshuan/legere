@@ -815,7 +815,10 @@
     "people": "People",
     "subjects": "Subjects",
     "subjectKinds": "Subject kinds",
-    "documentTypes": "Document types"
+    "documentTypes": "Document types",
+    "version": "Version {version}",
+    "collapse": "Collapse the menu",
+    "expand": "Expand the menu"
   },
   "browse": {
     "library": "Library",
