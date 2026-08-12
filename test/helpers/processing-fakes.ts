@@ -790,6 +790,20 @@ export class FakeImageTool extends ImageTool {
     return this.box;
   }
 
+  // Levelling and deskewing (docs/05 §5.5 step 1). What each page was handed to it, and what it
+  // answers with — its own switch rather than `failing`, because most of the suite is about other
+  // things and a fake that rewrote every page would put its own name in every assertion. `none`,
+  // the default, is what an already flat and straight scan gets: the page is left alone.
+  readonly corrections: string[] = [];
+  correction: 'none' | 'applied' | 'failing' = 'none';
+
+  async correctPage(source: BinarySource): Promise<Buffer | null> {
+    const input = await describe(source);
+    this.corrections.push(input);
+    if (this.correction === 'failing') throw new Error('sharp: unsupported image format');
+    return this.correction === 'none' ? null : Buffer.from(`corrected(${input})`);
+  }
+
   async dimensions(source: BinarySource): Promise<{ width: number; height: number }> {
     await describe(source);
     return this.size;

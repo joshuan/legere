@@ -79,6 +79,7 @@ describe('Document processing (integration)', () => {
       thumbMaxDim: 400,
       ocrLanguages: ['eng'],
       pdfTextMinCharsPerPage: 32,
+      correctImagePages: true,
       chunkTargetChars: 200,
       chunkOverlapChars: 40,
       analystExcerptChars: 0,

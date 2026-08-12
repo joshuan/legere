@@ -89,6 +89,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
         // The text of two of the three pages is well over this, so the assembled document is judged
         // to carry its own text and the (slow) OCR pass stays out of this test.
         pdfTextMinCharsPerPage: 20,
+        correctImagePages: true,
         chunkTargetChars: 200,
         chunkOverlapChars: 40,
         analystExcerptChars: 0,

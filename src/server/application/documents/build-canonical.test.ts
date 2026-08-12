@@ -30,6 +30,7 @@ const SETTINGS = {
   // Everything the fake toolbox reads back is shorter than this, so every document here is judged
   // to be a scan and takes the OCR branch — which is the branch that matters.
   pdfTextMinCharsPerPage: 10_000,
+  correctImagePages: true,
   chunkTargetChars: 200,
   chunkOverlapChars: 40,
   analystExcerptChars: 0,

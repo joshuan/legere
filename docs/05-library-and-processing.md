@@ -220,9 +220,35 @@ they are served to the client via short-lived signed URLs after an access check.
    from the document's files in their order, rebuildable from them at any time. Five passes:
    1. **Each file becomes a PDF part**, `unitConcurrency` of them at a time (§5.4):
       - an image → its crop applied when it has one (a perspective transform of the stored
-        quadrilateral, §5.6), then one page via Stirling `img → pdf` — **on a page the shape of the
-        image**, not on a fixed sheet, and the image's shape is measured after the crop, because the
-        crop is what the page will be;
+        quadrilateral, §5.6), then **corrected** (`IMAGE_PAGE_CORRECTION`, on by default), then one
+        page via Stirling `img → pdf` — **on a page the shape of the image**, not on a fixed sheet,
+        and the image's shape is measured after both, because that is what the page will be.
+        The correction is the two things a camera does to a page and a scanner does not. **The
+        lighting is levelled**: the paper of the page is estimated — the brightest pixel around each
+        cell of a 128-pixel thumbnail, smoothed into the gradient a lamp makes — and every pixel is
+        multiplied until the paper *around* it reads white, by no more than four times. A sheet
+        photographed on a desk is lit from one side, and a recognizer thresholds a page as a whole,
+        so the shaded half falls to the wrong side of the histogram and takes every letter in it
+        along; the dark surround of the desk goes the same way and swallows the column of a table
+        nearest to it. **The skew is taken out**: the ink is sheared through ±8° and the angle whose
+        row profile has the sharpest steps is the one that lines the text up. Below 1° nothing is
+        turned — the resample costs more in blurred glyphs than the straightening returns, and the
+        recognizer straightens each line of text on its own anyway. What it cannot straighten is a
+        table.
+        🔒 **A page that needs neither comes out unchanged** — its own bytes, not so much as
+        re-encoded. What "needs neither" means is measured rather than assumed: the drop from the
+        brightest paper on the page to the darkest, over the brightest, is 0.01 on a scanner's own
+        scan, 0.06 on a page this correction has already levelled, and 0.28–0.60 on a photograph lit
+        from one side, so the threshold sits at 0.10 in the middle of that gap. It is skipped
+        outright for a picture that is not dark ink on light paper — the median against the paper
+        level is 0.77–0.84 for every photographed sheet measured and 0.16 for a dark-theme
+        screenshot, which is exactly the picture that must not be "levelled" into a blank white page.
+        **The crop comes first**, because a photograph carries the desk it was lying on and lighting
+        levelled over the desk levels the desk. Best-effort: a correction that throws leaves the page
+        as the camera took it, since losing a document over a failed filter would be a poor trade.
+        Measured on the photographed lab report this work exists for: 643 characters recognised
+        before and 768 after, with three of the nine rows of its results table arriving with their
+        labels where none did before; on the same page under a harsher side light, 465 against 751;
       - a PDF → itself, as is; its pages are the part;
       - an office format, plain text or Markdown → Stirling `file → pdf`;
       - a format nothing can render → the file contributes no page, and the step records

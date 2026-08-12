@@ -101,6 +101,12 @@ export const configSchema = z.object({
   // the way tesseract takes them on the command line (docs/03 §3.3.10).
   OCR_LANGUAGES: z.string().default('rus+eng'),
   PDF_TEXT_MIN_CHARS_PER_PAGE: z.coerce.number().int().nonnegative().default(32),
+  // Whether an image is corrected on its way into the canonical: the lighting levelled, the skew
+  // taken out (docs/05 §5.5 step 1). On, because it is what makes a photographed page readable at
+  // all — and it costs an archive of flat scans nothing, since a page that is already even and
+  // straight is passed through untouched rather than re-encoded. Off is for an operator who would
+  // rather have every page exactly as the camera left it.
+  IMAGE_PAGE_CORRECTION: envBoolean(true),
   PREVIEW_MAX_DIM: z.coerce.number().int().positive().default(1600),
   THUMB_MAX_DIM: z.coerce.number().int().positive().default(400),
   CHUNK_TARGET_CHARS: z.coerce.number().int().positive().default(1000),

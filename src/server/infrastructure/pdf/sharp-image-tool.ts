@@ -42,6 +42,78 @@ const CROP_QUALITY = 92;
 // a threshold too low leaves a grey frame around every page (docs/05 §5.6).
 const TRIM_THRESHOLD = 10;
 
+// --- What a camera does to a page, undone (docs/05 §5.5 step 1) ------------------------------
+//
+// The lighting is levelled by dividing the page by its own paper: every pixel is multiplied until
+// the paper *around* it reads white, so the shaded half of the sheet and the lit half arrive at the
+// same brightness and one threshold can serve both. The numbers below were measured on the
+// photograph this exists for — a lab report whose results table the recognizer was losing.
+
+// The lighting of a sheet is a slow thing: a shadow across it, the fall-off of a lamp, the vignette
+// of a lens. None of that needs full resolution, so it is read off a thumbnail this many pixels on
+// the longest side. A full-resolution blur would cost a second per page and answer the same field.
+const FIELD_DIM = 128;
+
+// The field has to be the *paper*, not the ink on it, so each cell takes the brightest pixel in a
+// window this many cells wide. Ink is dark and local; paper is bright and everywhere. At 128 cells
+// a radius of one is ~70 pixels of a 3000-pixel photograph — wider than a stroke of bold text, so
+// text cannot pull the paper level down and be lightened by its own shadow.
+const PAPER_WINDOW = 1;
+
+// A maximum leaves steps where the window crossed a dark region; averaging over this many cells
+// turns them back into the smooth gradient a lamp actually makes.
+const FIELD_SMOOTH = 2;
+
+// 🔒 The deepest shadow this will lift. The gain is applied to every pixel, so an unbounded one
+// turns a photograph of a dark object into a white rectangle; four times is two stops, past what a
+// desk lamp does to a sheet of paper and short of inventing a page that was never there. Measured:
+// between four and unbounded the recognised text of the reference photograph moves by 1%.
+const MAX_GAIN = 4;
+
+// 🔒 How uneven the lighting has to be before any of this is worth doing, as the drop from the
+// brightest paper on the page to the darkest, over the brightest. Measured on real pictures: a
+// scanner's own scan spreads 0.01, a page this correction has already levelled 0.06, and a
+// photograph lit from one side 0.28 to 0.60. The threshold sits in the middle of that gap, which is
+// what makes "already flat comes out unchanged" a fact about the picture rather than a hope.
+const MIN_SPREAD = 0.1;
+
+// 🔒 And the assumption the whole correction rests on: dark ink, light paper, ink in the minority.
+// The median of the picture against the paper level says so — 0.77 to 0.84 for every photograph of
+// a sheet measured, 0.16 for a dark-theme screenshot, which is exactly the picture that must not be
+// "levelled" into a blank white page.
+const MIN_PAPER_SHARE = 0.5;
+
+// What counts as ink when the skew is being looked for: a quarter darker than the paper beside it,
+// and by at least a few levels so that paper noise is not read as text. Measured against the field
+// rather than against a fixed grey, so it means the same thing on a page this has levelled and on
+// one it has left alone.
+const INK_RATIO = 0.75;
+const INK_MARGIN = 8;
+
+// The skew is looked for on a raster this many pixels on the longest side. What is being found is
+// the direction of the lines of text, and a line of text is still a line at 900 pixels across —
+// looking for it at full resolution would be ten times the arithmetic for the same angle.
+const DESKEW_DIM = 900;
+
+// How far a page may be turned and still be a page held crookedly rather than a picture taken
+// sideways — a quarter turn is EXIF's business, not this one.
+const DESKEW_LIMIT_DEG = 8;
+
+// And how far it has to be turned before turning it back is worth a resample. Below a degree the
+// rotation costs more in blurred glyphs than the straightening returns: measured on the reference
+// photograph, which sits at 0.65°, deskewing it *lost* text, while the same page at 3° gained a
+// third of its table back. The recognizer straightens each line of text on its own anyway; what it
+// cannot do is straighten a table.
+const DESKEW_MIN_DEG = 1;
+const DESKEW_COARSE_STEP = 0.5;
+const DESKEW_FINE_STEP = 0.05;
+
+// A projection profile needs lines to project. Below the first share the page is blank and there is
+// nothing to align; above the second it is not a page of text at all, and whatever the search locked
+// onto was not a line of it.
+const MIN_INK_SHARE = 0.002;
+const MAX_INK_SHARE = 0.5;
+
 @Injectable()
 export class SharpImageTool extends ImageTool {
   async dimensions(source: BinarySource): Promise<{ width: number; height: number }> {
@@ -147,6 +219,55 @@ export class SharpImageTool extends ImageTool {
       .toBuffer();
   }
 
+  // Lighting levelled, skew taken out, and nothing done to a page that needs neither
+  // (docs/05 §5.5 step 1). Each half is decided on its own: a photograph of a straight page is
+  // levelled and not turned, a crooked scan is turned and not levelled, and a scan that is both
+  // flat and straight comes back as `null` — its own bytes, unre-encoded.
+  async correctPage(source: BinarySource): Promise<Buffer | null> {
+    const decoded = await sharp(await toBuffer(source), INPUT)
+      .rotate()
+      // Transparency has no meaning on a page of a PDF, and everything below reads brightness as
+      // "how much paper is here": sRGB says that in the same numbers for a photograph, a greyscale
+      // scan and a CMYK export, which raw channels would not.
+      .flatten({ background: '#ffffff' })
+      .toColourspace('srgb')
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const width = decoded.info.width;
+    const height = decoded.info.height;
+    const channels = decoded.info.channels;
+    if (width < 1 || height < 1) return null;
+
+    const grey = luminanceOf(decoded.data, width * height, channels);
+    const field = await illuminationFieldOf(grey, width, height);
+
+    // Two questions, both answered off the field: is the lighting uneven enough to be worth
+    // levelling, and is this a sheet of paper at all.
+    const paperShare = field.paper === 0 ? 0 : medianOf(field.thumbnail) / field.paper;
+    const uneven = field.spread >= MIN_SPREAD && paperShare >= MIN_PAPER_SHARE;
+
+    const pixels = uneven
+      ? await levelled(decoded.data, width, height, channels, field)
+      : decoded.data;
+
+    // The skew is looked for on the page as it was photographed, whether or not the lighting was
+    // levelled: what makes a pixel ink is that it is darker than the paper beside it, and the field
+    // says where the paper is either way.
+    const angle = await skewOf(grey, width, height, field);
+
+    if (!uneven && angle === 0) return null;
+
+    const corrected = sharp(pixels, {
+      ...INPUT,
+      raw: { width, height, channels: channelsOf(channels) },
+    });
+    // sharp turns clockwise for a positive angle, and so does the shear that lines the text up.
+    return (angle === 0 ? corrected : corrected.rotate(angle, { background: '#ffffff' }))
+      .jpeg({ quality: CROP_QUALITY })
+      .toBuffer();
+  }
+
   async grayscaleRaster(source: BinarySource, maxDim: number): Promise<GrayscaleRaster> {
     const decoded = await sharp(await toBuffer(source), INPUT)
       .rotate()
@@ -173,4 +294,287 @@ function channelsOf(channels: number): 1 | 2 | 3 | 4 {
   if (channels === 2) return 2;
   if (channels === 4) return 4;
   return 3;
+}
+
+// --- the page's own lighting, and the angle it was held at -----------------------------------
+
+// How bright each pixel is, one byte apiece. Rec. 601 weights: the correction is about paper and
+// ink, and how light a colour looks is what tells the two apart.
+function luminanceOf(data: Buffer, pixels: number, channels: number): Uint8Array {
+  const grey = new Uint8Array(pixels);
+  for (let index = 0, offset = 0; index < pixels; index += 1, offset += channels) {
+    const red = data[offset] ?? 0;
+    const green = data[offset + 1] ?? red;
+    const blue = data[offset + 2] ?? red;
+    grey[index] = (red * 77 + green * 151 + blue * 28) >> 8;
+  }
+  return grey;
+}
+
+// Where the paper is and how brightly it is lit, cell by cell — the thing a photograph has and a
+// scan does not.
+type IlluminationField = {
+  data: Uint8Array;
+  width: number;
+  height: number;
+  // The page as it was read, before the paper was picked out of it. Kept because "is this a sheet
+  // of paper at all" is a question about the picture rather than about its lighting.
+  thumbnail: Uint8Array;
+  // The brightest paper on the page, and how far the darkest falls below it as a share of it.
+  paper: number;
+  spread: number;
+};
+
+async function illuminationFieldOf(
+  grey: Uint8Array,
+  width: number,
+  height: number,
+): Promise<IlluminationField> {
+  const scale = FIELD_DIM / Math.max(width, height);
+  const fieldWidth = Math.max(8, Math.min(width, Math.round(width * scale)));
+  const fieldHeight = Math.max(8, Math.min(height, Math.round(height * scale)));
+
+  const thumbnail = await resizedGrey(grey, { width, height }, fieldWidth, fieldHeight);
+  const data = smoothed(
+    brightest(thumbnail, fieldWidth, fieldHeight, PAPER_WINDOW),
+    fieldWidth,
+    fieldHeight,
+    FIELD_SMOOTH,
+  );
+
+  const paper = percentileOf(data, 0.95);
+  const darkest = percentileOf(data, 0.05);
+  return {
+    data,
+    width: fieldWidth,
+    height: fieldHeight,
+    thumbnail,
+    paper,
+    spread: paper === 0 ? 0 : (paper - darkest) / paper,
+  };
+}
+
+// Every pixel multiplied until the paper around it reads white. The gain is never below one — this
+// lifts a shadow, it does not deepen one — and never above MAX_GAIN, which is what keeps a dark
+// picture from being brightened into a blank one.
+async function levelled(
+  data: Buffer,
+  width: number,
+  height: number,
+  channels: number,
+  field: IlluminationField,
+): Promise<Buffer> {
+  const paper = await resizedGrey(
+    field.data,
+    { width: field.width, height: field.height },
+    width,
+    height,
+  );
+
+  const out = Buffer.allocUnsafe(width * height * channels);
+  for (let index = 0, offset = 0; index < width * height; index += 1, offset += channels) {
+    const gain = Math.min(255 / Math.max(1, paper[index] ?? 255), MAX_GAIN);
+    for (let channel = 0; channel < channels; channel += 1) {
+      const value = (data[offset + channel] ?? 0) * gain;
+      out[offset + channel] = value > 255 ? 255 : value;
+    }
+  }
+  return out;
+}
+
+// How far the page is turned, in degrees, clockwise-positive — or zero when turning it back is not
+// worth the resample (docs/05 §5.5 step 1). Found by the oldest method there is: shear the ink by a
+// candidate angle and add up each row. Lines of text that agree on a direction pile into some rows
+// and leave the gaps between them empty, so the shear whose profile has the sharpest steps is the
+// one that lines the text up.
+async function skewOf(
+  grey: Uint8Array,
+  width: number,
+  height: number,
+  field: IlluminationField,
+): Promise<number> {
+  const scale = Math.min(1, DESKEW_DIM / Math.max(width, height));
+  const deskewWidth = Math.max(8, Math.round(width * scale));
+  const deskewHeight = Math.max(8, Math.round(height * scale));
+
+  const [page, paper] = await Promise.all([
+    resizedGrey(grey, { width, height }, deskewWidth, deskewHeight),
+    resizedGrey(
+      field.data,
+      { width: field.width, height: field.height },
+      deskewWidth,
+      deskewHeight,
+    ),
+  ]);
+
+  const ink = new Uint8Array(deskewWidth * deskewHeight);
+  let inked = 0;
+  for (let index = 0; index < ink.length; index += 1) {
+    const dark = (page[index] ?? 255) < (paper[index] ?? 255) * INK_RATIO - INK_MARGIN;
+    ink[index] = dark ? 1 : 0;
+    if (dark) inked += 1;
+  }
+
+  const share = inked / ink.length;
+  if (share < MIN_INK_SHARE || share > MAX_INK_SHARE) return 0;
+
+  // Coarse first, then finely around the winner: a full sweep at a twentieth of a degree would be
+  // ten times the work for the same answer.
+  const coarse = bestShear(
+    ink,
+    deskewWidth,
+    deskewHeight,
+    -DESKEW_LIMIT_DEG,
+    DESKEW_LIMIT_DEG,
+    DESKEW_COARSE_STEP,
+  );
+  const fine = bestShear(
+    ink,
+    deskewWidth,
+    deskewHeight,
+    coarse - DESKEW_COARSE_STEP,
+    coarse + DESKEW_COARSE_STEP,
+    DESKEW_FINE_STEP,
+  );
+  return Math.abs(fine) < DESKEW_MIN_DEG ? 0 : fine;
+}
+
+function bestShear(
+  ink: Uint8Array,
+  width: number,
+  height: number,
+  from: number,
+  to: number,
+  step: number,
+): number {
+  let bestAngle = 0;
+  let bestScore = -1;
+  // Counted in whole steps rather than added up: a degree reached by accumulating twentieths is not
+  // quite a degree.
+  const steps = Math.round((to - from) / step);
+  for (let index = 0; index <= steps; index += 1) {
+    const angle = from + index * step;
+    const score = profileScoreOf(ink, width, height, angle);
+    if (score > bestScore) {
+      bestScore = score;
+      bestAngle = angle;
+    }
+  }
+  return bestAngle;
+}
+
+function profileScoreOf(ink: Uint8Array, width: number, height: number, degrees: number): number {
+  const tangent = Math.tan((degrees * Math.PI) / 180);
+  const span = Math.abs(Math.round(tangent * width));
+  const rows = new Float64Array(height + span + 2);
+  // A negative shear moves the top rows off the front of the array; the whole profile is offset
+  // rather than clipped, because a row lost is a step invented.
+  const offset = tangent < 0 ? span + 1 : 0;
+
+  for (let y = 0; y < height; y += 1) {
+    const base = y * width;
+    for (let x = 0; x < width; x += 1) {
+      if (ink[base + x] === 1) {
+        const row = offset + y + Math.round(tangent * x);
+        rows[row] = (rows[row] ?? 0) + 1;
+      }
+    }
+  }
+
+  // The sharpness of the profile, not its size: it is the step between neighbouring rows that says
+  // "a line of text ends here", and the sum of squares is largest when those steps are cliffs.
+  let score = 0;
+  for (let row = 1; row < rows.length; row += 1) {
+    const step = (rows[row] ?? 0) - (rows[row - 1] ?? 0);
+    score += step * step;
+  }
+  return score;
+}
+
+// The brightest pixel in a window this many cells wide — the paper under the ink.
+function brightest(source: Uint8Array, width: number, height: number, radius: number): Uint8Array {
+  const out = new Uint8Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let peak = 0;
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        const row = y + dy;
+        if (row < 0 || row >= height) continue;
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          const column = x + dx;
+          if (column < 0 || column >= width) continue;
+          const value = source[row * width + column] ?? 0;
+          if (value > peak) peak = value;
+        }
+      }
+      out[y * width + x] = peak;
+    }
+  }
+  return out;
+}
+
+// A box blur, in two passes because a square average is two lines of one — the maximum above leaves
+// steps where its window crossed a dark region, and a lamp does not make steps.
+function smoothed(source: Uint8Array, width: number, height: number, radius: number): Uint8Array {
+  const horizontal = new Float64Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let sum = 0;
+      let taken = 0;
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        const column = x + dx;
+        if (column < 0 || column >= width) continue;
+        sum += source[y * width + column] ?? 0;
+        taken += 1;
+      }
+      horizontal[y * width + x] = sum / Math.max(1, taken);
+    }
+  }
+
+  const out = new Uint8Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let sum = 0;
+      let taken = 0;
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        const row = y + dy;
+        if (row < 0 || row >= height) continue;
+        sum += horizontal[row * width + x] ?? 0;
+        taken += 1;
+      }
+      out[y * width + x] = Math.round(sum / Math.max(1, taken));
+    }
+  }
+  return out;
+}
+
+// One byte per pixel in and out. `fill` rather than `inside`: these rasters are read pixel against
+// pixel over the same rectangle, so the shape is already right and fitting it again would shift
+// everything by a row.
+async function resizedGrey(
+  source: Uint8Array,
+  from: { width: number; height: number },
+  width: number,
+  height: number,
+): Promise<Uint8Array> {
+  return new Uint8Array(
+    await sharp(Buffer.from(source), {
+      ...INPUT,
+      raw: { width: from.width, height: from.height, channels: 1 },
+    })
+      .resize(width, height, { fit: 'fill' })
+      // Without this sharp answers three channels for a one-channel raster.
+      .toColourspace('b-w')
+      .raw()
+      .toBuffer(),
+  );
+}
+
+function percentileOf(values: Uint8Array, share: number): number {
+  const sorted = Uint8Array.from(values).sort();
+  return sorted[Math.round((sorted.length - 1) * share)] ?? 0;
+}
+
+function medianOf(values: Uint8Array): number {
+  return percentileOf(values, 0.5);
 }

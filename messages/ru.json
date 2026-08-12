@@ -295,7 +295,17 @@
         "QUEUE_CONCURRENCY_INGEST": "Приём файлов, одновременно",
         "QUEUE_CONCURRENCY_PROCESS": "Обработка документов, одновременно",
         "QUEUE_UNIT_CONCURRENCY": "Единиц внутри одного задания, одновременно",
-        "QUEUE_REPROCESS_MAX": "Предел документов на один повторный запуск"
+        "QUEUE_REPROCESS_MAX": "Предел документов на один повторный запуск",
+        "ANALYST_EXCERPT_CHARS": "Текста аналитику, символов (0 — весь)",
+        "ANALYST_MAX_PAGE_IMAGES": "Страниц показывать аналитику",
+        "ANALYST_PAGE_IMAGE_MAX_DIM": "Размер страницы для аналитика, px",
+        "ANALYST_AUTO_MAX_PAGES": "Анализировать без запроса до, страниц",
+        "TRANSCRIBER_API_BASE_URL": "Адрес API распознавателя",
+        "TRANSCRIBER_API_KEY": "Ключ API распознавателя",
+        "TRANSCRIBER_MODEL": "Модель распознавателя",
+        "TRANSCRIBER_MAX_PAGES": "Страниц расшифровывать",
+        "TRANSCRIBER_PAGE_IMAGE_MAX_DIM": "Размер страницы для расшифровки, px",
+        "IMAGE_PAGE_CORRECTION": "Исправлять сфотографированные страницы"
       }
     },
     "users": {

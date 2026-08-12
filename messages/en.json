@@ -295,7 +295,17 @@
         "QUEUE_CONCURRENCY_INGEST": "File ingest, at once",
         "QUEUE_CONCURRENCY_PROCESS": "Document processing, at once",
         "QUEUE_UNIT_CONCURRENCY": "Units inside one job, at once",
-        "QUEUE_REPROCESS_MAX": "Documents per re-run request, limit"
+        "QUEUE_REPROCESS_MAX": "Documents per re-run request, limit",
+        "ANALYST_EXCERPT_CHARS": "Text sent to the analyst, chars (0 = all)",
+        "ANALYST_MAX_PAGE_IMAGES": "Pages shown to the analyst",
+        "ANALYST_PAGE_IMAGE_MAX_DIM": "Page image size for the analyst, px",
+        "ANALYST_AUTO_MAX_PAGES": "Analysed unasked up to, pages",
+        "TRANSCRIBER_API_BASE_URL": "Transcriber API base URL",
+        "TRANSCRIBER_API_KEY": "Transcriber API key",
+        "TRANSCRIBER_MODEL": "Transcriber model",
+        "TRANSCRIBER_MAX_PAGES": "Pages a document may have transcribed",
+        "TRANSCRIBER_PAGE_IMAGE_MAX_DIM": "Page image size for transcription, px",
+        "IMAGE_PAGE_CORRECTION": "Correct photographed pages"
       }
     },
     "users": {

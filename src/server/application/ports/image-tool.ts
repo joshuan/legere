@@ -30,6 +30,17 @@ export abstract class ImageTool {
   // result is a JPEG, ready to become one page of the canonical PDF.
   abstract applyCrop(source: BinarySource, crop: Crop): Promise<Buffer>;
 
+  // The two things a camera does to a page and a scanner does not: it lights it from one side and
+  // holds it at an angle (docs/05 §5.5 step 1). Both are undone here, before the picture becomes a
+  // page, because both are why a single threshold over the whole sheet reads the lit half and loses
+  // the shaded one. The result is a JPEG, like a cropped page.
+  //
+  // `null` means the picture needed neither: a scan that is already flat and straight keeps its own
+  // bytes rather than being re-encoded into a slightly worse copy of itself, and the caller sends
+  // the original on. Deciding that here rather than at the call site is deliberate — what "already
+  // flat" means is measured off the same pixels the correction would have used.
+  abstract correctPage(source: BinarySource): Promise<Buffer | null>;
+
   // The image as grayscale pixels, downscaled so its longest side is at most `maxDim` — what the
   // edge detector reads (docs/05 §5.6). Downscaled because detection wants shapes rather than
   // detail, and a full-resolution photograph is a hundred times the work for the same four corners.

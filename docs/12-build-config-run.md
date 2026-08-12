@@ -104,6 +104,7 @@ DOCLING_PICTURE_DESCRIPTION=false            # captions for pictures; read the n
 # --- processing ---
 OCR_LANGUAGES=rus+eng
 PDF_TEXT_MIN_CHARS_PER_PAGE=32               # below → treat as scan, run OCR
+IMAGE_PAGE_CORRECTION=true                   # level the lighting and take out the skew of a photographed page (05 §5.5 step 1)
 PREVIEW_MAX_DIM=1600
 THUMB_MAX_DIM=400
 CHUNK_TARGET_CHARS=1000

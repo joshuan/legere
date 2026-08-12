@@ -52,6 +52,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
       .map((language) => language.trim())
       .filter((language) => language !== ''),
     pdfTextMinCharsPerPage: config.get('PDF_TEXT_MIN_CHARS_PER_PAGE'),
+    correctImagePages: config.get('IMAGE_PAGE_CORRECTION'),
     chunkTargetChars: config.get('CHUNK_TARGET_CHARS'),
     chunkOverlapChars: config.get('CHUNK_OVERLAP_CHARS'),
     analystExcerptChars: config.get('ANALYST_EXCERPT_CHARS'),

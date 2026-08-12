@@ -7,6 +7,10 @@ export type ProcessingSettings = {
   ocrLanguages: readonly string[];
   // Below this many characters per page, a PDF's text layer is not worth trusting (docs/05 §5.9).
   pdfTextMinCharsPerPage: number;
+  // Whether an image has its lighting levelled and its skew taken out before it becomes a page
+  // (docs/05 §5.5 step 1). On by default; an archive whose scans are already flat pays nothing for
+  // it, because a page that needs neither is left alone.
+  correctImagePages: boolean;
   // Chunking for embedding: the size to aim for and how much of each chunk repeats in the next.
   chunkTargetChars: number;
   chunkOverlapChars: number;

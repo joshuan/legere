@@ -115,15 +115,24 @@ export class BuildCanonical {
     if (format === 'IMAGE') {
       // The crop is applied here and nowhere else: the original file is never rewritten, and the
       // straightened page exists only inside the canonical (docs/03 §3.3.16).
-      const page =
+      const framed =
         file.crop === null
           ? await toBuffer(await this.open(file))
           : await this.images.applyCrop(await this.open(file), file.crop);
-      // Measured after the crop, because the crop is what the page will be: a photograph taken at an
-      // angle and straightened to the paper's own corners is a sheet, whatever the snapshot was.
+      // 🔒 And the correction after the crop, never before it. The crop decides what the page *is*:
+      // a photograph carries the desk it was lying on, and lighting levelled over the desk levels
+      // the desk — the paper's own shading is then read as part of a much wider range and barely
+      // touched. The crop also straightens the sheet, so what skew is left after it is the skew of
+      // the page rather than of the snapshot (docs/05 §5.5 step 1, §5.6).
+      const corrected = this.settings.correctImagePages ? await this.correct(framed) : null;
+      const page = corrected ?? framed;
+      // Measured after both, because that is what the page will be: a photograph taken at an angle
+      // and straightened to the paper's own corners is a sheet, whatever the snapshot was.
       const shape = await this.images.dimensions(page);
       return {
-        pdf: await this.pdfs.imagesToPdf([{ body: page, fileName: pageNameOf(file) }]),
+        pdf: await this.pdfs.imagesToPdf([
+          { body: page, fileName: pageNameOf(file, file.crop !== null || corrected !== null) },
+        ]),
         shape,
       };
     }
@@ -137,6 +146,18 @@ export class BuildCanonical {
     }
 
     return null;
+  }
+
+  // Levelling the lighting and taking out the skew, best-effort like the format and the stamping
+  // below: a filter that throws must not cost the document its page, because the uncorrected page is
+  // still the page and a document lost over one is a poor trade (docs/05 §5.5 step 1). `null` — from
+  // the port or from a failure — means the picture goes on as it arrived.
+  private async correct(page: Buffer): Promise<Buffer | null> {
+    try {
+      return await this.images.correctPage(page);
+    } catch {
+      return null;
+    }
   }
 
   // The merged PDF measured against the same threshold step 3 uses; below it the document is a scan
@@ -234,11 +255,12 @@ function documentDateOf(document: Document): Date | null {
   return Number.isNaN(parsed.getTime()) ? document.createdAt : parsed;
 }
 
-// What the image is called on its way into the converter. A cropped page is JPEG now, whatever it
-// arrived as, and Stirling reads the format from the name.
-function pageNameOf(file: DocumentFile): string {
+// What the image is called on its way into the converter. A page that was cropped or corrected is
+// JPEG now, whatever it arrived as, and Stirling reads the format from the name; one that came
+// through untouched keeps its own bytes and therefore its own extension.
+function pageNameOf(file: DocumentFile, rewritten: boolean): string {
   const position = String(file.position).padStart(4, '0');
-  if (file.crop !== null) return `page-${position}.jpg`;
+  if (rewritten) return `page-${position}.jpg`;
   return `page-${position}.${file.ext === '' ? 'jpg' : file.ext}`;
 }
 

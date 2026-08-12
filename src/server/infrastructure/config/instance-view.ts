@@ -83,6 +83,7 @@ export function describeInstance(config: AppConfig): InstanceResponse {
           s('DOCLING_PICTURE_DESCRIPTION'),
           s('OCR_LANGUAGES'),
           s('PDF_TEXT_MIN_CHARS_PER_PAGE'),
+          s('IMAGE_PAGE_CORRECTION'),
           s('PREVIEW_MAX_DIM'),
           s('THUMB_MAX_DIM'),
           s('CHUNK_TARGET_CHARS'),
