@@ -8,6 +8,7 @@ import {
   FileTextOutlined,
 } from '@ant-design/icons';
 import {
+  Alert,
   App,
   AutoComplete,
   Button,
@@ -156,6 +157,17 @@ export function DocumentViewerScreen({
     onError: (error: unknown) => void message.error(describeError(error)),
   });
 
+  // Reading the document again, from the pages up: the recogniser of last resort runs in step 3,
+  // and everything downstream of it is read off what that step wrote (docs/05 §5.5).
+  const readAgain = useMutation({
+    mutationFn: () => documentApi.reprocess(id, { steps: ['markdown', 'analysis'] }),
+    onSuccess: () => {
+      void message.success(t('viewer.processing.queued'), 2);
+      refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
   const reprocess = useMutation({
     mutationFn: () => documentApi.reprocess(id, steps.length === 0 ? {} : { steps }),
     onSuccess: () => {
@@ -253,6 +265,9 @@ export function DocumentViewerScreen({
                     document={detail}
                     markdown={markdown.data?.markdown ?? null}
                     loading={markdown.isPending}
+                    isAdmin={isAdmin}
+                    onReadAgain={() => readAgain.mutate()}
+                    readingAgain={readAgain.isPending}
                   />
                 ),
               },
@@ -540,12 +555,21 @@ function TextPane({
   document,
   markdown,
   loading,
+  onReadAgain,
+  readingAgain,
+  isAdmin,
 }: {
   document: DocumentDetailDto;
   markdown: string | null;
   loading: boolean;
+  onReadAgain: () => void;
+  readingAgain: boolean;
+  isAdmin: boolean;
 }) {
   const t = useTranslations();
+  // The verdict the analysis returned about this very text (docs/03 §3.3.10). It was written down
+  // and read by nobody, which made it a fact the archive knew and never said.
+  const quality = document.auto.textQuality;
 
   if (loading) return <Spin />;
   if (markdown === null || markdown === '') {
@@ -563,7 +587,31 @@ function TextPane({
       />
     );
   }
-  return <RenderedMarkdown markdown={markdown} />;
+  return (
+    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      {/* 🔒 Said where the text is read, not in a log somebody would have to think to open: a page
+          this short on a document this full is the one thing a reader cannot tell by looking at
+          what *is* there (docs/11 §11.5). */}
+      {(quality === 'PARTIAL' || quality === 'NONE') && (
+        <Alert
+          type="warning"
+          showIcon
+          message={t(`viewer.textQuality.${quality}`)}
+          description={t('viewer.textQuality.explained')}
+          {...(isAdmin
+            ? {
+                action: (
+                  <Button size="small" onClick={onReadAgain} loading={readingAgain}>
+                    {t('viewer.textQuality.readAgain')}
+                  </Button>
+                ),
+              }
+            : {})}
+        />
+      )}
+      <RenderedMarkdown markdown={markdown} />
+    </Space>
+  );
 }
 
 // 🔒 Extracted text is untrusted content: raw HTML never passes through (docs/10 §10.8).

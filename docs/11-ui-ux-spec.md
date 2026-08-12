@@ -284,6 +284,13 @@ before the metadata of the thing it names.
   be rewritten. Which step owns which field follows the pipeline (05 §5.5): pages from the preview,
   text/languages/OCR from the parse, place and document type from the AI step. Nothing else gets a badge:
   size, type and hash are facts about the file, and no step will ever change them.
+  🔒 **When the analysis judged this text incomplete, the text tab says so** — above the text, where
+  it is read, rather than in a log somebody would have to think to open. A page this short on a
+  document this full is the one thing a reader cannot tell by looking at what *is* there: the missing
+  quarter of a lab report leaves nothing behind to notice. The verdict is `auto.textQuality`
+  (`03 §3.3.10`), which until now was written down and read by nobody. Everybody sees the warning,
+  because it is a fact about the document; only an admin is offered the re-read beside it, because
+  that is a request to spend the pipeline.
 - **`Log`** — the document's history as a table — when, what happened, who — newest first
   (03 §3.3.18): added, queued, each
   step started and settled, what a person changed and from what. A failed step carries its message,

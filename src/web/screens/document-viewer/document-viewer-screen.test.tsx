@@ -180,6 +180,39 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('DocumentViewerScreen', () => {
+  it('says where the text is read that some of it was not', async () => {
+    serve({ ...detail, auto: { ...detail.auto, textQuality: 'PARTIAL' } }, '# Terms\n\nBody');
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);
+
+    // The verdict was written down and read by nobody: a fact the archive knew and never said.
+    // A page this short on a document this full is the one thing a reader cannot tell by looking
+    // at what is there (docs/11 §11.5).
+    expect(await screen.findByText(enMessages.viewer.textQuality.PARTIAL)).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: enMessages.viewer.textQuality.readAgain }),
+    ).toBeInTheDocument();
+  });
+
+  it('says nothing about the text when the model found nothing wrong with it', async () => {
+    serve({ ...detail, auto: { ...detail.auto, textQuality: 'GOOD' } }, '# Terms\n\nBody');
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);
+
+    await screen.findByText('Terms');
+    expect(screen.queryByText(enMessages.viewer.textQuality.PARTIAL)).not.toBeInTheDocument();
+  });
+
+  it('offers the re-read only to somebody who may ask for one', async () => {
+    serve({ ...detail, auto: { ...detail.auto, textQuality: 'NONE' } }, '# Terms\n\nBody');
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" />);
+
+    // The warning is for everybody — it is a fact about the document. The button is a request to
+    // spend the pipeline, which is an admin's to make (docs/07 §7.3).
+    expect(await screen.findByText(enMessages.viewer.textQuality.NONE)).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: enMessages.viewer.textQuality.readAgain }),
+    ).not.toBeInTheDocument();
+  });
+
   it('says on the details tab what each step cost', async () => {
     serve(detail);
     server.use(

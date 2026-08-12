@@ -28,7 +28,16 @@ const TIMEOUT_MS = 20 * 60_000;
 const TEMPERATURE = 0;
 
 const completionResponseSchema = z.object({
-  choices: z.array(z.object({ message: z.object({ content: z.string().nullable() }) })).min(1),
+  choices: z
+    .array(
+      z.object({
+        message: z.object({ content: z.string().nullable() }),
+        // Why the model stopped. `length` means the page was cut off mid-sentence, which looks
+        // exactly like a finished transcription from the outside.
+        finish_reason: z.string().nullish(),
+      }),
+    )
+    .min(1),
   usage: z
     .object({
       prompt_tokens: z.number().int().nonnegative().optional(),
@@ -102,8 +111,16 @@ export class OpenAiCompatTranscriber extends PageTranscriber {
     );
     if (!parsed.success) throw new Error('Transcriber returned an unreadable response');
 
+    const choice = parsed.data.choices[0];
+    // 🔒 A transcription that ran out of room is half a document that reads as a whole one. Measured
+    // in trials: `finish_reason` is the only thing that tells the two apart — the status is 200 and
+    // the text ends on a plausible line. Refused here so the caller keeps what OCR already had.
+    if (choice?.finish_reason === 'length') {
+      throw new Error('Transcriber ran out of output before the document ended');
+    }
+
     return {
-      markdown: stripCodeFence(parsed.data.choices[0]?.message.content ?? '').trim(),
+      markdown: sanitise(stripCodeFence(choice?.message.content ?? '')).trim(),
       usage: {
         ...(parsed.data.usage?.prompt_tokens === undefined
           ? {}
@@ -140,13 +157,34 @@ function systemMessage(languages: readonly string[]): string {
     'language it is written in, character for character, including numbers, units and codes.',
     'Where a word or a value is genuinely illegible, write [?] in its place — a gap somebody can see',
     'is worth far more than a plausible guess, and a guessed value in a document like this is a lie',
-    'that will be believed.',
+    'that will be believed. Guessing is the failure, not the gap.',
+    'Do not merge, split, drop or reorder rows, and never move a value into a neighbouring row: a',
+    'result that ends up beside the wrong test is worse than a result nobody transcribed.',
+    'Never write Markdown image syntax, and never write a file path or a URL that is not printed on',
+    'the page.',
     'Do not summarise, do not comment, do not describe the images, and do not add a preamble or a',
     'closing remark. Do not wrap the answer in a code fence.',
     named === '' ? '' : `The document is written in ${named}.`,
   ]
     .filter((line) => line !== '')
     .join(' ');
+}
+
+// 🔒 Measured, not imagined: in trials this model emitted `![ЛОТОС](file:///var/folders/…/tmp.jpg)`
+// in four runs of seven — a Markdown image pointing at a temporary file on the *provider's* disk.
+// The prompt forbids it in as many words and it happens anyway, which is the whole reason this
+// function exists rather than another sentence in the instructions. Two things are wrong with it:
+// the document gains a picture that is not on the page, and the archive gains somebody else's
+// filesystem path in the middle of a lab report.
+//
+// The line is dropped rather than the link unwrapped: a hallucinated image has no alt text worth
+// keeping, and a page that genuinely contains a picture has that picture in the canonical PDF, where
+// the reader looks at it.
+function sanitise(markdown: string): string {
+  return markdown
+    .split('\n')
+    .filter((line) => !/!\[[^\]]*\]\([^)]*\)/u.test(line))
+    .join('\n');
 }
 
 // Models wrap Markdown in a fence about half the time, whatever they are told. Unwrapping it here is

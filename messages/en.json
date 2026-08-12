@@ -798,6 +798,12 @@
       "missingReason": "the volume no longer has it",
       "cropped": "Cropped",
       "objectStorage": "Object storage"
+    },
+    "textQuality": {
+      "PARTIAL": "Some of this document was not read",
+      "NONE": "None of this document was read",
+      "explained": "The model that looked at the pages says the text below is not what is on them. A photograph lit from one side, or a table pressed against its rules, is read badly by a recogniser and well by a model that can see.",
+      "readAgain": "Read the pages again"
     }
   },
   "nav": {

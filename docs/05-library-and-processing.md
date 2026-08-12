@@ -293,6 +293,15 @@ they are served to the client via short-lived signed URLs after an access check.
    it before — and **a transcription that comes back with less than OCR already had is not kept**,
    because a model that could not see the page must not be able to empty a document that was
    readable.
+   Three failures were measured against a real provider on a real page before any of this was
+   written, and each is refused rather than trusted: an answer that **ran out of room** mid-document
+   reads exactly like a finished one — 200, plausible last line — and only `finish_reason` tells them
+   apart; a **collapse to nothing** returns four tokens and a stop, which the length rule above
+   catches; and a **hallucinated image** — `![…](file:///var/folders/…)`, a Markdown picture pointing
+   at a temporary file on the provider's own disk — appeared in four runs of seven **despite the
+   prompt forbidding it in as many words**, so those lines are dropped in code. That last one is why
+   the sanitising exists at all: an instruction a model ignores is not a control, and the archive
+   would otherwise have gained somebody else's filesystem path in the middle of a lab report.
    The Markdown is stored with the document and indexed by PostgreSQL FTS.
 A step is marked `RUNNING` when the pipeline starts it and settles to its outcome when it ends, so
 a long step is visibly alive rather than indistinguishable from a queued one (03 §3.3.10).
@@ -331,7 +340,11 @@ not configured, no document types defined, no text to embed, or a document type 
    And because it has seen both, it answers **how well the text represents the document** —
    `GOOD`, `PARTIAL` or `NONE`, kept beside the rest of what the machine read (`03 §3.3.10`). This is
    the signal that was missing: recognition that returned nothing reported success, the text was
-   stored empty, and the only way to find out was to open the document. With no document types defined the step still runs, because
+   stored empty, and the only way to find out was to open the document. **It is acted on**: a
+   document whose text is judged partial or absent says so on the tab where its text is read, and
+   offers to have its pages read again (`11 §11.5`). Said there rather than acted on by itself,
+   because a model answering "partial" twice is not a reason to spend twice — and because the
+   judgement is about a document somebody is looking at, not a queue somebody is watching. With no document types defined the step still runs, because
    the place is worth the call.
    **It is shown the catalogue it is filing into**: the kinds already in use, and the things
    themselves with their notes (03 §3.3.20). After the first months an archive stops meeting new
