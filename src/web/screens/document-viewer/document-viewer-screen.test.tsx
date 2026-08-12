@@ -376,6 +376,38 @@ describe('DocumentViewerScreen', () => {
     await waitFor(() => expect(patched).toEqual({ typeId: CATEGORY_ID }));
   });
 
+  it('warns that a new page format waits for the next processing, and saves it as a plain field', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope({ ...detail, pageFormat: 'A4' }));
+      }),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+
+    // Nothing is said until the choice actually differs: opening the form to change the city must not
+    // lecture anybody about page shapes (docs/11 §11.5).
+    expect(
+      details.queryByText(enMessages.viewer.details.pageFormatRebuild),
+    ).not.toBeInTheDocument();
+
+    const format = details.getByRole('combobox', { name: enMessages.viewer.details.pageFormat });
+    await userEvent.click(format);
+    await userEvent.click(await screen.findByTitle(enMessages.viewer.details.pageFormats.A4));
+
+    // 🔒 Said where it is being decided: the format is read while the pages are made, and they are
+    // made already, so the pages keep their shape until the document is processed again.
+    expect(await details.findByText(enMessages.viewer.details.pageFormatRebuild)).toBeVisible();
+
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
+    await waitFor(() => expect(patched).toEqual({ pageFormat: 'A4' }));
+  });
+
   it('sends only the fields that changed, so a save is not a manual assignment of everything', async () => {
     let patched: unknown = null;
     server.use(

@@ -1253,8 +1253,9 @@ function DetailsPane({
           },
           {
             label: t('viewer.details.pageFormat'),
-            // The one field here that is an instruction rather than a correction: saving it rebuilds
-            // the canonical, and the pages the reader is looking at change shape (docs/05 §5.5).
+            // The one field here that is an instruction rather than a correction: the format is read
+            // while the pages are made, and they are made already (docs/05 §5.5 step 1). So saving it
+            // changes what the next build will do and nothing about the document on screen.
             value:
               draft !== null ? (
                 <Select
@@ -1271,6 +1272,17 @@ function DetailsPane({
                 t(`viewer.details.pageFormats.${document.pageFormat}`)
               ),
             pending: state('canonical'),
+            // 🔒 Said where it is being decided, and only once the choice differs from what the
+            // document holds: a new format is an instruction for the next build, so the pages keep
+            // the shape they have until somebody asks for them again (docs/11 §11.5). A warning
+            // rather than a rebuild — remaking forty pages and recognising their text afresh is not
+            // something a metadata form gets to start on its own.
+            note:
+              draft !== null && draft.pageFormat !== document.pageFormat ? (
+                <Typography.Text type="warning">
+                  {t('viewer.details.pageFormatRebuild')}
+                </Typography.Text>
+              ) : undefined,
           },
           {
             label: t('viewer.details.languages'),

@@ -1321,6 +1321,11 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ...(input.typeSource === undefined ? {} : { typeSource: input.typeSource }),
         ...(input.titleSource === undefined ? {} : { titleSource: input.titleSource }),
         ...(input.description === undefined ? {} : { description: input.description }),
+        // 🔒 The instruction the next build reads (docs/05 §5.5 step 1). It was missing from this
+        // list while every layer above it carried the field, so a chosen format was accepted, logged
+        // and answered as the `AUTO` still in the column — the one field here whose whole purpose is
+        // to be read later was the one field never written.
+        ...(input.pageFormat === undefined ? {} : { pageFormat: input.pageFormat }),
       },
     });
     return toDomain(row);

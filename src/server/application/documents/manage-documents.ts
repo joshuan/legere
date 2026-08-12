@@ -6,7 +6,6 @@ import {
   type DocumentGroupsResponse,
   type DocumentYearsResponse,
   type DocumentListDto,
-  type DocumentStep,
   type ListDocumentGroupsQuery,
   type ListDocumentsQuery,
   type ListDocumentsResponse,
@@ -36,7 +35,6 @@ import type {
   Viewer,
 } from '../../domain/repositories/document.repository';
 import type { Clock } from '../ports/clock';
-import type { JobQueue } from '../ports/job-queue';
 import { originalKeyOf } from '../storage/artifact-keys';
 
 // GET /api/documents (docs/07 §7.3). The filter set is fixed and the access rule lives in the
@@ -137,7 +135,6 @@ export class UpdateDocumentMeta {
     private readonly events: DocumentEventRepository,
     private readonly people: PersonRepository,
     private readonly subjects: SubjectRepository,
-    private readonly queue: JobQueue,
   ) {}
 
   async execute(
@@ -167,8 +164,8 @@ export class UpdateDocumentMeta {
     if (input.city !== undefined) update.city = input.city;
     if (input.documentDate !== undefined) update.documentDate = input.documentDate;
     // The shape of a page is decided while the page is being made, so this is the one field here
-    // that is not a correction to a record but an instruction to build the document again
-    // (docs/05 §5.5 step 1).
+    // that is not a correction to a record but an instruction the next build will read — stored here
+    // and acted on there (docs/05 §5.5 step 1).
     if (input.pageFormat !== undefined) update.pageFormat = input.pageFormat;
 
     if (input.typeId !== undefined) {
@@ -243,30 +240,13 @@ export class UpdateDocumentMeta {
 
     const updated = await this.documents.updateMeta(detail.document.id, update);
 
-    // A new format means a new canonical, and everything read off it: the preview is a picture of a
-    // page whose shape just changed, and the text was recognised on that page. Enqueued only when
-    // the value actually moved — sending the format a document already has is not a rebuild request
-    // (docs/05 §5.5 step 1).
-    if (update.pageFormat !== undefined && update.pageFormat !== detail.document.pageFormat) {
-      const steps: DocumentStep[] = ['canonical', 'preview', 'markdown'];
-      await this.documents.updateProcessing(detail.document.id, {
-        steps: Object.fromEntries(steps.map((step) => [step, 'QUEUED'])),
-        processingError: null,
-        failedStep: null,
-      });
-      await this.queue.enqueue(
-        'document-process',
-        { documentId: detail.document.id, steps },
-        { singletonKey: detail.document.id },
-      );
-      await this.events.record({
-        documentId: detail.document.id,
-        type: 'QUEUED',
-        actorId: viewer.id,
-        payload: { steps },
-      });
-    }
-
+    // 🔒 A new format does mean a new canonical, and a new preview and new text with it — and it is
+    // still not this request's business to start them. Editing metadata must not remake forty pages,
+    // recognise their text afresh and replace every artifact derived from them because a select
+    // changed: the reader asked for a field to say A4. The instruction waits in the column for the
+    // next build, and the asking is `POST /api/documents/:id/reprocess` — which is why the form warns
+    // that the pages keep their shape until then (docs/07 §7.3, docs/11 §11.5).
+    //
     // What changed, and who changed it. The values are recorded from before and after rather than
     // from the request, so a reset reads as the value it restored (docs/03 §3.3.18).
     const changes = describeChanges(detail.document, updated);

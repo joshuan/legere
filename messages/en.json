@@ -750,6 +750,7 @@
         "A4": "A4",
         "MATCH_SOURCE": "Match the source"
       },
+      "pageFormatRebuild": "The pages keep their present shape: a new format applies the next time this document is processed.",
       "subjects": "About",
       "subjectKinds": "Kind of thing",
       "subjectsPlaceholder": "Nothing yet",

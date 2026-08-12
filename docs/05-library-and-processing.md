@@ -270,6 +270,9 @@ they are served to the client via short-lived signed URLs after an access check.
       shapes count as not sheet-shaped: normalising them all would letterbox whichever disagreed. A
       document made only of PDFs and office files is left alone — those pages were laid out by
       whoever produced them.
+      The format is read **here**, at the moment the pages are made, and nowhere else. Editing a
+      document's `pageFormat` is therefore an instruction for the next build rather than a build:
+      the pages keep the shape they already have until somebody asks for them again (`07 §7.3`).
       🔒 **The order is not an implementation detail.** Recognition happens in the shape the page was
       built in, and the format is applied to the result. A page fitted onto a sheet it does not match
       gains white margins, and a recognizer thresholds a page as a whole: the margins take over the

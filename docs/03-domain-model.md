@@ -218,7 +218,7 @@ one; the canonical is rebuildable from them at any moment, so it is an artifact 
 | city | string? | free text, as written in the document |
 | failedStep | string? | which step produced `processingError` |
 | ocrUsed | bool | whether Markdown came from OCR |
-| pageFormat | PageFormat | default `AUTO`; changing it rebuilds the canonical, because the shape of a page is decided while the page is being made (`05 §5.5` step 1) |
+| pageFormat | PageFormat | default `AUTO`; the shape the canonical is built to. Editing it stores an instruction for the next build rather than starting one — the shape of a page is decided while the page is being made (`05 §5.5` step 1), so the pages take a new format the next time they are built (`07 §7.3`) |
 | titleSource | ValueSource | default `NONE` — the file name is not a choice; `MANUAL` is never overwritten by auto |
 | typeId | uuid? | |
 | typeSource | ValueSource | default `NONE`; `MANUAL` is never overwritten by auto |

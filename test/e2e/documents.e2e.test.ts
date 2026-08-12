@@ -1102,6 +1102,43 @@ describe('Documents (e2e)', () => {
       expect(page.items[0]?.payload.path).toBe('page two.pdf');
     });
 
+    // 🔒 The page format is an instruction the next build reads (docs/07 §7.3): it has to be written,
+    // and it has to be all that happens. Both halves were wrong — the column was never updated, so
+    // the answer came back as the `AUTO` still stored, and a rebuild of the canonical, the preview and
+    // the text was enqueued anyway on the strength of a change that had not been saved.
+    it('stores a chosen page format, and rebuilds nothing on its own', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open, title: 'Lease' });
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}`, { pageFormat: 'A4' })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      // What the caller is told is what the column holds: a form that reads its answer back must not
+      // be shown the value it just replaced.
+      expect(expectData(res, documentDetailDtoSchema).pageFormat).toBe('A4');
+      const row = await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } });
+      expect(row.pageFormat).toBe('A4');
+
+      // Nothing was queued, and no step was reset: the pages take the new shape the next time they
+      // are built, which is asked for with `POST /api/documents/:id/reprocess`.
+      expect(row.previewStatus).toBe('DONE');
+      expect(row.markdownStatus).toBe('DONE');
+      const jobs = await testPrisma().$queryRawUnsafe<Array<{ count: bigint }>>(
+        "SELECT count(*) AS count FROM pgboss.job WHERE name = 'document-process'",
+      );
+      expect(jobs[0]?.count).toBe(0n);
+
+      // The change is still traceable — it is the field most worth tracing (docs/03 §3.3.18).
+      const events = await api(app)
+        .get(`/api/documents/${documentId}/events`)
+        .set('Cookie', adminCookie);
+      const [entry] = expectData(events, documentEventPageSchema).items;
+      expect(entry?.type).toBe('META_CHANGED');
+      expect(entry?.payload.changes).toMatchObject({ pageFormat: { from: 'AUTO', to: 'A4' } });
+    });
+
     it('writes what a person changed into the document log', async () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open, title: 'Ticket' });

@@ -226,7 +226,15 @@ before the metadata of the thing it names.
   input is one width; a place is two inputs sharing that one width, because it is one fact. A field
   the pipeline read differently carries a **reset** next to it, which puts it back to what was read —
   travelling as a reset rather than as the same value typed in, so a reset document type becomes `AUTO`
-  again instead of claiming somebody chose it. **People** is a multi-select over the catalogue with
+  again instead of claiming somebody chose it.
+  🔒 **The page format is the one row here that is not a correction to a record**, and the form says so
+  where it is being changed: a warning under the select — the pages keep the shape they have until the
+  document is processed again — because the format is read while the pages are made (05 §5.5 step 1)
+  and they are made already. It is a warning and not an action: a select that quietly remade forty
+  pages, recognised their text afresh and replaced every artifact derived from them would be a rebuild
+  nobody asked for, and reprocessing is asked for with the **Reprocess** button in the processing panel
+  below. Shown only once the choice actually differs from what the document holds, so opening the form
+  to change the city does not lecture about page shapes. **People** is a multi-select over the catalogue with
   "Add «name»" for anything typed that is not in it yet — the analysis step creates people on its
   own, so a person correcting it must be able to do the same without an admin (03 §3.3.19).
   **Subject** works the same way, except that adding one takes both halves — the dropdown footer asks
