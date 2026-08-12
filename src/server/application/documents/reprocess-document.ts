@@ -21,6 +21,7 @@ export class ReprocessDocument {
     documentId: string,
     steps?: readonly DocumentStep[],
     actorId?: string,
+    analyseInFull = false,
   ): Promise<ReprocessResponse> {
     const document = await this.documents.findById(documentId);
     if (document === null || document.deletedAt !== null) {
@@ -42,7 +43,7 @@ export class ReprocessDocument {
     // of them at once — a document is one piece of work in the queue (docs/05 §5.4).
     await this.queue.enqueue(
       'document-process',
-      { documentId, steps: requested },
+      { documentId, steps: requested, ...(analyseInFull ? { analyseInFull: true } : {}) },
       { singletonKey: documentId },
     );
     // Who asked for it and for which steps: a document that was reprocessed three times is a

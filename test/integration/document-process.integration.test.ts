@@ -83,6 +83,7 @@ describe('Document processing (integration)', () => {
       analystExcerptChars: 0,
       analystMaxPageImages: 20,
       analystPageImageMaxDim: 1200,
+      analystAutoMaxPages: 0,
     };
 
     handler = new HandleDocumentProcess(

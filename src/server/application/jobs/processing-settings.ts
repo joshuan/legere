@@ -18,6 +18,10 @@ export type ProcessingSettings = {
   // than a paper, and its text carries it; the pages themselves are what a scan has instead of text
   // when recognition found nothing.
   analystMaxPageImages: number;
+  // How long a document the pipeline analyses unasked. Past it the step is SKIPPED with
+  // TOO_MANY_PAGES rather than run on a fraction of the document (docs/05 §5.5 step 4); `0` lifts
+  // the limit. A person asking from the document's own page is not bound by it.
+  analystAutoMaxPages: number;
   // The longest side of each of those pictures. A model reads a page, it does not print it.
   analystPageImageMaxDim: number;
 };

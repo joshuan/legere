@@ -694,13 +694,15 @@
       "NOT_CONFIGURED": "No AI provider configured on this instance",
       "NO_TYPES": "No document types to choose from yet",
       "NO_TEXT": "No text was extracted to work with",
-      "MANUAL_TYPE": "The type was set by hand and is left alone"
+      "MANUAL_TYPE": "The type was set by hand and is left alone",
+      "TOO_MANY_PAGES": "Too long to analyse automatically — ask for it below"
     },
     "processing": {
       "title": "Processing",
       "queued": "Reprocessing queued",
       "reprocessAll": "Reprocess everything",
-      "reprocessSelected": "Reprocess {count} steps"
+      "reprocessSelected": "Reprocess {count} steps",
+      "analyseInFull": "Analyse the whole document"
     },
     "details": {
       "size": "Size",
@@ -734,7 +736,8 @@
       "addSubject": "Add “{name}”",
       "reset": "reset",
       "editHint": "Edit — or press E",
-      "deletedName": "No longer in the catalogue. It stays on this document as a record."
+      "deletedName": "No longer in the catalogue. It stays on this document as a record.",
+      "cost": "What it cost"
     },
     "addedToCollection": "Added to the collection",
     "log": {

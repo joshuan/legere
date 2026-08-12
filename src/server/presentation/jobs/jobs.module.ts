@@ -55,6 +55,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
     chunkOverlapChars: config.get('CHUNK_OVERLAP_CHARS'),
     analystExcerptChars: config.get('ANALYST_EXCERPT_CHARS'),
     analystMaxPageImages: config.get('ANALYST_MAX_PAGE_IMAGES'),
+    analystAutoMaxPages: config.get('ANALYST_AUTO_MAX_PAGES'),
     analystPageImageMaxDim: config.get('ANALYST_PAGE_IMAGE_MAX_DIM'),
   };
 }

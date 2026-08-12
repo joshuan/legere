@@ -180,6 +180,34 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('DocumentViewerScreen', () => {
+  it('says on the details tab what each step cost', async () => {
+    serve(detail);
+    server.use(
+      http.get(`/api/documents/${ID}/events`, () =>
+        HttpResponse.json(
+          envelope({
+            items: [
+              {
+                id: 'eeeeeeee-9999-4999-8999-999999999999',
+                type: 'STEP_FINISHED',
+                at: '2026-08-12T10:00:00.000Z',
+                actor: null,
+                payload: { step: 'markdown', status: 'DONE', durationMs: 4200, chars: 1200 },
+              },
+            ],
+            nextCursor: null,
+          }),
+        ),
+      ),
+    );
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="details" />);
+
+    // The log has one line per moment; the details answer the same numbers per step, which is how
+    // the question is actually asked (docs/11 §11.5).
+    expect(await screen.findByText(enMessages.viewer.details.cost)).toBeInTheDocument();
+    expect(screen.getByText(/1200/)).toBeInTheDocument();
+  });
+
   it('shows the page itself beside what may be done with it', async () => {
     serve(detail);
     renderWithProviders(<DocumentViewerScreen id={ID} />);

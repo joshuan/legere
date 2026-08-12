@@ -114,6 +114,7 @@ describe('HandleDocumentProcess', () => {
       // counts renders and resizes that step 4 would otherwise add to.
       analystMaxPageImages: 0,
       analystPageImageMaxDim: 1200,
+      analystAutoMaxPages: 0,
     };
 
     handler = new HandleDocumentProcess(
@@ -891,6 +892,42 @@ describe('HandleDocumentProcess', () => {
       expect(started?.payload?.durationMs).toBeUndefined();
     });
 
+    it('does not analyse a book unasked, and says why', async () => {
+      settings.analystAutoMaxPages = 10;
+      pdfs.pageCount = 40;
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      // 🔒 Not a shortened analysis: a verdict read off the first ten pages of a forty-page contract
+      // is worse than no verdict, because it looks like one (docs/05 §5.5 step 4).
+      const state = stateOf();
+      expect(state.steps.analysis).toBe('SKIPPED');
+      expect(state.skipReasons.analysis).toBe('TOO_MANY_PAGES');
+      expect(analyst.calls).toHaveLength(0);
+    });
+
+    it('analyses it however long it is when a person asks', async () => {
+      settings.analystAutoMaxPages = 10;
+      pdfs.pageCount = 40;
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await handler.handle({ documentId: DOCUMENT_ID, analyseInFull: true });
+
+      expect(stateOf().steps.analysis).toBe('DONE');
+      expect(analyst.calls).toHaveLength(1);
+    });
+
+    it('analyses a short document without being asked', async () => {
+      settings.analystAutoMaxPages = 10;
+      pdfs.pageCount = 3;
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      expect(stateOf().steps.analysis).toBe('DONE');
+    });
+
     it('keeps the verdict on how well the text was extracted', async () => {
       settings.analystMaxPageImages = 1;
       pdfs.pageCount = 1;
@@ -1403,6 +1440,7 @@ describe('HandleDocumentProcess', () => {
       analystExcerptChars: 0,
       analystMaxPageImages: 20,
       analystPageImageMaxDim: 1200,
+      analystAutoMaxPages: 0,
     };
     return new HandleDocumentProcess(
       documents,

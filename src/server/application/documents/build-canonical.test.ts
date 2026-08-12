@@ -35,6 +35,7 @@ const SETTINGS = {
   analystExcerptChars: 0,
   analystMaxPageImages: 20,
   analystPageImageMaxDim: 1200,
+  analystAutoMaxPages: 0,
 };
 
 describe('BuildCanonical: the shape of a page and when it is decided', () => {

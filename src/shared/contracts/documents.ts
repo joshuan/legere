@@ -455,6 +455,10 @@ export type DocumentEventPage = z.infer<typeof documentEventPageSchema>;
 // An absent or empty list means the whole pipeline (docs/07 §7.3).
 export const reprocessRequestSchema = z.object({
   steps: z.array(documentStepSchema).min(1).max(DOCUMENT_STEPS.length).optional(),
+  // Analyse this document however long it is. The page limit is on what the pipeline does *unasked*
+  // (`05 §5.5` step 4); this is the asking, and it is per document on purpose — a limit that any
+  // bulk re-run could lift would not be a limit.
+  analyseInFull: z.boolean().optional(),
 });
 export type ReprocessRequest = z.infer<typeof reprocessRequestSchema>;
 

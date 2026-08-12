@@ -26,6 +26,9 @@ export const stepSkipReasonSchema = z.enum([
   'NO_TYPES',
   'NO_TEXT',
   'MANUAL_TYPE',
+  // Longer than an instance lets the pipeline analyse on its own (docs/05 §5.5 step 4). Not a
+  // refusal: a person may ask for this one document, and then the whole of it goes.
+  'TOO_MANY_PAGES',
 ]);
 export type StepSkipReason = z.infer<typeof stepSkipReasonSchema>;
 

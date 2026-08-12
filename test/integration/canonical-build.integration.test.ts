@@ -94,6 +94,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
         analystExcerptChars: 0,
         analystMaxPageImages: 20,
         analystPageImageMaxDim: 1200,
+        analystAutoMaxPages: 0,
       },
     );
 

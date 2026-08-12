@@ -144,6 +144,18 @@ export function DocumentViewerScreen({
   });
 
   const [steps, setSteps] = useState<DocumentStep[]>([]);
+  // Asking for this one document to be analysed however long it is. Separate from the reprocess
+  // button beside it, because it is a different request: not "run this again" but "the limit does
+  // not apply to this one" (docs/05 §5.5 step 4).
+  const analyseInFull = useMutation({
+    mutationFn: () => documentApi.reprocess(id, { steps: ['analysis'], analyseInFull: true }),
+    onSuccess: () => {
+      void message.success(t('viewer.processing.queued'), 2);
+      refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
   const reprocess = useMutation({
     mutationFn: () => documentApi.reprocess(id, steps.length === 0 ? {} : { steps }),
     onSuccess: () => {
@@ -390,6 +402,19 @@ export function DocumentViewerScreen({
                 <Typography.Text type="danger" style={{ whiteSpace: 'pre-wrap' }}>
                   {detail.processingError}
                 </Typography.Text>
+              )}
+
+              {/* The way past the automatic limit, offered exactly where the limit is visible: the
+                  analysis row says it was skipped for being long, and this is the answer to that
+                  (docs/11 §11.5). */}
+              {isAdmin && detail.skipReasons.analysis === 'TOO_MANY_PAGES' && (
+                <Button
+                  onClick={() => analyseInFull.mutate()}
+                  loading={analyseInFull.isPending}
+                  type="primary"
+                >
+                  {t('viewer.processing.analyseInFull')}
+                </Button>
               )}
 
               {isAdmin && (
@@ -1290,6 +1315,12 @@ function DetailsPane({
         </div>
       )}
 
+      {/* What the pipeline spent getting here. The journal has one line per step and this is the
+          same numbers read the other way round — by step rather than by moment — because "how long
+          did the text take, and did it read anything" is a question about the document, not about
+          the log (docs/03 §3.3.18, docs/11 §11.5). */}
+      <StepCostSection documentId={document.id} />
+
       {/* What the document is made of, and the only place it can be rearranged (docs/11 §11.5a). */}
       <FilesSection document={document} />
     </Space>
@@ -1840,4 +1871,45 @@ function stepCost(event: DocumentEventDto, t: ReturnType<typeof useTranslations>
     );
   }
   return parts;
+}
+
+// The cost of each step, newest run only: a step re-run three times has three entries in the log and
+// one truthful answer here (docs/03 §3.3.18).
+function StepCostSection({ documentId }: { documentId: string }) {
+  const t = useTranslations();
+  // The same query the Log tab uses, so opening both costs one request (docs/10 §10.4).
+  const events = useQuery({
+    queryKey: documentKeys.events(documentId),
+    queryFn: () => documentApi.events(documentId),
+  });
+
+  const latest = new Map<string, DocumentEventDto>();
+  for (const event of events.data?.items ?? []) {
+    const step = event.payload.step;
+    // The list arrives newest first, so the first entry seen for a step is its latest run.
+    if (event.type === 'STEP_FINISHED' && step !== undefined && !latest.has(step)) {
+      latest.set(step, event);
+    }
+  }
+
+  const rows = DOCUMENT_STEPS.flatMap((step) => {
+    const event = latest.get(step);
+    if (event === undefined) return [];
+    const cost = stepCost(event, t);
+    return cost.length === 0 ? [] : [{ step, cost: cost.join(' · ') }];
+  });
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <Typography.Title level={5}>{t('viewer.details.cost')}</Typography.Title>
+      <DefinitionList
+        items={rows.map((row) => ({
+          label: t(`viewer.steps.${row.step}`),
+          value: row.cost,
+        }))}
+      />
+    </div>
+  );
 }

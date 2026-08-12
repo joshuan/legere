@@ -110,6 +110,11 @@ export const configSchema = z.object({
   ANALYST_EXCERPT_CHARS: z.coerce.number().int().nonnegative().default(0),
   // And how many of its pages travel as pictures beside that text.
   ANALYST_MAX_PAGE_IMAGES: z.coerce.number().int().nonnegative().default(20),
+  // How long a document the pipeline analyses without being asked. Past this it does not analyse a
+  // shortened version — it does not analyse at all, and says so: a verdict read off the first ten
+  // pages of a forty-page contract is worse than no verdict, because it looks like one. A person may
+  // still ask for the whole document from its own page (docs/05 §5.5 step 4). 0 = no limit.
+  ANALYST_AUTO_MAX_PAGES: z.coerce.number().int().nonnegative().default(10),
   ANALYST_PAGE_IMAGE_MAX_DIM: z.coerce.number().int().positive().default(1200),
   QUEUE_CONCURRENCY_INGEST: z.coerce.number().int().positive().default(4),
   QUEUE_CONCURRENCY_PROCESS: z.coerce.number().int().positive().default(2),

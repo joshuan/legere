@@ -363,7 +363,9 @@ export class DocumentsController {
     @UuidParam('id', 'DOCUMENT_NOT_FOUND', 'Document') id: string,
     @ZodBody(reprocessRequestSchema) body: ReprocessRequest,
   ): Promise<Envelope<ReprocessResponse>> {
-    return successEnvelope(await this.reprocess.execute(id, body.steps, user.id));
+    return successEnvelope(
+      await this.reprocess.execute(id, body.steps, user.id, body.analyseInFull ?? false),
+    );
   }
 }
 

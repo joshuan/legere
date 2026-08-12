@@ -40,6 +40,10 @@ export const documentProcessPayloadSchema = z.object({
   documentId: z.string().uuid(),
   // A reprocess may ask for a subset; an absent list means the whole pipeline (docs/07 §7.3).
   steps: z.array(documentStepSchema).min(1).optional(),
+  // A person asking for this one document to be analysed however long it is (docs/05 §5.5 step 4).
+  // The page limit exists so that nothing *unasked* spends minutes of a model on a book; being asked
+  // is the whole difference, so it travels with the job rather than being inferred from the steps.
+  analyseInFull: z.boolean().optional(),
 });
 export type DocumentProcessPayload = z.infer<typeof documentProcessPayloadSchema>;
 
@@ -136,7 +140,9 @@ export class HandleDocumentProcess extends JobHandler {
     // stale copy this handler started with.
     const extracted = (await this.documents.findById(document.id)) ?? document;
     if (requested.has('analysis')) {
-      await this.running(document.id, 'analysis', () => this.analyse(extracted));
+      await this.running(document.id, 'analysis', () =>
+        this.analyse(extracted, payload.analyseInFull ?? false),
+      );
     }
     if (requested.has('vectorization')) {
       await this.running(document.id, 'vectorization', () => this.vectorize(extracted));
@@ -419,7 +425,7 @@ export class HandleDocumentProcess extends JobHandler {
   // Step 4. One look at the document: which of the active documentTypes it belongs to, and where it is
   // from. An unconfigured provider is not a failure — it is an instance that runs without AI at all
   // (docs/05 §5.5).
-  private async analyse(document: Document): Promise<void> {
+  private async analyse(document: Document, analyseInFull: boolean): Promise<void> {
     // 🔒 A documentType a person chose is never overwritten by a machine (docs/03 §3.3.10).
     if (document.typeSource === 'MANUAL') {
       await this.write(document.id, {
@@ -434,6 +440,20 @@ export class HandleDocumentProcess extends JobHandler {
         skipReasons: { analysis: 'NOT_CONFIGURED' },
       });
       return;
+    }
+    // 🔒 Past the limit the step does not analyse a shortened version — it does not analyse at all.
+    // A verdict read off the first ten pages of a forty-page contract is worse than no verdict,
+    // because it looks like one, and the document would carry a type and a title nobody could tell
+    // were guesses (docs/05 §5.5 step 4). Asked for by a person, the whole of it goes.
+    if (!analyseInFull && this.settings.analystAutoMaxPages > 0) {
+      const pages = document.pageCount ?? 0;
+      if (pages > this.settings.analystAutoMaxPages) {
+        await this.write(document.id, {
+          steps: { analysis: 'SKIPPED' },
+          skipReasons: { analysis: 'TOO_MANY_PAGES' },
+        });
+        return;
+      }
     }
 
     try {
