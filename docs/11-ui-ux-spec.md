@@ -597,6 +597,15 @@ hardcodes `#fff` is a screen that turns white in dark mode.
 Loaded through `next/font` so Next self-hosts them in the bundle: a self-hosted instance on a private
 network must never call a font CDN at runtime.
 
+### The mark
+
+One monogram, in two places: the collapsed sider, and the tab. A verdigris tile with a paper `L` —
+the two colours the product is built from, and the pair that holds up against a light browser chrome
+and a dark one alike, which a glyph on transparency does not. Drawn as a path rather than as text:
+whatever renders a favicon has no reason to have IBM Plex Sans, and a monogram that falls back to
+Times is not the monogram. `icon.svg` for everything that takes one, `apple-icon.png` for the
+platform that wants a bitmap and no transparency.
+
 ### Surfaces, depth, motion
 
 - Cards and panels: 1 px border in the **strong** border tone, radius 10, **no ambient shadow at

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Legere">
+  <!-- The monogram the collapsed sider already shows, at the size a tab gives it (docs/11 §11.15).
+       Verdigris tile, paper letterform: the two colours the product is built from, and the pair that
+       holds up against both a light and a dark browser chrome.
+
+       The L is a path rather than text: whatever renders a favicon has no reason to have IBM Plex
+       Sans, and a monogram that falls back to Times is not the monogram. -->
+  <rect width="32" height="32" rx="7" fill="#2F6B5E" />
+  <path d="M11 8h4.6v11.6H22V24H11z" fill="#F4F0E7" />
+</svg>
