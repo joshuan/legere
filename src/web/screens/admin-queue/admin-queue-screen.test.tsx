@@ -96,14 +96,14 @@ describe('AdminQueueScreen', () => {
     expect(screen.getByText(enMessages.viewer.steps.preview)).toBeInTheDocument();
     // Statuses with nothing in them are not printed as zeroes, and the ones that are print the word
     // rather than the enum.
-    const markdown = screen.getByText(enMessages.viewer.steps.markdown).closest('.ant-row');
+    const markdown = screen.getByText(enMessages.viewer.steps.markdown).closest('tr');
     if (!(markdown instanceof HTMLElement)) throw new Error('expected the markdown step row');
-    expect(
-      within(markdown).queryByText(enMessages.documents.filters.stepStatus.PENDING),
-    ).not.toBeInTheDocument();
-    expect(
-      within(markdown).getByText(enMessages.documents.filters.stepStatus.DONE),
-    ).toBeInTheDocument();
+    // The statuses are the columns now, so a step that has none of one leaves that cell empty —
+    // which is what makes "готово" land in the same place on every line (docs/11 §11.13).
+    const links = within(markdown).getAllByRole('link');
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([
+      '/documents?step=markdown&stepStatus=DONE',
+    ]);
   });
 
   it('shows what the bucket holds, scaled to something readable', async () => {
@@ -182,6 +182,28 @@ describe('AdminQueueScreen', () => {
     expect(await screen.findByText(enMessages.errors.codes.NOT_FOUND)).toBeInTheDocument();
   });
 
+  it('names the stage in words and keeps the queue name beside it', async () => {
+    renderWithProviders(<AdminQueueScreen />);
+
+    // The technical name is what the failed-jobs table and the container's own logs say, so it
+    // stays — but it is not what somebody comes to this page to read (docs/11 §11.13).
+    expect(
+      await screen.findByText(enMessages.admin.queue.names['document-process']),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText('document-process').length).toBeGreaterThan(0);
+    expect(screen.getByText(enMessages.admin.queue.hints['document-process'])).toBeInTheDocument();
+  });
+
+  it('says what the switch in the corner does, in words', async () => {
+    renderWithProviders(<AdminQueueScreen />);
+
+    // 🔒 A switch with nothing beside it is a switch nobody can read, and "what does this checkbox
+    // do" is a question the screen should never make somebody ask (docs/11 §11.14).
+    await waitFor(() =>
+      expect(screen.getAllByText(enMessages.admin.queue.pause.title).length).toBe(5),
+    );
+  });
+
   it('runs a whole step, and the whole pipeline, without naming a status', async () => {
     const asked: unknown[] = [];
     server.use(
@@ -192,7 +214,7 @@ describe('AdminQueueScreen', () => {
     );
 
     renderWithProviders(<AdminQueueScreen />);
-    const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('.ant-row');
+    const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('tr');
     if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step row');
 
     // A step, whatever state its documents are in.
@@ -212,7 +234,7 @@ describe('AdminQueueScreen', () => {
   it('makes every counter a way to the documents behind it', async () => {
     renderWithProviders(<AdminQueueScreen />);
 
-    const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('.ant-row');
+    const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('tr');
     if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step row');
 
     // The point of "2 failed previews" is the two documents (docs/11 §11.13), and both halves of
@@ -237,7 +259,7 @@ describe('AdminQueueScreen', () => {
     );
 
     renderWithProviders(<AdminQueueScreen />);
-    const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('.ant-row');
+    const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('tr');
     if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step row');
 
     // 🔒 Every status carries the action now, not only the ones that look broken: a step is re-run

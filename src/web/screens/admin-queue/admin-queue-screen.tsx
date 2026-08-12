@@ -23,6 +23,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { stepStatusSchema, type StepStatus } from '../../../shared/contracts/enums';
+import type { GlobalToken } from 'antd';
 import type {
   FailedJobDto,
   ReprocessByStepRequest,
@@ -38,13 +39,6 @@ const REFRESH_MS = 5000;
 // The queue the five document steps run in: the only stage whose block holds a pipeline, because it
 // is the only one that has one (docs/05 §5.5).
 const DOCUMENT_QUEUE = 'document-process';
-
-// Every state can be asked to run again (docs/11 §11.13). It used to be only the two that look
-// broken, which answered the wrong question: a step is re-run because something *about it* changed —
-// a container gained a language, a model was configured, a bug was fixed — and by then the documents
-// that need redoing are the ones marked DONE. Asking for a QUEUED one is not a mistake either: the
-// job is keyed by document, so a second request collapses into the first rather than doubling it.
-const RERUNNABLE: readonly StepStatus[] = stepStatusSchema.options;
 
 // /admin/queue (docs/11 §11.13): what the queue is doing, and what failed.
 export function AdminQueueScreen() {
@@ -260,28 +254,50 @@ export function AdminQueueScreen() {
         <Card
           key={queue.name}
           loading={overview.isPending}
+          // What the stage is called in this product, over what it is called in the queue. The
+          // technical name is the one that appears in the failed-jobs table below and in the
+          // container's own logs, so it stays — but it is not what somebody comes to this page to
+          // read (docs/11 §11.13).
           title={
-            <Space size={8}>
-              <Typography.Text strong>{queue.name}</Typography.Text>
+            <Space size={8} align="baseline">
+              <Typography.Text strong>{t(`admin.queue.names.${queue.name}`)}</Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }} code>
+                {queue.name}
+              </Typography.Text>
               {paused.includes(queue.name) && (
                 <Tag color="orange">{t('admin.queue.pause.tag')}</Tag>
               )}
             </Space>
           }
+          // 🔒 A switch with nothing beside it is a switch nobody can read: this one used to sit
+          // bare in the corner, and "what does this checkbox do" is a question the screen should
+          // never make somebody ask (docs/11 §11.14).
           extra={
             <Space size={8}>
+              <Typography.Text type="secondary">{t('admin.queue.pause.title')}</Typography.Text>
+              <Tooltip title={t('admin.queue.pause.hint')}>
+                <QuestionCircleOutlined style={{ color: token.colorTextTertiary }} />
+              </Tooltip>
               <Switch
                 size="small"
-                checked={paused.includes(queue.name)}
+                // Reads as what it is: on means the stage runs. Inverted from the value it holds,
+                // because "paused" as a switch you turn *on* to stop things is a double negative.
+                checked={!paused.includes(queue.name)}
                 disabled={settings.data === undefined}
                 loading={saveSettings.isPending}
                 aria-label={t('admin.queue.pause.switch', { queue: queue.name })}
-                onChange={(pause) => togglePause(queue.name, pause)}
+                onChange={(running) => togglePause(queue.name, !running)}
               />
             </Space>
           }
         >
           <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            {/* What this stage actually does, in one line. The names above are short by design; this
+                is where somebody who has never read docs/05 finds out what they mean. */}
+            <Typography.Text type="secondary">
+              {t(`admin.queue.hints.${queue.name}`)}
+            </Typography.Text>
+
             <Space size="large" wrap>
               <Statistic title={t('admin.queue.queued')} value={queue.queued} />
               <Statistic title={t('admin.queue.active')} value={queue.active} />
@@ -461,6 +477,7 @@ function PipelineSteps({
   running: ReprocessByStepRequest | null;
 }) {
   const t = useTranslations();
+  const { token } = theme.useToken();
 
   return (
     <Card
@@ -483,33 +500,64 @@ function PipelineSteps({
         </Space>
       }
     >
-      <Space direction="vertical" size="small" style={{ width: '100%' }}>
-        {steps.map((step) => (
-          <Row key={step.step} align="middle" wrap gutter={[8, 8]}>
-            <Col flex="180px">
+      {/* A table, not a row of chips per step: with one column per status the same word lands in
+          the same place on every line, and "which steps are still queued" is answered by reading
+          down instead of hunting across. Empty cells are the price and they are worth it — a gap in
+          a column says "none of these" at a glance, which a missing chip cannot (docs/11 §11.13). */}
+      <Table<StepCountersDto>
+        size="small"
+        rowKey="step"
+        pagination={false}
+        dataSource={[...steps]}
+        columns={[
+          {
+            title: t('admin.queue.pipeline.step'),
+            dataIndex: 'step',
+            render: (_: unknown, row: StepCountersDto) => (
               <Space size={4}>
-                <Typography.Text strong>{t(`viewer.steps.${step.step}`)}</Typography.Text>
+                <Typography.Text strong>{t(`viewer.steps.${row.step}`)}</Typography.Text>
                 <RunAgain
                   label={t('admin.queue.actions.runStep')}
                   loading={
-                    running !== null && running.step === step.step && running.status === undefined
+                    running !== null && running.step === row.step && running.status === undefined
                   }
-                  onClick={() => onRunAgain({ step: step.step })}
+                  onClick={() => onRunAgain({ step: row.step })}
                 />
               </Space>
-            </Col>
-            <Col flex="auto">
-              <StepCounters
-                step={step}
-                onRunAgain={(status) => onRunAgain({ step: step.step, status })}
-                running={
-                  running !== null && running.step === step.step ? (running.status ?? null) : null
-                }
-              />
-            </Col>
-          </Row>
-        ))}
-      </Space>
+            ),
+          },
+          ...stepStatusSchema.options.map((status) => ({
+            title: (
+              <Typography.Text style={{ color: statusColor(status, token) }}>
+                {t(`documents.filters.stepStatus.${status}`)}
+              </Typography.Text>
+            ),
+            key: status,
+            align: 'center' as const,
+            render: (_: unknown, row: StepCountersDto) => {
+              const count = row.counts[status] ?? 0;
+              // A zero is not drawn: an archive where nothing failed should not read as a wall of
+              // noughts, and the empty cell under a column says the same thing more quietly.
+              if (count === 0) return null;
+              return (
+                <Space size={4}>
+                  {/* A counter nobody can act on is a number on a wall: the point of "12 failed
+                      previews" is the twelve documents. Both halves of the question travel — the
+                      API refuses one without the other. */}
+                  <Link href={`/documents?step=${row.step}&stepStatus=${status}`}>{count}</Link>
+                  <RunAgain
+                    label={t('admin.queue.actions.runAgain')}
+                    loading={
+                      running !== null && running.step === row.step && running.status === status
+                    }
+                    onClick={() => onRunAgain({ step: row.step, status })}
+                  />
+                </Space>
+              );
+            },
+          })),
+        ]}
+      />
     </Card>
   );
 }
@@ -540,59 +588,17 @@ function RunAgain({
   );
 }
 
-function StepCounters({
-  step,
-  onRunAgain,
-  running,
-}: {
-  step: StepCountersDto;
-  onRunAgain: (status: StepStatus) => void;
-  // The status of this step being re-enqueued right now, if any.
-  running: StepStatus | null;
-}) {
-  const t = useTranslations();
-
-  const entries = stepStatusSchema.options
-    // A status the server did not mention holds nothing, which is the same thing as a zero here.
-    .map((status) => ({ status, count: step.counts[status] ?? 0 }))
-    .filter((entry) => entry.count > 0);
-  if (entries.length === 0) return <Typography.Text type="secondary">—</Typography.Text>;
-
-  return (
-    <Space size={[16, 8]} wrap>
-      {entries.map(({ status, count }) => (
-        <Space key={status} size={4}>
-          {/* The word, not the enum: the same status is named in the filter above and on the
-              document's own page, and a screen that says QUEUED where the others say "в очереди" is
-              a third vocabulary to learn (docs/11 §11.13). */}
-          <Tag color={statusColor(status)} style={{ marginInlineEnd: 0 }}>
-            {t(`documents.filters.stepStatus.${status}`)}
-          </Tag>
-          {/* A counter nobody can act on is a number on a wall: the point of "12 failed previews"
-              is the twelve documents (docs/11 §11.13). Both halves travel, never one — the API
-              refuses half the question. */}
-          <Link href={`/documents?step=${step.step}&stepStatus=${status}`}>{count}</Link>
-          {RERUNNABLE.includes(status) && (
-            <RunAgain
-              label={t('admin.queue.actions.runAgain')}
-              loading={running === status}
-              onClick={() => onRunAgain(status)}
-            />
-          )}
-        </Space>
-      ))}
-    </Space>
-  );
-}
-
-function statusColor(status: string): string {
-  if (status === 'DONE') return 'green';
-  if (status === 'FAILED') return 'red';
-  // Blue is "somebody is coming for this". A step nothing is scheduled for is not that, and gets the
-  // brass of a thing waiting to be asked (docs/11 §11.13).
-  if (status === 'QUEUED' || status === 'RUNNING') return 'blue';
-  if (status === 'PENDING') return 'gold';
-  return 'default';
+// The colour of a status, as the theme names it rather than as antd's tag palette does: this now
+// paints a column heading, and a heading has to sit in the same ink as the rest of the table
+// (docs/11 §11.15). Red is the one that has to survive being scanned past.
+function statusColor(status: StepStatus, token: GlobalToken): string {
+  if (status === 'DONE') return token.colorSuccess;
+  if (status === 'FAILED') return token.colorError;
+  // Blue is "somebody is coming for this". A step nothing is scheduled for is not that, and takes
+  // the brass of a thing waiting to be asked.
+  if (status === 'QUEUED' || status === 'RUNNING') return token.colorInfo;
+  if (status === 'PENDING') return token.colorWarning;
+  return token.colorTextTertiary;
 }
 
 // The payload is whatever the job carried; show the ids it holds rather than raw JSON.

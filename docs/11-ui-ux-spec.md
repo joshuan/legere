@@ -530,8 +530,12 @@ sit in three bands at three ends of the page.
 - **Queue depth**: queued / active / recently failed, beside the concurrency that decides how fast
   the depth falls. `document-process` also carries the units-per-job knob and the language the
   analysis writes in, because that is the stage that writes those words.
-- **Pipeline counters**, inside the `document-process` block, one row per step, one number per
-  status. The steps are named **exactly as the document's own page names them** (`§11.5`): one
+- **Pipeline counters**, inside the `document-process` block, as a **table**: one row per step, one
+  column per status, so the same word lands in the same place on every line and "which steps are
+  still queued" is answered by reading down a column instead of hunting across five rows of chips.
+  Empty cells are the price and they are worth it — a gap under a column says "none of these" at a
+  glance, which a missing chip cannot. A zero is not drawn: an archive where nothing failed should
+  not read as a wall of noughts. The steps are named **exactly as the document's own page names them** (`§11.5`): one
   screen calling a step "Тип" while the other calls it "Анализ" is two names for one thing, and the
   reader is left to work out that they are the same. Statuses are shown as the words the filters use,
   not as the enum. **Every number is a link**: it goes to
@@ -549,7 +553,14 @@ sit in three bands at three ends of the page.
   It is an **icon**, repeated once per status per step: a worded button was the widest thing in the
   row and pushed the counts off the card, and what it does is said on hover and to a screen reader,
   where a repeated label belongs (`§11.15`).
-- **Pause and resume.** Each queue carries a switch. Paused, it keeps taking jobs and runs none of
+- **Every stage is named twice**: what it does, in the reader's language, over what it is called in
+  the queue — the technical name stays because it is what the failed-jobs table and the container's
+  own logs say, but it is not what somebody comes to this page to read. Under the name, one line
+  saying what the stage actually does, for a reader who has never opened `05 §5.5`.
+- **Pause and resume.** Each stage carries a switch, and it is labelled: a switch alone in a corner
+  is a switch nobody can read, and "what does this checkbox do" is a question a screen should never
+  make somebody ask (`§11.14`). It reads as what it is — **on means the stage runs** — because a
+  control you turn *on* to stop something is a double negative. Paused, it keeps taking jobs and runs none of
   them: the depth grows where an admin can see it, and nothing is lost. It is the honest way to stop
   one misbehaving step — OCR thrashing, a model answering nonsense — without stopping the instance.
   A paused queue is labelled as paused everywhere its depth is shown, so a growing queue is never

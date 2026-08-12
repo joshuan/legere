@@ -435,14 +435,17 @@
       },
       "pause": {
         "switch": "Pause {queue}",
-        "tag": "Paused"
+        "tag": "Paused",
+        "title": "Run this stage",
+        "hint": "Paused, the stage keeps taking work and runs none of it: the queue grows where you can see it and nothing is lost. The honest way to stop one misbehaving stage without stopping the instance."
       },
       "reprocess": {
         "enqueued": "{count} documents re-enqueued"
       },
       "pipeline": {
         "title": "Documents in the pipeline",
-        "total": "{count} documents"
+        "total": "{count} documents",
+        "step": "Step"
       },
       "storage": {
         "title": "S3 storage",
@@ -469,6 +472,18 @@
         "analysisLanguageAuto": "The language of each document",
         "analysisLanguageHint": "Titles, descriptions and the names invented for people, things and kinds all use this language. Leave it empty and each follows the document it came from.",
         "concurrency": "At once"
+      },
+      "names": {
+        "library-scan": "Scanning libraries",
+        "file-ingest": "Taking in files",
+        "document-process": "Processing documents",
+        "maintenance": "Housekeeping"
+      },
+      "hints": {
+        "library-scan": "Walks the attached folders and notices files that are new, changed or gone.",
+        "file-ingest": "Hashes each file, deduplicates it, and makes a document out of it.",
+        "document-process": "The five steps below: the canonical PDF, its preview, its text, the analysis, the vectors.",
+        "maintenance": "Hourly: expires one-time credentials, sweeps orphaned artifacts, and picks up documents nobody is coming for."
       }
     },
     "documentTypes": {
