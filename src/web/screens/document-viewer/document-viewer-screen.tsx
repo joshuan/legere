@@ -572,26 +572,13 @@ function TextPane({
   const quality = document.auto.textQuality;
 
   if (loading) return <Spin />;
-  if (markdown === null || markdown === '') {
-    return (
-      <Empty
-        description={
-          document.steps.markdown === 'FAILED'
-            ? t('viewer.textFailed')
-            : document.steps.markdown === 'RUNNING' ||
-                document.steps.markdown === 'PENDING' ||
-                document.steps.markdown === 'QUEUED'
-              ? t('viewer.textPending')
-              : t('viewer.noText')
-        }
-      />
-    );
-  }
+
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-      {/* 🔒 Said where the text is read, not in a log somebody would have to think to open: a page
-          this short on a document this full is the one thing a reader cannot tell by looking at
-          what *is* there (docs/11 §11.5). */}
+      {/* 🔒 Above the text and above the *absence* of it. A document whose recognition returned
+          nothing is the case this warning exists for, and it is exactly the case with no text to
+          stand under: drawn after the empty state, it would never appear on the one document that
+          needs it most (docs/11 §11.5). */}
       {(quality === 'PARTIAL' || quality === 'NONE') && (
         <Alert
           type="warning"
@@ -609,7 +596,21 @@ function TextPane({
             : {})}
         />
       )}
-      <RenderedMarkdown markdown={markdown} />
+      {markdown === null || markdown === '' ? (
+        <Empty
+          description={
+            document.steps.markdown === 'FAILED'
+              ? t('viewer.textFailed')
+              : document.steps.markdown === 'RUNNING' ||
+                  document.steps.markdown === 'PENDING' ||
+                  document.steps.markdown === 'QUEUED'
+                ? t('viewer.textPending')
+                : t('viewer.noText')
+          }
+        />
+      ) : (
+        <RenderedMarkdown markdown={markdown} />
+      )}
     </Space>
   );
 }
@@ -1910,6 +1911,8 @@ function stepCost(event: DocumentEventDto, t: ReturnType<typeof useTranslations>
   if (payload.pages !== undefined) parts.push(t('viewer.log.cost.pages', { value: payload.pages }));
   if (payload.chars !== undefined) parts.push(t('viewer.log.cost.chars', { value: payload.chars }));
   if (payload.ocrUsed === true) parts.push(t('viewer.log.cost.ocr'));
+  // Two engines write the same field now, and which one wrote a bad result is the first question.
+  if (payload.transcribed === true) parts.push(t('viewer.log.cost.transcribed'));
   if (payload.promptTokens !== undefined || payload.completionTokens !== undefined) {
     parts.push(
       t('viewer.log.cost.tokens', {

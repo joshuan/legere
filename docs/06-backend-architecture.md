@@ -75,7 +75,7 @@ Job handlers live in `application/jobs/` and are use cases with the signature
 | `HandleLibraryScan` | `{ libraryId, scanRunId? }` | walk, diff, create/update FileRefs, enqueue `file-ingest`, write ScanRun |
 | `HandleFileIngest` | `{ fileRefId }` | hash stream, attach/create Document, enqueue `document-process` for new documents |
 | `HandleDocumentProcess` | `{ documentId, steps?: string[] }` | run steps 1–5 sequentially; `steps` limits re-processing to a subset |
-| `HandleMaintenance` (also re-enqueues documents stuck at PENDING, 05 §5.4) | `{}` | purge expired EmailVerifications/invites/resets; delete S3 artifacts of documents soft-deleted > 30 days ago is **not** done (retention: keep); compact nothing else |
+| `HandleMaintenance` (also re-enqueues documents whose steps have not started — `PENDING`, nothing scheduled, or `QUEUED`, a job that went missing — and marks what it takes as `QUEUED` at once, 05 §5.4) | `{}` | purge expired EmailVerifications/invites/resets; delete S3 artifacts of documents soft-deleted > 30 days ago is **not** done (retention: keep); compact nothing else |
 
 Every handler starts with an idempotency check ("already done? → return") and must tolerate
 re-delivery (pg-boss is at-least-once).
@@ -91,10 +91,11 @@ re-delivery (pg-boss is at-least-once).
 | `SessionTokens` | `generate(): {token, hash}`, `hash(token)` | `CryptoSessionTokens` |
 | `FileStorage` | `put(key, body, contentType)`, `getSignedUrl(key, ttlSec)`, `exists(key)`, `delete(key)` | `S3FileStorage` (AWS SDK v3) |
 | `LibraryReader` | `stat(lib, relPath)`, `list(lib, relPath)`, `openStream(lib, relPath)`, `walk(lib): AsyncIterable<FsEntry>` | `FsLibraryReader` (validates every path against the library root; follows no symlinks — `lstat`, skip links) |
-| `PdfToolbox` | `officeToPdf({body, fileName})`, `pdfFirstPageJpg(source, {dpi?})`, `ocrPdf(source, langs)`, `imagesToPdf([{body, fileName}])`, `pdfPageCount(source)`, `pdfToMarkdown(source)` — a source is a stream or a buffer; the file name travels with office/image input because the converter picks its filter from the extension | `StirlingPdfToolbox` (HTTP client, `STIRLING_URL`) |
-| `ImageTool` | `toJpegPreview(stream, {maxDim})`, `trim(stream, threshold)` | `SharpImageTool` |
+| `PdfToolbox` | `toPdf({body, fileName})`, `pdfPageJpg(source, {page?, dpi?})`, `ocrPdf(source, langs)`, `imagesToPdf([{body, fileName}])`, `scalePages(source, {pageSize, orientation})`, `mergePdfs(parts[])`, `stampMetadata(source, {title, date})`, `pdfPageCount(source)`, `pdfToMarkdown(source)` — a source is a stream or a buffer; the file name travels with office/image input because the converter picks its filter from the extension | `StirlingPdfToolbox` (HTTP client, `STIRLING_URL`) |
+| `ImageTool` | `toJpegPreview(source, {maxDim})`, `dimensions(source)`, `correctPage(source)`, `contentBox(source)`, `applyCrop(source, crop)`, `grayscaleRaster(source, maxDim)` | `SharpImageTool` |
 | `EmbeddingProvider` | `embed(texts[]): number[][]`, `isConfigured` | `OpenAiCompatEmbeddings` (fetch, `EMBEDDINGS_*` env) |
-| `DocumentAnalyst` | `analyze(markdownExcerpt, document types[]): { typeSlug, languages, country, city }`, `isConfigured` | `OpenAiCompatAnalyst` (chat-completions JSON answer) |
+| `DocumentAnalyst` | `analyze(excerpt, document types[], subject kinds[], known subjects[], language, pages[]): { title, description, typeSlug, languages, country, city, people, date, subjects, textQuality, usage }`, `isConfigured`, `endpoint` | `OpenAiCompatAnalyst` (chat-completions JSON answer; the pages travel as images) |
+| `PageTranscriber` | `transcribe(pages[], languages[]): { markdown, usage }`, `isConfigured`, `endpoint` | `OpenAiCompatTranscriber` — the recogniser of last resort (05 §5.5 step 3): a vision model reading the pages of a document that had to be recognised at all |
 | `JobQueue` | `enqueue(name, payload, opts?)`, `enqueueAfterTx(...)`, `scheduleCron(name, cron)` | `PgBossJobQueue` |
 | `QueueMonitor` | `overview()`, `failedJobs(cursor)`, `retry(jobId)` | `PgBossQueueMonitor` (raw SQL over the `pgboss` schema) |
 | `UnitOfWork` | `run<T>(fn: (tx) => Promise<T>)` | `PrismaUnitOfWork` (`$transaction`; repositories accept the tx handle) |
@@ -137,7 +138,7 @@ atomically.
 `AppModule` imports: `ConfigModule` (global), `LoggerModule` (nestjs-pino), `ThrottlerModule`,
 `PersistenceModule` (Prisma client + repositories + UnitOfWork), `StorageModule` (FileStorage,
 LibraryReader), `PdfModule` (PdfToolbox, ImageTool), `AiModule` (EmbeddingProvider,
-DocumentAnalyst), `QueueModule` (JobQueue, QueueMonitor, worker bootstrap), and the feature
+DocumentAnalyst, PageTranscriber), `QueueModule` (JobQueue, QueueMonitor, worker bootstrap), and the feature
 modules: `AuthModule`, `UsersModule`, `LibrariesModule`, `DocumentsModule`, `SearchModule`,
 `DocumentTypesModule`, `CollectionsModule`, `QueueAdminModule`, `HealthModule`.
 

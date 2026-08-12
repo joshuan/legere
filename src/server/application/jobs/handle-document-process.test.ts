@@ -1008,6 +1008,21 @@ describe('HandleDocumentProcess', () => {
       expect(stateOf().steps.analysis).toBe('DONE');
     });
 
+    it('stops calling a document too long once it has been analysed in full', async () => {
+      settings.analystAutoMaxPages = 10;
+      pdfs.pageCount = 40;
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      await run();
+      expect(stateOf().skipReasons.analysis).toBe('TOO_MANY_PAGES');
+
+      await handler.handle({ documentId: DOCUMENT_ID, analyseInFull: true });
+
+      // 🔒 A reason left behind outlives the thing it explained: the document would stay marked as
+      // too long to analyse and go on offering the button that asks for it again (docs/03 §3.3.10).
+      expect(stateOf().steps.analysis).toBe('DONE');
+      expect(stateOf().skipReasons.analysis).toBeUndefined();
+    });
+
     it('keeps the verdict on how well the text was extracted', async () => {
       settings.analystMaxPageImages = 1;
       pdfs.pageCount = 1;

@@ -193,6 +193,18 @@ describe('DocumentViewerScreen', () => {
     ).toBeInTheDocument();
   });
 
+  it('warns about text that is missing entirely, which is the case it exists for', async () => {
+    serve({ ...detail, auto: { ...detail.auto, textQuality: 'NONE' } }, null);
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);
+
+    // 🔒 Drawn after the empty state, the warning would never appear on the one document that needs
+    // it most: recognition returned nothing, so there is no text for it to stand under.
+    expect(await screen.findByText(enMessages.viewer.textQuality.NONE)).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: enMessages.viewer.textQuality.readAgain }),
+    ).toBeInTheDocument();
+  });
+
   it('says nothing about the text when the model found nothing wrong with it', async () => {
     serve({ ...detail, auto: { ...detail.auto, textQuality: 'GOOD' } }, '# Terms\n\nBody');
     renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);

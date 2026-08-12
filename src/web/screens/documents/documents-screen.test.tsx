@@ -395,6 +395,30 @@ describe('DocumentsScreen', () => {
       );
     });
 
+    it('narrows a section by its group even when the archive is already filtered to it', async () => {
+      currentSearch = `groupBy=person&personId=${PERSON_ID}`;
+      const asked: string[] = [];
+      server.use(
+        http.get('/api/documents/groups', () => HttpResponse.json(envelope({ items: GROUPS }))),
+        http.get('/api/documents', ({ request }) => {
+          asked.push(new URL(request.url).search);
+          return HttpResponse.json(envelope({ items: [], nextCursor: null }));
+        }),
+      );
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Ana Petrović · 12');
+
+      // 🔒 A section is not a press. Asked for the contents of a group the archive is already
+      // filtered to, the old toggle removed the filter and drew the whole archive under a heading
+      // that counted one group (docs/11 §11.3).
+      await waitFor(() => expect(asked.length).toBeGreaterThanOrEqual(GROUPS.length));
+      // Every section asks for its own group. The one whose key *is* the active filter asks for it
+      // too — the toggle used to drop it there and answer with the whole archive.
+      expect(asked.some((search) => search.includes(`personId=${PERSON_ID}`))).toBe(true);
+      expect(asked.every((search) => search.includes('personId='))).toBe(true);
+    });
+
     it('sets no filter by being looked at', async () => {
       currentSearch = 'groupBy=person';
       server.use(

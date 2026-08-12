@@ -278,6 +278,34 @@ The application lives and ships as a whole; isomorphic contracts are a plain fol
   ([`03 §3.3.10`](./03-domain-model.md)). Picture captioning is available and off — see
   [`12 §12.4`](./12-build-config-run.md) for the measured cost.
 
+### ADR-019. The recogniser of last resort — a vision model over the pages
+- **Decision:** a document that had to be *recognised* — `ocrUsed`, which is the photographed and
+  scanned case — has its pages sent as images to a vision model behind a `PageTranscriber` port, and
+  that transcription becomes the Markdown. A document that arrived carrying its own text layer is
+  untouched. `TRANSCRIBER_API_BASE_URL` empty leaves the OCR result standing, so an instance may run
+  without this exactly as before it existed.
+- **Why:** measured, on one real photograph of a lab report — 665 characters are legible on the page
+  and 415 reached the database, and the quarter that vanished was the results table, the only reason
+  that document exists. It is neither the page geometry nor the text-layer threshold: the same loss
+  reproduces on the raw photograph with no page around it, while cropping to the table alone reads it
+  correctly. Uneven light and bold text pressed against thin cell rules defeat a global binariser and
+  the layout pass behind it, and no amount of tuning lifts that floor. On the same page a vision
+  model returned nine rows of nine and eleven values of eleven, over twenty-two runs, with no wrong
+  value in any of them.
+- **Alternatives:** better preprocessing alone (ADR taken *as well* — see `05 §5.5` step 1 — but it
+  moves 643 characters to 768, not to the whole page); region segmentation and per-region OCR —
+  more machinery for a worse result than a model that reads the page; replacing tesseract outright —
+  rejected, the cheap path is free, perfect on born-digital text, and the only path an instance with
+  no AI has.
+- **Consequences:** a second optional AI provider, configured separately from the analyst because an
+  instance may want a different model for reading a page than for judging one. 🔒 Three failures were
+  measured before this was trusted and each is refused rather than believed: an answer that ran out
+  of room reads exactly like a finished one and is caught by `finish_reason`; a collapse to four
+  tokens is caught by refusing any transcription shorter than what OCR already had; and a
+  hallucinated Markdown image pointing at a temporary file **on the provider's own disk** appeared in
+  four runs of seven *despite the prompt forbidding it*, so those lines are stripped in code — an
+  instruction a model ignores is not a control.
+
 ### ADR-021. A file is not a document
 
 **Context.** Until v0.4 a document *was* a file: one content hash, one mime type, one size, one set

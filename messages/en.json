@@ -773,7 +773,8 @@
         "pages": "{value} pages",
         "chars": "{value} characters",
         "ocr": "recognised",
-        "tokens": "{prompt}+{completion} tokens"
+        "tokens": "{prompt}+{completion} tokens",
+        "transcribed": "Read by a model"
       }
     },
     "crop": {

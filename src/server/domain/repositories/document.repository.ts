@@ -50,7 +50,6 @@ export type ProcessingUpdate = {
   typeId?: string | null;
   typeSource?: ValueSource;
   title?: string;
-  pageFormat?: PageFormat;
   titleSource?: ValueSource;
   description?: string | null;
 };
@@ -211,6 +210,9 @@ export type StepMetrics = {
   // here, because only it knows what its tokenizer did.
   promptTokens?: number;
   completionTokens?: number;
+  // Which engine produced the text of this step. Two of them write the same field now, and "which
+  // one wrote this" is the first question anybody asks of a bad result (docs/05 §5.5 step 3).
+  transcribed?: boolean;
 };
 
 // One row of a search result before it becomes a DTO (docs/07 §7.3).

@@ -43,7 +43,7 @@ library volume, which stays read-only for the whole product (ADR-004).
   self-hosted instance this is a deliberate trade: an admin can see that a duplicate exists, and no
   library document is ever handed to a user through the back door.
 - The document is created with `source = UPLOAD`, `createdById` = the uploader, the file name as its
-  title, and every pipeline step `PENDING`; `document-process` is enqueued in the same transaction.
+  title, and every pipeline step `QUEUED`; `document-process` is enqueued in the same transaction.
 - From that point it is an ordinary document: the same five steps, the same viewer, the same search,
   the same collections and sharing. The only differences are where the bytes live and who owns it.
 - `UPLOAD_MAX_BYTES` (default 100 MiB) caps a single upload; a larger body is refused with
@@ -202,13 +202,14 @@ it belongs to the deployment and is written up in
 ## 5.5. Document processing pipeline (`document-process`)
 
 Steps run sequentially for a document; each step records its status
-(`PENDING / DONE / FAILED / SKIPPED`) — progress is visible in the admin panel. A step's failure does
+(`PENDING / QUEUED / RUNNING / DONE / FAILED / SKIPPED`) — progress is visible in the admin panel. A step's failure does
 not block steps independent of it (no preview — text is still extracted, and vice versa).
 
 ```
 files ──► (1) canonical PDF ──► (2) JPG preview ──► (3) Markdown ──► (4) analysis ──► (5) vectorization
             │
-            └─ per file: crop (images) → to PDF → merge in order → text layer → page format → metadata
+            └─ per file: crop (images) → correct (images) → to PDF → merge in order → text layer
+               → page format → metadata; and step 3 re-reads a recognised document with a vision model
 ```
 
 All derived artifacts (the canonical PDF, previews, Markdown files) are saved to the private S3 bucket

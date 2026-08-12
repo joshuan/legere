@@ -773,7 +773,8 @@
         "pages": "страниц: {value}",
         "chars": "символов: {value}",
         "ocr": "распознано",
-        "tokens": "токенов: {prompt}+{completion}"
+        "tokens": "токенов: {prompt}+{completion}",
+        "transcribed": "Прочитано моделью"
       }
     },
     "crop": {

@@ -98,10 +98,12 @@ export class HandleDocumentProcess extends JobHandler {
     super();
   }
 
-  // When the step in progress began. One entry at a time: the pipeline runs a document's steps one
-  // after another, and the pair of journal entries that brackets a step is exactly what should not
-  // have to be subtracted by hand to answer "how long did this take?" (docs/03 §3.3.18).
-  private startedAt: number | null = null;
+  // 🔒 When each step in flight began, keyed by the id of the call it belongs to. Not one field: the
+  // handler is a singleton and `QUEUE_CONCURRENCY_PROCESS` documents run through it at once, so a
+  // single slot would have the second document overwrite the first — the first would then be told
+  // the second's duration and the second none at all. The call id is already scoped to exactly one
+  // step by `running()`, which is the same reason `requestId` uses it (docs/03 §3.3.18).
+  private readonly startedAt = new Map<string, number>();
 
   async handle(rawPayload: unknown): Promise<void> {
     const payload = documentProcessPayloadSchema.parse(rawPayload);
@@ -122,7 +124,20 @@ export class HandleDocumentProcess extends JobHandler {
         { canonical: 'QUEUED', preview: 'QUEUED', markdown: 'QUEUED' },
         requested,
       ),
-      skipReasons: onlyRequested({ canonical: null, preview: null, markdown: null }, requested),
+      // 🔒 Every step this run may touch, not only the three that build the canonical: a reason left
+      // behind outlives the thing it explained. `TOO_MANY_PAGES` did exactly that — a document
+      // analysed in full stayed marked as too long to analyse, and went on offering the button that
+      // asks for it again (docs/03 §3.3.10).
+      skipReasons: onlyRequested(
+        {
+          canonical: null,
+          preview: null,
+          markdown: null,
+          analysis: null,
+          vectorization: null,
+        },
+        requested,
+      ),
       processingError: null,
       failedStep: null,
     });
@@ -195,10 +210,14 @@ export class HandleDocumentProcess extends JobHandler {
   // What the step spent. Only on the entry that settles it: a step in progress has spent nothing
   // yet, and a duration on a RUNNING entry would be a duration of nothing (docs/03 §3.3.18).
   private cost(status: StepStatus): { durationMs?: number } {
-    if (status === 'RUNNING' || this.startedAt === null) return {};
-    const durationMs = this.clock.now().getTime() - this.startedAt;
-    this.startedAt = null;
-    return { durationMs };
+    if (status === 'RUNNING') return {};
+    const call = this.calls.current;
+    const startedAt = call === null ? undefined : this.startedAt.get(call);
+    if (call === null || startedAt === undefined) return {};
+    // Removed as it is read: a step settles once, and a map that only grows is a leak in a process
+    // that runs for months.
+    this.startedAt.delete(call);
+    return { durationMs: this.clock.now().getTime() - startedAt };
   }
 
   // Which service does a step, and where it lives. A step the pipeline does by itself — resizing an
@@ -237,7 +256,8 @@ export class HandleDocumentProcess extends JobHandler {
     // (docs/03 §3.3.18).
     return this.calls.run(randomUUID(), async () => {
       const steps: Partial<DocumentSteps> = { [step]: 'RUNNING' };
-      this.startedAt = this.clock.now().getTime();
+      const call = this.calls.current;
+      if (call !== null) this.startedAt.set(call, this.clock.now().getTime());
       await this.write(documentId, { steps });
       return work();
     });
@@ -357,7 +377,7 @@ export class HandleDocumentProcess extends JobHandler {
         metrics: {
           chars: markdown.length,
           ocrUsed,
-          ...(transcribed?.usage ?? {}),
+          ...(transcribed === null ? {} : { transcribed: true, ...transcribed.usage }),
         },
         // Empty means "nothing to read", which is different from "not extracted yet"; the column
         // stays null so search and the viewer can tell those apart.

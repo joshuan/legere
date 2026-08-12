@@ -436,6 +436,9 @@ export const documentEventDtoSchema = z.object({
     ocrUsed: z.boolean().optional(),
     promptTokens: z.number().optional(),
     completionTokens: z.number().optional(),
+    // Whether the text of this step was read off the pages by a vision model rather than recognised
+    // (docs/05 §5.5 step 3).
+    transcribed: z.boolean().optional(),
     source: z.string().optional(),
     library: z.string().optional(),
     path: z.string().optional(),

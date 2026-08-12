@@ -435,6 +435,12 @@ function describeChanges(
   if (before.documentDate !== after.documentDate) {
     changes.documentDate = { from: before.documentDate, to: after.documentDate };
   }
+  // The one field here that rebuilds the document rather than correcting a record, and so the one
+  // most worth being able to trace afterwards: a canonical that changed shape and a journal that
+  // says only "queued" leaves nobody able to say why (docs/03 §3.3.18).
+  if (before.pageFormat !== after.pageFormat) {
+    changes.pageFormat = { from: before.pageFormat, to: after.pageFormat };
+  }
   return changes;
 }
 

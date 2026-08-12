@@ -211,7 +211,7 @@ one; the canonical is rebuildable from them at any moment, so it is an artifact 
 | canonicalStatus / previewStatus / markdownStatus / analysisStatus / vectorizationStatus | StepStatus | pipeline step statuses |
 | processingError | string? | last error message (truncated to 2000 chars) |
 | skipReasons | json | why a step is `SKIPPED`, per step — see below; empty for steps that ran |
-| autoValues | json | what the pipeline decided — `{title?, description?, typeSlug?, languages?, country?, city?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction |
+| autoValues | json | what the pipeline decided — `{title?, description?, typeSlug?, languages?, country?, city?, date?, people?, subjects?, textQuality?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction. `textQuality` is the odd one out: not a value the reader may correct but a judgement *about* the text — `GOOD`, `PARTIAL` or `NONE`, answered by the analysis because it is the only step that sees both the pages and what was read off them (`05 §5.5` step 4), and said where the text is read (`11 §11.5`) |
 | documentDate | date? | the date written on the document — signed, issued, departing. A date, not a timestamp: a signing has no clock, and midnight in some zone would invent a precision the paper does not have. Read by the analysis, editable |
 | languages | string[] | BCP-47 tags of what the document is written in, most likely first — `['ru']`, `['ru','sr-Latn']`. Detected from the extracted text, editable; empty when there was too little text to tell |
 | country | string? | ISO 3166-1 alpha-2 of where the document belongs — the issuer's country, the place of an event |
@@ -291,6 +291,7 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 | `NOT_CONFIGURED` | the instance has no classifier / embeddings provider (docs/05 §5.5) |
 | `NO_TYPES` | retained for documents processed before step 4 became a full analysis; no longer produced — with no document types defined the step still runs, because it also reads where the document is from |
 | `NO_TEXT` | the document yielded no text to embed |
+| `TOO_MANY_PAGES` | longer than `ANALYST_AUTO_MAX_PAGES`: not analysed unasked at all, because a verdict read off the first ten pages of a forty-page contract looks exactly like one read off the whole (`05 §5.5` step 4). A person may still ask, from the document's own page |
 | `MANUAL_TYPE` | a person chose the document type, and a machine never overwrites that |
 
 **Derived state (computed, not stored):**

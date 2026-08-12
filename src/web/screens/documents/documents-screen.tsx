@@ -440,13 +440,14 @@ function parseGroupBy(params: URLSearchParams): DocumentGroupBy | null {
 
 // Standing on a shelf, or stepping off it: the group's key goes into the filter that dimension is
 // reachable by, and pressing the shelf already being stood on comes back off it (docs/11 §11.3).
+// 🔒 Narrowing, never toggling. This used to flip the filter off when it already held the group's
+// key, back when pressing a shelf *set* that filter and pressing it again stepped off it. A section
+// is not a press: asked for the contents of group X while the archive is already filtered to X, the
+// toggle removed the filter and drew the whole archive under a heading that counted one group
+// (docs/11 §11.3).
 function withGroup(filters: DocumentFilters, by: DocumentGroupBy, key: string): DocumentFilters {
   const param = DOCUMENT_GROUP_FILTER[by];
   const next: DocumentFilters = { ...filters };
-  if (String(filters[param] ?? '') === key) {
-    delete next[param];
-    return next;
-  }
   // The year is the one dimension whose filter is a number rather than a string; every other key is
   // an id or a place, and travels as it came.
   if (param === 'year') next.year = Number(key);

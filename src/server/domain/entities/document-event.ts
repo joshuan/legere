@@ -32,6 +32,7 @@ export type DocumentEventPayload = {
   ocrUsed?: boolean | undefined;
   promptTokens?: number | undefined;
   completionTokens?: number | undefined;
+  transcribed?: boolean | undefined;
   source?: string | undefined;
   library?: string | undefined;
   path?: string | undefined;

@@ -54,11 +54,22 @@ enum FileOrigin {
 }
 
 enum StepStatus {
+  // PENDING and QUEUED are the two halves of what used to be one word (03 §3.3.10): QUEUED says a
+  // job exists, PENDING says nothing is scheduled — which is what a migration that resets a step
+  // leaves behind.
   PENDING
+  QUEUED
   RUNNING
   DONE
   FAILED
   SKIPPED
+}
+
+// What shape the pages of the canonical take (05 §5.5 step 1). AUTO reads it off the files.
+enum PageFormat {
+  AUTO
+  A4
+  MATCH_SOURCE
 }
 
 model Setting {
@@ -275,11 +286,11 @@ model Document {
   description          String?        @map("description")
   markdown             String?
   searchVector         Unsupported("tsvector")? @map("search_vector")
-  canonicalStatus      StepStatus     @default(PENDING) @map("canonical_status")
-  previewStatus        StepStatus     @default(PENDING) @map("preview_status")
-  markdownStatus       StepStatus     @default(PENDING) @map("markdown_status")
-  analysisStatus StepStatus     @default(PENDING) @map("analysis_status")
-  vectorizationStatus  StepStatus     @default(PENDING) @map("vectorization_status")
+  canonicalStatus      StepStatus     @default(QUEUED) @map("canonical_status")
+  previewStatus        StepStatus     @default(QUEUED) @map("preview_status")
+  markdownStatus       StepStatus     @default(QUEUED) @map("markdown_status")
+  analysisStatus StepStatus     @default(QUEUED) @map("analysis_status")
+  vectorizationStatus  StepStatus     @default(QUEUED) @map("vectorization_status")
   processingError      String?        @map("processing_error")
   skipReasons          Json           @default("{}") @map("skip_reasons")
   languages            String[]
