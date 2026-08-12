@@ -303,7 +303,11 @@ before the metadata of the thing it names.
   Fetched only when the tab is open — most visits never ask.
 - **Right (sidebar):** title (inline-editable when permitted), document type select (all users with
   access; shows "auto" tag when `typeSource=AUTO`), the **Download split button** of §11.5b,
-  Add-to-collection select, processing status panel: five steps, one row each
+  Add-to-collection select, **the page itself** — the first-page preview, between what may be done
+  with the document and what the pipeline is doing to it, shown only once that step has produced one.
+  Small on purpose: the readable copy is the pane on the left, and this answers "is this the right
+  document", which is a glance rather than a read. Then the processing status panel: five steps, one
+  row each
   (`RUNNING` in the panel means the pipeline is on that step right now — the viewer polls every 5 s
   while the document is processing, so a long step shows its progress by moving on, not by a bar),
   laid out as a grid — select, state, name — so every name starts at the same x whatever width the

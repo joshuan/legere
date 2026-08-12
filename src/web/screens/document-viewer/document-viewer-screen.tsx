@@ -317,6 +317,30 @@ export function DocumentViewerScreen({
             </Space>
           </Card>
 
+          {/* The page itself, between what you may do with the document and what the pipeline is doing
+              to it (docs/11 §11.5). Small on purpose: the readable copy is the pane on the left, and
+              this is the answer to "is this the right document" — which is a glance, not a read. */}
+          {detail.hasPreview && (
+            <Card styles={{ body: { padding: 8 } }}>
+              {/* The URL is an API route that 302s to a signed URL; next/image would proxy and cache
+                  private content through a shared optimizer (docs/10 §10.8). */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={documentFiles.preview(detail.id)}
+                alt=""
+                loading="lazy"
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  maxHeight: 320,
+                  objectFit: 'contain',
+                  // A page has an edge; a floating bitmap does not (docs/11 §11.15).
+                  background: 'var(--legere-well)',
+                }}
+              />
+            </Card>
+          )}
+
           <Card title={t('viewer.processing.title')} size="small">
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
               {/* One row per step: pick it, see its state, read what happened to it. A grid rather

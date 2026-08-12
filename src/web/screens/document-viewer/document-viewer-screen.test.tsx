@@ -180,6 +180,17 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('DocumentViewerScreen', () => {
+  it('shows the page itself beside what may be done with it', async () => {
+    serve(detail);
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+    expect(await screen.findByText(detail.title)).toBeInTheDocument();
+    // "Is this the right document" is a glance, not a read: the small one sits between the actions
+    // and the pipeline, the readable copy stays the pane on the left (docs/11 §11.5).
+    const previews = document.querySelectorAll(`img[src*="/${ID}/preview"]`);
+    expect(previews.length).toBeGreaterThan(0);
+  });
+
   it('embeds the canonical PDF, whatever the document is made of', async () => {
     // Two photographs, and still a PDF by the time it is readable (docs/05 §5.5, docs/11 §11.5).
     serve(twoFiles);
