@@ -22,6 +22,10 @@ export type ProcessingSettings = {
   // TOO_MANY_PAGES rather than run on a fraction of the document (docs/05 §5.5 step 4); `0` lifts
   // the limit. A person asking from the document's own page is not bound by it.
   analystAutoMaxPages: number;
+  // The recogniser of last resort (docs/05 §5.5 step 3): how many pages of a recognised document a
+  // vision model may be shown, and how large each of them travels.
+  transcriberMaxPages: number;
+  transcriberPageImageMaxDim: number;
   // The longest side of each of those pictures. A model reads a page, it does not print it.
   analystPageImageMaxDim: number;
 };

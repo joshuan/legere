@@ -9,6 +9,7 @@ import { CallContext } from '../../application/ports/call-context';
 import { LoggingModule } from '../../infrastructure/logging/logging.module';
 import { Clock } from '../../application/ports/clock';
 import { DocumentAnalyst } from '../../application/ports/document-analyst';
+import { PageTranscriber } from '../../application/ports/page-transcriber';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
 import { DocumentParser } from '../../application/ports/document-parser';
 import { FileStorage } from '../../application/ports/file-storage';
@@ -56,6 +57,8 @@ function processingSettings(config: AppConfig): ProcessingSettings {
     analystExcerptChars: config.get('ANALYST_EXCERPT_CHARS'),
     analystMaxPageImages: config.get('ANALYST_MAX_PAGE_IMAGES'),
     analystAutoMaxPages: config.get('ANALYST_AUTO_MAX_PAGES'),
+    transcriberMaxPages: config.get('TRANSCRIBER_MAX_PAGES'),
+    transcriberPageImageMaxDim: config.get('TRANSCRIBER_PAGE_IMAGE_MAX_DIM'),
     analystPageImageMaxDim: config.get('ANALYST_PAGE_IMAGE_MAX_DIM'),
   };
 }
@@ -192,6 +195,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         images: ImageTool,
         documentTypes: DocumentTypeRepository,
         classifier: DocumentAnalyst,
+        transcriber: PageTranscriber,
         people: PersonRepository,
         subjects: SubjectRepository,
         subjectKinds: SubjectKindRepository,
@@ -213,6 +217,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           images,
           documentTypes,
           classifier,
+          transcriber,
           people,
           subjects,
           subjectKinds,
@@ -234,6 +239,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         ImageTool,
         DocumentTypeRepository,
         DocumentAnalyst,
+        PageTranscriber,
         PersonRepository,
         SubjectRepository,
         SubjectKindRepository,

@@ -4,6 +4,7 @@ import {
   documentFixture,
   LIBRARY_ID,
   FakeAnalyst,
+  FakeTranscriber,
   FakeCallContext,
   FakeDocumentEventRepository,
   InMemoryPersonRepository,
@@ -62,6 +63,7 @@ describe('HandleDocumentProcess', () => {
   let images: FakeImageTool;
   let documentTypes: InMemoryCategoryRepository;
   let analyst: FakeAnalyst;
+  let transcriber: FakeTranscriber;
   // Mutable, so a test can say what step 4 is allowed to be shown without rebuilding the handler.
   let settings: ProcessingSettings;
   let clock: FixedClock;
@@ -101,6 +103,7 @@ describe('HandleDocumentProcess', () => {
 
     libraries.add(libraryFixture());
 
+    transcriber = new FakeTranscriber();
     clock = new FixedClock();
     settings = {
       previewMaxDim: PREVIEW_MAX_DIM,
@@ -115,6 +118,8 @@ describe('HandleDocumentProcess', () => {
       analystMaxPageImages: 0,
       analystPageImageMaxDim: 1200,
       analystAutoMaxPages: 0,
+      transcriberMaxPages: 0,
+      transcriberPageImageMaxDim: 1600,
     };
 
     handler = new HandleDocumentProcess(
@@ -137,6 +142,7 @@ describe('HandleDocumentProcess', () => {
       images,
       documentTypes,
       analyst,
+      transcriber,
       people,
       subjects,
       subjectKinds,
@@ -590,6 +596,79 @@ describe('HandleDocumentProcess', () => {
       await run();
 
       expect(stateOf().ocrUsed).toBe(true);
+    });
+
+    it('reads a recognised document with the vision model, and keeps that instead', async () => {
+      transcriber.configured = true;
+      transcriber.markdown = '| Chlamydia | не обнаружено |\n| Ureaplasma | не обнаружено |';
+      transcriber.usage = { promptTokens: 1500, completionTokens: 300 };
+      settings.transcriberMaxPages = 20;
+      pdfs.pageCount = 1;
+      // The page carries almost no text of its own, so step 1 recognises it — which is the case
+      // this whole path exists for.
+      pdfs.markdownByContent.set('image-pdf(photo)', '1\n\n2');
+      pdfs.markdownByContent.set('scaled-A4-PORTRAIT(ocr-pdf)', 'Recognized text from the scan');
+      await givenDocument([{ file: { mimeType: 'image/jpeg', ext: 'jpg' }, bytes: 'photo' }]);
+
+      await run();
+
+      // A photograph is exactly where the cheap path has a floor no tuning lifts: on one real lab
+      // report, 665 legible characters became 415, and the quarter that vanished was the results
+      // table (docs/05 §5.5 step 3).
+      expect(transcriber.calls).toHaveLength(1);
+      expect(stateOf().markdown).toContain('Chlamydia');
+      const finished = events.events.filter((event) => event.type === 'STEP_FINISHED');
+      const markdownStep = finished.find((event) => event.payload?.step === 'markdown');
+      expect(markdownStep?.payload?.promptTokens).toBe(1500);
+    });
+
+    it('leaves a document that carried its own text alone', async () => {
+      transcriber.configured = true;
+      settings.transcriberMaxPages = 20;
+      // Long enough that step 1 never OCRs it: reading a text layer is free and perfect, and no
+      // model improves on perfect.
+      pdfs.defaultMarkdown = 'A'.repeat(MIN_CHARS_PER_PAGE * 4);
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      expect(transcriber.calls).toHaveLength(0);
+    });
+
+    it('will not let the model empty a document it could not read', async () => {
+      transcriber.configured = true;
+      // A refusal, a truncated answer, a blank — all of them come back as less than there was.
+      transcriber.markdown = 'I cannot read this image.';
+      settings.transcriberMaxPages = 20;
+      pdfs.pageCount = 1;
+      // The page carries almost no text of its own, so step 1 recognises it — which is the case
+      // this whole path exists for.
+      pdfs.markdownByContent.set('image-pdf(photo)', '1\n\n2');
+      pdfs.markdownByContent.set('scaled-A4-PORTRAIT(ocr-pdf)', 'Recognized text from the scan');
+      await givenDocument([{ file: { mimeType: 'image/jpeg', ext: 'jpg' }, bytes: 'photo' }]);
+
+      await run();
+
+      // 🔒 What OCR already had stands: "it came back with less" is the one signal available before
+      // anybody reads it (docs/05 §5.5 step 3).
+      expect(stateOf().markdown).toBe('Recognized text from the scan');
+    });
+
+    it('keeps the recognised text when the transcriber is unreachable', async () => {
+      transcriber.configured = true;
+      transcriber.failing = true;
+      settings.transcriberMaxPages = 20;
+      pdfs.pageCount = 1;
+      // The page carries almost no text of its own, so step 1 recognises it — which is the case
+      // this whole path exists for.
+      pdfs.markdownByContent.set('image-pdf(photo)', '1\n\n2');
+      pdfs.markdownByContent.set('scaled-A4-PORTRAIT(ocr-pdf)', 'Recognized text from the scan');
+      await givenDocument([{ file: { mimeType: 'image/jpeg', ext: 'jpg' }, bytes: 'photo' }]);
+
+      await run();
+
+      expect(stateOf().steps.markdown).toBe('DONE');
+      expect(stateOf().markdown).toBe('Recognized text from the scan');
     });
 
     it('stores nothing rather than an empty string when there is no text at all', async () => {
@@ -1441,6 +1520,8 @@ describe('HandleDocumentProcess', () => {
       analystMaxPageImages: 20,
       analystPageImageMaxDim: 1200,
       analystAutoMaxPages: 0,
+      transcriberMaxPages: 0,
+      transcriberPageImageMaxDim: 1600,
     };
     return new HandleDocumentProcess(
       documents,
@@ -1462,6 +1543,7 @@ describe('HandleDocumentProcess', () => {
       images,
       documentTypes,
       analyst,
+      transcriber,
       people,
       subjects,
       subjectKinds,

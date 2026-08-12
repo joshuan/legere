@@ -62,7 +62,9 @@ export function hasUsableTextLayer(
 }
 
 // Whitespace is what a thin PDF text layer is mostly made of — positioning artefacts, not content.
-function meaningfulChars(page: string): number {
+// Exported because "did this come back with less than we already had" is the same question, asked of
+// a transcription rather than of a text layer (docs/05 §5.5 step 3).
+export function meaningfulChars(page: string): number {
   return page.replace(/\s+/g, '').length;
 }
 

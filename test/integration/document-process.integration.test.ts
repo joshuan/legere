@@ -25,6 +25,7 @@ import { InMemoryFileStorage } from '../../src/server/infrastructure/storage/in-
 import { disconnectTestPrisma, truncateAll } from '../helpers/db';
 import {
   FakeAnalyst,
+  FakeTranscriber,
   FakeCallContext,
   InMemorySettingsRepository,
   FakeEmbeddingProvider,
@@ -84,6 +85,8 @@ describe('Document processing (integration)', () => {
       analystMaxPageImages: 20,
       analystPageImageMaxDim: 1200,
       analystAutoMaxPages: 0,
+      transcriberMaxPages: 0,
+      transcriberPageImageMaxDim: 1600,
     };
 
     handler = new HandleDocumentProcess(
@@ -114,6 +117,7 @@ describe('Document processing (integration)', () => {
       new FakeImageTool(),
       moduleRef.get(DocumentTypeRepository),
       analyst,
+      new FakeTranscriber(),
       moduleRef.get(PersonRepository),
       moduleRef.get(SubjectRepository),
       moduleRef.get(SubjectKindRepository),

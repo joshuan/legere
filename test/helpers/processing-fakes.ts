@@ -66,6 +66,10 @@ import {
   type DocumentAnalysis,
 } from '../../src/server/application/ports/document-analyst';
 import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
+import {
+  PageTranscriber,
+  type TranscriptionUsage,
+} from '../../src/server/application/ports/page-transcriber';
 import { CallContext } from '../../src/server/application/ports/call-context';
 import type { Person } from '../../src/server/domain/entities/person';
 import {
@@ -1169,6 +1173,30 @@ export class FakeAnalyst extends DocumentAnalyst {
     this.calls.push({ excerpt, documentTypes, pages: pages.length });
     if (this.failing) return Promise.reject(new Error('Analyst request failed with 503'));
     return Promise.resolve(this.answer);
+  }
+}
+
+// The recogniser of last resort (docs/05 §5.5 step 3). Off unless a test says otherwise, because
+// most of them are about the cheap path.
+export class FakeTranscriber extends PageTranscriber {
+  configured = false;
+  failing = false;
+  readonly endpoint = 'http://transcriber.test';
+  markdown = '';
+  usage: TranscriptionUsage = {};
+  readonly calls: Array<{ pages: number; languages: readonly string[] }> = [];
+
+  get isConfigured(): boolean {
+    return this.configured;
+  }
+
+  transcribe(
+    pages: readonly PageImage[],
+    languages: readonly string[],
+  ): Promise<{ markdown: string; usage: TranscriptionUsage }> {
+    this.calls.push({ pages: pages.length, languages });
+    if (this.failing) return Promise.reject(new Error('Transcriber request failed with 503'));
+    return Promise.resolve({ markdown: this.markdown, usage: this.usage });
   }
 }
 

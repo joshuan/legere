@@ -11,6 +11,7 @@ import {
 } from '../../application/ports/document-analyst';
 import { AppConfig } from '../config/app-config';
 import { callHeaders } from '../logging/async-call-context';
+import { describeLanguage } from './language-names';
 
 // Chat-completions, the shape every OpenAI-compatible runtime implements (docs/06 §6.3.3).
 const completionResponseSchema = z.object({
@@ -261,15 +262,6 @@ function languageInstruction(language: string): string {
     ` in ${named}, whatever language the document itself is in. This is the language of the archive,` +
     ` not of the document.`
   );
-}
-
-// "ru" → "Russian". Intl knows the list; a table of language names here would go out of date.
-function describeLanguage(tag: string): string {
-  try {
-    return new Intl.DisplayNames(['en'], { type: 'language' }).of(tag) ?? tag;
-  } catch {
-    return tag;
-  }
 }
 
 // Everything this instance has to say, in the one message the document cannot write: what to answer,

@@ -111,6 +111,13 @@ CHUNK_OVERLAP_CHARS=200
 ANALYST_EXCERPT_CHARS=0                      # 0 = the whole text; a cap leaves the model naming a document from its letterhead (05 §5.5 step 4)
 ANALYST_MAX_PAGE_IMAGES=20                   # how many pages travel with that text as pictures
 ANALYST_AUTO_MAX_PAGES=10                    # past this the pipeline does not analyse unasked at all — 0 lifts it (05 §5.5 step 4)
+
+# --- the recogniser of last resort (05 §5.5 step 3): a vision model reading recognised pages ---
+TRANSCRIBER_API_BASE_URL=                    # empty = the tesseract result stands, as before this existed
+TRANSCRIBER_API_KEY=
+TRANSCRIBER_MODEL=                           # a model that accepts images
+TRANSCRIBER_MAX_PAGES=20                     # transcribing forty pages is a different decision from analysing them
+TRANSCRIBER_PAGE_IMAGE_MAX_DIM=1600
 ANALYST_PAGE_IMAGE_MAX_DIM=1200              # longest side of each of them: a model reads a page, it does not print it
 QUEUE_CONCURRENCY_INGEST=4
 QUEUE_CONCURRENCY_PROCESS=2

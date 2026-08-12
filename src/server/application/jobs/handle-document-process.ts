@@ -8,7 +8,11 @@ import {
 import type { Document, DocumentSteps } from '../../domain/entities/document';
 import { chunkMarkdown } from '../../domain/entities/document-chunks';
 import { detectLanguages, ocrLanguagesOf } from '../../domain/entities/document-language';
-import { hasUsableTextLayer, tidyMarkdown } from '../../domain/entities/document-text';
+import {
+  hasUsableTextLayer,
+  meaningfulChars,
+  tidyMarkdown,
+} from '../../domain/entities/document-text';
 import type { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import type { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import type {
@@ -25,6 +29,7 @@ import type { CallContext } from '../ports/call-context';
 import type { StepStatus } from '../../../shared/contracts/enums';
 import type { Clock } from '../ports/clock';
 import type { DocumentAnalysis, DocumentAnalyst, PageImage } from '../ports/document-analyst';
+import type { PageTranscriber, TranscriptionUsage } from '../ports/page-transcriber';
 import type { EmbeddingProvider } from '../ports/embedding-provider';
 import type { FileStorage } from '../ports/file-storage';
 import type { ImageTool } from '../ports/image-tool';
@@ -78,6 +83,7 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly images: ImageTool,
     private readonly documentTypes: DocumentTypeRepository,
     private readonly analyst: DocumentAnalyst,
+    private readonly transcriber: PageTranscriber,
     private readonly people: PersonRepository,
     private readonly subjects: SubjectRepository,
     private readonly subjectKinds: SubjectKindRepository,
@@ -330,7 +336,16 @@ export class HandleDocumentProcess extends JobHandler {
     }
 
     try {
-      const { markdown, ocrUsed } = await this.readCanonicalText(document, canonical);
+      const read = await this.readCanonicalText(document, canonical);
+      const ocrUsed = canonical.ocrUsed || read.ocrUsed;
+      // A document that had to be *recognised* is a photograph or a scan, and that is exactly where
+      // the cheap path has a floor no tuning lifts (docs/05 §5.5 step 3). One that arrived carrying
+      // its own text layer is left alone: reading it is free and perfect, and no model improves on
+      // perfect.
+      const transcribed = ocrUsed
+        ? await this.transcribePages(document, canonical.pageCount, read.markdown)
+        : null;
+      const markdown = transcribed?.markdown ?? read.markdown;
 
       // What the document turned out to be written in — the set a later OCR pass is given
       // (docs/03 §3.3.10). Detected here because this is where the text first exists.
@@ -339,7 +354,11 @@ export class HandleDocumentProcess extends JobHandler {
         steps: { markdown: 'DONE' },
         // 🔒 "It took four minutes" and "it returned nothing" are the two halves of one question,
         // and only one of them was ever written down (docs/03 §3.3.18).
-        metrics: { chars: markdown.length, ocrUsed: canonical.ocrUsed || ocrUsed },
+        metrics: {
+          chars: markdown.length,
+          ocrUsed,
+          ...(transcribed?.usage ?? {}),
+        },
         // Empty means "nothing to read", which is different from "not extracted yet"; the column
         // stays null so search and the viewer can tell those apart.
         markdown: markdown === '' ? null : markdown,
@@ -352,6 +371,40 @@ export class HandleDocumentProcess extends JobHandler {
       });
     } catch (error) {
       await this.recordFailure(document.id, 'markdown', error);
+    }
+  }
+
+  // The recogniser of last resort (docs/05 §5.5 step 3). Everything about this is best-effort: an
+  // unconfigured transcriber, a provider that refuses, a model that times out — all of them leave
+  // the text that OCR already produced, which is what this product had before.
+  //
+  // 🔒 And a transcription shorter than what OCR already had is not kept. A model that could not see
+  // the page — a refusal, a truncated answer, a blank — must not be able to empty a document that
+  // was readable, and "it came back with less" is the one signal available before anybody reads it.
+  private async transcribePages(
+    document: Document,
+    // 🔒 From the canonical that was just built, not from the row: the row this handler started with
+    // was read before step 1 wrote the page count to it, and a stale zero here would silently mean
+    // "no pages to show" — the failure that looks exactly like a disabled feature.
+    pageCount: number,
+    recognised: string,
+  ): Promise<{ markdown: string; usage: TranscriptionUsage } | null> {
+    if (!this.transcriber.isConfigured || this.settings.transcriberMaxPages === 0) return null;
+
+    try {
+      const pages = await this.renderPages(
+        document,
+        pageCount,
+        this.settings.transcriberMaxPages,
+        this.settings.transcriberPageImageMaxDim,
+      );
+      if (pages.length === 0) return null;
+
+      const transcription = await this.transcriber.transcribe(pages, document.languages);
+      const better = meaningfulChars(transcription.markdown) >= meaningfulChars(recognised);
+      return better ? { markdown: transcription.markdown, usage: transcription.usage } : null;
+    } catch {
+      return null;
     }
   }
 
@@ -402,19 +455,36 @@ export class HandleDocumentProcess extends JobHandler {
   //
   // Best-effort throughout: a page that will not render is a page the model does not get, and an
   // analysis on the text alone is worth more than a failed step.
-  private async pagesFor(document: Document): Promise<PageImage[]> {
-    const wanted = Math.min(document.pageCount ?? 0, this.settings.analystMaxPageImages);
-    if (wanted <= 0 || document.steps.canonical !== 'DONE') return [];
+  private pagesFor(document: Document): Promise<PageImage[]> {
+    // Step 4 runs on a document read again after step 3, so both its page count and its canonical
+    // status are current by then — which step 3, holding the row as it was before step 1 wrote to
+    // it, cannot say of itself.
+    if (document.steps.canonical !== 'DONE') return Promise.resolve([]);
+    return this.renderPages(
+      document,
+      document.pageCount ?? 0,
+      this.settings.analystMaxPageImages,
+      this.settings.analystPageImageMaxDim,
+    );
+  }
+
+  // The pages of the canonical as JPEGs, for whichever model is being shown them. Best-effort: a
+  // page that will not render ends the sequence, and what has been rendered so far still goes — an
+  // answer from the first three pages beats no answer at all.
+  private async renderPages(
+    document: Document,
+    pageCount: number,
+    limit: number,
+    maxDim: number,
+  ): Promise<PageImage[]> {
+    const wanted = Math.min(pageCount, limit);
+    if (wanted <= 0) return [];
 
     const pages: PageImage[] = [];
     for (let page = 1; page <= wanted; page += 1) {
       try {
         const rendered = await this.pdfs.pdfPageJpg(await this.openCanonical(document), { page });
-        pages.push({
-          bytes: await this.images.toJpegPreview(rendered, {
-            maxDim: this.settings.analystPageImageMaxDim,
-          }),
-        });
+        pages.push({ bytes: await this.images.toJpegPreview(rendered, { maxDim }) });
       } catch {
         break;
       }

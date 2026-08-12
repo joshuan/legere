@@ -115,6 +115,18 @@ export const configSchema = z.object({
   // pages of a forty-page contract is worse than no verdict, because it looks like one. A person may
   // still ask for the whole document from its own page (docs/05 §5.5 step 4). 0 = no limit.
   ANALYST_AUTO_MAX_PAGES: z.coerce.number().int().nonnegative().default(10),
+  // The recogniser of last resort (docs/05 §5.5 step 3): a vision model reading the pages of a
+  // document that had to be recognised at all. Empty leaves the tesseract result standing, which is
+  // how this product behaved before it existed. Separate from the analyst's own settings, because an
+  // instance may want a different model for reading a page than for judging one — or one and not the
+  // other.
+  TRANSCRIBER_API_BASE_URL: z.string().default(''),
+  TRANSCRIBER_API_KEY: z.string().default(''),
+  TRANSCRIBER_MODEL: z.string().default(''),
+  // How many pages of one document it may read. Transcribing forty pages is a different decision
+  // from analysing them, so it is a different number.
+  TRANSCRIBER_MAX_PAGES: z.coerce.number().int().nonnegative().default(20),
+  TRANSCRIBER_PAGE_IMAGE_MAX_DIM: z.coerce.number().int().positive().default(1600),
   ANALYST_PAGE_IMAGE_MAX_DIM: z.coerce.number().int().positive().default(1200),
   QUEUE_CONCURRENCY_INGEST: z.coerce.number().int().positive().default(4),
   QUEUE_CONCURRENCY_PROCESS: z.coerce.number().int().positive().default(2),

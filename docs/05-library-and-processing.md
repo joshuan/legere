@@ -279,6 +279,20 @@ they are served to the client via short-lived signed URLs after an access check.
      `rus+eng`) while it has none;
    - a document whose canonical could not be built at all → `FAILED`, with step 1's error kept as
      the reason rather than replaced by a second, less useful one.
+   🔒 **A document that had to be *recognised* is then read by something that can see.** Where
+   `ocrUsed` — a photograph, a scan — the pages go as images to a **vision model**
+   (`TRANSCRIBER_*`, `12 §12.4`) and its transcription becomes the Markdown. This is not a
+   refinement: measured on one real photograph of a lab report, 665 characters are legible on the
+   page and 415 reached the database, and the quarter that vanished was the results table — the only
+   reason that document exists. It is not the geometry and not the threshold; the same loss
+   reproduces on the raw photograph with no page around it, while cropping to the table alone reads
+   it correctly. Uneven light and bold text pressed against thin cell rules defeat a global binariser
+   and the layout pass behind it, and a model that looks at the page does not have that failure mode.
+   A document that arrived carrying its own text layer is left alone: reading it is free and perfect.
+   Unconfigured, or refusing, or timing out, leaves the recognised text exactly as this product had
+   it before — and **a transcription that comes back with less than OCR already had is not kept**,
+   because a model that could not see the page must not be able to empty a document that was
+   readable.
    The Markdown is stored with the document and indexed by PostgreSQL FTS.
 A step is marked `RUNNING` when the pipeline starts it and settles to its outcome when it ends, so
 a long step is visibly alive rather than indistinguishable from a queued one (03 §3.3.10).

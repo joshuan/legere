@@ -1,8 +1,10 @@
 import { Global, Module } from '@nestjs/common';
 import { DocumentAnalyst } from '../../application/ports/document-analyst';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
+import { PageTranscriber } from '../../application/ports/page-transcriber';
 import { OpenAiCompatAnalyst } from './openai-compat-analyst';
 import { OpenAiCompatEmbeddings } from './openai-compat-embeddings';
+import { OpenAiCompatTranscriber } from './openai-compat-transcriber';
 
 // The optional half of the pipeline (docs/06 §6.5). Both providers are always bound; each reports
 // whether it is configured, and the steps that use them skip themselves when it is not — an
@@ -12,7 +14,8 @@ import { OpenAiCompatEmbeddings } from './openai-compat-embeddings';
   providers: [
     { provide: EmbeddingProvider, useClass: OpenAiCompatEmbeddings },
     { provide: DocumentAnalyst, useClass: OpenAiCompatAnalyst },
+    { provide: PageTranscriber, useClass: OpenAiCompatTranscriber },
   ],
-  exports: [EmbeddingProvider, DocumentAnalyst],
+  exports: [EmbeddingProvider, DocumentAnalyst, PageTranscriber],
 })
 export class AiModule {}
