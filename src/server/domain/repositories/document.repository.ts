@@ -265,9 +265,11 @@ export abstract class DocumentRepository {
   // The documents whose named step sits in a given status, newest first — what "the previews failed,
   // run them again" needs to find (docs/07 §7.3). Bounded by the caller: a repair on a large archive
   // is meant to drain in batches, not in one push. Soft-deleted documents are not part of it.
+  // Documents to run again, newest first. An absent step or status is "any of them" — the widening
+  // question of docs/11 §11.13, asked in one place so the SQL says it once.
   abstract listIdsByStepStatus(
-    step: DocumentStep,
-    status: StepStatus,
+    step: DocumentStep | undefined,
+    status: StepStatus | undefined,
     limit: number,
     tx?: TransactionHandle,
   ): Promise<string[]>;

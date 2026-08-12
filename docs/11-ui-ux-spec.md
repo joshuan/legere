@@ -521,22 +521,43 @@ saved filters are built on the list.
 
 ## 11.13. Admin: Queue (`/admin/queue`)
 
-- **Queue depths** per job type: queued / active / recently failed, and the concurrency control of
-  the throughput settings below.
-- **Pipeline counters**, one row per step, one number per status. **Every number is a link**: it goes
-  to `/documents?step=preview&stepStatus=FAILED` — the documents behind it. A counter nobody can act
-  on is a number on a wall; the point of "12 failed previews" is the twelve documents.
-- **Retry by step.** Beside a step's `FAILED` (and `PENDING`) count, a **Run again** action
-  re-enqueues those documents for that step alone — the common repair after a container was down for
-  an hour, done in one gesture instead of five hundred. It says how many it enqueued, and it is
-  capped per call so a huge archive drains in batches rather than in one indigestible push.
+**One block per stage**, and everything about that stage inside it: how deep its queue is, how hard
+it is allowed to work, and — for the stage that has them — the steps it runs. Grouped this way round
+because every question asked of this screen is about one stage: "why is nothing happening in
+document-process" is answered by its depth, its concurrency and its steps together, and those used to
+sit in three bands at three ends of the page.
+
+- **Queue depth**: queued / active / recently failed, beside the concurrency that decides how fast
+  the depth falls. `document-process` also carries the units-per-job knob and the language the
+  analysis writes in, because that is the stage that writes those words.
+- **Pipeline counters**, inside the `document-process` block, one row per step, one number per
+  status. The steps are named **exactly as the document's own page names them** (`§11.5`): one
+  screen calling a step "Тип" while the other calls it "Анализ" is two names for one thing, and the
+  reader is left to work out that they are the same. Statuses are shown as the words the filters use,
+  not as the enum. **Every number is a link**: it goes to
+  `/documents?step=preview&stepStatus=FAILED` — the documents behind it. A counter nobody can act on
+  is a number on a wall; the point of "12 failed previews" is the twelve documents.
+- **Run again, at three widths**, and each is a different question rather than a bigger version of
+  the last: beside a **status**, the documents whose step sits in it; beside a **step**, that step
+  for every document whatever state it is in; and at the top of the block, the **whole pipeline** of
+  every document. 🔒 Every status carries it, not only the two that look broken — a step is re-run
+  because something *about it* changed, a container gained a language, a model was configured, a bug
+  was fixed, and by then the documents that need redoing are precisely the ones marked `DONE`.
+  Asking for a `QUEUED` one is not a mistake either: the job is keyed by the document, so a second
+  request collapses into the first rather than doubling it. Each says how many it enqueued and each
+  is capped per call, so a huge archive drains in batches rather than in one indigestible push.
+  It is an **icon**, repeated once per status per step: a worded button was the widest thing in the
+  row and pushed the counts off the card, and what it does is said on hover and to a screen reader,
+  where a repeated label belongs (`§11.15`).
 - **Pause and resume.** Each queue carries a switch. Paused, it keeps taking jobs and runs none of
   them: the depth grows where an admin can see it, and nothing is lost. It is the honest way to stop
   one misbehaving step — OCR thrashing, a model answering nonsense — without stopping the instance.
   A paused queue is labelled as paused everywhere its depth is shown, so a growing queue is never
   mistaken for a stuck one.
-- **Throughput settings:** per job type, how many run at once, and how many units inside one job do.
-  Changes take effect without a restart and survive one (`05 §5.4`).
+- **Throughput settings** live in the block of the stage they govern rather than in one row of
+  inputs: how many run at once, and for `document-process` how many units inside one job do. Changes
+  take effect without a restart and survive one (`05 §5.4`); the save is offered only once something
+  differs from what the server holds.
 - **Failed jobs** table: queue, payload summary, error, when, retry count, and a per-row Retry.
 - **Storage usage** as of the last maintenance run.
 

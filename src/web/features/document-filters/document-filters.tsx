@@ -126,7 +126,9 @@ export function DocumentFiltersBar({ value, onChange }: DocumentFiltersProps) {
           onClose={() => set({ step: undefined, stepStatus: undefined })}
         >
           {t('documents.filters.step', {
-            step: t(`admin.queue.steps.${value.step}`),
+            // The document's own page names the steps, and every other screen borrows that name:
+            // one vocabulary for one thing (docs/11 §11.13).
+            step: t(`viewer.steps.${value.step}`),
             status: t(`documents.filters.stepStatus.${value.stepStatus}`),
           })}
         </Tag>

@@ -308,7 +308,7 @@ answer with the whole `DocumentDetailDto`, because a composition change is never
 | `POST /api/admin/queue/failures/:jobId/retry` | 🔒ᴬ | re-enqueues a copy of the job → `{ ok: true }` |
 | `GET /api/admin/queue/settings` | 🔒ᴬ | → `{ concurrency: { <queue>: number }, unitConcurrency }` — every queue, with the env defaults where nothing is stored (03 §3.3.21) |
 | `PATCH /api/admin/queue/settings` | 🔒ᴬ | the same shape, sent whole; values are clamped to 1…32 rather than refused, and the workers are re-registered immediately so the change needs no restart. `paused` is the list of queues whose workers are not registered at all: jobs still arrive and wait, nothing consumes them (05 §5.4) |
-| `POST /api/admin/queue/reprocess` | 🔒ᴬ | `{ step, status }` → `{ enqueued: number }`. Re-enqueues `document-process` for every document whose named step sits in that status, newest first, at most `QUEUE_REPROCESS_MAX` (default 500) a call — the answer to "the previews failed, run them again" without opening five hundred documents |
+| `POST /api/admin/queue/reprocess` | 🔒ᴬ | `{ step?, status? }` → `{ enqueued: number }`. Each absence widens the question by a level: both — the documents whose named step sits in that status; `step` alone — that step whatever state it is in; neither — the whole pipeline of every document, which is the same work the button on one document's own page asks for. Re-enqueues `document-process` for every document whose named step sits in that status, newest first, at most `QUEUE_REPROCESS_MAX` (default 500) a call — the answer to "the previews failed, run them again" without opening five hundred documents |
 
 ### Admin: the instance itself
 

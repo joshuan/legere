@@ -39,9 +39,13 @@ export const queueOverviewResponseSchema = z.object({
 export type QueueOverviewResponse = z.infer<typeof queueOverviewResponseSchema>;
 
 // POST /api/admin/queue/reprocess — "the previews failed, run them again" (docs/11 §11.13).
+// Both halves are optional, and each absence widens the question by one level (docs/11 §11.13):
+// step and status — the documents whose named step sits in that status; step alone — that step
+// whatever state it is in; neither — the whole pipeline of every document. The cap on one call
+// (`QUEUE_REPROCESS_MAX`) is what keeps the widest of those from becoming an indigestible push.
 export const reprocessByStepRequestSchema = z.object({
-  step: documentStepSchema,
-  status: stepStatusSchema,
+  step: documentStepSchema.optional(),
+  status: stepStatusSchema.optional(),
 });
 export type ReprocessByStepRequest = z.infer<typeof reprocessByStepRequestSchema>;
 

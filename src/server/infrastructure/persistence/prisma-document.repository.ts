@@ -380,16 +380,32 @@ function filters(query: DocumentFilterInput): Prisma.DocumentWhereInput {
 
 // Which column each step of the pipeline records itself in (docs/03 §3.3.10). A step is a name in
 // the API and a column in the table; this is the one place the two are tied together.
-const STEP_STATUS_FILTER: Record<DocumentStep, (status: StepStatus) => Prisma.DocumentWhereInput> =
-  {
-    canonical: (status) => ({ canonicalStatus: status }),
-    preview: (status) => ({ previewStatus: status }),
-    markdown: (status) => ({ markdownStatus: status }),
-    analysis: (status) => ({ analysisStatus: status }),
-    vectorization: (status) => ({ vectorizationStatus: status }),
-  };
+const STEP_STATUS_FILTER: Record<
+  DocumentStep,
+  (status: StepStatus | undefined) => Prisma.DocumentWhereInput
+> = {
+  // An absent status is "any of them", which for one column is no condition at all rather than a
+  // list of every value it could hold.
+  canonical: (status) => (status === undefined ? {} : { canonicalStatus: status }),
+  preview: (status) => (status === undefined ? {} : { previewStatus: status }),
+  markdown: (status) => (status === undefined ? {} : { markdownStatus: status }),
+  analysis: (status) => (status === undefined ? {} : { analysisStatus: status }),
+  vectorization: (status) => (status === undefined ? {} : { vectorizationStatus: status }),
+};
 
-function stepStatusFilter(step: DocumentStep, status: StepStatus): Prisma.DocumentWhereInput {
+// Which documents a repair is asking about (docs/11 §11.13). Each absence widens the question by a
+// level: a step and a status name one column and one value; a step alone, that column whatever it
+// holds; neither, every document there is — which is the honest reading of "run the whole thing
+// again" and the only one that does not need a special case downstream.
+function stepStatusFilter(
+  step: DocumentStep | undefined,
+  status: StepStatus | undefined,
+): Prisma.DocumentWhereInput {
+  if (step === undefined) {
+    // A status with no step would have to mean "any step in this state", which is a different
+    // question with a different answer per column; the API does not offer it and neither does this.
+    return {};
+  }
   return STEP_STATUS_FILTER[step](status);
 }
 
@@ -890,8 +906,8 @@ export class PrismaDocumentRepository implements DocumentRepository {
   }
 
   async listIdsByStepStatus(
-    step: DocumentStep,
-    status: StepStatus,
+    step: DocumentStep | undefined,
+    status: StepStatus | undefined,
     limit: number,
     tx?: TransactionHandle,
   ): Promise<string[]> {

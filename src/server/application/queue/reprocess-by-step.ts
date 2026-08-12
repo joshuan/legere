@@ -25,8 +25,16 @@ export class ReprocessDocumentsByStep {
 
     // One at a time: this is repair work on a queue that will run it in parallel anyway, and a
     // burst of concurrent writes here buys nothing but contention.
+    //
+    // No step named means the whole pipeline of each document, which is what `undefined` already
+    // means to the single reprocess — so the widest question here and the button on one document's
+    // own page end up asking for exactly the same work.
     for (const documentId of ids) {
-      await this.reprocess.execute(documentId, [input.step], actorId);
+      await this.reprocess.execute(
+        documentId,
+        input.step === undefined ? undefined : [input.step],
+        actorId,
+      );
     }
 
     return { enqueued: ids.length };

@@ -6,7 +6,6 @@ import {
   Button,
   Card,
   Col,
-  Form,
   InputNumber,
   Row,
   Select,
@@ -17,7 +16,9 @@ import {
   Tag,
   Typography,
   theme,
+  Tooltip,
 } from 'antd';
+import { QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
@@ -34,11 +35,16 @@ import { formatBytes, useErrorMessage } from '../../shared/lib';
 // long error message while the table reorders underneath is the opposite of useful.
 const REFRESH_MS = 5000;
 
-// The statuses a step can be asked to run again from: work nothing is scheduled for, and work that
-// broke. QUEUED is not among them — something is already coming for it, and asking again would only
-// add a second job for the same document (docs/11 §11.13). Re-running a DONE step is a different
-// request — one document at a time, from its own page.
-const RERUNNABLE: readonly StepStatus[] = ['PENDING', 'FAILED'];
+// The queue the five document steps run in: the only stage whose block holds a pipeline, because it
+// is the only one that has one (docs/05 §5.5).
+const DOCUMENT_QUEUE = 'document-process';
+
+// Every state can be asked to run again (docs/11 §11.13). It used to be only the two that look
+// broken, which answered the wrong question: a step is re-run because something *about it* changed —
+// a container gained a language, a model was configured, a bug was fixed — and by then the documents
+// that need redoing are the ones marked DONE. Asking for a QUEUED one is not a mistake either: the
+// job is keyed by document, so a second request collapses into the first rather than doubling it.
+const RERUNNABLE: readonly StepStatus[] = stepStatusSchema.options;
 
 // /admin/queue (docs/11 §11.13): what the queue is doing, and what failed.
 export function AdminQueueScreen() {
@@ -50,30 +56,38 @@ export function AdminQueueScreen() {
 
   const [live, setLive] = useState(true);
 
-  const [settingsForm] = Form.useForm<Record<string, number>>();
   const settings = useQuery({ queryKey: queueKeys.settings, queryFn: queueSettingsApi.read });
 
-  // The form is filled from the server's answer once it arrives, and never fought with afterwards:
-  // a knob somebody is typing into must not jump under them on a refetch.
+  // The knobs are held here rather than in a form, because they now live one per stage block instead
+  // of in one row of inputs. Filled from the server's answer once it arrives and never fought with
+  // afterwards: a number somebody is typing into must not jump under them on a refetch.
+  const [draft, setDraft] = useState<{
+    concurrency: Record<string, number>;
+    unitConcurrency: number;
+  } | null>(null);
+
   useEffect(() => {
-    if (settings.data !== undefined) {
-      settingsForm.setFieldsValue({
-        ...settings.data.concurrency,
+    if (settings.data !== undefined && draft === null) {
+      setDraft({
+        concurrency: { ...settings.data.concurrency },
         unitConcurrency: settings.data.unitConcurrency,
       });
     }
-  }, [settings.data, settingsForm]);
+  }, [settings.data, draft]);
 
-  const [analysisForm] = Form.useForm<{ language?: string | undefined }>();
   const analysis = useQuery({ queryKey: queueKeys.analysis, queryFn: analysisSettingsApi.read });
+  const [language, setLanguage] = useState<string | undefined>(undefined);
 
   useEffect(() => {
+    // Once, like the throughput above: a select nobody has touched follows the server, and one
+    // somebody has opened does not close under them on a refetch.
     if (analysis.data !== undefined) {
-      analysisForm.setFieldsValue({
-        language: analysis.data.language === '' ? undefined : analysis.data.language,
-      });
+      setLanguage(
+        (current) =>
+          current ?? (analysis.data.language === '' ? undefined : analysis.data.language),
+      );
     }
-  }, [analysis.data, analysisForm]);
+  }, [analysis.data]);
 
   const saveAnalysis = useMutation({
     mutationFn: analysisSettingsApi.save,
@@ -83,6 +97,33 @@ export function AdminQueueScreen() {
     },
     onError: (error: unknown) => void message.error(describeError(error)),
   });
+
+  // What the stage blocks write into, and what tells the save button there is anything to save.
+  const setConcurrency = (queue: string, value: number): void =>
+    setDraft((current) =>
+      current === null
+        ? current
+        : { ...current, concurrency: { ...current.concurrency, [queue]: value } },
+    );
+
+  const saveThroughput = (): void => {
+    if (draft === null) return;
+    saveSettings.mutate({
+      concurrency: draft.concurrency,
+      unitConcurrency: draft.unitConcurrency,
+      // Sent whole (docs/07 §7.3): the pause switches live in each block's header, and saving the
+      // throughput must not quietly resume what somebody paused.
+      paused,
+    });
+  };
+
+  const changed =
+    draft !== null &&
+    settings.data !== undefined &&
+    (draft.unitConcurrency !== settings.data.unitConcurrency ||
+      Object.entries(draft.concurrency).some(
+        ([queue, value]) => settings.data?.concurrency[queue] !== value,
+      ));
 
   const saveSettings = useMutation({
     mutationFn: queueSettingsApi.save,
@@ -209,144 +250,150 @@ export function AdminQueueScreen() {
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]}>
-        {(overview.data?.queues ?? []).map((queue) => (
-          <Col key={queue.name} xs={24} sm={12} lg={6}>
-            <Card
-              size="small"
-              // A paused queue is labelled as paused everywhere its depth is shown, so a growing
-              // queue is never mistaken for a stuck one (docs/11 §11.13).
-              title={
-                <Space size={4}>
-                  {queue.name}
-                  {paused.includes(queue.name) && (
-                    <Tag color="orange">{t('admin.queue.pause.tag')}</Tag>
-                  )}
-                </Space>
-              }
-              extra={
-                <Switch
-                  size="small"
-                  checked={paused.includes(queue.name)}
-                  disabled={settings.data === undefined}
-                  loading={saveSettings.isPending}
-                  aria-label={t('admin.queue.pause.switch', { queue: queue.name })}
-                  onChange={(pause) => togglePause(queue.name, pause)}
-                />
-              }
-              loading={overview.isPending}
-            >
-              <Space size="large">
-                <Statistic title={t('admin.queue.queued')} value={queue.queued} />
-                <Statistic title={t('admin.queue.active')} value={queue.active} />
-                <Statistic
-                  title={t('admin.queue.failedRecent')}
-                  value={queue.failedRecent}
-                  // Red only when there is something to be alarmed about.
-                  {...(queue.failedRecent > 0 ? { valueStyle: { color: token.colorError } } : {})}
-                />
-              </Space>
-            </Card>
-          </Col>
-        ))}
-      </Row>
-
-      {/* How hard the instance works (docs/11 §11.13). Saved and applied at once: the workers are
-          re-registered rather than waiting for the container to be bounced. */}
-      <Card title={t('admin.queue.settings.title')} loading={settings.isPending}>
-        <Form
-          form={settingsForm}
-          layout="inline"
-          onFinish={(values: Record<string, number>) => {
-            const { unitConcurrency, ...concurrency } = values;
-            saveSettings.mutate({
-              concurrency,
-              unitConcurrency: unitConcurrency ?? 1,
-              // Sent whole (docs/07 §7.3): the pause switches live on the cards above, and saving
-              // the throughput must not quietly resume what somebody paused.
-              paused,
-            });
-          }}
-        >
-          {Object.keys(settings.data?.concurrency ?? {}).map((queue) => (
-            <Form.Item key={queue} name={queue} label={queue}>
-              <InputNumber min={1} max={32} style={{ width: 80 }} />
-            </Form.Item>
-          ))}
-          <Form.Item
-            name="unitConcurrency"
-            label={t('admin.queue.settings.unitConcurrency')}
-            tooltip={t('admin.queue.settings.unitConcurrencyHint')}
-          >
-            <InputNumber min={1} max={32} style={{ width: 80 }} />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" loading={saveSettings.isPending}>
-              {t('common.actions.save')}
-            </Button>
-          </Form.Item>
-        </Form>
-
-        {/* One language for everything the machine writes, so an archive does not end up with a
-            Russian title over an English description (docs/05 §5.5). Empty keeps what it did
-            before: each field in the language of its own document. */}
-        <Form
-          form={analysisForm}
-          layout="inline"
-          style={{ marginTop: 16 }}
-          onFinish={(values: { language?: string | undefined }) =>
-            saveAnalysis.mutate({ language: values.language ?? '' })
+      {/* One block per stage of the pipeline, each holding everything about that stage: how deep
+          its queue is, how hard it is allowed to work, and — for the stage that has them — the steps
+          it runs with their counts and the way to run them again (docs/11 §11.13). Grouped this way
+          round because a question is always about one stage: "why is nothing happening in
+          document-process" is answered by its depth, its concurrency and its steps together, and
+          those used to live in three bands at three ends of the page. */}
+      {(overview.data?.queues ?? []).map((queue) => (
+        <Card
+          key={queue.name}
+          loading={overview.isPending}
+          title={
+            <Space size={8}>
+              <Typography.Text strong>{queue.name}</Typography.Text>
+              {paused.includes(queue.name) && (
+                <Tag color="orange">{t('admin.queue.pause.tag')}</Tag>
+              )}
+            </Space>
+          }
+          extra={
+            <Space size={8}>
+              <Switch
+                size="small"
+                checked={paused.includes(queue.name)}
+                disabled={settings.data === undefined}
+                loading={saveSettings.isPending}
+                aria-label={t('admin.queue.pause.switch', { queue: queue.name })}
+                onChange={(pause) => togglePause(queue.name, pause)}
+              />
+            </Space>
           }
         >
-          <Form.Item
-            name="language"
-            label={t('admin.queue.settings.analysisLanguage')}
-            tooltip={t('admin.queue.settings.analysisLanguageHint')}
-          >
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              style={{ minWidth: 220 }}
-              placeholder={t('admin.queue.settings.analysisLanguageAuto')}
-              options={LANGUAGE_OPTIONS}
-            />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" loading={saveAnalysis.isPending}>
-              {t('common.actions.save')}
-            </Button>
-          </Form.Item>
-        </Form>
-      </Card>
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <Space size="large" wrap>
+              <Statistic title={t('admin.queue.queued')} value={queue.queued} />
+              <Statistic title={t('admin.queue.active')} value={queue.active} />
+              <Statistic
+                title={t('admin.queue.failedRecent')}
+                value={queue.failedRecent}
+                // Red only when there is something to be alarmed about.
+                {...(queue.failedRecent > 0 ? { valueStyle: { color: token.colorError } } : {})}
+              />
+            </Space>
 
-      <Card
-        title={t('admin.queue.pipeline.title')}
-        loading={overview.isPending}
-        extra={
-          <Typography.Text type="secondary">
-            {t('admin.queue.pipeline.total', { count: overview.data?.documents.total ?? 0 })}
-          </Typography.Text>
-        }
-      >
-        <Row gutter={[16, 16]}>
-          {(overview.data?.documents.steps ?? []).map((step) => (
-            <Col key={step.step} xs={24} sm={12} lg={8} xl={4}>
-              <Card size="small" type="inner" title={t(`admin.queue.steps.${step.step}`)}>
-                <StepCounters
-                  step={step}
-                  onRunAgain={(status) => reprocess.mutate({ step: step.step, status })}
-                  running={
-                    reprocess.isPending && reprocess.variables?.step === step.step
-                      ? reprocess.variables.status
-                      : null
+            {/* How hard this stage may work, beside how much work it has. Saved and applied at once:
+                the workers are re-registered rather than waiting for the container to be bounced
+                (docs/11 §11.13). */}
+            <Space size="middle" wrap align="end">
+              <Statistic
+                title={t('admin.queue.settings.concurrency')}
+                valueRender={() => (
+                  <InputNumber
+                    min={1}
+                    max={32}
+                    style={{ width: 80 }}
+                    value={draft?.concurrency[queue.name] ?? 1}
+                    disabled={draft === null}
+                    onChange={(value) => setConcurrency(queue.name, value ?? 1)}
+                  />
+                )}
+              />
+              {queue.name === DOCUMENT_QUEUE && (
+                <Statistic
+                  title={
+                    <Space size={4}>
+                      {t('admin.queue.settings.unitConcurrency')}
+                      <Tooltip title={t('admin.queue.settings.unitConcurrencyHint')}>
+                        <QuestionCircleOutlined />
+                      </Tooltip>
+                    </Space>
                   }
+                  valueRender={() => (
+                    <InputNumber
+                      min={1}
+                      max={32}
+                      style={{ width: 80 }}
+                      value={draft?.unitConcurrency ?? 1}
+                      disabled={draft === null}
+                      onChange={(value) =>
+                        setDraft((current) =>
+                          current === null ? current : { ...current, unitConcurrency: value ?? 1 },
+                        )
+                      }
+                    />
+                  )}
                 />
-              </Card>
-            </Col>
-          ))}
-        </Row>
-      </Card>
+              )}
+              <Button
+                type="primary"
+                loading={saveSettings.isPending}
+                disabled={draft === null || !changed}
+                onClick={saveThroughput}
+              >
+                {t('common.actions.save')}
+              </Button>
+            </Space>
+
+            {queue.name === DOCUMENT_QUEUE && (
+              <>
+                {/* One language for everything the machine writes, so an archive does not end up
+                    with a Russian title over an English description (docs/05 §5.5). It belongs to
+                    this stage because this is the stage that writes those words. */}
+                <Space size="middle" wrap align="end">
+                  <Statistic
+                    title={
+                      <Space size={4}>
+                        {t('admin.queue.settings.analysisLanguage')}
+                        <Tooltip title={t('admin.queue.settings.analysisLanguageHint')}>
+                          <QuestionCircleOutlined />
+                        </Tooltip>
+                      </Space>
+                    }
+                    valueRender={() => (
+                      <Select
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                        style={{ minWidth: 220 }}
+                        placeholder={t('admin.queue.settings.analysisLanguageAuto')}
+                        value={language}
+                        onChange={setLanguage}
+                        options={LANGUAGE_OPTIONS}
+                      />
+                    )}
+                  />
+                  <Button
+                    loading={saveAnalysis.isPending}
+                    disabled={analysis.data === undefined}
+                    onClick={() => saveAnalysis.mutate({ language: language ?? '' })}
+                  >
+                    {t('common.actions.save')}
+                  </Button>
+                </Space>
+
+                <PipelineSteps
+                  steps={overview.data?.documents.steps ?? []}
+                  total={overview.data?.documents.total ?? 0}
+                  onRunAgain={(request) => reprocess.mutate(request)}
+                  running={reprocess.isPending ? (reprocess.variables ?? null) : null}
+                />
+              </>
+            )}
+          </Space>
+        </Card>
+      ))}
 
       <Card title={t('admin.queue.storage.title')} loading={overview.isPending}>
         {storage === null ? (
@@ -398,6 +445,101 @@ export function AdminQueueScreen() {
 // One line per status that actually has documents in it; a step with nothing in a status should not
 // spend a row saying zero. In the statuses' own order rather than the server's, so the five cards
 // read alike.
+// The steps of the pipeline, as the document's own page names them (docs/11 §11.5): one screen
+// calling the same step "Тип" and the other "Анализ" is two names for one thing, and the reader has
+// to work out that they are the same.
+function PipelineSteps({
+  steps,
+  total,
+  onRunAgain,
+  running,
+}: {
+  steps: readonly StepCountersDto[];
+  total: number;
+  onRunAgain: (request: ReprocessByStepRequest) => void;
+  // The request being run right now, if any — so exactly the button that was pressed spins.
+  running: ReprocessByStepRequest | null;
+}) {
+  const t = useTranslations();
+
+  return (
+    <Card
+      size="small"
+      type="inner"
+      title={t('admin.queue.pipeline.title')}
+      extra={
+        <Space size={8}>
+          <Typography.Text type="secondary">
+            {t('admin.queue.pipeline.total', { count: total })}
+          </Typography.Text>
+          {/* The whole pipeline of every document. Kept at the top of the block rather than beside
+              a step, because it is not a bigger version of a step's button — it is a different
+              question (docs/11 §11.13). */}
+          <RunAgain
+            label={t('admin.queue.actions.runAll')}
+            loading={running !== null && running.step === undefined}
+            onClick={() => onRunAgain({})}
+          />
+        </Space>
+      }
+    >
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        {steps.map((step) => (
+          <Row key={step.step} align="middle" wrap gutter={[8, 8]}>
+            <Col flex="180px">
+              <Space size={4}>
+                <Typography.Text strong>{t(`viewer.steps.${step.step}`)}</Typography.Text>
+                <RunAgain
+                  label={t('admin.queue.actions.runStep')}
+                  loading={
+                    running !== null && running.step === step.step && running.status === undefined
+                  }
+                  onClick={() => onRunAgain({ step: step.step })}
+                />
+              </Space>
+            </Col>
+            <Col flex="auto">
+              <StepCounters
+                step={step}
+                onRunAgain={(status) => onRunAgain({ step: step.step, status })}
+                running={
+                  running !== null && running.step === step.step ? (running.status ?? null) : null
+                }
+              />
+            </Col>
+          </Row>
+        ))}
+      </Space>
+    </Card>
+  );
+}
+
+// An icon, not a sentence. Repeated once per status per step, a worded button was both the widest
+// thing in the row and the thing that pushed the counts off the card (docs/11 §11.15); what it does
+// is said on hover and to a screen reader, where a repeated label belongs.
+function RunAgain({
+  label,
+  loading,
+  onClick,
+}: {
+  label: string;
+  loading: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip title={label}>
+      <Button
+        size="small"
+        type="text"
+        icon={<ReloadOutlined />}
+        aria-label={label}
+        loading={loading}
+        onClick={onClick}
+      />
+    </Tooltip>
+  );
+}
+
 function StepCounters({
   step,
   onRunAgain,
@@ -417,23 +559,25 @@ function StepCounters({
   if (entries.length === 0) return <Typography.Text type="secondary">—</Typography.Text>;
 
   return (
-    <Space direction="vertical" size={0}>
+    <Space size={[16, 8]} wrap>
       {entries.map(({ status, count }) => (
         <Space key={status} size={4}>
-          <Tag color={statusColor(status)}>{status}</Tag>
+          {/* The word, not the enum: the same status is named in the filter above and on the
+              document's own page, and a screen that says QUEUED where the others say "в очереди" is
+              a third vocabulary to learn (docs/11 §11.13). */}
+          <Tag color={statusColor(status)} style={{ marginInlineEnd: 0 }}>
+            {t(`documents.filters.stepStatus.${status}`)}
+          </Tag>
           {/* A counter nobody can act on is a number on a wall: the point of "12 failed previews"
               is the twelve documents (docs/11 §11.13). Both halves travel, never one — the API
               refuses half the question. */}
           <Link href={`/documents?step=${step.step}&stepStatus=${status}`}>{count}</Link>
           {RERUNNABLE.includes(status) && (
-            <Button
-              size="small"
-              type="link"
+            <RunAgain
+              label={t('admin.queue.actions.runAgain')}
               loading={running === status}
               onClick={() => onRunAgain(status)}
-            >
-              {t('admin.queue.actions.runAgain')}
-            </Button>
+            />
           )}
         </Space>
       ))}

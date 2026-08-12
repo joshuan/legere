@@ -429,7 +429,9 @@
       "retried": "Job re-enqueued",
       "actions": {
         "retry": "Retry",
-        "runAgain": "Run again"
+        "runAgain": "Run again",
+        "runAll": "Run the whole pipeline again",
+        "runStep": "Run this step again for every document"
       },
       "pause": {
         "switch": "Pause {queue}",
@@ -437,13 +439,6 @@
       },
       "reprocess": {
         "enqueued": "{count} documents re-enqueued"
-      },
-      "steps": {
-        "canonical": "Canonical PDF",
-        "preview": "Preview",
-        "markdown": "Markdown",
-        "analysis": "Type",
-        "vectorization": "Vectors"
       },
       "pipeline": {
         "title": "Documents in the pipeline",
@@ -472,7 +467,8 @@
         "unitConcurrencyHint": "How many independent pieces inside one job run at once — the pages of a scan set being cropped, say.",
         "analysisLanguage": "The analysis writes in",
         "analysisLanguageAuto": "The language of each document",
-        "analysisLanguageHint": "Titles, descriptions and the names invented for people, things and kinds all use this language. Leave it empty and each follows the document it came from."
+        "analysisLanguageHint": "Titles, descriptions and the names invented for people, things and kinds all use this language. Leave it empty and each follows the document it came from.",
+        "concurrency": "At once"
       }
     },
     "documentTypes": {

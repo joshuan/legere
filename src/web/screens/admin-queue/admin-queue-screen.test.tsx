@@ -74,7 +74,7 @@ describe('AdminQueueScreen', () => {
   it('shows a card per queue with its depths', async () => {
     renderWithProviders(<AdminQueueScreen />);
 
-    // One card per queue, including the quiet ones — five cards, five "failed" figures.
+    // One block per stage, including the quiet ones — five blocks, five "failed" figures.
     await waitFor(() =>
       expect(screen.getAllByText(enMessages.admin.queue.failedRecent)).toHaveLength(5),
     );
@@ -91,12 +91,19 @@ describe('AdminQueueScreen', () => {
     expect(
       await screen.findByText((content) => content.replace(/\s+/g, ' ') === '12 documents'),
     ).toBeInTheDocument();
-    expect(screen.getByText(enMessages.admin.queue.steps.preview)).toBeInTheDocument();
-    // Statuses with nothing in them are not printed as zeroes.
-    const markdown = screen.getByText(enMessages.admin.queue.steps.markdown).closest('.ant-card');
-    if (!(markdown instanceof HTMLElement)) throw new Error('expected the markdown step card');
-    expect(within(markdown).queryByText('PENDING')).not.toBeInTheDocument();
-    expect(within(markdown).getByText('DONE')).toBeInTheDocument();
+    // 🔒 The steps are named as the document's own page names them: one screen calling a step
+    // "Тип" while the other calls it "Анализ" is two names for one thing (docs/11 §11.13).
+    expect(screen.getByText(enMessages.viewer.steps.preview)).toBeInTheDocument();
+    // Statuses with nothing in them are not printed as zeroes, and the ones that are print the word
+    // rather than the enum.
+    const markdown = screen.getByText(enMessages.viewer.steps.markdown).closest('.ant-row');
+    if (!(markdown instanceof HTMLElement)) throw new Error('expected the markdown step row');
+    expect(
+      within(markdown).queryByText(enMessages.documents.filters.stepStatus.PENDING),
+    ).not.toBeInTheDocument();
+    expect(
+      within(markdown).getByText(enMessages.documents.filters.stepStatus.DONE),
+    ).toBeInTheDocument();
   });
 
   it('shows what the bucket holds, scaled to something readable', async () => {
@@ -175,13 +182,38 @@ describe('AdminQueueScreen', () => {
     expect(await screen.findByText(enMessages.errors.codes.NOT_FOUND)).toBeInTheDocument();
   });
 
+  it('runs a whole step, and the whole pipeline, without naming a status', async () => {
+    const asked: unknown[] = [];
+    server.use(
+      http.post('/api/admin/queue/reprocess', async ({ request }) => {
+        asked.push(await request.json());
+        return HttpResponse.json(envelope({ enqueued: 12 }));
+      }),
+    );
+
+    renderWithProviders(<AdminQueueScreen />);
+    const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('.ant-row');
+    if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step row');
+
+    // A step, whatever state its documents are in.
+    await userEvent.click(
+      within(preview).getByRole('button', { name: enMessages.admin.queue.actions.runStep }),
+    );
+    await waitFor(() => expect(asked).toContainEqual({ step: 'preview' }));
+
+    // And the whole pipeline of every document — a different question from a bigger step, which is
+    // why it sits at the top of the block rather than beside one (docs/11 §11.13).
+    await userEvent.click(
+      screen.getByRole('button', { name: enMessages.admin.queue.actions.runAll }),
+    );
+    await waitFor(() => expect(asked).toContainEqual({}));
+  });
+
   it('makes every counter a way to the documents behind it', async () => {
     renderWithProviders(<AdminQueueScreen />);
 
-    const preview = (await screen.findByText(enMessages.admin.queue.steps.preview)).closest(
-      '.ant-card',
-    );
-    if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step card');
+    const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('.ant-row');
+    if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step row');
 
     // The point of "2 failed previews" is the two documents (docs/11 §11.13), and both halves of
     // the question travel: the API refuses one without the other.
@@ -205,16 +237,20 @@ describe('AdminQueueScreen', () => {
     );
 
     renderWithProviders(<AdminQueueScreen />);
-    const preview = (await screen.findByText(enMessages.admin.queue.steps.preview)).closest(
-      '.ant-card',
-    );
-    if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step card');
+    const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('.ant-row');
+    if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step row');
 
-    // Only the counts something can be done about carry the action: preview has two failures and
-    // nothing pending, so there is exactly one.
-    await userEvent.click(
-      within(preview).getByRole('button', { name: enMessages.admin.queue.actions.runAgain }),
-    );
+    // 🔒 Every status carries the action now, not only the ones that look broken: a step is re-run
+    // because something about it changed, and by then the documents that need redoing are the ones
+    // marked DONE (docs/11 §11.13). Preview has failures and successes, so there are two — the
+    // first belongs to the first status printed.
+    const buttons = within(preview).getAllByRole('button', {
+      name: enMessages.admin.queue.actions.runAgain,
+    });
+    expect(buttons.length).toBe(2);
+    const failed = buttons[1];
+    if (failed === undefined) throw new Error('expected a button beside the failed count');
+    await userEvent.click(failed);
 
     await waitFor(() => expect(asked).toEqual({ step: 'preview', status: 'FAILED' }));
     // The count is the whole point of the answer: five hundred documents were not opened by hand.
