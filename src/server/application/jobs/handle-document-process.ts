@@ -106,8 +106,10 @@ export class HandleDocumentProcess extends JobHandler {
 
     // A re-run starts from a clean slate: an error from a previous attempt must not outlive it.
     await this.write(documentId, {
+      // QUEUED rather than PENDING: the job doing the clearing is the job that will do the work, so
+      // nothing here is unscheduled (docs/03 §3.3.10).
       steps: onlyRequested(
-        { canonical: 'PENDING', preview: 'PENDING', markdown: 'PENDING' },
+        { canonical: 'QUEUED', preview: 'QUEUED', markdown: 'QUEUED' },
         requested,
       ),
       skipReasons: onlyRequested({ canonical: null, preview: null, markdown: null }, requested),
@@ -150,9 +152,9 @@ export class HandleDocumentProcess extends JobHandler {
     const steps = update.steps ?? {};
     for (const step of DOCUMENT_STEPS) {
       const status = steps[step];
-      // PENDING is a re-run clearing the slate, which the QUEUED entry already says; undefined is a
-      // step this write did not touch.
-      if (status === undefined || status === 'PENDING') continue;
+      // A step going back into the queue is a re-run clearing the slate, which the QUEUED entry
+      // already says; undefined is a step this write did not touch.
+      if (status === undefined || status === 'PENDING' || status === 'QUEUED') continue;
       const reason = update.skipReasons?.[step];
       // Which service is doing this step, and the id it was asked under. Both entries of a pair
       // carry the same id, because the id is read from the call in progress rather than passed

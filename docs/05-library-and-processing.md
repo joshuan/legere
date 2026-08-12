@@ -139,11 +139,17 @@ Rules:
   an OCR container thrashing, a model answering nonsense — without stopping the instance or
   editing env. Resuming re-registers the worker and the backlog drains. Which queues are paused is a
   stored setting like the concurrencies beside it ([`11 §11.13`](./11-ui-ux-spec.md)).
-- **Nobody waits at `PENDING` for ever.** The hourly `maintenance` sweep re-enqueues documents whose
-  steps are pending and whose row nothing has written to for two hours — a job lost to a crash, or a
-  migration that reset every step and had no queue to write to. It takes at most 200 a run, so an
-  upgrade that rebuilds an archive spreads over hours instead of filling the queue in one; the
-  handler is idempotent, so being wrong costs one repeated run and never a broken document.
+- **Nobody waits unstarted for ever.** The hourly `maintenance` sweep re-enqueues documents whose row
+  nothing has written to for two hours and whose steps have not started — **`PENDING` or `QUEUED`,
+  and both for a reason**: `PENDING` is a step nothing was ever scheduled for, which is what a
+  migration that resets every step leaves behind and what it has no queue to write to; `QUEUED` is a
+  step a job *was* made for, and it is swept too because the job can go missing — a crash between the
+  enqueue and the run leaves a row claiming a worker is on the way when none is, and a claim about
+  the queue that only the queue can check is a claim that has to be re-checked. The sweep marks what
+  it takes as `QUEUED` there and then, so the moment a step stops being unscheduled is the moment the
+  archive says so (`03 §3.3.10`). At most 200 a run, so an upgrade that rebuilds an archive spreads
+  over hours instead of filling the queue in one; the handler is idempotent, so being wrong costs one
+  repeated run and never a broken document.
 
 ## 5.4a. What one document may cost
 

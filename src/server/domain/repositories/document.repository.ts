@@ -249,7 +249,12 @@ export abstract class DocumentRepository {
   // A document being processed right now has its steps written as they run, so it is never in this
   // answer — what is, is a document whose job was lost or was never enqueued at all, which is what a
   // migration that resets statuses leaves behind (docs/05 §5.4).
-  abstract listStalePendingIds(
+  // Every step of this document that nothing is scheduled for becomes QUEUED, because the caller has
+  // just scheduled it (docs/03 §3.3.10). Only PENDING moves: a step that is DONE, FAILED or SKIPPED
+  // has an outcome, and the run about to happen may or may not touch it.
+  abstract markUnstartedQueued(documentId: string, tx?: TransactionHandle): Promise<void>;
+
+  abstract listStaleUnstartedIds(
     olderThan: Date,
     limit: number,
     tx?: TransactionHandle,

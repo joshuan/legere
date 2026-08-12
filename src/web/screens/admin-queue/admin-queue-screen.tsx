@@ -34,8 +34,10 @@ import { formatBytes, useErrorMessage } from '../../shared/lib';
 // long error message while the table reorders underneath is the opposite of useful.
 const REFRESH_MS = 5000;
 
-// The statuses a step can be asked to run again from: work that never happened, and work that broke.
-// Re-running a DONE step is a different request — one document at a time, from its own page.
+// The statuses a step can be asked to run again from: work nothing is scheduled for, and work that
+// broke. QUEUED is not among them — something is already coming for it, and asking again would only
+// add a second job for the same document (docs/11 §11.13). Re-running a DONE step is a different
+// request — one document at a time, from its own page.
 const RERUNNABLE: readonly StepStatus[] = ['PENDING', 'FAILED'];
 
 // /admin/queue (docs/11 §11.13): what the queue is doing, and what failed.
@@ -442,7 +444,10 @@ function StepCounters({
 function statusColor(status: string): string {
   if (status === 'DONE') return 'green';
   if (status === 'FAILED') return 'red';
-  if (status === 'PENDING') return 'blue';
+  // Blue is "somebody is coming for this". A step nothing is scheduled for is not that, and gets the
+  // brass of a thing waiting to be asked (docs/11 §11.13).
+  if (status === 'QUEUED' || status === 'RUNNING') return 'blue';
+  if (status === 'PENDING') return 'gold';
   return 'default';
 }
 

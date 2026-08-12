@@ -590,7 +590,8 @@
       "step": "{step}: {status}",
       "stepClear": "Clear the step filter",
       "stepStatus": {
-        "PENDING": "waiting",
+        "PENDING": "not scheduled",
+        "QUEUED": "queued",
         "RUNNING": "running",
         "DONE": "done",
         "FAILED": "failed",

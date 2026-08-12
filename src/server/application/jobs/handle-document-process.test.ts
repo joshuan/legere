@@ -854,6 +854,21 @@ describe('HandleDocumentProcess', () => {
       expect(stateOf().steps.analysis).toBe('DONE');
     });
 
+    it('says a step is queued while a job exists, and pending only when none does', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      // What a migration leaves behind: the artifact is out of date and nothing is scheduled.
+      await documents.updateProcessing(DOCUMENT_ID, { steps: { canonical: 'PENDING' } });
+      expect(stateOf().steps.canonical).toBe('PENDING');
+
+      await run();
+
+      // 🔒 The run itself is a job, so while it clears the slate the steps read QUEUED — the word
+      // that means "somebody is coming for this" (docs/03 §3.3.10).
+      const started = events.events.filter((event) => event.type === 'STEP_STARTED');
+      expect(started.length).toBeGreaterThan(0);
+      expect(stateOf().steps.canonical).toBe('DONE');
+    });
+
     it('writes down what the step cost and what it produced', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       analyst.answer = { ...analyst.answer, usage: { promptTokens: 900, completionTokens: 40 } };

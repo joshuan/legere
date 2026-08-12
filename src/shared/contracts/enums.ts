@@ -35,7 +35,19 @@ export type StepSkipReason = z.infer<typeof stepSkipReasonSchema>;
 export const fileOriginSchema = z.enum(['LIBRARY', 'MANAGED']);
 export type FileOrigin = z.infer<typeof fileOriginSchema>;
 
-export const stepStatusSchema = z.enum(['PENDING', 'RUNNING', 'DONE', 'FAILED', 'SKIPPED']);
+// Where a step is (docs/03 §3.3.10). `PENDING` and `QUEUED` are the two halves of what used to be
+// one word, and telling them apart is the whole point: `QUEUED` says a job exists and a worker will
+// get to it; `PENDING` says nothing is scheduled — the artifact is out of date and waits for the
+// hourly sweep or for somebody to ask. A migration that resets a step produces the second, and for
+// two hours the archive read as busy while nothing at all was going to happen.
+export const stepStatusSchema = z.enum([
+  'PENDING',
+  'QUEUED',
+  'RUNNING',
+  'DONE',
+  'FAILED',
+  'SKIPPED',
+]);
 export type StepStatus = z.infer<typeof stepStatusSchema>;
 
 // What can happen to a document, in the order a person would tell it (docs/03 §3.3.18).

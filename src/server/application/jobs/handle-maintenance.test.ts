@@ -247,5 +247,30 @@ describe('HandleMaintenance', () => {
         options: { singletonKey: 'doc-stale' },
       },
     ]);
+    // 🔒 And the row says so at once. The sweep is the moment a step stops being unscheduled, and a
+    // counter that only moved when a worker got round to it would keep the old ambiguity alive under
+    // a new name (docs/03 §3.3.10).
+    expect((await documents.findById('doc-stale'))?.steps.canonical).toBe('QUEUED');
+  });
+
+  it('sweeps a step whose job went missing, not only one nothing was ever scheduled for', async () => {
+    // A crash between the enqueue and the run leaves a row saying a worker is on the way when none
+    // is: QUEUED is a claim about the queue, and the queue can lose it (docs/05 §5.4).
+    const lost = documentFixture({
+      id: 'doc-lost',
+      steps: {
+        canonical: 'QUEUED',
+        preview: 'QUEUED',
+        markdown: 'QUEUED',
+        analysis: 'QUEUED',
+        vectorization: 'QUEUED',
+      },
+    });
+    documents.add(lost);
+    documents.setUpdatedAt('doc-lost', new Date(NOW.getTime() - 3 * 60 * 60 * 1000));
+
+    await handler.handle();
+
+    expect(queue.enqueued.map((job) => job.payload)).toEqual([{ documentId: 'doc-lost' }]);
   });
 });

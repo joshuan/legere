@@ -259,14 +259,34 @@ export class InMemoryDocumentRepository extends DocumentRepository {
     this.updatedAt.set(documentId, at);
   }
 
-  listStalePendingIds(olderThan: Date, limit: number): Promise<string[]> {
+  markUnstartedQueued(documentId: string): Promise<void> {
+    const document = this.documents.get(documentId);
+    if (document !== undefined && document.deletedAt === null) {
+      // Written out rather than mapped: an assertion back to DocumentSteps is forbidden here
+      // (docs/14 §14.1), and the compiler should be the one checking every step is present.
+      const queued = (status: StepStatus): StepStatus => (status === 'PENDING' ? 'QUEUED' : status);
+      this.documents.set(documentId, {
+        ...document,
+        steps: {
+          canonical: queued(document.steps.canonical),
+          preview: queued(document.steps.preview),
+          markdown: queued(document.steps.markdown),
+          analysis: queued(document.steps.analysis),
+          vectorization: queued(document.steps.vectorization),
+        },
+      });
+    }
+    return Promise.resolve();
+  }
+
+  listStaleUnstartedIds(olderThan: Date, limit: number): Promise<string[]> {
     // `updatedAt` is a column, not part of the domain entity, so the fake keeps its own note of
     // when a row was last written and the test drives it through `setUpdatedAt`.
     const stale = [...this.documents.values()].filter(
       (document: Document) =>
         document.deletedAt === null &&
         (this.updatedAt.get(document.id) ?? document.createdAt).getTime() < olderThan.getTime() &&
-        Object.values(document.steps).some((status) => status === 'PENDING'),
+        Object.values(document.steps).some((status) => status === 'PENDING' || status === 'QUEUED'),
     );
     return Promise.resolve(stale.slice(0, limit).map((document: Document) => document.id));
   }

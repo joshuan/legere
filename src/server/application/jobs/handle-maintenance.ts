@@ -56,12 +56,16 @@ export class HandleMaintenance extends JobHandler {
     // Documents nobody is coming for: a job lost to a crash, or a migration that reset every step
     // and had no way to enqueue anything (docs/05 §5.4). The handler is idempotent, so the cost of
     // being wrong here is one repeated run and never a broken document.
-    const stalled = await this.documents.listStalePendingIds(
+    const stalled = await this.documents.listStaleUnstartedIds(
       new Date(now.getTime() - STALE_AFTER_MS),
       STALE_BATCH,
     );
     for (const documentId of stalled) {
       await this.queue.enqueue('document-process', { documentId }, { singletonKey: documentId });
+      // And the row says so straight away: the sweep is the moment a PENDING step stops being
+      // unscheduled, and a counter that only changed when a worker got round to it would keep the
+      // old ambiguity alive under a new name (docs/03 §3.3.10).
+      await this.documents.markUnstartedQueued(documentId);
     }
 
     // One listing of the bucket answers both remaining questions (docs/09 §9.5).

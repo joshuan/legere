@@ -29,10 +29,11 @@ export class ReprocessDocument {
 
     const requested = steps === undefined || steps.length === 0 ? DOCUMENT_STEPS : dedupe(steps);
 
-    // The steps this run will redo go back to PENDING immediately, so the UI shows work in
-    // progress from the moment the button is pressed rather than when a worker picks the job up.
+    // QUEUED, not PENDING: a job is about to exist for these steps, and the two words now say which
+    // of those it is (docs/03 §3.3.10). The UI shows work from the moment the button is pressed
+    // rather than when a worker picks the job up.
     await this.documents.updateProcessing(documentId, {
-      steps: Object.fromEntries(requested.map((step) => [step, 'PENDING'])),
+      steps: Object.fromEntries(requested.map((step) => [step, 'QUEUED'])),
       processingError: null,
       failedStep: null,
     });

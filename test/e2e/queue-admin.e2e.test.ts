@@ -101,7 +101,7 @@ describe('Reprocess and queue administration (e2e)', () => {
     );
 
   describe('reprocess', () => {
-    it('re-enqueues the whole pipeline and puts every step back to PENDING', async () => {
+    it('re-enqueues the whole pipeline and puts every step back in the queue', async () => {
       const documentId = await givenProcessedDocument();
 
       const res = await api(app)
@@ -118,8 +118,8 @@ describe('Reprocess and queue administration (e2e)', () => {
       ]);
 
       const row = await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } });
-      expect(row.previewStatus).toBe('PENDING');
-      expect(row.vectorizationStatus).toBe('PENDING');
+      expect(row.previewStatus).toBe('QUEUED');
+      expect(row.vectorizationStatus).toBe('QUEUED');
       // The old error goes with it, or the admin panel would keep showing a failure that no longer
       // describes anything.
       expect(row.processingError).toBeNull();
@@ -140,8 +140,8 @@ describe('Reprocess and queue administration (e2e)', () => {
       expect(expectData(res, reprocessResponseSchema).steps).toEqual(['preview', 'vectorization']);
 
       const row = await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } });
-      expect(row.previewStatus).toBe('PENDING');
-      expect(row.vectorizationStatus).toBe('PENDING');
+      expect(row.previewStatus).toBe('QUEUED');
+      expect(row.vectorizationStatus).toBe('QUEUED');
       // 🔒 Untouched steps keep the state they had (docs/07 §7.3).
       expect(row.markdownStatus).toBe('DONE');
       expect(row.analysisStatus).toBe('DONE');
@@ -216,22 +216,22 @@ describe('Reprocess and queue administration (e2e)', () => {
       await seedDocument({
         document: {
           title: 'Half-way',
-          canonicalStatus: 'PENDING',
+          canonicalStatus: 'QUEUED',
           previewStatus: 'DONE',
           markdownStatus: 'FAILED',
-          analysisStatus: 'PENDING',
-          vectorizationStatus: 'PENDING',
+          analysisStatus: 'QUEUED',
+          vectorizationStatus: 'QUEUED',
         },
       });
       // A soft-deleted one, which the counters must not include.
       await seedDocument({
         document: {
           title: 'Deleted',
-          canonicalStatus: 'PENDING',
+          canonicalStatus: 'QUEUED',
           previewStatus: 'DONE',
-          markdownStatus: 'PENDING',
-          analysisStatus: 'PENDING',
-          vectorizationStatus: 'PENDING',
+          markdownStatus: 'QUEUED',
+          analysisStatus: 'QUEUED',
+          vectorizationStatus: 'QUEUED',
           deletedAt: new Date(),
         },
       });
@@ -242,10 +242,12 @@ describe('Reprocess and queue administration (e2e)', () => {
       expect(overview.documents.total).toBe(2);
       const counts = (step: string) =>
         overview.documents.steps.find((entry) => entry.step === step)?.counts;
-      expect(counts('preview')).toMatchObject({ DONE: 2, PENDING: 0 });
+      expect(counts('preview')).toMatchObject({ DONE: 2, PENDING: 0, QUEUED: 0 });
       expect(counts('markdown')).toMatchObject({ DONE: 1, FAILED: 1 });
-      expect(counts('canonical')).toMatchObject({ SKIPPED: 1, PENDING: 1 });
-      expect(counts('vectorization')).toMatchObject({ DONE: 1, PENDING: 1 });
+      // Created with a job, so the step that has not run yet is QUEUED rather than unscheduled
+      // (docs/03 §3.3.10).
+      expect(counts('canonical')).toMatchObject({ SKIPPED: 1, QUEUED: 1 });
+      expect(counts('vectorization')).toMatchObject({ DONE: 1, QUEUED: 1 });
     });
 
     it('reports storage only once maintenance has measured it', async () => {
@@ -418,7 +420,7 @@ describe('Reprocess and queue administration (e2e)', () => {
       const rows = await testPrisma().document.findMany({
         where: { id: { in: [first, second] } },
       });
-      expect(rows.map((row) => row.previewStatus)).toEqual(['PENDING', 'PENDING']);
+      expect(rows.map((row) => row.previewStatus)).toEqual(['QUEUED', 'QUEUED']);
       // 🔒 Steps nobody asked for keep the state they had.
       expect(rows.every((row) => row.markdownStatus === 'DONE')).toBe(true);
 

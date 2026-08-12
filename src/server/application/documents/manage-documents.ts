@@ -250,7 +250,7 @@ export class UpdateDocumentMeta {
     if (update.pageFormat !== undefined && update.pageFormat !== detail.document.pageFormat) {
       const steps: DocumentStep[] = ['canonical', 'preview', 'markdown'];
       await this.documents.updateProcessing(detail.document.id, {
-        steps: Object.fromEntries(steps.map((step) => [step, 'PENDING'])),
+        steps: Object.fromEntries(steps.map((step) => [step, 'QUEUED'])),
         processingError: null,
         failedStep: null,
       });

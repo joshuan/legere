@@ -91,13 +91,13 @@ describe('ReprocessDocumentsByStep', () => {
     });
   });
 
-  it('puts the step back to PENDING and records who asked, like a single reprocess', async () => {
+  it('puts the step back in the queue and records who asked, like a single reprocess', async () => {
     given('11111111-1111-4111-8111-111111111111', 'preview', '2026-01-01T00:00:00.000Z');
 
     await useCase().execute({ step: 'preview', status: 'FAILED' }, 'admin-id');
 
     const document = documents.documents.get('11111111-1111-4111-8111-111111111111');
-    expect(document?.steps.preview).toBe('PENDING');
+    expect(document?.steps.preview).toBe('QUEUED');
     // 🔒 The steps nobody asked for keep the state they had (docs/07 §7.3).
     expect(document?.steps.markdown).toBe('DONE');
     expect(events.events).toHaveLength(1);

@@ -47,6 +47,7 @@ enum FileOrigin {
 
 enum StepStatus {
   PENDING
+  QUEUED
   RUNNING
   DONE
   FAILED
@@ -284,11 +285,11 @@ model Document {
   description         String?
   markdown            String?
   searchVector        Unsupported("tsvector")? @map("search_vector")
-  canonicalStatus     StepStatus               @default(PENDING) @map("canonical_status")
-  previewStatus       StepStatus               @default(PENDING) @map("preview_status")
-  markdownStatus      StepStatus               @default(PENDING) @map("markdown_status")
-  analysisStatus      StepStatus               @default(PENDING) @map("analysis_status")
-  vectorizationStatus StepStatus               @default(PENDING) @map("vectorization_status")
+  canonicalStatus     StepStatus               @default(QUEUED) @map("canonical_status")
+  previewStatus       StepStatus               @default(QUEUED) @map("preview_status")
+  markdownStatus      StepStatus               @default(QUEUED) @map("markdown_status")
+  analysisStatus      StepStatus               @default(QUEUED) @map("analysis_status")
+  vectorizationStatus StepStatus               @default(QUEUED) @map("vectorization_status")
   processingError     String?                  @map("processing_error")
   skipReasons         Json                     @default("{}") @map("skip_reasons")
   languages           String[]                 @map("languages")

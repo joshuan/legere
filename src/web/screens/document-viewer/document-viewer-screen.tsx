@@ -505,7 +505,9 @@ function TextPane({
         description={
           document.steps.markdown === 'FAILED'
             ? t('viewer.textFailed')
-            : document.steps.markdown === 'RUNNING' || document.steps.markdown === 'PENDING'
+            : document.steps.markdown === 'RUNNING' ||
+                document.steps.markdown === 'PENDING' ||
+                document.steps.markdown === 'QUEUED'
               ? t('viewer.textPending')
               : t('viewer.noText')
         }
@@ -814,7 +816,9 @@ function DetailsPane({
   const state = (...steps: DocumentStep[]): 'PENDING' | 'RUNNING' | undefined => {
     const statuses = steps.map((step) => document.steps[step]);
     if (statuses.includes('RUNNING')) return 'RUNNING';
-    return statuses.includes('PENDING') ? 'PENDING' : undefined;
+    // A field is provisional whether a worker is on the way or nothing is scheduled at all; which of
+    // those it is belongs to the step's own chip, not to every field the step writes.
+    return statuses.includes('PENDING') || statuses.includes('QUEUED') ? 'PENDING' : undefined;
   };
 
   // "read as X" — shown only where the machine's answer and the current one differ, because

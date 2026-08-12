@@ -580,6 +580,7 @@ type CounterRow = {
 function emptyCounters(): StepStatusCounters {
   const zeroes = (): Record<StepStatus, number> => ({
     PENDING: 0,
+    QUEUED: 0,
     RUNNING: 0,
     DONE: 0,
     FAILED: 0,
@@ -846,7 +847,20 @@ export class PrismaDocumentRepository implements DocumentRepository {
     }
   }
 
-  async listStalePendingIds(
+  async markUnstartedQueued(documentId: string, tx?: TransactionHandle): Promise<void> {
+    // Raw, because five columns have to move on one condition each and Prisma has no way to say
+    // "this column, if it is PENDING" in a single update.
+    await clientOf(this.prisma, tx).$executeRaw`
+      UPDATE "documents" SET
+        "canonical_status"     = CASE WHEN "canonical_status"     = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "canonical_status"     END,
+        "preview_status"       = CASE WHEN "preview_status"       = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "preview_status"       END,
+        "markdown_status"      = CASE WHEN "markdown_status"      = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "markdown_status"      END,
+        "analysis_status"      = CASE WHEN "analysis_status"      = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "analysis_status"      END,
+        "vectorization_status" = CASE WHEN "vectorization_status" = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "vectorization_status" END
+      WHERE "id" = ${documentId}::uuid AND "deleted_at" IS NULL`;
+  }
+
+  async listStaleUnstartedIds(
     olderThan: Date,
     limit: number,
     tx?: TransactionHandle,
@@ -855,12 +869,17 @@ export class PrismaDocumentRepository implements DocumentRepository {
       where: {
         deletedAt: null,
         updatedAt: { lt: olderThan },
+        // Both halves of "not started". PENDING is a step nothing is scheduled for — a migration
+        // reset it, and the sweep is the only thing coming. QUEUED is a step a job was made for, and
+        // it is here because the job can go missing: a crash between the enqueue and the run leaves
+        // a row saying a worker is on the way when none is. The handler is idempotent, so the cost of
+        // sweeping one that was fine is a repeated run (docs/05 §5.4).
         OR: [
-          { canonicalStatus: 'PENDING' },
-          { previewStatus: 'PENDING' },
-          { markdownStatus: 'PENDING' },
-          { analysisStatus: 'PENDING' },
-          { vectorizationStatus: 'PENDING' },
+          { canonicalStatus: { in: ['PENDING', 'QUEUED'] } },
+          { previewStatus: { in: ['PENDING', 'QUEUED'] } },
+          { markdownStatus: { in: ['PENDING', 'QUEUED'] } },
+          { analysisStatus: { in: ['PENDING', 'QUEUED'] } },
+          { vectorizationStatus: { in: ['PENDING', 'QUEUED'] } },
         ],
       },
       select: { id: true },

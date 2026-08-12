@@ -590,7 +590,8 @@
       "step": "{step}: {status}",
       "stepClear": "Убрать фильтр по шагу",
       "stepStatus": {
-        "PENDING": "в ожидании",
+        "PENDING": "не запланировано",
+        "QUEUED": "в очереди",
         "RUNNING": "выполняется",
         "DONE": "готово",
         "FAILED": "ошибка",

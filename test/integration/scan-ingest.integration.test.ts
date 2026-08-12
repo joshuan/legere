@@ -427,7 +427,9 @@ describe('Scan and ingest (integration)', () => {
       expect(document).toMatchObject({
         // Title comes from the file name without its extension (docs/03 §3.3.10).
         title: 'report',
-        canonicalStatus: 'PENDING',
+        // A document row is only ever created together with a job for it, so its steps start in the
+        // queue rather than unscheduled (docs/03 §3.3.10).
+        canonicalStatus: 'QUEUED',
       });
 
       const file = await prisma.file.findFirstOrThrow();
