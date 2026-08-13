@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { FixedClock } from '../../../../test/helpers/fakes';
 import {
   DOCUMENT_ID,
   documentFixture,
@@ -127,11 +128,12 @@ class RecordingCollectionRepository extends CollectionRepository {
 }
 
 const LIBRARY_FILE = '77777777-7777-4777-8777-777777777777';
+const NOW = new Date('2026-03-01T10:00:00.000Z');
 const UPLOADED_FILE = '88888888-8888-4888-8888-888888888888';
 
-// 🔒 The one endpoint in Legere that destroys anything (docs/03 §3.3.10, ADR-015 as amended). What
-// is asserted here is the shape of the destruction: what goes, what cannot go, and what is left
-// behind so that what cannot go does not walk back in.
+// 🔒 The document goes for good (docs/03 §3.3.10, ADR-015 as amended) and its files go to the trash
+// (docs/05 §5.7a). What is asserted here is that split: what is destroyed, what is kept and where,
+// and what is left behind so that a library original does not walk back in as a new document.
 describe('DeleteDocument', () => {
   let documents: InMemoryDocumentRepository;
   let files: InMemoryFileRepository;
@@ -153,6 +155,7 @@ describe('DeleteDocument', () => {
       collections,
       storage,
       new ImmediateUnitOfWork(),
+      new FixedClock(NOW),
     );
 
     // A document of two files: one on a volume, one uploaded. They are deleted differently, and the
@@ -178,16 +181,26 @@ describe('DeleteDocument', () => {
     await storage.put('documents/other/preview.jpg', Buffer.alloc(4), 'image/jpeg');
   });
 
-  it('deletes the document, its files and everything of its own in the bucket', async () => {
+  it('deletes the document and its artifacts, and puts its files in the trash', async () => {
     await remove.execute(DOCUMENT_ID);
 
     // The row is gone, not hidden: this is the exception ADR-015 makes.
     expect(await documents.findById(DOCUMENT_ID)).toBeNull();
-    expect(await files.findById(LIBRARY_FILE)).toBeNull();
-    expect(await files.findById(UPLOADED_FILE)).toBeNull();
     expect(collections.removedEverywhere).toEqual([DOCUMENT_ID]);
-    // Its artifacts and the upload's own bytes; nothing belonging to anybody else.
-    expect(storage.keys()).toEqual(['documents/other/preview.jpg']);
+
+    // The files survive it, under the title that is now the only record of what they were part of
+    // (docs/05 §5.7a). Nothing rebuilds bytes, so nothing here destroys them.
+    const trashed = await files.listAllTrashed();
+    expect(trashed.map((file) => file.id).sort()).toEqual([LIBRARY_FILE, UPLOADED_FILE].sort());
+    expect(trashed.every((file) => file.trashedReason === 'DOCUMENT_DELETED')).toBe(true);
+    expect(trashed.every((file) => file.trashedFrom === 'Invoice 2026-01')).toBe(true);
+
+    // 🔒 The artifacts go and the originals stay: a canonical is derived from files that are no
+    // longer arranged into anything, and it can be built again from what is kept.
+    expect(storage.keys()).toEqual([
+      'documents/other/preview.jpg',
+      `files/${UPLOADED_FILE}/original.jpg`,
+    ]);
   });
 
   it('leaves the volume alone and excludes every path the bytes were seen at', async () => {
@@ -224,6 +237,7 @@ describe('DeleteDocument', () => {
       collections,
       refusing,
       new ImmediateUnitOfWork(),
+      new FixedClock(NOW),
     );
 
     await expect(remove.execute(DOCUMENT_ID)).resolves.toEqual({ ok: true });

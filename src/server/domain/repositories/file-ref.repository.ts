@@ -1,5 +1,6 @@
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { FileRef } from '../entities/file-ref';
+import type { FileRefView } from './file.repository';
 import type { RelativePath } from '../value-objects/relative-path';
 
 export type CreateFileRefInput = {
@@ -90,4 +91,17 @@ export abstract class FileRefRepository {
   // the bytes were seen at is excluded at once, so a second copy on another volume does not walk the
   // document back in. Runs before the files are deleted, or the foreign key would refuse.
   abstract markExcluded(fileIds: readonly string[], tx?: TransactionHandle): Promise<void>;
+
+  // The other way: a file restored from the trash gets its paths back (docs/05 §5.7a). Addressed by
+  // content hash rather than by file id, because excluding a ref is what cleared `fileId` — the hash
+  // is what survived, and it is what says these paths hold exactly these bytes.
+  abstract markRestored(fileId: string, contentHash: string, tx?: TransactionHandle): Promise<void>;
+
+  // Everywhere one file's bytes were seen, unfiltered: what the trash needs to hand them back
+  // (docs/07 §7.3). Every caller of this one is an admin, who may see every library anyway.
+  abstract listForFile(
+    fileId: string,
+    contentHash: string,
+    tx?: TransactionHandle,
+  ): Promise<FileRefView[]>;
 }

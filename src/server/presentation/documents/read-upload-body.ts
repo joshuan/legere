@@ -23,6 +23,8 @@ const RAW_BODY_ROUTES: readonly { method: string; path: RegExp }[] = [
   { method: 'POST', path: /^\/documents\/?$/ },
   // POST /api/documents/:id/files — another file for a document that exists.
   { method: 'POST', path: /^\/documents\/[^/]+\/files\/?$/ },
+  // POST /api/documents/:id/files/:fileId/replacement — a better copy of one page (docs/05 §5.6).
+  { method: 'POST', path: /^\/documents\/[^/]+\/files\/[^/]+\/replacement\/?$/ },
 ];
 
 export function isRawBodyRoute(method: string, path: string): boolean {
@@ -61,17 +63,24 @@ export function uploadFileName(req: Request): string {
   return fileNameFrom(req, FILENAME_HEADER);
 }
 
-// The name of a file added to a document (docs/07 §7.3). It names the file rather than the document
-// — the document already has a title — and travels in a header of its own.
+// The name of a file added to or put in place of one in a document (docs/07 §7.3). It names the
+// file rather than the document — the document already has a title.
+//
+// 🔒 Both spellings, which is what docs/07 §7.3 has always said and what this took only one of. The
+// browser sends `X-Legere-Filename` for every upload it makes, because one client helper makes them
+// all; this route read `X-File-Name` alone, so attaching a file from the UI answered 422 "Missing
+// x-file-name header" — a request no page could have made. The e2e tests sent the header the server
+// wanted and the web tests mock the network, so the two sides disagreed with nothing between them
+// to notice.
 export function attachedFileName(req: Request): string {
-  return fileNameFrom(req, ATTACHED_FILENAME_HEADER);
+  return fileNameFrom(req, FILENAME_HEADER, ATTACHED_FILENAME_HEADER);
 }
 
-function fileNameFrom(req: Request, header: string): string {
-  const raw = req.headers[header];
+function fileNameFrom(req: Request, ...headers: readonly string[]): string {
+  const raw = headers.map((header) => req.headers[header]).find((found) => found !== undefined);
   const value = Array.isArray(raw) ? raw[0] : raw;
   if (value === undefined || value.trim() === '') {
-    throw new UnprocessableError('VALIDATION_FAILED', `Missing ${header} header`);
+    throw new UnprocessableError('VALIDATION_FAILED', `Missing ${headers[0] ?? ''} header`);
   }
 
   // Percent-encoded by the client; a name that is not encoded at all decodes to itself.

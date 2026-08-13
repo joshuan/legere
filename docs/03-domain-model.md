@@ -42,6 +42,7 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `StepStatus` | `PENDING`, `QUEUED`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. **`PENDING` and `QUEUED` are the two halves of what used to be one word**: `QUEUED` says a job exists and a worker will get to it; `PENDING` says nothing is scheduled — the artifact is out of date and waits for the hourly sweep (`05 §5.4`) or for somebody to ask. A migration that resets a step produces the second, and while the two shared a name the archive read as busy for the two hours before the sweep noticed, with the queue counter beside it honestly showing nothing. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes a step that has not started reads as "stuck". The mark is best-effort and never the reason a job fails |
 | `PageFormat` | `AUTO`, `A4`, `MATCH_SOURCE` | what shape the pages of the canonical take (`05 §5.5` step 1). `AUTO` reads it off the pictures the pages were made from |
 | `ValueSource` | `NONE`, `AUTO`, `MANUAL` | who decided a value: nobody, the pipeline, a person. Carried by `typeSource` and `titleSource` — one vocabulary, because it is one question |
+| `TrashReason` | `REPLACED`, `DOCUMENT_DELETED` | how a file came to be in the trash (`05 §5.7a`). Not "who deleted it" but "what happened to it", which is what decides whether there is a newer copy to compare it with |
 | `ScanRunStatus` | `RUNNING`, `DONE`, `FAILED` | |
 | `VerificationPurpose` | `REGISTRATION`, `PASSWORD_RESET` | on `EmailVerification` |
 
@@ -189,7 +190,8 @@ A physical file inside a library. **No soft delete** — lifecycle is expressed 
 if the new hash differs, the ref re-points to another File — and the file it left keeps its document,
 now with one fewer place its bytes can be read from), `* → EXCLUDED` (an admin deleted the document
 these bytes were part of, §3.3.10), `EXCLUDED → DISCOVERED` (the bytes at that path changed, so what
-is there now is not what was deleted).
+is there now is not what was deleted), `EXCLUDED → HASHED` (the file was restored from the trash,
+`05 §5.7a` — the hash on the ref is what matched it, so the path is live again without being read).
 
 🔒 **`EXCLUDED` is the whole of what a deletion can do to a read-only volume, and it is why a deleted
 document stays deleted.** The library is not ours to write to (ADR-004), so an admin deleting a
@@ -332,14 +334,17 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
   file no more than one may — a file has exactly one home.
 - 🔒 **Deleting a document (admin) is a real deletion, and the one place ADR-015 does not hold.** The
   row goes, and with it the journal, the chunks, the Markdown, the collection items, the links to
-  people and subjects, the `DocumentFile` rows and the **files themselves** — a file has exactly one
-  home (§3.3.16), so a document's files have nowhere to be afterwards and are not re-homed into
-  documents nobody asked for. Every object in the bucket that the document owned goes too: its
-  artifacts (§9.2) and the originals of its `MANAGED` files, which are the only bytes Legere has ever
-  been allowed to delete. What stays is what was never ours: a `LIBRARY` file's bytes on the volume,
-  and one `FileRef` per path holding them, `EXCLUDED` so that no scan brings the document back
-  (§3.3.9). Nothing about this is reversible, which is why it is an admin's and why the UI spells out
-  what goes before it happens (`11 §11.5`).
+  people and subjects and the `DocumentFile` rows. Its **artifacts** go from the bucket too (§9.2):
+  they are derived from files that are no longer arranged into anything, and they are the one part
+  of a document that can be built again from what is kept.
+  **Its files go to the trash** (`05 §5.7a`), not to the incinerator. A file has exactly one home
+  (§3.3.16) and this document was it, so they are not re-homed into documents nobody asked for — but
+  they are the bytes, the only thing here that no rebuild can recover, and they wait: an upload until
+  the retention window closes, a library original until the person who owns that volume clears it.
+  What could never have gone in any case is a `LIBRARY` file's bytes on the volume, and one `FileRef`
+  per path holding them stays `EXCLUDED` so that no scan brings the document back (§3.3.9).
+  The document itself is gone irreversibly, which is why deleting one is an admin's and why the UI
+  spells out what goes and what waits before it happens (`11 §11.5d`).
 - A document **absorbed into another** (`05 §5.6`) is a different thing wearing the same word and
   keeps the soft delete it always had: its files were not destroyed, they moved, and the emptied row
   is a record of where they came from.
@@ -653,6 +658,10 @@ volume or sent from their browser; it is never what they read. What they read is
 | name | string | the file's own name, as it arrived: the last path segment, or the uploaded file name |
 | crop | json? | the quadrilateral of this file's content, normalized to `0…1` of the image: `{ points: [[x,y] ×4] }` in the order top-left, top-right, bottom-right, bottom-left. Only meaningful for images; applied when the canonical PDF is built (§5.5) |
 | cropSource | ValueSource | `NONE` (uncropped), `AUTO` (found by edge detection), `MANUAL` (a person dragged the corners). `MANUAL` is never overwritten by a rebuild |
+| trashedAt | timestamptz? | in the trash since (`05 §5.7a`): the file has left every document and is waiting to be deleted or restored. `NULL` for a file that is part of one |
+| trashedReason | TrashReason? | why it left: `REPLACED` by a better copy, or `DOCUMENT_DELETED` with the document it was part of |
+| trashedFrom | string? | the title the document had when the file left it — a record, not a link: that document is usually gone, and "which paper was this a page of" is the question somebody looking at the trash actually asks |
+| replacedById | uuid? | for `REPLACED`: the file that took this one's place. Every earlier version of a page points at the file that is in the document **now**, not at the one immediately after it, so "the versions of this page" is one query and stays one however many times the page is replaced; the order among them is `trashedAt` |
 | createdAt / updatedAt / deletedAt | | |
 
 **Invariants:**
@@ -660,9 +669,16 @@ volume or sent from their browser; it is never what they read. What they read is
   are one file with two homes.
 - A `LIBRARY` file has ≥0 `FileRef`s (0 once every copy of it has vanished from every volume, §5.7);
   a `MANAGED` file has a `storageKey` and no `FileRef`s.
-- 🔒 A file belongs to **exactly one live document** (§3.3.17). Detaching it from one document gives
-  it a document of its own rather than leaving it homeless — so a file on a volume is always
-  somewhere, and a scan that finds it again has nothing to guess.
+- 🔒 A file belongs to **exactly one live document** (§3.3.17), **or is in the trash** (`05 §5.7a`).
+  Detaching it from a document gives it a document of its own rather than leaving it homeless — so a
+  file on a volume is always somewhere, and a scan that finds it again has nothing to guess. The
+  trash is the second answer to "where does this file belong", added because "it was replaced by a
+  better scan" is not "it is a document of its own": it is not a paper anybody wants to find, and a
+  document per discarded page would fill the archive with them. It is still an answer, and ingest
+  reads it as one (`05 §5.3`).
+- A file in the trash has no `DocumentFile` row, keeps its bytes, and is what the trash screen lists.
+  Restoring it makes a **new** document (`05 §5.7a`); emptying the trash is the one place a file row
+  is deleted outright.
 - Bytes are never modified. A crop is a number written beside a file, not a change to it: the
   original stays exactly as it arrived and the canonical PDF is rebuilt instead (§5.6).
 
@@ -720,7 +736,9 @@ above runs unchanged — with one subtraction, that the caller may only read.
 | File detached from a document | the file becomes a document of its own, with its own canonical PDF; nothing is deleted (§5.6) |
 | Document absorbed into another | its files move over in order, its own row is soft-deleted, and its collections/metadata are left behind with it (§5.6) |
 | Library soft-deleted | its documents disappear from all listings; artifacts/data retained |
-| Document deleted (admin) | **hard**, and the only hard delete of user data there is (§3.3.10): the row, its journal, chunks, Markdown, collection items, people/subject links, `DocumentFile` rows and its `File` rows are gone, as are its artifacts and its `MANAGED` originals in S3. A `LIBRARY` file's bytes stay on the volume, untouched and unreadable to Legere: its `FileRef` is kept `EXCLUDED` so the next scan does not ingest it again (§3.3.9) |
+| Document deleted (admin) | **hard** (§3.3.10): the row, its journal, chunks, Markdown, collection items, people/subject links, `DocumentFile` rows and its artifacts are gone for good. Its files go to the **trash** (`05 §5.7a`) with `DOCUMENT_DELETED`; a `LIBRARY` file's `FileRef`s are kept `EXCLUDED` so the next scan does not ingest it again (§3.3.9) |
+| File replaced in a document | the new bytes take the old file's position; the old file goes to the **trash** with `REPLACED` and `replacedById` pointing at the file now in its place (`05 §5.6`) |
+| File in the trash | a `MANAGED` one is deleted with its object once it is older than `TRASH_RETENTION_DAYS`; a `LIBRARY` one waits for a person, because its bytes are on a read-only volume. Either can be deleted at once, or restored — which makes a **new** document (`05 §5.7a`) |
 | Document type soft-deleted | documents' document type reset to NONE |
 | Collection soft-deleted | hidden for everyone incl. shares |
 | User soft-deleted | sessions and API tokens revoked; their collections hidden; shares die with the collection, and the documents they created stay accessible to ADMIN only |

@@ -104,9 +104,15 @@ an object's life:
 - Deletion policy: artifacts of **soft-deleted** documents are retained — that delete is reversible,
   and a library soft-deleted or a document absorbed into another one both keep everything. What is
   removed for real is what an admin deleted for real: `DELETE /api/documents/:id` is a hard delete
-  (`03 §3.3.10`), and it takes the document's own artifacts and the originals of its `MANAGED` files
-  with it. The rows are deleted first and the objects afterwards, so the failure mode is an orphaned
-  object rather than a row pointing at bytes that are gone.
+  (`03 §3.3.10`) and takes the document's **artifacts** with it. The rows are deleted first and the
+  objects afterwards, so the failure mode is an orphaned object rather than a row pointing at bytes
+  that are gone.
+- 🔒 **An original is never deleted by the act that removed it from a document.** Its file goes to
+  the trash (`05 §5.7a`) and its object stays exactly where it was — the key does not change, because
+  the file did not. `maintenance` deletes it once the item is older than `TRASH_RETENTION_DAYS`
+  (default 30, `12 §12.4`), and an admin may delete it sooner. This is the only scheduled deletion of
+  anything in Legere, and it is confined to objects of ours: a `LIBRARY` file has no object at all,
+  so the sweep has nothing to do for it and its bytes on the volume are never touched.
 - `maintenance` collects those orphans, and now under both layouts: an object under
   `documents/{id}/` whose document does not exist at all, and an object under `files/{fileId}/` whose
   file does not exist at all. The second half is what makes a failed delete self-healing instead of a

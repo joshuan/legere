@@ -49,9 +49,11 @@ export function canTransition(from: FileRefStatus, to: FileRefStatus): boolean {
     // A returned file is re-hashed before it counts as HASHED again, so it goes back through
     // DISCOVERED; attaching it directly is also allowed when the hash is already known.
     MISSING: ['DISCOVERED', 'HASHED', 'EXCLUDED'],
-    // The one way out: the bytes at that path changed, so what is there now was never deleted. It
-    // goes back through DISCOVERED like anything else whose content is unknown.
-    EXCLUDED: ['DISCOVERED'],
+    // Two ways out. The bytes at that path changed, so what is there now was never deleted: back
+    // through DISCOVERED like anything else whose content is unknown. Or somebody restored the file
+    // from the trash (docs/05 §5.7a), and then the path is live again without being read — the hash
+    // on the ref is what matched the file, so there is nothing left to find out.
+    EXCLUDED: ['DISCOVERED', 'HASHED'],
   };
   return allowed[from].includes(to);
 }

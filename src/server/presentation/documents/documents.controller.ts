@@ -60,6 +60,7 @@ import {
   AddDocumentFile,
   CombineDocuments,
   ReorderDocumentFiles,
+  ReplaceDocumentFile,
   SetDocumentFileCrop,
   SplitDocumentFile,
   SuggestDocumentFileCrop,
@@ -70,9 +71,7 @@ import {
   GetDocumentArtifactUrl,
   GetDocumentMarkdown,
   type ArtifactKind,
-  type Download,
 } from '../../application/documents/download-document';
-import { contentDispositionOf } from '../../application/ports/file-storage';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
 import { SuggestGroupings } from '../../application/documents/suggest-groupings';
 import { UploadDocument } from '../../application/documents/upload-document';
@@ -84,6 +83,7 @@ import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
 import { UuidParam } from '../http/uuid-param.pipe';
+import { sendDownload } from '../http/send-download';
 import { CurrentDocument, DocumentAccessGuard } from './document-access.guard';
 import { attachedFileName, readUploadBody, uploadFileName } from './read-upload-body';
 
@@ -129,6 +129,7 @@ export class DocumentsController {
     private readonly reorderFiles: ReorderDocumentFiles,
     private readonly setCrop: SetDocumentFileCrop,
     private readonly suggestCrop: SuggestDocumentFileCrop,
+    private readonly replaceFile: ReplaceDocumentFile,
     private readonly splitFile: SplitDocumentFile,
     private readonly combine: CombineDocuments,
     private readonly groupings: SuggestGroupings,
@@ -272,6 +273,24 @@ export class DocumentsController {
     return successEnvelope(await this.setCrop.execute(user, document, fileId, body));
   }
 
+  // A better copy of one page, in the same place: the body is the file, exactly as for the append
+  // above, and what it replaces goes to the trash (docs/05 §5.6, §5.7a).
+  @Post(':id/files/:fileId/replacement')
+  @HttpCode(200)
+  @UseGuards(DocumentAccessGuard)
+  async postReplacement(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @UuidParam('fileId', 'FILE_NOT_FOUND', 'File') fileId: string,
+    @Req() req: Request,
+  ): Promise<Envelope<DocumentDetailDto>> {
+    const fileName = attachedFileName(req);
+    const bytes = await readUploadBody(req, this.config.get('UPLOAD_MAX_BYTES'));
+    return successEnvelope(
+      await this.replaceFile.execute(user, document, fileId, { bytes, fileName }),
+    );
+  }
+
   // The file leaves and becomes a document of its own — never nothing (docs/05 §5.6).
   @Delete(':id/files/:fileId')
   @UseGuards(DocumentAccessGuard)
@@ -302,7 +321,7 @@ export class DocumentsController {
     @UuidParam('fileId', 'FILE_NOT_FOUND', 'File') fileId: string,
     @Res() res: Response,
   ): Promise<void> {
-    send(res, await this.fileContent.execute(document, fileId));
+    sendDownload(res, await this.fileContent.execute(document, fileId));
   }
 
   // An update rather than a creation: nothing new appears, several documents become one
@@ -342,7 +361,7 @@ export class DocumentsController {
     @Res() res: Response,
   ): Promise<void> {
     const asAttachment = download === '1' || download === 'true';
-    send(res, await this.canonical.execute(document, asAttachment));
+    sendDownload(res, await this.canonical.execute(document, asAttachment));
   }
 
   private async sendArtifact(
@@ -352,7 +371,7 @@ export class DocumentsController {
   ): Promise<void> {
     // Viewed rather than saved: these are what an <img> on the page points at, and the use case says
     // so on the download it returns.
-    send(res, await this.artifactUrl.execute(document, kind));
+    sendDownload(res, await this.artifactUrl.execute(document, kind));
   }
 
   // Admin only: reprocessing costs OCR and provider calls, and it rewrites artifacts.
@@ -371,28 +390,3 @@ export class DocumentsController {
 
 // A 302 to a signed URL, or the bytes themselves. The signed URL is short-lived and never published
 // as a permanent link (docs/08 §8.5), which is why the API redirects instead of returning it.
-function send(res: Response, download: Download): void {
-  // 🔒 Said before the branch, so both ways out say it: what this is, and that a browser may not
-  // decide otherwise. The redirect used to return above this block, which is how an uploaded page
-  // came back ready to run (SEC-03). The headers on a 302 are courtesy — the browser leaves for the
-  // bucket without them — so the same two terms are signed into the URL itself (docs/09 §9.2).
-  res.setHeader('Content-Disposition', contentDispositionOf(download.delivery));
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-
-  if (download.kind === 'redirect') {
-    res.redirect(302, download.url);
-    return;
-  }
-
-  res.setHeader('Content-Type', download.delivery.contentType);
-  // Absent for the canonical PDF: only the bucket knows how big it is, and asking would cost a round
-  // trip to save the client a progress bar.
-  if (download.contentLength !== undefined) {
-    res.setHeader('Content-Length', download.contentLength.toString());
-  }
-
-  // Backpressure comes from pipe (docs/09 §9.1); a read error after the headers are out can only be
-  // signalled by dropping the connection.
-  download.body.on('error', () => res.destroy());
-  download.body.pipe(res);
-}

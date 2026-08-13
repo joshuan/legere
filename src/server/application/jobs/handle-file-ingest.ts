@@ -5,6 +5,7 @@ import type { DocumentEventRepository } from '../../domain/repositories/document
 import type { FileRepository } from '../../domain/repositories/file.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
+import { isTrashed } from '../../domain/entities/file';
 import { ContentHash } from '../../domain/value-objects/content-hash';
 import { chunkToBuffer, MAX_BINARY_BYTES } from '../ports/binary-source';
 import type { JobQueue } from '../ports/job-queue';
@@ -143,6 +144,16 @@ export class HandleFileIngest extends JobHandler {
         );
         return;
       }
+
+      // 🔒 A file in the trash has an answer to "where does this belong", and it is not "nowhere"
+      // (docs/05 §5.3, §5.7a). Without this, a scan that re-hashed the path — a touched mtime is
+      // enough — would hand a thrown-away scan a brand-new document, and the archive would grow the
+      // rubbish back faster than anybody could empty it. Restoring one is a person's decision, taken
+      // in the trash.
+      // Nothing is written down for it: the journal is per document (docs/03 §3.3.18) and there is
+      // no document here to write to. The ref is HASHED and points at the file, which is the whole
+      // of what this pass has to say.
+      if (isTrashed(file)) return;
 
       // New content: a document holding exactly this file, and the pipeline that builds its
       // canonical PDF (docs/05 §5.3). The job commits with the rows, so a document that exists is

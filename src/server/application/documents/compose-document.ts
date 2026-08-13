@@ -105,6 +105,9 @@ export class AddDocumentFile {
           'These bytes already belong to a document; combine the two documents instead',
         );
       }
+      // Bytes that are in the trash are not refused: uploading them is a person saying they want
+      // them back, and a file cannot be in a document and in the trash at once (docs/05 §5.7a).
+      if (file.trashedAt !== null) await this.files.untrash(file.id, tx);
 
       await this.files.attach(documentId, file.id, tx);
       await this.events.record(
@@ -326,6 +329,120 @@ export class SplitDocumentFile {
     });
 
     return { document: await reload(this.documents, viewer, documentId), splitDocumentId };
+  }
+}
+
+// POST /api/documents/:id/files/:fileId/replacement (docs/07 §7.3): a better copy of one page takes
+// the place of the one that is there (docs/05 §5.6).
+//
+// The difference from add-then-reorder is the whole point: a page re-photographed is still that
+// page, so the new file inherits the old one's **position** and nothing else about the document
+// moves. The old file is not destroyed either — it goes to the trash marked `REPLACED`, because the
+// judgement "this scan is better" is exactly the kind somebody takes back an hour later
+// (docs/05 §5.7a).
+export class ReplaceDocumentFile {
+  constructor(
+    private readonly documents: DocumentRepository,
+    private readonly files: FileRepository,
+    private readonly events: DocumentEventRepository,
+    private readonly storage: FileStorage,
+    private readonly mime: MimeDetector,
+    private readonly queue: JobQueue,
+    private readonly unitOfWork: UnitOfWork,
+    private readonly clock: Clock,
+  ) {}
+
+  async execute(
+    viewer: Viewer,
+    detail: DocumentDetail,
+    fileId: string,
+    input: UploadedFile,
+  ): Promise<DocumentDetailDto> {
+    assertMayCompose(viewer, detail);
+    const documentId = detail.document.id;
+    const replaced = fileOf(detail, fileId);
+    const upload = await describeUpload(this.mime, input);
+
+    if (upload.contentHash === replaced.contentHash) {
+      // The same bytes cannot replace themselves: there would be one file, in the trash and in the
+      // document at once, which is the one thing §3.3.16 does not allow.
+      throw new ConflictError(
+        'FILE_ALREADY_IN_DOCUMENT',
+        'These are the bytes already in that place',
+      );
+    }
+
+    const stored = await this.unitOfWork.run(async (tx) => {
+      const { file, created } = await this.files.findOrCreateByContentHash(
+        {
+          contentHash: upload.contentHash,
+          origin: 'MANAGED',
+          storageKey: null,
+          mimeType: upload.mimeType,
+          ext: upload.ext,
+          sizeBytes: BigInt(input.bytes.byteLength),
+          name: input.fileName,
+        },
+        tx,
+      );
+
+      // The same bytes are one file (ADR-021), so what arrives may be a file that already exists.
+      // A file with a home is refused, as an upload is — moving it is Combine. A file in the trash
+      // is not refused: it is taken back out, which is what "the version I replaced was better
+      // after all" comes down to (docs/05 §5.6).
+      const home = await this.files.findDocumentIdForFile(file.id, tx);
+      if (home !== null) {
+        throw new ConflictError(
+          'FILE_ALREADY_IN_DOCUMENT',
+          'These bytes already belong to a document; combine the two documents instead',
+        );
+      }
+      if (file.trashedAt !== null) await this.files.untrash(file.id, tx);
+
+      // Out of the composition and into the trash, then in at the same position: the two are one
+      // move, and `document_files.file_id` is unique among live rows, so the order is forced.
+      await this.files.detach(documentId, fileId, tx);
+      await this.files.trash(
+        {
+          fileIds: [fileId],
+          reason: 'REPLACED',
+          trashedFrom: detail.document.title,
+          replacedById: file.id,
+          at: this.clock.now(),
+        },
+        tx,
+      );
+      await this.files.attach(documentId, file.id, tx);
+      await this.files.reorder(
+        documentId,
+        detail.files.map((held) => (held.id === fileId ? file.id : held.id)),
+        tx,
+      );
+
+      await this.events.record(
+        {
+          documentId,
+          type: 'FILE_ATTACHED',
+          actorId: viewer.id,
+          payload: { source: 'UPLOAD', path: file.name },
+        },
+        tx,
+      );
+      await enqueueRebuild(this.queue, this.events, tx, documentId, viewer.id);
+      return { file, created };
+    });
+
+    if (stored.created) {
+      // After the commit, for the reason the upload gives: an object written for a transaction that
+      // rolled back is an orphan (docs/09 §9.5).
+      await this.storage.put(
+        originalKeyOf(stored.file),
+        input.bytes,
+        servableContentType(upload.mimeType),
+      );
+    }
+
+    return reload(this.documents, viewer, documentId);
   }
 }
 

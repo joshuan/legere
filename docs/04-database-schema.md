@@ -52,6 +52,12 @@ enum FileRefStatus {
   EXCLUDED
 }
 
+// How a file came to be in the trash (03 §3.2, 05 §5.7a).
+enum TrashReason {
+  REPLACED
+  DOCUMENT_DELETED
+}
+
 enum FileOrigin {
   LIBRARY
   MANAGED
@@ -419,13 +425,25 @@ model File {
   name        String
   crop        Json?
   cropSource  ValueSource @default(NONE) @map("crop_source")
+  // In the trash since, and how it got there (05 §5.7a). A file is in exactly one document or in
+  // the trash; `replaced_by_id` is the file that took its place, for the versions of a page.
+  trashedAt     DateTime?    @map("trashed_at") @db.Timestamptz(6)
+  trashedReason TrashReason? @map("trashed_reason")
+  trashedFrom   String?      @map("trashed_from")
+  replacedById  String?      @map("replaced_by_id") @db.Uuid
   createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime?  @map("deleted_at") @db.Timestamptz(6)
 
   refs     FileRef[]
   document DocumentFile?
+  // The versions of one page: every earlier copy points at the file now in the document (03 §3.3.16).
+  replacedBy      File?  @relation("FileVersions", fields: [replacedById], references: [id])
+  earlierVersions File[] @relation("FileVersions")
 
+  // The trash is read newest first and swept by age, and both are this one index.
+  @@index([trashedAt(sort: Desc)])
+  @@index([replacedById])
   @@map("files")
 }
 

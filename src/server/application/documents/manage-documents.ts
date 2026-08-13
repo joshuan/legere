@@ -37,6 +37,7 @@ import type {
 import type { CollectionRepository } from '../../domain/repositories/collection.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { FileRepository } from '../../domain/repositories/file.repository';
+import type { Clock } from '../ports/clock';
 import type { FileStorage } from '../ports/file-storage';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
@@ -280,10 +281,15 @@ export class UpdateDocumentMeta {
   }
 }
 
-// DELETE /api/documents/:id (admin): a real deletion — the one exception ADR-015 makes, and the only
-// endpoint in Legere that destroys anything (docs/03 §3.3.10, docs/07 §7.3).
+// DELETE /api/documents/:id (admin): the document goes for good — the one exception ADR-015 makes
+// (docs/03 §3.3.10, docs/07 §7.3) — and its files go to the trash (docs/05 §5.7a).
 //
-// Two halves, in this order and not the other: the rows in one transaction, the bytes after it
+// The split is deliberate. A document is a record *about* files: its journal, its chunks, its links
+// and its artifacts can all be rebuilt from what is kept, so deleting them costs nothing that cannot
+// be got back. The files are the bytes, and nothing rebuilds those — so they wait, ours until the
+// retention window closes and a library original until the person who owns that volume clears it.
+//
+// Two halves, in this order and not the other: the rows in one transaction, the objects after it
 // commits. A bucket that refuses part-way then leaves objects nobody owns, which is precisely what
 // the hourly sweep collects (docs/09 §9.2) — where the other order would leave rows pointing at
 // bytes that are gone, and nothing collects those.
@@ -295,6 +301,7 @@ export class DeleteDocument {
     private readonly collections: CollectionRepository,
     private readonly storage: FileStorage,
     private readonly unitOfWork: UnitOfWork,
+    private readonly clock: Clock,
   ) {}
 
   async execute(documentId: string): Promise<{ ok: true }> {
@@ -310,24 +317,33 @@ export class DeleteDocument {
       // Off every collection first: `collection_items` has no cascade on purpose (docs/04 §4.2), so
       // the foreign key would refuse the delete below and be right to.
       await this.collections.removeItemEverywhere(documentId, tx);
-      // 🔒 Before the files, not after: while a ref still points at one, the file row cannot go —
-      // and this is also the mark that keeps the next scan from ingesting the same bytes into a new
-      // document, the volume being read-only (docs/03 §3.3.9).
+      // 🔒 The mark that keeps the next scan from ingesting these bytes into a brand-new document,
+      // the volume being read-only and the original still lying on it (docs/03 §3.3.9). A file that
+      // is later restored from the trash gets its refs back then.
       await this.fileRefs.markExcluded(fileIds, tx);
+      // Into the trash under the title they were part of, which is the only thing that will still
+      // say what they were once the document row is gone.
+      await this.files.trash(
+        {
+          fileIds,
+          reason: 'DOCUMENT_DELETED',
+          trashedFrom: document.title,
+          at: this.clock.now(),
+        },
+        tx,
+      );
       // The document, and with it — by cascade — its journal, chunks, links and `document_files`.
+      // The files survive it; only their place in it does not.
       await this.documents.hardDelete(documentId, tx);
-      // Only once `document_files` is gone do these stop being referenced.
-      await this.files.hardDelete(fileIds, tx);
     });
 
-    // Everything Legere owned in the bucket: the document's own artifacts, and the originals of its
-    // MANAGED files. A LIBRARY file has no object at all — its bytes are on the volume and stay
-    // there (docs/09 §9.2).
+    // 🔒 The artifacts, and only the artifacts. The originals belong to files that are now in the
+    // trash and keep their bytes exactly where they were — the key does not change, because the file
+    // did not (docs/09 §9.2).
     const keys = [
       artifactKeys.canonicalPdf(documentId),
       artifactKeys.preview(documentId),
       artifactKeys.thumbnail(documentId),
-      ...held.filter((file) => file.origin === 'MANAGED').map(originalKeyOf),
     ];
     for (const key of keys) {
       // The rows are already gone, so the caller is not told a delete failed when it did not: what
@@ -393,6 +409,22 @@ export function toFileDto(file: DocumentFileView): DocumentFileDto {
     // no key rather than a derived one. A MANAGED file's key is what the row recorded, falling back
     // to the layout for a row written before the key was stored.
     storageKey: file.origin === 'MANAGED' ? originalKeyOf(file) : null,
+    // The copies of this page that a better one replaced (docs/05 §5.6). They are in the trash, so
+    // they are no part of the document — but what this page looked like before is a question about
+    // the page, and it is answered here.
+    earlierVersions: file.earlierVersions.map((version) => ({
+      id: version.id,
+      name: version.name,
+      mimeType: version.mimeType,
+      ext: version.ext,
+      sizeBytes: version.sizeBytes.toString(),
+      origin: version.origin,
+      available: version.available,
+      trashedAt: version.trashedAt.toISOString(),
+      purgeAfter: version.purgeAfter === null ? null : version.purgeAfter.toISOString(),
+      refs: version.refs,
+      storageKey: version.origin === 'MANAGED' ? originalKeyOf(version) : null,
+    })),
   };
 }
 

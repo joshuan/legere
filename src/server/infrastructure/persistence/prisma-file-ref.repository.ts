@@ -8,6 +8,7 @@ import {
   type FileRefSnapshot,
   type FolderSummary,
 } from '../../domain/repositories/file-ref.repository';
+import type { FileRefView } from '../../domain/repositories/file.repository';
 import { RelativePath } from '../../domain/value-objects/relative-path';
 import { folderPrefixPattern } from './like';
 import { clientOf } from './prisma-client';
@@ -160,6 +161,35 @@ export class PrismaFileRefRepository implements FileRefRepository {
       // the scan compares all three before it decides the path is spoken for (docs/03 §3.3.9).
       // `fileId` cannot stay — the file row is deleted a statement later.
       data: { status: 'EXCLUDED', fileId: null },
+    });
+  }
+
+  async listForFile(
+    fileId: string,
+    contentHash: string,
+    tx?: TransactionHandle,
+  ): Promise<FileRefView[]> {
+    const rows = await clientOf(this.prisma, tx).fileRef.findMany({
+      // By hash as well as by id: excluding a ref clears its `fileId` (docs/03 §3.3.9), and those
+      // are exactly the paths a file in the trash still lies at.
+      where: { OR: [{ fileId }, { contentHash }] },
+      include: { library: { select: { name: true } } },
+      orderBy: { path: 'asc' },
+    });
+    return rows.map((row) => ({
+      libraryId: row.libraryId,
+      libraryName: row.library.name,
+      path: row.path,
+      status: row.status,
+    }));
+  }
+
+  async markRestored(fileId: string, contentHash: string, tx?: TransactionHandle): Promise<void> {
+    await clientOf(this.prisma, tx).fileRef.updateMany({
+      where: { contentHash, status: 'EXCLUDED' },
+      // Straight to HASHED rather than back through DISCOVERED: the bytes are on the volume and
+      // their hash is exactly what matched here, so there is nothing left to read (docs/03 §3.3.9).
+      data: { status: 'HASHED', fileId },
     });
   }
 

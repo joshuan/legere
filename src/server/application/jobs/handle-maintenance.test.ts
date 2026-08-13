@@ -7,7 +7,10 @@ import {
 } from '../../../../test/helpers/fakes';
 import {
   documentFixture,
+  ImmediateUnitOfWork,
+  LIBRARY_ID,
   InMemoryDocumentRepository,
+  InMemoryFileRefRepository,
   InMemoryFileRepository,
 } from '../../../../test/helpers/processing-fakes';
 import { JobQueue, type EnqueueOptions, type QueueName } from '../../application/ports/job-queue';
@@ -18,6 +21,9 @@ import { HandleMaintenance } from './handle-maintenance';
 
 const NOW = new Date('2026-03-01T10:00:00.000Z');
 const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+// The default of docs/12 §12.4, so the test asks the question the product actually answers.
+const RETENTION_DAYS = 30;
 
 const LIVE_DOCUMENT = '11111111-1111-4111-8111-111111111111';
 const DELETED_DOCUMENT = '22222222-2222-4222-8222-222222222222';
@@ -60,6 +66,7 @@ describe('HandleMaintenance', () => {
   let resets: InMemoryPasswordResetRepository;
   let documents: InMemoryDocumentRepository;
   let fileRows: InMemoryFileRepository;
+  let fileRefs: InMemoryFileRefRepository;
   let files: InMemoryFileStorage;
   let metrics: InMemoryMetricsCache;
   let queue: RecordingJobQueue;
@@ -75,16 +82,20 @@ describe('HandleMaintenance', () => {
     files = new InMemoryFileStorage();
     metrics = new InMemoryMetricsCache();
     queue = new RecordingJobQueue();
+    fileRefs = new InMemoryFileRefRepository();
     handler = new HandleMaintenance(
       verifications,
       invites,
       resets,
       documents,
       fileRows,
+      fileRefs,
       files,
       metrics,
       queue,
+      new ImmediateUnitOfWork(),
       clock,
+      RETENTION_DAYS,
     );
   });
 
@@ -192,6 +203,48 @@ describe('HandleMaintenance', () => {
     await handler.handle();
 
     expect(files.keys()).toEqual([`files/${LIVE_FILE}/original.jpg`]);
+  });
+
+  // 🔒 The one destruction in Legere that happens on a clock (docs/05 §5.7a) — and the half of it
+  // that must never fire is the library original, whose bytes are on a volume we may not write to.
+  describe('the trash, once its time is up', () => {
+    const OURS = '66666666-6666-4666-8666-666666666666';
+    const THEIRS = '77777777-7777-4777-8777-777777777777';
+    const RECENT = '88888888-8888-4888-8888-888888888888';
+
+    beforeEach(async () => {
+      const longAgo = new Date(NOW.getTime() - (RETENTION_DAYS + 1) * DAY);
+      // Ours, and past the window: this is what the sweep is for.
+      fileRows.add({ id: OURS, origin: 'MANAGED', ext: 'jpg', trashedAt: longAgo }, null);
+      // Theirs, and older still — and it stays, however long it waits.
+      fileRows.add({ id: THEIRS, origin: 'LIBRARY', storageKey: null, trashedAt: longAgo }, null);
+      // Ours, but thrown away this morning.
+      fileRows.add(
+        { id: RECENT, origin: 'MANAGED', ext: 'jpg', trashedAt: new Date(NOW.getTime() - HOUR) },
+        null,
+      );
+
+      await files.put(`files/${OURS}/original.jpg`, Buffer.alloc(10), 'image/jpeg');
+      await files.put(`files/${RECENT}/original.jpg`, Buffer.alloc(10), 'image/jpeg');
+    });
+
+    it('deletes what is ours and past the window, and nothing else', async () => {
+      await handler.handle();
+
+      const left = (await fileRows.listAllTrashed()).map((file) => file.id).sort();
+      expect(left).toEqual([RECENT, THEIRS].sort());
+      expect(files.keys()).toEqual([`files/${RECENT}/original.jpg`]);
+    });
+
+    it('leaves the paths of a purged library original excluded, so no scan brings it back', async () => {
+      fileRefs.add({ id: 'ref-1', libraryId: LIBRARY_ID, fileId: THEIRS });
+
+      await handler.handle();
+
+      // It was not purged, so its ref is untouched: the exclusion happens when somebody deletes it
+      // by hand (docs/05 §5.7a), and until then the file is simply waiting.
+      expect(fileRefs.refs.map((ref) => ref.status)).toEqual(['HASHED']);
+    });
   });
 
   it('caches what the bucket holds after the sweep, stamped with the time it was measured', async () => {

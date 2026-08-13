@@ -49,6 +49,13 @@ enum FileOrigin {
   MANAGED
 }
 
+// How a file came to be in the trash (docs/03 §3.2, docs/05 §5.7a). Not who put it there but what
+// happened to it, which is what decides whether there is a newer copy to compare it with.
+enum TrashReason {
+  REPLACED
+  DOCUMENT_DELETED
+}
+
 enum StepStatus {
   PENDING
   QUEUED
@@ -517,13 +524,29 @@ model File {
   name        String
   crop        Json?
   cropSource  ValueSource @default(NONE) @map("crop_source")
+  // In the trash since, and how it got there (docs/05 §5.7a): a file is in exactly one document or
+  // in the trash, and the trash is where every file that leaves a document waits to be deleted or
+  // restored. `trashedFrom` is the title the document had when it left — a record and not a link,
+  // because that document is usually gone by the time anybody reads this.
+  trashedAt     DateTime?    @map("trashed_at") @db.Timestamptz(6)
+  trashedReason TrashReason? @map("trashed_reason")
+  trashedFrom   String?      @map("trashed_from")
+  // For REPLACED: the file that took this one's place. Every earlier copy of a page points at the
+  // file in the document *now*, so "the versions of this page" stays one query however many times
+  // the page is replaced (docs/03 §3.3.16).
+  replacedById  String?      @map("replaced_by_id") @db.Uuid
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime?   @map("deleted_at") @db.Timestamptz(6)
 
-  refs     FileRef[]
-  document DocumentFile?
+  refs            FileRef[]
+  document        DocumentFile?
+  replacedBy      File?         @relation("FileVersions", fields: [replacedById], references: [id])
+  earlierVersions File[]        @relation("FileVersions")
 
+  // The trash is read newest first and swept by age; both are this index.
+  @@index([trashedAt(sort: Desc)])
+  @@index([replacedById])
   @@map("files")
 }
 

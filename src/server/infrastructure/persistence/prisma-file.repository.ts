@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type File as PrismaFile } from '@prisma/client';
 import { cropSchema, type Crop } from '../../../shared/contracts/documents';
-import type { ValueSource } from '../../../shared/contracts/enums';
+import type { TrashReason, ValueSource } from '../../../shared/contracts/enums';
 import { artifactKeys } from '../../application/storage/artifact-keys';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { File } from '../../domain/entities/file';
@@ -10,6 +10,8 @@ import {
   FileRepository,
   type CreateFileInput,
   type DocumentFile,
+  type FileRefView,
+  type TrashedFile,
 } from '../../domain/repositories/file.repository';
 import { clientOf, isPrismaTx } from './prisma-client';
 import type { PrismaTx } from './prisma-unit-of-work';
@@ -27,6 +29,10 @@ function toDomain(row: PrismaFile): File {
     name: row.name,
     crop: toCrop(row.crop),
     cropSource: row.cropSource,
+    trashedAt: row.trashedAt,
+    trashedReason: row.trashedReason,
+    trashedFrom: row.trashedFrom,
+    replacedById: row.replacedById,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     deletedAt: row.deletedAt,
@@ -164,6 +170,161 @@ export class PrismaFileRepository implements FileRepository {
       select: { id: true },
     });
     return rows.map((row) => row.id);
+  }
+
+  // --- the trash (docs/05 §5.7a) --------------------------------------------------------------
+
+  async trash(
+    input: {
+      fileIds: readonly string[];
+      reason: TrashReason;
+      trashedFrom: string | null;
+      replacedById?: string | undefined;
+      at: Date;
+    },
+    tx?: TransactionHandle,
+  ): Promise<void> {
+    if (input.fileIds.length === 0) return;
+    const client = clientOf(this.prisma, tx);
+    const ids = [...input.fileIds];
+
+    // The versions this page already had point at whatever replaced it; when it is replaced again
+    // they follow, so every copy of a page points at the file in the document *now* and listing them
+    // stays one query (docs/03 §3.3.16).
+    if (input.replacedById !== undefined) {
+      await client.file.updateMany({
+        where: { replacedById: { in: ids } },
+        data: { replacedById: input.replacedById },
+      });
+    }
+
+    await client.file.updateMany({
+      where: { id: { in: ids } },
+      data: {
+        trashedAt: input.at,
+        trashedReason: input.reason,
+        trashedFrom: input.trashedFrom,
+        replacedById: input.replacedById ?? null,
+      },
+    });
+  }
+
+  async untrash(id: string, tx?: TransactionHandle): Promise<File> {
+    const row = await clientOf(this.prisma, tx).file.update({
+      where: { id },
+      data: { trashedAt: null, trashedReason: null, trashedFrom: null, replacedById: null },
+    });
+    return toDomain(row);
+  }
+
+  async listVersionsFor(
+    fileIds: readonly string[],
+    tx?: TransactionHandle,
+  ): Promise<Map<string, File[]>> {
+    const byFile = new Map<string, File[]>(fileIds.map((id) => [id, []]));
+    if (fileIds.length === 0) return byFile;
+
+    const rows = await clientOf(this.prisma, tx).file.findMany({
+      where: { replacedById: { in: [...fileIds] } },
+      // Newest first: the copy replaced most recently is the one somebody is comparing against.
+      orderBy: { trashedAt: 'desc' },
+    });
+    for (const row of rows) {
+      if (row.replacedById === null) continue;
+      byFile.get(row.replacedById)?.push(toDomain(row));
+    }
+    return byFile;
+  }
+
+  async listTrashed(
+    query: { limit: number; cursor?: Date | undefined },
+    tx?: TransactionHandle,
+  ): Promise<{ items: TrashedFile[]; totalItems: number; totalBytes: bigint }> {
+    const client = clientOf(this.prisma, tx);
+    const inTheTrash = { trashedAt: { not: null } };
+
+    const rows = await client.file.findMany({
+      where:
+        query.cursor === undefined
+          ? inTheTrash
+          : { AND: [inTheTrash, { trashedAt: { lt: query.cursor } }] },
+      orderBy: { trashedAt: 'desc' },
+      take: query.limit,
+    });
+
+    // 🔒 Where the bytes are — by **content hash**, not through the `refs` relation. Excluding a ref
+    // is what clears its `file_id` (docs/03 §3.3.9), so a file whose document was deleted has no
+    // relation left to follow and would list as having no whereabouts at all: exactly the file for
+    // which naming the path matters most, since only a person can clear it (docs/11 §11.13b). No
+    // visibility filter — the trash is an admin's, and an admin sees every library anyway.
+    const hashes = rows.map((row) => row.contentHash);
+    const refRows =
+      hashes.length === 0
+        ? []
+        : await client.fileRef.findMany({
+            where: { contentHash: { in: hashes } },
+            include: { library: { select: { name: true } } },
+            orderBy: { path: 'asc' },
+          });
+
+    const refsByHash = new Map<string, FileRefView[]>();
+    for (const ref of refRows) {
+      if (ref.contentHash === null) continue;
+      const view = {
+        libraryId: ref.libraryId,
+        libraryName: ref.library.name,
+        path: ref.path,
+        status: ref.status,
+      };
+      const found = refsByHash.get(ref.contentHash);
+      if (found === undefined) refsByHash.set(ref.contentHash, [view]);
+      else found.push(view);
+    }
+
+    // The whole trash, not the page: "what is this costing me" is the question the screen answers,
+    // and one aggregate is cheaper than paging to the end to find out (docs/07 §7.3).
+    const totals = await client.file.aggregate({
+      where: inTheTrash,
+      _count: { _all: true },
+      _sum: { sizeBytes: true },
+    });
+
+    return {
+      items: rows.map((row) => {
+        const refs = refsByHash.get(row.contentHash) ?? [];
+        return {
+          ...toDomain(row),
+          refs,
+          // A MANAGED file's bytes are ours and do not go missing behind our back; a LIBRARY file's
+          // are readable while a path still holds them — `EXCLUDED` among them, since that says
+          // Legere will not *ingest* the file again and nothing about the bytes (docs/05 §5.7a).
+          available:
+            row.origin === 'MANAGED' ||
+            refs.some((ref) => ref.status === 'HASHED' || ref.status === 'EXCLUDED'),
+        };
+      }),
+      totalItems: totals._count._all,
+      totalBytes: totals._sum.sizeBytes ?? 0n,
+    };
+  }
+
+  async listAllTrashed(tx?: TransactionHandle): Promise<File[]> {
+    const rows = await clientOf(this.prisma, tx).file.findMany({
+      where: { trashedAt: { not: null } },
+      orderBy: { trashedAt: 'desc' },
+    });
+    return rows.map(toDomain);
+  }
+
+  // 🔒 `origin: MANAGED` is the load-bearing half: a LIBRARY file's bytes are on a read-only volume,
+  // so no window closes on them however long they sit here (docs/05 §5.7a).
+  async listPurgeable(before: Date, limit: number, tx?: TransactionHandle): Promise<File[]> {
+    const rows = await clientOf(this.prisma, tx).file.findMany({
+      where: { origin: 'MANAGED', trashedAt: { not: null, lte: before } },
+      orderBy: { trashedAt: 'asc' },
+      take: limit,
+    });
+    return rows.map(toDomain);
   }
 
   // --- the composition of a document -------------------------------------------------------

@@ -24,6 +24,8 @@ import {
   FileRepository,
   type CreateFileInput,
   type DocumentFile,
+  type FileRefView,
+  type TrashedFile,
 } from '../../src/server/domain/repositories/file.repository';
 import {
   FileRefRepository,
@@ -39,7 +41,7 @@ import {
 } from '../../src/server/domain/repositories/library.repository';
 import { RelativePath } from '../../src/server/domain/value-objects/relative-path';
 import type { Crop, DocumentGroupBy, DocumentStep } from '../../src/shared/contracts/documents';
-import type { StepStatus } from '../../src/shared/contracts/enums';
+import type { StepStatus, TrashReason } from '../../src/shared/contracts/enums';
 import { toBuffer, type BinarySource } from '../../src/server/application/ports/binary-source';
 import { ImageTool, type JpegPreviewOptions } from '../../src/server/application/ports/image-tool';
 import type { GrayscaleRaster } from '../../src/server/domain/entities/page-detection';
@@ -358,6 +360,12 @@ export function fileFixture(overrides: Partial<File> = {}): File {
     name: 'a.pdf',
     crop: null,
     cropSource: 'NONE',
+    // Part of a document, which is where a file is unless somebody put it in the trash
+    // (docs/05 §5.7a).
+    trashedAt: null,
+    trashedReason: null,
+    trashedFrom: null,
+    replacedById: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     deletedAt: null,
@@ -437,6 +445,109 @@ export class InMemoryFileRepository extends FileRepository {
 
   filterExistingIds(ids: string[]): Promise<string[]> {
     return Promise.resolve(ids.filter((id) => this.files.has(id)));
+  }
+
+  // --- the trash (docs/05 §5.7a) --------------------------------------------------------------
+
+  trash(input: {
+    fileIds: readonly string[];
+    reason: TrashReason;
+    trashedFrom: string | null;
+    replacedById?: string | undefined;
+    at: Date;
+  }): Promise<void> {
+    // The versions this page already had follow it, so every copy points at the file in the
+    // document now — the same re-pointing the schema does.
+    if (input.replacedById !== undefined) {
+      for (const [id, file] of this.files) {
+        if (file.replacedById !== null && input.fileIds.includes(file.replacedById)) {
+          this.files.set(id, { ...file, replacedById: input.replacedById });
+        }
+      }
+    }
+
+    for (const fileId of input.fileIds) {
+      const file = this.files.get(fileId);
+      if (file === undefined) continue;
+      this.files.set(fileId, {
+        ...file,
+        trashedAt: input.at,
+        trashedReason: input.reason,
+        trashedFrom: input.trashedFrom,
+        replacedById: input.replacedById ?? null,
+      });
+      for (const [documentId, held] of this.composition) {
+        this.composition.set(
+          documentId,
+          held.filter((heldId) => heldId !== fileId),
+        );
+      }
+    }
+    return Promise.resolve();
+  }
+
+  untrash(id: string): Promise<File> {
+    const file = this.files.get(id);
+    if (file === undefined) throw new Error(`No file ${id}`);
+    const restored: File = {
+      ...file,
+      trashedAt: null,
+      trashedReason: null,
+      trashedFrom: null,
+      replacedById: null,
+    };
+    this.files.set(id, restored);
+    return Promise.resolve(restored);
+  }
+
+  listVersionsFor(fileIds: readonly string[]): Promise<Map<string, File[]>> {
+    const byFile = new Map<string, File[]>(fileIds.map((id) => [id, []]));
+    for (const file of this.files.values()) {
+      if (file.replacedById === null) continue;
+      byFile.get(file.replacedById)?.push(file);
+    }
+    for (const versions of byFile.values()) {
+      versions.sort((a, b) => (b.trashedAt?.getTime() ?? 0) - (a.trashedAt?.getTime() ?? 0));
+    }
+    return Promise.resolve(byFile);
+  }
+
+  listTrashed(query: {
+    limit: number;
+    cursor?: Date | undefined;
+  }): Promise<{ items: TrashedFile[]; totalItems: number; totalBytes: bigint }> {
+    const inTheTrash = [...this.files.values()]
+      .filter((file) => file.trashedAt !== null)
+      .sort((a, b) => (b.trashedAt?.getTime() ?? 0) - (a.trashedAt?.getTime() ?? 0));
+    const page = inTheTrash
+      .filter(
+        (file) =>
+          query.cursor === undefined || (file.trashedAt?.getTime() ?? 0) < query.cursor.getTime(),
+      )
+      .slice(0, query.limit);
+    return Promise.resolve({
+      items: page.map((file) => ({ ...file, available: file.origin === 'MANAGED', refs: [] })),
+      totalItems: inTheTrash.length,
+      totalBytes: inTheTrash.reduce((total, file) => total + file.sizeBytes, 0n),
+    });
+  }
+
+  listAllTrashed(): Promise<File[]> {
+    return Promise.resolve([...this.files.values()].filter((file) => file.trashedAt !== null));
+  }
+
+  listPurgeable(before: Date, limit: number): Promise<File[]> {
+    return Promise.resolve(
+      [...this.files.values()]
+        // 🔒 MANAGED only: a library original is on a read-only volume, so no window closes on it.
+        .filter(
+          (file) =>
+            file.origin === 'MANAGED' &&
+            file.trashedAt !== null &&
+            file.trashedAt.getTime() <= before.getTime(),
+        )
+        .slice(0, limit),
+    );
   }
 
   listForDocument(documentId: string): Promise<DocumentFile[]> {
@@ -567,6 +678,31 @@ export class InMemoryFileRefRepository extends FileRefRepository {
     for (const [index, ref] of this.refs.entries()) {
       if (ref.fileId !== null && fileIds.includes(ref.fileId)) {
         this.refs[index] = { ...ref, status: 'EXCLUDED', fileId: null };
+      }
+    }
+    return Promise.resolve();
+  }
+
+  // Everywhere these bytes were seen — by hash as well as by id, since an excluded ref points at no
+  // file (docs/03 §3.3.9).
+  listForFile(fileId: string, contentHash: string): Promise<FileRefView[]> {
+    return Promise.resolve(
+      this.refs
+        .filter((ref) => ref.fileId === fileId || ref.contentHash === contentHash)
+        .map((ref) => ({
+          libraryId: ref.libraryId,
+          libraryName: 'Library',
+          path: ref.path.value,
+          status: ref.status,
+        })),
+    );
+  }
+
+  // And the way back, by hash: excluding the ref is what cleared its `fileId` (docs/05 §5.7a).
+  markRestored(fileId: string, contentHash: string): Promise<void> {
+    for (const [index, ref] of this.refs.entries()) {
+      if (ref.status === 'EXCLUDED' && ref.contentHash === contentHash) {
+        this.refs[index] = { ...ref, status: 'HASHED', fileId };
       }
     }
     return Promise.resolve();

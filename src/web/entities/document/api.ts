@@ -103,6 +103,16 @@ export const documentApi = {
   addFile: (id: string, file: File): Promise<DocumentDetailDto> =>
     uploadFile(`/api/documents/${id}/files`, file, { schema: documentDetailDtoSchema }),
 
+  // The same bytes on the same terms, sent in place of a file rather than after it: the new scan
+  // takes the named file's position, so the page order does not move (docs/05 §5.6). One request
+  // because it is one intention — split, upload, reorder is three of them to say that a page was
+  // re-photographed. What it displaces is not destroyed: it goes to the trash and stays listed under
+  // its successor as an earlier version (docs/05 §5.7a).
+  replaceFile: (id: string, fileId: string, file: File): Promise<DocumentDetailDto> =>
+    uploadFile(`/api/documents/${id}/files/${fileId}/replacement`, file, {
+      schema: documentDetailDtoSchema,
+    }),
+
   reorderFiles: (id: string, body: ReorderDocumentFilesRequest): Promise<DocumentDetailDto> =>
     apiClient.patch(`/api/documents/${id}/files`, { schema: documentDetailDtoSchema, body }),
 

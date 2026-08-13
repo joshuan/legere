@@ -12,6 +12,7 @@ import {
   AddDocumentFile,
   CombineDocuments,
   ReorderDocumentFiles,
+  ReplaceDocumentFile,
   SetDocumentFileCrop,
   SplitDocumentFile,
   SuggestDocumentFileCrop,
@@ -121,8 +122,9 @@ function downloadSettings(config: AppConfig): DownloadSettings {
         collections: CollectionRepository,
         storage: FileStorage,
         unitOfWork: UnitOfWork,
+        clock: Clock,
       ): DeleteDocument =>
-        new DeleteDocument(documents, files, fileRefs, collections, storage, unitOfWork),
+        new DeleteDocument(documents, files, fileRefs, collections, storage, unitOfWork, clock),
       inject: [
         DocumentRepository,
         FileRepository,
@@ -130,6 +132,31 @@ function downloadSettings(config: AppConfig): DownloadSettings {
         CollectionRepository,
         FileStorage,
         UnitOfWork,
+        Clock,
+      ],
+    },
+    {
+      provide: ReplaceDocumentFile,
+      useFactory: (
+        documents: DocumentRepository,
+        files: FileRepository,
+        events: DocumentEventRepository,
+        storage: FileStorage,
+        mime: MimeDetector,
+        queue: JobQueue,
+        unitOfWork: UnitOfWork,
+        clock: Clock,
+      ): ReplaceDocumentFile =>
+        new ReplaceDocumentFile(documents, files, events, storage, mime, queue, unitOfWork, clock),
+      inject: [
+        DocumentRepository,
+        FileRepository,
+        DocumentEventRepository,
+        FileStorage,
+        MimeDetector,
+        JobQueue,
+        UnitOfWork,
+        Clock,
       ],
     },
     {

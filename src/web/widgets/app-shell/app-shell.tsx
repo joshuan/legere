@@ -3,6 +3,7 @@
 import {
   AppstoreOutlined,
   DatabaseOutlined,
+  DeleteOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
   InfoCircleOutlined,
@@ -163,6 +164,13 @@ export function AppShell({
                 key: '/admin/queue',
                 icon: <ThunderboltOutlined />,
                 label: <Link href="/admin/queue">{t('nav.admin.queue')}</Link>,
+              },
+              // What has left a document and not been destroyed yet (docs/11 §11.13b). Beside the
+              // queue, because both are about what the instance is holding on to.
+              {
+                key: '/admin/trash',
+                icon: <DeleteOutlined />,
+                label: <Link href="/admin/trash">{t('nav.admin.trash')}</Link>,
               },
               // What this server is actually running (docs/11 §11.13a). Last, because it is the
               // page an operator opens when something else has already gone wrong.

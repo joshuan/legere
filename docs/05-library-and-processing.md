@@ -102,6 +102,10 @@ The `file-ingest` job computes SHA-256 of the file stream and then asks two ques
 2. **Does that file have a document?** No — it is new — → create a document holding exactly it and
    enqueue `document-process`. Yes → nothing else happens; the bytes turned up in one more place,
    which is a fact about paths and not about documents.
+   🔒 **A file in the trash counts as having one.** It has no `document_files` row (§5.7a), so the
+   question above would answer "no" and hand a thrown-away scan a fresh document — every time
+   somebody touched the file on the volume and the ref was re-hashed. Being in the trash is an answer
+   about where a file belongs, and it is not "nowhere".
 
 **Invariants:**
 - One live `File` per `contentHash`.
@@ -427,6 +431,20 @@ document to read, search and categorize.
   document is titled after the file, inherits nothing else, and is processed from scratch. Removing
   the only file of a document is refused (`DOCUMENT_LAST_FILE`): a document is emptied by deleting
   it, not by taking its parts away one at a time.
+- **Replace.** A bad scan is re-taken and sent in place of the file it is a better copy of: the new
+  bytes are stored and deduplicated like any upload, and take **the old file's position**, so the
+  page order does not move and nothing else about the document changes. It is neither an add nor a
+  split — a page 3 that has been re-photographed is still page 3, and the alternative today is
+  "split off, upload, reorder", three operations and three rebuilds to say one thing.
+  **The file that was there is not destroyed — it goes to the trash** (§5.7a), marked as replaced by
+  the file that took its place (`03 §3.3.16`): a scan is replaced *because* somebody thinks the new
+  one is better, and that judgement is worth being able to take back. The same page may be replaced
+  any number of times; every earlier version hangs off the file that is in the document now, newest
+  first, and is offered for download beside it (`11 §11.5a`).
+  Replacing with bytes that are already a live file is refused for the reason an upload is
+  (`FILE_ALREADY_IN_DOCUMENT`); replacing with bytes that are an *earlier version* of this same file
+  takes that version back out of the trash, which is what deduplication means when the file it finds
+  is one of ours.
 - **Reorder.** Positions are rewritten wholesale from the order the client sends; the order is the
   page order of the canonical PDF and nothing else depends on it.
 - **Crop.** An image file carries a quadrilateral in normalized coordinates (03 §3.3.16) — four
@@ -478,9 +496,46 @@ already known, so dismissing one is a client-side act and the list is always cur
 - The file came back (same hash at the same or another path) → the link is restored, the document is
   available again.
 - There is no physical cleanup of MISSING records: a ref is a record of where bytes were seen, and
-  the volume is not ours to tidy. The one deletion that does remove rows is an admin deleting a
-  document (`03 §3.3.10`) — and even that keeps a `FileRef` per path, `EXCLUDED`, because keeping it
-  is what stops the next scan from ingesting the file all over again.
+  the volume is not ours to tidy. The deletions that do remove rows — an admin deleting a document
+  (`03 §3.3.10`), or emptying the trash (§5.7a) — keep a `FileRef` per path, `EXCLUDED`, because
+  keeping it is what stops the next scan from ingesting the file all over again.
+
+## 5.7a. The trash
+
+**Every file that stops being part of a document goes to the trash; no file is destroyed by the act
+that removed it.** Replacing a page (§5.6) puts the old scan there, and deleting a document
+(`03 §3.3.10`) puts all of its files there. The document itself does not go to the trash — it is
+deleted at once, with its journal, its chunks and its artifacts, because a document is a record about
+files and the files are what is worth keeping. What the trash protects is the one thing that cannot
+be rebuilt: bytes.
+
+A file in the trash has left the composition entirely. It is in no document, out of every listing and
+every search, contributes to no document's size or availability, and is not given a document of its
+own the way a split file is — but it still exists, with its bytes, its name and where it came from.
+
+**How an item leaves the trash decides itself, by where its bytes live** — and only one of the two
+homes is ours:
+
+- **`MANAGED`** (an upload, or something Legere made): the object is deleted automatically once the
+  item is older than `TRASH_RETENTION_DAYS` (default 30, `12 §12.4`), by the hourly `maintenance`
+  job. This is the one destructive thing in Legere that happens on a clock, and it is the reason the
+  trash can be a safety net rather than a slow leak.
+- **`LIBRARY`**: nothing is ever deleted automatically, because nothing *can* be — the volume is
+  read-only (ADR-007) and the bytes were never Legere's to remove. The item waits, naming its path,
+  until the person who owns that volume clears it themselves. Removing the item from the trash
+  removes Legere's record of the file and no more; the file's `FileRef`s stay `EXCLUDED` (`03
+  §3.3.9`), so the scan does not ingest the same bytes into a new document afterwards.
+
+**The trash is a screen** (`11 §11.13`), an admin's: what is in it, what it weighs, where each item
+came from and when it goes. Anything in it can be deleted for good on the spot, one item or all of
+them, without waiting for the retention window — the window is a promise about the latest something
+will go, not the earliest.
+
+**Restoring gives the file a document of its own — a new one.** It never climbs back into the
+document it left: that document has moved on, or does not exist any more, and putting a page back
+into a place whose page order changed underneath it would be a guess. A restore is the same act as a
+split (§5.6): a document titled after the file, holding exactly it, processed from scratch. A library
+file's refs become live again, since the bytes are on the volume and their hash is known.
 
 ## 5.8. Observability (admin panel)
 

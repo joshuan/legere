@@ -1308,7 +1308,7 @@ describe('Documents (e2e)', () => {
   });
 
   describe('deletion', () => {
-    it('deletes a document for real, taking its files and leaving the volume alone', async () => {
+    it('deletes a document for real, and puts its files in the trash', async () => {
       const open = await givenLibrary('ALL_USERS');
       const seeded = await seedDocument({ libraryId: open, files: [{}, {}] });
 
@@ -1322,11 +1322,14 @@ describe('Documents (e2e)', () => {
       const page = expectData(await listAs(adminCookie), listDocumentsResponseSchema);
       expect(page.items).toEqual([]);
 
-      // 🔒 The exception ADR-015 makes (docs/03 §3.3.10): the row is gone, not hidden, and its
-      // files go with it — a file has exactly one home and this one had this document.
+      // 🔒 The exception ADR-015 makes (docs/03 §3.3.10): the row is gone, not hidden, and so is
+      // its place in it. What is not destroyed is the bytes — nothing rebuilds those, so the files
+      // wait in the trash (docs/05 §5.7a).
       expect(await testPrisma().document.findUnique({ where: { id: seeded.id } })).toBeNull();
-      expect(await testPrisma().file.count({ where: { id: { in: seeded.fileIds } } })).toBe(0);
       expect(await testPrisma().documentFile.count({ where: { documentId: seeded.id } })).toBe(0);
+      const kept = await testPrisma().file.findMany({ where: { id: { in: seeded.fileIds } } });
+      expect(kept).toHaveLength(2);
+      expect(kept.every((file) => file.trashedReason === 'DOCUMENT_DELETED')).toBe(true);
 
       // What could not go, because the volume is read-only: one ref per path, kept as the tombstone
       // that stops the next scan ingesting the same bytes into a new document (docs/03 §3.3.9).

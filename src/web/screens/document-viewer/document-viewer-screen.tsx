@@ -15,6 +15,7 @@ import {
   Card,
   Checkbox,
   Col,
+  Collapse,
   DatePicker,
   Dropdown,
   Empty,
@@ -30,6 +31,7 @@ import {
   Tag,
   Tooltip,
   Typography,
+  Upload,
   theme,
 } from 'antd';
 import dayjs from 'dayjs';
@@ -47,6 +49,7 @@ import {
   type DocumentDetailDto,
   type DocumentEventDto,
   type DocumentFileDto,
+  type DocumentFileVersionDto,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
 import {
@@ -1478,6 +1481,10 @@ function FilesPane({ document }: { document: DocumentDetailDto }) {
   // (docs/11 §11.3, §11.5a).
   const upload = useDocumentUpload(document.id);
   const [cropping, setCropping] = useState<DocumentFileDto | null>(null);
+  // Which row is having its bytes replaced. The upload happens in place of a file rather than at the
+  // end of the list, so the row it lands on is the only honest place to show it going (docs/11
+  // §11.5a) — a queued card above the list would be about a file that is not arriving.
+  const [replacing, setReplacing] = useState<string | null>(null);
 
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.detail(document.id) });
@@ -1505,6 +1512,23 @@ function FilesPane({ document }: { document: DocumentDetailDto }) {
     onError: (error: unknown) => void message.error(describeError(error)),
   });
 
+  // A page re-photographed is still that page: the new scan takes the old one's position and the
+  // page order does not move (docs/05 §5.6). The scan it displaces goes to the trash under this same
+  // row, which is what makes replacing something a person can take back (docs/05 §5.7a).
+  const replace = useMutation({
+    mutationFn: ({ fileId, file }: { fileId: string; file: File }) =>
+      documentApi.replaceFile(document.id, fileId, file),
+    onMutate: ({ fileId }) => {
+      setReplacing(fileId);
+    },
+    onSuccess: () => {
+      void message.success(t('viewer.files.replaced'), 3);
+      refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+    onSettled: () => setReplacing(null),
+  });
+
   const move = (index: number, by: number): void => {
     const order = document.files.map((file) => file.id);
     const target = index + by;
@@ -1516,7 +1540,7 @@ function FilesPane({ document }: { document: DocumentDetailDto }) {
     reorder.mutate(order);
   };
 
-  const busy = reorder.isPending || split.isPending;
+  const busy = reorder.isPending || split.isPending || replace.isPending;
 
   return (
     <Space direction="vertical" size="small" style={{ width: '100%' }}>
@@ -1560,6 +1584,22 @@ function FilesPane({ document }: { document: DocumentDetailDto }) {
               >
                 {t('viewer.files.download')}
               </Button>,
+              // The picker opens on the row the new scan is for, and one file at a time: a page is
+              // replaced by a page (docs/11 §11.5a). The request is ours for the reason the upload
+              // button gives — the endpoint takes the file as the body itself.
+              <Upload
+                key="replace"
+                showUploadList={false}
+                disabled={busy}
+                beforeUpload={(chosen) => {
+                  replace.mutate({ fileId: file.id, file: chosen });
+                  return Upload.LIST_IGNORE;
+                }}
+              >
+                <Button size="small" type="link" disabled={busy} loading={replacing === file.id}>
+                  {t('viewer.files.replace')}
+                </Button>
+              </Upload>,
               ...(file.isImage
                 ? [
                     <Button key="crop" size="small" type="link" onClick={() => setCropping(file)}>
@@ -1670,6 +1710,9 @@ function FilesPane({ document }: { document: DocumentDetailDto }) {
                       {`${t('viewer.files.objectStorage')}: ${file.storageKey}`}
                     </Typography.Text>
                   )}
+                  {file.earlierVersions.length > 0 && (
+                    <EarlierVersions documentId={document.id} versions={file.earlierVersions} />
+                  )}
                 </Space>
               }
             />
@@ -1689,6 +1732,72 @@ function FilesPane({ document }: { document: DocumentDetailDto }) {
         />
       )}
     </Space>
+  );
+}
+
+// The copies a page has had, under the page that replaced them (docs/11 §11.5a). Collapsed, because
+// what belongs to the document is the row above and these are the answer to a question asked rarely
+// — "what did this page look like before" — which is the whole reason the old scan was kept rather
+// than destroyed (docs/05 §5.6). They are in the trash, so each says where it is going: a file of
+// ours names the day the sweep takes it, and a library original says it is on the volume, which no
+// sweep will ever touch (docs/05 §5.7a). Getting one back into a document is the trash screen's
+// business and makes a new document, so nothing here pretends to be an undo of the page order.
+function EarlierVersions({
+  documentId,
+  versions,
+}: {
+  documentId: string;
+  versions: DocumentFileVersionDto[];
+}) {
+  const t = useTranslations();
+
+  return (
+    <Collapse
+      ghost
+      size="small"
+      items={[
+        {
+          key: 'versions',
+          label: t('viewer.files.versions', { count: versions.length }),
+          children: (
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              {versions.map((version) => (
+                <Space key={version.id} direction="vertical" size={0}>
+                  <Space size={4} wrap>
+                    <span>{version.name}</span>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {`${formatBytes(version.sizeBytes)} · ${t('viewer.files.versionReplaced', {
+                        date: new Date(version.trashedAt).toLocaleString(),
+                      })}`}
+                    </Typography.Text>
+                    {/* The old scan is still readable, which is what it was kept for — down the
+                        same route as the file above it, by its own id (docs/07 §7.3). */}
+                    <Button
+                      size="small"
+                      type="link"
+                      disabled={!version.available}
+                      download={version.name}
+                      {...(version.available
+                        ? { href: documentFiles.fileContent(documentId, version.id) }
+                        : {})}
+                    >
+                      {t('viewer.files.download')}
+                    </Button>
+                  </Space>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {version.purgeAfter === null
+                      ? t('viewer.files.versionOnVolume')
+                      : t('viewer.files.versionGoes', {
+                          date: new Date(version.purgeAfter).toLocaleString(),
+                        })}
+                  </Typography.Text>
+                </Space>
+              ))}
+            </Space>
+          ),
+        },
+      ]}
+    />
   );
 }
 

@@ -77,9 +77,10 @@ describe('canTransition (docs/03 §3.3.9)', () => {
     expect(canTransition('DISCOVERED', 'EXCLUDED')).toBe(true);
 
     expect(canTransition('EXCLUDED', 'DISCOVERED')).toBe(true);
-    // Never straight back to being a live file: the bytes have to be read again first, and being
-    // told the file is "missing" says something about a document that no longer exists.
-    expect(canTransition('EXCLUDED', 'HASHED')).toBe(false);
+    // And live again without being re-read, when the file is restored from the trash: the hash on
+    // the ref is what matched it, so there is nothing left to find out (docs/05 §5.7a).
+    expect(canTransition('EXCLUDED', 'HASHED')).toBe(true);
+    // Never "missing", though: that would be news about a document that no longer exists.
     expect(canTransition('EXCLUDED', 'MISSING')).toBe(false);
   });
 });

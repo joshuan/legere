@@ -1,6 +1,7 @@
 import type { Readable } from 'node:stream';
 import { ConflictError } from '../../domain/errors/domain-error';
-import type { DocumentFileView } from '../../domain/repositories/document.repository';
+import type { File } from '../../domain/entities/file';
+import type { FileRefView } from '../../domain/repositories/file.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
 import { RelativePath } from '../../domain/value-objects/relative-path';
@@ -8,6 +9,12 @@ import type { Clock } from '../ports/clock';
 import type { FileStorage } from '../ports/file-storage';
 import type { LibraryReader } from '../ports/library-reader';
 import { originalKeyOf } from '../storage/artifact-keys';
+
+// Enough of a file to find its bytes: which storage holds them, and — for a volume — where the file
+// was seen. A file of a document and one in the trash both answer this, so both can be opened.
+type ReadableFile = Pick<File, 'id' | 'ext' | 'origin' | 'storageKey'> & {
+  refs: readonly FileRefView[];
+};
 
 // The original bytes of one file, wherever they live (docs/09 §9.1–9.2): on the read-only volume, or
 // in our own bucket. Everything that needs to *read* a file — the download of one original, the
@@ -21,12 +28,18 @@ export class DocumentFileBytes {
     private readonly clock: Clock,
   ) {}
 
-  async open(file: DocumentFileView): Promise<Readable> {
+  async open(file: ReadableFile): Promise<Readable> {
     if (file.origin === 'MANAGED') return this.storage.getStream(originalKeyOf(file));
 
     // The first live home of these bytes among the ones this caller may see — the refs on the view
     // are already filtered to the libraries they were granted (docs/09 §9.1).
-    const ref = file.refs.find((candidate) => candidate.status === 'HASHED');
+    //
+    // `EXCLUDED` counts as a home here and nowhere else: it means the path is one Legere will not
+    // *ingest* again (docs/03 §3.3.9), not that the bytes went away — and the trash screen exists to
+    // hand those bytes back (docs/05 §5.7a). A file of a live document never carries one.
+    const ref = file.refs.find(
+      (candidate) => candidate.status === 'HASHED' || candidate.status === 'EXCLUDED',
+    );
     if (ref === undefined) throw unavailable();
 
     const library = await this.libraries.findById(ref.libraryId);

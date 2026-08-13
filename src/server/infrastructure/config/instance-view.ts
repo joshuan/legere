@@ -73,6 +73,7 @@ export function describeInstance(config: AppConfig): InstanceResponse {
           s('GROUPING_WINDOW_MINUTES'),
           s('SCAN_MAX_FILES', when(config.get('SCAN_MAX_FILES') === 0, 'SCAN_UNLIMITED')),
           s('UPLOAD_MAX_BYTES'),
+          s('TRASH_RETENTION_DAYS'),
         ],
       },
       {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { DocumentRepository } from '../../domain/repositories/document.repository';
+import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { FileRepository } from '../../domain/repositories/file.repository';
 import type { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import type { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
@@ -8,6 +9,8 @@ import type { Clock } from '../ports/clock';
 import type { FileStorage, StoredObjectInfo } from '../ports/file-storage';
 import type { JobQueue } from '../ports/job-queue';
 import type { MetricsCache } from '../ports/metrics-cache';
+import type { UnitOfWork } from '../ports/unit-of-work';
+import { purge } from '../trash/manage-trash';
 import { JobHandler } from './job-handler';
 
 // The cron sends no payload; anything pg-boss stored alongside it is ignored.
@@ -32,6 +35,11 @@ const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 // the queue in one hour, and the next sweep picks up where this one stopped.
 const STALE_BATCH = 200;
 
+// The same bound, for the same reason, on the files whose time in the trash is up.
+const PURGE_BATCH = 200;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 // `maintenance`, hourly (docs/06 §6.8). Housekeeping only: nothing here is on a request path, and
 // nothing it does is visible to a user except by things not piling up.
 export class HandleMaintenance extends JobHandler {
@@ -41,10 +49,13 @@ export class HandleMaintenance extends JobHandler {
     private readonly resets: PasswordResetRepository,
     private readonly documents: DocumentRepository,
     private readonly fileRows: FileRepository,
+    private readonly fileRefs: FileRefRepository,
     private readonly files: FileStorage,
     private readonly metrics: MetricsCache,
     private readonly queue: JobQueue,
+    private readonly unitOfWork: UnitOfWork,
     private readonly clock: Clock,
+    private readonly trashRetentionDays: number,
   ) {
     super();
   }
@@ -72,6 +83,17 @@ export class HandleMaintenance extends JobHandler {
       // old ambiguity alive under a new name (docs/03 §3.3.10).
       await this.documents.markUnstartedQueued(documentId);
     }
+
+    // 🔒 The one destruction in Legere that happens on a clock (docs/05 §5.7a): files of ours that
+    // have sat in the trash past the retention window. A LIBRARY file is never in this answer — its
+    // bytes are on a read-only volume, so no window closes on them and it waits for a person.
+    // Bounded per sweep, so a trash somebody filled in one afternoon drains over a few hours rather
+    // than in one indigestible push.
+    const expired = await this.fileRows.listPurgeable(
+      new Date(now.getTime() - this.trashRetentionDays * DAY_MS),
+      PURGE_BATCH,
+    );
+    await purge(expired, this.fileRows, this.fileRefs, this.files, this.unitOfWork);
 
     // One listing of the bucket answers both remaining questions (docs/09 §9.5).
     const objects = await this.files.list('');

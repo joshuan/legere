@@ -25,6 +25,7 @@ import { InstanceModule } from './presentation/instance/instance.module';
 import { JobsModule } from './presentation/jobs/jobs.module';
 import { LibrariesModule } from './presentation/libraries/libraries.module';
 import { QueueAdminModule } from './presentation/queue/queue-admin.module';
+import { TrashAdminModule } from './presentation/trash/trash-admin.module';
 import { SearchModule } from './presentation/search/search.module';
 import { UsersModule } from './presentation/users/users.module';
 
@@ -57,6 +58,7 @@ import { UsersModule } from './presentation/users/users.module';
     SearchModule,
     CollectionsModule,
     QueueAdminModule,
+    TrashAdminModule,
     InstanceModule,
     JobsModule,
     HealthModule,

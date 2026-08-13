@@ -77,3 +77,8 @@ export type PageFormat = z.infer<typeof pageFormatSchema>;
 
 export const scanRunStatusSchema = z.enum(['RUNNING', 'DONE', 'FAILED']);
 export type ScanRunStatus = z.infer<typeof scanRunStatusSchema>;
+
+// How a file came to be in the trash (docs/05 §5.7a): replaced by a better copy of the same page, or
+// part of a document somebody deleted. What happened to it, not who did it.
+export const trashReasonSchema = z.enum(['REPLACED', 'DOCUMENT_DELETED']);
+export type TrashReason = z.infer<typeof trashReasonSchema>;

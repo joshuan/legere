@@ -83,6 +83,7 @@ LIBRARY_ROOT=./dev-library                   # the folder `npm run dev` reads; t
 GROUPING_WINDOW_MINUTES=10                   # how close in time scans must be to be suggested as one document (05 §5.6a)
 SCAN_MAX_FILES=50000                         # a scan gives up past this many files (05 §5.2); 0 = no limit
 UPLOAD_MAX_BYTES=104857600                   # 100 MiB: the largest file a user may upload (05 §5.1a)
+TRASH_RETENTION_DAYS=30                      # how long a file of ours waits in the trash before the sweep deletes it (05 §5.7a); a library original waits for a person however this is set
 
 # --- S3 (derived artifacts; dev values match the compose MinIO) ---
 S3_ENDPOINT=http://localhost:9000

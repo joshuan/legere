@@ -66,6 +66,10 @@ export const configSchema = z.object({
     .int()
     .positive()
     .default(100 * 1024 * 1024),
+  // How long a file of ours waits in the trash before the hourly sweep deletes it (docs/05 §5.7a).
+  // The one scheduled destruction in Legere, and it only ever reaches objects in our own bucket: an
+  // original on a library volume is not ours to delete however this is set, and waits for a person.
+  TRASH_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
 
   // S3 (derived artifacts)
   S3_ENDPOINT: z.string().url().default('http://localhost:9000'),

@@ -1,5 +1,10 @@
 import type { Crop } from '../../../shared/contracts/documents';
-import type { FileOrigin, ValueSource } from '../../../shared/contracts/enums';
+import type {
+  FileOrigin,
+  FileRefStatus,
+  TrashReason,
+  ValueSource,
+} from '../../../shared/contracts/enums';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { File } from '../entities/file';
 
@@ -15,6 +20,22 @@ export type CreateFileInput = {
 
 // A file with the place it holds in a document, which is the only thing a document orders by.
 export type DocumentFile = File & { position: number };
+
+// Where a file's bytes were seen on a volume — the same answer whether the file is part of a
+// document or in the trash, so it is one type (docs/07 §7.3).
+export type FileRefView = {
+  libraryId: string;
+  libraryName: string;
+  path: string;
+  status: FileRefStatus;
+};
+
+// A file in the trash, as the screen that lists it needs it (docs/11 §11.13b): where its bytes are,
+// and whether they can still be read at all.
+export type TrashedFile = File & {
+  available: boolean;
+  refs: FileRefView[];
+};
 
 export abstract class FileRepository {
   abstract findById(id: string, tx?: TransactionHandle): Promise<File | null>;
@@ -42,11 +63,49 @@ export abstract class FileRepository {
 
   abstract softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void>;
 
-  // The files of a document an admin deleted for real (docs/03 §3.3.10). A file has exactly one
-  // home, so these have none once the document is gone and are not left to be re-homed. Called after
-  // the document — `document_files` is cascaded away with it, and until it is these rows are still
-  // referenced.
+  // Deleted outright, bytes and all: emptying the trash, and nothing else (docs/05 §5.7a). Called
+  // after the document that held them is gone — `document_files` is cascaded away with it, and until
+  // it is these rows are still referenced.
   abstract hardDelete(ids: readonly string[], tx?: TransactionHandle): Promise<void>;
+
+  // --- the trash (docs/05 §5.7a) --------------------------------------------------------------
+
+  // Into the trash: the file leaves its document without being destroyed. `replacedById` is set only
+  // for REPLACED, and it re-points the earlier versions of the same page too — every copy points at
+  // the file that is in the document now, so listing the versions of a page stays one query.
+  abstract trash(
+    input: {
+      fileIds: readonly string[];
+      reason: TrashReason;
+      trashedFrom: string | null;
+      replacedById?: string | undefined;
+      at: Date;
+    },
+    tx?: TransactionHandle,
+  ): Promise<void>;
+
+  // Back out of it, because these bytes are wanted again: the caller gives the file a document
+  // (a new one, docs/05 §5.7a) and this clears what the trash wrote.
+  abstract untrash(id: string, tx?: TransactionHandle): Promise<File>;
+
+  // The earlier copies of these pages, newest first — what the viewer shows under a file that has
+  // been replaced (docs/07 §7.3), keyed by the file that replaced them.
+  abstract listVersionsFor(
+    fileIds: readonly string[],
+    tx?: TransactionHandle,
+  ): Promise<Map<string, File[]>>;
+
+  // The trash itself, newest first, with what the whole of it holds — the page is what is read and
+  // the total is why the screen is opened (docs/07 §7.3).
+  abstract listTrashed(
+    query: { limit: number; cursor?: Date | undefined },
+    tx?: TransactionHandle,
+  ): Promise<{ items: TrashedFile[]; totalItems: number; totalBytes: bigint }>;
+
+  // Everything in the trash, for emptying it; and the part of it the sweep may take (docs/09 §9.2) —
+  // ours, and old enough. A LIBRARY file is never in that second answer, whatever its age.
+  abstract listAllTrashed(tx?: TransactionHandle): Promise<File[]>;
+  abstract listPurgeable(before: Date, limit: number, tx?: TransactionHandle): Promise<File[]>;
 
   // Which of these ids exist as rows at all: the same question maintenance asks about documents,
   // asked about files, so an object under `files/{id}/` whose row is gone can be swept (docs/09 §9.2).

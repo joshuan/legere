@@ -225,6 +225,13 @@ or not the screen draws them, because which of them appear is the reader's choic
 URL rather than in the request. They cost the page two more queries and not one per card — the people
 and the subjects of `document_id IN (…)`, both index-served by the link tables' own primary keys
 (`04 §4.4`).
+`DocumentFileDto` also carries `earlierVersions: DocumentFileVersionDto[]` — the copies of that page
+that have been replaced (`05 §5.6`), newest first, each `{ id, name, mimeType, ext, sizeBytes, origin,
+available, trashedAt, refs, storageKey }`. They are in the trash, so they are not part of the
+document; they are on the file because "what did this page look like before" is a question about the
+page. Their bytes download from the same `…/files/:fileId/content` route as any other file of the
+document, by their own id.
+
 `DocumentDetailDto` = list dto + `{ ocrUsed, pageFormat, titleSource, typeSource, steps: {canonical, preview, markdown, analysis, vectorization}, skipReasons, processingError, failedStep, createdBy?, files: DocumentFileDto[], people: {id,name,deleted}[], subjects: {id,kindId,kind,name,deleted}[], description, auto }`. The people and subjects are the list's own, said more fully: `deleted` says the catalogue no longer holds that name — the link survives a deletion on purpose (03 §3.3.19), so the flag is the only thing that distinguishes a name still worth choosing from one kept as a record, and it is on the detail because that is where a name can still be chosen. A subject carries its kind by id as well as by name, because the kind is a row of its own (03 §3.3.20a) and each half is a way into the documents filed under it (11 §11.5).
 
 `DocumentFileDto` = `{ id, position, name, mimeType, ext, sizeBytes, origin: 'LIBRARY' | 'MANAGED', available: boolean, crop: { points: [[x,y] ×4] } | null, cropSource: 'NONE' | 'AUTO' | 'MANUAL', isImage, refs: [{ libraryId, libraryName, path, status }], storageKey: string | null }` — ordered by position; `refs` lists only libraries visible to the caller (ADMIN sees all) and is empty for a managed file. **A location is answered for every file**, and the two fields divide it: `refs` for bytes on a volume, `storageKey` for the object in the bucket a `MANAGED` file's bytes lie under (`09 §9.2`), null for a `LIBRARY` file, which has no object at all. 🔒 The key is a location and not a way in — the bucket is private and only a signed URL reads it, issued by an endpoint that has already passed the access check — and it discloses nothing new either: the layout is `files/{fileId}/original.{ext}` and both halves are already on this DTO.
@@ -294,6 +301,7 @@ answer with the whole `DocumentDetailDto`, because a composition change is never
 | `POST /api/documents/:id/files` | 🔒 canEdit | the file **is** the body (as `POST /api/documents`, and exempt from the body parsers on the same terms — `05 §5.1a`), name in `X-Legere-Filename` (`X-File-Name` is accepted too); appended last. `413` over `UPLOAD_MAX_BYTES`, `409 FILE_ALREADY_IN_DOCUMENT` when those bytes already live in another document |
 | `PATCH /api/documents/:id/files` | 🔒 canEdit | `{ order: [fileId, ...] }` — the complete order, every file exactly once (`422 VALIDATION_FAILED` otherwise) |
 | `PATCH /api/documents/:id/files/:fileId` | 🔒 canEdit | `{ crop: { points: [[x,y] ×4] } \| null }` — normalized `0…1`, clockwise from top-left; `null` clears it. `422 FILE_NOT_IMAGE` for anything but an image |
+| `POST /api/documents/:id/files/:fileId/replacement` | 🔒 canEdit | **replace**: the body is the new file, on the same terms as `POST /api/documents/:id/files` above, and it takes the named file's **position** → the whole `DocumentDetailDto`. The file it replaces goes to the trash with `REPLACED` (`05 §5.6`, `05 §5.7a`) and stays listed under its successor as an earlier version. `409 FILE_ALREADY_IN_DOCUMENT` when the new bytes are a live file of another document; bytes that are an earlier version of this same file are taken back out of the trash rather than refused |
 | `DELETE /api/documents/:id/files/:fileId` | 🔒 canEdit | **split**: the file leaves and becomes its own document → `{ document, splitDocumentId }`. `409 DOCUMENT_LAST_FILE` when it is the only one |
 | `GET /api/documents/:id/files/:fileId/crop-suggestion` | 🔒 | edge detection over the image → `{ crop: { points }, method: 'EDGES' \| 'CONTENT_BOX' }`. A proposal; nothing is stored until the client saves it (`05 §5.6`) |
 | `GET /api/documents/:id/files/:fileId/content` | 🔒 | the original bytes of one file: streamed from the volume, or 302 to a signed URL for a managed file. `409 DOCUMENT_UNAVAILABLE` when the volume no longer has it |
@@ -309,6 +317,24 @@ answer with the whole `DocumentDetailDto`, because a composition change is never
 | `GET /api/admin/queue/settings` | 🔒ᴬ | → `{ concurrency: { <queue>: number }, unitConcurrency }` — every queue, with the env defaults where nothing is stored (03 §3.3.21) |
 | `PATCH /api/admin/queue/settings` | 🔒ᴬ | the same shape, sent whole; values are clamped to 1…32 rather than refused, and the workers are re-registered immediately so the change needs no restart. `paused` is the list of queues whose workers are not registered at all: jobs still arrive and wait, nothing consumes them (05 §5.4) |
 | `POST /api/admin/queue/reprocess` | 🔒ᴬ | `{ step?, status? }` → `{ enqueued: number }`. Each absence widens the question by a level: both — the documents whose named step sits in that status; `step` alone — that step whatever state it is in; neither — the whole pipeline of every document, which is the same work the button on one document's own page asks for. Re-enqueues `document-process` for every document whose named step sits in that status, newest first, at most `QUEUE_REPROCESS_MAX` (default 500) a call — the answer to "the previews failed, run them again" without opening five hundred documents |
+
+### Admin: the trash
+
+Every file that leaves a document lands here rather than being destroyed (`05 §5.7a`). An admin's,
+because everything on it either destroys bytes or creates a document.
+
+| Method & path | Auth | Notes |
+|---------------|------|-------|
+| `GET /api/admin/trash` | 🔒ᴬ | paginated, newest first → `{ items: TrashItemDto[], nextCursor, total: { items, bytes } }`. The total is the whole trash and not the page: "what is this costing me" is the question the screen exists for. `cursor` is the `trashedAt` of the last row (§7.1) |
+| `DELETE /api/admin/trash/:fileId` | 🔒ᴬ | deletes one item for good → `{ ok: true }`: the row goes, a `MANAGED` file's object with it, and a `LIBRARY` file's `FileRef`s are left `EXCLUDED` so the scan does not ingest those bytes again (03 §3.3.9). The bytes on a volume are not touched — Legere may not (ADR-007) |
+| `DELETE /api/admin/trash` | 🔒ᴬ | the same for everything in it → `{ deleted: number }`. Not "empty what is due", but everything: the retention window says when an item goes at the latest, and this is a person saying "now" |
+| `GET /api/admin/trash/:fileId/content` | 🔒ᴬ | the bytes of one item: streamed from the volume, or 302 to a signed URL for a file of ours — the same two answers `…/files/:fileId/content` gives, and it exists because that route needs a document and a trashed file has none. Getting a scan back out is often all somebody wants, and it does not require restoring it first. `409 DOCUMENT_UNAVAILABLE` when the volume no longer has it |
+| `POST /api/admin/trash/:fileId/restore` | 🔒ᴬ | the file becomes a **new** document holding exactly it, titled after the file and processed from scratch → `{ documentId }`. It does not return to the document it came from, which has moved on or does not exist (`05 §5.7a`). `409 FILE_ALREADY_IN_DOCUMENT` if those bytes found a home in the meantime |
+
+`TrashItemDto` = `{ id, name, mimeType, ext, sizeBytes, origin, available, reason, trashedAt,
+trashedFrom, purgeAfter, refs: DocumentFileRef[], storageKey }`. `purgeAfter` is the ISO instant the
+sweep will delete it — `null` for a `LIBRARY` file, which no sweep will ever delete and which says so
+in as many words rather than showing a date that will never arrive.
 
 ### Admin: the instance itself
 

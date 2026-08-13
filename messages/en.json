@@ -589,6 +589,42 @@
       "fields": {
         "nameHint": "One lower-case word: apartment, car, country."
       }
+    },
+    "trash": {
+      "title": "Trash",
+      "lead": "Every file that has left a document and has not been destroyed yet. A file of ours is deleted once its time is up; an original on a library volume can only wait for you.",
+      "summary": "{items, plural, one {# file} other {# files}}, {size}",
+      "empty": "The trash is empty.",
+      "columns": {
+        "file": "File",
+        "from": "Came from",
+        "goes": "Goes",
+        "actions": "Actions"
+      },
+      "reasons": {
+        "REPLACED": "replaced by a newer copy",
+        "DOCUMENT_DELETED": "its document was deleted"
+      },
+      "unknownDocument": "a document with no title",
+      "goesOn": "Deleted on {date}",
+      "goesOnVolume": "Never: it lies on a read-only volume",
+      "volumeNote": "Deleting removes only what Legere knows about it. The file stays where it is, and Legere will not read it again.",
+      "actions": {
+        "download": "Download",
+        "restore": "Restore",
+        "delete": "Delete",
+        "emptyAll": "Empty the trash"
+      },
+      "restoreTitle": "Restore «{name}» as a new document?",
+      "restoreNote": "It does not go back into the document it came from — that document has moved on, or is gone. You get a new document holding this one file, and the pipeline reads it afresh.",
+      "restored": "Restored as a new document.",
+      "deleteTitle": "Delete «{name}» for good?",
+      "deleted": "Deleted for good.",
+      "emptyTitle": "Delete everything in the trash?",
+      "emptyBody": "This deletes {items, plural, one {# file} other {# files}} for good — {size}. Originals on a library volume are not touched; only what Legere knows about them goes.",
+      "emptied": "{count, plural, one {# file} other {# files}} deleted.",
+      "more": "Load more",
+      "unreadable": "The volume no longer has these bytes"
     }
   },
   "documents": {
@@ -828,7 +864,13 @@
       "missing": "Missing",
       "missingReason": "the volume no longer has it",
       "cropped": "Cropped",
-      "objectStorage": "Object storage"
+      "objectStorage": "Object storage",
+      "replace": "Replace",
+      "replaced": "The file is replaced; the old one is in the trash.",
+      "versions": "Earlier versions ({count})",
+      "versionReplaced": "Replaced {date}",
+      "versionGoes": "In the trash until {date}",
+      "versionOnVolume": "In the trash; the original stays on the volume"
     },
     "textQuality": {
       "PARTIAL": "Some of this document was not read",
@@ -850,7 +892,8 @@
       "libraries": "Libraries",
       "users": "Users",
       "queue": "Queue",
-      "instance": "Instance"
+      "instance": "Instance",
+      "trash": "Trash"
     },
     "catalogues": "Catalogues",
     "people": "People",

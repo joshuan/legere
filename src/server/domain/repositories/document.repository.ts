@@ -9,14 +9,14 @@ import type {
   PageFormat,
   ValueSource,
   FileOrigin,
-  FileRefStatus,
   StepSkipReason,
   StepStatus,
   UserRole,
 } from '../../../shared/contracts/enums';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Document, DocumentSteps } from '../entities/document';
-import type { DocumentFile } from './file.repository';
+import type { File } from '../entities/file';
+import type { DocumentFile, FileRefView } from './file.repository';
 
 // A document is created empty and given its files afterwards (docs/03 §3.3.17): what the bytes are
 // is a property of a file now, and deduplication happens one level down (ADR-021).
@@ -95,11 +95,20 @@ export type DocumentListItem = {
   subjects: DocumentName[];
 };
 
-export type DocumentFileRefView = {
-  libraryId: string;
-  libraryName: string;
-  path: string;
-  status: FileRefStatus;
+// Where a file's bytes were seen: the same answer for a file of a document and for one in the trash,
+// so it is defined once, beside the files (docs/07 §7.3).
+export type DocumentFileRefView = FileRefView;
+
+// A copy of one page that a better one replaced (docs/05 §5.6). It is in the trash, so it holds no
+// position in the document; it is here because "what did this page look like before" is a question
+// about the page.
+export type DocumentFileVersionView = File & {
+  available: boolean;
+  refs: DocumentFileRefView[];
+  // Both narrowed from the nullable columns: a version is in the trash by construction, and when the
+  // sweep will take it is `null` only for a library original, which no sweep ever will.
+  trashedAt: Date;
+  purgeAfter: Date | null;
 };
 
 // One file of a document, in its place, with where its bytes can be found (docs/07 §7.3).
@@ -109,6 +118,8 @@ export type DocumentFileView = DocumentFile & {
   // 🔒 Only refs in libraries the viewer may see; an admin sees them all. Always empty for a
   // managed file, whose bytes are in the bucket rather than on a volume.
   refs: DocumentFileRefView[];
+  // The copies of this page that have been replaced, newest first.
+  earlierVersions: DocumentFileVersionView[];
 };
 
 export type DocumentDetail = {

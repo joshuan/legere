@@ -15,7 +15,7 @@ Authenticated layout: left **Sider** (collapsible) + content. Menu:
 | Search | `/search` | all |
 | Collections | `/collections` | all |
 | Catalogues ▸ People / Subjects / Subject kinds / Document types | `/people`, `/subjects`, `/subject-kinds`, `/document-types` | all |
-| Administration ▸ Libraries / Users / Queue | `/admin/*` | ADMIN |
+| Administration ▸ Libraries / Users / Queue / Trash / Instance | `/admin/*` | ADMIN |
 | (footer) user name + role, Settings, Logout, version, collapse | `/settings` | all |
 
 **The foot of the column**, bottom-last in that order: who is signed in — the name, and the role
@@ -348,14 +348,17 @@ is real (`03 §3.3.10`, ADR-015 as amended) and nothing undoes it, so the modal 
 inventory rather than as a warning — it names what is about to go and, just as plainly, what will
 not:
 
-- **Gone:** this document, its text and search index, its history, its place in any collection, and
-  the files it is made of — counted, and with what they weigh, because "3 files, 12.4 MB" is the fact
-  that makes the decision and it is already on the page.
-- **Kept:** the originals lying on a library volume. They are on a read-only mount and Legere does
-  not delete them; the line says so, and says the file will not be read again either — the one thing
-  a person cannot infer, and the difference between "deleted" and "deleted until the next scan".
-  Shown only when there is such a file to talk about: a document made of uploads has nothing kept,
-  and a modal that says so anyway is a modal being read past.
+- **Gone:** this document, its text and search index, its history and its place in any collection.
+  Those are records about files, and none of them survives.
+- **To the trash:** the files it is made of — counted, and with what they weigh, because "3 files,
+  12.4 MB" is the fact that makes the decision and it is already on the page. The line says where
+  they go and that they can be got back from there (`05 §5.7a`), which is what makes this modal a
+  decision about a document rather than about the only copy of a scan.
+- **Kept on the volume:** the originals lying in a library. They are on a read-only mount and Legere
+  does not delete them; the line says so, and says the file will not be read again either — the one
+  thing a person cannot infer, and the difference between "deleted" and "deleted until the next
+  scan". Shown only when there is such a file to talk about: a document made of uploads has nothing
+  of the sort, and a modal that says so anyway is a modal being read past.
 
 The confirm button is red and says **Delete**, not "OK". While the request is in flight it is busy
 and the modal stays; on failure the modal stays too, with the error where it happened. On success the
@@ -388,11 +391,24 @@ nothing on its own — the bucket is private and only a signed URL reads it — 
 clickable would be a promise it will not keep. **Download** on the row is the way to the bytes, and
 it is right there.
 
-Per row: **Download** (this original alone), **Crop** for an image (§11.5c), **Move up / Move down**,
-and **Split off** — which says plainly what it does, "this file becomes its own document", because
-"remove" would promise a deletion that never happens (`05 §5.6`). Splitting off the only file is not
-offered at all rather than refused after the fact. Above the list: **Add files**, the same upload
-queue as the grid (§11.3) pointed at this document, appending in the order chosen.
+Per row: **Download** (this original alone), **Replace**, **Crop** for an image (§11.5c),
+**Move up / Move down**, and **Split off** — which says plainly what it does, "this file becomes its
+own document", because "remove" would promise a deletion that never happens (`05 §5.6`). Splitting
+off the only file is not offered at all rather than refused after the fact. Above the list: **Add
+files**, the same upload queue as the grid (§11.3) pointed at this document, appending in the order
+chosen.
+
+**Replace** opens the file picker and sends what is chosen in place of that row — the new scan takes
+the same position, so the page order does not move. It is one gesture because it is one intention: a
+page re-photographed is still that page, and doing it as split-upload-reorder is three operations to
+say so. The row shows the upload as it goes, like any other.
+
+**Under a replaced row: the copies it has had.** "Earlier versions (2)", collapsed, each with its
+name, size, when it was replaced and a **Download** — the old scan is still readable, which is the
+whole reason it was kept. They live in the trash (`05 §5.7a`) and the line says where they are going:
+a file of ours names the day it will be deleted, and a library original says it is on the volume and
+that Legere will not read it again. Getting one back into a document is done from the trash and makes
+a new document, so nothing here pretends to be an undo of the page order.
 
 Every one of these rebuilds the document — the canonical PDF, the preview, the text, the analysis —
 so the tab says so once, quietly, above the list: "Changing the files rebuilds the document." While
@@ -637,6 +653,33 @@ what it costs. The server does not write that sentence: it sends a `consequence`
 (`EMAIL_UNDELIVERABLE`, `ANALYSIS_SKIPPED_NO_PROVIDER`, …) and the page renders
 `admin.instance.consequences.<TOKEN>` from the message catalog, so the explanation arrives in the
 same language as the label above it.
+
+## 11.13b. Admin: Trash (`/admin/trash`)
+
+Every file that has left a document and not yet been destroyed (`05 §5.7a`), newest first. An
+admin's screen, because everything on it either destroys bytes or makes a document.
+
+At the top, what the trash costs: **how many files and what they weigh**, over the whole trash and
+not the page — that number is the reason to open this screen at all — and one **Empty trash** behind
+a confirmation naming the same figures.
+
+One row per file: a thumbnail for an image, the name, its kind and size, **where it came from** (the
+title the document had, and why it left — *replaced by a newer scan*, or *its document was deleted*),
+and **when it goes**:
+
+- a file of ours says the date the sweep will delete it — "deleted on 12 March", not "in 27 days",
+  because a date survives being read a week later;
+- 🔒 a **library original** says instead that it is on a read-only volume and names its path. Legere
+  cannot delete it and never will, and pretending otherwise with a countdown would be a promise it
+  cannot keep. Deleting the row here removes only Legere's record — the line says that too, so
+  nobody empties the trash expecting the disk to get smaller.
+
+Per row: **Download** — the bytes are still there, and getting a file back out is often all somebody
+wants — **Restore**, which makes a new document holding exactly that file and says so before it does
+(it does not return to the document it came from, which has moved on or is gone), and **Delete**, for
+good, behind a confirmation.
+
+An empty trash says so plainly rather than showing an empty table: nothing here is a problem.
 
 ## 11.14. Cross-cutting UI rules
 

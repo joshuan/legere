@@ -472,6 +472,70 @@ describe('Scan and ingest (integration)', () => {
       expect(await countProcessJobs()).toBe(1);
     });
 
+    // 🔒 The two halves of "a deleted document stays deleted", proven against a real scan: the
+    // original is still on the volume, and nothing here may hand it a new document (docs/05 §5.3,
+    // §5.7a, docs/03 §3.3.9).
+    it('leaves an excluded path alone, and never re-homes a file that is in the trash', async () => {
+      const libraryId = await createLibrary();
+      await writeFixture('deleted.txt', 'the bytes of a deleted document');
+      await scan.handle({ libraryId });
+      await runIngests();
+
+      const file = await prisma.file.findFirstOrThrow();
+      const document = await prisma.document.findFirstOrThrow();
+      // What an admin deleting the document leaves behind: the file in the trash, its paths
+      // excluded, the document row gone.
+      await prisma.documentFile.deleteMany({ where: { documentId: document.id } });
+      await prisma.document.delete({ where: { id: document.id } });
+      await prisma.fileRef.updateMany({
+        where: { fileId: file.id },
+        data: { status: 'EXCLUDED', fileId: null },
+      });
+      await prisma.file.update({
+        where: { id: file.id },
+        data: { trashedAt: new Date(), trashedReason: 'DOCUMENT_DELETED', trashedFrom: 'report' },
+      });
+
+      // The scan that follows — the one that used to bring the document straight back.
+      await scan.handle({ libraryId });
+      expect(await runIngests()).toBe(0);
+      expect(await prisma.document.count()).toBe(0);
+      expect((await refs(libraryId)).map((ref) => ref.status)).toEqual(['EXCLUDED']);
+
+      // And when the bytes at that path change, it is a different file and is read like any other.
+      await writeFixture('deleted.txt', 'somebody put something else here');
+      await scan.handle({ libraryId });
+      expect(await runIngests()).toBe(1);
+      expect(await prisma.document.count()).toBe(1);
+    });
+
+    // The same guard from the other side: a copy of a file that is in the trash turns up at a path
+    // with no ref of its own, so ingest reaches question two and must not answer "it has no home".
+    it('gives a copy of a trashed file no document of its own', async () => {
+      const libraryId = await createLibrary();
+      await writeFixture('original.txt', 'these very bytes');
+      await scan.handle({ libraryId });
+      await runIngests();
+
+      const file = await prisma.file.findFirstOrThrow();
+      const document = await prisma.document.findFirstOrThrow();
+      await prisma.documentFile.deleteMany({ where: { documentId: document.id } });
+      await prisma.document.delete({ where: { id: document.id } });
+      await prisma.file.update({
+        where: { id: file.id },
+        data: { trashedAt: new Date(), trashedReason: 'REPLACED' },
+      });
+
+      await writeFixture('a-copy.txt', 'these very bytes');
+      await scan.handle({ libraryId });
+      await runIngests();
+
+      // One file, as deduplication promises — and still no document, because the file is in the
+      // trash and that is an answer to "where does this belong".
+      expect(await prisma.file.count()).toBe(1);
+      expect(await prisma.document.count()).toBe(0);
+    });
+
     it('detects the format from content, not the extension', async () => {
       const libraryId = await createLibrary();
       // A real 1x1 PNG in a file named .txt: content must win over the extension.

@@ -369,6 +369,21 @@ describe('Document files (e2e)', () => {
     });
   });
 
+  // 🔒 The header every upload from the browser carries (docs/07 §7.3). This route read only the
+  // other spelling, so attaching a file from the UI answered 422 — a request no page could make.
+  it('takes the file name in the header the browser sends', async () => {
+    const { documentId } = await givenLibraryDocument();
+
+    const res = await api(app)
+      .postBinary(`/api/documents/${documentId}/files`, PDF)
+      .set('Cookie', adminCookie)
+      .set('X-Legere-Filename', encodeURIComponent('from the browser.pdf'));
+
+    expect(res.status).toBe(201);
+    const detail = expectData(res, documentDetailDtoSchema);
+    expect(detail.files.map((file) => file.name)).toContain('from the browser.pdf');
+  });
+
   describe('reordering', () => {
     it('rewrites the order the client sends and rebuilds', async () => {
       const { documentId, fileIds } = await givenLibraryDocument({
@@ -522,6 +537,109 @@ describe('Document files (e2e)', () => {
 
       expect(res.status).toBe(404);
       expect(expectError(res).code).toBe('FILE_NOT_FOUND');
+    });
+  });
+
+  // A better copy of one page, in the place of the one that is there (docs/05 §5.6) — and the old
+  // scan kept, because "this one is better" is a judgement people take back (docs/05 §5.7a).
+  describe('replacing a file', () => {
+    const replace = (documentId: string, fileId: string, body: Buffer, fileName: string) =>
+      api(app)
+        .postBinary(`/api/documents/${documentId}/files/${fileId}/replacement`, body)
+        .set('Cookie', adminCookie)
+        .set('X-Legere-Filename', encodeURIComponent(fileName));
+
+    it('puts the new file in the old one’s place and the old one in the trash', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({
+        title: 'Three pages',
+        files: [{ name: 'first.pdf' }, { name: 'second.pdf' }, { name: 'third.pdf' }],
+      });
+
+      const res = await replace(documentId, `${fileIds[1]}`, PDF, 'second-again.pdf');
+
+      expect(res.status).toBe(200);
+      const detail = expectData(res, documentDetailDtoSchema);
+      // 🔒 The position, which is the whole difference from add-then-reorder: page two is still
+      // page two, and the pages either side of it did not move.
+      expect(detail.files.map((file) => file.position)).toEqual([0, 1, 2]);
+      expect(detail.files[0]?.id).toBe(fileIds[0]);
+      expect(detail.files[2]?.id).toBe(fileIds[2]);
+      expect(detail.files[1]?.name).toBe('second-again.pdf');
+      expect(detail.files[1]?.id).not.toBe(fileIds[1]);
+
+      // The old scan is not destroyed: it is in the trash, under the file that took its place, and
+      // the document says so where somebody comparing the two will look.
+      expect(detail.files[1]?.earlierVersions.map((version) => version.id)).toEqual([fileIds[1]]);
+      const old = await testPrisma().file.findUniqueOrThrow({ where: { id: `${fileIds[1]}` } });
+      expect(old.trashedReason).toBe('REPLACED');
+      expect(old.trashedFrom).toBe('Three pages');
+      expect(old.replacedById).toBe(detail.files[1]?.id);
+      // And the pages changed, so the document is rebuilt.
+      expect(await processJobs(documentId)).toHaveLength(1);
+    });
+
+    it('keeps every earlier copy under the file that is there now', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({ files: [{ name: 'page.pdf' }] });
+
+      const first = expectData(
+        await replace(documentId, `${fileIds[0]}`, PDF, 'take-2.pdf'),
+        documentDetailDtoSchema,
+      );
+      const second = expectData(
+        await replace(
+          documentId,
+          `${first.files[0]?.id}`,
+          Buffer.from(`${PDF.toString()}% take three`),
+          'take-3.pdf',
+        ),
+        documentDetailDtoSchema,
+      );
+
+      // Both earlier copies hang off the file in the document now — not off each other — so one
+      // query answers "the versions of this page" however often it is replaced (docs/03 §3.3.16).
+      const versions = second.files[0]?.earlierVersions ?? [];
+      expect(versions.map((version) => version.name)).toEqual(['take-2.pdf', 'page.pdf']);
+      expect(second.files[0]?.name).toBe('take-3.pdf');
+    });
+
+    it('refuses bytes that are already a file of another document', async () => {
+      const library = await givenLibrary();
+      const theirs = Buffer.from('the page of somebody else');
+      const mine = await givenLibraryDocument({ library, files: [{ name: 'mine.pdf' }] });
+      await givenLibraryDocument({
+        library,
+        files: [{ name: 'theirs.pdf', body: theirs }],
+      });
+
+      const res = await replace(mine.documentId, `${mine.fileIds[0]}`, theirs, 'stolen.pdf');
+
+      // 🔒 A file has exactly one home (docs/03 §3.3.16); moving one is Combine, not a replacement.
+      expect(res.status).toBe(409);
+      expect(expectError(res).code).toBe('FILE_ALREADY_IN_DOCUMENT');
+    });
+
+    it('takes an earlier version back out of the trash rather than refusing it', async () => {
+      const original = Buffer.from('the first scan of this page');
+      const { documentId, fileIds } = await givenLibraryDocument({
+        files: [{ name: 'page.pdf', body: original }],
+      });
+
+      const replaced = expectData(
+        await replace(documentId, `${fileIds[0]}`, PDF, 'better.pdf'),
+        documentDetailDtoSchema,
+      );
+      // The same bytes are one file (ADR-021), and these are in the trash rather than in a
+      // document — so sending them again is "the one I threw away was better", not a conflict.
+      const back = expectData(
+        await replace(documentId, `${replaced.files[0]?.id}`, original, 'page.pdf'),
+        documentDetailDtoSchema,
+      );
+
+      expect(back.files[0]?.id).toBe(fileIds[0]);
+      const restored = await testPrisma().file.findUniqueOrThrow({
+        where: { id: `${fileIds[0]}` },
+      });
+      expect(restored.trashedAt).toBeNull();
     });
   });
 

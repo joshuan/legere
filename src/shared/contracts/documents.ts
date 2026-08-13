@@ -109,6 +109,28 @@ export const cropSchema = z.object({
 });
 export type Crop = z.infer<typeof cropSchema>;
 
+// A copy of this page that a better one replaced (docs/05 §5.6). It is in the trash, so it is no
+// part of the document — but "what did this page look like before" is a question about the page, and
+// this is where it is answered. Its bytes download from the document's own file-content route, by
+// this id (docs/07 §7.3).
+export const documentFileVersionSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  mimeType: z.string(),
+  ext: z.string(),
+  sizeBytes: z.string(),
+  origin: fileOriginSchema,
+  available: z.boolean(),
+  // When it was replaced, which is when it went into the trash.
+  trashedAt: z.string().datetime(),
+  // The instant the sweep will delete it; null for a library original, which no sweep ever will
+  // (docs/05 §5.7a).
+  purgeAfter: z.string().datetime().nullable(),
+  refs: z.array(documentFileRefSchema),
+  storageKey: z.string().nullable(),
+});
+export type DocumentFileVersionDto = z.infer<typeof documentFileVersionSchema>;
+
 export const documentFileDtoSchema = z.object({
   id: z.string().uuid(),
   position: z.number().int().nonnegative(),
@@ -133,6 +155,8 @@ export const documentFileDtoSchema = z.object({
   // It also says nothing the caller was not already told — the layout is `files/{fileId}/original.{ext}`
   // and both halves are on this very DTO.
   storageKey: z.string().nullable(),
+  // The copies of this page that have been replaced, newest first (docs/05 §5.6).
+  earlierVersions: z.array(documentFileVersionSchema),
 });
 export type DocumentFileDto = z.infer<typeof documentFileDtoSchema>;
 

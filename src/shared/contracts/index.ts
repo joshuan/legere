@@ -15,3 +15,4 @@ export * from './instance';
 export * from './document-types';
 export * from './search';
 export * from './collections';
+export * from './trash';

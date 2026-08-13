@@ -24,7 +24,9 @@ import {
   stepStatusSchema,
   type StepStatus,
 } from '../../../shared/contracts/enums';
-import { FileRepository, type DocumentFile } from '../../domain/repositories/file.repository';
+import { purgeAfterOf, type File } from '../../domain/entities/file';
+import { FileRepository } from '../../domain/repositories/file.repository';
+import { AppConfig } from '../config/app-config';
 import {
   DocumentRepository,
   type CreateDocumentInput,
@@ -635,7 +637,14 @@ export class PrismaDocumentRepository implements DocumentRepository {
     // page at once — so the composition is read through the same repository the rest of the server
     // uses, in two batched queries rather than one per row.
     private readonly files: FileRepository,
+    // Only to date the earlier versions of a page: when the sweep will take one is a fact about a
+    // file in the trash, and the viewer prints it beside the version (docs/05 §5.7a).
+    private readonly config: AppConfig,
   ) {}
+
+  private get trashRetentionDays(): number {
+    return this.config.get('TRASH_RETENTION_DAYS');
+  }
 
   async findById(id: string, tx?: TransactionHandle): Promise<Document | null> {
     const row = await clientOf(this.prisma, tx).document.findUnique({ where: { id } });
@@ -1239,18 +1248,27 @@ export class PrismaDocumentRepository implements DocumentRepository {
 
     const files = await this.files.listForDocument(id, tx);
     const fileIds = files.map((file) => file.id);
-    const liveRefs = await this.files.countLiveRefsForFiles(fileIds, tx);
+    // The copies each page has had (docs/05 §5.6). They are in the trash and carry refs of their own
+    // — a replaced library original is still lying on its volume — so they are counted and filtered
+    // exactly like the files above rather than by a rule of their own.
+    const versionsByFile = await this.files.listVersionsFor(fileIds, tx);
+    const versions = [...versionsByFile.values()].flat();
+    const liveRefs = await this.files.countLiveRefsForFiles(
+      [...fileIds, ...versions.map((version) => version.id)],
+      tx,
+    );
 
     // 🔒 The file locations a viewer is shown are only those they could have reached anyway
     // (docs/07 §7.3): an admin sees every ref, everyone else only their visible libraries. The
     // availability above is counted over *all* libraries — a file is no less readable for lying in
     // one this caller cannot see.
+    const refIds = [...fileIds, ...versions.map((version) => version.id)];
     const refRows =
-      fileIds.length === 0
+      refIds.length === 0
         ? []
         : await client.fileRef.findMany({
             where: {
-              fileId: { in: fileIds },
+              fileId: { in: refIds },
               library: { deletedAt: null, ...visibleLibrary(viewer) },
             },
             select: {
@@ -1263,9 +1281,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
             orderBy: { path: 'asc' },
           });
 
-    const refsByFile = new Map<string, DocumentFileRefView[]>(
-      fileIds.map((fileId) => [fileId, []]),
-    );
+    const refsByFile = new Map<string, DocumentFileRefView[]>(refIds.map((fileId) => [fileId, []]));
     for (const ref of refRows) {
       if (ref.fileId === null) continue;
       refsByFile.get(ref.fileId)?.push({
@@ -1280,6 +1296,21 @@ export class PrismaDocumentRepository implements DocumentRepository {
       ...file,
       available: readable(file, liveRefs),
       refs: refsByFile.get(file.id) ?? [],
+      earlierVersions: (versionsByFile.get(file.id) ?? []).flatMap((version) =>
+        // A version is in the trash by construction; a row that somehow is not has no business
+        // being called one, and is dropped rather than dated with a lie.
+        version.trashedAt === null
+          ? []
+          : [
+              {
+                ...version,
+                trashedAt: version.trashedAt,
+                purgeAfter: purgeAfterOf(version, this.trashRetentionDays),
+                available: readable(version, liveRefs),
+                refs: refsByFile.get(version.id) ?? [],
+              },
+            ],
+      ),
     }));
 
     return {
@@ -1356,7 +1387,9 @@ export class PrismaDocumentRepository implements DocumentRepository {
 }
 
 // One file's readability, from the batch of ref counts the page was measured with.
-function readable(file: DocumentFile, liveRefs: Map<string, number>): boolean {
+// Asked of a file of a document and of an earlier version of one alike: what decides it is where the
+// bytes are and how many live refs point at them, and neither of those is about a position.
+function readable(file: Pick<File, 'id' | 'origin'>, liveRefs: Map<string, number>): boolean {
   return isFileReadable(file.origin, liveRefs.get(file.id) ?? 0);
 }
 

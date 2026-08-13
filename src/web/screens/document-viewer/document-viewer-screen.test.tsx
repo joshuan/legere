@@ -3,7 +3,11 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DocumentDetailDto, DocumentFileDto } from '../../../shared/contracts/documents';
+import type {
+  DocumentDetailDto,
+  DocumentFileDto,
+  DocumentFileVersionDto,
+} from '../../../shared/contracts/documents';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { DocumentViewerScreen } from './document-viewer-screen';
@@ -42,6 +46,30 @@ function fileOf(id: string, overrides: Partial<DocumentFileDto> = {}): DocumentF
     ],
     // A library file's bytes stay on the volume, so it has no object at all (docs/09 §9.2).
     storageKey: null,
+    // A page nobody has re-photographed has had no other copies (docs/05 §5.6).
+    earlierVersions: [],
+    ...overrides,
+  };
+}
+
+// A copy of a page that a better one replaced: in the trash, still readable, hanging off the file
+// that took its place (docs/05 §5.6, §5.7a).
+function versionOf(
+  id: string,
+  overrides: Partial<DocumentFileVersionDto> = {},
+): DocumentFileVersionDto {
+  return {
+    id,
+    name: 'page-1-scan-1.jpg',
+    mimeType: 'image/jpeg',
+    ext: 'jpg',
+    sizeBytes: '1048576',
+    origin: 'MANAGED',
+    available: true,
+    trashedAt: '2026-02-01T09:00:00.000Z',
+    purgeAfter: '2026-03-03T09:00:00.000Z',
+    refs: [],
+    storageKey: `files/${id}/original.jpg`,
     ...overrides,
   };
 }
@@ -1026,6 +1054,22 @@ describe('DocumentViewerScreen', () => {
       await screen.findByText('page-1.jpg');
     }
 
+    // Replace opens the picker on the row it will stand in for, so the input rc-upload hides is the
+    // one inside that row rather than the Add-files one above the list.
+    function pickerOn(name: string): HTMLInputElement {
+      const row = screen.getByText(name).closest('li');
+      const input = row?.querySelector('input[type="file"]');
+      if (!(input instanceof HTMLInputElement)) throw new Error(`no picker on the ${name} row`);
+      return input;
+    }
+
+    // The block of earlier versions, found by the summary that opens it.
+    function versionsBlock(label: RegExp): HTMLElement {
+      const block = screen.getByText(label).closest('.ant-collapse');
+      if (!(block instanceof HTMLElement)) throw new Error('no earlier-versions block');
+      return block;
+    }
+
     it('lists what the document is made of, one row per file', async () => {
       await openFiles();
 
@@ -1170,6 +1214,121 @@ describe('DocumentViewerScreen', () => {
 
       await screen.findByText('rental.pdf');
       expect(screen.queryByRole('button', { name: enMessages.viewer.files.crop })).toBeNull();
+    });
+
+    it('sends a chosen file in place of the row it was chosen on', async () => {
+      let replaced: string | null = null;
+      let sentName: string | null = null;
+      server.use(
+        http.post(`/api/documents/${ID}/files/:fileId/replacement`, ({ params, request }) => {
+          replaced = String(params.fileId);
+          sentName = decodeURIComponent(request.headers.get('x-legere-filename') ?? '');
+          return HttpResponse.json(envelope(twoFiles));
+        }),
+      );
+      await openFiles();
+
+      await userEvent.upload(
+        pickerOn('page-2.jpg'),
+        new File(['x'], 'page-2-again.jpg', { type: 'image/jpeg' }),
+      );
+
+      // Neither an add nor a split: the bytes go to the file they are a better copy of, and that
+      // file's position is what they take (docs/05 §5.6).
+      await waitFor(() => {
+        expect(replaced).toBe(SECOND_FILE);
+        expect(sentName).toBe('page-2-again.jpg');
+      });
+      expect(await screen.findByText(enMessages.viewer.files.replaced)).toBeInTheDocument();
+      // One gesture on the composition, so the reader is left looking at the composition.
+      expect(screen.getByRole('tab', { name: enMessages.viewer.tabs.files })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+    });
+
+    it('says nothing about earlier versions of a page nobody has replaced', async () => {
+      await openFiles();
+
+      expect(screen.queryByText(/Earlier versions/)).toBeNull();
+    });
+
+    it('lists the copies a page has had, newest first, each with a download of its own', async () => {
+      const NEWER = 'ffffffff-3333-4333-8333-333333333333';
+      const OLDER = 'ffffffff-4444-4444-8444-444444444444';
+      await openFiles({
+        ...detail,
+        files: [
+          fileOf(FIRST_FILE, {
+            name: 'page-1.jpg',
+            ext: 'jpg',
+            mimeType: 'image/jpeg',
+            isImage: true,
+            earlierVersions: [
+              versionOf(NEWER, {
+                name: 'page-1-scan-2.jpg',
+                trashedAt: '2026-02-02T09:00:00.000Z',
+              }),
+              versionOf(OLDER, { name: 'page-1-scan-1.jpg' }),
+            ],
+          }),
+        ],
+      });
+
+      // Collapsed: what the document is made of is the row itself, and these answer a question
+      // asked rarely — "what did this page look like before" (docs/11 §11.5a).
+      expect(screen.queryByText('page-1-scan-2.jpg')).toBeNull();
+      await userEvent.click(screen.getByText(/Earlier versions \(2\)/));
+
+      const versions = within(versionsBlock(/Earlier versions \(2\)/));
+      expect(versions.getByText('page-1-scan-2.jpg')).toBeInTheDocument();
+      // Newest first, each downloading its own bytes down the same route as the row above it, by
+      // its own id (docs/07 §7.3) — the old scan is still readable, which is why it was kept.
+      const downloads = versions.getAllByRole('link', { name: enMessages.viewer.files.download });
+      expect(downloads.map((link) => link.getAttribute('href'))).toEqual([
+        `/api/documents/${ID}/files/${NEWER}/content`,
+        `/api/documents/${ID}/files/${OLDER}/content`,
+      ]);
+    });
+
+    it('says a library original stays on the volume rather than naming a day it will go', async () => {
+      const ORIGINAL = 'ffffffff-5555-4555-8555-555555555555';
+      await openFiles({
+        ...detail,
+        files: [
+          fileOf(FIRST_FILE, {
+            name: 'page-1.jpg',
+            ext: 'jpg',
+            mimeType: 'image/jpeg',
+            isImage: true,
+            earlierVersions: [
+              versionOf(ORIGINAL, {
+                name: 'page-1-from-the-volume.jpg',
+                origin: 'LIBRARY',
+                storageKey: null,
+                // Nothing will ever delete it: the volume is read-only and the bytes were never
+                // Legere's to remove (docs/05 §5.7a).
+                purgeAfter: null,
+                refs: [
+                  {
+                    libraryId: LIBRARY_ID,
+                    libraryName: 'Invoices',
+                    path: 'a/page-1.jpg',
+                    status: 'EXCLUDED',
+                  },
+                ],
+              }),
+            ],
+          }),
+        ],
+      });
+
+      await userEvent.click(screen.getByText(/Earlier versions \(1\)/));
+
+      const versions = within(versionsBlock(/Earlier versions \(1\)/));
+      // It says so in as many words rather than showing a date that will never arrive.
+      expect(versions.getByText(enMessages.viewer.files.versionOnVolume)).toBeInTheDocument();
+      expect(versions.queryByText(/In the trash until/)).toBeNull();
     });
   });
 
