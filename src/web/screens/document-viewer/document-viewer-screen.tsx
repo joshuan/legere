@@ -315,6 +315,11 @@ export function DocumentViewerScreen({
                   />
                 ),
               },
+              {
+                key: 'files',
+                label: t('viewer.tabs.files'),
+                children: <FilesPane document={detail} />,
+              },
             ]}
           />
         </Card>
@@ -672,7 +677,6 @@ type Draft = {
   pageFormat: PageFormat;
 };
 
-// Everything about the document that is not the document, in one list: what the file is, what the
 // A catalogue row is a living one by construction: `/api/people` and `/api/subjects` return only
 // what has not been deleted (docs/07 §7.3).
 function living<T>(row: T): T & { deleted: boolean } {
@@ -697,8 +701,9 @@ function mergeById<T extends { id: string }>(
   return [...catalogue, ...onDocument.filter((entry) => !seen.has(entry.id))];
 }
 
-// pipeline made of it, where its bytes live — and, behind an Edit button, a way to correct the parts
-// a machine guessed (docs/11 §11.5).
+// Everything about the document that is not the document, in one list: what the file is, what the
+// pipeline made of it — and, behind an Edit button, a way to correct the parts a machine guessed
+// (docs/11 §11.5). What it is made *of* is the Files tab's question, and is answered there.
 function DetailsPane({
   document,
   documentTypes,
@@ -1381,18 +1386,18 @@ function DetailsPane({
           did the text take, and did it read anything" is a question about the document, not about
           the log (docs/03 §3.3.18, docs/11 §11.5). */}
       <StepCostSection documentId={document.id} />
-
-      {/* What the document is made of, and the only place it can be rearranged (docs/11 §11.5a). */}
-      <FilesSection document={document} />
     </Space>
   );
 }
 
 // A document is an ordered list of files (docs/03 §3.3.10), and this is where that list is visible
-// and editable (docs/11 §11.5a). Every action here rebuilds the document — the canonical PDF, the
-// preview, the text, the analysis — so the section says so once, quietly, and then stays usable
-// while it happens.
-function FilesSection({ document }: { document: DocumentDetailDto }) {
+// and editable (docs/11 §11.5a). A tab of its own rather than the last section of Details: what a
+// document is made of is a different question from what it is about, and it is the one thing here
+// that is worked on rather than read — under the metadata it sat below a form nobody had opened and
+// a table of step costs nobody had asked for. Every action rebuilds the document — the canonical
+// PDF, the preview, the text, the analysis — so the pane says so once, quietly, and then stays
+// usable while it happens.
+function FilesPane({ document }: { document: DocumentDetailDto }) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
@@ -1446,12 +1451,10 @@ function FilesSection({ document }: { document: DocumentDetailDto }) {
     <Space direction="vertical" size="small" style={{ width: '100%' }}>
       <Row align="middle" justify="space-between" gutter={[8, 8]}>
         <Col>
-          <Typography.Title level={5} style={{ margin: 0 }}>
-            {t('viewer.files.title')}
-          </Typography.Title>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {t('viewer.files.rebuildNote')}
-          </Typography.Text>
+          {/* No heading of its own: the tab is called Files, and a title under its own label is the
+              same word twice (docs/11 §11.5a). What the tab cannot say is the price of touching
+              anything here, so that is what stands at the top instead. */}
+          <Typography.Text type="secondary">{t('viewer.files.rebuildNote')}</Typography.Text>
         </Col>
         <Col>
           <UploadButton onFiles={upload.send} label={t('viewer.files.add')} />

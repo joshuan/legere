@@ -398,6 +398,7 @@ build on it.
   **Goal:** the reading surface stops being "whatever the single file happened to be".
   **Docs:** [`11 §11.5, §11.5a, §11.5b`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
   **Acceptance:** the preview tab embeds the canonical for every document; the details tab grows a Files section — thumbnail, name, kind, size, library path, missing badge — with per-row download, move up/down and split-off, and an Add files queue above it; the Download control is a split button with the originals in its dropdown; the grid shows a file count and a partial-availability badge.
+  **Since revised:** the Files section is a **tab** of its own (`11 §11.5a`), not a section at the foot of `Details`. Everything it holds is unchanged; what changed is that reaching it is one press rather than a scroll past a metadata form and a table of step costs, and that the composition has an address — `/documents/:id/files`.
 
 - [x] **M13.8 — Dragging the corners**
   **Goal:** the crop is something a person can see and adjust, not a number in a database.

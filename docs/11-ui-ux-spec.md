@@ -195,7 +195,7 @@ files show as unavailable cards. This is the primary "explore what got mounted" 
 
 ## 11.5. Document viewer (`/documents/:id/:tab?`)
 
-Tabs: `preview`, `text`, `log`, `details`.
+Tabs: `preview`, `text`, `log`, `details`, `files`.
 
 The open tab is the last segment of the address — `/documents/:id/text` — so a link to a document can
 be a link to its text, and a reload lands where it was left. `/documents/:id` opens the preview; an
@@ -218,7 +218,7 @@ before the metadata of the thing it names.
   header and a scroller of their own, because a fourteen-column invoice must widen nothing; code and
   quotations in the faces §11.15 gives them. Restrained on purpose — the document is the thing being
   read, and this is only how it is set, `Details` (metadata table: pages, size, created, OCR used,
-  **languages** and **place**, plus the **Files** section of §11.5a). Everything a machine decided is **editable here and only here** —
+  **languages** and **place**), `Files` (§11.5a). Everything a machine decided is **editable here and only here** —
   document type, languages, country, city — behind one **Edit** button (top right of the pane,
   or the **E** key; **Escape** leaves) that turns those rows into ordinary inputs, and **Save** at
   the bottom right that turns them back — rather than controls sitting in the page all the time:
@@ -335,10 +335,19 @@ before the metadata of the thing it names.
   step names are already on screen, so a second list of them to tick would be the same five words
   twice. An error the server could not attribute to any step still renders under the list.
 
-## 11.5a. The Files section (Details tab)
+## 11.5a. The Files tab
 
 A document is an ordered list of files (`03 §3.3.10`), and this is where that list is visible and
-editable. One row per file, in page order: a thumbnail of the file, its name, kind and size, a
+editable. **A tab of its own, not a section at the foot of `Details`.** What a document is made of is
+a different question from what it is about, and it is the one thing on this screen that is worked on
+rather than read: pages put back in order, a photograph cropped, a scan that belongs elsewhere split
+off. Underneath the metadata it began below a form nobody had opened and a table of step costs
+nobody had asked for, so "which of these forty scans is upside down" was a scroll past everything
+the document knows about itself. Its own tab is one press from anywhere, and a link to
+`/documents/:id/files` is a link to the composition — which is the address to send somebody when the
+pages are in the wrong order.
+
+One row per file, in page order: a thumbnail of the file, its name, kind and size, a
 `MISSING` tag when the volume no longer has it, and the library path underneath when it has one —
 where the bytes live is a fact about the file, and it belongs beside the file rather than in a
 section of its own.
@@ -359,8 +368,10 @@ offered at all rather than refused after the fact. Above the list: **Add files**
 queue as the grid (§11.3) pointed at this document, appending in the order chosen.
 
 Every one of these rebuilds the document — the canonical PDF, the preview, the text, the analysis —
-so the section says so once, quietly, under its heading: "Changing the files rebuilds the document."
-While that happens the rows stay usable and the document keeps showing what it had.
+so the tab says so once, quietly, above the list: "Changing the files rebuilds the document." While
+that happens the rows stay usable and the document keeps showing what it had. The tab is named
+`Files` and nothing inside it repeats that name: a heading under its own label is the same word
+twice.
 
 ## 11.5b. Download: the document, or what it was made of
 

@@ -329,7 +329,7 @@ describe('DocumentViewerScreen', () => {
     expect(await screen.findByText(enMessages.viewer.textFailed)).toBeInTheDocument();
   });
 
-  it('shows the metadata and what the document is made of', async () => {
+  it('shows the metadata, and leaves what the document is made of to the Files tab', async () => {
     serve(twoFiles);
     renderWithProviders(<DocumentViewerScreen id={ID} />);
 
@@ -338,15 +338,10 @@ describe('DocumentViewerScreen', () => {
     expect(await screen.findByText('2.0 MB')).toBeInTheDocument();
     expect(screen.getByText('4')).toBeInTheDocument();
 
-    // One row per file, in page order, each with where its bytes live (docs/11 §11.5a).
-    expect(screen.getByText('page-1.jpg')).toBeInTheDocument();
-    expect(screen.getByText('Invoices: a/rental.pdf')).toBeInTheDocument();
-    expect(screen.getByText('page-2.jpg')).toBeInTheDocument();
-    expect(screen.getByText('Invoices: old/page-2.jpg')).toBeInTheDocument();
-    // A file the volume has lost is still listed, badged for what it is.
-    expect(screen.getByText(enMessages.viewer.files.missing)).toBeInTheDocument();
-    // And it says once, quietly, what changing any of this costs.
-    expect(screen.getByText(enMessages.viewer.files.rebuildNote)).toBeInTheDocument();
+    // The composition is a tab of its own now (docs/11 §11.5a), so it is not underneath the
+    // metadata: what a document is made of is a different question from what it is about.
+    expect(screen.queryByText('page-1.jpg')).toBeNull();
+    expect(screen.queryByText(enMessages.viewer.files.rebuildNote)).toBeNull();
   });
 
   it('assigns a documentType', async () => {
@@ -956,15 +951,34 @@ describe('DocumentViewerScreen', () => {
     await waitFor(() => expect(body).toEqual({ steps: ['preview'] }));
   });
 
-  describe('the Files section (docs/11 §11.5a)', () => {
+  describe('the Files tab (docs/11 §11.5a)', () => {
     async function openFiles(document: DocumentDetailDto = twoFiles): Promise<void> {
       serve(document);
       renderWithProviders(<DocumentViewerScreen id={ID} />);
-      await userEvent.click(
-        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
-      );
+      await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
       await screen.findByText('page-1.jpg');
     }
+
+    it('lists what the document is made of, one row per file', async () => {
+      await openFiles();
+
+      // One row per file, in page order, each with where its bytes live (docs/11 §11.5a).
+      expect(screen.getByText('Invoices: a/rental.pdf')).toBeInTheDocument();
+      expect(screen.getByText('page-2.jpg')).toBeInTheDocument();
+      expect(screen.getByText('Invoices: old/page-2.jpg')).toBeInTheDocument();
+      // A file the volume has lost is still listed, badged for what it is.
+      expect(screen.getByText(enMessages.viewer.files.missing)).toBeInTheDocument();
+      // And it says once, quietly, what changing any of this costs.
+      expect(screen.getByText(enMessages.viewer.files.rebuildNote)).toBeInTheDocument();
+    });
+
+    // The composition has an address of its own, which is what makes "the pages are in the wrong
+    // order" a link somebody can be sent (docs/11 §11.5, §11.5a).
+    it('puts the tab in the address', async () => {
+      await openFiles();
+
+      expect(replace).toHaveBeenCalledWith(`/documents/${ID}/files`);
+    });
 
     it('sends the whole new order when a file is moved', async () => {
       let reordered: unknown = null;
@@ -1010,9 +1024,7 @@ describe('DocumentViewerScreen', () => {
     it('does not offer to split off the only file a document has', async () => {
       serve(detail);
       renderWithProviders(<DocumentViewerScreen id={ID} />);
-      await userEvent.click(
-        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
-      );
+      await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
 
       await screen.findByText('rental.pdf');
       // 🔒 Not offered at all rather than refused after the fact: a document is emptied by deleting
@@ -1057,9 +1069,7 @@ describe('DocumentViewerScreen', () => {
         ],
       });
       renderWithProviders(<DocumentViewerScreen id={ID} />);
-      await userEvent.click(
-        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
-      );
+      await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
 
       const line = await screen.findByText(`${enMessages.viewer.files.objectStorage}: ${key}`);
       expect(line).toBeInTheDocument();
@@ -1089,9 +1099,7 @@ describe('DocumentViewerScreen', () => {
     it('offers no crop for a file that is not an image', async () => {
       serve(detail);
       renderWithProviders(<DocumentViewerScreen id={ID} />);
-      await userEvent.click(
-        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
-      );
+      await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
 
       await screen.findByText('rental.pdf');
       expect(screen.queryByRole('button', { name: enMessages.viewer.files.crop })).toBeNull();

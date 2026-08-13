@@ -700,6 +700,7 @@
       "preview": "Preview",
       "text": "Text",
       "details": "Details",
+      "files": "Files",
       "log": "Log"
     },
     "steps": {
@@ -807,7 +808,6 @@
       "failed": "This document could not be assembled."
     },
     "files": {
-      "title": "Files",
       "rebuildNote": "Changing the files rebuilds the document.",
       "add": "Add files",
       "download": "Download",
