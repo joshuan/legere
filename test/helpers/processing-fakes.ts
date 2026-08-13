@@ -337,6 +337,13 @@ export class InMemoryDocumentRepository extends DocumentRepository {
     if (document !== undefined) this.documents.set(id, { ...document, deletedAt });
     return Promise.resolve();
   }
+
+  // The row goes, and so does everything the schema cascades from it (docs/03 §3.3.10) — here that
+  // is the composition, which the file fake keeps.
+  hardDelete(id: string): Promise<void> {
+    this.documents.delete(id);
+    return Promise.resolve();
+  }
 }
 
 export function fileFixture(overrides: Partial<File> = {}): File {
@@ -411,6 +418,25 @@ export class InMemoryFileRepository extends FileRepository {
     const file = this.files.get(id);
     if (file !== undefined) this.files.set(id, { ...file, deletedAt });
     return Promise.resolve();
+  }
+
+  hardDelete(ids: readonly string[]): Promise<void> {
+    for (const id of ids) {
+      this.files.delete(id);
+      // The join goes with the document in the schema; here it is one map, so the home is cleared
+      // with the file rather than left pointing at nothing.
+      for (const [documentId, held] of this.composition) {
+        this.composition.set(
+          documentId,
+          held.filter((held_id) => held_id !== id),
+        );
+      }
+    }
+    return Promise.resolve();
+  }
+
+  filterExistingIds(ids: string[]): Promise<string[]> {
+    return Promise.resolve(ids.filter((id) => this.files.has(id)));
   }
 
   listForDocument(documentId: string): Promise<DocumentFile[]> {
@@ -534,6 +560,16 @@ export class InMemoryFileRefRepository extends FileRefRepository {
   }
   markMissing(): Promise<number> {
     return unused('markMissing');
+  }
+
+  // The tombstone a deletion leaves on the volume (docs/03 §3.3.9): the ref survives the file.
+  markExcluded(fileIds: readonly string[]): Promise<void> {
+    for (const [index, ref] of this.refs.entries()) {
+      if (ref.fileId !== null && fileIds.includes(ref.fileId)) {
+        this.refs[index] = { ...ref, status: 'EXCLUDED', fileId: null };
+      }
+    }
+    return Promise.resolve();
   }
 }
 

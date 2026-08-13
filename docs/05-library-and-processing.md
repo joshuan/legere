@@ -65,7 +65,13 @@ library volume, which stays read-only for the whole product (ADR-004).
   - a new path not in the DB → create `FileRef(DISCOVERED)` + enqueue `file-ingest`;
   - path exists, `size`/`mtime` match → skip (content is not re-read);
   - path exists, `size`/`mtime` changed → move to `DISCOVERED`, enqueue `file-ingest` (rehash);
-  - path exists in the DB but the file is gone from disk → mark `MISSING` (§5.7).
+  - path exists in the DB but the file is gone from disk → mark `MISSING` (§5.7);
+  - path is `EXCLUDED` — an admin deleted the document these bytes were part of (`03 §3.3.9`) → skip
+    while `size`/`mtime` are unchanged, whether or not the path is still on disk. This one is not an
+    optimisation like the `size`/`mtime` skip above it: it is the only thing standing between a
+    deleted document and its own resurrection, since the bytes are on a volume Legere may not write
+    to. Different bytes at that path are not what was deleted, so a change moves it to `DISCOVERED`
+    like any other change.
 - **A scan gives up past `SCAN_MAX_FILES` files** (default 50 000; 0 disables the guard). A library
   pointed at a home directory or a whole disk would otherwise ingest all of it, and the first sign
   would be a machine hashing overnight. The run ends `FAILED` with a message naming the limit, no
@@ -471,8 +477,10 @@ already known, so dismissing one is a client-side act and the list is always cur
   originals behind those files.
 - The file came back (same hash at the same or another path) → the link is restored, the document is
   available again.
-- There is no physical cleanup of MISSING records in the MVP (only manual document deletion by an
-  admin = soft delete).
+- There is no physical cleanup of MISSING records: a ref is a record of where bytes were seen, and
+  the volume is not ours to tidy. The one deletion that does remove rows is an admin deleting a
+  document (`03 §3.3.10`) — and even that keeps a `FileRef` per path, `EXCLUDED`, because keeping it
+  is what stops the next scan from ingesting the file all over again.
 
 ## 5.8. Observability (admin panel)
 

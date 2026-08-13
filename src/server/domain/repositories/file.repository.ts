@@ -42,6 +42,16 @@ export abstract class FileRepository {
 
   abstract softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void>;
 
+  // The files of a document an admin deleted for real (docs/03 §3.3.10). A file has exactly one
+  // home, so these have none once the document is gone and are not left to be re-homed. Called after
+  // the document — `document_files` is cascaded away with it, and until it is these rows are still
+  // referenced.
+  abstract hardDelete(ids: readonly string[], tx?: TransactionHandle): Promise<void>;
+
+  // Which of these ids exist as rows at all: the same question maintenance asks about documents,
+  // asked about files, so an object under `files/{id}/` whose row is gone can be swept (docs/09 §9.2).
+  abstract filterExistingIds(ids: string[], tx?: TransactionHandle): Promise<string[]>;
+
   // --- the composition of a document -------------------------------------------------------
 
   // The files of a document, by position.

@@ -14,7 +14,7 @@ export type Theme = z.infer<typeof themeSchema>;
 export const libraryVisibilitySchema = z.enum(['ALL_USERS', 'RESTRICTED']);
 export type LibraryVisibility = z.infer<typeof libraryVisibilitySchema>;
 
-export const fileRefStatusSchema = z.enum(['DISCOVERED', 'HASHED', 'MISSING']);
+export const fileRefStatusSchema = z.enum(['DISCOVERED', 'HASHED', 'MISSING', 'EXCLUDED']);
 export type FileRefStatus = z.infer<typeof fileRefStatusSchema>;
 
 // Why a step is SKIPPED (docs/03 §3.3.10). "Skipped" on its own reads like a failure; these say

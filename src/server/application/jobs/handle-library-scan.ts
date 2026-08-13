@@ -152,9 +152,15 @@ export class HandleLibraryScan extends JobHandler {
       }
 
       // Anything known but not seen this pass has gone from disk (docs/05 §5.7). Refs already MISSING
-      // are left alone so missingSince keeps its original value.
+      // are left alone so missingSince keeps its original value; refs EXCLUDED are left alone
+      // because they are a tombstone and not a file — "the deleted document's original has moved
+      // away" is not news about availability, and a tombstone a moved folder can clear would let the
+      // document back in when the file returned (docs/03 §3.3.9).
       const vanished = known
-        .filter((ref) => ref.status !== 'MISSING' && !seenPaths.has(ref.path))
+        .filter(
+          (ref) =>
+            ref.status !== 'MISSING' && ref.status !== 'EXCLUDED' && !seenPaths.has(ref.path),
+        )
         .map((ref) => ref.id);
       const filesMissing =
         vanished.length === 0 ? 0 : await this.fileRefs.markMissing(vanished, startedAt);

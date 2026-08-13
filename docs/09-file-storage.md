@@ -101,9 +101,17 @@ an object's life:
   presigning uses it. Empty (the default) means there is one endpoint for both.
 - **Reads by the pipeline** (e.g. OCR needs `canonical.pdf`) go through the SDK directly (streaming
   `GetObject`), not through presigned URLs.
-- Deletion policy: artifacts of soft-deleted documents are **retained** (soft delete is reversible);
-  nothing in MVP hard-deletes S3 objects except `maintenance` removing orphans (objects whose
-  `documentId` does not exist at all — possible only after failed half-writes).
+- Deletion policy: artifacts of **soft-deleted** documents are retained — that delete is reversible,
+  and a library soft-deleted or a document absorbed into another one both keep everything. What is
+  removed for real is what an admin deleted for real: `DELETE /api/documents/:id` is a hard delete
+  (`03 §3.3.10`), and it takes the document's own artifacts and the originals of its `MANAGED` files
+  with it. The rows are deleted first and the objects afterwards, so the failure mode is an orphaned
+  object rather than a row pointing at bytes that are gone.
+- `maintenance` collects those orphans, and now under both layouts: an object under
+  `documents/{id}/` whose document does not exist at all, and an object under `files/{fileId}/` whose
+  file does not exist at all. The second half is what makes a failed delete self-healing instead of a
+  slow leak — it was `documents/` only, from when nothing ever deleted a file row. Anything outside
+  the two layouts is still left alone rather than guessed about.
 
 ## 9.3. `FileStorage` port (normative)
 

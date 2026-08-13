@@ -1338,6 +1338,12 @@ export class PrismaDocumentRepository implements DocumentRepository {
     });
   }
 
+  // One statement, and the cascades of docs/04 §4.2 take the journal, the chunks, the people and
+  // subject links and the `document_files` rows with it (docs/03 §3.3.10).
+  async hardDelete(id: string, tx?: TransactionHandle): Promise<void> {
+    await clientOf(this.prisma, tx).document.deleteMany({ where: { id } });
+  }
+
   // No `deletedAt` filter on purpose: a soft-deleted document still owns its artifacts.
   async filterExistingIds(ids: string[], tx?: TransactionHandle): Promise<string[]> {
     if (ids.length === 0) return [];

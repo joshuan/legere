@@ -91,6 +91,9 @@ class StubSearchRepository extends DocumentRepository {
   softDelete() {
     return notUsed();
   }
+  hardDelete() {
+    return notUsed();
+  }
   filterExistingIds() {
     return notUsed();
   }

@@ -150,6 +150,22 @@ export class PrismaFileRepository implements FileRepository {
     });
   }
 
+  async hardDelete(ids: readonly string[], tx?: TransactionHandle): Promise<void> {
+    if (ids.length === 0) return;
+    await clientOf(this.prisma, tx).file.deleteMany({ where: { id: { in: [...ids] } } });
+  }
+
+  // No `deletedAt` filter, for the same reason the document's own version has none: a row that
+  // exists at all owns its object, and only a row that is gone makes one an orphan (docs/09 §9.2).
+  async filterExistingIds(ids: string[], tx?: TransactionHandle): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const rows = await clientOf(this.prisma, tx).file.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
   // --- the composition of a document -------------------------------------------------------
 
   async listForDocument(documentId: string, tx?: TransactionHandle): Promise<DocumentFile[]> {

@@ -334,6 +334,33 @@ before the metadata of the thing it names.
   nothing. ADMIN gets a checkbox at the start of each row and one "Reprocess" button below — the
   step names are already on screen, so a second list of them to tick would be the same five words
   twice. An error the server could not attribute to any step still renders under the list.
+  Last in the sidebar, an admin's **Delete** — see §11.5d.
+
+## 11.5d. Deleting a document
+
+**Admin only, at the bottom of the sidebar, below everything the document can still be used for**
+(`07 §7.3`). A destructive action that shares an edge with Download is a destructive action somebody
+will press by accident, so it stands apart, in the red the rest of the screen never uses, and it is
+the last thing on the page rather than the first.
+
+**The confirmation is a modal and not a popover, because it has something to say.** A deletion here
+is real (`03 §3.3.10`, ADR-015 as amended) and nothing undoes it, so the modal is written as an
+inventory rather than as a warning — it names what is about to go and, just as plainly, what will
+not:
+
+- **Gone:** this document, its text and search index, its history, its place in any collection, and
+  the files it is made of — counted, and with what they weigh, because "3 files, 12.4 MB" is the fact
+  that makes the decision and it is already on the page.
+- **Kept:** the originals lying on a library volume. They are on a read-only mount and Legere does
+  not delete them; the line says so, and says the file will not be read again either — the one thing
+  a person cannot infer, and the difference between "deleted" and "deleted until the next scan".
+  Shown only when there is such a file to talk about: a document made of uploads has nothing kept,
+  and a modal that says so anyway is a modal being read past.
+
+The confirm button is red and says **Delete**, not "OK". While the request is in flight it is busy
+and the modal stays; on failure the modal stays too, with the error where it happened. On success the
+reader is sent to `/documents` — the document they were looking at does not exist, so the address it
+lived at must not be where they are left — and the archive is re-fetched under them.
 
 ## 11.5a. The Files tab
 

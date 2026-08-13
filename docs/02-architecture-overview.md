@@ -345,6 +345,19 @@ No physical deletion of user data — a `deletedAt` field, partial unique indexe
 `WHERE deleted_at IS NULL`. A file disappearing from the library is an unavailability status, not a
 deletion (see [`05 §5.7`](./05-library-and-processing.md)).
 
+**Amended: an admin deleting a document is a real deletion** ([`03 §3.3.10`](./03-domain-model.md)).
+Everything else here stands — this is one exception, made deliberately, for the one row a person
+points at and says "this should not be here". Soft delete answers the question it was chosen for,
+which is "can a mistake be undone"; it cannot answer the two this case asks. **Space is one:** an
+archive of scans is measured in gigabytes, and a delete that frees nothing is a delete that leaves an
+instance with no way to get smaller. **A deliberate absence is the other:** a document deleted for
+being junk, a duplicate or somebody's private paper is not meant to sit in the database being
+excluded from every query for ever, waiting for the query that forgets to. The undo is on the other
+side of it — a `LIBRARY` file's bytes are on a volume Legere may not write to and are still there
+afterwards ([`03 §3.3.9`](./03-domain-model.md)) — and the UI says exactly what will and will not
+survive before it happens ([`11 §11.5`](./11-ui-ux-spec.md)). A document *absorbed* into another is
+not this case and keeps its soft delete.
+
 ### ADR-016. i18n — next-intl, locale not in the URL
 Language is a user setting (in the DB, a cookie for SSR), not a URL segment. UI languages: **en
 (default)** and **ru**; `messages/en.json` is the reference catalog. The backend does not localize

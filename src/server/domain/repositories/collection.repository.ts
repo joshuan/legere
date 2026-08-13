@@ -79,6 +79,11 @@ export abstract class CollectionRepository {
     tx?: TransactionHandle,
   ): Promise<void>;
 
+  // Off every list at once: the document itself is being deleted (docs/03 §3.3.10), so there is
+  // nothing left for an item to point at. Deliberately not a foreign-key cascade — a collection is
+  // somebody else's list, and it is emptied by code that knows it is doing that (docs/04 §4.2).
+  abstract removeItemEverywhere(documentId: string, tx?: TransactionHandle): Promise<void>;
+
   abstract listActiveShares(
     collectionId: string,
     tx?: TransactionHandle,

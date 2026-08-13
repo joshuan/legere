@@ -696,6 +696,14 @@
     "noText": "No text extracted yet",
     "textPending": "Being extracted…",
     "textFailed": "Extraction failed",
+    "delete": {
+      "action": "Delete document",
+      "title": "Delete «{title}»?",
+      "goes": "This deletes the document, its text, its history, its place in every collection, and the {files, plural, one {# file} other {# files}} it is made of — {size} in all.",
+      "kept": "{files, plural, one {# original lies} other {# originals lie}} in a library and will not be deleted: the volume is read-only. Legere will not read {files, plural, one {it} other {them}} again either — the document does not come back on the next scan.",
+      "forGood": "This cannot be undone.",
+      "done": "The document is deleted."
+    },
     "tabs": {
       "preview": "Preview",
       "text": "Text",

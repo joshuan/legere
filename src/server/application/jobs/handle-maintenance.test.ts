@@ -8,6 +8,7 @@ import {
 import {
   documentFixture,
   InMemoryDocumentRepository,
+  InMemoryFileRepository,
 } from '../../../../test/helpers/processing-fakes';
 import { JobQueue, type EnqueueOptions, type QueueName } from '../../application/ports/job-queue';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
@@ -21,6 +22,8 @@ const HOUR = 60 * 60 * 1000;
 const LIVE_DOCUMENT = '11111111-1111-4111-8111-111111111111';
 const DELETED_DOCUMENT = '22222222-2222-4222-8222-222222222222';
 const GONE_DOCUMENT = '33333333-3333-4333-8333-333333333333';
+const LIVE_FILE = '44444444-4444-4444-8444-444444444444';
+const GONE_FILE = '55555555-5555-4555-8555-555555555555';
 
 // The hourly housekeeping job (docs/06 §6.8, docs/09 §9.5).
 // Records what the sweep enqueued; nothing else here needs a queue.
@@ -56,6 +59,7 @@ describe('HandleMaintenance', () => {
   let invites: InMemoryUserInviteRepository;
   let resets: InMemoryPasswordResetRepository;
   let documents: InMemoryDocumentRepository;
+  let fileRows: InMemoryFileRepository;
   let files: InMemoryFileStorage;
   let metrics: InMemoryMetricsCache;
   let queue: RecordingJobQueue;
@@ -67,6 +71,7 @@ describe('HandleMaintenance', () => {
     invites = new InMemoryUserInviteRepository();
     resets = new InMemoryPasswordResetRepository();
     documents = new InMemoryDocumentRepository();
+    fileRows = new InMemoryFileRepository();
     files = new InMemoryFileStorage();
     metrics = new InMemoryMetricsCache();
     queue = new RecordingJobQueue();
@@ -75,6 +80,7 @@ describe('HandleMaintenance', () => {
       invites,
       resets,
       documents,
+      fileRows,
       files,
       metrics,
       queue,
@@ -173,6 +179,19 @@ describe('HandleMaintenance', () => {
       `documents/${DELETED_DOCUMENT}/thumb.jpg`,
       'exports/report.csv',
     ]);
+  });
+
+  // The other half of the layout, and the reason a hard delete may fail part-way without leaking:
+  // the objects of a file row that no longer exists (docs/03 §3.3.10, docs/09 §9.2).
+  it('removes a managed original whose file row is gone and keeps the ones still held', async () => {
+    fileRows.add({ id: LIVE_FILE, origin: 'MANAGED', ext: 'jpg' });
+
+    await files.put(`files/${LIVE_FILE}/original.jpg`, Buffer.alloc(10), 'image/jpeg');
+    await files.put(`files/${GONE_FILE}/original.jpg`, Buffer.alloc(20), 'image/jpeg');
+
+    await handler.handle();
+
+    expect(files.keys()).toEqual([`files/${LIVE_FILE}/original.jpg`]);
   });
 
   it('caches what the bucket holds after the sweep, stamped with the time it was measured', async () => {

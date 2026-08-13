@@ -37,7 +37,7 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `Language` | `EN`, `RU` | `EN` is the default |
 | `Theme` | `SYSTEM`, `LIGHT`, `DARK` | |
 | `LibraryVisibility` | `ALL_USERS`, `RESTRICTED` | new libraries default to `RESTRICTED` (fail-closed) |
-| `FileRefStatus` | `DISCOVERED`, `HASHED`, `MISSING` | |
+| `FileRefStatus` | `DISCOVERED`, `HASHED`, `MISSING`, `EXCLUDED` | `EXCLUDED` is the mark an admin's deletion leaves on a volume it may not write to (§3.3.9): the bytes are still there and Legere will not read them again |
 | `FileOrigin` | `LIBRARY`, `MANAGED` | where a file's bytes live: on the read-only volume (addressed by `FileRef`s) or in our own bucket (uploaded from a browser, or produced by us). A document's own origin is derived from its files rather than stored — see §3.3.10 |
 | `StepStatus` | `PENDING`, `QUEUED`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. **`PENDING` and `QUEUED` are the two halves of what used to be one word**: `QUEUED` says a job exists and a worker will get to it; `PENDING` says nothing is scheduled — the artifact is out of date and waits for the hourly sweep (`05 §5.4`) or for somebody to ask. A migration that resets a step produces the second, and while the two shared a name the archive read as busy for the two hours before the sweep noticed, with the queue counter beside it honestly showing nothing. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes a step that has not started reads as "stuck". The mark is best-effort and never the reason a job fails |
 | `PageFormat` | `AUTO`, `A4`, `MATCH_SOURCE` | what shape the pages of the canonical take (`05 §5.5` step 1). `AUTO` reads it off the pictures the pages were made from |
@@ -187,7 +187,27 @@ A physical file inside a library. **No soft delete** — lifecycle is expressed 
 **State machine:** `DISCOVERED → HASHED` (file-ingest), `HASHED → MISSING` (scan found it gone),
 `MISSING → HASHED` (file returned, same hash), `HASHED → DISCOVERED` (size/mtime changed → rehash;
 if the new hash differs, the ref re-points to another File — and the file it left keeps its document,
-now with one fewer place its bytes can be read from).
+now with one fewer place its bytes can be read from), `* → EXCLUDED` (an admin deleted the document
+these bytes were part of, §3.3.10), `EXCLUDED → DISCOVERED` (the bytes at that path changed, so what
+is there now is not what was deleted).
+
+🔒 **`EXCLUDED` is the whole of what a deletion can do to a read-only volume, and it is why a deleted
+document stays deleted.** The library is not ours to write to (ADR-004), so an admin deleting a
+document cannot take the original with it (ADR-007): the file lies exactly where it lay, and the next scan
+would find it, hash it, discover no file with that hash and give it a new document — the archive
+would undo the deletion by itself, every fifteen minutes, for ever. The ref is kept instead of
+deleted, pointing at no file, and the scan reads it as "this path is spoken for": `contentHash`,
+`size` and `mtime` stay on it so the exclusion can be seen to be about *these* bytes and not merely
+about a name. It survives the file going missing from disk, because a tombstone that a moved folder
+can clear is not a tombstone.
+
+**The exclusion is per path, and that is the way back.** A copy of the same bytes appearing somewhere
+else is a new path with no ref, so it is ingested and becomes a document again — which is how an
+admin who deleted the wrong thing gets it back without a screen for undoing deletions, and the
+confirmation says as much (`11 §11.5`). The cost of the choice is the other half of it: moving or
+renaming an excluded file is also a new path, and the document comes back. Both follow from the same
+sentence — Legere knows paths on a volume it does not own — and the alternative, excluding by content
+hash for ever, buys tidiness with a deletion nobody can reverse.
 
 ### 3.3.10. Document
 
@@ -310,11 +330,19 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
   is emptied by deleting it, not by taking its parts away one at a time.
 - Deduplication is a property of files, not documents (§3.3.16): two documents may hold the same
   file no more than one may — a file has exactly one home.
-- Soft delete of a document (admin) hides it everywhere, removes its chunks from search, detaches it
-  from collections logically (items referencing it are hidden, not deleted), and takes its files
-  with it — they are not silently re-homed. A library file whose document was deleted is **not**
-  re-ingested by the next scan; the scan sees a live `FileRef` pointing at a live file and leaves it
-  alone.
+- 🔒 **Deleting a document (admin) is a real deletion, and the one place ADR-015 does not hold.** The
+  row goes, and with it the journal, the chunks, the Markdown, the collection items, the links to
+  people and subjects, the `DocumentFile` rows and the **files themselves** — a file has exactly one
+  home (§3.3.16), so a document's files have nowhere to be afterwards and are not re-homed into
+  documents nobody asked for. Every object in the bucket that the document owned goes too: its
+  artifacts (§9.2) and the originals of its `MANAGED` files, which are the only bytes Legere has ever
+  been allowed to delete. What stays is what was never ours: a `LIBRARY` file's bytes on the volume,
+  and one `FileRef` per path holding them, `EXCLUDED` so that no scan brings the document back
+  (§3.3.9). Nothing about this is reversible, which is why it is an admin's and why the UI spells out
+  what goes before it happens (`11 §11.5`).
+- A document **absorbed into another** (`05 §5.6`) is a different thing wearing the same word and
+  keeps the soft delete it always had: its files were not destroyed, they moved, and the emptied row
+  is a record of where they came from.
 
 **Artifact keys (deterministic, no DB columns — see 09):**
 `documents/{id}/canonical.pdf`, `documents/{id}/preview.jpg`, `documents/{id}/thumb.jpg`.
@@ -692,7 +720,7 @@ above runs unchanged — with one subtraction, that the caller may only read.
 | File detached from a document | the file becomes a document of its own, with its own canonical PDF; nothing is deleted (§5.6) |
 | Document absorbed into another | its files move over in order, its own row is soft-deleted, and its collections/metadata are left behind with it (§5.6) |
 | Library soft-deleted | its documents disappear from all listings; artifacts/data retained |
-| Document soft-deleted (admin) | hidden everywhere; chunks excluded from search; artifacts retained in S3 (cleaned by a later `maintenance` policy only if ever specified) |
+| Document deleted (admin) | **hard**, and the only hard delete of user data there is (§3.3.10): the row, its journal, chunks, Markdown, collection items, people/subject links, `DocumentFile` rows and its `File` rows are gone, as are its artifacts and its `MANAGED` originals in S3. A `LIBRARY` file's bytes stay on the volume, untouched and unreadable to Legere: its `FileRef` is kept `EXCLUDED` so the next scan does not ingest it again (§3.3.9) |
 | Document type soft-deleted | documents' document type reset to NONE |
 | Collection soft-deleted | hidden for everyone incl. shares |
 | User soft-deleted | sessions and API tokens revoked; their collections hidden; shares die with the collection, and the documents they created stay accessible to ADMIN only |

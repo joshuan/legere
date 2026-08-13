@@ -38,6 +38,10 @@ enum FileRefStatus {
   DISCOVERED
   HASHED
   MISSING
+  // An admin deleted the document these bytes were part of (docs/03 §3.3.9). The row survives as the
+  // tombstone that keeps the next scan from ingesting the file again — the volume is read-only, so
+  // this mark is the whole of what a deletion can do out there.
+  EXCLUDED
 }
 
 enum FileOrigin {

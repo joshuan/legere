@@ -83,4 +83,11 @@ export abstract class FileRefRepository {
 
   // Gone from disk (docs/05 §5.7). Data is never deleted; the ref just stops being live.
   abstract markMissing(ids: string[], missingSince: Date, tx?: TransactionHandle): Promise<number>;
+
+  // 🔒 The document these files were part of was deleted (docs/03 §3.3.9). The refs stay — pointing
+  // at no file, since the file rows go — and become the tombstone that keeps the next scan from
+  // ingesting the same bytes into a new document. Addressed by file rather than by ref: every path
+  // the bytes were seen at is excluded at once, so a second copy on another volume does not walk the
+  // document back in. Runs before the files are deleted, or the foreign key would refuse.
+  abstract markExcluded(fileIds: readonly string[], tx?: TransactionHandle): Promise<void>;
 }

@@ -951,6 +951,73 @@ describe('DocumentViewerScreen', () => {
     await waitFor(() => expect(body).toEqual({ steps: ['preview'] }));
   });
 
+  // 🔒 The one control that destroys anything (docs/11 §11.5d). What is tested here is that nobody
+  // reaches it by accident and that the modal says what will happen before it does.
+  describe('deleting a document (docs/11 §11.5d)', () => {
+    it('is offered to an admin and to nobody else', async () => {
+      const asUser = renderWithProviders(<DocumentViewerScreen id={ID} />);
+      expect(await screen.findByText('Rental agreement')).toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: enMessages.viewer.delete.action }),
+      ).not.toBeInTheDocument();
+      asUser.unmount();
+
+      renderWithProviders(<DocumentViewerScreen id={ID} isAdmin />);
+
+      expect(
+        await screen.findByRole('button', { name: enMessages.viewer.delete.action }),
+      ).toBeInTheDocument();
+    });
+
+    it('deletes nothing until the confirmation is answered', async () => {
+      let deleted = false;
+      server.use(
+        http.delete(`/api/documents/${ID}`, () => {
+          deleted = true;
+          return HttpResponse.json(envelope({ ok: true }));
+        }),
+      );
+      serve(twoFiles);
+      renderWithProviders(<DocumentViewerScreen id={ID} isAdmin />);
+
+      await userEvent.click(
+        await screen.findByRole('button', { name: enMessages.viewer.delete.action }),
+      );
+
+      // The button opened a question, not a deletion.
+      expect(deleted).toBe(false);
+      const dialog = within(await screen.findByRole('dialog'));
+      // What goes: the document and the files it is made of, counted and weighed.
+      expect(dialog.getByText(/2 files/)).toBeInTheDocument();
+      expect(dialog.getByText(/2\.0 MB/)).toBeInTheDocument();
+      // What stays, which is the part nobody can infer: the volume is read-only.
+      expect(dialog.getByText(/will not be deleted/)).toBeInTheDocument();
+      expect(dialog.getByText(enMessages.viewer.delete.forGood)).toBeInTheDocument();
+
+      await userEvent.click(dialog.getByRole('button', { name: enMessages.viewer.delete.action }));
+
+      await waitFor(() => expect(deleted).toBe(true));
+      // The address the document lived at no longer resolves, so the reader is not left on it.
+      await waitFor(() => expect(push).toHaveBeenCalledWith('/documents'));
+    });
+
+    it('says nothing about kept originals for a document made only of uploads', async () => {
+      serve({
+        ...detail,
+        files: [fileOf(FIRST_FILE, { origin: 'MANAGED', refs: [], storageKey: 'files/x/a.pdf' })],
+      });
+      renderWithProviders(<DocumentViewerScreen id={ID} isAdmin />);
+
+      await userEvent.click(
+        await screen.findByRole('button', { name: enMessages.viewer.delete.action }),
+      );
+
+      // There is no original on a volume to keep, and a modal that says so anyway is read past.
+      const dialog = within(await screen.findByRole('dialog'));
+      expect(dialog.queryByText(/will not be deleted/)).toBeNull();
+    });
+  });
+
   describe('the Files tab (docs/11 §11.5a)', () => {
     async function openFiles(document: DocumentDetailDto = twoFiles): Promise<void> {
       serve(document);

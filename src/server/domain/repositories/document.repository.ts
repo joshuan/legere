@@ -356,8 +356,17 @@ export abstract class DocumentRepository {
     tx?: TransactionHandle,
   ): Promise<Document>;
 
-  // Soft delete (ADR-015): the row stays, and every route stops finding it.
+  // Soft delete (ADR-015): the row stays, and every route stops finding it. What a document absorbed
+  // into another gets (docs/05 §5.6) — its files moved, so the row is a record of where they came
+  // from.
   abstract softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void>;
+
+  // 🔒 The real one, and the one exception ADR-015 makes (docs/03 §3.3.10): the row goes, and the
+  // journal, chunks, links and `document_files` go with it through the cascades of docs/04 §4.2.
+  // What is *not* here is deliberate — the collection items, the file rows and the objects in the
+  // bucket are deleted by the caller, in that order, because each is somebody else's table and the
+  // order is what keeps the foreign keys satisfied.
+  abstract hardDelete(id: string, tx?: TransactionHandle): Promise<void>;
 
   // Which of these ids exist as rows at all — soft-deleted ones included, because their artifacts
   // are deliberately retained (docs/09 §9.2). Maintenance uses it to tell an orphaned S3 object

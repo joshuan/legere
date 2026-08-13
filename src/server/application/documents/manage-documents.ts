@@ -34,8 +34,12 @@ import type {
   UpdateDocumentMetaInput,
   Viewer,
 } from '../../domain/repositories/document.repository';
-import type { Clock } from '../ports/clock';
-import { originalKeyOf } from '../storage/artifact-keys';
+import type { CollectionRepository } from '../../domain/repositories/collection.repository';
+import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
+import type { FileRepository } from '../../domain/repositories/file.repository';
+import type { FileStorage } from '../ports/file-storage';
+import type { UnitOfWork } from '../ports/unit-of-work';
+import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
 
 // GET /api/documents (docs/07 §7.3). The filter set is fixed and the access rule lives in the
 // query, so a page of thirty is thirty documents this caller may actually read.
@@ -276,11 +280,21 @@ export class UpdateDocumentMeta {
   }
 }
 
-// DELETE /api/documents/:id (admin): soft delete, after which every route stops finding it.
+// DELETE /api/documents/:id (admin): a real deletion — the one exception ADR-015 makes, and the only
+// endpoint in Legere that destroys anything (docs/03 §3.3.10, docs/07 §7.3).
+//
+// Two halves, in this order and not the other: the rows in one transaction, the bytes after it
+// commits. A bucket that refuses part-way then leaves objects nobody owns, which is precisely what
+// the hourly sweep collects (docs/09 §9.2) — where the other order would leave rows pointing at
+// bytes that are gone, and nothing collects those.
 export class DeleteDocument {
   constructor(
     private readonly documents: DocumentRepository,
-    private readonly clock: Clock,
+    private readonly files: FileRepository,
+    private readonly fileRefs: FileRefRepository,
+    private readonly collections: CollectionRepository,
+    private readonly storage: FileStorage,
+    private readonly unitOfWork: UnitOfWork,
   ) {}
 
   async execute(documentId: string): Promise<{ ok: true }> {
@@ -288,7 +302,43 @@ export class DeleteDocument {
     if (document === null || document.deletedAt !== null) {
       throw new NotFoundError('DOCUMENT_NOT_FOUND', 'Document not found');
     }
-    await this.documents.softDelete(documentId, this.clock.now());
+
+    const held = await this.files.listForDocument(documentId);
+    const fileIds = held.map((file) => file.id);
+
+    await this.unitOfWork.run(async (tx) => {
+      // Off every collection first: `collection_items` has no cascade on purpose (docs/04 §4.2), so
+      // the foreign key would refuse the delete below and be right to.
+      await this.collections.removeItemEverywhere(documentId, tx);
+      // 🔒 Before the files, not after: while a ref still points at one, the file row cannot go —
+      // and this is also the mark that keeps the next scan from ingesting the same bytes into a new
+      // document, the volume being read-only (docs/03 §3.3.9).
+      await this.fileRefs.markExcluded(fileIds, tx);
+      // The document, and with it — by cascade — its journal, chunks, links and `document_files`.
+      await this.documents.hardDelete(documentId, tx);
+      // Only once `document_files` is gone do these stop being referenced.
+      await this.files.hardDelete(fileIds, tx);
+    });
+
+    // Everything Legere owned in the bucket: the document's own artifacts, and the originals of its
+    // MANAGED files. A LIBRARY file has no object at all — its bytes are on the volume and stay
+    // there (docs/09 §9.2).
+    const keys = [
+      artifactKeys.canonicalPdf(documentId),
+      artifactKeys.preview(documentId),
+      artifactKeys.thumbnail(documentId),
+      ...held.filter((file) => file.origin === 'MANAGED').map(originalKeyOf),
+    ];
+    for (const key of keys) {
+      // The rows are already gone, so the caller is not told a delete failed when it did not: what
+      // is left behind is an orphaned object, and the sweep knows what to do with those.
+      try {
+        await this.storage.delete(key);
+      } catch {
+        continue;
+      }
+    }
+
     return { ok: true };
   }
 }

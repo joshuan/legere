@@ -36,6 +36,7 @@ import { LibraryReader } from '../../application/ports/library-reader';
 import { JobQueue } from '../../application/ports/job-queue';
 import { MimeDetector } from '../../application/ports/mime-detector';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
+import { CollectionRepository } from '../../domain/repositories/collection.repository';
 import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { PersonRepository } from '../../domain/repositories/person.repository';
@@ -113,9 +114,23 @@ function downloadSettings(config: AppConfig): DownloadSettings {
     },
     {
       provide: DeleteDocument,
-      useFactory: (documents: DocumentRepository, clock: Clock): DeleteDocument =>
-        new DeleteDocument(documents, clock),
-      inject: [DocumentRepository, Clock],
+      useFactory: (
+        documents: DocumentRepository,
+        files: FileRepository,
+        fileRefs: FileRefRepository,
+        collections: CollectionRepository,
+        storage: FileStorage,
+        unitOfWork: UnitOfWork,
+      ): DeleteDocument =>
+        new DeleteDocument(documents, files, fileRefs, collections, storage, unitOfWork),
+      inject: [
+        DocumentRepository,
+        FileRepository,
+        FileRefRepository,
+        CollectionRepository,
+        FileStorage,
+        UnitOfWork,
+      ],
     },
     {
       provide: AddDocumentFile,

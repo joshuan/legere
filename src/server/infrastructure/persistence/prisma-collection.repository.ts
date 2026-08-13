@@ -184,6 +184,10 @@ export class PrismaCollectionRepository implements CollectionRepository {
     });
   }
 
+  async removeItemEverywhere(documentId: string, tx?: TransactionHandle): Promise<void> {
+    await clientOf(this.prisma, tx).collectionItem.deleteMany({ where: { documentId } });
+  }
+
   async listActiveShares(collectionId: string, tx?: TransactionHandle): Promise<CollectionShare[]> {
     const rows = await clientOf(this.prisma, tx).collectionShare.findMany({
       where: { collectionId, revokedAt: null },

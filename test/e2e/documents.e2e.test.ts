@@ -1308,23 +1308,54 @@ describe('Documents (e2e)', () => {
   });
 
   describe('deletion', () => {
-    it('soft-deletes a document, after which it is gone from every route', async () => {
+    it('deletes a document for real, taking its files and leaving the volume alone', async () => {
       const open = await givenLibrary('ALL_USERS');
-      const documentId = await givenDocument({ libraryId: open });
+      const seeded = await seedDocument({ libraryId: open, files: [{}, {}] });
 
       const deleted = await api(app)
-        .delete(`/api/documents/${documentId}`)
+        .delete(`/api/documents/${seeded.id}`)
         .set('Cookie', adminCookie);
       expect(expectData(deleted, okResponseSchema)).toEqual({ ok: true });
 
-      const detail = await api(app).get(`/api/documents/${documentId}`).set('Cookie', adminCookie);
+      const detail = await api(app).get(`/api/documents/${seeded.id}`).set('Cookie', adminCookie);
       expect(detail.status).toBe(404);
       const page = expectData(await listAs(adminCookie), listDocumentsResponseSchema);
       expect(page.items).toEqual([]);
 
-      // ADR-015: the row is still there, just no longer part of the product.
-      const row = await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } });
-      expect(row.deletedAt).not.toBeNull();
+      // 🔒 The exception ADR-015 makes (docs/03 §3.3.10): the row is gone, not hidden, and its
+      // files go with it — a file has exactly one home and this one had this document.
+      expect(await testPrisma().document.findUnique({ where: { id: seeded.id } })).toBeNull();
+      expect(await testPrisma().file.count({ where: { id: { in: seeded.fileIds } } })).toBe(0);
+      expect(await testPrisma().documentFile.count({ where: { documentId: seeded.id } })).toBe(0);
+
+      // What could not go, because the volume is read-only: one ref per path, kept as the tombstone
+      // that stops the next scan ingesting the same bytes into a new document (docs/03 §3.3.9).
+      const refs = await testPrisma().fileRef.findMany({ where: { libraryId: open } });
+      expect(refs).toHaveLength(2);
+      expect(refs.map((ref) => ref.status)).toEqual(['EXCLUDED', 'EXCLUDED']);
+      expect(refs.map((ref) => ref.fileId)).toEqual([null, null]);
+      expect(refs.every((ref) => ref.contentHash !== null)).toBe(true);
+    });
+
+    it('takes the document off every collection it was on', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open });
+      const owner = await testPrisma().user.findFirstOrThrow({ where: { role: 'ADMIN' } });
+      const collection = await testPrisma().collection.create({
+        data: { ownerId: owner.id, name: `Deletable ${seq}` },
+      });
+      await testPrisma().collectionItem.create({
+        data: { collectionId: collection.id, documentId, addedById: owner.id },
+      });
+
+      const deleted = await api(app)
+        .delete(`/api/documents/${documentId}`)
+        .set('Cookie', adminCookie);
+
+      // 🔒 No foreign key does this (docs/04 §4.2), so if the delete did not, the delete itself
+      // would fail on the constraint — a document could not be deleted once anybody had filed it.
+      expect(deleted.status).toBe(200);
+      expect(await testPrisma().collectionItem.count({ where: { documentId } })).toBe(0);
     });
 
     it('refuses deletion to a non-admin', async () => {

@@ -46,6 +46,10 @@ enum FileRefStatus {
   DISCOVERED
   HASHED
   MISSING
+  // The document these bytes were part of was deleted by an admin (03 §3.3.9). The row stays as the
+  // tombstone that keeps the next scan from ingesting the file again; `file_id` is null, because the
+  // file it pointed at is gone.
+  EXCLUDED
 }
 
 enum FileOrigin {
@@ -445,9 +449,13 @@ model DocumentFile {
   migrations (§4.3).
 - BigInt columns (`size`, `sizeBytes`) are serialized to JSON as strings in DTOs (contract rule,
   [`07 §7.4`](./07-api-specification.md#74-dto-serialization)).
-- `onDelete: Cascade` is used **only** on `DocumentChunk` (chunks are derived data, wholesale
-  replaced). Everything else has no DB-level cascades — deletion is soft and handled in application
-  code.
+- `onDelete: Cascade` is used on what belongs to a document and cannot outlive it: `DocumentChunk`,
+  `DocumentEvent`, `DocumentPerson`, `DocumentSubject` and `DocumentFile`. Deleting a document for
+  real (`03 §3.3.10`) is then one `DELETE` and not five, and — more to the point — no future
+  statement can leave a chunk or a journal entry behind pointing at a row that is gone.
+  **`CollectionItem` deliberately has none:** a collection is somebody else's list, and a document is
+  taken off it by application code that knows it is doing so, not by a foreign key. Everything else
+  has no DB-level cascades, because everything else is deleted softly and in application code.
 - pg-boss creates and owns its objects in a separate `pgboss` schema at first start; Prisma does not
   manage them. The admin queue view reads them through the `QueueMonitor` port (raw SQL), never via
   Prisma models.

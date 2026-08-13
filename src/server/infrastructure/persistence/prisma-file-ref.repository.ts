@@ -152,6 +152,17 @@ export class PrismaFileRefRepository implements FileRefRepository {
     return result.count;
   }
 
+  async markExcluded(fileIds: readonly string[], tx?: TransactionHandle): Promise<void> {
+    if (fileIds.length === 0) return;
+    await clientOf(this.prisma, tx).fileRef.updateMany({
+      where: { fileId: { in: [...fileIds] } },
+      // `contentHash`, `size` and `mtime` stay: the exclusion is about these bytes at this path, and
+      // the scan compares all three before it decides the path is spoken for (docs/03 §3.3.9).
+      // `fileId` cannot stay — the file row is deleted a statement later.
+      data: { status: 'EXCLUDED', fileId: null },
+    });
+  }
+
   // Folders are derived, not stored (docs/11 §11.4): the distinct next path segment of every ref
   // below `folder`, counted by the documents underneath. A ref points at a file and the file at a
   // document (docs/03 §3.3.16), so the count travels through `document_files`. Raw SQL because the

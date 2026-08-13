@@ -43,6 +43,18 @@ describe('needsRehash (docs/05 §5.2)', () => {
     expect(needsRehash(ref({ contentHash: null }), 100n, 1_700_000_000_000)).toBe(true);
     expect(needsRehash(ref({ fileId: null }), 100n, 1_700_000_000_000)).toBe(true);
   });
+
+  // 🔒 The regression the whole of §3.3.9 exists to prevent: an excluded ref points at no file, so
+  // every rule above would say "re-hash" — and re-hashing it is how a document an admin deleted
+  // would be back within fifteen minutes, its original still lying on a volume we may not write to.
+  it('leaves an excluded path alone while its bytes are unchanged', () => {
+    const excluded = ref({ status: 'EXCLUDED', fileId: null });
+
+    expect(needsRehash(excluded, 100n, 1_700_000_000_000)).toBe(false);
+    // Different bytes at that path are not what was deleted, so they are read like anything new.
+    expect(needsRehash(excluded, 101n, 1_700_000_000_000)).toBe(true);
+    expect(needsRehash(excluded, 100n, 1_700_000_060_000)).toBe(true);
+  });
 });
 
 describe('canTransition (docs/03 §3.3.9)', () => {
@@ -57,6 +69,18 @@ describe('canTransition (docs/03 §3.3.9)', () => {
 
   it('treats staying put as allowed', () => {
     expect(canTransition('HASHED', 'HASHED')).toBe(true);
+  });
+
+  it('lets a deletion exclude a ref whatever it was doing, and lets only new bytes undo it', () => {
+    expect(canTransition('HASHED', 'EXCLUDED')).toBe(true);
+    expect(canTransition('MISSING', 'EXCLUDED')).toBe(true);
+    expect(canTransition('DISCOVERED', 'EXCLUDED')).toBe(true);
+
+    expect(canTransition('EXCLUDED', 'DISCOVERED')).toBe(true);
+    // Never straight back to being a live file: the bytes have to be read again first, and being
+    // told the file is "missing" says something about a document that no longer exists.
+    expect(canTransition('EXCLUDED', 'HASHED')).toBe(false);
+    expect(canTransition('EXCLUDED', 'MISSING')).toBe(false);
   });
 });
 
