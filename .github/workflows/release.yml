@@ -4,8 +4,8 @@ on:
     branches: [main]
     tags: ['v*']
 
-# 🔒 SEC-21. Read-only by default; `packages: write` is granted to the two jobs that publish and
-# withheld from the one that only reads the published image back.
+# 🔒 SEC-21. Read-only by default; `packages: write` is granted to the two jobs that push the image,
+# `contents: write` to the one that publishes the GitHub Release, and the scan gets neither.
 permissions:
   contents: read
 
@@ -102,6 +102,25 @@ jobs:
             $(printf "${IMAGE}@sha256:%s " *)
       - name: Show what was published
         run: docker buildx imagetools inspect "${IMAGE}:${{ steps.meta.outputs.version }}"
+
+  # The release is the tag (docs/13 §13.3a): the same push carries the version commit and the tag,
+  # and the GitHub Release is published here, once the image the tag names exists — with generated
+  # notes, so no by-hand step ties the three together. Re-runs are harmless: an existing release is
+  # left as it is.
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: merge
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
 
   # 🔒 SEC-07/SEC-21. `npm audit` in CI covers what the lockfile declares; it says nothing about the
   # Alpine packages and the native libraries underneath — which is exactly where the libvips CVEs

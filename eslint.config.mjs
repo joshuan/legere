@@ -216,7 +216,13 @@ export default tseslint.config(
 
   // Node globals for backend, tooling and config files.
   {
-    files: ['server/**/*.{ts,mjs}', 'src/server/**/*.ts', 'prisma/**/*.ts', '*.{mjs,ts}'],
+    files: [
+      'server/**/*.{ts,mjs}',
+      'scripts/**/*.mjs',
+      'src/server/**/*.ts',
+      'prisma/**/*.ts',
+      '*.{mjs,ts}',
+    ],
     languageOptions: {
       globals: { ...globals.node },
     },

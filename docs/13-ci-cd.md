@@ -118,9 +118,10 @@ jobs:
 
 ## 13.3. `.github/workflows/release.yml`
 
-Triggered by a push to `main` (image tags `main`, `sha-…`) and by a `v*` tag. The tag is not created
-by CI: a maintainer publishes a GitHub Release, GitHub creates the tag, and that push starts the
-build — so the release notes are written by a person and the image follows from them.
+Triggered by a push to `main` (image tags `main`, `sha-…`) and by a `v*` tag. The tag is cut locally
+by `npm run release` (§13.3a) — one push carrying the version commit and the tag together — and CI
+answers it with the image and then the GitHub Release, in that order, so a release that exists always
+names an image that exists.
 
 The image is **multi-platform** (`linux/amd64`, `linux/arm64`): the quickstart of the root
 `README.md` is a `docker compose up`, and self-hosters run it on Apple Silicon and ARM servers as
@@ -133,9 +134,13 @@ emulated arm64 makes `prisma generate` fall back to its wasm engine, which rejec
 `env("DATABASE_URL")` in the schema (P1012). Native runners also build in roughly a third of the
 time.
 
-A third job, `scan`, reads the published tag back and fails on a fixed HIGH or CRITICAL finding. It
-runs *after* publication rather than over a locally built image so that what is reported is the
-artifact deployments pull, and it is the only job in the file that does not get `packages: write`.
+On a `v*` tag a `publish` job follows `merge` and creates the **GitHub Release** from the tag with
+`--generate-notes` — nobody writes or clicks anything. It waits for `merge` on purpose: a release
+page that exists is a promise that `ghcr.io/<owner>/legere:vX.Y.Z` can be pulled.
+
+A further job, `scan`, reads the published tag back and fails on a fixed HIGH or CRITICAL finding.
+It runs *after* publication rather than over a locally built image so that what is reported is the
+artifact deployments pull; it gets neither `packages: write` nor `contents: write`.
 
 ```yaml
 name: Release
@@ -194,6 +199,18 @@ jobs:
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf "${IMAGE}@sha256:%s " *)
 
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: merge
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+
   scan:
     needs: merge
     runs-on: ubuntu-latest
@@ -212,6 +229,48 @@ jobs:
 - `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is a **build-arg** (baked into the client bundle at `next build`);
   empty secret → CAPTCHA widget absent, server verification no-op — a working degradation.
 
+## 13.3a. Releasing
+
+A release is **one command** and no judgement calls:
+
+```bash
+npm run release            # a minor bump — the usual case in 0.x
+npm run release -- patch   # or: major
+```
+
+What the command does, in order (`scripts/release.mjs`):
+
+1. **Refuses anything but a clean, pushed `main`.** Not on `main`, a dirty tree, or a local `main`
+   that differs from `origin/main` — each is its own refusal, because what is released must be
+   exactly what CI looked at.
+2. **Gates on the CI that already ran.** It asks GitHub for the `CI` workflow runs on `HEAD`'s own
+   SHA: no run yet or still running → wait and rerun the command; red → the failing run's URL is the
+   answer. 🔒 **Nothing is re-run locally.** The suite was green on this very commit in CI; running
+   it again on the same bytes buys a slower copy of an answer that already exists. A release is cut
+   in the time it takes to bump a number, not in the time it takes to re-earn a green that is
+   already on the screen.
+3. **Writes the version commit and the tag as one move** — `npm version`, which bumps `package.json`
+   (+ lockfile), commits `chore(release): X.Y.Z` and lays the annotated tag `vX.Y.Z` on that very
+   commit — then pushes both in one `git push --follow-tags`.
+4. **CI does the rest** (§13.3): the tag starts `release.yml`, the multi-platform image is published
+   as `vX.Y.Z`/`latest`, and the `publish` job creates the GitHub Release from the tag with
+   `--generate-notes`. The person who ran the command is done at step 3; the release page appears
+   when the image it names can be pulled.
+
+Why this is atomic where the old way was not: the tag points at the version commit **by
+construction** (one `npm version` invocation), they travel in one push, and the Release is derived
+from the tag **by CI** — three artifacts, one source of truth, no step where a person picks a commit
+for a tag or a tag for a release. The release notes are GitHub's generated ones; the commit subjects
+are Conventional Commits and read well enough as a list, and a sentence worth adding can be edited
+onto the release page afterwards without holding the release for it.
+
+The version commit itself lands on `main` unreviewed by the gate (it did not exist when CI ran), and
+that is fine: it changes two version fields and nothing else, and CI still runs on it after the
+fact like on any push. While the repository is in its single-author mode (commits straight to
+`main`, CLAUDE.md), the direct push is the same one every other commit takes; under the branch
+protection of §13.4 the release script's push would need the maintainer exemption that protection
+setup defines.
+
 ## 13.4. Branch protection (required)
 
 - `main`: require PR, require `CI / build-and-test`, forbid force-push. Direct pushes — disabled for
@@ -222,6 +281,8 @@ jobs:
 
 - [ ] `ci.yml`: typecheck/lint/test/build against pgvector Postgres; no real external credentials.
 - [ ] `release.yml`: one image to GHCR with meaningful tags; public `NEXT_PUBLIC_*` via build-args.
+- [ ] Releases cut by `npm run release` only (§13.3a); the GitHub Release is published by CI from
+      the tag, never by hand.
 - [ ] Secrets only in GitHub Secrets; `deploy/` ships a compose file and a `.env.example` of
       placeholders, never a real secret ([`12 §12.7`](./12-build-config-run.md)).
 - [ ] Branch protection active before the first feature PR.

@@ -23,9 +23,14 @@ continues the same way — take the first unchecked task, tick it off in the sam
 | `npm run db:migrate` | apply migrations forward (also what the container does on start) |
 | `npm run db:migrate:dev` | author a new migration from a schema change |
 | `npm run db:seed` | idempotent dev seed: `admin@legere.local` / `password` |
+| `npm run release` | cut a release (`docs/13 §13.3a`); `-- patch` / `-- major` for other bumps |
 
 A single test file: `npx vitest run --project server <path>` (`--project web` for `src/web`). The
 MinIO- and Stirling-backed integration suites skip themselves when those containers are not up.
+
+A release is `npm run release` and nothing else: it gates on the CI run that already passed for the
+pushed `HEAD` — do **not** re-run the suite locally to "verify before releasing", and do not create
+tags or GitHub Releases by hand (CI publishes the Release from the tag with generated notes).
 
 ## Golden rules
 
