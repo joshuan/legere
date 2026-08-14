@@ -618,6 +618,13 @@ pre,
   .legere-viewer {
     flex: 1 1 auto;
     min-height: 0;
+    /* 🔒 Edge to edge, vertically: this one screen gives up the page's own 24px gutter above and
+       below, so the tabs sit against the top of the window and the document runs to the bottom of
+       it (docs/11 §11.5). Negative margins rather than a rule on the layout's content, because the
+       screen is what knows it wants the whole height and the shell must not learn which screen it
+       is drawing. The horizontal gutter stays: a document flush with the left edge of the window
+       would be a document without a margin, which is a different thing entirely. */
+    margin-block: -24px;
   }
 
   .legere-viewer-main {
@@ -651,9 +658,15 @@ pre,
     overflow-y: auto;
   }
 
+  /* The panel comes up with the tabs rather than keeping a gutter of its own: its first card lines
+     up with the tab labels — 12px is antd's own padding above them — instead of sitting 24px below
+     a row that starts at the top of the window. The foot of it keeps the page's gutter, so the last
+     card does not end flush against the bottom edge the way the document deliberately does. */
   .legere-viewer-side {
     min-height: 0;
     max-height: 100%;
+    padding-top: 12px;
+    padding-bottom: 24px;
     overflow-y: auto;
   }
 }

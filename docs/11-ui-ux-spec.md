@@ -367,13 +367,23 @@ rather than in height: a frame around the whole zone is a frame drawn around the
 exists to show, and it is charged a rule and a gutter on all four sides of every document. The panel
 beside it keeps its cards, because those are objects laid on a page and this is the page.
 
-**The height is taken, not merely wished for.** Where the two panes stand side by side, "the rest of
-the viewport" is literal: the open tab reaches the foot of the window, the canonical PDF fills it,
-and the page behind it does not scroll at all. What is longer than the window scrolls **inside its
+**The height is taken, not merely wished for, and it is taken edge to edge.** Where the two panes
+stand side by side, "the rest of the viewport" is literal to the pixel: 🔒 **this screen gives up the
+page's vertical gutter** — the tabs row sits against the **top edge** of the window and the canonical
+PDF runs to the **bottom edge** of it, with no 24px inset above or below. The gutter exists to keep
+content off the edges of the window, and a document that scrolls inside its own viewer is not
+content pressed against an edge: it is the only thing on the screen, and every row of pixels spent
+framing it is a row of the document nobody can read. The horizontal gutter stays, because a page
+flush with the left of the window is a page without a margin, which is a different thing entirely.
+The panel beside it comes up level with the tabs rather than keeping a lonely inset of its own, and
+keeps the gutter at its foot, since a card ending flush with the bottom edge reads as cut off where a
+document ending there reads as continuing.
+
+The page behind all this does not scroll at all. What is longer than the window scrolls **inside its
 own pane** — the text of a forty-page scan, the log, the list of files — and so does the panel
 beside it, so the tabs row and the panel both stay where they are while a document is read. Below
-that width the viewer is one column above another and scrolls as an ordinary page: a document pinned
-to the height of a phone would be a worse read, not a better one.
+that width the viewer is one column above another and scrolls as an ordinary page, gutter and all: a
+document pinned to the height of a phone would be a worse read, not a better one.
 - **Left (main): tabs** — `Preview` (**the canonical PDF** in an `<object>`, for every document
   whatever it is made of, because by the time it is readable it is a PDF (`05 §5.5`); while the step
   has not finished, the preview image if there is one and a "Being assembled…" panel if there is

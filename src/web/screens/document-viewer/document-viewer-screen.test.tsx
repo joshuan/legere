@@ -331,11 +331,20 @@ describe('DocumentViewerScreen', () => {
       // The chain the stylesheet hangs the viewport height from (docs/11 §11.5): the row, the column
       // the document is in, and the panel that scrolls beside it. jsdom computes no layout, so what
       // is asserted here is that every link of it is present and named.
+      const row = main.parentElement;
       expect(main).toHaveClass('legere-viewer-main');
-      expect(main.parentElement).toHaveClass('legere-viewer');
-      expect(main.parentElement?.querySelector('.legere-viewer-side')).not.toBeNull();
+      expect(row).toHaveClass('legere-viewer');
+      expect(row?.querySelector('.legere-viewer-side')).not.toBeNull();
       // And the tabs are that column's own child, with nothing in between to break the chain.
       expect(main.firstElementChild).toHaveClass('ant-tabs');
+
+      // 🔒 The vertical inset of this screen is the stylesheet's to give away — the row takes the
+      // top and bottom edges of the window with a negative margin, which an inline one would fight
+      // and win (docs/11 §11.5). The gutter antd writes inline is the horizontal one, and it stays.
+      if (!(row instanceof HTMLElement)) throw new Error('expected the row');
+      expect(row.style.marginTop).toBe('');
+      expect(row.style.marginBottom).toBe('');
+      expect(row.style.marginLeft).not.toBe('');
     });
 
     it('gives the canonical the height of its pane rather than a fixed slice of the window', async () => {
