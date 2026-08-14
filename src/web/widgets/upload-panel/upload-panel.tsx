@@ -143,6 +143,10 @@ export function UploadPanel() {
   );
 }
 
+// One row is this tall whatever its status hangs on the right — a Progress line, a Tag and a small
+// Button all measure differently, and a column whose rows breathe as files settle reads as jumping.
+const ROW_HEIGHT = 32;
+
 // One file, in the position it was added in and never moved from: the status changes in place, so a
 // glance down the column reads as the order the files were chosen in.
 function UploadRow({ item, onRetry }: { item: UploadQueueItem; onRetry: () => void }) {
@@ -155,7 +159,7 @@ function UploadRow({ item, onRetry }: { item: UploadQueueItem; onRetry: () => vo
       align="center"
       gap={token.marginXS}
       data-upload-key={item.key}
-      style={{ paddingBlock: token.paddingXXS, minHeight: 26 }}
+      style={{ height: ROW_HEIGHT }}
     >
       {/* Why it failed is on the status itself: the row stays a row, and the sentence is one hover
           or one focus away rather than squeezing the file name out of the column. */}
@@ -190,7 +194,17 @@ function UploadRow({ item, onRetry }: { item: UploadQueueItem; onRetry: () => vo
             size="small"
             style={{ width: 56, marginBottom: 0, lineHeight: 1 }}
           />
-          <Typography.Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
+          {/* Wide enough for "100%" from the start: a number that widens as it counts shoves the
+              bar beside it back and forth. */}
+          <Typography.Text
+            type="secondary"
+            style={{
+              fontSize: token.fontSizeSM,
+              width: 38,
+              textAlign: 'right',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
             {t('documents.upload.panel.percent', { percent })}
           </Typography.Text>
         </Flex>
@@ -199,7 +213,7 @@ function UploadRow({ item, onRetry }: { item: UploadQueueItem; onRetry: () => vo
       {/* The bytes were already here, and this says where they are rather than that something went
           wrong (ADR-009). */}
       {item.status === 'duplicate' && item.resultDocumentId !== undefined && (
-        <Link href={`/documents/${item.resultDocumentId}`}>
+        <Link href={`/documents/${item.resultDocumentId}`} style={{ display: 'inline-flex' }}>
           <Tag style={{ marginInlineEnd: 0, cursor: 'pointer' }}>
             {t('documents.upload.panel.duplicate')}
           </Tag>

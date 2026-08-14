@@ -194,7 +194,9 @@ going up, and go up one at a time in the order they were added.
 
 **One row per file, and the rows never move.** They are listed in the order they were added and stay
 there whatever happens to them; what changes is the state of the row, in place, so somebody who found
-their file in a list of forty goes on looking at the same line:
+their file in a list of forty goes on looking at the same line. Every row is **one and the same
+height in every state** — the bar, the badge and the retry button all measure differently, and a
+column whose rows breathe as files settle reads as jumping:
 
 - **queued** — a clock, the name and the size. Nothing has been sent yet, and the row says so rather
   than showing a bar sitting at zero.

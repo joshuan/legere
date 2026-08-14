@@ -184,6 +184,26 @@ describe('UploadPanel', () => {
     expect(retry).toHaveBeenCalledWith('Bad.pdf');
   });
 
+  // The right-hand side of a row measures differently per status; the row itself must not
+  // (docs/11 §11.3a) — a column whose rows breathe as files settle reads as jumping.
+  it('keeps every row the same height whatever its status', () => {
+    setQueue([
+      row('Done.pdf', 'done', { resultDocumentId: DOCUMENT_ID }),
+      row('Sending.pdf', 'uploading', { loadedBytes: 50 }),
+      row('Waiting.pdf', 'waiting'),
+      row('Twice.pdf', 'duplicate', { resultDocumentId: DOCUMENT_ID }),
+      row('Bad.pdf', 'failed', { error: 'no' }),
+    ]);
+    renderWithProviders(<UploadPanel />);
+
+    const heights = Array.from(document.querySelectorAll('[data-upload-key]')).map((element) =>
+      element instanceof HTMLElement ? element.style.height : '',
+    );
+    expect(heights).toHaveLength(5);
+    expect(new Set(heights).size).toBe(1);
+    expect(heights[0]).not.toBe('');
+  });
+
   it('tells the reader why a file failed', async () => {
     setQueue([row('Bad.pdf', 'failed', { error: 'The connection went away.' })]);
     renderWithProviders(<UploadPanel />);
