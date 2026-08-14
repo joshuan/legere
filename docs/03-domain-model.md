@@ -311,6 +311,9 @@ on, and calling that `SKIPPED` would say the document did not need it — but `p
 *a* failed step: a document may show three of them and point at one, which is the one worth reading.
 A dependency that was `SKIPPED` rather than broken is inherited the same way, reason and all, so the
 reader is told the format could not be rendered rather than that the embeddings found nothing.
+Which is also why the pair outlives a run that never touched the step it names: a reprocess clears
+them only where it may re-run that step (`07 §7.3`), because a run that leaves a failure standing and
+takes away the record of it leaves the document pointing at nothing.
 
 **Skip reasons.** `SKIPPED` on its own reads like something went wrong, and three of the five steps
 skip for reasons an operator can act on. Each skipped step records why, from a closed set:

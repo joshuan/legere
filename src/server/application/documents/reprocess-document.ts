@@ -3,6 +3,7 @@ import {
   type DocumentStep,
   type ReprocessResponse,
 } from '../../../shared/contracts/documents';
+import { clearsRecordedFailure } from '../../domain/entities/document';
 import { NotFoundError } from '../../domain/errors/domain-error';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { DocumentRepository } from '../../domain/repositories/document.repository';
@@ -35,8 +36,12 @@ export class ReprocessDocument {
     // rather than when a worker picks the job up.
     await this.documents.updateProcessing(documentId, {
       steps: Object.fromEntries(requested.map((step) => [step, 'QUEUED'])),
-      processingError: null,
-      failedStep: null,
+      // 🔒 The recorded reason goes only where this run may replace it. Asking for the analysis of a
+      // document whose extraction failed must not empty the one field that says why there is nothing
+      // to analyse (docs/07 §7.3, 03 §3.3.10) — and the handler applies the same rule when it runs.
+      ...(clearsRecordedFailure(document.failedStep, new Set(requested))
+        ? { processingError: null, failedStep: null }
+        : {}),
     });
 
     // Keyed by the document: whatever asked for the run — this route or a repair over five hundred

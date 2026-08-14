@@ -5,7 +5,11 @@ import {
   documentStepSchema,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
-import type { Document, DocumentSteps } from '../../domain/entities/document';
+import {
+  clearsRecordedFailure,
+  type Document,
+  type DocumentSteps,
+} from '../../domain/entities/document';
 import { chunkMarkdown } from '../../domain/entities/document-chunks';
 import { detectLanguages, ocrLanguagesOf } from '../../domain/entities/document-language';
 import {
@@ -123,7 +127,9 @@ export class HandleDocumentProcess extends JobHandler {
     // Soft-deleted or gone between enqueue and delivery: nothing to process, and nothing to fail.
     if (document === null || document.deletedAt !== null) return;
 
-    // A re-run starts from a clean slate: an error from a previous attempt must not outlive it.
+    // A re-run starts from a clean slate — of the steps it was asked to run. An error from a
+    // previous attempt must not outlive the attempt that replaces it, and must outlive one that
+    // never touched the step it belongs to (docs/07 §7.3).
     await this.write(documentId, {
       // QUEUED rather than PENDING: the job doing the clearing is the job that will do the work, so
       // nothing here is unscheduled (docs/03 §3.3.10).
@@ -145,8 +151,12 @@ export class HandleDocumentProcess extends JobHandler {
         },
         requested,
       ),
-      processingError: null,
-      failedStep: null,
+      // 🔒 Kept where this run cannot re-run the step that owns them: a reprocess of the analysis
+      // alone would otherwise erase the extraction failure that is the whole reason the analysis has
+      // nothing to read, and `failedStep` would stop being *the* failed step (docs/03 §3.3.10).
+      ...(clearsRecordedFailure(document.failedStep, requested)
+        ? { processingError: null, failedStep: null }
+        : {}),
     });
 
     const canonical = requested.has('canonical')

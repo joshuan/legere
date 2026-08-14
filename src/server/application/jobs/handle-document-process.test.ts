@@ -1521,7 +1521,10 @@ describe('HandleDocumentProcess', () => {
     it('fails an analysis asked for on its own over an extraction that failed', async () => {
       await givenDocument(
         [{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }],
-        afterExtraction('FAILED'),
+        afterExtraction('FAILED', {
+          processingError: 'Docling toMarkdown failed with 500',
+          failedStep: 'markdown',
+        }),
       );
 
       await handler.handle({ documentId: DOCUMENT_ID, steps: ['analysis'] });
@@ -1529,6 +1532,10 @@ describe('HandleDocumentProcess', () => {
       const document = stateOf();
       expect(document.steps.analysis).toBe('FAILED');
       expect(analyst.calls).toEqual([]);
+      // 🔒 This run cannot re-run step 3, so what step 3 recorded outlives it: the field that says
+      // why there is nothing to analyse is not the analysis's to empty (docs/07 §7.3).
+      expect(document.failedStep).toBe('markdown');
+      expect(document.processingError).toBe('Docling toMarkdown failed with 500');
       // Not asked for, so not touched (docs/07 §7.3).
       expect(document.steps.vectorization).toBe('DONE');
     });
@@ -1639,6 +1646,42 @@ describe('HandleDocumentProcess', () => {
       // Never asked for, never written.
       expect(document.steps.markdown).toBe('PENDING');
       expect(analyst.calls).toEqual([]);
+    });
+
+    it('clears the recorded failure when it re-runs the step that owns it', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      parser.configured = true;
+      parser.failing = true;
+      await run();
+      expect(stateOf().failedStep).toBe('markdown');
+
+      parser.failing = false;
+      parser.markdown = TEXT_LAYER;
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['markdown'] });
+
+      // The attempt that replaces a failure takes its record with it — which is the whole of what
+      // the clean slate was ever for (docs/07 §7.3).
+      const document = stateOf();
+      expect(document.steps.markdown).toBe('DONE');
+      expect(document.failedStep).toBeNull();
+      expect(document.processingError).toBeNull();
+    });
+
+    it('records the failure of a step it was asked for, over the one it had to keep', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      parser.configured = true;
+      parser.failing = true;
+      await run();
+      pdfs.failOn('pdfPageJpg');
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['preview'] });
+
+      // Keeping an error a run may not clear is not the same as refusing to record a new one: the
+      // step this run did ask for owns the field now (docs/03 §3.3.10).
+      const document = stateOf();
+      expect(document.steps.preview).toBe('FAILED');
+      expect(document.failedStep).toBe('preview');
+      expect(document.processingError).toContain('pdfPageJpg failed');
     });
 
     it('rejects a step name the pipeline does not have', async () => {

@@ -1,4 +1,9 @@
-import type { AutoValues, Availability } from '../../../shared/contracts/documents';
+import {
+  DOCUMENT_STEPS,
+  type AutoValues,
+  type Availability,
+  type DocumentStep,
+} from '../../../shared/contracts/documents';
 import type {
   PageFormat,
   ValueSource,
@@ -90,6 +95,22 @@ export function isProcessing(steps: DocumentSteps): boolean {
   return Object.values(steps).some(
     (status) => status === 'PENDING' || status === 'QUEUED' || status === 'RUNNING',
   );
+}
+
+// 🔒 Whether a run asked for `requested` may wipe `processingError` and `failedStep` (docs/07 §7.3):
+// only where it may actually re-run the step those belong to. `failedStep` is *the* failed step
+// (§3.3.10) — a reprocess of the analysis alone must not erase the extraction failure that is still
+// the reason the analysis has nothing to read, and an error nobody re-ran the step for is not an
+// error from a previous attempt, it is the current state of the document.
+// A pointer at a step this pipeline does not have is cleared by any run, because no run could ever
+// re-run it and it would otherwise outlive every attempt to get rid of it.
+export function clearsRecordedFailure(
+  failedStep: string | null,
+  requested: ReadonlySet<DocumentStep>,
+): boolean {
+  if (failedStep === null) return true;
+  const owner = DOCUMENT_STEPS.find((step) => step === failedStep);
+  return owner === undefined || requested.has(owner);
 }
 
 // Every step starts PENDING; the pipeline moves them to DONE/FAILED/SKIPPED (docs/05 §5.5).
