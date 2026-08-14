@@ -202,7 +202,9 @@ describe('UploadPanel', () => {
     expect(within(live).getByText('Uploading 1 of 2')).toBeInTheDocument();
   });
 
-  describe('taking itself off the page', () => {
+  // The panel is the receipt for what was sent (docs/11 §11.3a): nothing takes it off the page
+  // but ✕ — even a run that went through without a word stays to be read.
+  describe('staying on the page', () => {
     beforeEach(() => {
       vi.useFakeTimers();
     });
@@ -210,48 +212,12 @@ describe('UploadPanel', () => {
       vi.useRealTimers();
     });
 
-    it('clears a run that went through without a word', () => {
+    it('keeps a finished clean run until it is closed', () => {
       setQueue([row('One.pdf', 'done'), row('Two.pdf', 'done')]);
       renderWithProviders(<UploadPanel />);
 
-      expect(clearAll).not.toHaveBeenCalled();
       act(() => {
-        vi.advanceTimersByTime(5000);
-      });
-
-      expect(clearAll).toHaveBeenCalledTimes(1);
-    });
-
-    it('stays while a failure is still on it', () => {
-      setQueue([row('One.pdf', 'done'), row('Bad.pdf', 'failed', { error: 'no' })]);
-      renderWithProviders(<UploadPanel />);
-
-      act(() => {
-        vi.advanceTimersByTime(5000);
-      });
-
-      expect(clearAll).not.toHaveBeenCalled();
-    });
-
-    // A duplicate names another document; taking that away after five seconds loses the only way
-    // anybody had to get to it.
-    it('stays while a duplicate has something to say', () => {
-      setQueue([row('Twice.pdf', 'duplicate', { resultDocumentId: DOCUMENT_ID })]);
-      renderWithProviders(<UploadPanel />);
-
-      act(() => {
-        vi.advanceTimersByTime(5000);
-      });
-
-      expect(clearAll).not.toHaveBeenCalled();
-    });
-
-    it('does not clear a run that is still going', () => {
-      setQueue([row('One.pdf', 'done'), row('Two.pdf', 'uploading')]);
-      renderWithProviders(<UploadPanel />);
-
-      act(() => {
-        vi.advanceTimersByTime(5000);
+        vi.advanceTimersByTime(60_000);
       });
 
       expect(clearAll).not.toHaveBeenCalled();

@@ -20,10 +20,6 @@ import {
   type UploadStatus,
 } from '../../features/upload-queue';
 
-// How long a clean run stays on the page after the last file lands. Long enough to read the last
-// line of it, short enough that nobody has to dismiss it (docs/11 §11.3).
-const AUTO_HIDE_MS = 5000;
-
 // What the instance is uploading, as a column of the page (docs/11 §11.3). Not an overlay: the rows
 // are the feedback for every file, they outlive the screen they were started from, and a stack of
 // toasts over a grid says forty times what one list says once. Present only while there is something
@@ -39,7 +35,6 @@ export function UploadPanel() {
   const total = items.length;
   const settled = items.filter(isSettled).length;
   const failed = items.filter((item) => item.status === 'failed').length;
-  const duplicates = items.filter((item) => item.status === 'duplicate').length;
   // Weighted by bytes, not by files: a run of one 200 MB scan and nine small ones is not 10% done
   // when the first small one lands.
   const totalBytes = items.reduce((sum, item) => sum + item.size, 0);
@@ -49,8 +44,6 @@ export function UploadPanel() {
   );
   const percent = totalBytes === 0 ? 0 : Math.round((sentBytes * 100) / totalBytes);
   const finished = total > 0 && settled === total;
-  // Nothing left to look at: everything arrived, and no row is asking a question.
-  const quiet = failed === 0 && duplicates === 0;
 
   // The file being sent stays in view while the list grows past the panel.
   useEffect(() => {
@@ -63,15 +56,8 @@ export function UploadPanel() {
     }
   }, [activeKey]);
 
-  // A run that went through without a word takes itself off. Anything a person might want to act on
-  // — a failure, a duplicate that names another document — stays until it is closed. The timer is
-  // laid again from scratch whenever the queue changes, so files arriving meanwhile push it back.
-  useEffect(() => {
-    if (!finished || !quiet) return undefined;
-    const timer = setTimeout(clearAll, AUTO_HIDE_MS);
-    return () => clearTimeout(timer);
-  }, [clearAll, finished, quiet, total]);
-
+  // A finished run stays where it is: the panel is the receipt for what was sent, and a receipt
+  // that takes itself away cannot be read (docs/11 §11.3a). ✕ is how it goes.
   if (total === 0) return null;
 
   const closeButton = (

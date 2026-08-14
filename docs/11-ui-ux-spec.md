@@ -226,11 +226,11 @@ failed — counts its whole size; the one in flight counts what has actually gon
 something to say or should not be there, and the second is what closing it means: it goes away
 entirely rather than shrinking into a badge somebody has to remember to open again.
 
-**When everything has settled** the header says "40 uploaded" and the panel takes itself away after
-about five seconds, giving the width back to the content. Only if there is nothing to read, though —
-a queue holding a failure or a duplicate **stays up**, with **Retry failed** in the header beside the
-count, until it is closed: a panel that removed itself over the two rows worth looking at would be
-taking away the reason it was still on screen.
+**When everything has settled** the header says "40 uploaded" and the panel **stays where it is**:
+it is the receipt for the run — which files arrived, which were already there, which did not make it
+— and a receipt that takes itself away cannot be read. Closing it is the person's move, never the
+panel's. A queue holding a failure additionally carries **Retry failed** in the header beside the
+count.
 
 **Closing it while files are in flight is a cancellation, and it asks first** (§11.14). Confirming
 aborts the upload in flight, drops every row still waiting and empties the queue — the panel is the
