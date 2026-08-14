@@ -99,7 +99,7 @@ SIGNED_URL_TTL_SEC=300
 STIRLING_URL=http://localhost:8080
 
 # --- Docling (layout-aware parsing; empty URL = fall back to Stirling's converter) ---
-DOCLING_URL=
+DOCLING_URL=http://localhost:5001            # where `npm run dev:up` serves it; empty here left every dev on the fallback
 DOCLING_PICTURE_DESCRIPTION=false            # captions for pictures; read the note below before turning it on
 
 # --- processing ---
