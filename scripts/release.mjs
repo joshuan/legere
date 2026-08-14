@@ -7,7 +7,9 @@ import { execFileSync } from 'node:child_process';
 const BUMPS = ['patch', 'minor', 'major'];
 
 function run(command, args, options = {}) {
-  return execFileSync(command, args, { encoding: 'utf8', ...options }).trim();
+  const output = execFileSync(command, args, { encoding: 'utf8', ...options });
+  // With `stdio: 'inherit'` there is nothing captured to return.
+  return typeof output === 'string' ? output.trim() : '';
 }
 
 function fail(message) {
