@@ -149,20 +149,99 @@ Onboarding when already onboarded → 404 page.
   a link, a selection — is ignored entirely rather than promising an upload that cannot happen; and
   the browser's own default for a file dropped on a page, which is to navigate away to it and lose
   what the person was looking at, is taken away wherever it would fire.
-- **Upload** (header action, and the page-wide drop zone above) is **a queue on the page, not a modal
-  over it**. The moment files are chosen they are cards in the grid — ahead of everything, since a
-  file chosen a second ago is both the newest thing here and the thing being waited on — each marked
-  `Waiting` and then `Uploading…`. They are sent to `POST /api/documents` **one at a time, in the
-  order they were chosen**, however many there are: forty parallel uploads saturate the connection,
-  arrive interleaved and make the processing queue jump about, while one at a time is barely slower
-  and far easier to watch. Each placeholder is replaced by the real card as its document lands — the
-  list is refreshed *before* the placeholder goes, so the card is replaced rather than blinking out
-  and back in. Choosing more files **appends to the same queue** instead of starting a second one.
-  A failure keeps its own card, wearing the reason — too large (`UPLOAD_MAX_BYTES`), or
-  `DOCUMENT_DUPLICATE`, "this file is already on this instance", which is what deduplication means
-  from the outside — and the queue carries on: one rejected file must not take the other thirty-nine
-  with it. That card is dismissed by hand, because an error nobody saw is an error that did not
-  happen.
+- **Upload** (header action, and the page-wide drop zone above) hands the chosen files to **the upload
+  panel** (§11.3a) and changes nothing else on this screen except its width — the grid narrows to the
+  column the panel leaves it and reflows into fewer cards per row. They are sent to
+  `POST /api/documents` **one at a time, in the order they were chosen**, however many there are:
+  forty parallel uploads saturate the connection, arrive interleaved and make the processing queue
+  jump about, while one at a time is barely slower and far easier to watch. Choosing more files
+  **appends to the same queue** instead of starting a second one, and a file that fails takes none of
+  the others with it.
+  **Nothing stands in the grid for a file that is not a document yet.** The grid used to open with a
+  grey placeholder card per queued file, ahead of everything; those are gone, and the grid holds real
+  documents only. A document appears here the moment its upload lands — the list is refetched and the
+  card falls where the order in force puts it, which is where it will still be after a reload — with a
+  **brief highlight on the new card**, so the eye can carry from the row in the panel to the thing
+  that just arrived. Grouped, it turns up under the heading it belongs to: a placeholder had no group
+  to stand in, so a grouped grid used to show nothing whatever while forty files went up.
+
+## 11.3a. The upload panel
+
+**Where an upload is watched is not where it was started.** A column down the right-hand side of the
+application, drawn by the application layout rather than by a screen
+([`10 §10.5a`](./10-frontend-architecture.md)), so it outlives the navigation: starting forty files on
+the documents screen and then opening one of them no longer abandons the other thirty-nine, which is
+what a queue living in the grid could not help doing. It appears with the first file queued and goes
+when the queue is empty; there is never more than one of it.
+
+**It is part of the page, not something floating over it.** About a third of the viewport wide, and
+the content beside it **narrows and reflows** to make room — the grid drops to fewer columns and gives
+nothing up, rather than having a corner of itself covered by a panel that hides whatever happens to be
+under it. Below `lg` there is no room for two columns, so it becomes a **full-width block above the
+screen's content**, with a bounded height of its own; the order is the same as the layout's — what is
+happening now, then what is being worked on.
+
+🔒 **Its scroll is its own.** Sticky under the application header, down to the bottom of the viewport,
+scrolling inside itself: a queue of forty rows must not lengthen the page it sits beside, or reading
+the grid would mean scrolling past the uploads and watching the uploads would mean losing the grid.
+
+**One queue, and every way in feeds it.** Files dropped or chosen on the documents screen are
+addressed to the library (`POST /api/documents`); files added on a document's Files tab are addressed
+to that document (`POST /api/documents/:id/files`, §11.5a). Both queue behind whatever is already
+going up, and go up one at a time in the order they were added.
+
+**One row per file, and the rows never move.** They are listed in the order they were added and stay
+there whatever happens to them; what changes is the state of the row, in place, so somebody who found
+their file in a list of forty goes on looking at the same line:
+
+- **queued** — a clock, the name and the size. Nothing has been sent yet, and the row says so rather
+  than showing a bar sitting at zero.
+- **uploading** — the bytes that have actually left the browser, as a bar and a percentage of *that*
+  file. Real progress rather than an animation waiting for an answer
+  ([`10 §10.5a`](./10-frontend-architecture.md)).
+- **uploaded** — a check in the success green; the document is in the grid beside the panel.
+- **duplicate** — these bytes are already on this instance, and the server resolved the upload to the
+  document that holds them (`200` rather than `201`, [`05 §5.1a`](./05-library-and-processing.md#51a-uploads)).
+  That is not a failure and is not drawn as one: a quiet badge, and **a link to that document**,
+  because "you already have this" is only useful beside which one. The other half of deduplication —
+  bytes belonging to a document the uploader may not read (`409 DOCUMENT_DUPLICATE`) — has nothing to
+  link to and stays a failure wearing its reason.
+- **failed** — an error icon, the reason in a tooltip (too large, `UPLOAD_MAX_BYTES`, and the rest),
+  and a **retry** on the row itself. The reasons are sentences and the row is narrow, which is why the
+  message is on hover rather than in the line; retry sends that one file again and the row stays where
+  it is, since the list is the order things were added and not the order they were tried.
+
+**The row being sent is kept in view**: a queue of forty is taller than the panel, and the one line
+that is moving is the one worth seeing.
+
+**The header counts files and measures bytes.** "Uploading 3 of 40" over a thin bar, and the bar is
+**weighted by size rather than by file count** — the browser knows what each file weighs before it
+sends a byte of it, so a queue of one 90 MB scan and thirty-nine small ones does not report itself
+nearly done while the only slow thing in it has not begun. A settled file — uploaded, duplicate or
+failed — counts its whole size; the one in flight counts what has actually gone.
+
+**There is no folded state and no pill.** A panel that takes a third of the screen either has
+something to say or should not be there, and the second is what closing it means: it goes away
+entirely rather than shrinking into a badge somebody has to remember to open again.
+
+**When everything has settled** the header says "40 uploaded" and the panel takes itself away after
+about five seconds, giving the width back to the content. Only if there is nothing to read, though —
+a queue holding a failure or a duplicate **stays up**, with **Retry failed** in the header beside the
+count, until it is closed: a panel that removed itself over the two rows worth looking at would be
+taking away the reason it was still on screen.
+
+**Closing it while files are in flight is a cancellation, and it asks first** (§11.14). Confirming
+aborts the upload in flight, drops every row still waiting and empties the queue — the panel is the
+queue's only window, so a ✕ that hid it while forty files carried on going up would be a control that
+lies about what it did. What has already landed has landed; nothing uploaded is undone by it. With
+everything settled there is nothing to cancel and the ✕ simply clears the list and hides the panel.
+
+**The panel's responsibility ends at delivery.** It says whether the bytes arrived and nothing about
+what happens to them next: the canonical, the preview, the text, the analysis and the vectors belong
+to the pipeline, and they are already reported where they belong — the `processing` tag on the card
+(§11.3) and the step panel in the viewer (§11.5). A panel that followed forty documents through five
+steps each would be a second queue screen down the side of every page, and it would still be there an
+hour later.
 
 ## 11.4. Browse (`/browse/…`)
 
@@ -395,13 +474,20 @@ Per row: **Download** (this original alone), **Replace**, **Crop** for an image 
 **Move up / Move down**, and **Split off** — which says plainly what it does, "this file becomes its
 own document", because "remove" would promise a deletion that never happens (`05 §5.6`). Splitting
 off the only file is not offered at all rather than refused after the fact. Above the list: **Add
-files**, the same upload queue as the grid (§11.3) pointed at this document, appending in the order
-chosen.
+files** — the same global queue and the same panel (§11.3a), addressed to this document rather than to
+the library, appending in the order chosen.
+
+**The list holds real files only.** A row appears when its file has landed and the list is refetched,
+never before: a file on its way is watched in the upload panel, where every other upload is watched,
+so nothing in the composition of a document is a row that might yet turn out not to exist. Leaving the
+tab does not abandon what is going up, either — the queue is the application's, not the screen's.
 
 **Replace** opens the file picker and sends what is chosen in place of that row — the new scan takes
 the same position, so the page order does not move. It is one gesture because it is one intention: a
 page re-photographed is still that page, and doing it as split-upload-reorder is three operations to
-say so. The row shows the upload as it goes, like any other.
+say so. This one shows itself **on the row it replaces**, not in the upload panel: a replacement is not
+a file joining the document but the same page arriving again, and it already has a line of its own to
+be busy on.
 
 **Under a replaced row: the copies it has had.** "Earlier versions (2)", collapsed, each with its
 name, size, when it was replaced and a **Download** — the old scan is still readable, which is the

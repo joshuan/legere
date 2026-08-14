@@ -10,7 +10,7 @@ Next owns `src/app` (routing only, thin files); all UI code lives in `src/web` b
 ```
 src/web/
 ├── screens/      # top-level screen compositions, one slice per route (FSD "pages", renamed)
-├── widgets/      # self-contained UI blocks (document-grid, viewer-panel, queue-dashboard, app-sidebar)
+├── widgets/      # self-contained UI blocks (document-grid, viewer-panel, queue-dashboard, app-sidebar, upload-panel)
 ├── features/     # user actions (login-form, invite-wizard, crop-editor, document-upload, share-collection)
 ├── entities/     # domain UI + api hooks (document, library, collection, document type, user)
 └── shared/       # ui-kit wrappers, api client, i18n utils, config, lib (format, hooks)
@@ -109,6 +109,30 @@ a redirect to `/login` (see §10.5).
   preview image, the canonical PDF) are keyed by the step that produces them: a `<img>` asked for
   before the file existed is a broken image the browser will never retry on its own
   unconditionally.
+
+## 10.5a. Client state: the upload queue
+
+Almost nothing here is client state — the archive lives on the server and TanStack Query holds it. The
+exception is the queue behind the upload panel ([`11 §11.3a`](./11-ui-ux-spec.md#113a-the-upload-panel)):
+a store owned by the `(app)` **layout** rather than by a screen, so what is in flight survives the
+person navigating away from where they started it. It keeps the files in the order they were added,
+what each was addressed to (the library, or one document), and how many of its bytes have gone. The
+panel the store feeds is a **column of that layout**, not an overlay: while it is up, the screen's
+content is laid out beside it and narrows accordingly, which is a layout decision and therefore the
+layout's to make.
+
+**The transport for an upload is `XMLHttpRequest`**, and it is the one place in the client that is not
+the `fetch` wrapper of §10.5. The reason is narrow: `xhr.upload.onprogress` is how a browser says how
+much of a request body has actually left, and `fetch` says nothing until the response arrives — a bar
+driven by it would be an animation. It is also what cancelling is made of: closing the panel with files
+in flight aborts the request (`11 §11.3a`) and drops the rest of the queue. Everything else is
+unchanged: the same routes, the same envelope, the same typed `ApiError`, the same Zod validation of
+the answer; only the way the body reaches the wire differs.
+
+Each file settles on its own, and settling is an invalidation rather than a splice: a completed upload
+invalidates the documents list — and `['document', id]` when it was addressed to a document — so the
+new card, or the new row in the Files tab, arrives through the query that would have fetched it
+anyway.
 
 ## 10.6. Forms
 

@@ -92,52 +92,95 @@ export async function request<T>(
   return parsed.data;
 }
 
+// How much of the file has left the browser so far, as the transport counts it off (docs/11 §11.3).
+export type UploadProgress = (loadedBytes: number, totalBytes: number) => void;
+
+// A body that failed to parse is not an error in itself — an empty one, or a proxy's HTML — so it is
+// treated the same way `response.json()` is above: as nothing at all.
+function parseBody(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 // The one request that is not JSON: the file itself is the body, and its name rides in a header
 // because a body cannot carry both (docs/07 §7.3).
-export async function uploadFile<T>(
+//
+// XMLHttpRequest rather than fetch, for the one thing fetch cannot do: say how many bytes of the
+// body have actually gone up, which is what a hundred-megabyte scan needs a progress bar for
+// (docs/11 §11.3). Everything else — the envelope, the error model — is what `request` does.
+export function uploadFile<T>(
   path: string,
   file: File,
-  options: { schema: ZodType<T>; signal?: AbortSignal },
+  options: { schema: ZodType<T>; signal?: AbortSignal; onProgress?: UploadProgress },
 ): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(path, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': file.type === '' ? 'application/octet-stream' : file.type,
-        // Percent-encoded: headers are Latin-1, and file names are not.
-        'X-Legere-Filename': encodeURIComponent(file.name),
-      },
-      body: file,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
-    });
-  } catch {
-    throw new ApiError('NETWORK', 0);
-  }
-
-  const payload: unknown = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    const parsed = errorBodySchema.safeParse(payload);
-    if (parsed.success) {
-      if (parsed.data.error.code === 'UNAUTHENTICATED') redirectToLogin();
-      throw new ApiError(
-        parsed.data.error.code,
-        response.status,
-        parsed.data.error.details ?? null,
-      );
+  return new Promise<T>((resolve, reject) => {
+    const { onProgress, signal } = options;
+    if (signal !== undefined && signal.aborted) {
+      reject(new ApiError('NETWORK', 0));
+      return;
     }
-    throw new ApiError('INTERNAL', response.status);
-  }
 
-  if (typeof payload !== 'object' || payload === null || !('data' in payload)) {
-    throw new ApiError('INTERNAL', response.status);
-  }
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', path);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader('Content-Type', file.type === '' ? 'application/octet-stream' : file.type);
+    // Percent-encoded: headers are Latin-1, and file names are not.
+    xhr.setRequestHeader('X-Legere-Filename', encodeURIComponent(file.name));
 
-  const parsed = options.schema.safeParse(payload.data);
-  if (!parsed.success) throw new ApiError('INTERNAL', response.status);
-  return parsed.data;
+    if (onProgress !== undefined) {
+      xhr.upload.onprogress = (event) => {
+        // A chunked or compressed body has no total to be a fraction of; silence beats a wrong bar.
+        if (event.lengthComputable) onProgress(event.loaded, event.total);
+      };
+    }
+
+    // A transport that never produced a response — offline, refused, aborted — is the one failure
+    // that carries no status.
+    const failed = () => reject(new ApiError('NETWORK', 0));
+    xhr.onerror = failed;
+    xhr.onabort = failed;
+    xhr.ontimeout = failed;
+
+    xhr.onload = () => {
+      const status = xhr.status;
+      const payload: unknown = parseBody(xhr.responseText);
+
+      if (status < 200 || status >= 300) {
+        const error = errorBodySchema.safeParse(payload);
+        if (error.success) {
+          if (error.data.error.code === 'UNAUTHENTICATED') redirectToLogin();
+          reject(new ApiError(error.data.error.code, status, error.data.error.details ?? null));
+          return;
+        }
+        reject(new ApiError('INTERNAL', status));
+        return;
+      }
+
+      if (typeof payload !== 'object' || payload === null || !('data' in payload)) {
+        reject(new ApiError('INTERNAL', status));
+        return;
+      }
+
+      const parsed = options.schema.safeParse(payload.data);
+      if (!parsed.success) {
+        reject(new ApiError('INTERNAL', status));
+        return;
+      }
+      resolve(parsed.data);
+    };
+
+    if (signal !== undefined) {
+      const abort = () => xhr.abort();
+      signal.addEventListener('abort', abort, { once: true });
+      // Whatever ended the request, the signal outlives it and must not keep the handler.
+      xhr.onloadend = () => signal.removeEventListener('abort', abort);
+    }
+
+    xhr.send(file);
+  });
 }
 
 export const apiClient = {

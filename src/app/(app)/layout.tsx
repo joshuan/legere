@@ -1,7 +1,9 @@
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { UploadQueueProvider } from '../../web/features/upload-queue';
 import { AppShell } from '../../web/widgets/app-shell';
+import { UploadPanelLayout } from '../../web/widgets/upload-panel';
 import { PATHNAME_HEADER } from '../../middleware';
 import { APP_VERSION } from '../_server/app-version';
 import { currentUser } from '../_server/current-user';
@@ -18,9 +20,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     const returnTo = (await headers()).get(PATHNAME_HEADER) ?? '/documents';
     redirect(`/login?returnTo=${encodeURIComponent(returnTo)}`);
   }
+  // The upload queue is the whole authenticated area's, not one screen's (docs/11 §11.3): a file
+  // being sent survives walking to another page, and the panel beside the screen is where it is
+  // watched. Inside the client providers of the root layout, so it has the query cache to refresh.
   return (
     <AppShell user={user} version={APP_VERSION}>
-      {children}
+      <UploadQueueProvider>
+        <UploadPanelLayout>{children}</UploadPanelLayout>
+      </UploadQueueProvider>
     </AppShell>
   );
 }

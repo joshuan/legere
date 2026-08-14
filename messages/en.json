@@ -707,13 +707,23 @@
     "upload": {
       "action": "Upload",
       "hint": "Drop files here to add them to your documents",
-      "done": "{name} uploaded",
-      "duplicate": "{name} was already here — opened the existing document",
-      "waiting": "Waiting",
-      "uploading": "Uploading…",
-      "failed": "Upload failed",
-      "dismiss": "Dismiss",
-      "added": "{name} added to this document"
+      "panel": {
+        "label": "Uploads",
+        "progress": "Uploading {done} of {total}",
+        "finished": "{count, plural, one {# file uploaded} other {# files uploaded}}",
+        "queued": "Queued",
+        "uploading": "Uploading",
+        "uploaded": "Uploaded",
+        "failed": "Failed",
+        "duplicate": "Already in library",
+        "percent": "{percent}%",
+        "retry": "Retry this file",
+        "retryFailed": "Retry failed",
+        "close": "Close uploads",
+        "closeConfirm": "Uploads in progress will be cancelled.",
+        "closeConfirmOk": "Cancel uploads",
+        "closeConfirmCancel": "Keep uploading"
+      }
     },
     "suggestions": {
       "title": "These look like one document.",

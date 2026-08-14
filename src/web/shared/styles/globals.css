@@ -114,6 +114,31 @@ pre,
   animation-delay: calc(var(--legere-index, 0) * 40ms);
 }
 
+/* The card a queued file has just become (docs/11 §11.3): a ring in the primary colour that fades
+   out where it stands, so the eye can carry from the row in the upload panel to the thing that
+   arrived. Once and then never again — it is an announcement, not a state the card is in. The ring
+   is drawn on the card rather than on the grid cell it sits in, because the cell is a column with
+   the gutter's padding and a shadow on it would hang in the space between cards. */
+@keyframes legere-landed {
+  from {
+    box-shadow: 0 0 0 2px var(--ant-color-primary, #1677ff);
+  }
+
+  60% {
+    box-shadow: 0 0 0 2px var(--ant-color-primary, #1677ff);
+  }
+
+  to {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+/* No fill mode on purpose: once it has run, the card is an ordinary card again and its own hover
+   shadow is back, however long the row stays in the panel. */
+.legere-just-uploaded .ant-card {
+  animation: legere-landed 2400ms ease-out;
+}
+
 /* Label · · · · · · value (docs/11 §11.15). The leader is an empty element aligned to the baseline,
    so its bottom border lands exactly on the text baseline the way a printed contents page does. */
 .legere-definitions {
@@ -489,4 +514,49 @@ pre,
 .legere-sider-trigger:focus-visible {
   opacity: 1;
   background-color: rgb(0 0 0 / 4%);
+}
+
+/* The screen and the upload panel as two columns of one page (docs/11 §11.3). Which way they sit is
+   the one thing an inline style cannot say, so the row is here: wide enough for two columns the
+   panel is the right-hand third, narrower than that it goes above the screen and is capped, because
+   on a narrow window the documents are the page and the panel is a report about them. */
+.legere-upload-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Without this a long file name in the panel — or a wide table on the screen — refuses to shrink
+   and pushes the other column off the page. */
+.legere-upload-content {
+  min-width: 0;
+}
+
+.legere-upload-panel {
+  order: -1;
+  max-height: 40vh;
+}
+
+@media (min-width: 992px) {
+  .legere-upload-layout {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .legere-upload-content {
+    flex: 1 1 auto;
+  }
+
+  /* Its own scroll, reaching the foot of the window. The app header is in the flow and scrolls
+     away, and 24px is the content's own padding — so the panel takes the top of the window at
+     exactly the moment the header leaves it, rather than hanging below a gap where it used to be. */
+  .legere-upload-panel {
+    order: 0;
+    flex: 0 1 33%;
+    min-width: 300px;
+    position: sticky;
+    top: 24px;
+    align-self: flex-start;
+    max-height: calc(100vh - 48px);
+  }
 }

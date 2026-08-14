@@ -52,6 +52,14 @@ function documentAt(index: number, overrides: Partial<DocumentListDto> = {}): Do
   };
 }
 
+// The one the Upload button hides: choosing files is what the screen does, and where they go from
+// there is the queue's business (docs/11 §11.3a).
+function fileInput(): HTMLInputElement {
+  const input = document.querySelector('input[type="file"]');
+  if (!(input instanceof HTMLInputElement)) throw new Error('no file input rendered');
+  return input;
+}
+
 const server = createApiMock();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
@@ -523,113 +531,150 @@ describe('DocumentsScreen', () => {
     },
   );
 
-  it('uploads a chosen file and refreshes the grid with it', async () => {
-    let uploadedName: string | null = null;
-    server.use(
-      http.post('/api/documents', async ({ request }) => {
-        uploadedName = decodeURIComponent(request.headers.get('x-legere-filename') ?? '');
-        // The body is the file itself, not multipart (docs/07 §7.3).
-        expect(await request.arrayBuffer()).toHaveProperty('byteLength', 5);
-        return HttpResponse.json(
-          envelope({ document: { ...documentAt(9), title: 'Contract' }, created: true }),
-        );
-      }),
-    );
+  // What the screen does with a chosen file is hand it over: the queue and the panel beside the grid
+  // are where it is sent and watched (docs/11 §11.3, §11.3a).
+  describe('uploading', () => {
+    it('sends a chosen file and stands nothing in the grid for it', async () => {
+      let uploadedName: string | null = null;
+      server.use(
+        http.post('/api/documents', ({ request }) => {
+          uploadedName = decodeURIComponent(request.headers.get('x-legere-filename') ?? '');
+          return HttpResponse.json(
+            envelope({ document: { ...documentAt(9), title: 'Contract' }, created: true }),
+          );
+        }),
+      );
 
-    renderWithProviders(<DocumentsScreen isAdmin={false} />);
-    await screen.findByText('Document 1');
+      renderWithProviders(<DocumentsScreen isAdmin={false} />);
+      await screen.findByText('Document 1');
 
-    const input = document.querySelector('input[type="file"]');
-    if (!(input instanceof HTMLInputElement)) throw new Error('no file input rendered');
-    await userEvent.upload(input, new File(['hello'], 'Contract.pdf', { type: 'application/pdf' }));
+      await userEvent.upload(
+        fileInput(),
+        new File(['hello'], 'Contract.pdf', { type: 'application/pdf' }),
+      );
 
-    await waitFor(() => expect(uploadedName).toBe('Contract.pdf'));
-  });
+      await waitFor(() => expect(uploadedName).toBe('Contract.pdf'));
+      // 🔒 The grid used to open with a grey placeholder card per queued file; it holds real
+      // documents only now, whatever is going up (docs/11 §11.3).
+      expect(screen.queryByText('Contract.pdf')).toBeNull();
+    });
 
-  it('reports a rejected file by name and keeps the screen usable', async () => {
-    server.use(
-      http.post('/api/documents', () =>
-        HttpResponse.json(
-          { error: { code: 'DOCUMENT_DUPLICATE', message: 'duplicate', details: null } },
-          { status: 409 },
+    it('hands over every file that was chosen, in the order they were chosen', async () => {
+      const sent: string[] = [];
+      server.use(
+        http.post('/api/documents', ({ request }) => {
+          sent.push(decodeURIComponent(request.headers.get('x-legere-filename') ?? ''));
+          return HttpResponse.json(envelope({ document: documentAt(9), created: true }));
+        }),
+      );
+
+      renderWithProviders(<DocumentsScreen isAdmin={false} />);
+      await screen.findByText('Document 1');
+
+      await userEvent.upload(fileInput(), [
+        new File(['a'], 'First.pdf', { type: 'application/pdf' }),
+        new File(['b'], 'Second.pdf', { type: 'application/pdf' }),
+        new File(['c'], 'Third.pdf', { type: 'application/pdf' }),
+      ]);
+
+      await waitFor(() => expect(sent).toEqual(['First.pdf', 'Second.pdf', 'Third.pdf']));
+      for (const name of ['First.pdf', 'Second.pdf', 'Third.pdf']) {
+        expect(screen.queryByText(name)).toBeNull();
+      }
+    });
+
+    it('leaves the grid alone when a file is refused', async () => {
+      let refused = false;
+      server.use(
+        http.post('/api/documents', () => {
+          refused = true;
+          return HttpResponse.json(
+            { error: { code: 'DOCUMENT_DUPLICATE', message: 'duplicate', details: null } },
+            { status: 409 },
+          );
+        }),
+      );
+
+      renderWithProviders(<DocumentsScreen isAdmin={false} />);
+      await screen.findByText('Document 1');
+
+      await userEvent.upload(
+        fileInput(),
+        new File(['x'], 'Twice.pdf', { type: 'application/pdf' }),
+      );
+
+      // The reason and the retry belong to the row in the panel (docs/11 §11.3a); the grid says
+      // nothing at all about a file that never became a document.
+      await waitFor(() => expect(refused).toBe(true));
+      expect(screen.queryByText(/Twice\.pdf/)).toBeNull();
+      expect(screen.getByText('Document 1')).toBeInTheDocument();
+    });
+
+    it('highlights the card an upload has just become, and only that one', async () => {
+      let landed = false;
+      server.use(
+        http.get('/api/documents', () =>
+          HttpResponse.json(
+            envelope({
+              items: landed ? [documentAt(9), documentAt(1)] : [documentAt(1)],
+              nextCursor: null,
+            }),
+          ),
         ),
-      ),
-    );
+        http.post('/api/documents', () => {
+          landed = true;
+          return HttpResponse.json(envelope({ document: documentAt(9), created: true }));
+        }),
+      );
 
-    renderWithProviders(<DocumentsScreen isAdmin={false} />);
-    await screen.findByText('Document 1');
+      renderWithProviders(<DocumentsScreen isAdmin={false} />);
+      await screen.findByText('Document 1');
 
-    const input = document.querySelector('input[type="file"]');
-    if (!(input instanceof HTMLInputElement)) throw new Error('no file input rendered');
-    await userEvent.upload(input, new File(['x'], 'Twice.pdf', { type: 'application/pdf' }));
+      await userEvent.upload(
+        fileInput(),
+        new File(['x'], 'Ninth.pdf', { type: 'application/pdf' }),
+      );
 
-    // The name matters: a batch of ten uploads must say which one was refused.
-    await waitFor(() => expect(screen.getByText(/Twice\.pdf/)).toBeInTheDocument());
-  });
+      // The eye carries from the row in the panel to the thing that arrived (docs/11 §11.3)…
+      await waitFor(() =>
+        expect(screen.getByText('Document 9').closest('.legere-just-uploaded')).not.toBeNull(),
+      );
+      // …and to that card alone: the rest of the grid did not move.
+      expect(screen.getByText('Document 1').closest('.legere-just-uploaded')).toBeNull();
+    });
 
-  it('queues the chosen files as cards and sends them one at a time', async () => {
-    const sent: string[] = [];
-    let inFlight = 0;
-    server.use(
-      http.post('/api/documents', async ({ request }) => {
-        inFlight += 1;
-        // 🔒 One at a time: forty parallel uploads saturate the connection and arrive interleaved
-        // (docs/11 §11.3).
-        expect(inFlight).toBe(1);
-        sent.push(decodeURIComponent(request.headers.get('x-legere-filename') ?? ''));
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        inFlight -= 1;
-        return HttpResponse.json(envelope({ document: documentAt(9), created: true }));
-      }),
-    );
+    it('does not say "no documents" while the first upload is still going', async () => {
+      let release: () => void = () => {};
+      server.use(
+        http.get('/api/documents', () =>
+          HttpResponse.json(envelope({ items: [], nextCursor: null })),
+        ),
+        http.post('/api/documents', async () => {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return HttpResponse.json(envelope({ document: documentAt(9), created: true }));
+        }),
+      );
 
-    renderWithProviders(<DocumentsScreen isAdmin={false} />);
-    await screen.findByText('Document 1');
+      renderWithProviders(<DocumentsScreen isAdmin={false} />);
+      expect(await screen.findByText(enMessages.documents.empty.instance)).toBeInTheDocument();
 
-    const input = document.querySelector('input[type="file"]');
-    if (!(input instanceof HTMLInputElement)) throw new Error('no file input rendered');
-    await userEvent.upload(input, [
-      new File(['a'], 'First.pdf', { type: 'application/pdf' }),
-      new File(['b'], 'Second.pdf', { type: 'application/pdf' }),
-      new File(['c'], 'Third.pdf', { type: 'application/pdf' }),
-    ]);
+      await userEvent.upload(
+        fileInput(),
+        new File(['x'], 'First.pdf', { type: 'application/pdf' }),
+      );
 
-    // On the screen before a byte is sent, in the order they were chosen.
-    expect(screen.getByText('Third.pdf')).toBeInTheDocument();
+      // An empty archive that answered "no documents" in the middle of its first upload would be
+      // telling the person the opposite of what is happening (docs/11 §11.3).
+      await waitFor(() =>
+        expect(screen.queryByText(enMessages.documents.empty.instance)).toBeNull(),
+      );
 
-    await waitFor(() => expect(sent).toEqual(['First.pdf', 'Second.pdf', 'Third.pdf']));
-    // Each placeholder goes as its document arrives.
-    await waitFor(() => expect(screen.queryByText('Third.pdf')).toBeNull());
-  });
-
-  it('leaves a failed file on the screen and carries on with the rest', async () => {
-    server.use(
-      http.post('/api/documents', ({ request }) => {
-        const name = decodeURIComponent(request.headers.get('x-legere-filename') ?? '');
-        return name === 'Bad.pdf'
-          ? HttpResponse.json(
-              { error: { code: 'DOCUMENT_DUPLICATE', message: 'duplicate', details: null } },
-              { status: 409 },
-            )
-          : HttpResponse.json(envelope({ document: documentAt(9), created: true }));
-      }),
-    );
-
-    renderWithProviders(<DocumentsScreen isAdmin={false} />);
-    await screen.findByText('Document 1');
-
-    const input = document.querySelector('input[type="file"]');
-    if (!(input instanceof HTMLInputElement)) throw new Error('no file input rendered');
-    await userEvent.upload(input, [
-      new File(['a'], 'Bad.pdf', { type: 'application/pdf' }),
-      new File(['b'], 'Good.pdf', { type: 'application/pdf' }),
-    ]);
-
-    // The failure keeps its own card, with what went wrong on it…
-    expect(await screen.findByText(enMessages.documents.upload.failed)).toBeInTheDocument();
-    expect(screen.getByText('Bad.pdf')).toBeInTheDocument();
-    // …and the queue carried on regardless.
-    await waitFor(() => expect(screen.queryByText('Good.pdf')).toBeNull());
+      release();
+      // And it comes back once nothing is on its way any more.
+      expect(await screen.findByText(enMessages.documents.empty.instance)).toBeInTheDocument();
+    });
   });
 
   describe('combining documents from the grid (docs/11 §11.3)', () => {

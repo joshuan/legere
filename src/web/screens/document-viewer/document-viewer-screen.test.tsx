@@ -24,6 +24,7 @@ const CATEGORY_ID = 'bbbbbbbb-2222-4222-8222-222222222222';
 const LIBRARY_ID = 'cccccccc-3333-4333-8333-333333333333';
 const FIRST_FILE = 'ffffffff-1111-4111-8111-111111111111';
 const SECOND_FILE = 'ffffffff-2222-4222-8222-222222222222';
+const THIRD_FILE = 'ffffffff-5555-4555-8555-555555555555';
 const PERSON_ID = 'dddddddd-1111-4111-8111-111111111111';
 const SUBJECT_ID = 'dddddddd-2222-4222-8222-222222222222';
 const KIND_ID = 'dddddddd-3333-4333-8333-333333333333';
@@ -1143,21 +1144,52 @@ describe('DocumentViewerScreen', () => {
       expect(screen.queryByRole('button', { name: enMessages.viewer.files.splitOff })).toBeNull();
     });
 
-    it('appends a chosen file to this document rather than making a new one', async () => {
+    it('appends a chosen file to this document, and lists it only once it has landed', async () => {
       let appended: string | null = null;
-      server.use(
-        http.post(`/api/documents/${ID}/files`, ({ request }) => {
-          appended = decodeURIComponent(request.headers.get('x-legere-filename') ?? '');
-          return HttpResponse.json(envelope(twoFiles), { status: 201 });
-        }),
-      );
+      let release: () => void = () => {};
       await openFiles();
 
+      const threeFiles: DocumentDetailDto = {
+        ...twoFiles,
+        fileCount: 3,
+        files: [
+          ...twoFiles.files,
+          fileOf(THIRD_FILE, {
+            position: 2,
+            name: 'page-3.jpg',
+            ext: 'jpg',
+            mimeType: 'image/jpeg',
+            isImage: true,
+          }),
+        ],
+      };
+      // Registered after the tab was opened, so it answers ahead of the one `openFiles` put up.
+      server.use(
+        http.get(`/api/documents/${ID}`, () =>
+          HttpResponse.json(envelope(appended === null ? twoFiles : threeFiles)),
+        ),
+        http.post(`/api/documents/${ID}/files`, async ({ request }) => {
+          appended = decodeURIComponent(request.headers.get('x-legere-filename') ?? '');
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return HttpResponse.json(envelope(threeFiles), { status: 201 });
+        }),
+      );
+
+      // The Add-files picker, which is the one above the list rather than a row's own Replace.
       const input = document.querySelector('input[type="file"]');
       if (!(input instanceof HTMLInputElement)) throw new Error('no file input rendered');
       await userEvent.upload(input, new File(['x'], 'page-3.jpg', { type: 'image/jpeg' }));
 
       await waitFor(() => expect(appended).toBe('page-3.jpg'));
+      // 🔒 The list holds real files only: a file on its way is watched in the upload panel, so
+      // nothing in the composition is a row that might yet turn out not to exist (docs/11 §11.5a).
+      expect(screen.queryByText('page-3.jpg')).toBeNull();
+
+      release();
+      // And the row appears as the file lands and the document is re-fetched under it.
+      expect(await screen.findByText('page-3.jpg')).toBeInTheDocument();
     });
 
     // A file's location is answered for every file, not only for the ones lying on a volume: `refs`

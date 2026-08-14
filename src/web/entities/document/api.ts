@@ -30,7 +30,7 @@ import {
   type SplitDocumentFileResponse,
 } from '../../../shared/contracts/files';
 import { okResponseSchema, type OkResponse } from '../../../shared/contracts/users';
-import { apiClient, uploadFile } from '../../shared/api';
+import { apiClient, uploadFile, type UploadProgress } from '../../shared/api';
 
 // Filters as the grid holds them: everything optional, everything mirrored in the URL (docs/11 §11.3).
 // The contract's own set, so one added there arrives here rather than being kept in step by hand.
@@ -46,8 +46,18 @@ export type DocumentListOptions = { sort?: DocumentSort | undefined; cursor?: st
 // Document endpoints (docs/07 §7.3).
 export const documentApi = {
   // The bytes go straight up; the response is the row the grid can show at once (docs/05 §5.1a).
-  upload: (file: File): Promise<UploadDocumentResponse> =>
-    uploadFile('/api/documents', file, { schema: uploadDocumentResponseSchema }),
+  // A caller that draws a progress bar passes `onProgress`; one that does not is not charged for it.
+  // `signal` is what a queue that can be emptied mid-flight needs: the request stops with it.
+  upload: (
+    file: File,
+    onProgress?: UploadProgress,
+    signal?: AbortSignal,
+  ): Promise<UploadDocumentResponse> =>
+    uploadFile('/api/documents', file, {
+      schema: uploadDocumentResponseSchema,
+      ...(onProgress === undefined ? {} : { onProgress }),
+      ...(signal === undefined ? {} : { signal }),
+    }),
 
   list: (
     filters: DocumentFilters,
@@ -100,17 +110,32 @@ export const documentApi = {
   // Composing a document out of files (docs/07 §7.3 "Document files"). Every one of these answers
   // with the whole document, because a composition change is never local — the canonical, the
   // preview, the text and the analysis are all rebuilt behind it (docs/05 §5.6).
-  addFile: (id: string, file: File): Promise<DocumentDetailDto> =>
-    uploadFile(`/api/documents/${id}/files`, file, { schema: documentDetailDtoSchema }),
+  addFile: (
+    id: string,
+    file: File,
+    onProgress?: UploadProgress,
+    signal?: AbortSignal,
+  ): Promise<DocumentDetailDto> =>
+    uploadFile(`/api/documents/${id}/files`, file, {
+      schema: documentDetailDtoSchema,
+      ...(onProgress === undefined ? {} : { onProgress }),
+      ...(signal === undefined ? {} : { signal }),
+    }),
 
   // The same bytes on the same terms, sent in place of a file rather than after it: the new scan
   // takes the named file's position, so the page order does not move (docs/05 §5.6). One request
   // because it is one intention — split, upload, reorder is three of them to say that a page was
   // re-photographed. What it displaces is not destroyed: it goes to the trash and stays listed under
   // its successor as an earlier version (docs/05 §5.7a).
-  replaceFile: (id: string, fileId: string, file: File): Promise<DocumentDetailDto> =>
+  replaceFile: (
+    id: string,
+    fileId: string,
+    file: File,
+    onProgress?: UploadProgress,
+  ): Promise<DocumentDetailDto> =>
     uploadFile(`/api/documents/${id}/files/${fileId}/replacement`, file, {
       schema: documentDetailDtoSchema,
+      ...(onProgress === undefined ? {} : { onProgress }),
     }),
 
   reorderFiles: (id: string, body: ReorderDocumentFilesRequest): Promise<DocumentDetailDto> =>

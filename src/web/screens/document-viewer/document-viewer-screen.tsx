@@ -64,7 +64,8 @@ import { personApi, personKeys } from '../../entities/person';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { CropEditor } from '../../features/crop-editor';
-import { UploadButton, UploadingRow, useDocumentUpload } from '../../features/document-upload';
+import { UploadButton } from '../../features/document-upload';
+import { useUploadQueue } from '../../features/upload-queue';
 import { useErrorMessage, formatBytes } from '../../shared/lib';
 import { isViewerTab, type ViewerTab } from './viewer-tab';
 
@@ -1477,9 +1478,9 @@ function FilesPane({ document }: { document: DocumentDetailDto }) {
   const describeError = useErrorMessage();
   const { message } = App.useApp();
   const { token } = theme.useToken();
-  // The same queue as the grid, pointed at this document: files land here in the order chosen
-  // (docs/11 §11.3, §11.5a).
-  const upload = useDocumentUpload(document.id);
+  // The application's one queue, pointed at this document: files land here in the order chosen, and
+  // they are watched in the upload panel like every other upload (docs/11 §11.3a, §11.5a).
+  const { send } = useUploadQueue();
   const [cropping, setCropping] = useState<DocumentFileDto | null>(null);
   // Which row is having its bytes replaced. The upload happens in place of a file rather than at the
   // end of the list, so the row it lands on is the only honest place to show it going (docs/11
@@ -1552,19 +1553,15 @@ function FilesPane({ document }: { document: DocumentDetailDto }) {
           <Typography.Text type="secondary">{t('viewer.files.rebuildNote')}</Typography.Text>
         </Col>
         <Col>
-          <UploadButton onFiles={upload.send} label={t('viewer.files.add')} />
+          <UploadButton
+            onFiles={(file) => send([file], { documentId: document.id })}
+            label={t('viewer.files.add')}
+          />
         </Col>
       </Row>
 
-      {/* On screen before a byte is sent, above the files it is about to join. */}
-      {upload.items.map((queued) => (
-        <UploadingRow
-          key={queued.key}
-          upload={queued}
-          onDismiss={() => upload.dismiss(queued.key)}
-        />
-      ))}
-
+      {/* Real files only: a row appears when its file has landed and the list is refetched, never
+          before — what is on its way is watched in the panel (docs/11 §11.5a). */}
       <List
         dataSource={document.files}
         rowKey="id"

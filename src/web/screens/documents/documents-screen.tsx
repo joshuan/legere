@@ -37,12 +37,8 @@ import {
   parseDocumentCardFields,
   type DocumentCardField,
 } from '../../widgets/document-card';
-import {
-  UploadButton,
-  UploadDropZone,
-  UploadingCard,
-  useDocumentUpload,
-} from '../../features/document-upload';
+import { UploadButton, UploadDropZone } from '../../features/document-upload';
+import { isSettled, useUploadQueue } from '../../features/upload-queue';
 import { useErrorMessage } from '../../shared/lib';
 
 // While anything on screen is still being processed the list refreshes, so a document stops saying
@@ -119,7 +115,17 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
   // Multi-select exists for one reason: making one document out of several (docs/11 §11.3). It stays
   // off until asked for, so an ordinary click still opens a document.
   const [selecting, setSelecting] = useState(false);
-  const upload = useDocumentUpload();
+  // The application's one queue, not this screen's (docs/11 §11.3a): what is chosen here is handed
+  // over and watched in the panel beside the grid, which outlives walking to another page.
+  const { items: queued, send } = useUploadQueue();
+  const sendToLibrary = useCallback((file: File) => send([file]), [send]);
+  // Nothing stands in the grid for a file that is not a document yet — but an empty archive must not
+  // answer "no documents" while its first upload is still going up (docs/11 §11.3). Only the files
+  // addressed to the library count: one added to a document changes nothing about this shelf.
+  const filling = queued.some((item) => item.targetDocumentId === undefined && !isSettled(item));
+  // Where the rows of the panel ended: a card that has just landed is highlighted once, so the eye
+  // can carry from the row to the thing that arrived (docs/11 §11.3).
+  const justUploaded = useJustUploaded();
   // Selection order is page order — the order they were ticked in is the order their files end up
   // in, so this is a list rather than a set (docs/11 §11.3).
   const [selected, setSelected] = useState<string[]>([]);
@@ -161,7 +167,7 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
     // Everything on the screen is inside the drop zone, the empty state included: a file is dropped
     // where the eye happens to be, and "not over the grid" is not a reason to refuse it
     // (docs/11 §11.3).
-    <UploadDropZone onFiles={upload.send}>
+    <UploadDropZone onFiles={sendToLibrary}>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Row align="middle" justify="space-between" gutter={[16, 16]}>
           <Col>
@@ -172,7 +178,7 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
           <Col>
             {/* Anyone may add a document of their own; the library is the admin's business
                 (docs/11 §11.3). */}
-            <UploadButton onFiles={upload.send} />
+            <UploadButton onFiles={sendToLibrary} />
           </Col>
         </Row>
 
@@ -271,7 +277,7 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
           />
         ) : documents.isPending ? (
           <Spin />
-        ) : items.length === 0 && upload.items.length === 0 ? (
+        ) : items.length === 0 && !filling ? (
           <Empty
             description={
               Object.keys(filters).length > 0
@@ -288,14 +294,9 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
           </Empty>
         ) : (
           <>
+            {/* Real documents and nothing else: a file on its way is not one yet, and it is watched
+                in the panel rather than stood in the grid (docs/11 §11.3). */}
             <Row gutter={[16, 16]}>
-              {/* Ahead of everything: a file chosen a second ago is the newest thing here, and it is
-                  also the thing the person is waiting on (docs/11 §11.3). */}
-              {upload.items.map((queued) => (
-                <Col key={queued.key} xs={12} sm={8} md={6} lg={4} xl={4} xxl={4}>
-                  <UploadingCard upload={queued} onDismiss={() => upload.dismiss(queued.key)} />
-                </Col>
-              ))}
               {items.map((document, index) => (
                 <Col
                   key={document.id}
@@ -305,10 +306,7 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
                   lg={4}
                   xl={4}
                   xxl={4}
-                  // The one orchestrated moment of the screen (docs/11 §11.15): the grid deals
-                  // itself out 40 ms at a time. Only the first screenful is staggered — a card
-                  // arriving on page seven should appear, not perform.
-                  className={index < STAGGER_LIMIT ? 'legere-enter' : undefined}
+                  className={cardClassName(index, justUploaded.has(document.id))}
                   style={staggerStyle(index)}
                 >
                   <DocumentCard
@@ -525,6 +523,7 @@ function DocumentGroupSection({
   selection?: SectionSelection;
 }) {
   const t = useTranslations();
+  const justUploaded = useJustUploaded();
   // A named group is the ordinary list filtered by its key; the group that has no key is the
   // ordinary list asked for what this dimension cannot place.
   const scope: DocumentFilters =
@@ -554,7 +553,16 @@ function DocumentGroupSection({
       ) : (
         <Row gutter={[16, 16]}>
           {items.map((document) => (
-            <Col key={document.id} xs={12} sm={8} md={6} lg={4} xl={4} xxl={4}>
+            <Col
+              key={document.id}
+              xs={12}
+              sm={8}
+              md={6}
+              lg={4}
+              xl={4}
+              xxl={4}
+              className={justUploaded.has(document.id) ? 'legere-just-uploaded' : undefined}
+            >
               <DocumentCard
                 document={document}
                 fields={fields}
@@ -692,6 +700,36 @@ function folderOf(suggestion: GroupingSuggestion): string {
   return suggestion.folder === ''
     ? suggestion.libraryName
     : `${suggestion.libraryName}/${suggestion.folder}`;
+}
+
+// The documents that queued files have just become — one set, wherever the grid draws its cards, so
+// the flat grid and every grouped section highlight the same arrivals (docs/11 §11.3).
+function useJustUploaded(): ReadonlySet<string> {
+  const { items } = useUploadQueue();
+  return useMemo(
+    () =>
+      new Set(
+        items.flatMap((item) =>
+          item.status === 'done' && item.resultDocumentId !== undefined
+            ? [item.resultDocumentId]
+            : [],
+        ),
+      ),
+    [items],
+  );
+}
+
+// What a card in the grid is wearing, which is at most two things and often neither. The entrance is
+// the one orchestrated moment of the screen (docs/11 §11.15) — the grid deals itself out 40 ms at a
+// time, and only the first screenful takes part, because a card arriving on page seven should appear
+// rather than perform. The highlight is the other one: it belongs to the card a queued file has just
+// become, and runs once (docs/11 §11.3).
+function cardClassName(index: number, landed: boolean): string | undefined {
+  const names = [
+    ...(index < STAGGER_LIMIT ? ['legere-enter'] : []),
+    ...(landed ? ['legere-just-uploaded'] : []),
+  ];
+  return names.length === 0 ? undefined : names.join(' ');
 }
 
 // `--legere-index` drives the animation delay in CSS. React types style as CSSProperties, which has
