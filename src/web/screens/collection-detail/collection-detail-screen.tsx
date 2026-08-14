@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Col, Empty, Popconfirm, Row, Space, Spin, Typography } from 'antd';
+import { App, Button, Empty, Popconfirm, Space, Spin, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { collectionApi, collectionKeys } from '../../entities/collection';
@@ -88,9 +88,9 @@ export function CollectionDetailScreen({
       {items.items.length === 0 ? (
         <Empty description={t('collections.emptyItems')} />
       ) : (
-        <Row gutter={[16, 16]}>
+        <div className="legere-card-grid">
           {items.items.map((document) => (
-            <Col key={document.id} xs={12} sm={8} md={6} lg={4}>
+            <div key={document.id}>
               <Space direction="vertical" size={4} style={{ width: '100%' }}>
                 <DocumentCard document={document} />
                 {isOwner && (
@@ -106,9 +106,9 @@ export function CollectionDetailScreen({
                   </Popconfirm>
                 )}
               </Space>
-            </Col>
+            </div>
           ))}
-        </Row>
+        </div>
       )}
 
       <ShareModal collectionId={id} open={sharing} onClose={() => setSharing(false)} />

@@ -114,11 +114,27 @@ pre,
   animation-delay: calc(var(--legere-index, 0) * 40ms);
 }
 
+/* The grid of cards measures itself, not the window (docs/11 §11.3): as many ~220 px columns as
+   the width on hand allows. When the upload panel takes its third, the cards keep their size and
+   the grid gives up columns instead of squeezing what it has into ribbons. Two abreast on a phone,
+   where auto-fill would leave a lonely one. */
+.legere-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 575.98px) {
+  .legere-card-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 /* The card a queued file has just become (docs/11 §11.3): a ring in the primary colour that fades
    out where it stands, so the eye can carry from the row in the upload panel to the thing that
    arrived. Once and then never again — it is an announcement, not a state the card is in. The ring
-   is drawn on the card rather than on the grid cell it sits in, because the cell is a column with
-   the gutter's padding and a shadow on it would hang in the space between cards. */
+   is drawn on the card rather than on the grid cell it sits in, so it hugs the thing that landed
+   rather than the space reserved for it. */
 @keyframes legere-landed {
   from {
     box-shadow: 0 0 0 2px var(--ant-color-primary, #1677ff);

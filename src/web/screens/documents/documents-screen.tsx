@@ -296,16 +296,10 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
           <>
             {/* Real documents and nothing else: a file on its way is not one yet, and it is watched
                 in the panel rather than stood in the grid (docs/11 §11.3). */}
-            <Row gutter={[16, 16]}>
+            <div className="legere-card-grid">
               {items.map((document, index) => (
-                <Col
+                <div
                   key={document.id}
-                  xs={12}
-                  sm={8}
-                  md={6}
-                  lg={4}
-                  xl={4}
-                  xxl={4}
                   className={cardClassName(index, justUploaded.has(document.id))}
                   style={staggerStyle(index)}
                 >
@@ -326,9 +320,9 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
                         }
                       : {})}
                   />
-                </Col>
+                </div>
               ))}
-            </Row>
+            </div>
             <div ref={sentinel} style={{ height: 1 }} />
             {documents.isFetchingNextPage && <Spin />}
           </>
@@ -551,16 +545,10 @@ function DocumentGroupSection({
       {documents.isPending ? (
         <Spin size="small" />
       ) : (
-        <Row gutter={[16, 16]}>
+        <div className="legere-card-grid">
           {items.map((document) => (
-            <Col
+            <div
               key={document.id}
-              xs={12}
-              sm={8}
-              md={6}
-              lg={4}
-              xl={4}
-              xxl={4}
               className={justUploaded.has(document.id) ? 'legere-just-uploaded' : undefined}
             >
               <DocumentCard
@@ -580,9 +568,9 @@ function DocumentGroupSection({
                       },
                     })}
               />
-            </Col>
+            </div>
           ))}
-        </Row>
+        </div>
       )}
       {documents.hasNextPage === true && (
         <Button

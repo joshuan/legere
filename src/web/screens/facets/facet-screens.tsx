@@ -62,13 +62,13 @@ function FacetDocuments({ title, filters }: { title: string; filters: DocumentFi
         ) : (documents.data?.items ?? []).length === 0 ? (
           <Empty description={t('facets.emptyDocuments')} />
         ) : (
-          <Row gutter={[16, 16]}>
+          <div className="legere-card-grid">
             {(documents.data?.items ?? []).map((document) => (
-              <Col key={document.id} xs={12} sm={8} md={6} lg={4} xl={4}>
+              <div key={document.id}>
                 <DocumentCard document={document} />
-              </Col>
+              </div>
             ))}
-          </Row>
+          </div>
         )}
       </Col>
     </Row>

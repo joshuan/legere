@@ -2,7 +2,7 @@
 
 import { FolderOutlined } from '@ant-design/icons';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { Breadcrumb, Card, Col, Empty, List, Row, Space, Spin, Typography } from 'antd';
+import { Breadcrumb, Card, Empty, List, Space, Spin, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -87,13 +87,13 @@ export function BrowseScreen({ libraryId }: { libraryId: string }) {
           {documents.length === 0 ? (
             (first?.folders.length ?? 0) === 0 && <Empty description={t('browse.empty')} />
           ) : (
-            <Row gutter={[16, 16]}>
+            <div className="legere-card-grid">
               {documents.map((document) => (
-                <Col key={document.id} xs={12} sm={8} md={6} lg={4} xl={4}>
+                <div key={document.id}>
                   <DocumentCard document={document} />
-                </Col>
+                </div>
               ))}
-            </Row>
+            </div>
           )}
 
           {view.hasNextPage && (

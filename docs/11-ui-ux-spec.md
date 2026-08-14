@@ -60,7 +60,9 @@ Onboarding when already onboarded → 404 page.
 
 ## 11.3. Documents (`/documents`) — the home screen
 
-- **Grid of cards** (responsive, 2–6 columns): thumbnail (`/thumb`; file-type icon fallback while
+- **Grid of cards**, sized by the width it actually has rather than by the window: as many ~220 px
+  columns as fit the container (so the upload panel taking its third costs columns, not card width),
+  and two abreast on a phone: thumbnail (`/thumb`; file-type icon fallback while
   `previewStatus != DONE`), title (2-line ellipsis), a **file count** when the document is made of
   more than one ("7 files"), and status badges: `processing` (spinner tag "Processing"), `PARTIAL`
   ("Some files missing"), `UNAVAILABLE` (grey "Files missing").
