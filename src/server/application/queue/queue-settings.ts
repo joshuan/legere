@@ -77,7 +77,9 @@ export class QueueSettings {
       ]),
     );
     // The same hygiene one level down (docs/05 §5.4b): a service this version does not gate is
-    // dropped, and a number outside its range is clamped rather than refused.
+    // dropped. The clamp is belt-and-braces behind the contract, which has already refused anything
+    // out of range (docs/07 §7.3) — what it really bounds is the env defaults standing in for an
+    // absent override.
     const services = Object.fromEntries(
       SERVICE_NAMES.map((service) => [
         service,
