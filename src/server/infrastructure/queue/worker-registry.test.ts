@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getLoggerToken } from 'nestjs-pino';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InMemorySettingsRepository } from '../../../../test/helpers/processing-fakes';
 import type { JobHandler } from '../../application/jobs/job-handler';
 import type { QueueName } from '../../application/ports/job-queue';
-import { QueueSettings } from '../../application/queue/queue-settings';
+import { QueueSettings, ungatedServices } from '../../application/queue/queue-settings';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
 import { PgBossProvider } from './pg-boss.provider';
 import { WorkerRegistry } from './worker-registry';
@@ -55,16 +56,19 @@ describe('WorkerRegistry', () => {
   let boss: RecordingBoss;
   let store: InMemorySettingsRepository;
   let registry: WorkerRegistry;
+  let gates: ServiceGates;
 
   beforeEach(async () => {
     boss = new RecordingBoss();
     store = new InMemorySettingsRepository();
+    gates = new ServiceGates();
 
     const testing = await Test.createTestingModule({
       providers: [
         WorkerRegistry,
         IngestHandler,
         ProcessHandler,
+        { provide: ServiceGates, useValue: gates },
         { provide: PgBossProvider, useValue: { start: () => Promise.resolve(boss) } },
         { provide: AppConfig, useValue: { get: () => undefined } },
         {
@@ -77,6 +81,7 @@ describe('WorkerRegistry', () => {
               maintenance: 1,
             },
             unitConcurrency: 1,
+            services: ungatedServices(),
           }),
         },
         {
@@ -137,6 +142,23 @@ describe('WorkerRegistry', () => {
     await registry.restart();
 
     expect(boss.queues).toEqual(['file-ingest', 'document-process']);
+  });
+
+  // The gates of docs/05 §5.4b come from the same row as the concurrencies, and are applied at the
+  // same moment: an instance that was started with a gate stored is gated from its first job.
+  it('configures the service gates from the settings it registers workers from', async () => {
+    await store.write('queue', { services: { stirling: { concurrency: 2, cooldownSeconds: 30 } } });
+    const configure = vi.spyOn(gates, 'configure');
+
+    await registry.start();
+
+    expect(configure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stirling: { concurrency: 2, cooldownSeconds: 30 },
+        // Everything else stays as the environment left it, which is ungated.
+        docling: { concurrency: 0, cooldownSeconds: 0 },
+      }),
+    );
   });
 
   it('ignores a paused name for a queue it does not serve', async () => {

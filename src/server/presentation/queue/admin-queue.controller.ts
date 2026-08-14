@@ -20,6 +20,7 @@ import {
   RetryFailedJob,
 } from '../../application/queue/inspect-queue';
 import { QueueSettings } from '../../application/queue/queue-settings';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { ReprocessDocumentsByStep } from '../../application/queue/reprocess-by-step';
 import { AnalysisSettings } from '../../application/settings/analysis-settings';
 import { WorkerRegistry } from '../../infrastructure/queue/worker-registry';
@@ -48,6 +49,7 @@ export class AdminQueueController {
     private readonly workers: WorkerRegistry,
     private readonly analysis: AnalysisSettings,
     private readonly reprocessByStep: ReprocessDocumentsByStep,
+    private readonly gates: ServiceGates,
   ) {}
 
   @Get('settings')
@@ -79,6 +81,10 @@ export class AdminQueueController {
     @ZodBody(updateQueueSettingsRequestSchema) body: UpdateQueueSettingsRequest,
   ): Promise<Envelope<QueueSettingsDto>> {
     const saved = await this.settings.write(body);
+    // The gates first, and in their own right: a widened gate releases the callers standing at it
+    // straight away, and it must do so even if re-registering the workers goes wrong (docs/05
+    // §5.4b). Starting the workers configures them again from the same row, which costs nothing.
+    this.gates.configure(saved.services);
     await this.workers.restart();
     return successEnvelope(saved);
   }

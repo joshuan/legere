@@ -5,6 +5,7 @@ import type { Job } from 'pg-boss';
 import type { JobHandler } from '../../application/jobs/job-handler';
 import type { QueueName } from '../../application/ports/job-queue';
 import { QueueSettings } from '../../application/queue/queue-settings';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
 import { PgBossProvider } from './pg-boss.provider';
 
@@ -30,6 +31,7 @@ export class WorkerRegistry {
     private readonly moduleRef: ModuleRef,
     private readonly config: AppConfig,
     private readonly settings: QueueSettings,
+    private readonly gates: ServiceGates,
     @InjectPinoLogger(WorkerRegistry.name) private readonly logger: PinoLogger,
   ) {}
 
@@ -42,6 +44,10 @@ export class WorkerRegistry {
     const boss = await this.provider.start();
     const settings = await this.settings.read();
     const paused = new Set(settings.paused);
+    // The same read that decides how many workers each queue gets also decides how many calls each
+    // external service may be doing at once (docs/05 §5.4b): both are "how hard this instance
+    // works", and both are stored in the one settings row.
+    this.gates.configure(settings.services);
 
     for (const binding of this.bindings) {
       // 🔒 A paused queue gets no worker at all (docs/05 §5.4): jobs keep arriving and wait where

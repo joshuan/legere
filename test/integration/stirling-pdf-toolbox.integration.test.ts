@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { beforeAll, describe, expect, it, type TestContext } from 'vitest';
 import { loadConfig } from '../../src/server/infrastructure/config/app-config';
+import { ServiceGates } from '../../src/server/application/queue/service-gate';
 import { StirlingPdfToolbox } from '../../src/server/infrastructure/pdf/stirling-pdf-toolbox';
 import { rtfWithText } from '../fixtures/office';
 import { pdfWithText } from '../fixtures/pdf';
@@ -24,7 +25,7 @@ function itWithStirling(name: string, body: () => Promise<void>, timeoutMs = 60_
 }
 
 describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
-  const pdfs = new StirlingPdfToolbox(config);
+  const pdfs = new StirlingPdfToolbox(config, new ServiceGates());
 
   beforeAll(async () => {
     stirling.up = await reachable(`${STIRLING_URL}/api/v1/info/status`);

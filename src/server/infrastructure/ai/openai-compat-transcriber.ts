@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { readBoundedJson, readBoundedText } from '../../application/ports/binary-source';
 import type { PageImage } from '../../application/ports/document-analyst';
 import { PageTranscriber, type Transcription } from '../../application/ports/page-transcriber';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
 import { callHeaders } from '../logging/async-call-context';
 import { describeLanguage } from './language-names';
@@ -52,7 +53,10 @@ export class OpenAiCompatTranscriber extends PageTranscriber {
   private readonly apiKey: string;
   private readonly model: string;
 
-  constructor(config: AppConfig) {
+  constructor(
+    config: AppConfig,
+    private readonly gates: ServiceGates,
+  ) {
     super();
     this.baseUrl = config.get('TRANSCRIBER_API_BASE_URL').replace(/\/+$/, '');
     this.apiKey = config.get('TRANSCRIBER_API_KEY');
@@ -75,6 +79,15 @@ export class OpenAiCompatTranscriber extends PageTranscriber {
     if (!this.isConfigured) throw new Error('No page transcriber is configured');
     if (pages.length === 0) return { markdown: '', usage: {} };
 
+    // One transcription — the whole document in one call — is one unit of the `transcriber` gate
+    // (docs/05 §5.4b).
+    return this.gates.run('transcriber', () => this.read(pages, languages));
+  }
+
+  private async read(
+    pages: readonly PageImage[],
+    languages: readonly string[],
+  ): Promise<Transcription> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {

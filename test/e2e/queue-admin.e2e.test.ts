@@ -521,6 +521,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         unitConcurrency: 1,
         // A queue this version does not have is dropped rather than stored for ever (docs/05 §5.4).
         paused: ['document-process', 'thumbnails'],
+        services: {},
       })
       .set('Cookie', adminCookie);
 
@@ -542,7 +543,12 @@ describe('Reprocess and queue administration (e2e)', () => {
     // underneath the rest of the suite.
     await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
     const resumed = await api(app)
-      .patch('/api/admin/queue/settings', { concurrency: {}, unitConcurrency: 1, paused: [] })
+      .patch('/api/admin/queue/settings', {
+        concurrency: {},
+        unitConcurrency: 1,
+        paused: [],
+        services: {},
+      })
       .set('Cookie', adminCookie);
     expect(expectData(resumed, queueSettingsSchema).paused).toEqual([]);
   });
@@ -561,6 +567,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         concurrency: { 'file-ingest': 8, 'document-process': 3 },
         unitConcurrency: 4,
         paused: [],
+        services: {},
       })
       .set('Cookie', adminCookie);
 
@@ -582,8 +589,63 @@ describe('Reprocess and queue administration (e2e)', () => {
         concurrency: { 'file-ingest': 32 },
         unitConcurrency: 32,
         paused: [],
+        services: {},
       })
       .set('Cookie', adminCookie);
     expect(expectData(clamped, queueSettingsSchema).concurrency['file-ingest']).toBe(32);
+  });
+
+  // The gates of docs/05 §5.4b ride in the same payload as the concurrencies, and answer to the
+  // same hygiene (docs/07 §7.3).
+  it('carries a gate per external service in the same settings payload', async () => {
+    const before = await api(app).get('/api/admin/queue/settings').set('Cookie', adminCookie);
+    // 🔒 The defaults are 0/0: an instance that upgrades into this waits nowhere (docs/05 §5.4b).
+    expect(expectData(before, queueSettingsSchema).services).toEqual({
+      stirling: { concurrency: 0, cooldownSeconds: 0 },
+      docling: { concurrency: 0, cooldownSeconds: 0 },
+      classifier: { concurrency: 0, cooldownSeconds: 0 },
+      transcriber: { concurrency: 0, cooldownSeconds: 0 },
+      embeddings: { concurrency: 0, cooldownSeconds: 0 },
+    });
+
+    const saved = await api(app)
+      .patch('/api/admin/queue/settings', {
+        concurrency: {},
+        unitConcurrency: 1,
+        paused: [],
+        services: {
+          stirling: { concurrency: 1, cooldownSeconds: 30 },
+          docling: { concurrency: 32, cooldownSeconds: 600 },
+          // A service this version does not gate is dropped on the way in, exactly as an unknown
+          // queue name is (docs/07 §7.3).
+          ocr: { concurrency: 4, cooldownSeconds: 1 },
+        },
+      })
+      .set('Cookie', adminCookie);
+
+    expect(saved.status).toBe(200);
+    const settings = expectData(saved, queueSettingsSchema);
+    expect(settings.services.stirling).toEqual({ concurrency: 1, cooldownSeconds: 30 });
+    expect(settings.services.docling).toEqual({ concurrency: 32, cooldownSeconds: 600 });
+    expect(settings.services.ocr).toBeUndefined();
+    // Every service comes back, including the ones nobody touched.
+    expect(settings.services.embeddings).toEqual({ concurrency: 0, cooldownSeconds: 0 });
+
+    // 🔒 It survives a read, which is what "survives a restart" means for a stored setting.
+    const after = await api(app).get('/api/admin/queue/settings').set('Cookie', adminCookie);
+    expect(expectData(after, queueSettingsSchema).services.stirling).toEqual({
+      concurrency: 1,
+      cooldownSeconds: 30,
+    });
+
+    // Back to ungated, so nothing that runs after this test waits at a gate.
+    await api(app)
+      .patch('/api/admin/queue/settings', {
+        concurrency: {},
+        unitConcurrency: 1,
+        paused: [],
+        services: {},
+      })
+      .set('Cookie', adminCookie);
   });
 });

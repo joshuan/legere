@@ -7,6 +7,7 @@ import {
   type BinarySource,
 } from '../../application/ports/binary-source';
 import { DocumentParser, type ParseOptions } from '../../application/ports/document-parser';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
 import { callHeaders } from '../logging/async-call-context';
 
@@ -66,7 +67,10 @@ export class DoclingParser extends DocumentParser {
   private readonly baseUrl: string;
   private readonly describePictures: boolean;
 
-  constructor(config: AppConfig) {
+  constructor(
+    config: AppConfig,
+    private readonly gates: ServiceGates,
+  ) {
     super();
     this.baseUrl = config.get('DOCLING_URL').replace(/\/+$/, '');
     this.describePictures = config.get('DOCLING_PICTURE_DESCRIPTION');
@@ -111,15 +115,22 @@ export class DoclingParser extends DocumentParser {
       form.append('picture_description_area_threshold', String(PICTURE_MIN_AREA));
     }
 
-    const taskId = await this.submit(form);
-    await this.awaitTask(taskId, this.describePictures ? BUDGET_WITH_CAPTIONS_MS : BUDGET_MS);
+    // 🔒 One whole parse is a *single* unit of the `docling` gate — submitting, every poll, and
+    // collecting the result (docs/05 §5.4b). The expensive work happens on the Docling server
+    // between those requests, so metering the polls would count the cheapest exchanges of the
+    // conversation while the conversion everybody is waiting on ran through ungated.
+    return this.gates.run('docling', async () => {
+      const taskId = await this.submit(form);
+      await this.awaitTask(taskId, this.describePictures ? BUDGET_WITH_CAPTIONS_MS : BUDGET_MS);
 
-    const result = conversionSchema.safeParse(
-      await this.get(`${RESULT}/${taskId}`, RESULT_TIMEOUT_MS, MAX_RESULT_BYTES),
-    );
-    if (!result.success) throw new Error('Docling answered in a shape this version does not know');
+      const result = conversionSchema.safeParse(
+        await this.get(`${RESULT}/${taskId}`, RESULT_TIMEOUT_MS, MAX_RESULT_BYTES),
+      );
+      if (!result.success)
+        throw new Error('Docling answered in a shape this version does not know');
 
-    return stripImagePlaceholders(result.data.document.md_content ?? '');
+      return stripImagePlaceholders(result.data.document.md_content ?? '');
+    });
   }
 
   private async submit(form: FormData): Promise<string> {

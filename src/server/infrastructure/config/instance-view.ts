@@ -154,6 +154,19 @@ export function describeInstance(config: AppConfig): InstanceResponse {
           s('QUEUE_CONCURRENCY_PROCESS'),
           s('QUEUE_UNIT_CONCURRENCY'),
           s('QUEUE_REPROCESS_MAX'),
+          // The per-service gates (docs/05 §5.4b), beside the queue knobs they were designed to
+          // stand next to: these are the defaults, and what the instance is running on right now is
+          // whatever /admin/queue holds over them.
+          s('SERVICE_CONCURRENCY_STIRLING'),
+          s('SERVICE_COOLDOWN_STIRLING'),
+          s('SERVICE_CONCURRENCY_DOCLING'),
+          s('SERVICE_COOLDOWN_DOCLING'),
+          s('SERVICE_CONCURRENCY_CLASSIFIER'),
+          s('SERVICE_COOLDOWN_CLASSIFIER'),
+          s('SERVICE_CONCURRENCY_TRANSCRIBER'),
+          s('SERVICE_COOLDOWN_TRANSCRIBER'),
+          s('SERVICE_CONCURRENCY_EMBEDDINGS'),
+          s('SERVICE_COOLDOWN_EMBEDDINGS'),
         ],
       },
     ],

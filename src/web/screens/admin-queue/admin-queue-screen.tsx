@@ -24,10 +24,14 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { stepStatusSchema, type StepStatus } from '../../../shared/contracts/enums';
 import type { GlobalToken } from 'antd';
-import type {
-  FailedJobDto,
-  ReprocessByStepRequest,
-  StepCountersDto,
+import {
+  SERVICE_COOLDOWN_MAX_SECONDS,
+  SERVICE_NAMES,
+  type FailedJobDto,
+  type ReprocessByStepRequest,
+  type ServiceGateDto,
+  type ServiceName,
+  type StepCountersDto,
 } from '../../../shared/contracts/queue';
 import { analysisSettingsApi, queueApi, queueKeys, queueSettingsApi } from '../../entities/queue';
 import { formatBytes, useErrorMessage } from '../../shared/lib';
@@ -58,6 +62,7 @@ export function AdminQueueScreen() {
   const [draft, setDraft] = useState<{
     concurrency: Record<string, number>;
     unitConcurrency: number;
+    services: Record<string, ServiceGateDto>;
   } | null>(null);
 
   useEffect(() => {
@@ -65,6 +70,7 @@ export function AdminQueueScreen() {
       setDraft({
         concurrency: { ...settings.data.concurrency },
         unitConcurrency: settings.data.unitConcurrency,
+        services: { ...settings.data.services },
       });
     }
   }, [settings.data, draft]);
@@ -100,7 +106,25 @@ export function AdminQueueScreen() {
         : { ...current, concurrency: { ...current.concurrency, [queue]: value } },
     );
 
-  const saveThroughput = (): void => {
+  // One gate of one service (docs/05 §5.4b), edited knob by knob into the same draft the stage
+  // blocks write into — the payload is sent whole either way.
+  const setGate = (service: string, gate: Partial<ServiceGateDto>): void =>
+    setDraft((current) =>
+      current === null
+        ? current
+        : {
+            ...current,
+            services: {
+              ...current.services,
+              [service]: {
+                ...(current.services[service] ?? { concurrency: 0, cooldownSeconds: 0 }),
+                ...gate,
+              },
+            },
+          },
+    );
+
+  const saveDraft = (): void => {
     if (draft === null) return;
     saveSettings.mutate({
       concurrency: draft.concurrency,
@@ -108,6 +132,7 @@ export function AdminQueueScreen() {
       // Sent whole (docs/07 §7.3): the pause switches live in each block's header, and saving the
       // throughput must not quietly resume what somebody paused.
       paused,
+      services: draft.services,
     });
   };
 
@@ -118,6 +143,20 @@ export function AdminQueueScreen() {
       Object.entries(draft.concurrency).some(
         ([queue, value]) => settings.data?.concurrency[queue] !== value,
       ));
+
+  // The services block has a save of its own, and it lights up for its own reason: a gate that
+  // differs from what the server holds, not a concurrency somebody changed two blocks above.
+  const gatesChanged =
+    draft !== null &&
+    settings.data !== undefined &&
+    SERVICE_NAMES.some((service) => {
+      const held = settings.data?.services[service];
+      const edited = draft.services[service];
+      return (
+        held?.concurrency !== edited?.concurrency ||
+        held?.cooldownSeconds !== edited?.cooldownSeconds
+      );
+    });
 
   const saveSettings = useMutation({
     mutationFn: queueSettingsApi.save,
@@ -139,6 +178,7 @@ export function AdminQueueScreen() {
       concurrency: current.concurrency,
       unitConcurrency: current.unitConcurrency,
       paused: pause ? [...current.paused, queue] : current.paused.filter((name) => name !== queue),
+      services: current.services,
     });
   };
 
@@ -356,7 +396,7 @@ export function AdminQueueScreen() {
                 type="primary"
                 loading={saveSettings.isPending}
                 disabled={draft === null || !changed}
-                onClick={saveThroughput}
+                onClick={saveDraft}
               >
                 {t('common.actions.save')}
               </Button>
@@ -410,6 +450,107 @@ export function AdminQueueScreen() {
           </Space>
         </Card>
       ))}
+
+      {/* One block of its own, below the stages, because a service is not a stage and putting its
+          gate inside one would hide it from the other: Stirling renders pages for document-process
+          and converts an upload for file-ingest, and there is one container being asked
+          (docs/11 §11.13, docs/05 §5.4b). */}
+      <Card title={t('admin.queue.services.title')} loading={settings.isPending}>
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Typography.Text type="secondary">{t('admin.queue.services.hint')}</Typography.Text>
+
+          <Table<ServiceName>
+            size="small"
+            rowKey={(service) => service}
+            pagination={false}
+            dataSource={[...SERVICE_NAMES]}
+            columns={[
+              {
+                title: t('admin.queue.services.service'),
+                key: 'service',
+                // Named twice, the way the stages are: what it is, over what it is called in the
+                // settings, with a line under it saying which work it serves.
+                render: (_: unknown, service: ServiceName) => (
+                  <Space direction="vertical" size={0}>
+                    <Space size={8} align="baseline">
+                      <Typography.Text strong>
+                        {t(`admin.queue.services.names.${service}`)}
+                      </Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }} code>
+                        {service}
+                      </Typography.Text>
+                    </Space>
+                    <Typography.Text type="secondary">
+                      {t(`admin.queue.services.hints.${service}`)}
+                    </Typography.Text>
+                  </Space>
+                ),
+              },
+              {
+                title: (
+                  <Space size={4}>
+                    {t('admin.queue.services.concurrency')}
+                    <Tooltip title={t('admin.queue.services.concurrencyHint')}>
+                      <QuestionCircleOutlined />
+                    </Tooltip>
+                  </Space>
+                ),
+                key: 'concurrency',
+                render: (_: unknown, service: ServiceName) => (
+                  <InputNumber
+                    // 🔒 0 is a value here, not an empty box: it reads as "as many as the queues
+                    // ask for", which is what an instance that has never been gated is running on.
+                    min={0}
+                    max={32}
+                    style={{ width: 80 }}
+                    aria-label={t('admin.queue.services.concurrencyFor', {
+                      service: t(`admin.queue.services.names.${service}`),
+                    })}
+                    value={draft?.services[service]?.concurrency ?? 0}
+                    disabled={draft === null}
+                    onChange={(value) => setGate(service, { concurrency: value ?? 0 })}
+                  />
+                ),
+              },
+              {
+                title: (
+                  <Space size={4}>
+                    {t('admin.queue.services.cooldown')}
+                    <Tooltip title={t('admin.queue.services.cooldownHint')}>
+                      <QuestionCircleOutlined />
+                    </Tooltip>
+                  </Space>
+                ),
+                key: 'cooldown',
+                render: (_: unknown, service: ServiceName) => (
+                  <InputNumber
+                    min={0}
+                    max={SERVICE_COOLDOWN_MAX_SECONDS}
+                    style={{ width: 80 }}
+                    aria-label={t('admin.queue.services.cooldownFor', {
+                      service: t(`admin.queue.services.names.${service}`),
+                    })}
+                    value={draft?.services[service]?.cooldownSeconds ?? 0}
+                    disabled={draft === null}
+                    onChange={(value) => setGate(service, { cooldownSeconds: value ?? 0 })}
+                  />
+                ),
+              },
+            ]}
+          />
+
+          {/* Offered only once something differs from what the server holds, exactly as the
+              throughput settings above are, and in force without a restart (docs/11 §11.13). */}
+          <Button
+            type="primary"
+            loading={saveSettings.isPending}
+            disabled={draft === null || !gatesChanged}
+            onClick={saveDraft}
+          >
+            {t('common.actions.save')}
+          </Button>
+        </Space>
+      </Card>
 
       <Card title={t('admin.queue.storage.title')} loading={overview.isPending}>
         {storage === null ? (

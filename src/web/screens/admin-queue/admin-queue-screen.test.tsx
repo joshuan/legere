@@ -42,6 +42,15 @@ const settings: QueueSettingsDto = {
   },
   unitConcurrency: 2,
   paused: [],
+  // Every gate off, which is what an instance that has never been gated answers with
+  // (docs/05 §5.4b).
+  services: {
+    stirling: { concurrency: 0, cooldownSeconds: 0 },
+    docling: { concurrency: 0, cooldownSeconds: 0 },
+    classifier: { concurrency: 0, cooldownSeconds: 0 },
+    transcriber: { concurrency: 0, cooldownSeconds: 0 },
+    embeddings: { concurrency: 0, cooldownSeconds: 0 },
+  },
 };
 
 const failure = {
@@ -297,12 +306,14 @@ describe('AdminQueueScreen', () => {
     await waitFor(() => expect(pause).toBeEnabled());
     await userEvent.click(pause);
 
-    // The settings are sent whole (docs/07 §7.3): pausing must not quietly reset the throughput.
+    // The settings are sent whole (docs/07 §7.3): pausing must not quietly reset the throughput,
+    // nor the gates in front of the external services.
     await waitFor(() =>
       expect(patched).toEqual({
         concurrency: settings.concurrency,
         unitConcurrency: settings.unitConcurrency,
         paused: ['document-process'],
+        services: settings.services,
       }),
     );
 
@@ -310,6 +321,93 @@ describe('AdminQueueScreen', () => {
     const card = pause.closest('.ant-card');
     if (!(card instanceof HTMLElement)) throw new Error('expected the queue card');
     expect(await within(card).findByText(enMessages.admin.queue.pause.tag)).toBeInTheDocument();
+  });
+
+  // A gate per external service, in one block of its own below the stages: a service is not a
+  // stage, and Stirling serves two of them (docs/11 §11.13, docs/05 §5.4b).
+  describe('the external services block', () => {
+    let patched: unknown = null;
+
+    beforeEach(() => {
+      patched = null;
+      server.use(
+        http.get('/api/admin/queue/settings', () => HttpResponse.json(envelope(settings))),
+        http.get('/api/admin/queue/analysis', () => HttpResponse.json(envelope({ language: '' }))),
+        http.patch('/api/admin/queue/settings', async ({ request }) => {
+          patched = await request.json();
+          return HttpResponse.json(envelope(settings));
+        }),
+      );
+    });
+
+    // Looked up again on every turn rather than once: the block is drawn before the queues are,
+    // and the arrival of the overview moves it down the page — which replaces the node a first
+    // lookup would have held on to.
+    function servicesCard(): Promise<HTMLElement> {
+      return waitFor(
+        () => {
+          const title = screen.getByText(enMessages.admin.queue.services.title);
+          const card = title.closest('.ant-card');
+          if (!(card instanceof HTMLElement)) throw new Error('expected the services card');
+          if (within(card).queryAllByRole('spinbutton').length === 0) {
+            throw new Error('the gates have not been drawn yet');
+          }
+          return card;
+        },
+        { timeout: 5000 },
+      );
+    }
+
+    it('names every service twice and says which work it serves', async () => {
+      renderWithProviders(<AdminQueueScreen />);
+      const card = await servicesCard();
+
+      for (const service of ['stirling', 'docling', 'classifier', 'transcriber', 'embeddings']) {
+        // What it is called in the settings, beside what it is (docs/11 §11.13).
+        expect(within(card).getByText(service)).toBeInTheDocument();
+      }
+      expect(
+        within(card).getByText(enMessages.admin.queue.services.names.classifier),
+      ).toBeInTheDocument();
+      // A line for a reader who has never opened docs/05 §5.4b.
+      expect(
+        within(card).getByText(enMessages.admin.queue.services.hints.docling),
+      ).toBeInTheDocument();
+      // A block of zeroes is an instance whose services are not gated at all, and it says so
+      // plainly rather than looking misconfigured.
+      expect(within(card).getAllByRole('spinbutton')).toHaveLength(10);
+      expect(
+        within(card)
+          .getAllByRole('spinbutton')
+          .every((input) => input.getAttribute('value') === '0'),
+      ).toBe(true);
+    });
+
+    it('offers the save only once a gate differs, and sends the settings whole', async () => {
+      renderWithProviders(<AdminQueueScreen />);
+      const card = await servicesCard();
+      const save = within(card).getByRole('button', { name: enMessages.common.actions.save });
+      await waitFor(() => expect(save).toBeDisabled());
+
+      const cooldown = within(card).getByRole('spinbutton', {
+        name: 'Pause after each call to Stirling-PDF, seconds',
+      });
+      await userEvent.clear(cooldown);
+      await userEvent.type(cooldown, '30');
+
+      await waitFor(() => expect(save).toBeEnabled());
+      await userEvent.click(save);
+
+      // Sent whole (docs/07 §7.3), gates included: nothing else on the page is quietly reset.
+      await waitFor(() =>
+        expect(patched).toEqual({
+          concurrency: settings.concurrency,
+          unitConcurrency: settings.unitConcurrency,
+          paused: [],
+          services: { ...settings.services, stirling: { concurrency: 0, cooldownSeconds: 30 } },
+        }),
+      );
+    });
   });
 
   // The refresh is a real 5 s interval (docs/11 §11.13), so this waits it out rather than faking

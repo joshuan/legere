@@ -297,6 +297,16 @@
         "QUEUE_CONCURRENCY_PROCESS": "Document processing, at once",
         "QUEUE_UNIT_CONCURRENCY": "Units inside one job, at once",
         "QUEUE_REPROCESS_MAX": "Documents per re-run request, limit",
+        "SERVICE_CONCURRENCY_STIRLING": "Stirling calls at once (0 = ungated)",
+        "SERVICE_COOLDOWN_STIRLING": "Pause after a Stirling call, s",
+        "SERVICE_CONCURRENCY_DOCLING": "Docling parses at once (0 = ungated)",
+        "SERVICE_COOLDOWN_DOCLING": "Pause after a Docling parse, s",
+        "SERVICE_CONCURRENCY_CLASSIFIER": "Analysis calls at once (0 = ungated)",
+        "SERVICE_COOLDOWN_CLASSIFIER": "Pause after an analysis call, s",
+        "SERVICE_CONCURRENCY_TRANSCRIBER": "Transcriptions at once (0 = ungated)",
+        "SERVICE_COOLDOWN_TRANSCRIBER": "Pause after a transcription, s",
+        "SERVICE_CONCURRENCY_EMBEDDINGS": "Embedding batches at once (0 = ungated)",
+        "SERVICE_COOLDOWN_EMBEDDINGS": "Pause after a batch of embeddings, s",
         "ANALYST_EXCERPT_CHARS": "Text sent to the analyst, chars (0 = all)",
         "ANALYST_MAX_PAGE_IMAGES": "Pages shown to the analyst",
         "ANALYST_PAGE_IMAGE_MAX_DIM": "Page image size for the analyst, px",
@@ -473,6 +483,31 @@
         "analysisLanguageAuto": "The language of each document",
         "analysisLanguageHint": "Titles, descriptions and the names invented for people, things and kinds all use this language. Leave it empty and each follows the document it came from.",
         "concurrency": "At once"
+      },
+      "services": {
+        "title": "External services",
+        "hint": "A gate per service, in front of the container or the provider itself rather than in front of a stage: Stirling renders pages for one stage and converts uploads for another, and there is one container being asked. 0 calls at once is no gate at all.",
+        "service": "Service",
+        "concurrency": "Calls at once",
+        "concurrencyHint": "How many calls this service may be serving at the same time. 0 = as many as the queues ask for.",
+        "concurrencyFor": "Calls at once for {service}",
+        "cooldownFor": "Pause after each call to {service}, seconds",
+        "cooldown": "Pause after each, s",
+        "cooldownHint": "How long to wait after one call before starting the next — after a failure as well as after a success. Waiting at a gate is time inside the job, so a service throttled to a trickle shows up as slow jobs on this page.",
+        "names": {
+          "stirling": "Stirling-PDF",
+          "docling": "Docling",
+          "classifier": "The analyst",
+          "transcriber": "The transcriber",
+          "embeddings": "Embeddings"
+        },
+        "hints": {
+          "stirling": "Converts uploads to PDF, merges pages, renders previews and runs OCR.",
+          "docling": "Reads the layout of the canonical PDF into Markdown. One whole parse counts as one call.",
+          "classifier": "Reads a document and says what it is: type, title, description, date, people, places.",
+          "transcriber": "The recogniser of last resort: a vision model reading the pages OCR could not.",
+          "embeddings": "Turns the text into vectors for semantic search. One batch counts as one call."
+        }
       },
       "names": {
         "library-scan": "Scanning libraries",

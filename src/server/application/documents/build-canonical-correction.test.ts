@@ -12,7 +12,7 @@ import {
 import type { Crop } from '../../../shared/contracts/documents';
 import type { ProcessingSettings } from '../jobs/processing-settings';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
-import { QueueSettings } from '../queue/queue-settings';
+import { QueueSettings, ungatedServices } from '../queue/queue-settings';
 import { BuildCanonical } from './build-canonical';
 
 // An image is corrected on its way into the canonical — the lighting levelled, the skew taken out —
@@ -77,6 +77,7 @@ describe('BuildCanonical: correcting a page before it is one', () => {
           maintenance: 1,
         },
         unitConcurrency: 1,
+        services: ungatedServices(),
       }),
       settings,
     );

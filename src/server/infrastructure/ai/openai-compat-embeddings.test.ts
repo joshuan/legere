@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helpers/outbound';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { loadConfig } from '../config/app-config';
 import { OpenAiCompatEmbeddings } from './openai-compat-embeddings';
 
 type FetchSpy = MockInstance<typeof fetch>;
 
-function provider(overrides: Record<string, string> = {}): OpenAiCompatEmbeddings {
+function provider(
+  overrides: Record<string, string> = {},
+  gates: ServiceGates = new ServiceGates(),
+): OpenAiCompatEmbeddings {
   return new OpenAiCompatEmbeddings(
     loadConfig({
       DATABASE_URL: 'postgresql://legere:legere@localhost:5432/legere',
@@ -19,6 +23,7 @@ function provider(overrides: Record<string, string> = {}): OpenAiCompatEmbedding
       EMBEDDING_DIMENSIONS: '3',
       ...overrides,
     }),
+    gates,
   );
 }
 
@@ -144,6 +149,24 @@ describe('OpenAiCompatEmbeddings (a provider that misbehaves)', () => {
     await expect(provider().embed(['x'])).rejects.toThrow(/larger than one step may hold/);
     // 64 MiB in 64 KiB chunks is 1024 of them, plus the one that crosses the bound.
     expect(produced()).toBeLessThan(1030);
+  });
+
+  // One batch is one unit of the `embeddings` gate (docs/05 §5.4b): a vectorization that sends four
+  // batches asks the provider four times, and each of them waits its turn.
+  it('sends every batch through the embeddings gate', async () => {
+    const gates = new ServiceGates();
+    const run = vi.spyOn(gates, 'run');
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(Response.json({ data: [{ index: 0, embedding: vector(0) }] })),
+    );
+    const embeddings = provider({}, gates);
+
+    await embeddings.embed(['first']);
+    await embeddings.embed(['second']);
+    // A batch with nothing in it never reaches the provider, so it takes no slot either.
+    await embeddings.embed([]);
+
+    expect(run.mock.calls.map(([service]) => service)).toEqual(['embeddings', 'embeddings']);
   });
 
   it('bounds the error detail it quotes from a failing provider', async () => {

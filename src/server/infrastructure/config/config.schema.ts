@@ -147,6 +147,23 @@ export const configSchema = z.object({
   // the call is repeatable, so a large archive drains in batches an admin can watch.
   QUEUE_REPROCESS_MAX: z.coerce.number().int().positive().default(500),
 
+  // Per-service gates (docs/05 §5.4b): how many units of one service's work may be in flight, and
+  // how long a finished unit's slot stays shut afterwards. Named after the service an operator
+  // configures rather than after the step that calls it — the thing being throttled is whatever
+  // `CLASSIFIER_API_BASE_URL` points at. Both default to 0 for every service, which is no gate at
+  // all: an instance that upgrades into this behaves exactly as it behaved. A stored setting
+  // overrides these, the way a queue concurrency does (docs/03 §3.3.21).
+  SERVICE_CONCURRENCY_STIRLING: z.coerce.number().int().nonnegative().default(0),
+  SERVICE_COOLDOWN_STIRLING: z.coerce.number().int().nonnegative().default(0),
+  SERVICE_CONCURRENCY_DOCLING: z.coerce.number().int().nonnegative().default(0),
+  SERVICE_COOLDOWN_DOCLING: z.coerce.number().int().nonnegative().default(0),
+  SERVICE_CONCURRENCY_CLASSIFIER: z.coerce.number().int().nonnegative().default(0),
+  SERVICE_COOLDOWN_CLASSIFIER: z.coerce.number().int().nonnegative().default(0),
+  SERVICE_CONCURRENCY_TRANSCRIBER: z.coerce.number().int().nonnegative().default(0),
+  SERVICE_COOLDOWN_TRANSCRIBER: z.coerce.number().int().nonnegative().default(0),
+  SERVICE_CONCURRENCY_EMBEDDINGS: z.coerce.number().int().nonnegative().default(0),
+  SERVICE_COOLDOWN_EMBEDDINGS: z.coerce.number().int().nonnegative().default(0),
+
   // AI providers (empty base URL = feature disabled)
   EMBEDDINGS_API_BASE_URL: z.string().default(''),
   EMBEDDINGS_API_KEY: z.string().default(''),

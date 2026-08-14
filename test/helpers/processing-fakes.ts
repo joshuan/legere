@@ -45,7 +45,7 @@ import type { StepStatus, TrashReason } from '../../src/shared/contracts/enums';
 import { toBuffer, type BinarySource } from '../../src/server/application/ports/binary-source';
 import { ImageTool, type JpegPreviewOptions } from '../../src/server/application/ports/image-tool';
 import type { GrayscaleRaster } from '../../src/server/domain/entities/page-detection';
-import { QueueSettings } from '../../src/server/application/queue/queue-settings';
+import { QueueSettings, ungatedServices } from '../../src/server/application/queue/queue-settings';
 import {
   LibraryReader,
   type FsDirectoryEntry,
@@ -1081,6 +1081,7 @@ export function queueSettingsFixture(unitConcurrency = 4): QueueSettings {
       maintenance: 1,
     },
     unitConcurrency,
+    services: ungatedServices(),
   });
 }
 

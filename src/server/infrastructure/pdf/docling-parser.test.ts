@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { loadConfig } from '../config/app-config';
 import { DoclingParser } from './docling-parser';
 
 // The multipart body *is* the contract: Docling answers 200 with worse output when a field name is
 // wrong, so a mistake here shows up as mangled text weeks later, not as an error. Same reasoning as
 // the Stirling toolbox test next to this one.
-function parser(overrides: Record<string, string> = {}): DoclingParser {
+function parser(
+  overrides: Record<string, string> = {},
+  gates: ServiceGates = new ServiceGates(),
+): DoclingParser {
   return new DoclingParser(
     loadConfig({
       DATABASE_URL: 'postgresql://legere:legere@localhost:5432/legere',
@@ -16,6 +20,7 @@ function parser(overrides: Record<string, string> = {}): DoclingParser {
       DOCLING_URL: 'http://docling:5001',
       ...overrides,
     }),
+    gates,
   );
 }
 
@@ -54,6 +59,12 @@ function sentRequest(spy: FetchSpy): { url: string; form: FormData } {
   const body = init instanceof Object && 'body' in init ? init.body : undefined;
   if (!(body instanceof FormData)) throw new Error('expected a multipart body');
   return { url, form: body };
+}
+
+// Which of the three requests a URL is, for a test that cares about their order.
+function endpointOf(url: string): string {
+  if (url.includes('/v1/convert')) return 'convert';
+  return url.includes('/v1/status/poll') ? 'poll' : 'result';
 }
 
 const PDF = Buffer.from('%PDF-1.7');
@@ -208,6 +219,27 @@ describe('DoclingParser', () => {
     await expect(parser().toMarkdown(PDF, { ocrLanguages: [] })).rejects.toThrow(
       /page 3 is encrypted/,
     );
+  });
+
+  // 🔒 One whole parse is one unit of the `docling` gate: submitting, every poll and collecting the
+  // result (docs/05 §5.4b). The expensive work happens on the Docling server between those
+  // requests, so metering the polls would count the cheapest exchanges and let the conversion
+  // everybody is waiting on run through ungated.
+  it('spends a single gate slot on a whole parse, every poll included', async () => {
+    const gates = new ServiceGates();
+    gates.configure({ docling: { concurrency: 1, cooldownSeconds: 0 } });
+    const spy = answers('# Done', { polls: 2 });
+    const docling = parser({}, gates);
+
+    // Both asked for at once; the gate holds one of them at the door.
+    const first = docling.toMarkdown(PDF, { ocrLanguages: [] });
+    const second = docling.toMarkdown(PDF, { ocrLanguages: [] });
+    await Promise.all([first, second]);
+
+    const requests = spy.mock.calls.map(([input]) => urlOf(input));
+    // Submit, poll, poll, collect — and only then does the second parse reach the container.
+    expect(requests.slice(0, 4).map(endpointOf)).toEqual(['convert', 'poll', 'poll', 'result']);
+    expect(requests[4]).toContain('/v1/convert');
   });
 
   it('tolerates a configured URL with a trailing slash', async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../../src/server/infrastructure/config/app-config';
 import { OpenAiCompatAnalyst } from '../../src/server/infrastructure/ai/openai-compat-analyst';
+import { ServiceGates } from '../../src/server/application/queue/service-gate';
 
 // The analyst against a real model, the way the MinIO- and Stirling-backed suites work: it skips
 // itself when no provider is configured, so it costs nothing in CI and is there the moment somebody
@@ -35,7 +36,7 @@ const TICKET = [
 
 describe.runIf(configured)('OpenAiCompatAnalyst against a live model', () => {
   it('answers with something usable for a document that never names its country', async () => {
-    const analyst = new OpenAiCompatAnalyst(config);
+    const analyst = new OpenAiCompatAnalyst(config, new ServiceGates());
 
     const analysis = await analyst.analyze(TICKET, CATEGORIES);
 

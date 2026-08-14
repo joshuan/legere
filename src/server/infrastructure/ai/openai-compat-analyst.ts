@@ -9,6 +9,7 @@ import {
   type PageImage,
   type KnownSubject,
 } from '../../application/ports/document-analyst';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
 import { callHeaders } from '../logging/async-call-context';
 import { describeLanguage } from './language-names';
@@ -140,7 +141,10 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
   private readonly apiKey: string;
   private readonly model: string;
 
-  constructor(config: AppConfig) {
+  constructor(
+    config: AppConfig,
+    private readonly gates: ServiceGates,
+  ) {
     super();
     // An empty CLASSIFIER_API_BASE_URL reuses the embeddings endpoint, since one local runtime
     // usually serves both (docs/12 §12.4).
@@ -175,6 +179,22 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
   ): Promise<DocumentAnalysis> {
     if (!this.isConfigured) throw new Error('No document analyst is configured');
 
+    // One look at one document is one unit of the `classifier` gate: the service an operator turns
+    // on with `CLASSIFIER_API_BASE_URL`, whatever the pipeline calls the step that asks it
+    // (docs/05 §5.4b).
+    return this.gates.run('classifier', () =>
+      this.ask(excerpt, documentTypes, subjectKinds, knownSubjects, language, pages),
+    );
+  }
+
+  private async ask(
+    excerpt: string,
+    documentTypes: readonly DocumentTypeOption[],
+    subjectKinds: readonly string[],
+    knownSubjects: readonly KnownSubject[],
+    language: string,
+    pages: readonly PageImage[],
+  ): Promise<DocumentAnalysis> {
     // 🔒 One delimiter per call, unguessable by the document being read (docs/05 §5.5 step 4).
     const nonce = newNonce();
 

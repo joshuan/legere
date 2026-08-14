@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { BuildCanonical } from '../../src/server/application/documents/build-canonical';
 import { HandleDocumentProcess } from '../../src/server/application/jobs/handle-document-process';
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
-import { QueueSettings } from '../../src/server/application/queue/queue-settings';
+import { QueueSettings, ungatedServices } from '../../src/server/application/queue/queue-settings';
 import { DocumentTypeRepository } from '../../src/server/domain/repositories/document-type.repository';
 import { DocumentChunkRepository } from '../../src/server/domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../src/server/domain/repositories/document-event.repository';
@@ -109,6 +109,7 @@ describe('Document processing (integration)', () => {
             maintenance: 1,
           },
           unitConcurrency: 4,
+          services: ungatedServices(),
         }),
         settings,
       ),

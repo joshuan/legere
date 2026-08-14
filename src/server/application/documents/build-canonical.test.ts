@@ -10,7 +10,7 @@ import {
   documentFixture,
 } from '../../../../test/helpers/processing-fakes';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
-import { QueueSettings } from '../queue/queue-settings';
+import { QueueSettings, ungatedServices } from '../queue/queue-settings';
 import { BuildCanonical } from './build-canonical';
 
 // A page is built in the shape of what it was made from, recognised there, and only then given its
@@ -69,6 +69,7 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
           maintenance: 1,
         },
         unitConcurrency: 1,
+        services: ungatedServices(),
       }),
       SETTINGS,
     );

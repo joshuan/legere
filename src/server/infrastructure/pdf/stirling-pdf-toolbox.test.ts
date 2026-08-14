@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { loadConfig } from '../config/app-config';
 import { AsyncLocalCallContext } from '../logging/async-call-context';
 import { StirlingPdfToolbox } from './stirling-pdf-toolbox';
@@ -7,7 +8,10 @@ import { StirlingPdfToolbox } from './stirling-pdf-toolbox';
 // What the container is asked to do, with the container itself mocked (the acceptance of M4.2:
 // "integration-tested against the dev Stirling container, mocked otherwise"). The wire format is the
 // contract — a wrong field name fails at runtime with a 400 nobody sees until a document is queued.
-function toolbox(url = 'http://stirling:8080'): StirlingPdfToolbox {
+function toolbox(
+  url = 'http://stirling:8080',
+  gates: ServiceGates = new ServiceGates(),
+): StirlingPdfToolbox {
   return new StirlingPdfToolbox(
     loadConfig({
       DATABASE_URL: 'postgresql://legere:legere@localhost:5432/legere',
@@ -17,6 +21,7 @@ function toolbox(url = 'http://stirling:8080'): StirlingPdfToolbox {
       S3_SECRET_ACCESS_KEY: 'test-secret-key',
       STIRLING_URL: url,
     }),
+    gates,
   );
 }
 
@@ -231,6 +236,26 @@ describe('StirlingPdfToolbox', () => {
     await expect(toolbox().pdfPageCount(Buffer.from('%PDF-'))).rejects.toThrow(
       /unreadable page count/,
     );
+  });
+
+  // Every call to the container is one unit of the `stirling` gate (docs/05 §5.4b) — the page
+  // count included, which reads a small answer rather than a document and is a call all the same.
+  it('asks the stirling gate before every call it makes', async () => {
+    const gates = new ServiceGates();
+    const run = vi.spyOn(gates, 'run');
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        typeof input === 'string' && input.includes('page-count')
+          ? Response.json({ pageCount: 3 })
+          : pdfResponse(),
+      ),
+    );
+    const pdfs = toolbox('http://stirling:8080', gates);
+
+    await pdfs.pdfPageJpg(Buffer.from('%PDF-'));
+    expect(await pdfs.pdfPageCount(Buffer.from('%PDF-'))).toBe(3);
+
+    expect(run.mock.calls.map(([service]) => service)).toEqual(['stirling', 'stirling']);
   });
 
   it("puts the container's own message into the error, so a failed job is diagnosable", async () => {

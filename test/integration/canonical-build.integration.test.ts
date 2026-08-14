@@ -3,7 +3,8 @@ import sharp from 'sharp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, type TestContext } from 'vitest';
 import type { Crop } from '../../src/shared/contracts/documents';
 import { BuildCanonical } from '../../src/server/application/documents/build-canonical';
-import { QueueSettings } from '../../src/server/application/queue/queue-settings';
+import { QueueSettings, ungatedServices } from '../../src/server/application/queue/queue-settings';
+import { ServiceGates } from '../../src/server/application/queue/service-gate';
 import { originalKeyOf } from '../../src/server/application/storage/artifact-keys';
 import { FileRepository } from '../../src/server/domain/repositories/file.repository';
 import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
@@ -72,7 +73,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
       new StubLibraryReader(),
       storage,
       new SharpImageTool(),
-      new StirlingPdfToolbox(config),
+      new StirlingPdfToolbox(config, new ServiceGates()),
       new QueueSettings(moduleRef.get(SettingsRepository), {
         concurrency: {
           'library-scan': 1,
@@ -81,6 +82,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
           maintenance: 1,
         },
         unitConcurrency: 2,
+        services: ungatedServices(),
       }),
       {
         previewMaxDim: 1600,
@@ -197,7 +199,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
 
       // The parts are in the order the document holds them, and the text of both readable ones
       // survived the merge.
-      const pdfs = new StirlingPdfToolbox(config);
+      const pdfs = new StirlingPdfToolbox(config, new ServiceGates());
       const text = await pdfs.pdfToMarkdown(built.pdf);
       expect(text).toContain(PDF_TEXT.slice(0, 40));
       expect(text).toContain(OFFICE_TEXT.slice(0, 40));

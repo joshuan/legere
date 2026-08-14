@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { readBoundedJson, readBoundedText } from '../../application/ports/binary-source';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
 import { callHeaders } from '../logging/async-call-context';
 
@@ -36,7 +37,10 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
   private readonly model: string;
   private readonly dimensions: number;
 
-  constructor(config: AppConfig) {
+  constructor(
+    config: AppConfig,
+    private readonly gates: ServiceGates,
+  ) {
     super();
     this.baseUrl = config.get('EMBEDDINGS_API_BASE_URL').replace(/\/+$/, '');
     this.apiKey = config.get('EMBEDDINGS_API_KEY');
@@ -56,6 +60,12 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
     if (!this.isConfigured) throw new Error('No embeddings provider is configured');
     if (texts.length === 0) return [];
 
+    // One batch is one unit of the `embeddings` gate (docs/05 §5.4b): a vectorization that sends
+    // four batches asks the provider four times, and each one waits its turn.
+    return this.gates.run('embeddings', () => this.ask(texts));
+  }
+
+  private async ask(texts: readonly string[]): Promise<number[][]> {
     const response = await fetch(`${this.baseUrl}/embeddings`, {
       method: 'POST',
       headers: {

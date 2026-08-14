@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { z } from 'zod';
 import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helpers/outbound';
 import type { DocumentTypeOption, KnownSubject } from '../../application/ports/document-analyst';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { loadConfig } from '../config/app-config';
 import { fenceDocument, OpenAiCompatAnalyst } from './openai-compat-analyst';
 
@@ -12,7 +13,10 @@ const CATEGORIES: DocumentTypeOption[] = [
   { slug: 'contract', name: 'Contract', description: null },
 ];
 
-function analyst(overrides: Record<string, string> = {}): OpenAiCompatAnalyst {
+function analyst(
+  overrides: Record<string, string> = {},
+  gates: ServiceGates = new ServiceGates(),
+): OpenAiCompatAnalyst {
   return new OpenAiCompatAnalyst(
     loadConfig({
       DATABASE_URL: 'postgresql://legere:legere@localhost:5432/legere',
@@ -28,6 +32,7 @@ function analyst(overrides: Record<string, string> = {}): OpenAiCompatAnalyst {
       CLASSIFIER_MODEL: 'gpt-4o-mini',
       ...overrides,
     }),
+    gates,
   );
 }
 
@@ -435,6 +440,20 @@ describe('OpenAiCompatAnalyst (a runtime that misbehaves)', () => {
     );
     // 8 MiB in 64 KiB chunks is 128 of them, plus the one that crosses the bound.
     expect(produced()).toBeLessThan(134);
+  });
+
+  // The gate is named after the service an operator configures — `classifier`, beside
+  // CLASSIFIER_API_BASE_URL — while the port goes on being a DocumentAnalyst (docs/05 §5.4b).
+  it('sends a look at a document through the classifier gate', async () => {
+    const gates = new ServiceGates();
+    const run = vi.spyOn(gates, 'run');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({ choices: [{ message: { content: '{"title": "Invoice"}' } }] }),
+    );
+
+    await analyst({}, gates).analyze('text', CATEGORIES);
+
+    expect(run.mock.calls.map(([service]) => service)).toEqual(['classifier']);
   });
 
   it('bounds the error detail it quotes from a failing runtime', async () => {

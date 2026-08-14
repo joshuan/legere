@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { loadConfig } from '../config/app-config';
 import { OpenAiCompatTranscriber } from './openai-compat-transcriber';
 
@@ -7,7 +8,11 @@ import { OpenAiCompatTranscriber } from './openai-compat-transcriber';
 
 const PAGE = { bytes: Buffer.from('page') };
 
-function transcriberWith(answer: unknown, status = 200): OpenAiCompatTranscriber {
+function transcriberWith(
+  answer: unknown,
+  status = 200,
+  gates: ServiceGates = new ServiceGates(),
+): OpenAiCompatTranscriber {
   const config = loadConfig({
     DATABASE_URL: 'postgresql://legere:legere@localhost:5432/legere',
     APP_BASE_URL: 'http://localhost:3000',
@@ -24,7 +29,7 @@ function transcriberWith(answer: unknown, status = 200): OpenAiCompatTranscriber
         headers: { 'content-type': 'application/json' },
       }),
     );
-  return new OpenAiCompatTranscriber(config);
+  return new OpenAiCompatTranscriber(config, gates);
 }
 
 const completion = (content: string, finish = 'stop'): unknown => ({
@@ -68,6 +73,20 @@ describe('OpenAiCompatTranscriber', () => {
     const transcriber = transcriberWith(completion('| Лейкоциты | еди', 'length'));
 
     await expect(transcriber.transcribe([PAGE], [])).rejects.toThrow(/ran out of output/u);
+  });
+
+  // One transcription — the whole document in one call — is one unit of the `transcriber` gate
+  // (docs/05 §5.4b).
+  it('reads a document through the transcriber gate', async () => {
+    const gates = new ServiceGates();
+    const run = vi.spyOn(gates, 'run');
+    const transcriber = transcriberWith(completion('# Отчёт'), 200, gates);
+
+    await transcriber.transcribe([PAGE], ['ru']);
+    // Nothing to read is nothing to ask, so it takes no slot.
+    await transcriber.transcribe([], ['ru']);
+
+    expect(run.mock.calls.map(([service]) => service)).toEqual(['transcriber']);
   });
 
   it('asks for nothing when there are no pages to read', async () => {

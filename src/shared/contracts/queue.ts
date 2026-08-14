@@ -94,12 +94,43 @@ export type RetryJobResponse = z.infer<typeof retryJobResponseSchema>;
 // that lets somebody type 500 is a box that lets somebody take the machine down.
 export const QUEUE_CONCURRENCY_MAX = 32;
 
+// The services an operator may put a gate in front of (docs/05 §5.4b), keyed the way the
+// environment names them rather than the way the pipeline names its steps: the thing being throttled
+// is whatever `CLASSIFIER_API_BASE_URL` points at, so the gate is `classifier` while the port stays
+// a `DocumentAnalyst`. A name this version does not know is dropped on write, exactly as an unknown
+// queue name is.
+export const SERVICE_NAMES = [
+  'stirling',
+  'docling',
+  'classifier',
+  'transcriber',
+  'embeddings',
+] as const;
+export type ServiceName = (typeof SERVICE_NAMES)[number];
+
+// Ten minutes is the longest pause worth offering: past it the job that is waiting has more to fear
+// from the hour pg-boss gives it than from the container it is being polite to (docs/06 §6.8).
+export const SERVICE_COOLDOWN_MAX_SECONDS = 600;
+
+// One gate, two numbers (docs/05 §5.4b). `concurrency: 0` is not a gate of infinite width — it is no
+// gate at all, and with it the cooldown has nothing to hold shut. Both default to `0`, so an
+// instance that upgrades into this waits nowhere until somebody says otherwise.
+export const serviceGateSchema = z.object({
+  concurrency: z.number().int().min(0).max(QUEUE_CONCURRENCY_MAX),
+  cooldownSeconds: z.number().int().min(0).max(SERVICE_COOLDOWN_MAX_SECONDS),
+});
+export type ServiceGateDto = z.infer<typeof serviceGateSchema>;
+
 export const queueSettingsSchema = z.object({
   concurrency: z.record(z.string(), z.number().int().min(1).max(QUEUE_CONCURRENCY_MAX)),
   unitConcurrency: z.number().int().min(1).max(QUEUE_CONCURRENCY_MAX),
   // Queues whose workers are not registered: jobs arrive and wait, nothing consumes them
   // (docs/05 §5.4). The way to stop one misbehaving step without stopping the instance.
   paused: z.array(z.string()),
+  // How many calls each external service may be doing at once, and how long its slot stays shut
+  // afterwards. It travels beside the queue knobs because it is the same kind of setting — how hard
+  // this instance works — and it lives in the same settings row (docs/05 §5.4b, docs/07 §7.3).
+  services: z.record(z.string(), serviceGateSchema),
 });
 export type QueueSettingsDto = z.infer<typeof queueSettingsSchema>;
 

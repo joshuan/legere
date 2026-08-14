@@ -143,6 +143,26 @@ describe('describeInstance', () => {
       // Zero is a value, not a blank: it is how the scan guard is switched off.
       expect(rowFor('SCAN_MAX_FILES', { SCAN_MAX_FILES: '0' }).value).toBe('0');
     });
+
+    // The gates of docs/05 §5.4b, under the group the queue knobs already live in
+    // (docs/11 §11.13a). Plain numbers, and a zero here is "no gate at all" rather than a blank.
+    it('reports every per-service gate the environment resolved to', () => {
+      const queue = view().groups.find((group) => group.key === 'queue');
+      const keys = (queue?.settings ?? []).map((setting) => setting.key);
+
+      for (const service of ['STIRLING', 'DOCLING', 'CLASSIFIER', 'TRANSCRIBER', 'EMBEDDINGS']) {
+        expect(keys).toContain(`SERVICE_CONCURRENCY_${service}`);
+        expect(keys).toContain(`SERVICE_COOLDOWN_${service}`);
+      }
+      expect(rowFor('SERVICE_CONCURRENCY_STIRLING')).toMatchObject({
+        value: '0',
+        source: 'DEFAULT',
+        consequence: null,
+      });
+      expect(
+        rowFor('SERVICE_COOLDOWN_STIRLING', { SERVICE_COOLDOWN_STIRLING: '30' }),
+      ).toMatchObject({ value: '30', source: 'ENV' });
+    });
   });
 
   describe('what a blank costs', () => {
