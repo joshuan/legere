@@ -144,6 +144,27 @@ describe('describeInstance', () => {
       expect(rowFor('SCAN_MAX_FILES', { SCAN_MAX_FILES: '0' }).value).toBe('0');
     });
 
+    // The knobs that tune the analysis are reported under the namespace of the variable that turns
+    // the service on, never under the name they used to have (docs/12 §12.4).
+    it('names the analysis knobs after the service an operator configures', () => {
+      const keys = rowsOf().map((setting) => setting.key);
+
+      for (const knob of [
+        'CLASSIFIER_EXCERPT_CHARS',
+        'CLASSIFIER_MAX_PAGE_IMAGES',
+        'CLASSIFIER_AUTO_MAX_PAGES',
+        'CLASSIFIER_PAGE_IMAGE_MAX_DIM',
+      ]) {
+        expect(keys).toContain(knob);
+      }
+      expect(keys.filter((key) => key.startsWith('ANALYST_'))).toEqual([]);
+      // A value inherited from the pre-rename name is still a value somebody set.
+      expect(rowFor('CLASSIFIER_AUTO_MAX_PAGES', { ANALYST_AUTO_MAX_PAGES: '25' })).toMatchObject({
+        value: '25',
+        source: 'ENV',
+      });
+    });
+
     // The gates of docs/05 §5.4b, under the group the queue knobs already live in
     // (docs/11 §11.13a). Plain numbers, and a zero here is "no gate at all" rather than a blank.
     it('reports every per-service gate the environment resolved to', () => {

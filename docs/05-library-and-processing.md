@@ -483,15 +483,15 @@ because a run that told us nothing new happened to it.
    with no cost per character, which a model does not — and a place somebody filled in by hand stays;
    clearing a field is how you ask for it to be inferred again.
    🔒 **And only when the document is short enough to be worth one look.** Past
-   `ANALYST_AUTO_MAX_PAGES` (default 10) the step is `SKIPPED` with `TOO_MANY_PAGES` and nothing is
+   `CLASSIFIER_AUTO_MAX_PAGES` (default 10) the step is `SKIPPED` with `TOO_MANY_PAGES` and nothing is
    sent: a verdict read off the first ten pages of a forty-page contract is worse than no verdict,
    because it looks like one — the document would carry a type, a title and a date nobody could tell
    were guesses. The limit is on what the pipeline does **unasked**; a person may ask for that one
    document from its own page (`07 §7.3`, `analyseInFull`), and then the whole of it goes. `0` lifts
    the limit.
    **What it is shown is the document, not the opening of it.** The whole of the extracted text, and
-   the pages themselves as pictures — at most `ANALYST_MAX_PAGE_IMAGES` (default 20) of them, past
-   which a document is a book rather than a paper and its text carries it. `ANALYST_EXCERPT_CHARS`
+   the pages themselves as pictures — at most `CLASSIFIER_MAX_PAGE_IMAGES` (default 20) of them, past
+   which a document is a book rather than a paper and its text carries it. `CLASSIFIER_EXCERPT_CHARS`
    caps the text for an instance that wants it capped; `0`, the default, does not. The pictures are
    not decoration: a scan whose recognition found nothing has no text to be analysed from at all, and
    a document is a picture before it is a string. Pages that will not render are pages the model does

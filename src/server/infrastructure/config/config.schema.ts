@@ -115,16 +115,22 @@ export const configSchema = z.object({
   THUMB_MAX_DIM: z.coerce.number().int().positive().default(400),
   CHUNK_TARGET_CHARS: z.coerce.number().int().positive().default(1000),
   CHUNK_OVERLAP_CHARS: z.coerce.number().int().nonnegative().default(200),
+  // The knobs of the service `CLASSIFIER_API_BASE_URL` turns on, named after it rather than after
+  // the port that calls it (docs/12 §12.4): a setting that tunes a service belongs in the same
+  // namespace as the one that switched it on, which is the rule the per-service gates below follow
+  // too. The pre-rename `ANALYST_*` names are still read where the new one is absent — see
+  // `RENAMED_KEYS`.
+  //
   // How much of a document the analyst is shown. 0 — the default — is all of it: a cap left a model
   // naming a contract from its letterhead (docs/05 §5.5 step 4).
-  ANALYST_EXCERPT_CHARS: z.coerce.number().int().nonnegative().default(0),
+  CLASSIFIER_EXCERPT_CHARS: z.coerce.number().int().nonnegative().default(0),
   // And how many of its pages travel as pictures beside that text.
-  ANALYST_MAX_PAGE_IMAGES: z.coerce.number().int().nonnegative().default(20),
+  CLASSIFIER_MAX_PAGE_IMAGES: z.coerce.number().int().nonnegative().default(20),
   // How long a document the pipeline analyses without being asked. Past this it does not analyse a
   // shortened version — it does not analyse at all, and says so: a verdict read off the first ten
   // pages of a forty-page contract is worse than no verdict, because it looks like one. A person may
   // still ask for the whole document from its own page (docs/05 §5.5 step 4). 0 = no limit.
-  ANALYST_AUTO_MAX_PAGES: z.coerce.number().int().nonnegative().default(10),
+  CLASSIFIER_AUTO_MAX_PAGES: z.coerce.number().int().nonnegative().default(10),
   // The recogniser of last resort (docs/05 §5.5 step 3): a vision model reading the pages of a
   // document that had to be recognised at all. Empty leaves the tesseract result standing, which is
   // how this product behaved before it existed. Separate from the analyst's own settings, because an
@@ -137,7 +143,7 @@ export const configSchema = z.object({
   // from analysing them, so it is a different number.
   TRANSCRIBER_MAX_PAGES: z.coerce.number().int().nonnegative().default(20),
   TRANSCRIBER_PAGE_IMAGE_MAX_DIM: z.coerce.number().int().positive().default(1600),
-  ANALYST_PAGE_IMAGE_MAX_DIM: z.coerce.number().int().positive().default(1200),
+  CLASSIFIER_PAGE_IMAGE_MAX_DIM: z.coerce.number().int().positive().default(1200),
   QUEUE_CONCURRENCY_INGEST: z.coerce.number().int().positive().default(4),
   QUEUE_CONCURRENCY_PROCESS: z.coerce.number().int().positive().default(2),
   // How many independent units inside one job run at once — the pages of a scan set being cropped,
@@ -175,3 +181,19 @@ export const configSchema = z.object({
 });
 
 export type ConfigValues = z.infer<typeof configSchema>;
+
+// 🔒 What a key used to be called, still read where the current name is absent (docs/12 §12.4). An
+// environment is not a database anybody migrates: it lives in a compose file, a systemd unit or a
+// shell profile on somebody else's machine, and a rename that stopped reading the old name would
+// silently hand a running instance the default instead — `ANALYST_AUTO_MAX_PAGES=10` becoming "no
+// cap at all" is a rename that costs money on the next long document. The old name is read, never
+// written: `/admin/instance` reports the row under the name it has now.
+export const RENAMED_KEYS: ReadonlyArray<{
+  readonly now: keyof ConfigValues;
+  readonly before: string;
+}> = [
+  { now: 'CLASSIFIER_EXCERPT_CHARS', before: 'ANALYST_EXCERPT_CHARS' },
+  { now: 'CLASSIFIER_MAX_PAGE_IMAGES', before: 'ANALYST_MAX_PAGE_IMAGES' },
+  { now: 'CLASSIFIER_AUTO_MAX_PAGES', before: 'ANALYST_AUTO_MAX_PAGES' },
+  { now: 'CLASSIFIER_PAGE_IMAGE_MAX_DIM', before: 'ANALYST_PAGE_IMAGE_MAX_DIM' },
+];

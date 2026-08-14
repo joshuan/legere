@@ -55,12 +55,12 @@ function processingSettings(config: AppConfig): ProcessingSettings {
     correctImagePages: config.get('IMAGE_PAGE_CORRECTION'),
     chunkTargetChars: config.get('CHUNK_TARGET_CHARS'),
     chunkOverlapChars: config.get('CHUNK_OVERLAP_CHARS'),
-    analystExcerptChars: config.get('ANALYST_EXCERPT_CHARS'),
-    analystMaxPageImages: config.get('ANALYST_MAX_PAGE_IMAGES'),
-    analystAutoMaxPages: config.get('ANALYST_AUTO_MAX_PAGES'),
+    analystExcerptChars: config.get('CLASSIFIER_EXCERPT_CHARS'),
+    analystMaxPageImages: config.get('CLASSIFIER_MAX_PAGE_IMAGES'),
+    analystAutoMaxPages: config.get('CLASSIFIER_AUTO_MAX_PAGES'),
     transcriberMaxPages: config.get('TRANSCRIBER_MAX_PAGES'),
     transcriberPageImageMaxDim: config.get('TRANSCRIBER_PAGE_IMAGE_MAX_DIM'),
-    analystPageImageMaxDim: config.get('ANALYST_PAGE_IMAGE_MAX_DIM'),
+    analystPageImageMaxDim: config.get('CLASSIFIER_PAGE_IMAGE_MAX_DIM'),
   };
 }
 

@@ -1,4 +1,4 @@
-import { configSchema, type ConfigValues } from './config.schema';
+import { configSchema, RENAMED_KEYS, type ConfigValues } from './config.schema';
 
 // Typed, validated configuration exposed to DI (docs/06 §6.6). Injected via its class token;
 // `process.env` is read nowhere else in the codebase.
@@ -50,7 +50,10 @@ const PUBLISHED_EXAMPLES: ReadonlyArray<{
 // more than the schema's shape (docs/12 §12.4a) — the same collected-error format, because an
 // operator fixing three things wants to be told three things once.
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
-  const result = configSchema.safeParse(env);
+  // What a key used to be called is read before the schema sees anything, so the rest of the
+  // process only ever knows the name a key has now (docs/12 §12.4).
+  const resolved = withRenamedKeys(env);
+  const result = configSchema.safeParse(resolved);
   if (!result.success) {
     const issues = result.error.issues
       .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
@@ -58,7 +61,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
 
-  const config = new AppConfig(result.data, providedKeys(env));
+  // Over the resolved environment, not the raw one: a value inherited from a pre-rename name was
+  // still set by an operator, and `/admin/instance` must not report it as a default nobody chose.
+  const config = new AppConfig(result.data, providedKeys(resolved));
   const refusals = productionRefusals(config);
   if (refusals.length > 0) {
     throw new Error(
@@ -159,4 +164,18 @@ function originOf(value: string): string | null {
 // The schema's own keys that the environment carried with something in them.
 function providedKeys(env: Record<string, string | undefined>): ReadonlySet<string> {
   return new Set(Object.keys(configSchema.shape).filter((key) => (env[key] ?? '') !== ''));
+}
+
+// The current name wins wherever it is set; where it is not, the name the key used to carry is read
+// in its place (`RENAMED_KEYS`, docs/12 §12.4). An upgrade must not turn a cap somebody set into the
+// default, and an operator who has moved to the new name must not be second-guessed by an old one
+// still sitting in the same environment.
+function withRenamedKeys(
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const resolved = { ...env };
+  for (const { now, before } of RENAMED_KEYS) {
+    if ((resolved[now] ?? '') === '' && (env[before] ?? '') !== '') resolved[now] = env[before];
+  }
+  return resolved;
 }

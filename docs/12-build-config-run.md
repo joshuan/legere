@@ -110,9 +110,9 @@ PREVIEW_MAX_DIM=1600
 THUMB_MAX_DIM=400
 CHUNK_TARGET_CHARS=1000
 CHUNK_OVERLAP_CHARS=200
-ANALYST_EXCERPT_CHARS=0                      # 0 = the whole text; a cap leaves the model naming a document from its letterhead (05 §5.5 step 4)
-ANALYST_MAX_PAGE_IMAGES=20                   # how many pages travel with that text as pictures
-ANALYST_AUTO_MAX_PAGES=10                    # past this the pipeline does not analyse unasked at all — 0 lifts it (05 §5.5 step 4)
+CLASSIFIER_EXCERPT_CHARS=0                   # 0 = the whole text; a cap leaves the model naming a document from its letterhead (05 §5.5 step 4)
+CLASSIFIER_MAX_PAGE_IMAGES=20                # how many pages travel with that text as pictures
+CLASSIFIER_AUTO_MAX_PAGES=10                 # past this the pipeline does not analyse unasked at all — 0 lifts it (05 §5.5 step 4)
 
 # --- the recogniser of last resort (05 §5.5 step 3): a vision model reading recognised pages ---
 TRANSCRIBER_API_BASE_URL=                    # empty = the tesseract result stands, as before this existed
@@ -120,7 +120,7 @@ TRANSCRIBER_API_KEY=
 TRANSCRIBER_MODEL=                           # a model that accepts images
 TRANSCRIBER_MAX_PAGES=20                     # transcribing forty pages is a different decision from analysing them
 TRANSCRIBER_PAGE_IMAGE_MAX_DIM=1600
-ANALYST_PAGE_IMAGE_MAX_DIM=1200              # longest side of each of them: a model reads a page, it does not print it
+CLASSIFIER_PAGE_IMAGE_MAX_DIM=1200           # longest side of each of them: a model reads a page, it does not print it
 QUEUE_CONCURRENCY_INGEST=4
 QUEUE_CONCURRENCY_PROCESS=2
 QUEUE_UNIT_CONCURRENCY=1
@@ -187,6 +187,14 @@ documented:
 The picture threshold is lowered to 1% of the page when captions are on: Docling's own default of 5%
 skips exactly the pictures a document archive has — a logo, a stamp, a QR code — and the feature
 then looks broken rather than strict.
+
+**The `ANALYST_*` names are still read.** The four knobs that tune the analysis — the excerpt, the
+page images, their size, and the length past which a document is not analysed unasked — were named
+after the port that calls them before they moved into the namespace of the variable that turns the
+service on ([`05 §5.4b`](./05-library-and-processing.md#54b-per-service-gates) gives the same reason
+for the gate keys). Where the `CLASSIFIER_*` name is absent the `ANALYST_*` one is read in its
+place, so an instance carrying `ANALYST_AUTO_MAX_PAGES=10` keeps that cap across the upgrade instead
+of quietly falling back to the default. `/admin/instance` reports the row under the name it has now.
 
 `NEXT_PUBLIC_*` values are **build-time**: they are baked into the client bundle during `next build`
 (passed as Docker build-args, [`13 §13.3`](./13-ci-cd.md#133-githubworkflowsreleaseyml)); setting them

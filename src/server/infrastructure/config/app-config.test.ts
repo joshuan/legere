@@ -36,6 +36,59 @@ describe('loadConfig', () => {
     expect(config.isFromEnv('LOG_LEVEL')).toBe(false);
   });
 
+  // A key that has been renamed is still read under the name it had (docs/12 §12.4): an environment
+  // lives in somebody's compose file, and a rename nobody could see would hand a running instance
+  // the default in place of the cap it had set.
+  describe('a key that was renamed', () => {
+    it('takes the current name where it is set', () => {
+      const config = loadConfig({
+        ...MINIMAL,
+        CLASSIFIER_AUTO_MAX_PAGES: '40',
+        ANALYST_AUTO_MAX_PAGES: '10',
+      });
+
+      expect(config.get('CLASSIFIER_AUTO_MAX_PAGES')).toBe(40);
+    });
+
+    it('reads the name it used to have where the current one is absent', () => {
+      const config = loadConfig({
+        ...MINIMAL,
+        ANALYST_EXCERPT_CHARS: '4000',
+        ANALYST_MAX_PAGE_IMAGES: '5',
+        ANALYST_AUTO_MAX_PAGES: '25',
+        ANALYST_PAGE_IMAGE_MAX_DIM: '900',
+      });
+
+      expect(config.get('CLASSIFIER_EXCERPT_CHARS')).toBe(4000);
+      expect(config.get('CLASSIFIER_MAX_PAGE_IMAGES')).toBe(5);
+      expect(config.get('CLASSIFIER_AUTO_MAX_PAGES')).toBe(25);
+      expect(config.get('CLASSIFIER_PAGE_IMAGE_MAX_DIM')).toBe(900);
+      // Inherited from an operator's own setting, so the instance page must not report it as a
+      // default nobody chose (docs/11 §11.13a).
+      expect(config.isFromEnv('CLASSIFIER_AUTO_MAX_PAGES')).toBe(true);
+    });
+
+    it('falls back to the schema default when neither name is set', () => {
+      const config = loadConfig({ ...MINIMAL });
+
+      expect(config.get('CLASSIFIER_AUTO_MAX_PAGES')).toBe(10);
+      expect(config.get('CLASSIFIER_EXCERPT_CHARS')).toBe(0);
+      expect(config.isFromEnv('CLASSIFIER_AUTO_MAX_PAGES')).toBe(false);
+    });
+
+    it('treats an empty current name as absent rather than as an override', () => {
+      // `CLASSIFIER_AUTO_MAX_PAGES=` in a .env file is not a value, which is the rule every other
+      // key follows here.
+      const config = loadConfig({
+        ...MINIMAL,
+        CLASSIFIER_AUTO_MAX_PAGES: '',
+        ANALYST_AUTO_MAX_PAGES: '25',
+      });
+
+      expect(config.get('CLASSIFIER_AUTO_MAX_PAGES')).toBe(25);
+    });
+  });
+
   it('throws a readable error when required vars are missing or invalid', () => {
     expect(() => loadConfig({ APP_BASE_URL: 'not-a-url', AUTH_SECRET: 'too-short' })).toThrowError(
       /Invalid environment configuration/,

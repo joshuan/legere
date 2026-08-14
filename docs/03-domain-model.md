@@ -325,7 +325,7 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 | `NOT_CONFIGURED` | the instance has no classifier / embeddings provider (docs/05 §5.5) |
 | `NO_TYPES` | retained for documents processed before step 4 became a full analysis; no longer produced — with no document types defined the step still runs, because it also reads where the document is from |
 | `NO_TEXT` | there is no extracted text to work from: the extraction ran and yielded none, or it has not run at all — which is what a reprocess asking for the analysis or the vectorization on their own leaves them looking at (`05 §5.5`) |
-| `TOO_MANY_PAGES` | longer than `ANALYST_AUTO_MAX_PAGES`: not analysed unasked at all, because a verdict read off the first ten pages of a forty-page contract looks exactly like one read off the whole (`05 §5.5` step 4). A person may still ask, from the document's own page |
+| `TOO_MANY_PAGES` | longer than `CLASSIFIER_AUTO_MAX_PAGES`: not analysed unasked at all, because a verdict read off the first ten pages of a forty-page contract looks exactly like one read off the whole (`05 §5.5` step 4). A person may still ask, from the document's own page |
 | `MANUAL_TYPE` | a person chose the document type, and a machine never overwrites that |
 
 **Derived state (computed, not stored):**
