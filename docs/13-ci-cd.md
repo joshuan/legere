@@ -134,9 +134,13 @@ emulated arm64 makes `prisma generate` fall back to its wasm engine, which rejec
 `env("DATABASE_URL")` in the schema (P1012). Native runners also build in roughly a third of the
 time.
 
-On a `v*` tag a `publish` job follows `merge` and creates the **GitHub Release** from the tag with
-`--generate-notes` — nobody writes or clicks anything. It waits for `merge` on purpose: a release
-page that exists is a promise that `ghcr.io/<owner>/legere:vX.Y.Z` can be pulled.
+On a `v*` tag a `publish` job follows `merge` and creates the **GitHub Release** from the tag —
+nobody writes or clicks anything. The notes are the commit subjects since the previous tag plus the
+compare link, assembled in the job itself: GitHub's own `--generate-notes` reads pull requests, and
+a repository in its direct-commit mode has none to read, so it would produce a bare compare link.
+Commit subjects are Conventional Commits either way — under squash-merge they *are* the PR titles —
+so the same notes read correctly in both modes. The job waits for `merge` on purpose: a release page
+that exists is a promise that `ghcr.io/<owner>/legere:vX.Y.Z` can be pulled.
 
 A further job, `scan`, reads the published tag back and fails on a fixed HIGH or CRITICAL finding.
 It runs *after* publication rather than over a locally built image so that what is reported is the
@@ -205,11 +209,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
+      # …checkout with fetch-depth 0, commit subjects since the previous tag → /tmp/notes.md…
       - env: { GH_TOKEN: '${{ github.token }}' }
         run: |
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+              --title "$GITHUB_REF_NAME" --notes-file /tmp/notes.md --verify-tag
 
   scan:
     needs: merge
@@ -253,16 +258,16 @@ What the command does, in order (`scripts/release.mjs`):
    (+ lockfile), commits `chore(release): X.Y.Z` and lays the annotated tag `vX.Y.Z` on that very
    commit — then pushes both in one `git push --follow-tags`.
 4. **CI does the rest** (§13.3): the tag starts `release.yml`, the multi-platform image is published
-   as `vX.Y.Z`/`latest`, and the `publish` job creates the GitHub Release from the tag with
-   `--generate-notes`. The person who ran the command is done at step 3; the release page appears
-   when the image it names can be pulled.
+   as `vX.Y.Z`/`latest`, and the `publish` job creates the GitHub Release from the tag, its notes
+   assembled from the commit subjects since the previous tag. The person who ran the command is done
+   at step 3; the release page appears when the image it names can be pulled.
 
 Why this is atomic where the old way was not: the tag points at the version commit **by
 construction** (one `npm version` invocation), they travel in one push, and the Release is derived
 from the tag **by CI** — three artifacts, one source of truth, no step where a person picks a commit
-for a tag or a tag for a release. The release notes are GitHub's generated ones; the commit subjects
-are Conventional Commits and read well enough as a list, and a sentence worth adding can be edited
-onto the release page afterwards without holding the release for it.
+for a tag or a tag for a release. Nobody writes the notes: the commit subjects are Conventional
+Commits and read as a list on their own, and a sentence worth adding can be edited onto the release
+page afterwards without holding the release for it.
 
 The version commit itself lands on `main` unreviewed by the gate (it did not exist when CI ran), and
 that is fine: it changes two version fields and nothing else, and CI still runs on it after the

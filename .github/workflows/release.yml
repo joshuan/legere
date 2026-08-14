@@ -104,9 +104,10 @@ jobs:
         run: docker buildx imagetools inspect "${IMAGE}:${{ steps.meta.outputs.version }}"
 
   # The release is the tag (docs/13 §13.3a): the same push carries the version commit and the tag,
-  # and the GitHub Release is published here, once the image the tag names exists — with generated
-  # notes, so no by-hand step ties the three together. Re-runs are harmless: an existing release is
-  # left as it is.
+  # and the GitHub Release is published here, once the image the tag names exists — so no by-hand
+  # step ties the three together. The notes are the commit subjects since the previous tag: GitHub's
+  # own generator reads pull requests, and a repository in its direct-commit mode has none to read.
+  # Re-runs are harmless: an existing release is left as it is.
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: merge
@@ -114,13 +115,25 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          prev="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          {
+            git log ${prev:+"$prev.."}"$GITHUB_REF_NAME" --no-merges --pretty='- %s' \
+              | grep -v '^- chore(release):'
+            echo
+            if [ -n "$prev" ]; then
+              echo "**Full Changelog**: https://github.com/$GITHUB_REPOSITORY/compare/$prev...$GITHUB_REF_NAME"
+            fi
+          } > /tmp/notes.md
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+              --title "$GITHUB_REF_NAME" --notes-file /tmp/notes.md --verify-tag
 
   # 🔒 SEC-07/SEC-21. `npm audit` in CI covers what the lockfile declares; it says nothing about the
   # Alpine packages and the native libraries underneath — which is exactly where the libvips CVEs
