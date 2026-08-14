@@ -725,6 +725,20 @@ sit in three bands at three ends of the page.
   inputs: how many run at once, and for `document-process` how many units inside one job do. Changes
   take effect without a restart and survive one (`05 §5.4`); the save is offered only once something
   differs from what the server holds.
+- **External services**, one block of its own below the stages, because a service is not a stage and
+  putting its gate inside one would hide it from the other: Stirling renders pages for
+  `document-process` and converts an upload for `file-ingest`, and there is one container being
+  asked. One row per service — Stirling, Docling, the analyst, the transcriber, the embeddings —
+  **named twice** the way the stages are, what it is over what it is called in the settings, with a
+  line under it saying which work it serves, for a reader who has never opened `05 §5.4b`. Two inputs
+  each: **how many calls it may be doing at once**, where `0` reads as "as many as the queues ask
+  for", and **how long to wait after one before starting the next**. Both are `0` until somebody
+  changes them, so a block of zeroes is an instance whose services are not gated at all — which is
+  what an upgrade leaves and what the page should say plainly rather than looking misconfigured.
+  Saving works the way the throughput settings above do: offered only once something differs from
+  what the server holds, and in force without a restart. Waiting at a gate is time inside the job
+  (`05 §5.4b`), so a service throttled to a trickle reads as slow jobs on this same page, which is
+  the honest place for it to read as anything.
 - **Failed jobs** table: queue, payload summary, error, when, retry count, and a per-row Retry.
 - **Storage usage** as of the last maintenance run.
 

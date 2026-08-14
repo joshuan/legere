@@ -303,6 +303,15 @@ configured, because the evidence is rarely literal: a Montenegrin train ticket s
 Without a provider both stay empty until somebody fills them in; both are editable either way, and a
 value a person set is never overwritten (the rule that already governs the document type).
 
+**A step may be `FAILED` without owning the failure.** The pipeline is a chain: the preview and the
+extraction read the canonical PDF, and the analysis and the vectorization read the extracted text
+(`05 §5.5`). A step whose input was never produced is `FAILED` too — there was nothing for it to work
+on, and calling that `SKIPPED` would say the document did not need it — but `processingError` and
+`failedStep` go on naming the step that actually broke. So `failedStep` is *the* failed step and not
+*a* failed step: a document may show three of them and point at one, which is the one worth reading.
+A dependency that was `SKIPPED` rather than broken is inherited the same way, reason and all, so the
+reader is told the format could not be rendered rather than that the embeddings found nothing.
+
 **Skip reasons.** `SKIPPED` on its own reads like something went wrong, and three of the five steps
 skip for reasons an operator can act on. Each skipped step records why, from a closed set:
 
@@ -312,7 +321,7 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 | `UNSUPPORTED_FORMAT` | the format has no representation the product can build |
 | `NOT_CONFIGURED` | the instance has no classifier / embeddings provider (docs/05 §5.5) |
 | `NO_TYPES` | retained for documents processed before step 4 became a full analysis; no longer produced — with no document types defined the step still runs, because it also reads where the document is from |
-| `NO_TEXT` | the document yielded no text to embed |
+| `NO_TEXT` | there is no extracted text to work from: the extraction ran and yielded none, or it has not run at all — which is what a reprocess asking for the analysis or the vectorization on their own leaves them looking at (`05 §5.5`) |
 | `TOO_MANY_PAGES` | longer than `ANALYST_AUTO_MAX_PAGES`: not analysed unasked at all, because a verdict read off the first ten pages of a forty-page contract looks exactly like one read off the whole (`05 §5.5` step 4). A person may still ask, from the document's own page |
 | `MANUAL_TYPE` | a person chose the document type, and a machine never overwrites that |
 

@@ -217,6 +217,77 @@ The one bound that is *not* in the application's gift is a `statement_timeout` o
 it belongs to the deployment and is written up in
 [`12 §12.8`](./12-build-config-run.md#128-production-notes).
 
+## 5.4b. Per-service gates
+
+The two knobs of §5.4 count jobs and units — how many documents are being worked on, and how many
+files inside one of them. Neither counts the thing that is actually scarce on the box this product
+is deployed on: **calls to one service**. Stirling renders and OCRs, Docling parses layout, and an
+analyst, a transcriber and an embeddings model answer over HTTP; on a self-hosted instance several of
+those usually share one physical host with the app itself, where an OCR pass and a layout parse want
+the same gigabytes and a local model wants the same cores. Per-queue concurrency cannot say "at most
+one OCR at a time" without also saying "at most one document at a time", which serializes an analyst
+call and a page render that were never in each other's way — so an operator with one overloaded
+container has had exactly one move available: turn every concurrency down to 1 and give up the
+parallelism that was fine. A gate per service is the knob that was missing, and with it the queue
+concurrency can go **up**: one document at the analyst while another renders in Stirling, and each
+heavy service still serving at most N callers with a breather between them.
+
+**Five services, one gate each** — `stirling`, `docling`, `classifier`, `transcriber`, `embeddings` —
+and two numbers on every gate:
+
+| Knob | Range | What it decides |
+|---|---|---|
+| `concurrency` | `0`, or 1…32 | how many units of that service's work may be in flight at once. `0` is no gate at all, and 32 is the bound the queue concurrencies already carry, for the reason they carry it: a box that lets somebody type 500 is a box that lets somebody take the machine down |
+| `cooldownSeconds` | 0…600 | how long a finished unit's slot stays shut before the next unit may take it — after a success and after a failure alike, because a container that has just fallen over is the last one to hurry |
+
+A gate is named after the **service** an operator configures rather than after the step that calls
+it, which is why the one serving step 4 is `classifier` and not `analyst`: the thing being throttled
+is whatever `CLASSIFIER_API_BASE_URL` points at (`12 §12.4`), and a knob that turns a service down
+belongs in the same namespace as the knob that turned it on. The pipeline goes on calling its step
+the analysis and the port goes on being a `DocumentAnalyst` — those are read by whoever reads the
+code, and the gates are read by whoever reads the environment.
+
+Callers that find a gate shut wait in **FIFO order**, so a queue of them does not become a lottery
+and the document that arrived first is not starved by the ones behind it. With `concurrency: 1` the
+two numbers read as one sentence — one call at a time, with a guaranteed pause between consecutive
+calls — which is the shape of "let the OCR container breathe".
+
+**What is gated is one unit of external work, not one HTTP request**, and the two differ in the one
+place where it matters. Each Stirling call is a unit: a conversion, a merge, a render, an OCR pass.
+One whole Docling parse is a *single* unit from submitting the canonical PDF to collecting the
+result, every poll included — the expensive work happens on the Docling server in between, and
+metering the polls would count the cheapest requests of the exchange while the conversion everybody
+is waiting on ran through ungated. One analyst call, one transcription and one batch of embeddings
+are each a unit.
+
+**Both numbers default to `0`, and a gate of zeroes is not a gate.** An instance that upgrades into
+this behaves exactly as it behaved: nothing waits anywhere until an operator decides something
+should. The defaults come from the environment in the naming the queue knobs already use —
+`SERVICE_CONCURRENCY_STIRLING` and `SERVICE_COOLDOWN_STIRLING` beside `QUEUE_CONCURRENCY_PROCESS`
+and `QUEUE_UNIT_CONCURRENCY` ([`12 §12.4`](./12-build-config-run.md)), and likewise for `DOCLING`,
+`CLASSIFIER`, `TRANSCRIBER` and `EMBEDDINGS` — and a stored setting overrides the environment, which
+is the rule the concurrencies follow and for the reason they follow it (`03 §3.3.21`): the overrides
+live in the same settings row and travel in the same admin payload as `concurrency` and
+`unitConcurrency` ([`07 §7.3`](./07-api-specification.md)). A service name this version does not know
+is dropped on the way in and a number outside its range is clamped rather than refused — the same
+hygiene the queue names get, because a setting that does nothing must not be able to sit in a
+database looking like one that does.
+
+**Changing a gate needs no restart**, which is the promise the concurrencies already make
+([`11 §11.13`](./11-ui-ux-spec.md)): a caller already waiting sees the new numbers no later than its
+next acquisition, so widening a gate releases the queue standing at it instead of applying to
+whoever restarts the container next. The gate is held **in the process**, and one process is the
+whole of this instance
+([ADR-002](./02-architecture-overview.md#adr-002-one-processport-expressexpressadapter--nestjs--next)),
+so instance-wide is what in-process means here and there is no second one to disagree with it.
+
+🔒 **Time spent waiting at a gate is time inside the job.** A `document-process` job has an hour
+before pg-boss decides its worker has gone ([`06 §6.8`](./06-backend-architecture.md)), and that hour
+covers the queueing as much as the work: a service throttled to a trickle does not show up as a quick
+job that waited, it shows up as a **slow job**, on `/admin/queue`, which is the screen where it ought
+to show up as anything at all. That is what the knob costs and why it is an operator's rather than a
+default — gating is throughput given away on purpose, and the place it is given away is visible.
+
 ## 5.5. Document processing pipeline (`document-process`)
 
 Steps run sequentially for a document; each step records its status
@@ -358,6 +429,40 @@ Every `SKIPPED` step records **why** (docs/03 §3.3.10), because "skipped" alone
 from "broken" by the person looking at it: not needed for this format, format unsupported, provider
 not configured, no document types defined, no text to embed, or a document type a person set by hand.
 
+🔒 **The last two steps read what step 3 wrote, and neither runs when step 3 did not write it.**
+Analysis and vectorization both take the extracted Markdown as their input, so the row is read again
+after step 3 and its `markdown` status is the first question either of them asks — current for a full
+run and for a subset reprocess alike, because it is read from the database rather than from the copy
+the job started with. Step 3 `FAILED` → the step records `FAILED` without running and **without
+touching `processingError` or `failedStep`**: the reason belongs to the step that hit it, and a root
+cause replaced by its consequence is a root cause nobody can find. That is exactly what step 2
+already does when step 1 fails. Step 3 `SKIPPED` → the step is `SKIPPED` too, inheriting the reason
+step 3 recorded — `UNSUPPORTED_FORMAT` for a document nothing can render — and falling back to
+`NO_TEXT` when there is none to inherit. Step 3 still `PENDING` or `QUEUED` → `SKIPPED` with
+`NO_TEXT`, which is what a subset reprocess asking for the analysis or the vectorization without the
+extraction ever having run leaves behind, and "not extracted yet" is not text either. The question
+comes **before** each step's own ones — before `MANUAL_TYPE`, `NOT_CONFIGURED` and `TOO_MANY_PAGES`
+for the analysis, before `NOT_CONFIGURED` and the empty-text check for the vectorization — so a
+forty-page document whose extraction failed reads as a failed extraction rather than as a document
+too long to analyse, and the reason recorded is the one somebody can act on. No new skip reason is
+needed for any of it (03 §3.3.10).
+
+Without the rule the failure hides, which is how it was found. The `markdown` column is deliberately
+**not** cleared when the step fails — a stale extraction stays searchable, and half an archive is
+better than none — so the analysis would read whatever an earlier run left, or the document's bare
+file name, and report `DONE` over it: a type, a title and a date read off nothing, with nothing
+anywhere saying so. A step that reports success on an input that does not exist is worse than one
+that fails outright, because only the second one is visible.
+
+What does **not** change is a step 3 that succeeded and found nothing. `DONE` with empty text is a
+document that *was* read and had no text to give, which is a fact about the document rather than a
+gap in the pipeline: the analysis still runs, because it can look at the pages as pictures (step 4),
+and the vectorization clears the chunks and records `NO_TEXT`. 🔒 The gate above does the opposite
+with those chunks — **it leaves them exactly where they are**. A step that never looked at the
+document has learnt nothing about it, and the last good vectors stay for the same reason the stale
+Markdown stays searchable: a document that was findable yesterday should not become unfindable
+because a run that told us nothing new happened to it.
+
 4. **Analysis:** one look at the document by the `DocumentAnalyst` (LLM via the same
    configurable API as embeddings — open question
    [`01 §1.7`](./01-vision-and-scope.md#17-open-questions)), which answers with a document type *and*
@@ -410,8 +515,12 @@ not configured, no document types defined, no text to embed, or a document type 
    blank to fill — every document has a file name — which is why it is governed by who decided rather
    than by whether it is empty.
 5. **Vectorization:** chunking of the Markdown (by headings/paragraphs, with overlap) →
-   `EmbeddingProvider` → chunk vectors into pgvector. Provider not configured → `SKIPPED` (graceful
-   degradation: semantic search unavailable, everything else works).
+   `EmbeddingProvider` → chunk vectors into pgvector, replacing whatever the document had in one
+   transaction (03 §3.3.11). Provider not configured → `SKIPPED` (graceful degradation: semantic
+   search unavailable, everything else works); text extracted and empty → `SKIPPED` with `NO_TEXT`,
+   and the chunks of an earlier run go with it, because search must not return a document by text it
+   no longer has. Both of those are asked *after* the dependency above — which is the one case where
+   the chunks are left untouched, having been told nothing that contradicts them.
 
 **Search** (details — in 07): hybrid — PostgreSQL FTS over the Markdown + pgvector cosine similarity,
 merged results; filters by document type/library/dates.
