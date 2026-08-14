@@ -477,9 +477,8 @@ document's name is therefore not above it but **beside it**, at the head of the 
   text, not a form — which is what they have always done and what keeps them out of the Details
   editor, where a field is corrected rather than written. 🔒 The `E` shortcut below belongs to the
   Details pane and does nothing while an inline editor holds the focus: a bare letter that opens a
-  form while somebody is typing a title is a bare letter that eats the title. Then the document type
-  select (all users with
-  access; shows "auto" tag when `typeSource=AUTO`), the **Download split button** of §11.5b,
+  form while somebody is typing a title is a bare letter that eats the title. Then the **Download
+  split button** of §11.5b,
   Add-to-collection select, **the page itself** — the first-page preview, between what may be done
   with the document and what the pipeline is doing to it, shown only once that step has produced one.
   Small on purpose: the readable copy is the pane on the left, and this answers "is this the right
@@ -497,6 +496,10 @@ document's name is therefore not above it but **beside it**, at the head of the 
   step names are already on screen, so a second list of them to tick would be the same five words
   twice. An error the server could not attribute to any step still renders under the list.
   Last in the sidebar, an admin's **Delete** — see §11.5d.
+  **The document type is deliberately not among these.** It is one of the things a machine decided,
+  and those are corrected in the Details pane and nowhere else (above): a select here would be a
+  second place to change one field, which is how the two halves of one screen come to disagree about
+  what it holds.
 
 ## 11.5d. Deleting a document
 
@@ -899,7 +902,7 @@ hardcodes `#fff` is a screen that turns white in dark mode.
 | Role | Paper (light) | Ink (dark) | Why |
 |---|---|---|---|
 | Page | `#F4F0E7` | `#141210` | Warm paper / warm black; neither is neutral grey |
-| Surface | `#FFFDF8` | `#1C1917` | Cards, sider, the search overlay |
+| Surface | `#FFFDF8` | `#1C1917` | Cards and the sider; what floats sits a step above |
 | Border | `#E3DBC9` | `#33302A` | Hairlines, never shadows-as-separators |
 | Text | `#1E1B16` | `#EDE7DA` | Ink on paper, and back |
 | Text secondary | `#6B6355` | `#A2998A` | |
@@ -937,6 +940,11 @@ platform that wants a bitmap and no transparency.
   interaction, not a default. The border carries the whole separation, so it has to be seen: ~1.5:1
   against the page, not the ~1.2:1 a hairline gives. Hairlines are for divisions *inside* a surface —
   the rule under the wordmark, the line between a card's thumbnail and its body.
+- **What floats sits on the raised surface** — antd's own `colorBgElevated`, a step above the card
+  tone: modals, popovers, dropdowns and the search overlay (§11.1a). Something lifted over the page
+  should read as lifted, which is the rule above said in colour rather than in shadow. It is antd's
+  token and not one of ours, deliberately: an overlay takes the surface every modal in the product
+  already has, rather than every modal being repainted to match one overlay.
 - Label–value pairs are a **definition list with a dotted leader**, not a two-column table: the pairs
   stay legible at any width, no column has to be agreed on, and the eye is carried across the gap
   instead of jumping it. A missing value is an em dash — a blank reads as a rendering bug. Figures
