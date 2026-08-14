@@ -269,9 +269,16 @@ and `QUEUE_UNIT_CONCURRENCY` ([`12 §12.4`](./12-build-config-run.md)), and like
 is the rule the concurrencies follow and for the reason they follow it (`03 §3.3.21`): the overrides
 live in the same settings row and travel in the same admin payload as `concurrency` and
 `unitConcurrency` ([`07 §7.3`](./07-api-specification.md)). A service name this version does not know
-is dropped on the way in and a number outside its range is clamped rather than refused — the same
-hygiene the queue names get, because a setting that does nothing must not be able to sit in a
-database looking like one that does.
+is dropped on the way in — the same hygiene the queue names get, because a setting that does nothing
+must not be able to sit in a database looking like one that does.
+
+A number outside its range is **refused** rather than quietly bent to fit, exactly as an out-of-range
+queue concurrency is: the contract says what a gate may be, and somebody who sends 900 is told so
+instead of finding out later that it meant 32. Where the bending belongs is the other direction —
+**whatever the stored row holds is checked as it is read**, and a value another version of this code
+left behind is not trusted: the environment's default stands in its place. A settings row must never
+be able to stop the workers from starting (`03 §3.3.21`), and that is a different question from what
+an admin's form is allowed to send.
 
 **Changing a gate needs no restart**, which is the promise the concurrencies already make
 ([`11 §11.13`](./11-ui-ux-spec.md)): a caller already waiting sees the new numbers no later than its
