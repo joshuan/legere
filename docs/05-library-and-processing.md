@@ -36,6 +36,14 @@ library volume, which stays read-only for the whole product (ADR-004).
 
 - The mime type is detected from the content, exactly as during ingest — the browser's `Content-Type`
   and the file name are hints, not evidence.
+- 🔒 **A format the pipeline could never render is refused at the door** (`415 UNSUPPORTED_FORMAT`),
+  before anything is stored: a torrent uploaded from a browser would otherwise become a document of
+  nothing but skipped steps. The gate is the very classification the canonical build branches on
+  (§5.5 step 1) — PDF, image, office, text pass; `UNSUPPORTED` is refused — so what an upload accepts
+  and what becomes pages cannot drift apart. This is deliberately harsher than a library scan, which
+  **registers** such a file (§5.5): a scan answers to nobody and must account for whatever is on the
+  volume, while an upload is a person acting right now, who can simply be told no. All three upload
+  routes refuse alike — a new document, a file added to one, and a page replacement.
 - The content is hashed and deduplicated by the same rule as everything else (ADR-009): identical
   bytes are one document. When the match is a document the uploader may already read, the upload
   resolves to it and nothing new is created; when it is one they may not, the upload is refused

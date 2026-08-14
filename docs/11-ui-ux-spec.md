@@ -210,7 +210,11 @@ column whose rows breathe as files settle reads as jumping:
   because "you already have this" is only useful beside which one. The other half of deduplication —
   bytes belonging to a document the uploader may not read (`409 DOCUMENT_DUPLICATE`) — has nothing to
   link to and stays a failure wearing its reason.
-- **failed** — an error icon, the reason in a tooltip (too large, `UPLOAD_MAX_BYTES`, and the rest),
+- **failed** — an error icon, the reason in a tooltip (a format the pipeline cannot render,
+  `415 UNSUPPORTED_FORMAT` per [`05 §5.1a`](./05-library-and-processing.md#51a-uploads); too large,
+  `UPLOAD_MAX_BYTES`; and the rest). The picker's `accept` already steers the file dialog to what is
+  taken, but a drop cannot be filtered, so a dropped `.torrent` becomes a failed row wearing the
+  refusal rather than a document.
   and a **retry** on the row itself. The reasons are sentences and the row is narrow, which is why the
   message is on hover rather than in the line; retry sends that one file again and the row stays where
   it is, since the list is the order things were added and not the order they were tried.

@@ -327,7 +327,9 @@ describe('Document files (e2e)', () => {
       const first = await givenLibraryDocument({ files: [{ name: 'taken.pdf', body: 'mine' }] });
       const second = await givenLibraryDocument();
 
-      const res = await addFile(second.documentId, Buffer.from('mine'), 'copy.pdf');
+      // A text name, so the format gate (docs/05 §5.1a) lets the bytes through to the ownership
+      // check this test is about: content decides, and 'mine' under a .pdf name is no format at all.
+      const res = await addFile(second.documentId, Buffer.from('mine'), 'copy.txt');
 
       // A file has exactly one home; moving it is Combine, not a second upload (docs/05 §5.6).
       expect(res.status).toBe(409);
@@ -611,7 +613,8 @@ describe('Document files (e2e)', () => {
         files: [{ name: 'theirs.pdf', body: theirs }],
       });
 
-      const res = await replace(mine.documentId, `${mine.fileIds[0]}`, theirs, 'stolen.pdf');
+      // A text name, so the format gate (docs/05 §5.1a) lets the bytes reach the ownership check.
+      const res = await replace(mine.documentId, `${mine.fileIds[0]}`, theirs, 'stolen.txt');
 
       // 🔒 A file has exactly one home (docs/03 §3.3.16); moving one is Combine, not a replacement.
       expect(res.status).toBe(409);
@@ -631,7 +634,9 @@ describe('Document files (e2e)', () => {
       // The same bytes are one file (ADR-021), and these are in the trash rather than in a
       // document — so sending them again is "the one I threw away was better", not a conflict.
       const back = expectData(
-        await replace(documentId, `${replaced.files[0]?.id}`, original, 'page.pdf'),
+        // Under a text name, so the format gate (docs/05 §5.1a) reads these bytes as text/plain:
+        // restoration matches by content hash, not by the name on the wire.
+        await replace(documentId, `${replaced.files[0]?.id}`, original, 'page.txt'),
         documentDetailDtoSchema,
       );
 
@@ -954,10 +959,10 @@ describe('Document files (e2e)', () => {
       // The two the detector believes on the strength of the name alone (docs/06 §6.3.3) …
       { fileName: 'report.html', body: '<script>fetch("/api/admin/users")</script>' },
       { fileName: 'report.htm', body: '<html><body>a page</body></html>' },
-      // … and two more: an XML whose processing instruction can point at a second upload, and an
-      // SVG, which is a document with scripts in it wearing the name of a picture.
+      // … and an XML whose processing instruction can point at a second upload. An SVG — a document
+      // with scripts in it wearing the name of a picture — no longer gets past the door at all: its
+      // bytes detect as no format, and no format is refused at upload (docs/05 §5.1a).
       { fileName: 'feed.xml', body: '<?xml-stylesheet href="evil.xsl"?><feed>text</feed>' },
-      { fileName: 'drawing.svg', body: '<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>' },
     ];
 
     for (const upload of executable) {

@@ -52,6 +52,7 @@
       "EMAIL_CODE_TOO_MANY_ATTEMPTS": "Too many wrong codes. Request a new one.",
       "INTERNAL": "An unexpected server error occurred.",
       "DOCUMENT_DUPLICATE": "This file is already on this instance, in a document you cannot open.",
+      "UNSUPPORTED_FORMAT": "This file format is not supported. Legere takes PDFs, images, office documents and plain text.",
       "PERSON_EXISTS": "Somebody with this name is already in the list.",
       "PERSON_NOT_FOUND": "This person is no longer in the list.",
       "SUBJECT_EXISTS": "This thing is already in the list.",

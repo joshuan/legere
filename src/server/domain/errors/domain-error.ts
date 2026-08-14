@@ -138,6 +138,18 @@ export class RateLimitedError extends DomainError {
   }
 }
 
+// 415 UNSUPPORTED_FORMAT — an uploaded file whose detected content type the pipeline cannot render
+// into pages (docs/05 §5.1a). Refused before anything is stored; a library file of the same kind is
+// registered instead, because a scan has nobody to answer.
+export class UnsupportedFormatError extends DomainError {
+  readonly code = 'UNSUPPORTED_FORMAT';
+  readonly httpStatus = 415;
+
+  constructor(message = 'This file format cannot be processed into a document') {
+    super(message);
+  }
+}
+
 // 422 semantic validation beyond schema shape: LIBRARY_PATH_INVALID, SCANSET_ITEM_NOT_IMAGE.
 export class UnprocessableError extends DomainError {
   readonly httpStatus = 422;

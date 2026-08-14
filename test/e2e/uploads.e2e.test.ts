@@ -138,6 +138,25 @@ describe('Uploads (e2e)', () => {
     expect(file.ext).toBe('png');
   });
 
+  it('refuses a format the pipeline could never render, before anything is stored', async () => {
+    // Bencode: no magic bytes a detector recognises for certain, an extension the text fallback
+    // does not claim, and a NUL to mark it binary either way (docs/05 §5.1a).
+    const torrent = Buffer.concat([
+      Buffer.from('d8:announce35:http://tracker.example/announce4:info'),
+      Buffer.from([0x00, 0x01, 0x02]),
+      Buffer.from('e'),
+    ]);
+
+    const res = await upload(adminCookie, torrent, 'Silo Season 3 [rutracker-6878488].torrent');
+
+    expect(res.status).toBe(415);
+    expect(expectError(res).code).toBe('UNSUPPORTED_FORMAT');
+    // Refused at the door: no document, no file row, nothing enqueued (docs/05 §5.1a).
+    expect(await testPrisma().document.count()).toBe(0);
+    expect(await testPrisma().file.count()).toBe(0);
+    expect(await processJobs()).toHaveLength(0);
+  });
+
   it('appears in the listing like any other document, and only to its owner', async () => {
     const uploaded = expectData(
       await upload(adminCookie, PDF, 'Private.pdf'),

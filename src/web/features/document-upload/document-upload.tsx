@@ -10,6 +10,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 // drop zone. Neither of them sends anything — what happens to a chosen file is the upload queue's
 // business, and it is watched in the panel rather than here (docs/11 §11.3a).
 
+// A hint for the picker, not the gate: the server refuses what it cannot render (docs/05 §5.1a),
+// and a drop cannot be filtered at all. Mirrors the formats of docs/05 §5.5.
+const ACCEPTED_FORMATS =
+  'application/pdf,image/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.epub,.html,.htm,.txt,.md,.markdown,.csv,.json,.xml,.log';
+
 export function UploadButton({
   onFiles,
   label,
@@ -22,6 +27,7 @@ export function UploadButton({
   return (
     <Upload
       multiple
+      accept={ACCEPTED_FORMATS}
       showUploadList={false}
       // The request is ours: antd would otherwise post multipart to an endpoint that takes the file
       // as the body itself.

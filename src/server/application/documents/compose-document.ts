@@ -8,6 +8,7 @@ import type {
   UpdateDocumentFileRequest,
 } from '../../../shared/contracts/files';
 import { canEditDocumentMeta } from '../../domain/entities/document';
+import { classifyFormat } from '../../domain/entities/document-format';
 import { isImageFile, type File } from '../../domain/entities/file';
 import { detectPageEdges } from '../../domain/entities/page-detection';
 import {
@@ -15,6 +16,7 @@ import {
   ForbiddenError,
   NotFoundError,
   UnprocessableError,
+  UnsupportedFormatError,
 } from '../../domain/errors/domain-error';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type {
@@ -627,6 +629,13 @@ export async function describeUpload(
   }
   const contentHash = ContentHash.parse(createHash('sha256').update(input.bytes).digest('hex'));
   const detected = await mime.detect(input.bytes.subarray(0, HEAD_BYTES), input.fileName);
+  // 🔒 Refused at the door, before anything is stored: an upload the pipeline could never render
+  // would be a document of nothing but skipped steps (docs/05 §5.1a). The gate is the very
+  // classification the canonical build branches on (§5.5 step 1), so what is accepted and what
+  // becomes pages cannot drift apart. A library scan stays tolerant — it has nobody to answer.
+  if (classifyFormat(detected.mime) === 'UNSUPPORTED') {
+    throw new UnsupportedFormatError();
+  }
   return {
     contentHash: contentHash.value,
     mimeType: detected.mime,
