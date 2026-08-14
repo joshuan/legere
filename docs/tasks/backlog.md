@@ -721,7 +721,7 @@ changes the work by an order of magnitude:
 
 ## M20 — Work that waits for what it needs
 
-- [ ] **M20.1 — A step that read nothing stops reporting success**
+- [x] **M20.1 — A step that read nothing stops reporting success**
   **Goal:** the analysis and the vectorization run on what the extraction produced, and say plainly when it produced nothing, instead of reporting `DONE` over an input that was never there.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`03 §3.3.10`](../03-domain-model.md)
   **This one is a bug the pipeline reports as done.** Steps 4 and 5 run whatever step 3 did. A document whose extraction failed is analysed on its bare file name — plus whatever an earlier run left in the `markdown` column, which a failure deliberately does not clear — and the step records `DONE` over it, so the document ends up carrying a type, a title and a date nobody can tell were read off nothing, with the one row that said something broke sitting one line above four rows that say everything is fine. Steps 2 and 3 already ask this question of step 1 and answer it correctly; this is the same rule, one link further down the chain.

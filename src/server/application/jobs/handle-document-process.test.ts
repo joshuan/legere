@@ -366,20 +366,23 @@ describe('HandleDocumentProcess', () => {
       await run();
 
       const document = stateOf();
+      // 🔒 No step is left PENDING — the document would read as "still processing" for the rest of
+      // its life (docs/03 §3.3.10) — and the two steps that read the extraction inherit the reason
+      // it recorded rather than inventing one of their own (docs/05 §5.5).
       expect(document.steps).toMatchObject({
         canonical: 'SKIPPED',
         preview: 'SKIPPED',
         markdown: 'SKIPPED',
+        analysis: 'SKIPPED',
         vectorization: 'SKIPPED',
       });
       expect(document.skipReasons).toMatchObject({
         canonical: 'UNSUPPORTED_FORMAT',
         preview: 'UNSUPPORTED_FORMAT',
         markdown: 'UNSUPPORTED_FORMAT',
+        analysis: 'UNSUPPORTED_FORMAT',
+        vectorization: 'UNSUPPORTED_FORMAT',
       });
-      // A title is still something to classify, and 🔒 no step may be left PENDING — the document
-      // would read as "still processing" for the rest of its life (docs/03 §3.3.10).
-      expect(document.steps.analysis).toBe('DONE');
       expect(document.processingError).toBeNull();
       expect(storage.keys()).toEqual([]);
     });
@@ -1391,6 +1394,184 @@ describe('HandleDocumentProcess', () => {
       expect(stored.length).toBeGreaterThan(1);
       expect(stored.map((chunk) => chunk.index)).toEqual(stored.map((_, index) => index));
       expect(embeddings.batches[0]).toHaveLength(stored.length);
+    });
+  });
+
+  // 🔒 Steps 4 and 5 have no input of their own: they read what step 3 wrote, so what step 3 did is
+  // the first question either of them asks (docs/05 §5.5).
+  describe('what the last two steps ask of step 3 (docs/05 §5.5)', () => {
+    // A document whose extraction is done and settled, for the subset reprocesses below: the state
+    // a run leaves behind is what the next job reads out of the database.
+    const afterExtraction = (
+      markdown: Document['steps']['markdown'],
+      overrides: Partial<Document> = {},
+    ): Partial<Document> => ({
+      steps: {
+        canonical: 'DONE',
+        preview: 'DONE',
+        markdown,
+        analysis: 'DONE',
+        vectorization: 'DONE',
+      },
+      ...overrides,
+    });
+
+    it('takes both of them down with an extraction that failed, and keeps step 3 as the cause', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      parser.configured = true;
+      parser.failing = true;
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.markdown).toBe('FAILED');
+      // 🔒 Read off the row as this run left it, not off the copy the job started with: that copy
+      // still said PENDING, which would have settled these two as SKIPPED instead.
+      expect(document.steps.analysis).toBe('FAILED');
+      expect(document.steps.vectorization).toBe('FAILED');
+      // Neither provider was asked anything at all.
+      expect(analyst.calls).toEqual([]);
+      expect(embeddings.batches).toEqual([]);
+      // 🔒 The recorded reason stays the one step 3 hit: a root cause replaced by its consequence is
+      // a root cause nobody can find (docs/03 §3.3.10).
+      expect(document.failedStep).toBe('markdown');
+      expect(document.processingError).toContain('toMarkdown failed');
+      // Settled through the same door as every other outcome, so the journal has both entries.
+      const finished = events.events.filter(
+        (event) => event.type === 'STEP_FINISHED' && event.payload?.step === 'vectorization',
+      );
+      expect(finished).toHaveLength(1);
+      expect(finished[0]?.payload?.status).toBe('FAILED');
+    });
+
+    it("leaves an earlier run's vectors alone, and never analyses the Markdown it left", async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      await run();
+      const embedded = chunks.chunksOf(DOCUMENT_ID).map((chunk) => chunk.content);
+      expect(embedded).toHaveLength(1);
+      analyst.calls.length = 0;
+      embeddings.batches.length = 0;
+
+      // The next run cannot read the document at all — and the `markdown` column is deliberately not
+      // cleared when the step fails, which is what the analysis used to report DONE over.
+      parser.configured = true;
+      parser.failing = true;
+      await run();
+
+      expect(stateOf().markdown).toBe(TEXT_LAYER);
+      expect(analyst.calls).toEqual([]);
+      // 🔒 The one case where the chunks are not touched at all: a run that learnt nothing is no
+      // reason for a findable document to stop being findable (docs/05 §5.5).
+      expect(chunks.chunksOf(DOCUMENT_ID).map((chunk) => chunk.content)).toEqual(embedded);
+      expect(chunks.replacements).toBe(1);
+    });
+
+    it('asks the dependency before either step asks anything of itself', async () => {
+      settings.analystAutoMaxPages = 10;
+      pdfs.pageCount = 40;
+      embeddings.configured = false;
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      parser.configured = true;
+      parser.failing = true;
+
+      await run();
+
+      // 🔒 A forty-page document whose extraction failed reads as a failed extraction rather than as
+      // one too long to analyse, and an instance with no embeddings provider reads as the failure
+      // rather than as NOT_CONFIGURED — the reason recorded is the one somebody can act on.
+      const document = stateOf();
+      expect(document.steps.analysis).toBe('FAILED');
+      expect(document.steps.vectorization).toBe('FAILED');
+      expect(document.skipReasons.analysis).toBeUndefined();
+      expect(document.skipReasons.vectorization).toBeUndefined();
+    });
+
+    it('inherits the reason step 3 recorded when the extraction was skipped', async () => {
+      await givenDocument(
+        [{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }],
+        afterExtraction('SKIPPED', { skipReasons: { markdown: 'UNSUPPORTED_FORMAT' } }),
+      );
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['analysis', 'vectorization'] });
+
+      const document = stateOf();
+      // 🔒 The reader is told the format could not be rendered rather than that the embeddings found
+      // nothing (docs/03 §3.3.10).
+      expect(document.steps.analysis).toBe('SKIPPED');
+      expect(document.steps.vectorization).toBe('SKIPPED');
+      expect(document.skipReasons.analysis).toBe('UNSUPPORTED_FORMAT');
+      expect(document.skipReasons.vectorization).toBe('UNSUPPORTED_FORMAT');
+      expect(analyst.calls).toEqual([]);
+      expect(chunks.replacements).toBe(0);
+    });
+
+    it('falls back to NO_TEXT when the skip carried no reason to inherit', async () => {
+      await givenDocument(
+        [{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }],
+        afterExtraction('SKIPPED'),
+      );
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['analysis', 'vectorization'] });
+
+      const document = stateOf();
+      expect(document.skipReasons.analysis).toBe('NO_TEXT');
+      expect(document.skipReasons.vectorization).toBe('NO_TEXT');
+    });
+
+    it('fails an analysis asked for on its own over an extraction that failed', async () => {
+      await givenDocument(
+        [{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }],
+        afterExtraction('FAILED'),
+      );
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['analysis'] });
+
+      const document = stateOf();
+      expect(document.steps.analysis).toBe('FAILED');
+      expect(analyst.calls).toEqual([]);
+      // Not asked for, so not touched (docs/07 §7.3).
+      expect(document.steps.vectorization).toBe('DONE');
+    });
+
+    it('skips a vectorization asked for on its own where nothing has been extracted yet', async () => {
+      await givenDocument(
+        [{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }],
+        afterExtraction('PENDING'),
+      );
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['vectorization'] });
+
+      const document = stateOf();
+      // "Not extracted yet" is not text either — the state a reprocess of step 5 alone leaves a
+      // document that never had an extraction in (docs/03 §3.3.10).
+      expect(document.steps.vectorization).toBe('SKIPPED');
+      expect(document.skipReasons.vectorization).toBe('NO_TEXT');
+      expect(embeddings.batches).toEqual([]);
+      expect(chunks.replacements).toBe(0);
+    });
+
+    it('still analyses a document that was read and found to have nothing on it', async () => {
+      await givenDocument([{ file: { mimeType: 'image/png', ext: 'png' }, bytes: 'photo' }]);
+      pdfs.markdownByContent.set('image-pdf(photo)', '');
+      pdfs.markdownByContent.set('ocr-pdf', '');
+      pdfs.markdownByContent.set('scaled-A4-PORTRAIT(ocr-pdf)', '');
+
+      await run();
+
+      const document = stateOf();
+      // DONE with empty text is a document that *was* read and had no text to give — a fact about
+      // the document rather than a gap in the pipeline (docs/05 §5.5).
+      expect(document.steps.markdown).toBe('DONE');
+      expect(document.markdown).toBeNull();
+      // The analysis has the pages as pictures, so it still runs.
+      expect(document.steps.analysis).toBe('DONE');
+      expect(analyst.calls).toHaveLength(1);
+      // And the vectorization clears the chunks, because search must not return a document by text
+      // it no longer has — the opposite of what the dependency above does with them.
+      expect(document.steps.vectorization).toBe('SKIPPED');
+      expect(document.skipReasons.vectorization).toBe('NO_TEXT');
+      expect(chunks.replacements).toBe(1);
+      expect(chunks.chunksOf(DOCUMENT_ID)).toEqual([]);
     });
   });
 

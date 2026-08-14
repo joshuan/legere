@@ -378,10 +378,15 @@ describe('Document processing (integration)', () => {
     expect(row.previewStatus).toBe('SKIPPED');
     expect(row.markdownStatus).toBe('SKIPPED');
     expect(row.vectorizationStatus).toBe('SKIPPED');
-    // Nothing is left PENDING: the document is finished, not forever in progress.
-    expect(row.analysisStatus).toBe('DONE');
+    // Nothing is left PENDING: the document is finished, not forever in progress — and the two
+    // steps that read the extraction inherit the reason it recorded (docs/05 §5.5).
+    expect(row.analysisStatus).toBe('SKIPPED');
     // And the reason is on the row, so the panel can say why rather than only that (docs/03 §3.3.10).
-    expect(row.skipReasons).toMatchObject({ canonical: 'UNSUPPORTED_FORMAT' });
+    expect(row.skipReasons).toMatchObject({
+      canonical: 'UNSUPPORTED_FORMAT',
+      analysis: 'UNSUPPORTED_FORMAT',
+      vectorization: 'UNSUPPORTED_FORMAT',
+    });
     expect(files.keys()).toEqual([]);
   });
 

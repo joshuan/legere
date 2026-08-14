@@ -26,7 +26,7 @@ import type { SubjectRepository } from '../../domain/repositories/subject.reposi
 import type { BuildCanonical } from '../documents/build-canonical';
 import type { BinarySource } from '../ports/binary-source';
 import type { CallContext } from '../ports/call-context';
-import type { StepStatus } from '../../../shared/contracts/enums';
+import type { StepSkipReason, StepStatus } from '../../../shared/contracts/enums';
 import type { Clock } from '../ports/clock';
 import type { DocumentAnalysis, DocumentAnalyst, PageImage } from '../ports/document-analyst';
 import type { PageTranscriber, TranscriptionUsage } from '../ports/page-transcriber';
@@ -64,6 +64,13 @@ type Canonical =
   // to report either (docs/05 §5.5 step 1).
   | { kind: 'nothing' }
   | { kind: 'failed' };
+
+// What step 3 left for the two steps that read it (docs/05 §5.5). Both of them take the extracted
+// Markdown as their input, so the state of the extraction is the first question either of them asks.
+// `ready` includes a step 3 that ran and found no text at all: that is a fact about the document
+// rather than a gap in the pipeline, and both steps go on running over it.
+type Extraction =
+  { kind: 'ready' } | { kind: 'failed' } | { kind: 'missing'; reason: StepSkipReason };
 
 // `document-process`, all five steps (docs/05 §5.5): the canonical PDF built out of the document's
 // files, the JPG previews of its first page, the Markdown that makes it searchable, and — when a
@@ -512,10 +519,42 @@ export class HandleDocumentProcess extends JobHandler {
     return pages;
   }
 
+  // 🔒 What steps 4 and 5 ask of step 3 before they ask anything of themselves (docs/05 §5.5).
+  // Neither of them has an input of its own: they read the extracted Markdown, and a step that
+  // reports `DONE` over text that was never produced — or over what an earlier run left behind,
+  // since a failure deliberately does not clear the column — is worse than one that fails outright,
+  // because only the second one is visible.
+  //
+  // True means the step has been settled here and must not run.
+  private async blockedByExtraction(
+    document: Document,
+    step: 'analysis' | 'vectorization',
+  ): Promise<boolean> {
+    const extraction = extractionOf(document);
+    if (extraction.kind === 'ready') return false;
+
+    if (extraction.kind === 'failed') {
+      // Not a failure of its own, so `processingError` and `failedStep` are left exactly as step 3
+      // wrote them: a root cause replaced by its consequence is a root cause nobody can find. This
+      // is what step 2 already does when step 1 fails (docs/03 §3.3.10).
+      await this.write(document.id, { steps: { [step]: 'FAILED' } });
+      return true;
+    }
+
+    await this.write(document.id, {
+      steps: { [step]: 'SKIPPED' },
+      skipReasons: { [step]: extraction.reason },
+    });
+    return true;
+  }
+
   // Step 4. One look at the document: which of the active documentTypes it belongs to, and where it is
   // from. An unconfigured provider is not a failure — it is an instance that runs without AI at all
   // (docs/05 §5.5).
   private async analyse(document: Document, analyseInFull: boolean): Promise<void> {
+    // 🔒 Asked before every gate of its own, so a forty-page document whose extraction failed reads
+    // as a failed extraction rather than as one too long to analyse (docs/05 §5.5).
+    if (await this.blockedByExtraction(document, 'analysis')) return;
     // 🔒 A documentType a person chose is never overwritten by a machine (docs/03 §3.3.10).
     if (document.typeSource === 'MANUAL') {
       await this.write(document.id, {
@@ -655,6 +694,11 @@ export class HandleDocumentProcess extends JobHandler {
 
   // Step 5. Chunk the Markdown, embed the chunks, and replace the document's vectors wholesale.
   private async vectorize(document: Document): Promise<void> {
+    // 🔒 Before the provider check and before the empty-text one — and the one case where the stored
+    // chunks are not touched at all. A run that learnt nothing about the document is no reason for a
+    // findable document to stop being findable, which is why the stale Markdown stays searchable
+    // too (docs/05 §5.5).
+    if (await this.blockedByExtraction(document, 'vectorization')) return;
     if (!this.embeddings.isConfigured) {
       await this.write(document.id, {
         steps: { vectorization: 'SKIPPED' },
@@ -789,6 +833,22 @@ function onlyRequested<T>(
   return Object.fromEntries(
     Object.entries(values).filter(([step]) => requested.has(documentStepSchema.parse(step))),
   );
+}
+
+// What step 3 left behind, read off the row rather than off the copy the job started with — which
+// is what makes the answer current for a full run and for a subset reprocess alike (docs/05 §5.5).
+function extractionOf(document: Document): Extraction {
+  const status = document.steps.markdown;
+  if (status === 'DONE') return { kind: 'ready' };
+  if (status === 'FAILED') return { kind: 'failed' };
+  // A skip is inherited reason and all, so the reader is told the format could not be rendered
+  // rather than that the embeddings found nothing (docs/03 §3.3.10).
+  if (status === 'SKIPPED') {
+    return { kind: 'missing', reason: document.skipReasons.markdown ?? 'NO_TEXT' };
+  }
+  // Still PENDING or QUEUED: what a reprocess asking for the analysis or the vectorization without
+  // the extraction ever having run leaves behind, and "not extracted yet" is not text either.
+  return { kind: 'missing', reason: 'NO_TEXT' };
 }
 
 // What step 1 left in the bucket on an earlier run, as far as the later steps are concerned.
