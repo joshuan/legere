@@ -282,6 +282,93 @@ describe('DocumentViewerScreen', () => {
     expect(screen.getByText(/1200/)).toBeInTheDocument();
   });
 
+  // The tabs are the one strip of chrome the document's own column spends, and the document's name
+  // stands in the panel of things *about* it (docs/11 §11.5).
+  describe('the chrome above the document, and the name beside it', () => {
+    it('renders no heading above the tabs row in the main column', async () => {
+      serve({ ...detail, description: 'A lease on Njegoševa 5.' });
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+      const tabs = await screen.findByRole('tablist');
+      const main = tabs.closest('.ant-col');
+      if (!(main instanceof HTMLElement)) throw new Error('expected the main column');
+
+      // 🔒 Nothing whatever above them: the tabs are the first thing the column draws, so the open
+      // tab takes the rest of the height the viewport has.
+      expect(main.firstElementChild?.contains(tabs)).toBe(true);
+      expect(within(main).queryByText(detail.title)).toBeNull();
+      expect(within(main).queryByText('A lease on Njegoševa 5.')).toBeNull();
+
+      // 🔒 And exactly one of each on the screen: a name in two places is a name somebody edits in
+      // the wrong one.
+      expect(screen.getAllByText(detail.title)).toHaveLength(1);
+      expect(screen.getAllByText('A lease on Njegoševa 5.')).toHaveLength(1);
+    });
+
+    it('edits the title in place from the sidebar, saving through the same PATCH', async () => {
+      let patched: unknown = null;
+      server.use(
+        http.patch(`/api/documents/${ID}`, async ({ request }) => {
+          patched = await request.json();
+          return HttpResponse.json(envelope(detail));
+        }),
+      );
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+      // A click on the text, not a form: the name is written here and corrected nowhere else.
+      await userEvent.click(await screen.findByText(detail.title));
+      const input = screen.getByRole('textbox');
+      expect(input).toHaveValue(detail.title);
+      await userEvent.clear(input);
+      await userEvent.type(input, 'Lease, Njegoševa 5');
+      // Leaving the field commits it, the same as pressing Enter in it.
+      await userEvent.tab();
+
+      await waitFor(() => expect(patched).toEqual({ title: 'Lease, Njegoševa 5' }));
+    });
+
+    it('writes a description from the em dash standing in for the one nobody has written', async () => {
+      let patched: unknown = null;
+      server.use(
+        http.patch(`/api/documents/${ID}`, async ({ request }) => {
+          patched = await request.json();
+          return HttpResponse.json(envelope(detail));
+        }),
+      );
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+      // Drawn as an em dash rather than left out — a blank reads as a rendering bug — and the dash
+      // is what there is to click on to write one (docs/11 §11.5).
+      await userEvent.click(await screen.findByText('—'));
+      const input = screen.getByRole('textbox');
+      expect(input).toHaveValue('');
+      await userEvent.type(input, 'A lease on Njegoševa 5.');
+      await userEvent.tab();
+
+      await waitFor(() => expect(patched).toEqual({ description: 'A lease on Njegoševa 5.' }));
+    });
+
+    it('types an "e" into the title rather than opening the Details editor', async () => {
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="details" />);
+
+      // The Details pane is what listens for E, so it has to be on screen for the guard to be worth
+      // anything — its listener is on the window and hears the sidebar too.
+      await screen.findByRole('button', { name: enMessages.common.actions.edit });
+      await userEvent.click(screen.getByText(detail.title));
+      const input = screen.getByRole('textbox');
+      await userEvent.type(input, 'E');
+
+      // 🔒 A bare letter that opens a form while somebody is writing a title is a bare letter that
+      // eats the title (docs/11 §11.5).
+      expect(input).toHaveValue(`${detail.title}E`);
+      expect(
+        within(screen.getByRole('tabpanel')).queryByRole('textbox', {
+          name: enMessages.viewer.details.city,
+        }),
+      ).toBeNull();
+    });
+  });
+
   it('shows the page itself beside what may be done with it', async () => {
     serve(detail);
     renderWithProviders(<DocumentViewerScreen id={ID} />);

@@ -775,6 +775,8 @@
     "auto": "авто",
     "download": "Скачать",
     "addToCollection": "Добавить в коллекцию",
+    "editTitle": "Изменить название",
+    "editDescription": "Изменить описание",
     "noText": "Текст ещё не извлечён",
     "textPending": "Извлекается…",
     "textFailed": "Извлечение не удалось",

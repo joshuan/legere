@@ -737,7 +737,7 @@ changes the work by an order of magnitude:
 
 ## M21 — The screen gives its height to the document
 
-- [ ] **M21.1 — The viewer's chrome is one strip**
+- [x] **M21.1 — The viewer's chrome is one strip**
   **Goal:** a document opens with as much of the document on screen as the viewport can give, and its name stands beside it in the panel of things about it rather than above it.
   **Docs:** [`11 §11.5`](../11-ui-ux-spec.md), [`03 §3.3.10`](../03-domain-model.md)
   **What is being spent.** The main column currently opens with the document's title and its description, and only then the tabs — three rows of chrome over the one thing the screen exists to show. The title was read once, on arrival, and is charged to every page of every document afterwards; the thing it names is already on the screen, being looked at. `11 §11.5`'s sidebar list has meanwhile always begun with "title (inline-editable when permitted)", which nothing rendered — this task makes that line literally true and leaves exactly one of each.

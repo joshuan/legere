@@ -775,6 +775,8 @@
     "auto": "auto",
     "download": "Download",
     "addToCollection": "Add to collection",
+    "editTitle": "Edit the title",
+    "editDescription": "Edit the description",
     "noText": "No text extracted yet",
     "textPending": "Being extracted…",
     "textFailed": "Extraction failed",

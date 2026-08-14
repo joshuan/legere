@@ -190,62 +190,12 @@ export function DocumentViewerScreen({
 
   return (
     <Row gutter={[16, 16]}>
+      {/* 🔒 Nothing whatever stands above the tabs: they are the one strip of chrome this column
+          spends, and the open tab takes the rest of the height the viewport has. A name read once on
+          arrival must not be charged to every page of every document, and the thing it names is on
+          the screen being looked at — so the name is beside the document rather than over it
+          (docs/11 §11.5). */}
       <Col xs={24} lg={16}>
-        {/* Above the document, not beside it: the title names what is on this page, and a name is
-            read before its metadata (docs/11 §11.5). */}
-        <Typography.Title
-          level={3}
-          style={{ marginTop: 0 }}
-          editable={{
-            onChange: (title) => {
-              if (title.trim() !== '' && title !== detail.title) update.mutate({ title });
-            },
-            triggerType: ['icon', 'text'],
-          }}
-        >
-          {detail.title}
-        </Typography.Title>
-
-        {/* What this document is, for somebody who has never seen it — under the name, before the
-            tabs, because it is the thing that decides whether the rest is worth opening
-            (docs/11 §11.5). Written by the analysis where nobody has written one, and editable in
-            place like the title. */}
-        {(detail.description !== null || update.isPending) && (
-          <Typography.Paragraph
-            type="secondary"
-            style={{ maxWidth: '60ch' }}
-            editable={{
-              onChange: (description) => {
-                const next = description.trim() === '' ? null : description.trim();
-                if (next !== detail.description) update.mutate({ description: next });
-              },
-              triggerType: ['icon', 'text'],
-              autoSize: { minRows: 2, maxRows: 8 },
-            }}
-          >
-            {detail.description ?? ''}
-          </Typography.Paragraph>
-        )}
-
-        {/* What the analysis would have called it, when somebody has since called it something else
-            — under the name, in the same place every other correction keeps its provenance, and a
-            click away from being the name (docs/11 §11.5). */}
-        {detail.auto.title !== undefined && detail.auto.title !== detail.title && (
-          <div className="legere-definition-note" style={{ marginTop: -12, marginBottom: 16 }}>
-            <Tooltip title={t('viewer.details.applyRead')}>
-              <Button
-                size="small"
-                type="link"
-                className="legere-definition-note-action"
-                disabled={update.isPending}
-                onClick={() => update.mutate({ reset: ['title'] })}
-              >
-                {t('viewer.details.auto', { value: detail.auto.title })}
-              </Button>
-            </Tooltip>
-          </div>
-        )}
-
         <Card>
           <Tabs
             activeKey={active}
@@ -332,6 +282,72 @@ export function DocumentViewerScreen({
 
       <Col xs={24} lg={8}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {/* The panel of things *about* the document opens with what it is called, which is where
+              the rest of what is known about it already lives (docs/11 §11.5). 🔒 There is exactly
+              one title and one description on the screen: a name rendered twice is a name somebody
+              edits in the wrong place. */}
+          <Card>
+            {/* Wrapping rather than truncating, and breaking a long word rather than escaping the
+                column: a document's name is the one string here nobody may be shown half of. */}
+            <Typography.Title
+              level={4}
+              style={{ marginTop: 0, marginBottom: 8, wordBreak: 'break-word' }}
+              editable={{
+                onChange: (title) => {
+                  if (title.trim() !== '' && title !== detail.title) update.mutate({ title });
+                },
+                triggerType: ['icon', 'text'],
+                // Names the pencil as well as its tooltip: two pencils on one panel both called
+                // "Edit" are two controls nobody listening to the page can tell apart.
+                tooltip: t('viewer.editTitle'),
+              }}
+            >
+              {detail.title}
+            </Typography.Title>
+
+            {/* What this document is, for somebody who has never seen it — directly under the name,
+                in secondary text, edited in place on the same terms (docs/11 §11.5). An em dash
+                where the analysis has written none: a blank reads as a rendering bug, and the dash
+                is also what there is to click on to write one. */}
+            <Typography.Paragraph
+              type="secondary"
+              style={{ marginBottom: 0 }}
+              editable={{
+                // The value, never the em dash standing in for it: an editor seeded with "—" would
+                // make the placeholder the description the moment somebody pressed Enter.
+                text: detail.description ?? '',
+                onChange: (description) => {
+                  const next = description.trim() === '' ? null : description.trim();
+                  if (next !== detail.description) update.mutate({ description: next });
+                },
+                triggerType: ['icon', 'text'],
+                autoSize: { minRows: 2, maxRows: 8 },
+                tooltip: t('viewer.editDescription'),
+              }}
+            >
+              {detail.description ?? '—'}
+            </Typography.Paragraph>
+
+            {/* What the analysis would have called it, when somebody has since called it something
+                else — in the same place every other correction keeps its provenance, and a click
+                away from being the name again (docs/11 §11.5). */}
+            {detail.auto.title !== undefined && detail.auto.title !== detail.title && (
+              <div className="legere-definition-note" style={{ marginTop: 8 }}>
+                <Tooltip title={t('viewer.details.applyRead')}>
+                  <Button
+                    size="small"
+                    type="link"
+                    className="legere-definition-note-action"
+                    disabled={update.isPending}
+                    onClick={() => update.mutate({ reset: ['title'] })}
+                  >
+                    {t('viewer.details.auto', { value: detail.auto.title })}
+                  </Button>
+                </Tooltip>
+              </div>
+            )}
+          </Card>
+
           <Card>
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <DownloadSplitButton document={detail} />
@@ -962,8 +978,11 @@ function DetailsPane({
     stopEditing();
   };
 
-  // E for edit, Escape to back out. Ignored while a field has focus, or typing an "e" into the city
-  // would turn into a command (docs/11 §11.5).
+  // E for edit, Escape to back out. 🔒 Ignored while anything typed into is holding the focus, or
+  // typing an "e" into the city would turn into a command (docs/11 §11.5). The listener is on the
+  // window, so this covers the title and the description being edited in place in the sidebar as
+  // well as this pane's own inputs: a bare letter that opens a form while somebody is writing a
+  // title is a bare letter that eats the title.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       const target = event.target;
