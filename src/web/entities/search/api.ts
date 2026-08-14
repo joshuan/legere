@@ -8,6 +8,9 @@ import { apiClient } from '../../shared/api';
 export type SearchInput = {
   q: string;
   mode: SearchMode;
+  // How many hits are wanted. Absent is the contract's own default (20); the overlay asks for the
+  // short list it can show (docs/11 §11.1a).
+  limit?: number | undefined;
   libraryId?: string | undefined;
   typeId?: string | undefined;
 };

@@ -563,9 +563,9 @@ pre,
     flex: 1 1 auto;
   }
 
-  /* Its own scroll, reaching the foot of the window. The app header is in the flow and scrolls
-     away, and 24px is the content's own padding — so the panel takes the top of the window at
-     exactly the moment the header leaves it, rather than hanging below a gap where it used to be. */
+  /* Its own scroll, reaching the foot of the window. Sticky to the top of the viewport — there is
+     nothing above it to hang from any more (docs/11 §11.1, §11.3a) — offset by the 24px the content
+     is inset by, so it lines up with the screen beside it rather than with the window's edge. */
   .legere-upload-panel {
     order: 0;
     flex: 0 1 33%;

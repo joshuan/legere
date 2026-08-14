@@ -17,7 +17,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Input, Layout, Menu, Space, Tag, Typography, theme } from 'antd';
+import { App, Layout, Menu, Space, Tag, Typography, theme } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -25,10 +25,13 @@ import { useState, type ReactNode } from 'react';
 import type { UserDto } from '../../../shared/contracts/auth';
 import { libraryApi, libraryKeys } from '../../entities/library';
 import { sessionApi } from '../../entities/session';
+import { useSearchOverlay, useShortcutHint } from '../search-overlay';
 import { useErrorMessage } from '../../shared/lib';
 
-// The authenticated shell (docs/11 §11.1): a collapsible sider with the product's sections, and a
-// top bar carrying the global search box.
+// The authenticated shell (docs/11 §11.1): a collapsible sider with the product's sections, and the
+// content. 🔒 Nothing across the top of it — the screen title repeated the menu item beside it, the
+// actions sat a screen's width from what they acted on, and the search input occupied the widest
+// strip of the application to answer a question nobody had asked yet (docs/11 §11.1a).
 export function AppShell({
   user,
   version,
@@ -48,6 +51,10 @@ export function AppShell({
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();
+  // Search is the one item that opens rather than goes (docs/11 §11.1): the overlay belongs to the
+  // layout above this, so the shell only asks for it.
+  const searchOverlay = useSearchOverlay();
+  const shortcut = useShortcutHint();
 
   // Signing out is a POST — the CSRF check is fail-closed and a GET route would let a prefetch end
   // someone's session (docs/08 §8.4). Hence a menu action rather than a link to a page.
@@ -103,10 +110,21 @@ export function AppShell({
         })),
       ],
     },
+    // In the menu because that is where somebody looks for it, but it raises the overlay over
+    // whatever is on the screen instead of navigating; /search stays a real screen at a real
+    // address behind it (docs/11 §11.1a). The chord is written where it is offered.
     {
       key: '/search',
       icon: <SearchOutlined />,
-      label: <Link href="/search">{t('nav.search')}</Link>,
+      label: (
+        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          {t('nav.search')}
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {shortcut}
+          </Typography.Text>
+        </span>
+      ),
+      onClick: () => searchOverlay.open(),
     },
     {
       key: '/collections',
@@ -296,25 +314,10 @@ export function AppShell({
       </Layout.Sider>
 
       <Layout>
-        <Layout.Header
-          style={{ borderBottom: `1px solid ${token.colorBorderSecondary}`, lineHeight: 'normal' }}
-        >
-          <Space style={{ width: '100%', height: '100%' }}>
-            <Input.Search
-              allowClear
-              size="large"
-              placeholder={t('nav.searchPlaceholder')}
-              aria-label={t('nav.searchPlaceholder')}
-              style={{ width: 'min(46vw, 480px)' }}
-              onSearch={(value) => {
-                const q = value.trim();
-                if (q !== '') router.push(`/search?q=${encodeURIComponent(q)}`);
-              }}
-            />
-          </Space>
-        </Layout.Header>
-
-        {/* A reading column: wide enough for a six-card grid, never edge to edge on a 4K display. */}
+        {/* A reading column: wide enough for a six-card grid, never edge to edge on a 4K display.
+            It starts at the top of the window — what the bar used to cost was the top of every
+            screen, in a product whose whole job is to show documents at the size they were
+            photographed (docs/11 §11.1). */}
         <Layout.Content style={{ padding: '24px 32px' }}>
           <div className="legere-enter" style={{ maxWidth: 1440, margin: '0 auto' }}>
             {children}

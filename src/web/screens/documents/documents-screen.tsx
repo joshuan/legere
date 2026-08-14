@@ -168,20 +168,9 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
     // where the eye happens to be, and "not over the grid" is not a reason to refuse it
     // (docs/11 §11.3).
     <UploadDropZone onFiles={sendToLibrary}>
+      {/* No heading: this grid is the archive rather than a page about the archive, and the menu
+          item a few pixels to its left already says which screen this is (docs/11 §11.1). */}
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Row align="middle" justify="space-between" gutter={[16, 16]}>
-          <Col>
-            <Typography.Title level={3} style={{ margin: 0 }}>
-              {t('documents.title')}
-            </Typography.Title>
-          </Col>
-          <Col>
-            {/* Anyone may add a document of their own; the library is the admin's business
-                (docs/11 §11.3). */}
-            <UploadButton onFiles={sendToLibrary} />
-          </Col>
-        </Row>
-
         <Space wrap size="middle">
           <DocumentFiltersBar value={filters} onChange={setFilters} />
           {/* Arranging the shelf, not narrowing it: the order sits beside the filters and outlives
@@ -253,6 +242,11 @@ export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
               </Button>
             </Space>
           )}
+          {/* At the end of the row carrying the order and the grouping, and not among the filters:
+              it is the one control here that makes something rather than narrowing what is already
+              there (docs/11 §11.3). Anyone may add a document of their own; the library is the
+              admin's business. */}
+          <UploadButton onFiles={sendToLibrary} />
         </Space>
 
         {/* Above the grid, and only while nothing is being looked for in particular: a proposal

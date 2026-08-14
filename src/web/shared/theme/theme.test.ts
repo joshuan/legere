@@ -37,8 +37,9 @@ describe('legereTheme', () => {
   it('gives the layout chrome its own surfaces instead of antd defaults', () => {
     const components = legereTheme(true).components;
 
-    expect(components?.Layout?.headerBg).toBe(INK.surface);
     expect(components?.Layout?.siderBg).toBe(INK.surface);
     expect(components?.Layout?.bodyBg).toBe(INK.page);
+    // Nothing dresses a header, because no screen has one (docs/11 §11.1).
+    expect(components?.Layout?.headerBg).toBeUndefined();
   });
 });

@@ -55,10 +55,9 @@ export function legereTheme(dark: boolean): ThemeConfig {
       motionDurationMid: `${MOTION_MS}ms`,
     },
     components: {
+      // No header tokens: the shell is the sider and the content, and nothing sits across the top
+      // of a screen (docs/11 §11.1).
       Layout: {
-        headerBg: c.surface,
-        headerHeight: 60,
-        headerPadding: '0 24px',
         bodyBg: c.page,
         siderBg: c.surface,
       },

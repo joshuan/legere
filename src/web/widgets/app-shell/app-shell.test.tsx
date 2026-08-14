@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -31,6 +31,8 @@ beforeEach(() => {
   server.use(
     http.get('/api/libraries', () => HttpResponse.json(envelope({ items: [] }))),
     http.post('/api/auth/logout', () => HttpResponse.json(envelope({ ok: true }))),
+    // What the search overlay opens on: an empty query shows the recent documents (docs/11 §11.1a).
+    http.get('/api/documents', () => HttpResponse.json(envelope({ items: [], nextCursor: null }))),
   );
 });
 afterEach(() => {
@@ -102,6 +104,51 @@ describe('AppShell', () => {
       expect(screen.getByRole('menuitem', { name: new RegExp(label) })).toBeInTheDocument();
     }
     expect(screen.getAllByText(enMessages.nav.administration).length).toBeGreaterThan(0);
+  });
+
+  it('raises the search overlay from the menu instead of navigating to a page', async () => {
+    renderWithProviders(
+      <AppShell user={USER} version="9.9.9">
+        <p>content</p>
+      </AppShell>,
+    );
+
+    await userEvent.click(
+      screen.getByRole('menuitem', { name: new RegExp(enMessages.nav.search) }),
+    );
+
+    // Search is the one item that opens rather than goes (docs/11 §11.1a): the screen underneath is
+    // dimmed, not left.
+    const overlay = await screen.findByRole('dialog');
+    expect(within(overlay).getByLabelText(enMessages.search.placeholder)).toBeInTheDocument();
+    expect(push).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('writes the chord beside the item that offers it', async () => {
+    renderWithProviders(
+      <AppShell user={USER} version="9.9.9">
+        <p>content</p>
+      </AppShell>,
+    );
+
+    // A shortcut nobody is told about is a shortcut for the person who wrote it (docs/11 §11.1a).
+    const item = await screen.findByRole('menuitem', { name: new RegExp(enMessages.nav.search) });
+    expect(item.textContent).toMatch(/(⌘K|Ctrl\+K)$/);
+  });
+
+  it('draws no bar across the top of the content', async () => {
+    const { container } = renderWithProviders(
+      <AppShell user={USER} version="9.9.9">
+        <p>content</p>
+      </AppShell>,
+    );
+
+    // 🔒 The shell is the column and the content, and nothing else (docs/11 §11.1): the title
+    // repeated the menu item beside it, and the global search input is raised on demand instead.
+    await screen.findByText('content');
+    expect(container.querySelector('header')).toBeNull();
+    expect(screen.queryByRole('searchbox')).toBeNull();
   });
 
   it('says which build this is, at the foot of the menu', async () => {

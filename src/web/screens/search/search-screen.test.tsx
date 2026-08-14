@@ -57,6 +57,10 @@ function serve(body: { items: unknown[]; semanticAvailable: boolean }): void {
     http.get('/api/search', () => HttpResponse.json(envelope(body))),
     http.get('/api/libraries', () => HttpResponse.json(envelope({ items: [] }))),
     http.get('/api/document-types', () => HttpResponse.json(envelope({ items: [] }))),
+    // The recent documents an empty query is answered with (docs/11 §11.6).
+    http.get('/api/documents', () =>
+      HttpResponse.json(envelope({ items: [hit.document], nextCursor: null })),
+    ),
   );
 }
 
@@ -121,12 +125,36 @@ describe('SearchScreen', () => {
     expect(screen.getByRole('radio', { name: enMessages.search.modes.text })).not.toBeDisabled();
   });
 
-  it('invites a query before anything has been typed', async () => {
+  it('shows the recent documents before anything has been typed', async () => {
     currentSearch = '';
 
     renderWithProviders(<SearchScreen />);
 
-    expect(await screen.findByText(enMessages.search.start)).toBeInTheDocument();
+    // One behaviour, described once: the overlay's empty state is this one (docs/11 §11.6, §11.1a).
+    expect(await screen.findByText(enMessages.search.recent)).toBeInTheDocument();
+    expect(screen.getByText('Rental agreement')).toBeInTheDocument();
+  });
+
+  it('runs the query the URL arrived with, without waiting to be asked again', async () => {
+    // The address somebody pasted into a chat has to be the search, not a form remembering the
+    // words (docs/11 §11.6).
+    currentSearch = 'q=invoice';
+    const seen: string[] = [];
+    serve({ items: [hit], semanticAvailable: true });
+    server.use(
+      http.get('/api/search', ({ request }) => {
+        seen.push(new URL(request.url).search);
+        return HttpResponse.json(envelope({ items: [hit], semanticAvailable: true }));
+      }),
+    );
+
+    renderWithProviders(<SearchScreen />);
+
+    expect(await screen.findByText('Rental agreement')).toBeInTheDocument();
+    // One request, from the URL alone: nothing was typed and nothing was submitted.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain('q=invoice');
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it('suggests what to try when nothing matched', async () => {

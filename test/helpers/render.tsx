@@ -5,12 +5,14 @@ import { NextIntlClientProvider } from 'next-intl';
 import type { ReactElement, ReactNode } from 'react';
 import messages from '../../messages/en.json';
 import { UploadQueueProvider } from '../../src/web/features/upload-queue';
+import { SearchOverlayProvider } from '../../src/web/widgets/search-overlay';
 
 // Renders a component with the same providers the app gives it (docs/10 §10.4), minus SSR-only
 // pieces. Retries are off so a failing request surfaces immediately instead of after backoff.
 //
-// The upload queue is among them: the authenticated layout mounts it around every screen
-// (docs/11 §11.3a), so a screen that hands it files has one here too.
+// The upload queue and the search overlay are among them: the authenticated layout mounts both
+// around every screen (docs/11 §11.3a, §11.1a), so a screen that hands the queue files — or a shell
+// that raises the overlay — has one here too.
 export function renderWithProviders(ui: ReactElement): RenderResult {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -21,7 +23,9 @@ export function renderWithProviders(ui: ReactElement): RenderResult {
       <NextIntlClientProvider locale="en" messages={messages}>
         <AntdApp>
           <QueryClientProvider client={queryClient}>
-            <UploadQueueProvider>{children}</UploadQueueProvider>
+            <SearchOverlayProvider>
+              <UploadQueueProvider>{children}</UploadQueueProvider>
+            </SearchOverlayProvider>
           </QueryClientProvider>
         </AntdApp>
       </NextIntlClientProvider>

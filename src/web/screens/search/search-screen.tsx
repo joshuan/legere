@@ -1,19 +1,27 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Empty, Input, List, Radio, Space, Spin, Tag, Tooltip, Typography } from 'antd';
+import { Empty, Input, List, Radio, Space, Spin, Tooltip, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
-import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { searchModeSchema, type SearchMode } from '../../../shared/contracts/search';
-import { documentFiles } from '../../entities/document';
-import { searchApi, searchKeys, type SearchInput } from '../../entities/search';
+import {
+  SearchResultRow,
+  searchApi,
+  searchKeys,
+  useRecentDocuments,
+  type SearchInput,
+} from '../../entities/search';
 import { DocumentFiltersBar } from '../../features/document-filters';
 import type { DocumentFilters } from '../../entities/document';
 
 // /search?q= (docs/11 §11.6). The query, the mode and the filters all live in the URL, so a search
-// is a link.
+// is a link — and a page opened with one already set runs it on arrival rather than waiting to be
+// asked a second time, because that address is what somebody pasted into a chat.
+//
+// This is the instrument; the overlay (docs/11 §11.1a) is the quick way in. Both draw the same rows
+// and answer an empty query the same way, from the same places.
 export function SearchScreen() {
   const t = useTranslations();
   const router = useRouter();
@@ -61,6 +69,10 @@ export function SearchScreen() {
     enabled: q !== '',
   });
 
+  // Nothing typed yet is answered with the recent documents, from the source the overlay reads too
+  // (docs/11 §11.6).
+  const recent = useRecentDocuments(q === '');
+
   const semanticAvailable = results.data?.semanticAvailable ?? true;
 
   return (
@@ -96,7 +108,23 @@ export function SearchScreen() {
       </Space>
 
       {q === '' ? (
-        <Empty description={t('search.start')} />
+        recent.isPending ? (
+          <Spin />
+        ) : (recent.data?.items.length ?? 0) === 0 ? (
+          <Empty description={t('search.start')} />
+        ) : (
+          <>
+            <Typography.Text type="secondary">{t('search.recent')}</Typography.Text>
+            <List
+              dataSource={recent.data?.items ?? []}
+              renderItem={(item) => (
+                <List.Item key={item.id}>
+                  <SearchResultRow document={item} />
+                </List.Item>
+              )}
+            />
+          </>
+        )
       ) : results.isPending ? (
         <Spin />
       ) : (results.data?.items.length ?? 0) === 0 ? (
@@ -108,58 +136,11 @@ export function SearchScreen() {
           dataSource={results.data?.items ?? []}
           renderItem={(hit) => (
             <List.Item key={hit.document.id}>
-              <List.Item.Meta
-                avatar={
-                  hit.document.hasPreview ? (
-                    // to a signed URL (docs/10 §10.8).
-                    <img
-                      src={documentFiles.thumb(hit.document.id)}
-                      alt=""
-                      style={{ width: 48, height: 64, objectFit: 'cover' }}
-                    />
-                  ) : undefined
-                }
-                title={
-                  <Space>
-                    <Link href={`/documents/${hit.document.id}`}>{hit.document.title}</Link>
-                    {hit.document.documentType !== null && (
-                      <Tag color="blue">{hit.document.documentType.name}</Tag>
-                    )}
-                  </Space>
-                }
-                description={<Snippet snippet={hit.snippet} />}
-              />
+              <SearchResultRow document={hit.document} snippet={hit.snippet} />
             </List.Item>
           )}
         />
       )}
     </Space>
-  );
-}
-
-// The snippet is the one string the API marks up, and only with <mark> around the matched words
-// (docs/07 §7.3). It is split on those tags rather than injected as HTML, so nothing else the
-// document contains can be rendered as markup.
-function Snippet({ snippet }: { snippet: string | null }) {
-  if (snippet === null || snippet === '') return null;
-
-  // Odd positions are what stood between the tags, i.e. the matched words. The index is part of the
-  // key on purpose: the same word can legitimately appear twice in one snippet.
-  const parts = snippet.split(/<mark>|<\/mark>/).map((text, index) => ({
-    text,
-    matched: index % 2 === 1,
-    key: `${index}:${text}`,
-  }));
-
-  return (
-    <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-      {parts.map((part) =>
-        part.matched ? (
-          <mark key={part.key}>{part.text}</mark>
-        ) : (
-          <span key={part.key}>{part.text}</span>
-        ),
-      )}
-    </Typography.Paragraph>
   );
 }
