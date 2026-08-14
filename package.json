@@ -1,6 +1,6 @@
 {
   "name": "legere",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "description": "Self-hosted document management system (external-library model).",
   "license": "MIT",
