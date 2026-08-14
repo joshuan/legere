@@ -10,7 +10,7 @@ Next owns `src/app` (routing only, thin files); all UI code lives in `src/web` b
 ```
 src/web/
 ├── screens/      # top-level screen compositions, one slice per route (FSD "pages", renamed)
-├── widgets/      # self-contained UI blocks (document-grid, viewer-panel, queue-dashboard, app-sidebar, upload-panel)
+├── widgets/      # self-contained UI blocks (document-grid, viewer-panel, queue-dashboard, app-sidebar, upload-panel, search-overlay)
 ├── features/     # user actions (login-form, invite-wizard, crop-editor, document-upload, share-collection)
 ├── entities/     # domain UI + api hooks (document, library, collection, document type, user)
 └── shared/       # ui-kit wrappers, api client, i18n utils, config, lib (format, hooks)
@@ -56,6 +56,14 @@ src/app/
 cookies via `headers()`); 401 → `redirect('/login?returnTo=...')`. The `admin` segment layout
 additionally checks `role === 'ADMIN'`, else `notFound()`. Client-side, a 401 from any query triggers
 a redirect to `/login` (see §10.5).
+
+**What the `(app)` layout owns besides the sider:** the upload panel (§10.5a) and the **search
+overlay** ([`11 §11.1a`](./11-ui-ux-spec.md#111a-the-search-overlay)) — both for the same reason,
+that they outlive the screen under them. The overlay's `Cmd+K` / `Ctrl+K` listener is bound once, by
+the layout, rather than by each screen: a hotkey registered per screen is a hotkey that works on four
+of them and is a bug on the fifth. There is **no top-bar component** for anything else to live in —
+the shell is the sider and the content, and a screen's heading and actions belong to the screen
+([`11 §11.1`](./11-ui-ux-spec.md#111-shell--navigation)).
 
 ## 10.3. i18n (next-intl, no locale routing)
 

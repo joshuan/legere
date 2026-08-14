@@ -12,11 +12,16 @@ Authenticated layout: left **Sider** (collapsible) + content. Menu:
 |------|-------|-----------|
 | Documents | `/documents` | all |
 | Browse | `/browse/:libraryId` (submenu listing visible libraries) | all |
-| Search | `/search` | all |
+| Search | opens the overlay (§11.1a) rather than navigating; `/search` is the page behind it | all |
 | Collections | `/collections` | all |
 | Catalogues ▸ People / Subjects / Subject kinds / Document types | `/people`, `/subjects`, `/subject-kinds`, `/document-types` | all |
 | Administration ▸ Libraries / Users / Queue / Trash / Instance | `/admin/*` | ADMIN |
 | (footer) user name + role, Settings, Logout, version, collapse | `/settings` | all |
+
+**Search is the one item that opens rather than goes.** It is in the menu because that is where
+somebody looks for it; pressing it raises the overlay of §11.1a over whatever is on the screen.
+`/search` remains a real screen at a real address, reached from the overlay and by its own URL
+(§11.6).
 
 **The foot of the column**, bottom-last in that order: who is signed in — the name, and the role
 where it is worth saying — then the two things they may do about it, then which build this is, then
@@ -34,8 +39,58 @@ then it is the first thing asked for.
 type, spent on the least important decision on the screen (`§11.15`). It says what it is on hover and
 on focus, and never before.
 
-Top bar of content area: screen title, contextual actions, a global search input (submits to
-`/search?q=`). **Not** the signed-in name: who you are travels with what you may do about it.
+🔒 **There is no bar across the top of the content, on any screen.** The authenticated shell is the
+column and the content, and nothing else. What used to sit up there was a screen title, a contextual
+action or two and a search input, and each was wrong in its own way. The **title** repeated either
+the menu item already highlighted a few pixels to its left or the heading the screen drew for itself
+immediately underneath, and the same name twice on one screen is not emphasis. The **actions** were a
+long way from what they acted on — Upload above a grid it had nothing to do with, Invite user above a
+table of users it does not appear in — and each now sits in the block it belongs to (§11.3, §11.11).
+The **search input** was a field occupying the widest strip of the application at all times to answer
+a question nobody had asked yet; it is raised on demand and centred instead, which is where a search
+belongs while it is being typed (§11.1a). What the bar cost was the top of every screen, in the one
+product whose whole job is to show somebody else's documents at the size they were photographed.
+
+Each screen therefore owns its heading, inside its own content and **only where one earns its place**:
+a collection names itself because its name is a thing somebody chose (§11.7), the trash says what it
+is holding because that number is the reason to be there (§11.13b). A screen whose content already
+says what it is does not say it twice — the Files tab writes no heading under a tab labelled Files
+(§11.5a), and the documents grid is the archive rather than a page about the archive.
+
+## 11.1a. The search overlay
+
+Search is raised over what is open rather than navigated to. The question "where is that lease"
+arrives while something else is on the screen, and the answer is usually one document rather than a
+page of results to be worked through — so the menu item and **Cmd+K** (**Ctrl+K** where there is no
+Cmd) both open a centred overlay over the current screen, dimming it instead of replacing it. The
+hotkey works **anywhere in the authenticated application** and belongs to the desktop; the menu item
+is how everybody else reaches the same thing, because a feature whose only door is a chord is a
+feature most people never find.
+
+One input, focused the moment it appears, and results **as the query is typed** — debounced, so a
+word being typed costs one request rather than six. It is the same `GET /api/search` the page runs,
+in the same default `hybrid` mode ([`07 §7.3`](./07-api-specification.md)): this is a faster way to
+the one instrument and never a second, quieter search with its own opinion about what matches. A
+short list of the top results, each row the anatomy §11.6 already fixes — thumbnail, title, the
+highlighted snippet, the document type — because a result should look the same wherever it is read.
+
+**The whole path is the keyboard's.** ↑ and ↓ move through the results and the highlighted row is
+visibly the highlighted one; **Enter** opens it; **Enter with nothing highlighted** goes to
+`/search?q=` carrying what has been typed, which is also what the **All results** row at the foot of
+the list does — it is there for the pointer, and for everyone who never learns that Enter already
+did it. **Escape** closes the overlay, and 🔒 **focus returns where it came from** — the card, the
+menu item, the tab it was on — because an overlay that dissolves and drops the focus ring on the
+document body has silently ended a keyboard session that had not finished. Closing changes nothing
+underneath: that screen was dimmed, not left.
+
+**An empty query is not an empty overlay.** It shows the **recent documents**, which is exactly what
+the search page's own empty state shows (§11.6): one behaviour, described once, because two screens
+answering "nothing typed yet" differently would be two products. Nothing found says so and says what
+to try, in the words §11.6 uses.
+
+Localized ru/en like everything else, and the shortcut is written where it is offered — the menu item
+carries the chord as a hint on its right, since a shortcut nobody is told about is a shortcut for the
+person who wrote it.
 
 ## 11.2. Auth screens
 
@@ -151,8 +206,12 @@ Onboarding when already onboarded → 404 page.
   a link, a selection — is ignored entirely rather than promising an upload that cannot happen; and
   the browser's own default for a file dropped on a page, which is to navigate away to it and lose
   what the person was looking at, is taken away wherever it would fire.
-- **Upload** (header action, and the page-wide drop zone above) hands the chosen files to **the upload
-  panel** (§11.3a) and changes nothing else on this screen except its width — the grid narrows to the
+- **Upload** stands at the end of the row of controls carrying the order and the grouping, and not
+  among the filters: it is the one control on this screen that *makes* something rather than
+  narrowing what is already there, and a button that adds documents has no business in a bar whose
+  every other control takes them away. It, and the page-wide drop zone above, hand the chosen files
+  to **the upload
+  panel** (§11.3a) and change nothing else on this screen except its width — the grid narrows to the
   column the panel leaves it and reflows into fewer cards per row. They are sent to
   `POST /api/documents` **one at a time, in the order they were chosen**, however many there are:
   forty parallel uploads saturate the connection, arrive interleaved and make the processing queue
@@ -183,8 +242,8 @@ under it. Below `lg` there is no room for two columns, so it becomes a **full-wi
 screen's content**, with a bounded height of its own; the order is the same as the layout's — what is
 happening now, then what is being worked on.
 
-🔒 **Its scroll is its own.** Sticky under the application header, down to the bottom of the viewport,
-scrolling inside itself: a queue of forty rows must not lengthen the page it sits beside, or reading
+🔒 **Its scroll is its own.** Sticky to the top of the viewport and down to the bottom of it — there
+is nothing above it to hang from any more (§11.1) — scrolling inside itself: a queue of forty rows must not lengthen the page it sits beside, or reading
 the grid would mean scrolling past the uploads and watching the uploads would mean losing the grid.
 
 **One queue, and every way in feeds it.** Files dropped or chosen on the documents screen are
@@ -288,8 +347,13 @@ The open tab is the last segment of the address — `/documents/:id/text` — so
 be a link to its text, and a reload lands where it was left. `/documents/:id` opens the preview; an
 unknown tab is a 404 rather than a guess.
 
-Two-pane layout, with the **title above the tabs**: it names what is on the page, and a name is read
-before the metadata of the thing it names.
+**Two-pane layout, and the main column begins with the tabs.** Nothing stands above them: the tabs
+row is the one strip of chrome the document's own column spends, and the open tab takes the rest of
+the height the viewport has. 🔒 **On opening a document the reader should see as much of the document
+as the screen can give** — that is the whole purpose of the screen, and everything above the document
+is charged to it on every page of every document, for a name that was read once on arrival. The
+document's name is therefore not above it but **beside it**, at the head of the panel of things
+*about* the document, which is where the rest of what is known about it already lives.
 - **Left (main): tabs** — `Preview` (**the canonical PDF** in an `<object>`, for every document
   whatever it is made of, because by the time it is readable it is a PDF (`05 §5.5`); while the step
   has not finished, the preview image if there is one and a "Being assembled…" panel if there is
@@ -403,7 +467,18 @@ before the metadata of the thing it names.
   "analysis failed" stops being a dead end. An admin additionally sees the host, which nobody else
   can act on and nobody else is shown.
   Fetched only when the tab is open — most visits never ask.
-- **Right (sidebar):** title (inline-editable when permitted), document type select (all users with
+- **Right (sidebar), opening with what the document is called:** the **title** — inline-editable when
+  permitted, and wrapping rather than truncating, because a document's name is the one string on this
+  screen nobody may be shown half of — and directly under it the **description**, in secondary text,
+  a line or two of what this is and between whom (`03 §3.3.10`), inline-editable on the same terms
+  and drawn as an em dash where the analysis has not written one yet. There is exactly one of each on
+  the screen: these are the title and the description that used to sit over the tabs, and a name in
+  two places is a name somebody will edit in the wrong one. Both edit **in place** — a click on the
+  text, not a form — which is what they have always done and what keeps them out of the Details
+  editor, where a field is corrected rather than written. 🔒 The `E` shortcut below belongs to the
+  Details pane and does nothing while an inline editor holds the focus: a bare letter that opens a
+  form while somebody is typing a title is a bare letter that eats the title. Then the document type
+  select (all users with
   access; shows "auto" tag when `typeSource=AUTO`), the **Download split button** of §11.5b,
   Add-to-collection select, **the page itself** — the first-page preview, between what may be done
   with the document and what the pipeline is doing to it, shown only once that step has produced one.
@@ -548,6 +623,14 @@ Search input + mode toggle (`Hybrid | Text | Semantic`; semantic disabled with a
 highlighted snippet (`<mark>`), document type, score-ordered. Empty query → recent documents. No results →
 suggestions ("check spelling, try semantic mode").
 
+**The overlay is the quick way in; this is the instrument.** Most searches are answered by the first
+few rows of §11.1a and never arrive here — but the modes, the filters and the whole ranked list are
+here, with an input of its own inside its own content, because narrowing a search is work done with
+the results in front of you and an overlay is not a place to work. Two doors, both real: the
+overlay's **All results** row, and `?q=` in the address. A page opened with a query already in the
+URL runs it on arrival rather than waiting to be asked a second time — that address is what somebody
+pasted into a chat, and it has to be the search and not a form remembering the words.
+
 ## 11.7. Collections (`/collections`, `/collections/:id`)
 
 - List: two groups — "My collections" and "Shared with me" (owner name shown). Create button → name
@@ -611,9 +694,10 @@ outside, never writing — because a credential nobody can explain is a credenti
 
 Table: name, email, role tag, status (Active/Deactivated), created. Row actions: change role,
 deactivate/reactivate (confirm; `LAST_ADMIN` errors as toast), revoke sessions, generate password
-reset link (modal shows the URL once with a copy button and expiry). Header action **Invite user**:
-modal (role select, optional email hint) → result modal with the invite URL (copy button, "shown only
-once" warning) + the active invites list below the table with revoke actions.
+reset link (modal shows the URL once with a copy button and expiry). **Invite user** stands above the
+table, over the list of invites it fills rather than in a bar a screen's width away from both
+(§11.1): modal (role select, optional email hint) → result modal with the invite URL (copy button,
+"shown only once" warning) + the active invites list below the table with revoke actions.
 
 ## 11.12. Document types (`/document-types`)
 
@@ -815,7 +899,7 @@ hardcodes `#fff` is a screen that turns white in dark mode.
 | Role | Paper (light) | Ink (dark) | Why |
 |---|---|---|---|
 | Page | `#F4F0E7` | `#141210` | Warm paper / warm black; neither is neutral grey |
-| Surface | `#FFFDF8` | `#1C1917` | Cards, sider, header |
+| Surface | `#FFFDF8` | `#1C1917` | Cards, sider, the search overlay |
 | Border | `#E3DBC9` | `#33302A` | Hairlines, never shadows-as-separators |
 | Text | `#1E1B16` | `#EDE7DA` | Ink on paper, and back |
 | Text secondary | `#6B6355` | `#A2998A` | |
