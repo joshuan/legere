@@ -215,7 +215,16 @@ export function AppShell({
         // column of quiet type, for the least important control on it (docs/11 §11.15). Ours is a
         // hairline strip at the very bottom instead.
         trigger={null}
-        style={{ borderInlineEnd: `1px solid ${token.colorBorderSecondary}` }}
+        style={{
+          borderInlineEnd: `1px solid ${token.colorBorderSecondary}`,
+          // 🔒 The column does not travel with the page (docs/11 §11.1): it is the height of the
+          // window and stays there, so its foot — who is signed in, which build this is, the way to
+          // narrow it — is on the screen at the bottom of a long grid as well as at the top of it.
+          // A menu longer than the window scrolls inside the column instead.
+          position: 'sticky',
+          top: 0,
+          height: '100vh',
+        }}
       >
         {/* The wordmark in the display face, over a hairline — a title page, not a logo slot
             (docs/11 §11.15). Collapsed, it keeps the monogram rather than a truncated word. */}
@@ -317,11 +326,10 @@ export function AppShell({
         {/* A reading column: wide enough for a six-card grid, never edge to edge on a 4K display.
             It starts at the top of the window — what the bar used to cost was the top of every
             screen, in a product whose whole job is to show documents at the size they were
-            photographed (docs/11 §11.1). */}
-        <Layout.Content style={{ padding: '24px 32px' }}>
-          <div className="legere-enter" style={{ maxWidth: 1440, margin: '0 auto' }}>
-            {children}
-          </div>
+            photographed (docs/11 §11.1). A flex column, so a screen that wants the rest of the
+            window's height can ask for it and actually be given it (docs/11 §11.5). */}
+        <Layout.Content style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column' }}>
+          <div className="legere-enter legere-content">{children}</div>
         </Layout.Content>
       </Layout>
     </Layout>

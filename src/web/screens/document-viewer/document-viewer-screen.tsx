@@ -189,98 +189,103 @@ export function DocumentViewerScreen({
   const detail = document.data;
 
   return (
-    <Row gutter={[16, 16]}>
+    // The two panes, and the height the window has: the classes are where the flex chain down to
+    // the document is hung, since a percentage height stops at the first ancestor without one
+    // (docs/11 §11.5).
+    <Row gutter={[16, 16]} className="legere-viewer">
       {/* 🔒 Nothing whatever stands above the tabs: they are the one strip of chrome this column
           spends, and the open tab takes the rest of the height the viewport has. A name read once on
           arrival must not be charged to every page of every document, and the thing it names is on
           the screen being looked at — so the name is beside the document rather than over it
-          (docs/11 §11.5). */}
-      <Col xs={24} lg={16}>
-        <Card>
-          <Tabs
-            activeKey={active}
-            // `replace`, not `push`: reading a document is one visit, and three tabs should not cost
-            // three presses of the browser's back button to leave.
-            onChange={(key) => {
-              if (!isViewerTab(key)) return;
-              setActive(key);
-              router.replace(`/documents/${id}/${key}`);
-            }}
-            items={[
-              {
-                key: 'preview',
-                label: t('viewer.tabs.preview'),
-                children: <PreviewPane document={detail} />,
-              },
-              {
-                key: 'text',
-                label: t('viewer.tabs.text'),
-                children: (
-                  <TextPane
-                    document={detail}
-                    markdown={markdown.data?.markdown ?? null}
-                    loading={markdown.isPending}
-                    isAdmin={isAdmin}
-                    onReadAgain={() => readAgain.mutate()}
-                    readingAgain={readAgain.isPending}
-                  />
-                ),
-              },
-              {
-                key: 'log',
-                label: t('viewer.tabs.log'),
-                children: (
-                  <LogPane id={id} active={active === 'log'} processing={detail.processing} />
-                ),
-              },
-              {
-                key: 'details',
-                label: t('viewer.tabs.details'),
-                children: (
-                  <DetailsPane
-                    document={detail}
-                    documentTypes={documentTypes.data?.items ?? []}
-                    people={people.data?.items ?? []}
-                    subjects={subjects.data?.items ?? []}
-                    subjectKinds={subjectKinds.data?.items ?? []}
-                    // A kind is a row now (docs/03 §3.3.20a), and one the catalogue has never seen
-                    // is created here rather than refused: the person filing a boat should not have
-                    // to go and invent "boat" somewhere else first.
-                    onCreateSubject={async (kind, name) => {
-                      const wanted = kind.trim().toLowerCase();
-                      const known = (subjectKinds.data?.items ?? []).find(
-                        (candidate) => candidate.name.toLowerCase() === wanted,
-                      );
-                      const kindId =
-                        known?.id ?? (await subjectKindApi.create({ name: wanted })).id;
-                      const created = await subjectApi.create({ kindId, name });
-                      await Promise.all([
-                        queryClient.invalidateQueries({ queryKey: subjectKeys.all }),
-                        queryClient.invalidateQueries({ queryKey: subjectKindKeys.all }),
-                      ]);
-                      return created.id;
-                    }}
-                    onCreatePerson={async (name) => {
-                      const created = await personApi.create({ name });
-                      await queryClient.invalidateQueries({ queryKey: personKeys.all });
-                      return created.id;
-                    }}
-                    onSave={(input) => update.mutate(input)}
-                    saving={update.isPending}
-                  />
-                ),
-              },
-              {
-                key: 'files',
-                label: t('viewer.tabs.files'),
-                children: <FilesPane document={detail} />,
-              },
-            ]}
-          />
-        </Card>
+          (docs/11 §11.5).
+          🔒 And nothing around them either: no card, no border, no padding of its own. A frame drawn
+          round the whole zone is a frame drawn round the one thing the screen exists to show — the
+          document's own page is the surface here, and the panel beside it keeps its cards. */}
+      <Col xs={24} lg={16} className="legere-viewer-main">
+        <Tabs
+          activeKey={active}
+          // `replace`, not `push`: reading a document is one visit, and three tabs should not cost
+          // three presses of the browser's back button to leave.
+          onChange={(key) => {
+            if (!isViewerTab(key)) return;
+            setActive(key);
+            router.replace(`/documents/${id}/${key}`);
+          }}
+          items={[
+            {
+              key: 'preview',
+              label: t('viewer.tabs.preview'),
+              children: <PreviewPane document={detail} />,
+            },
+            {
+              key: 'text',
+              label: t('viewer.tabs.text'),
+              children: (
+                <TextPane
+                  document={detail}
+                  markdown={markdown.data?.markdown ?? null}
+                  loading={markdown.isPending}
+                  isAdmin={isAdmin}
+                  onReadAgain={() => readAgain.mutate()}
+                  readingAgain={readAgain.isPending}
+                />
+              ),
+            },
+            {
+              key: 'log',
+              label: t('viewer.tabs.log'),
+              children: (
+                <LogPane id={id} active={active === 'log'} processing={detail.processing} />
+              ),
+            },
+            {
+              key: 'details',
+              label: t('viewer.tabs.details'),
+              children: (
+                <DetailsPane
+                  document={detail}
+                  documentTypes={documentTypes.data?.items ?? []}
+                  people={people.data?.items ?? []}
+                  subjects={subjects.data?.items ?? []}
+                  subjectKinds={subjectKinds.data?.items ?? []}
+                  // A kind is a row now (docs/03 §3.3.20a), and one the catalogue has never seen
+                  // is created here rather than refused: the person filing a boat should not have
+                  // to go and invent "boat" somewhere else first.
+                  onCreateSubject={async (kind, name) => {
+                    const wanted = kind.trim().toLowerCase();
+                    const known = (subjectKinds.data?.items ?? []).find(
+                      (candidate) => candidate.name.toLowerCase() === wanted,
+                    );
+                    const kindId = known?.id ?? (await subjectKindApi.create({ name: wanted })).id;
+                    const created = await subjectApi.create({ kindId, name });
+                    await Promise.all([
+                      queryClient.invalidateQueries({ queryKey: subjectKeys.all }),
+                      queryClient.invalidateQueries({ queryKey: subjectKindKeys.all }),
+                    ]);
+                    return created.id;
+                  }}
+                  onCreatePerson={async (name) => {
+                    const created = await personApi.create({ name });
+                    await queryClient.invalidateQueries({ queryKey: personKeys.all });
+                    return created.id;
+                  }}
+                  onSave={(input) => update.mutate(input)}
+                  saving={update.isPending}
+                />
+              ),
+            },
+            {
+              key: 'files',
+              label: t('viewer.tabs.files'),
+              children: <FilesPane document={detail} />,
+            },
+          ]}
+        />
       </Col>
 
-      <Col xs={24} lg={8}>
+      {/* The panel of things about the document scrolls in itself as well, so what is on the left
+          stays where it is while what is on the right is read (docs/11 §11.5). */}
+      <Col xs={24} lg={8} className="legere-viewer-side">
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           {/* The panel of things *about* the document opens with what it is called, which is where
               the rest of what is known about it already lives (docs/11 §11.5). 🔒 There is exactly
@@ -558,7 +563,10 @@ function PreviewPane({ document }: { document: DocumentDetailDto }) {
         key={document.steps.canonical}
         data={documentFiles.canonical(document.id)}
         type="application/pdf"
-        style={{ width: '100%', height: '70vh' }}
+        // The height is the pane's, not a slice of the window guessed at in advance: where the two
+        // panes stand side by side the document reaches the foot of the screen, and where the layout
+        // is one column it falls back to a fixed share of it (docs/11 §11.5).
+        className="legere-viewer-preview"
         aria-label={t('viewer.tabs.preview')}
       >
         {/* Whatever the browser cannot render inline, it can still download. */}

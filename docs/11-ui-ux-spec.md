@@ -29,6 +29,12 @@ the way to narrow the column. Pushed to the bottom rather than following the men
 while the menu grows. Collapsed, the name becomes an initial and the version goes: a truncated word
 is not a name and a number nobody can read is not a version.
 
+🔒 **The column does not travel with the page.** It is the height of the window and stays there while
+the content beside it scrolls, so its foot is on the screen at the bottom of a long grid as well as
+at the top of it — "sits still while the menu grows" is worth nothing if the whole column leaves the
+screen the moment somebody scrolls. A menu that outgrows the window scrolls **inside the column**,
+which is the one place the scroll can go without taking the foot with it.
+
 **The version** is read on the server from the package the image was built from, not from an
 environment variable somebody has to remember to set — so the number on the screen and the tag on the
 image cannot drift apart. Small and grey: nobody comes looking for it until something is wrong, and
@@ -354,6 +360,20 @@ as the screen can give** — that is the whole purpose of the screen, and everyt
 is charged to it on every page of every document, for a name that was read once on arrival. The
 document's name is therefore not above it but **beside it**, at the head of the panel of things
 *about* the document, which is where the rest of what is known about it already lives.
+
+🔒 **And nothing around it either.** The main column is the tabs row and the document, drawn on the
+page itself — no card, no border, no padding of its own. It is the argument above said in width
+rather than in height: a frame around the whole zone is a frame drawn around the one thing the screen
+exists to show, and it is charged a rule and a gutter on all four sides of every document. The panel
+beside it keeps its cards, because those are objects laid on a page and this is the page.
+
+**The height is taken, not merely wished for.** Where the two panes stand side by side, "the rest of
+the viewport" is literal: the open tab reaches the foot of the window, the canonical PDF fills it,
+and the page behind it does not scroll at all. What is longer than the window scrolls **inside its
+own pane** — the text of a forty-page scan, the log, the list of files — and so does the panel
+beside it, so the tabs row and the panel both stay where they are while a document is read. Below
+that width the viewer is one column above another and scrolls as an ordinary page: a document pinned
+to the height of a phone would be a worse read, not a better one.
 - **Left (main): tabs** — `Preview` (**the canonical PDF** in an `<object>`, for every document
   whatever it is made of, because by the time it is readable it is a PDF (`05 §5.5`); while the step
   has not finished, the preview image if there is one and a "Being assembled…" panel if there is

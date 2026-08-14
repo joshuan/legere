@@ -500,10 +500,30 @@ pre,
 
 /* The sider is a column with a foot: the menu takes the room it needs, and what is under it — who
    is signed in, which build this is, the way to narrow the column — sits at the bottom whatever the
-   menu's length (docs/11 §11.1). */
+   menu's length (docs/11 §11.1). The column is the height of the window and does not travel with
+   the page, so a menu longer than the screen scrolls in here rather than pushing the foot out of
+   sight. */
 .legere-sider .ant-layout-sider-children {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  /* Vertically only: a column 240px wide has nothing to say sideways, and a menu item a pixel too
+     wide must not put a second scrollbar under the navigation. */
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* The reading column: capped and centred, and a flex column so a screen may take the height the
+   window has left it — the viewer does, and a percentage height would stop at the first ancestor
+   without one (docs/11 §11.5). */
+.legere-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
 }
 
 /* The narrowest control on the screen, for the least important decision on it. A hairline strip
@@ -540,12 +560,19 @@ pre,
   display: flex;
   flex-direction: column;
   gap: 24px;
+  /* Whatever height the screen was given is passed on to the screen inside it: a document being
+     read must still reach the foot of the window with an upload going up beside it (docs/11 §11.5). */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* Without this a long file name in the panel — or a wide table on the screen — refuses to shrink
    and pushes the other column off the page. */
 .legere-upload-content {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .legere-upload-panel {
@@ -554,9 +581,10 @@ pre,
 }
 
 @media (min-width: 992px) {
+  /* The screen beside the panel takes the full height of the row — the panel keeps to the top on
+     its own (`align-self` below), which is what `align-items: flex-start` used to be here for. */
   .legere-upload-layout {
     flex-direction: row;
-    align-items: flex-start;
   }
 
   .legere-upload-content {
@@ -574,5 +602,71 @@ pre,
     top: 24px;
     align-self: flex-start;
     max-height: calc(100vh - 48px);
+  }
+}
+
+/* The document viewer takes the height the window has (docs/11 §11.5). The chain is spelled out
+   link by link — the row, the column, the tabs, the holder antd puts the panes in, the pane itself —
+   because a flex child stops passing height on the moment one link forgets to be a flex column, and
+   because `min-height: 0` is what stops a long tab from pushing the whole thing taller than the
+   screen instead of scrolling inside itself.
+
+   Only where the two panes stand side by side. Below that the viewer is one column on top of
+   another and scrolls as an ordinary page, which is the right answer on a phone: a document pinned
+   to a 400px-tall viewport with the panel below it would be a worse read, not a better one. */
+@media (min-width: 992px) {
+  .legere-viewer {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .legere-viewer-main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .legere-viewer-main > .ant-tabs {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .legere-viewer-main > .ant-tabs > .ant-tabs-content-holder,
+  .legere-viewer-main > .ant-tabs > .ant-tabs-content-holder > .ant-tabs-content {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* 🔒 A tab longer than the window scrolls in its own pane — the text of a forty-page scan, a log,
+     a list of files — so the tabs row above it and the panel beside it stay where they are while it
+     is read (docs/11 §11.5). The preview has nothing to scroll: the document is exactly the height
+     of the pane it is in. */
+  .legere-viewer-main .ant-tabs-tabpane-active {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .legere-viewer-side {
+    min-height: 0;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+}
+
+/* The canonical fills the pane it is given. Where the layout is a single column there is no such
+   height to fill, and it falls back to a fixed share of the window. */
+.legere-viewer-preview {
+  width: 100%;
+  height: 70vh;
+}
+
+@media (min-width: 992px) {
+  .legere-viewer-preview {
+    height: 100%;
   }
 }

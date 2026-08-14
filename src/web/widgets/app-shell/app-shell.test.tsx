@@ -176,6 +176,20 @@ describe('AppShell', () => {
     expect(name.closest('aside')).not.toBeNull();
   });
 
+  it('keeps the column with the window rather than letting it travel with the page', async () => {
+    renderWithProviders(
+      <AppShell user={USER} version="9.9.9">
+        <p>content</p>
+      </AppShell>,
+    );
+
+    // 🔒 "Sits still while the menu grows" is worth nothing if the whole column leaves the screen
+    // the moment somebody scrolls a long grid (docs/11 §11.1). jsdom computes no layout, so what is
+    // asserted is the rule that pins it.
+    const sider = (await screen.findByText(USER.displayName)).closest('aside');
+    expect(sider).toHaveStyle({ position: 'sticky', top: '0px', height: '100vh' });
+  });
+
   it('narrows the column with a control that says what it does', async () => {
     renderWithProviders(
       <AppShell user={USER} version="9.9.9">

@@ -305,6 +305,51 @@ describe('DocumentViewerScreen', () => {
       expect(screen.getAllByText('A lease on Njegoševa 5.')).toHaveLength(1);
     });
 
+    it('draws no frame around the document — no card, no border, no padding of its own', async () => {
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+      const tabs = await screen.findByRole('tablist');
+      const main = tabs.closest('.ant-col');
+      if (!(main instanceof HTMLElement)) throw new Error('expected the main column');
+
+      // 🔒 The argument above, in width rather than in height: a frame around the whole zone is a
+      // frame around the one thing the screen exists to show (docs/11 §11.5).
+      expect(main.querySelector('.ant-card')).toBeNull();
+      // The panel beside it keeps its cards, because those are objects laid on a page.
+      const side = screen.getByText(detail.title).closest('.ant-col');
+      expect(side).not.toBe(main);
+      expect(side?.querySelector('.ant-card')).not.toBeNull();
+    });
+
+    it('hangs the height chain on the row and its two columns, so the tab can take the rest', async () => {
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+      const tabs = await screen.findByRole('tablist');
+      const main = tabs.closest('.ant-col');
+      if (!(main instanceof HTMLElement)) throw new Error('expected the main column');
+
+      // The chain the stylesheet hangs the viewport height from (docs/11 §11.5): the row, the column
+      // the document is in, and the panel that scrolls beside it. jsdom computes no layout, so what
+      // is asserted here is that every link of it is present and named.
+      expect(main).toHaveClass('legere-viewer-main');
+      expect(main.parentElement).toHaveClass('legere-viewer');
+      expect(main.parentElement?.querySelector('.legere-viewer-side')).not.toBeNull();
+      // And the tabs are that column's own child, with nothing in between to break the chain.
+      expect(main.firstElementChild).toHaveClass('ant-tabs');
+    });
+
+    it('gives the canonical the height of its pane rather than a fixed slice of the window', async () => {
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+      const object = await screen.findByLabelText(enMessages.viewer.tabs.preview, {
+        selector: 'object',
+      });
+      // 🔒 The bug this replaces: a hard 70vh left the document ending well above the foot of the
+      // window with dead space under it (docs/11 §11.5).
+      expect(object).toHaveClass('legere-viewer-preview');
+      expect(object.getAttribute('style')).toBeNull();
+    });
+
     it('edits the title in place from the sidebar, saving through the same PATCH', async () => {
       let patched: unknown = null;
       server.use(
