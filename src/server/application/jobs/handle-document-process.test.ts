@@ -217,7 +217,7 @@ describe('HandleDocumentProcess', () => {
       expect(document.steps.fields).toBe('DONE');
       // A bad date is dropped and the good vendor beside it is kept (docs/03 §3.3.10a).
       expect(document.extracted).toEqual({
-        schema: { slug: 'receipt', version: 1 },
+        schema: { slug: 'receipt', version: 2 },
         values: { vendor: 'Voli', total: { amount: 12.4, currency: 'EUR' } },
         sources: { vendor: 'AUTO', total: 'AUTO' },
       });
@@ -232,7 +232,7 @@ describe('HandleDocumentProcess', () => {
     });
 
     it('skips NO_SCHEMA where the type carries none, and where there is no type at all', async () => {
-      analyst.slug = 'invoice';
+      analyst.slug = 'contract';
       await givenDocument();
 
       await run();
@@ -272,7 +272,7 @@ describe('HandleDocumentProcess', () => {
 
       const document = stateOf();
       expect(document.extracted).toEqual({
-        schema: { slug: 'receipt', version: 1 },
+        schema: { slug: 'receipt', version: 2 },
         values: { vendor: 'Voli', purchasedAt: '2026-05-12' },
         sources: { vendor: 'MANUAL', purchasedAt: 'AUTO' },
       });
@@ -298,7 +298,7 @@ describe('HandleDocumentProcess', () => {
       await run();
 
       expect(stateOf().extracted).toEqual({
-        schema: { slug: 'receipt', version: 1 },
+        schema: { slug: 'receipt', version: 2 },
         values: { vendor: 'Voli' },
         sources: { vendor: 'AUTO' },
       });

@@ -887,13 +887,22 @@
     "fields": {
       "receipt": {
         "vendor": "Vendor",
+        "statementDescriptor": "On the statement",
         "purchasedAt": "Purchased",
+        "purchasedTime": "Time",
         "total": "Total",
+        "taxAmount": "Tax",
+        "paymentMethod": "Paid by",
+        "card": "Card",
+        "vendorTaxId": "Tax number",
+        "receiptNumber": "Receipt number",
         "items": "Items",
         "itemsColumns": {
           "name": "Item",
           "quantity": "Quantity",
-          "amount": "Amount"
+          "unitPrice": "Unit price",
+          "amount": "Amount",
+          "discount": "Discount"
         }
       },
       "passport": {
@@ -927,6 +936,29 @@
           "seat": "Seat",
           "class": "Class",
           "ticketNumber": "Ticket number"
+        }
+      },
+      "invoice": {
+        "vendor": "Biller",
+        "accountNumber": "Account",
+        "invoiceNumber": "Invoice number",
+        "billingPeriod": "Period",
+        "issuedAt": "Issued",
+        "dueAt": "Due",
+        "totalDue": "Total due",
+        "previousBalance": "Previous balance",
+        "paidAt": "Paid",
+        "paymentReference": "Payment reference",
+        "items": "Lines",
+        "itemsColumns": {
+          "provider": "Provider",
+          "service": "Service",
+          "quantity": "Quantity",
+          "unit": "Unit",
+          "rate": "Rate",
+          "accrued": "Accrued",
+          "adjustment": "Adjustment",
+          "due": "Due"
         }
       }
     },

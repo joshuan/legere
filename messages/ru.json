@@ -887,13 +887,22 @@
     "fields": {
       "receipt": {
         "vendor": "Продавец",
+        "statementDescriptor": "В выписке",
         "purchasedAt": "Дата покупки",
+        "purchasedTime": "Время",
         "total": "Итого",
+        "taxAmount": "Налог",
+        "paymentMethod": "Способ оплаты",
+        "card": "Карта",
+        "vendorTaxId": "ИНН продавца",
+        "receiptNumber": "Номер чека",
         "items": "Позиции",
         "itemsColumns": {
           "name": "Наименование",
           "quantity": "Количество",
-          "amount": "Сумма"
+          "unitPrice": "Цена за единицу",
+          "amount": "Сумма",
+          "discount": "Скидка"
         }
       },
       "passport": {
@@ -927,6 +936,29 @@
           "seat": "Место",
           "class": "Класс",
           "ticketNumber": "Номер билета"
+        }
+      },
+      "invoice": {
+        "vendor": "Получатель платежа",
+        "accountNumber": "Лицевой счёт",
+        "invoiceNumber": "Номер счёта",
+        "billingPeriod": "Период",
+        "issuedAt": "Дата счёта",
+        "dueAt": "Оплатить до",
+        "totalDue": "К оплате",
+        "previousBalance": "Задолженность",
+        "paidAt": "Оплачен",
+        "paymentReference": "Назначение платежа",
+        "items": "Позиции",
+        "itemsColumns": {
+          "provider": "Поставщик",
+          "service": "Услуга",
+          "quantity": "Объём",
+          "unit": "Ед. изм.",
+          "rate": "Тариф",
+          "accrued": "Начислено",
+          "adjustment": "Перерасчёт",
+          "due": "К оплате"
         }
       }
     },

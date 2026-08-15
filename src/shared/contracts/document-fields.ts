@@ -37,16 +37,25 @@ export type DocumentFieldSchema = {
 };
 
 export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
+  // v2 (docs/03 §3.3.10a): a till receipt's second job in an archive is answering "which line of the
+  // bank statement is this", so beside what the paper says it bought, it now says how it was paid —
+  // the descriptor a statement prints, the method, the masked card and the minute of the purchase.
   {
     typeSlug: 'receipt',
-    version: 1,
+    version: 2,
     fields: [
       {
         key: 'vendor',
         kind: 'string',
         searchable: true,
         summary: true,
-        hint: 'The merchant, as printed on the receipt',
+        hint: 'The merchant as printed at the head of the receipt, in its own script and case — the shop as it names itself, which is not how a bank statement spells it',
+      },
+      {
+        key: 'statementDescriptor',
+        kind: 'string',
+        searchable: true,
+        hint: 'The same merchant the way a card statement prints it: trading name, town and two-letter country code, in capitals and spaced as one line, e.g. "TROPIC MALOPRODAJA VISEGRAD BA". Composed from what the receipt shows — its name, the town of the shop, its country — because this is the string that matches a statement line back to this paper',
       },
       {
         key: 'purchasedAt',
@@ -55,19 +64,66 @@ export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
         hint: 'The purchase date printed on the receipt, as yyyy-mm-dd',
       },
       {
+        key: 'purchasedTime',
+        kind: 'string',
+        hint: 'The time printed beside that date, as hh:mm on a 24-hour clock — two receipts from the same shop on the same day are told apart by it, and by nothing else',
+      },
+      {
         key: 'total',
         kind: 'money',
         summary: true,
-        hint: 'The grand total actually paid, with its ISO 4217 currency',
+        hint: 'The grand total actually paid, with its ISO 4217 currency — discounts already taken off. The currency is stated here and only here: every other amount on this receipt is a bare number in it',
+      },
+      {
+        key: 'taxAmount',
+        kind: 'number',
+        hint: 'The tax the receipt totals up — "PDV", "НДС", "VAT", "porez" — as a bare number in the receipt\'s own currency. The sum of the rates table where the receipt breaks the tax down by rate',
+      },
+      {
+        key: 'paymentMethod',
+        kind: 'string',
+        hint: 'How it was paid: exactly "card" or "cash", read off the markings where the paper does not say it in words. Card — a masked card number, a POS/TID/MID/RRN/AID line, "Безналичными", "Электронными", "СБП", "Platna kartica", or a VISA/Mastercard/МИР logo spelled out. Cash — "Наличными", "Сдача", "Gotovina", "Cash". Neither marking on the paper → null, rather than a guess',
+      },
+      {
+        key: 'card',
+        kind: 'string',
+        searchable: true,
+        hint: 'The card digits exactly as the receipt masks them, e.g. "*8534" or "************1234" — the stars kept, because the printed form is what a person recognises. A cash receipt names none',
+      },
+      {
+        key: 'vendorTaxId',
+        kind: 'string',
+        searchable: true,
+        hint: 'The merchant\'s tax number as printed — "ИНН", "PIB", "JIB", "OIB", "VAT ID" — the digits only, without the label',
+      },
+      {
+        key: 'receiptNumber',
+        kind: 'string',
+        searchable: true,
+        hint: 'The number this receipt is filed under: the fiscal receipt number, the "чек №", or the order number where the paper is a webshop\'s',
       },
       {
         key: 'items',
         kind: 'table',
-        hint: 'The line items of the receipt, in printed order',
+        hint: 'The line items of the receipt, in printed order — one row per position, a weighed good included',
         columns: [
           { key: 'name', kind: 'string', searchable: true, hint: 'The item as printed' },
-          { key: 'quantity', kind: 'number', hint: 'How many, when printed' },
+          {
+            key: 'quantity',
+            kind: 'number',
+            hint: 'How many, or how much: a count of pieces, or the weight the scales printed, e.g. 0.542',
+          },
+          {
+            key: 'unitPrice',
+            kind: 'number',
+            hint: 'What one of them costs — per piece, or per kilogram where the line is weighed — as a bare number in the receipt currency',
+          },
           { key: 'amount', kind: 'number', hint: 'The line total, in the receipt currency' },
+          {
+            key: 'discount',
+            kind: 'number',
+            hint: 'What was taken off this line — the "скидка" or "popust" printed against it — as a bare positive number; a line sold at full price carries none',
+          },
         ],
       },
     ],
@@ -215,6 +271,118 @@ export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
             kind: 'string',
             searchable: true,
             hint: 'The ticket number in the airline\'s own digits, e.g. "235 2400161930" — one per passenger, repeated on each of that passenger\'s coupons, and not the booking reference',
+          },
+        ],
+      },
+    ],
+  },
+  // One `invoice` for a bill however many providers it collects (docs/03 §3.3.10a): the paper is one
+  // bill with one payable total, and its lines each name whose service they are. The bill states its
+  // currency once, on `totalDue`; every amount on a line is a bare number in it.
+  {
+    typeSlug: 'invoice',
+    version: 1,
+    fields: [
+      {
+        key: 'vendor',
+        kind: 'string',
+        searchable: true,
+        summary: true,
+        hint: 'The biller whose name heads the paper and whose account the money is asked for — on a combined municipal bill the collector everyone pays, not the providers its lines name',
+      },
+      {
+        key: 'accountNumber',
+        kind: 'string',
+        searchable: true,
+        hint: 'The customer\'s own account with this biller, as printed — "лицевой счёт", "šifra kupca", "customer number", "account no." — the number a payment quotes to be credited to this household, and not the number of the bill',
+      },
+      {
+        key: 'invoiceNumber',
+        kind: 'string',
+        searchable: true,
+        hint: "The bill's own number, exactly as printed — what tells this month's paper from last month's",
+      },
+      {
+        key: 'billingPeriod',
+        kind: 'string',
+        summary: true,
+        hint: 'The month the bill charges for, as yyyy-mm — the period the lines are accrued for ("за июль 2026", "obračunski period 07/2026"), which is usually the month before the one it was issued in. A bill covering a stretch that is not a month: the month it begins in',
+      },
+      { key: 'issuedAt', kind: 'date', hint: 'The day the bill was made out, as yyyy-mm-dd' },
+      {
+        key: 'dueAt',
+        kind: 'date',
+        summary: true,
+        hint: 'The last day it can be paid without a penalty, as yyyy-mm-dd — "оплатить до", "rok plaćanja", "due date", "payment by"',
+      },
+      {
+        key: 'totalDue',
+        kind: 'money',
+        summary: true,
+        hint: 'The figure actually asked for, with its ISO 4217 currency: the "к оплате" / "za uplatu" / "total due" line at the foot, with debt carried over and penalties folded in wherever the paper folds them in — not the sum of this month\'s lines where the two differ. The currency is stated here and only here: the line amounts are bare numbers in it',
+      },
+      {
+        key: 'previousBalance',
+        kind: 'money',
+        hint: 'What was owed before this bill, with its currency — the "задолженность", "dug" or "previous balance" row, negative where the paper shows an overpayment. A bill settled last month states zero or nothing at all',
+      },
+      {
+        key: 'paidAt',
+        kind: 'date',
+        hint: 'The day this bill was paid, as yyyy-mm-dd, where the paper itself knows it: a bank stamp, a "плачено"/"paid" mark, a payment slip printed on the same sheet. A bill that has not been paid on the paper says nothing here, and a person notes the day after paying',
+      },
+      {
+        key: 'paymentReference',
+        kind: 'string',
+        searchable: true,
+        hint: 'The string a bank statement carries back to this paper — "poziv na broj", "назначение платежа", the payment reference, or the digits under the barcode — copied exactly, digits, dashes and all',
+      },
+      {
+        key: 'items',
+        kind: 'table',
+        hint: 'One row per line the bill charges, in printed order — the positions, not the totals row under them. A single-provider bill names the same provider on every row; the combined municipal bill names a different one per line, several of them under the one payable total',
+        columns: [
+          {
+            key: 'provider',
+            kind: 'string',
+            searchable: true,
+            hint: "Who renders this line's service — on a combined bill the water, heating or waste company printed beside the line; on a single-provider bill the vendor again, on every row",
+          },
+          {
+            key: 'service',
+            kind: 'string',
+            searchable: true,
+            hint: 'What is charged for, as the line names it — "холодная вода", "odvoz smeća", "grid access", a standing charge, a service fee',
+          },
+          {
+            key: 'quantity',
+            kind: 'number',
+            hint: 'How much was consumed or charged for, as a bare number: the cubic metres, kilowatt-hours, square metres or months on the line',
+          },
+          {
+            key: 'unit',
+            kind: 'string',
+            hint: 'What that quantity is counted in, as printed — "m3", "kWh", "Gcal", "м2", "мес."',
+          },
+          {
+            key: 'rate',
+            kind: 'number',
+            hint: "The price of one unit, as the line prints it — a bare number in the bill's currency",
+          },
+          {
+            key: 'accrued',
+            kind: 'number',
+            hint: 'What this line comes to before any adjustment — the "начислено" / "obračunato" amount, quantity times rate as the paper prints it',
+          },
+          {
+            key: 'adjustment',
+            kind: 'number',
+            hint: 'What is added to or taken off this line, signed as it changes the amount: a recalculation for an earlier period (перерасчёт) positive or negative as printed, a discount (popust) negative. A line with neither carries none',
+          },
+          {
+            key: 'due',
+            kind: 'number',
+            hint: 'What this line itself asks for — its own "к оплате" / "za plaćanje" after the adjustment — a bare number in the bill\'s one currency',
           },
         ],
       },

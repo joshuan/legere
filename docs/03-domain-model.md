@@ -387,10 +387,10 @@ reading: the facts that are typed because the *type* types them (ADR-022).
 **The schema is the type's, and it ships with the code.** A **field schema** is a versioned list of
 field specs — key, kind, whether the value is searchable, whether it belongs on a card — kept in a
 registry in `src/shared/contracts`, keyed by the document type's slug. It is data, deliberately:
-today the registry is a constant and only `receipt`, `passport`, `id-card` and `flight` carry one;
-the day schemas become admin-editable they move into a table without the stored answers changing
-shape, because every answer already names the slug and version it speaks. Field **kinds** are the
-closed set `string`, `number`, `date` (a calendar day, the `documentDate` rule), `money`
+today the registry is a constant and only `receipt`, `passport`, `id-card`, `flight` and `invoice`
+carry one; the day schemas become admin-editable they move into a table without the stored answers
+changing shape, because every answer already names the slug and version it speaks. Field **kinds**
+are the closed set `string`, `number`, `date` (a calendar day, the `documentDate` rule), `money`
 (`{ amount, currency }`, one fact — an amount without its currency is not a fact), and `table` (rows
 of `string`/`number` columns — the lines of a receipt). Field labels are not in the registry: they
 are message-catalog keys derived from the slug and the field key, localized like everything else
@@ -408,10 +408,40 @@ the type, and a schema nothing points at is read for nobody — which is why `fl
 the dev seed creates (`04 §4.6`); on a live instance an admin adds it as they add any other
 (§3.3.12).
 
+**One `invoice` however many providers a bill collects.** A utility bill is a paper with one payable
+total, and the combined municipal one — water, heating, waste, the lift, the aerial, the management
+company, the building's insurance, each rendered by somebody else — is still that paper: seven
+services, one collector, one sum at the foot, one transfer that pays it. So the bill is stated
+once — the `vendor` who is owed, the `accountNumber` a payment quotes, the `billingPeriod` charged
+for, the `dueAt` it must be paid by and the `totalDue` actually asked for, arrears and penalties
+folded in where the paper folds them — and an `items` table carries a row per line with the
+`provider` of that line beside it: equal to the vendor on a single-provider bill, one of seven on
+the combined one. Splitting the paper into seven invoices would invent documents the drawer does not
+hold, and leave none of them matching the one payment that settled them all. The bill names its
+currency once, on `totalDue`; every amount on a line — the rate, what was accrued, the adjustment,
+the line's own due — is a bare number in it, because a bill charged in two currencies is a bill
+nobody sends. `invoice` needs no seeding of its own: it is among the types migration 1 already
+inserts (§3.3.12).
+
+**A receipt is also a line of a bank statement.** The second job of a till receipt in an archive is
+answering "which entry on the statement is this": the statement says
+`TROPIC MALOPRODAJA VISEGRAD BA` and a sum, and the paper in the drawer is the only thing that says
+what was bought. So `receipt` **v2** keeps the vendor as the shop spells it and adds the way a bank
+spells it (`statementDescriptor`), the minute of the purchase (`purchasedTime` — two receipts from
+one shop on one day differ by nothing else), how it was paid (`paymentMethod`, `card`), and what a
+fiscal receipt is filed under (`vendorTaxId`, `receiptNumber`, `taxAmount`); the lines gain the unit
+price and the discount printed against them. `paymentMethod` is the field oftener inferred than
+read, so its hint teaches the markings themselves: a masked card number, a POS/TID/RRN line,
+"Безналичными" or "Platna kartica" say card; "Наличными", "Сдача" or "Gotovina" say cash.
+🔒 **A cash-machine slip and an exchange receipt stay `receipt`**, with the bank or the *menjačnica*
+as the vendor: a withdrawal has a merchant, a moment, a sum and a card, which is every field that
+matters here — a type of its own is owed only when that proves too small to hold one, and not
+before.
+
 **What is stored.** One JSON on the document — `extracted` — self-describing:
 
 ```
-{ schema:  { slug: 'receipt', version: 1 },
+{ schema:  { slug: 'receipt', version: 2 },
   values:  { vendor: 'Voli', purchasedAt: '2026-05-12', total: { amount: 12.4, currency: 'EUR' }, items: [...] },
   sources: { vendor: 'AUTO', purchasedAt: 'MANUAL', total: 'AUTO', items: 'AUTO' } }
 ```
@@ -428,6 +458,14 @@ searchable fields, flattened to text, rewritten by whatever writes `extracted` (
 edits a field through `PATCH` (07 §7.3): setting a value marks it `MANUAL`, clearing it (null)
 removes value and source both, which is how a field is asked to be read again; `reset` restores what
 the model read and marks it `AUTO`, so a value put back stops claiming a person chose it.
+
+**A version bump is not a type change.** A schema that gains fields keeps its slug, and this rule is
+keyed on the slug: the next `fields` run simply reads the paper again under the newer schema — every
+`MANUAL` value survives it, field by field, the fields the version added arrive as blanks nobody has
+filled yet, and a field the version dropped goes with the reading it belonged to. Which is the whole
+ceremony of a bump: raise the number in the registry, and the archive catches up one document at a
+time, as each is processed, without a migration and without losing a correction. Only a change of
+*slug* replaces a reading wholesale, and for a different reason entirely (below).
 
 **Validation is per field, in code, not in the model's gift.** A date must be a real calendar day in
 a plausible century; an amount a finite number; a currency a plausible ISO 4217 code; a table
