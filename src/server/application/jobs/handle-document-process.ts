@@ -39,7 +39,12 @@ import type { BinarySource } from '../ports/binary-source';
 import type { CallContext } from '../ports/call-context';
 import type { StepSkipReason, StepStatus } from '../../../shared/contracts/enums';
 import type { Clock } from '../ports/clock';
-import type { DocumentAnalysis, DocumentAnalyst, PageImage } from '../ports/document-analyst';
+import type {
+  ConfirmedValues,
+  DocumentAnalysis,
+  DocumentAnalyst,
+  PageImage,
+} from '../ports/document-analyst';
 import type { PageTranscriber, TranscriptionUsage } from '../ports/page-transcriber';
 import type { EmbeddingProvider } from '../ports/embedding-provider';
 import type { FileStorage } from '../ports/file-storage';
@@ -575,6 +580,24 @@ export class HandleDocumentProcess extends JobHandler {
     return true;
   }
 
+  // What a person has already settled about this document, as both model calls are shown it
+  // (docs/05 §5.5 step 4). The people and the subjects are read here rather than taken off the row
+  // because they are links and not columns — and they are read before the call, since the analysis
+  // is about to write its own into the same places.
+  private async confirmedValues(
+    document: Document,
+    manualTypeSlug: string | null,
+  ): Promise<ConfirmedValues> {
+    const people = await this.people.listForDocument(document.id);
+    const subjects = await this.subjects.listForDocument(document.id);
+    return confirmedValuesOf(
+      document,
+      manualTypeSlug,
+      people.map((person) => person.name),
+      subjects.map((subject) => ({ kind: subject.kind, name: subject.name })),
+    );
+  }
+
   // Step 4. One look at the document: which of the active documentTypes it belongs to, and where it is
   // from. An unconfigured provider is not a failure — it is an instance that runs without AI at all
   // (docs/05 §5.5).
@@ -582,14 +605,6 @@ export class HandleDocumentProcess extends JobHandler {
     // 🔒 Asked before every gate of its own, so a forty-page document whose extraction failed reads
     // as a failed extraction rather than as one too long to analyse (docs/05 §5.5).
     if (await this.blockedByExtraction(document, 'analysis')) return;
-    // 🔒 A documentType a person chose is never overwritten by a machine (docs/03 §3.3.10).
-    if (document.typeSource === 'MANUAL') {
-      await this.write(document.id, {
-        steps: { analysis: 'SKIPPED' },
-        skipReasons: { analysis: 'MANUAL_TYPE' },
-      });
-      return;
-    }
     if (!this.analyst.isConfigured) {
       await this.write(document.id, {
         steps: { analysis: 'SKIPPED' },
@@ -615,6 +630,7 @@ export class HandleDocumentProcess extends JobHandler {
     try {
       const documentTypes = await this.documentTypes.listActive();
       const kinds = await this.subjectKinds.listActive();
+      const manualType = document.typeSource === 'MANUAL';
       const analysis = await this.analyst.analyze(
         analystExcerpt(document, this.settings.analystExcerptChars),
         documentTypes.map(({ slug: value, name, description }) => ({
@@ -634,6 +650,12 @@ export class HandleDocumentProcess extends JobHandler {
         // (docs/05 §5.5).
         (await this.analysisSettings.read()).language,
         await this.pagesFor(document),
+        // What a person has already settled, to read the rest of the document by
+        // (docs/05 §5.5 step 4).
+        await this.confirmedValues(
+          document,
+          manualType ? slugOf(documentTypes, document.typeId) : null,
+        ),
       );
 
       await this.linkPeople(document, analysis.people);
@@ -646,8 +668,13 @@ export class HandleDocumentProcess extends JobHandler {
       await this.write(document.id, {
         steps: { analysis: 'DONE' },
         metrics: { ...(analysis.usage ?? {}) },
-        typeId: chosen?.id ?? null,
-        typeSource: chosen === null ? 'NONE' : 'AUTO',
+        // 🔒 A documentType a person chose is never overwritten by a machine (docs/03 §3.3.10) —
+        // said here, at the write, rather than by skipping the whole step: the document was
+        // analysed, the model was told the type it has, and what it would have chosen is kept in
+        // `autoValues.typeSlug` below like every other reading that is not applied.
+        ...(manualType
+          ? {}
+          : { typeId: chosen?.id ?? null, typeSource: chosen === null ? 'NONE' : 'AUTO' }),
         ...titleUpdate(document, analysis),
         ...placeUpdate(document, analysis),
         // Recorded whether or not it was applied: a place somebody filled in by hand stays, and the
@@ -767,6 +794,9 @@ export class HandleDocumentProcess extends JobHandler {
         schema,
         analystExcerpt(document, this.settings.analystExcerptChars),
         await this.pagesFor(document),
+        // The same block the analysis is shown, this document's own corrected fields included: the
+        // fields of one paper are read together (docs/05 §5.5 step 5).
+        await this.confirmedValues(document, document.typeSource === 'MANUAL' ? slug : null),
       );
       // Per-field validation, in code: an invented value in one field must not discard a good one
       // beside it (docs/03 §3.3.10a).
@@ -900,6 +930,85 @@ export class HandleDocumentProcess extends JobHandler {
       failedStep: step,
     });
   }
+}
+
+// Everything a person has decided about this document, and nothing the pipeline decided by itself
+// (docs/05 §5.5 step 4). Two kinds of value with one meaning. The ones whose column says who chose
+// them — the title, the document type, each typed field (docs/03 §3.3.10a). And the ones that carry
+// no source of their own — the date, the place, the description, the people, the subjects — where
+// the only trace a correction leaves is that the value differs from the machine's own recorded
+// reading in `autoValues`, since everything the pipeline wrote itself is in both places and
+// identical. A document nobody has touched answers with an empty object, which is what makes the
+// block absent from the prompt rather than present and empty.
+function confirmedValuesOf(
+  document: Document,
+  manualTypeSlug: string | null,
+  people: readonly string[],
+  subjects: readonly { kind: string; name: string }[],
+): ConfirmedValues {
+  const confirmed: ConfirmedValues = {};
+  if (document.titleSource === 'MANUAL') confirmed.title = document.title;
+  if (manualTypeSlug !== null) confirmed.typeSlug = manualTypeSlug;
+
+  const date = byHand(document.documentDate, document.auto.date);
+  if (date !== null) confirmed.date = date;
+  const country = byHand(document.country, document.auto.country);
+  if (country !== null) confirmed.country = country;
+  const city = byHand(document.city, document.auto.city);
+  if (city !== null) confirmed.city = city;
+  const description = byHand(document.description, document.auto.description);
+  if (description !== null) confirmed.description = description;
+
+  if (people.length > 0 && !sameList(people, document.auto.people ?? [])) confirmed.people = people;
+  const named = subjects.map((subject) => `${subject.kind}: ${subject.name}`);
+  const read = (document.auto.subjects ?? []).map((subject) => `${subject.kind}: ${subject.name}`);
+  if (subjects.length > 0 && !sameList(named, read)) confirmed.subjects = subjects;
+
+  const fields = confirmedFields(document.extracted);
+  if (Object.keys(fields).length > 0) confirmed.fields = fields;
+  return confirmed;
+}
+
+// A column with no source of its own says a person touched it in exactly one way: it holds
+// something, and that something is not what the machine recorded reading (docs/05 §5.5 step 4).
+// A value the pipeline has never read at all counts too — nobody but a person could have put it
+// there.
+function byHand(value: string | null, recorded: string | null | undefined): string | null {
+  if (value === null || value.trim() === '') return null;
+  return value === (recorded ?? null) ? null : value;
+}
+
+// Lists compare as sets, case-insensitively: the order a model happened to answer in is not a
+// correction, and neither is a capital letter (docs/03 §3.3.19, §3.3.20).
+function sameList(chosen: readonly string[], recorded: readonly string[]): boolean {
+  const key = (values: readonly string[]): string =>
+    [...values]
+      .map((value) => value.trim().toLowerCase())
+      .sort()
+      .join('|');
+  return key(chosen) === key(recorded);
+}
+
+// The typed fields a person corrected, keyed as the schema keys them (docs/03 §3.3.10a). `sources`
+// is where the answer lives: `MANUAL` is the whole of the question, one field at a time.
+function confirmedFields(extracted: ExtractedFields | null): Record<string, unknown> {
+  if (extracted === null) return {};
+  const fields: Record<string, unknown> = {};
+  for (const [key, source] of Object.entries(extracted.sources)) {
+    if (source !== 'MANUAL') continue;
+    const value = extracted.values[key];
+    if (value !== undefined) fields[key] = value;
+  }
+  return fields;
+}
+
+// Which slug a document's type answers to, among the types that are still in the catalogue.
+function slugOf(
+  documentTypes: readonly { id: string; slug: string }[],
+  typeId: string | null,
+): string | null {
+  if (typeId === null) return null;
+  return documentTypes.find((documentType) => documentType.id === typeId)?.slug ?? null;
 }
 
 // The one field with no blank to fill: every document has a file name, so what governs the title is

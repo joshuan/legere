@@ -347,4 +347,29 @@ describe('HandleMaintenance', () => {
 
     expect(queue.enqueued.map((job) => job.payload)).toEqual([{ documentId: 'doc-lost' }]);
   });
+
+  it('walks through a document whose analysis a retired skip reason used to stand in for', async () => {
+    // What the `MANUAL_TYPE` migration leaves behind (docs/05 §5.5 step 4): a fully processed
+    // document with one step put back to PENDING, because the reading it never got is now a reading
+    // it can have. Nothing enqueued it — this sweep is the whole of the plan.
+    const retyped = documentFixture({
+      id: 'doc-manual-type',
+      typeSource: 'MANUAL',
+      steps: {
+        canonical: 'DONE',
+        preview: 'DONE',
+        markdown: 'DONE',
+        analysis: 'PENDING',
+        fields: 'DONE',
+        vectorization: 'DONE',
+      },
+    });
+    documents.add(retyped);
+    documents.setUpdatedAt('doc-manual-type', new Date(NOW.getTime() - 3 * 60 * 60 * 1000));
+
+    await handler.handle();
+
+    expect(queue.enqueued.map((job) => job.payload)).toEqual([{ documentId: 'doc-manual-type' }]);
+    expect((await documents.findById('doc-manual-type'))?.steps.analysis).toBe('QUEUED');
+  });
 });

@@ -488,7 +488,9 @@ a long step is visibly alive rather than indistinguishable from a queued one (03
 
 Every `SKIPPED` step records **why** (docs/03 §3.3.10), because "skipped" alone cannot be told apart
 from "broken" by the person looking at it: not needed for this format, format unsupported, provider
-not configured, no document types defined, no text to embed, or a document type a person set by hand.
+not configured, no document types defined, no text to embed, no field schema for this type, or
+longer than an instance analyses unasked. A document type a person set was one of these reasons and
+is one no longer — the type is now told to the analysis instead of standing in for it (step 4).
 
 🔒 **The steps after step 3 read what it wrote, and none of them runs when step 3 did not write it.**
 The analysis, the fields and the vectorization all take the extracted Markdown as their input, so the
@@ -502,7 +504,7 @@ the reason step 3 recorded — `UNSUPPORTED_FORMAT` for a document nothing can r
 back to `NO_TEXT` when there is none to inherit. Step 3 still `PENDING` or `QUEUED` → `SKIPPED` with
 `NO_TEXT`, which is what a subset reprocess asking for a later step without the extraction ever
 having run leaves behind, and "not extracted yet" is not text either. The question comes **before**
-each step's own ones — before `MANUAL_TYPE`, `NOT_CONFIGURED` and `TOO_MANY_PAGES` for the analysis,
+each step's own ones — before `NOT_CONFIGURED` and `TOO_MANY_PAGES` for the analysis,
 before `NO_SCHEMA` and the rest for the fields, before `NOT_CONFIGURED` and the empty-text check for
 the vectorization — so a forty-page document whose extraction failed reads as a failed extraction
 rather than as a document too long to analyse, and the reason recorded is the one somebody can act
@@ -529,14 +531,23 @@ because a run that told us nothing new happened to it.
    configurable API as embeddings — open question
    [`01 §1.7`](./01-vision-and-scope.md#17-open-questions)), which answers with a document type *and*
    with where the document is from. An auto-assigned document type is marked as auto; the user may
-   correct it (a manual assignment is never overwritten by auto again). The place — `country`,
-   `city` — is asked for in the same call because the excerpt is the same and one round trip is
-   cheaper than two, and because it needs exactly what a model has and a detector has not: a train
-   ticket that says `ŽPCG` and `PODGORICA` is Montenegrin, and nothing in its text says so. Each
-   field is validated on its own, so an invented document type slug does not discard a good country. The
-   step **fills blanks only**: languages the offline detector found stand — it reads what it is given
-   with no cost per character, which a model does not — and a place somebody filled in by hand stays;
-   clearing a field is how you ask for it to be inferred again.
+   correct it (a manual assignment is never overwritten by auto again) — and correcting it no longer
+   costs the document the rest of the reading. Until this release a type chosen by hand skipped the
+   whole step (`MANUAL_TYPE`), a protection written when the analysis could only have overwritten
+   the choice; what it actually bought was a document that never got a date, a place, its people or
+   a description from the pipeline again — on exactly the documents somebody cared enough about to
+   type. **The confirmed type rides along instead of gating.** The model is told what the document
+   is, asked for everything else, and its own opinion on the type is recorded in
+   `autoValues.typeSlug` and applied nowhere: `typeId` and `typeSource` are not written at all for
+   such a document, which is the same protection said in the place it belongs — at the write rather
+   than at the door.
+   The place — `country`, `city` — is asked for in the same call because the excerpt is the same and
+   one round trip is cheaper than two, and because it needs exactly what a model has and a detector
+   has not: a train ticket that says `ŽPCG` and `PODGORICA` is Montenegrin, and nothing in its text
+   says so. Each field is validated on its own, so an invented document type slug does not discard a
+   good country. The step **fills blanks only**: languages the offline detector found stand — it
+   reads what it is given with no cost per character, which a model does not — and a place somebody
+   filled in by hand stays; clearing a field is how you ask for it to be inferred again.
    🔒 **And only when the document is short enough to be worth one look.** Past
    `CLASSIFIER_AUTO_MAX_PAGES` (default 10) the step is `SKIPPED` with `TOO_MANY_PAGES` and nothing is
    sent: a verdict read off the first ten pages of a forty-page contract is worse than no verdict,
@@ -566,6 +577,30 @@ because a run that told us nothing new happened to it.
    things — almost every document is about a flat, a car or a company already known — so the job
    stops being "read a name" and becomes "recognise which one of these". A new row is what the step
    creates when nothing matches, not what it creates by default.
+   **And it is shown what a person has already settled** — one block of *confirmed values*, carried
+   by this call and by the fields call of step 5 alike. Two kinds of value are in it and they mean
+   one thing. The ones whose column says who decided: the title where `titleSource` is `MANUAL`, the
+   document type where `typeSource` is, each typed field whose `sources` entry is (`03 §3.3.10a`).
+   And the ones that carry no source of their own — the date, the country, the city, the
+   description, the people, the subjects — where a value that is present and *differs from the
+   machine's own recorded reading in `autoValues`* is precisely a person's hand, since everything
+   the pipeline itself wrote is in both places and identical. The prompt says what the block is:
+   validated by a person, outranking anything read off the page, there to resolve what the page
+   leaves ambiguous, and never to be contradicted. That is what it is for — the failures worth
+   fixing here are rarely "the model cannot see the page" and usually "the page is ambiguous and it
+   guessed": a vendor somebody corrected says which shop the rest of the lines belong to, a date
+   somebody typed off a stamp the scan lost is the date every other field hangs from, and a country
+   settles a currency that two countries share. **A document nobody has touched carries no block at
+   all**, which is most of an archive and costs it nothing.
+   🔒 **The block travels inside the same nonce-fenced data channel as the document text.** It is
+   written between two lines carrying this call's own nonce, inside the fence the excerpt goes in,
+   and that nonce is stripped out of every confirmed value exactly as it is stripped out of the
+   text. A person typing a title is not a person writing instructions to a model: human-entered
+   strings are data, whoever typed them, and a title that could give orders about how the next
+   document is read would be an injection surface this product handed to itself. The fence holds in
+   the other direction too — a page that writes the confirmation markers into its own text forges
+   nothing, because it cannot know the nonce, and the archive's own values are the only thing those
+   two lines can ever contain.
    It also answers a **description** — what this is, between whom and what for, in a few hundred
    characters, so an unfamiliar document can be judged without being read. Blank-fill like the place:
    a description somebody wrote stays, and clearing it asks for a new one.
@@ -589,6 +624,12 @@ because a run that told us nothing new happened to it.
    keeps the rows that parse. **Fill-blanks, per field:** a value whose source is `MANUAL` stands
    whatever the model reads, and the whole answer is recorded in `autoValues.fields` either way, so
    the viewer can say "read as X" under a corrected value and offer the way back (`11 §11.5`).
+   **It is shown the same confirmed block as the analysis** — the whole of it, fields included, in
+   the same fenced data channel and under the same words (step 4). One level finer is where it pays
+   most: the fields of one paper are read together, so a vendor a person corrected tells the model
+   which shop the lines under it belong to, and a total somebody typed says what the line amounts
+   have to come to. What may be *written* is untouched by it — a `MANUAL` field stands whatever
+   comes back, and the block changes what the model is told and never what may be overwritten.
    The gates it shares with the analysis it asks in the same order: the step-3 dependency above,
    then `NO_SCHEMA`, then `NOT_CONFIGURED` without a provider, then `TOO_MANY_PAGES` past
    `CLASSIFIER_AUTO_MAX_PAGES` — lifted by the same `analyseInFull` asking (`07 §7.3`), because

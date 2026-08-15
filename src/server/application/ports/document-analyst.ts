@@ -58,6 +58,34 @@ export type DocumentAnalysis = {
 // down — a model reads a page, it does not print it.
 export type PageImage = { bytes: Buffer };
 
+// What a person has already settled about this document, as both model calls are shown it
+// (docs/05 §5.5 step 4). Two kinds of value, one meaning: the ones whose column says who decided —
+// the title, the document type, each typed field — and the ones that carry no source of their own,
+// where a value differing from the machine's own recorded reading in `autoValues` is precisely a
+// person's hand. Which is which is the application layer's to decide; the adapter is only told what
+// came out of it.
+//
+// 🔒 Every string in here was typed by a person, so it travels inside the same nonce-fenced data
+// channel as the document text: confirmed is not the same as entitled to give instructions, and a
+// title that could order the reading of the document it is attached to would be an injection
+// surface this product handed to itself.
+export type ConfirmedValues = {
+  title?: string;
+  // The slug of the type somebody chose, as the model is offered slugs elsewhere.
+  typeSlug?: string;
+  // yyyy-mm-dd, the shape the analysis answers dates in.
+  date?: string;
+  country?: string;
+  city?: string;
+  description?: string;
+  people?: readonly string[];
+  subjects?: readonly { kind: string; name: string }[];
+  // The typed fields a person corrected, keyed as the schema keys them (docs/03 §3.3.10a). The
+  // values are whatever the field's kind holds — a string, a number, a money, a table of rows — so
+  // they are opaque here and rendered as the JSON they are stored as.
+  fields?: Readonly<Record<string, unknown>>;
+};
+
 // What the fields step gets back (docs/05 §5.5 step 5): the raw answer, one value per asked key.
 // Deliberately unvalidated here — validation is per field, in code, in the application layer
 // (docs/03 §3.3.10a), so the adapter stays a transport and the rules stay testable without one.
@@ -89,6 +117,9 @@ export abstract class DocumentAnalyst {
     // The pages themselves, when there are any to show. A scan whose recognition found nothing has
     // no text to be analysed from — and a document is a picture before it is a string.
     pages?: readonly PageImage[],
+    // What a person has confirmed about this document, to read the rest of it by. Absent on a
+    // document nobody has touched, which is most of an archive.
+    confirmed?: ConfirmedValues,
   ): Promise<DocumentAnalysis>;
 
   // The fields step (docs/05 §5.5 step 5): the same provider, shown the same text and pages, asked
@@ -98,5 +129,8 @@ export abstract class DocumentAnalyst {
     schema: DocumentFieldSchema,
     excerpt: string,
     pages?: readonly PageImage[],
+    // The same block the analysis is shown, fields included: the fields of one paper are read
+    // together, so a vendor a person corrected says which shop the lines under it belong to.
+    confirmed?: ConfirmedValues,
   ): Promise<FieldExtraction>;
 }

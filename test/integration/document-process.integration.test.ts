@@ -375,7 +375,11 @@ describe('Document processing (integration)', () => {
     const after = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
     expect(after.typeSource).toBe('MANUAL');
     expect(after.typeId).toBeNull();
-    expect(after.analysisStatus).toBe('SKIPPED');
+    // 🔒 The step runs over it all the same and simply does not write those two columns: the choice
+    // travels into the call as a confirmed value instead of standing in front of it, so the
+    // document still gets its date, its place and its description (docs/05 §5.5 step 4).
+    expect(after.analysisStatus).toBe('DONE');
+    expect(after.skipReasons).not.toHaveProperty('analysis');
   });
 
   it('skips both AI steps, without error, when no provider is configured', async () => {

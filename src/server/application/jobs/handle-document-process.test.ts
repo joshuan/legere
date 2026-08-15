@@ -366,7 +366,8 @@ describe('HandleDocumentProcess', () => {
       await run();
 
       const document = stateOf();
-      // The analysis is MANUAL_TYPE-skipped, so the failure is the fields step's own.
+      // Both calls go to the same provider, so both steps fail; the pointer names the last one to
+      // hit it, and the step's own status is what says the fields were never read.
       expect(document.steps.fields).toBe('FAILED');
       expect(document.failedStep).toBe('fields');
       expect(document.processingError).toContain('Analyst request failed');
@@ -1226,20 +1227,31 @@ describe('HandleDocumentProcess', () => {
       expect(document.typeSource).toBe('NONE');
     });
 
-    it('never overwrites a documentType a person chose', async () => {
+    it('analyses a document whose type a person chose, and ignores its answer on the type', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
         typeId: 'documentType-2',
         typeSource: 'MANUAL',
       });
-      analyst.slug = 'invoice';
+      analyst.answer = { ...analyst.answer, typeSlug: 'invoice', country: 'ME' };
 
       await run();
 
       const document = stateOf();
-      expect(document.steps.analysis).toBe('SKIPPED');
+      // The step used to be skipped whole, which cost the document everything else it reads
+      // (docs/05 §5.5 step 4): it runs now.
+      expect(document.steps.analysis).toBe('DONE');
+      expect(document.skipReasons.analysis).toBeUndefined();
+      // 🔒 And the type a person chose is untouched — the protection said at the write rather than
+      // at the door (docs/03 §3.3.10).
       expect(document.typeId).toBe('documentType-2');
       expect(document.typeSource).toBe('MANUAL');
-      expect(analyst.calls).toEqual([]);
+      // What the model would have chosen is on record and applied nowhere; everything else it read
+      // lands as usual.
+      expect(document.auto.typeSlug).toBe('invoice');
+      expect(document.country).toBe('ME');
+      // And the model was told what the document already is, as a confirmed value.
+      expect(analyst.calls).toHaveLength(1);
+      expect(analyst.calls[0]?.confirmed.typeSlug).toBe('contract');
     });
 
     it('skips itself when no analyst is configured', async () => {
@@ -1485,6 +1497,110 @@ describe('HandleDocumentProcess', () => {
       // The document is still readable and still gets its vectors.
       expect(document.steps.markdown).toBe('DONE');
       expect(document.steps.vectorization).toBe('DONE');
+    });
+  });
+
+  // What a person confirmed travels with every later reading (docs/05 §5.5 step 4): the values
+  // whose column names who chose them, and the ones whose only trace of a correction is that they
+  // differ from what the machine recorded reading.
+  describe('what a person confirmed (docs/05 §5.5 step 4)', () => {
+    it('carries a MANUAL title, type and field, and a place that diverged from what was read', async () => {
+      const receipt = documentTypes.add('receipt');
+      // What this run reads: the same place it read last time, so `autoValues` is unmoved by it and
+      // both steps of the run are shown the same block.
+      analyst.answer = { ...analyst.answer, country: 'RS', city: 'Podgorica' };
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
+        title: 'The flat, everything about it',
+        titleSource: 'MANUAL',
+        typeId: receipt.id,
+        typeSource: 'MANUAL',
+        country: 'ME',
+        // Written by the pipeline itself and never touched since: identical to what it read, so it
+        // is not a person's hand and does not travel.
+        city: 'Podgorica',
+        documentDate: '2026-05-12',
+        extracted: {
+          schema: { slug: 'receipt', version: 1 },
+          values: { vendor: 'Voli', purchasedAt: '2026-05-12' },
+          sources: { vendor: 'MANUAL', purchasedAt: 'AUTO' },
+        },
+        auto: { country: 'RS', city: 'Podgorica' },
+      });
+
+      await run();
+
+      // Every kind of confirmation in one block, and nothing else in it.
+      expect(analyst.calls[0]?.confirmed).toEqual({
+        title: 'The flat, everything about it',
+        typeSlug: 'receipt',
+        date: '2026-05-12',
+        country: 'ME',
+        fields: { vendor: 'Voli' },
+      });
+      // The fields step is shown the same block (docs/05 §5.5 step 5).
+      expect(analyst.fieldCalls[0]?.confirmed).toEqual(analyst.calls[0]?.confirmed);
+    });
+
+    it('carries the people and the subjects a person put on the document instead of the ones read', async () => {
+      const chosen = await people.create({ name: 'Somebody Else' });
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
+        auto: { people: ['Marija Petrović'] },
+      });
+      await people.setForDocument(DOCUMENT_ID, [chosen.id]);
+
+      await run();
+
+      expect(analyst.calls[0]?.confirmed).toEqual({ people: ['Somebody Else'] });
+    });
+
+    it('carries nothing at all about a document nobody has touched', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
+        // Exactly what an earlier run of the pipeline leaves: the row and the record agree.
+        country: 'ME',
+        city: 'Podgorica',
+        documentDate: '2026-05-12',
+        description: 'A one-year lease.',
+        auto: {
+          country: 'ME',
+          city: 'Podgorica',
+          date: '2026-05-12',
+          description: 'A one-year lease.',
+        },
+      });
+
+      await run();
+
+      // Most of an archive, and it costs the prompt nothing.
+      expect(analyst.calls[0]?.confirmed).toEqual({});
+    });
+
+    it('keeps a confirmed field byte for byte across a re-run, and shows it to the model', async () => {
+      const receipt = documentTypes.add('receipt');
+      const confirmed = {
+        vendor: 'Voli',
+        total: { amount: 12.4, currency: 'EUR' },
+      };
+      analyst.fieldValues = { vendor: 'Model corp', total: { amount: 99, currency: 'USD' } };
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }], {
+        typeId: receipt.id,
+        typeSource: 'MANUAL',
+        extracted: {
+          schema: { slug: 'receipt', version: 1 },
+          values: { ...confirmed },
+          sources: { vendor: 'MANUAL', total: 'MANUAL' },
+        },
+      });
+
+      await run();
+      await run();
+
+      // 🔒 Fill-blanks per field is untouched by any of this: the block changes what the model is
+      // told, never what may be overwritten (docs/05 §5.5 step 5).
+      expect(stateOf().extracted?.values).toEqual(confirmed);
+      expect(stateOf().extracted?.sources).toEqual({ vendor: 'MANUAL', total: 'MANUAL' });
+      // And both runs were told what those fields already are.
+      expect(analyst.fieldCalls[0]?.confirmed.fields).toEqual(confirmed);
+      expect(analyst.fieldCalls[1]?.confirmed.fields).toEqual(confirmed);
     });
   });
 

@@ -827,7 +827,7 @@ rule 3 the docs move first with each task: `03 §3.3.16`, `05 §5.5`/`§5.6`, `0
 
 ## M27 — What a person confirmed, the machine believes
 
-- [ ] **M27.1 — Confirmed values travel with every later reading**
+- [x] **M27.1 — Confirmed values travel with every later reading**
   **Goal:** a value a person corrected stops being invisible to the model that reads the document next — it becomes the one thing that model is told to trust.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`06 §6.3.3`](../06-backend-architecture.md), [`03 §3.3.10`](../03-domain-model.md), [`03 §3.3.10a`](../03-domain-model.md)
   **This one amends a rule.** `05 §5.5` step 4 currently skips the analysis wholesale when the document's type was chosen by hand — `MANUAL_TYPE`, introduced when the analysis could only have overwritten the choice. That protection now costs the document everything else the analysis reads: a manually-typed document never gets a date, a place, its people or a description from the pipeline again. The skip retires; the confirmed type rides along instead, and so does everything else a person has fixed.

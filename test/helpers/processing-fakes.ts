@@ -68,6 +68,7 @@ import {
 } from '../../src/server/application/ports/pdf-toolbox';
 import {
   DocumentAnalyst,
+  type ConfirmedValues,
   type DocumentTypeOption,
   type FieldExtraction,
   type KnownSubject,
@@ -1384,6 +1385,8 @@ export class FakeAnalyst extends DocumentAnalyst {
     // How many pages travelled with the text: a document is a picture before it is a string, and
     // a test that cares about step 4's input cares about this (docs/05 §5.5 step 4).
     pages: number;
+    // What a person had already settled when this call was made (docs/05 §5.5 step 4).
+    confirmed: ConfirmedValues;
   }> = [];
 
   get isConfigured(): boolean {
@@ -1402,22 +1405,34 @@ export class FakeAnalyst extends DocumentAnalyst {
     _knownSubjects?: readonly KnownSubject[],
     _language?: string,
     pages: readonly PageImage[] = [],
+    confirmed: ConfirmedValues = {},
   ): Promise<DocumentAnalysis> {
-    this.calls.push({ excerpt, documentTypes, pages: pages.length });
+    this.calls.push({ excerpt, documentTypes, pages: pages.length, confirmed });
     if (this.failing) return Promise.reject(new Error('Analyst request failed with 503'));
     return Promise.resolve(this.answer);
   }
 
   // The fields step's question (docs/05 §5.5 step 5); tests set `fieldValues` per case.
   fieldValues: Record<string, unknown> = {};
-  readonly fieldCalls: Array<{ schemaSlug: string; excerpt: string; pages: number }> = [];
+  readonly fieldCalls: Array<{
+    schemaSlug: string;
+    excerpt: string;
+    pages: number;
+    confirmed: ConfirmedValues;
+  }> = [];
 
   extractFields(
     schema: DocumentFieldSchema,
     excerpt: string,
     pages: readonly PageImage[] = [],
+    confirmed: ConfirmedValues = {},
   ): Promise<FieldExtraction> {
-    this.fieldCalls.push({ schemaSlug: schema.typeSlug, excerpt, pages: pages.length });
+    this.fieldCalls.push({
+      schemaSlug: schema.typeSlug,
+      excerpt,
+      pages: pages.length,
+      confirmed,
+    });
     if (this.failing) return Promise.reject(new Error('Analyst request failed with 503'));
     return Promise.resolve({ values: this.fieldValues });
   }

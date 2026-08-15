@@ -835,7 +835,6 @@
       "NOT_CONFIGURED": "No AI provider configured on this instance",
       "NO_TYPES": "No document types to choose from yet",
       "NO_TEXT": "No text was extracted to work with",
-      "MANUAL_TYPE": "The type was set by hand and is left alone",
       "TOO_MANY_PAGES": "Too long to analyse automatically — ask for it below",
       "NO_SCHEMA": "No field schema for this document type"
     },

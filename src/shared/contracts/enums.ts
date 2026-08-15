@@ -19,13 +19,16 @@ export type FileRefStatus = z.infer<typeof fileRefStatusSchema>;
 
 // Why a step is SKIPPED (docs/03 §3.3.10). "Skipped" on its own reads like a failure; these say
 // which of the harmless reasons it was, and which of them an operator can act on.
+//
+// `MANUAL_TYPE` was one of them and is one no longer: a document whose type a person chose is
+// analysed rather than skipped, with the confirmed type travelling into the call instead of gating
+// it (docs/05 §5.5 step 4). A migration cleared the word out of the documents that carried it.
 export const stepSkipReasonSchema = z.enum([
   'NOT_NEEDED',
   'UNSUPPORTED_FORMAT',
   'NOT_CONFIGURED',
   'NO_TYPES',
   'NO_TEXT',
-  'MANUAL_TYPE',
   // Longer than an instance lets the pipeline analyse on its own (docs/05 §5.5 step 4). Not a
   // refusal: a person may ask for this one document, and then the whole of it goes.
   'TOO_MANY_PAGES',
