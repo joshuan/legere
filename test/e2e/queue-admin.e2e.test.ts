@@ -10,6 +10,8 @@ import {
   reprocessByStepResponseSchema,
   retryJobResponseSchema,
   queueSettingsSchema,
+  servicesHealthResponseSchema,
+  SERVICE_NAMES,
 } from '../../src/shared/contracts/queue';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { HandleMaintenance } from '../../src/server/application/jobs/handle-maintenance';
@@ -373,10 +375,30 @@ describe('Reprocess and queue administration (e2e)', () => {
       expect(expectError(malformed).code).toBe('NOT_FOUND');
     });
 
+    // Where each external service is and whether it answers (docs/05 §5.4c, docs/07 §7.3). What is
+    // asserted is the shape and the discipline, never the verdict: whether Stirling happens to be up
+    // on the machine running the suite is not this endpoint's contract.
+    it('says where every external service is and whether it answered', async () => {
+      const res = await api(app).get('/api/admin/queue/services').set('Cookie', adminCookie);
+
+      const body = expectData(res, servicesHealthResponseSchema);
+      expect(body.services.map((row) => row.service)).toEqual([...SERVICE_NAMES]);
+      // A service nobody configured is said to be exactly that, and is not probed into a failure.
+      const unconfigured = body.services.filter((row) => row.url === '');
+      expect(unconfigured.every((row) => row.status === 'NOT_CONFIGURED')).toBe(true);
+      // 🔒 No secret rides along: not the API keys of the three providers, not a password in a URL.
+      expect(JSON.stringify(body)).not.toContain(process.env.AUTH_SECRET ?? 'auth-secret');
+      expect(body.services.every((row) => !row.url.includes('@'))).toBe(true);
+    });
+
     it('refuses the whole queue view to a non-admin', async () => {
       const userCookie = await inviteUser(`curious${seq}@legere.local`);
 
-      for (const path of ['/api/admin/queue/overview', '/api/admin/queue/failures']) {
+      for (const path of [
+        '/api/admin/queue/overview',
+        '/api/admin/queue/failures',
+        '/api/admin/queue/services',
+      ]) {
         const res = await api(app).get(path).set('Cookie', userCookie);
         expect(res.status).toBe(403);
         expect(expectError(res).code).toBe('FORBIDDEN');

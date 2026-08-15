@@ -5,6 +5,7 @@ import {
   reprocessByStepRequestSchema,
   reprocessByStepResponseSchema,
   retryJobResponseSchema,
+  servicesHealthResponseSchema,
   updateQueueSettingsRequestSchema,
   type ListQueueFailuresResponse,
   type QueueOverviewResponse,
@@ -12,6 +13,7 @@ import {
   type ReprocessByStepRequest,
   type ReprocessByStepResponse,
   type RetryJobResponse,
+  type ServicesHealthResponse,
   type UpdateQueueSettingsRequest,
 } from '../../../shared/contracts/queue';
 import {
@@ -65,9 +67,18 @@ export const analysisSettingsApi = {
     }),
 };
 
+// Where each external service is and whether it answers (docs/05 §5.4c). Read on its own rather
+// than with the settings: a probe leaves the instance and can be slow, and the gates beside it must
+// draw and save while it is still out (docs/11 §11.13).
+export const servicesHealthApi = {
+  read: (): Promise<ServicesHealthResponse> =>
+    apiClient.get('/api/admin/queue/services', { schema: servicesHealthResponseSchema }),
+};
+
 export const queueKeys = {
   settings: ['queue', 'settings'] as const,
   analysis: ['queue', 'analysis'] as const,
   overview: ['admin', 'queue', 'overview'] as const,
   failures: ['admin', 'queue', 'failures'] as const,
+  services: ['admin', 'queue', 'services'] as const,
 };

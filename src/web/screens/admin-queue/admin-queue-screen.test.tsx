@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { QueueSettingsDto } from '../../../shared/contracts/queue';
+import type { QueueSettingsDto, ServiceHealthDto } from '../../../shared/contracts/queue';
 import { createApiMock, envelope, errorEnvelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { AdminQueueScreen } from './admin-queue-screen';
@@ -53,6 +53,57 @@ const settings: QueueSettingsDto = {
   },
 };
 
+// Where each external service is and whether it answered (docs/05 §5.4c) — one of each state worth
+// drawing differently: up, never configured, refusing the key, and not answering at all.
+const CHECKED_AT = '2026-01-02T10:05:00.000Z';
+const servicesHealth: ServiceHealthDto[] = [
+  {
+    service: 'stirling',
+    url: 'http://stirling:8080',
+    status: 'UP',
+    httpStatus: 200,
+    latencyMs: 12,
+    checkedAt: CHECKED_AT,
+    detail: null,
+  },
+  {
+    service: 'docling',
+    url: '',
+    status: 'NOT_CONFIGURED',
+    httpStatus: null,
+    latencyMs: null,
+    checkedAt: CHECKED_AT,
+    detail: null,
+  },
+  {
+    service: 'classifier',
+    url: 'http://ollama:11434/v1',
+    status: 'UNAUTHORIZED',
+    httpStatus: 401,
+    latencyMs: 30,
+    checkedAt: CHECKED_AT,
+    detail: null,
+  },
+  {
+    service: 'transcriber',
+    url: 'http://whisper:9000/v1',
+    status: 'DOWN',
+    httpStatus: null,
+    latencyMs: 5000,
+    checkedAt: CHECKED_AT,
+    detail: 'getaddrinfo ENOTFOUND whisper',
+  },
+  {
+    service: 'embeddings',
+    url: 'http://ollama:11434/v1',
+    status: 'UP',
+    httpStatus: 200,
+    latencyMs: 8,
+    checkedAt: CHECKED_AT,
+    detail: null,
+  },
+];
+
 const failure = {
   jobId: JOB_ID,
   queue: 'document-process',
@@ -70,6 +121,9 @@ beforeEach(() => {
     http.get('/api/admin/queue/overview', () => HttpResponse.json(envelope(overview))),
     http.get('/api/admin/queue/failures', () =>
       HttpResponse.json(envelope({ items: [failure], nextCursor: null })),
+    ),
+    http.get('/api/admin/queue/services', () =>
+      HttpResponse.json(envelope({ services: servicesHealth })),
     ),
   );
 });
@@ -381,6 +435,93 @@ describe('AdminQueueScreen', () => {
           .getAllByRole('spinbutton')
           .every((input) => input.getAttribute('value') === '0'),
       ).toBe(true);
+    });
+
+    it('says where each service is, and says so in words where there is no address', async () => {
+      renderWithProviders(<AdminQueueScreen />);
+      const card = await servicesCard();
+
+      expect(await within(card).findByText('http://stirling:8080')).toBeInTheDocument();
+      // One address, two services behind it — the analyst falling back to the embeddings endpoint
+      // is a configuration this panel has to be able to draw (docs/12 §12.4).
+      expect(within(card).getAllByText('http://ollama:11434/v1')).toHaveLength(2);
+      // 🔒 An instance without Docling is a supported instance, and it says so rather than leaving
+      // a gap that reads as a bug (docs/11 §11.13).
+      expect(
+        within(card).getByText(enMessages.admin.queue.services.addressUnset),
+      ).toBeInTheDocument();
+    });
+
+    it('says which services answered and which did not', async () => {
+      renderWithProviders(<AdminQueueScreen />);
+      const card = await servicesCard();
+
+      expect(
+        await within(card).findAllByText(enMessages.admin.queue.services.health.UP),
+      ).toHaveLength(2);
+      expect(
+        within(card).getByText(enMessages.admin.queue.services.health.UNAUTHORIZED),
+      ).toBeInTheDocument();
+      expect(
+        within(card).getByText(enMessages.admin.queue.services.health.DOWN),
+      ).toBeInTheDocument();
+      expect(
+        within(card).getByText(enMessages.admin.queue.services.health.NOT_CONFIGURED),
+      ).toBeInTheDocument();
+
+      // The state of a service sits on the row of that service, not somewhere near it.
+      const transcriber = within(card).getByText('transcriber').closest('tr');
+      if (!(transcriber instanceof HTMLElement)) throw new Error('expected the transcriber row');
+      expect(
+        within(transcriber).getByText(enMessages.admin.queue.services.health.DOWN),
+      ).toBeInTheDocument();
+    });
+
+    it('probes again when asked, without touching the gates', async () => {
+      let probes = 0;
+      server.use(
+        http.get('/api/admin/queue/services', () => {
+          probes += 1;
+          return HttpResponse.json(envelope({ services: servicesHealth }));
+        }),
+      );
+
+      renderWithProviders(<AdminQueueScreen />);
+      const card = await servicesCard();
+      await waitFor(() => expect(probes).toBe(1));
+
+      await userEvent.click(
+        within(card).getByRole('button', { name: enMessages.admin.queue.services.check }),
+      );
+
+      await waitFor(() => expect(probes).toBe(2));
+      // 🔒 The gates are untouched by a probe: nothing was saved, and the save is still dark.
+      expect(patched).toBeNull();
+      expect(
+        within(card).getByRole('button', { name: enMessages.common.actions.save }),
+      ).toBeDisabled();
+    });
+
+    // 🔒 A page that waits for a dead container to time out is unusable at the moment it is needed.
+    it('draws and saves the gates while the probes are still out', async () => {
+      server.use(
+        // A probe that never comes back — the dead container, exactly as it behaves.
+        http.get('/api/admin/queue/services', () => new Promise<Response>(() => undefined)),
+      );
+
+      renderWithProviders(<AdminQueueScreen />);
+      const card = await servicesCard();
+
+      const cooldown = within(card).getByRole('spinbutton', {
+        name: 'Pause after each call to Stirling-PDF, seconds',
+      });
+      await userEvent.clear(cooldown);
+      await userEvent.type(cooldown, '30');
+      const save = within(card).getByRole('button', { name: enMessages.common.actions.save });
+      await waitFor(() => expect(save).toBeEnabled());
+      await userEvent.click(save);
+
+      await waitFor(() => expect(patched).not.toBeNull());
     });
 
     it('offers the save only once a gate differs, and sends the settings whole', async () => {

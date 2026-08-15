@@ -5,6 +5,7 @@ import type { PageImage } from '../../application/ports/document-analyst';
 import { PageTranscriber, type Transcription } from '../../application/ports/page-transcriber';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
+import { serviceEndpoint } from '../config/service-endpoints';
 import { callHeaders } from '../logging/async-call-context';
 import { describeLanguage } from './language-names';
 
@@ -58,8 +59,11 @@ export class OpenAiCompatTranscriber extends PageTranscriber {
     private readonly gates: ServiceGates,
   ) {
     super();
-    this.baseUrl = config.get('TRANSCRIBER_API_BASE_URL').replace(/\/+$/, '');
-    this.apiKey = config.get('TRANSCRIBER_API_KEY');
+    // Resolved where the probe of docs/05 §5.4c reads it from too, so the address the panel shows is
+    // the address this client calls (`service-endpoints.ts`).
+    const endpoint = serviceEndpoint(config, 'transcriber');
+    this.baseUrl = endpoint.baseUrl;
+    this.apiKey = endpoint.apiKey;
     this.model = config.get('TRANSCRIBER_MODEL');
   }
 

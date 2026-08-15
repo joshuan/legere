@@ -497,6 +497,27 @@
         "cooldownFor": "Pause after each call to {service}, seconds",
         "cooldown": "Pause after each, s",
         "cooldownHint": "How long to wait after one call before starting the next — after a failure as well as after a success. Waiting at a gate is time inside the job, so a service throttled to a trickle shows up as slow jobs on this page.",
+        "addressUnset": "no address configured",
+        "state": "State",
+        "stateHint": "One cheap request per service — the one it publishes for the purpose. It goes around the queues and around the gates, so it answers even while everything else is stuck.",
+        "check": "Check",
+        "checkedAt": "Checked at {time}",
+        "latency": "{ms} ms",
+        "httpCode": "HTTP {code}",
+        "health": {
+          "UP": "Up",
+          "UNAUTHORIZED": "Key refused",
+          "ANSWERED": "Wrong answer",
+          "DOWN": "No answer",
+          "NOT_CONFIGURED": "Not configured"
+        },
+        "healthHints": {
+          "UP": "The service answered the check.",
+          "UNAUTHORIZED": "The service is there and will not take this instance's key.",
+          "ANSWERED": "Something answered at this address, but not the way this service answers.",
+          "DOWN": "Nothing answered: refused, unresolved, or past the timeout.",
+          "NOT_CONFIGURED": "No address is configured — this instance runs without this service."
+        },
         "names": {
           "stirling": "Stirling-PDF",
           "docling": "Docling",

@@ -887,6 +887,21 @@ sit in three bands at three ends of the page.
   what the server holds, and in force without a restart. Waiting at a gate is time inside the job
   (`05 §5.4b`), so a service throttled to a trickle reads as slow jobs on this same page, which is
   the honest place for it to read as anything.
+- **Where each service is, and whether it answers** (`05 §5.4c`), on the same row as its gate,
+  because "why is nothing happening" is asked of the block that also says how hard the thing is being
+  asked. The **address** sits under the line saying what the service does, as code and truncated
+  rather than wrapped — it is read to be recognised, not transcribed — and where none is configured
+  it says so in words instead of drawing an empty box. The **state** is a tag in its own column, one
+  of the five of `05 §5.4c`, coloured for what it costs: `UP` green, `UNAUTHORIZED` and `ANSWERED`
+  amber because something is there and something is wrong with it, `DOWN` red, `NOT_CONFIGURED` grey
+  — a service this instance was never given is not a fault, and must not read as one. What the tag
+  cannot hold — the HTTP code, how long the probe took, when it was taken, the reason — is on hover,
+  where a detail belongs (`§11.14`). The block carries **one Check button** for all five and says
+  when it last looked; it checks on opening and then only when asked or when the page's own
+  auto-refresh is running, at a **slower cadence than the queue counters**, since a probe leaves the
+  instance and a counter does not. 🔒 It never blocks the block it lives in: gates and their inputs
+  draw and save while every probe is still out, because a page that waits for a dead container to
+  time out is the page an operator cannot use at exactly the moment they need it.
 - **Failed jobs** table: queue, payload summary, error, when, retry count, and a per-row Retry.
 - **Storage usage** as of the last maintenance run.
 

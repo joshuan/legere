@@ -10,6 +10,7 @@ import {
   Row,
   Select,
   Space,
+  Spin,
   Statistic,
   Switch,
   Table,
@@ -30,15 +31,27 @@ import {
   type FailedJobDto,
   type ReprocessByStepRequest,
   type ServiceGateDto,
+  type ServiceHealthDto,
+  type ServiceHealthStatus,
   type ServiceName,
   type StepCountersDto,
 } from '../../../shared/contracts/queue';
-import { analysisSettingsApi, queueApi, queueKeys, queueSettingsApi } from '../../entities/queue';
+import {
+  analysisSettingsApi,
+  queueApi,
+  queueKeys,
+  queueSettingsApi,
+  servicesHealthApi,
+} from '../../entities/queue';
 import { formatBytes, useErrorMessage } from '../../shared/lib';
 
 // The queue moves on its own, so the view follows it (docs/11 §11.13). Pausing matters: reading a
 // long error message while the table reorders underneath is the opposite of useful.
 const REFRESH_MS = 5000;
+
+// The probes go on a slower clock than the counters, and deliberately: a counter is a read of this
+// instance's own database, while a probe leaves it and knocks on five doors (docs/11 §11.13).
+const SERVICES_REFRESH_MS = 60_000;
 
 // The queue the five document steps run in: the only stage whose block holds a pipeline, because it
 // is the only one that has one (docs/05 §5.5).
@@ -187,6 +200,21 @@ export function AdminQueueScreen() {
     queryFn: queueApi.overview,
     refetchInterval: live ? REFRESH_MS : false,
   });
+
+  // Where the external services are and whether they answer (docs/05 §5.4c). A query of its own, so
+  // the gates beside it draw and save while a probe is still waiting on a container that will never
+  // answer — and on its own slower clock, because this one leaves the instance.
+  const services = useQuery({
+    queryKey: queueKeys.services,
+    queryFn: servicesHealthApi.read,
+    refetchInterval: live ? SERVICES_REFRESH_MS : false,
+  });
+
+  const healthOf = (service: ServiceName): ServiceHealthDto | undefined =>
+    services.data?.services.find((row) => row.service === service);
+
+  // One probe stamps every row with one time (docs/05 §5.4c), so the first row speaks for the block.
+  const checkedAt = services.data?.services[0]?.checkedAt;
 
   const failures = useQuery({
     queryKey: queueKeys.failures,
@@ -455,7 +483,33 @@ export function AdminQueueScreen() {
           gate inside one would hide it from the other: Stirling renders pages for document-process
           and converts an upload for file-ingest, and there is one container being asked
           (docs/11 §11.13, docs/05 §5.4b). */}
-      <Card title={t('admin.queue.services.title')} loading={settings.isPending}>
+      <Card
+        title={t('admin.queue.services.title')}
+        loading={settings.isPending}
+        // 🔒 The check is offered here and never waited for: the probes have their own query, and a
+        // dead container times out beside the gates rather than instead of them (docs/11 §11.13).
+        extra={
+          <Space size={8}>
+            {checkedAt !== undefined && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {t('admin.queue.services.checkedAt', {
+                  time: new Date(checkedAt).toLocaleTimeString(),
+                })}
+              </Typography.Text>
+            )}
+            <Button
+              size="small"
+              // Decorative: the button says what it does in words, and an icon that also announces
+              // itself makes a screen reader read "reload Check" (docs/11 §11.14).
+              icon={<ReloadOutlined aria-hidden />}
+              loading={services.isFetching}
+              onClick={() => void queryClient.invalidateQueries({ queryKey: queueKeys.services })}
+            >
+              {t('admin.queue.services.check')}
+            </Button>
+          </Space>
+        }
+      >
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Typography.Text type="secondary">{t('admin.queue.services.hint')}</Typography.Text>
 
@@ -483,7 +537,26 @@ export function AdminQueueScreen() {
                     <Typography.Text type="secondary">
                       {t(`admin.queue.services.hints.${service}`)}
                     </Typography.Text>
+                    {/* Where this instance actually calls it (docs/05 §5.4c) — read to be
+                        recognised rather than transcribed, so it is cut off rather than wrapped,
+                        with the whole of it on hover. An instance running without the service says
+                        so in words instead of leaving a gap that reads as a bug. */}
+                    <ServiceAddress health={healthOf(service)} />
                   </Space>
+                ),
+              },
+              {
+                title: (
+                  <Space size={4}>
+                    {t('admin.queue.services.state')}
+                    <Tooltip title={t('admin.queue.services.stateHint')}>
+                      <QuestionCircleOutlined />
+                    </Tooltip>
+                  </Space>
+                ),
+                key: 'health',
+                render: (_: unknown, service: ServiceName) => (
+                  <ServiceState health={healthOf(service)} pending={services.isPending} />
                 ),
               },
               {
@@ -726,6 +799,88 @@ function RunAgain({
         onClick={onClick}
       />
     </Tooltip>
+  );
+}
+
+// The address a service is called at, under the line saying what it does (docs/05 §5.4c). Nothing
+// at all while the first probe is still out: an address that arrives a second later is better than a
+// placeholder somebody has to un-read.
+function ServiceAddress({ health }: { health: ServiceHealthDto | undefined }) {
+  const t = useTranslations();
+  if (health === undefined) return null;
+  if (health.url === '') {
+    return (
+      <Typography.Text type="secondary" italic style={{ fontSize: 12 }}>
+        {t('admin.queue.services.addressUnset')}
+      </Typography.Text>
+    );
+  }
+  return (
+    <Typography.Text
+      type="secondary"
+      code
+      style={{ fontSize: 12, maxWidth: 460 }}
+      ellipsis={{ tooltip: health.url }}
+    >
+      {health.url}
+    </Typography.Text>
+  );
+}
+
+// What each state costs, in colour. 🔒 `NOT_CONFIGURED` is grey and never red: an instance running
+// without Docling or without an analyst is a supported way to run, and a screen that paints it as
+// broken teaches an operator to ignore the column (docs/11 §11.13).
+const HEALTH_COLORS: Record<ServiceHealthStatus, string> = {
+  UP: 'success',
+  // Something is there and something is wrong with it — a person is needed, but not the same person
+  // in the same hurry as for a service that is not answering at all.
+  UNAUTHORIZED: 'warning',
+  ANSWERED: 'warning',
+  DOWN: 'error',
+  NOT_CONFIGURED: 'default',
+};
+
+function ServiceState({
+  health,
+  pending,
+}: {
+  health: ServiceHealthDto | undefined;
+  pending: boolean;
+}) {
+  const t = useTranslations();
+  if (health === undefined) {
+    return pending ? <Spin size="small" /> : <Typography.Text type="secondary">—</Typography.Text>;
+  }
+  return (
+    <Tooltip title={<ServiceStateDetail health={health} />}>
+      <Tag color={HEALTH_COLORS[health.status]} style={{ marginInlineEnd: 0 }}>
+        {t(`admin.queue.services.health.${health.status}`)}
+      </Tag>
+    </Tooltip>
+  );
+}
+
+// What a tag cannot hold and a person needs the moment it is not green: the code, how long it took,
+// the transport's own reason, and when this was taken — a held answer reading as held (docs/11
+// §11.13, §11.14).
+function ServiceStateDetail({ health }: { health: ServiceHealthDto }) {
+  const t = useTranslations();
+  return (
+    <Space direction="vertical" size={0}>
+      <span>{t(`admin.queue.services.healthHints.${health.status}`)}</span>
+      {health.httpStatus !== null && (
+        <span>{t('admin.queue.services.httpCode', { code: health.httpStatus })}</span>
+      )}
+      {health.latencyMs !== null && (
+        <span>{t('admin.queue.services.latency', { ms: health.latencyMs })}</span>
+      )}
+      {health.detail !== null && <span>{health.detail}</span>}
+      <span>
+        {t('admin.queue.services.checkedAt', {
+          time: new Date(health.checkedAt).toLocaleTimeString(),
+        })}
+      </span>
+    </Space>
   );
 }
 

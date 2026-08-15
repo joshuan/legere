@@ -121,6 +121,47 @@ export const serviceGateSchema = z.object({
 });
 export type ServiceGateDto = z.infer<typeof serviceGateSchema>;
 
+// Whether the thing at the other end of a gate is there at all (docs/05 §5.4c). Five states rather
+// than a boolean, because each names a different repair: a container that is down is not a key that
+// is refused is not a service this instance was never given.
+export const serviceHealthStatusSchema = z.enum([
+  // The probe answered 2xx: nothing to do.
+  'UP',
+  // 401/403 — the service is there and will not take this instance's credentials. A key, not a host.
+  'UNAUTHORIZED',
+  // Some other code, carried in `httpStatus`: 404 from a provider that has no `/models` and 502 from
+  // a container that is still starting are the same sentence with different repairs, so the number
+  // travels instead of a verdict.
+  'ANSWERED',
+  // Nothing answered — refused, unresolved, or past the timeout.
+  'DOWN',
+  // 🔒 No base URL to probe. Not a fault: this is what an instance without Docling or without an
+  // analyst looks like, and what it costs is said on /admin/instance.
+  'NOT_CONFIGURED',
+]);
+export type ServiceHealthStatus = z.infer<typeof serviceHealthStatusSchema>;
+
+// One service, as the panel reads it: where this instance calls it, and how that call went.
+// 🔒 `url` is published with any userinfo stripped, and no API key is in this answer at all.
+export const serviceHealthSchema = z.object({
+  service: z.enum(SERVICE_NAMES),
+  // The base URL this instance resolved — the same string the job log carries as `endpoint`
+  // (docs/03 §3.3.18). Empty where nothing is configured.
+  url: z.string(),
+  status: serviceHealthStatusSchema,
+  // The code where there was one; null where nothing answered or nothing was asked.
+  httpStatus: z.number().int().nullable(),
+  latencyMs: z.number().int().nonnegative().nullable(),
+  // When the probe was taken, so an answer served from the cache reads as one.
+  checkedAt: z.string().datetime(),
+  // A short reason, truncated: the transport's own words for why nothing came back.
+  detail: z.string().nullable(),
+});
+export type ServiceHealthDto = z.infer<typeof serviceHealthSchema>;
+
+export const servicesHealthResponseSchema = z.object({ services: z.array(serviceHealthSchema) });
+export type ServicesHealthResponse = z.infer<typeof servicesHealthResponseSchema>;
+
 export const queueSettingsSchema = z.object({
   concurrency: z.record(z.string(), z.number().int().min(1).max(QUEUE_CONCURRENCY_MAX)),
   unitConcurrency: z.number().int().min(1).max(QUEUE_CONCURRENCY_MAX),

@@ -11,9 +11,11 @@ import {
   type ReprocessByStepRequest,
   type ReprocessByStepResponse,
   type RetryJobResponse,
+  type ServicesHealthResponse,
   type UpdateQueueSettingsRequest,
 } from '../../../shared/contracts/queue';
 import type { User } from '../../domain/entities/user';
+import { CheckExternalServices } from '../../application/health/check-external-services';
 import {
   GetQueueOverview,
   ListQueueFailures,
@@ -50,11 +52,20 @@ export class AdminQueueController {
     private readonly analysis: AnalysisSettings,
     private readonly reprocessByStep: ReprocessDocumentsByStep,
     private readonly gates: ServiceGates,
+    private readonly services: CheckExternalServices,
   ) {}
 
   @Get('settings')
   async getSettings(): Promise<Envelope<QueueSettingsDto>> {
     return successEnvelope(await this.settings.read());
+  }
+
+  // Where each gated service is and whether it answers (docs/05 §5.4c, docs/11 §11.13). Read live
+  // and cached for a few seconds inside the use case; 🔒 no secret is in the answer — a URL is
+  // published without its userinfo and an API key is not published at all.
+  @Get('services')
+  async getServices(): Promise<Envelope<ServicesHealthResponse>> {
+    return successEnvelope(await this.services.execute());
   }
 
   // What the analysis writes in (docs/05 §5.5). It lives beside the queue knobs because it is the

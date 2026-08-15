@@ -295,6 +295,49 @@ job that waited, it shows up as a **slow job**, on `/admin/queue`, which is the 
 to show up as anything at all. That is what the knob costs and why it is an operator's rather than a
 default — gating is throughput given away on purpose, and the place it is given away is visible.
 
+## 5.4c. Is the service even there
+
+A gate says how hard a service may be asked. It says nothing about the question an operator actually
+arrives with, which is **whether the thing exists at the address this instance holds** — a container
+that was renamed, a provider whose key expired, a `DOCLING_URL` nobody ever set. Until a document
+walks into it, that is invisible: the pipeline finds out at the moment it needs the service, and the
+operator finds out from a failed step an hour later. So each of the five services of §5.4b answers
+two more questions on `/admin/queue` — **where it is** and **whether it answers** — and both are read
+live rather than remembered.
+
+**Where it is** is the base URL this instance resolved, the same string the port hands the job log as
+`endpoint` (`03 §3.3.18`), so the address on the screen is the address being called and not a
+second copy of it in a settings file. 🔒 **Credentials never travel**: a URL carrying userinfo
+(`https://user:pass@host`) is published with it stripped, and an API key is not part of this answer at
+all — it is a different secret, and `/admin/instance` already says only that one is set (`§11.13a`).
+
+**Whether it answers** is one cheap request per service, the cheapest one each of them defines:
+
+| Service | Probe | Healthy is |
+|---|---|---|
+| `stirling` | `GET {STIRLING_URL}/api/v1/info/status` | `2xx` |
+| `docling` | `GET {DOCLING_URL}/health` | `2xx` |
+| `classifier`, `transcriber`, `embeddings` | `GET {base}/models`, with the service's own bearer token when it has one | `2xx` |
+
+The answer is one of five states, and they are worth distinguishing because each names a different
+repair:
+
+| State | What happened | What it means |
+|---|---|---|
+| `UP` | the probe answered `2xx` | nothing to do |
+| `UNAUTHORIZED` | `401` or `403` | the service is there and refuses this instance — a key, not a container |
+| `ANSWERED` | any other HTTP status | something is listening and it is not the service expected, or not well: the code is shown, because `404` on a provider that has no `/models` and `502` on a container that is starting are the same sentence with different repairs |
+| `DOWN` | nothing answered: refused, unresolved, or past the timeout | the address is wrong or the thing is not running |
+| `NOT_CONFIGURED` | there is no base URL to probe | not an error — it is what an instance without Docling or without an analyst looks like, and `/admin/instance` already says what that costs |
+
+🔒 **A probe is never a step.** It runs outside the gates of §5.4b and outside the queues: it must be
+answerable while every gate is shut, since "everything is stuck" is exactly when somebody opens this
+screen. It carries its own short timeout for the same reason — a service that has stopped answering
+must make the page slow to draw once, not hang it — and every service is probed in parallel, so five
+of them cost one timeout rather than five. The result is held for a few seconds, so two admins and a
+reloading tab do not multiply the traffic to a container that may already be struggling; the answer
+says when it was taken, so a held one reads as held.
+
 ## 5.5. Document processing pipeline (`document-process`)
 
 Steps run sequentially for a document; each step records its status

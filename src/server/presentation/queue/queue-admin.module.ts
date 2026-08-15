@@ -1,6 +1,9 @@
 import { AnalysisSettings } from '../../application/settings/analysis-settings';
 import { SettingsRepository } from '../../domain/repositories/settings.repository';
 import { Module } from '@nestjs/common';
+import { CheckExternalServices } from '../../application/health/check-external-services';
+import { ExternalServiceProbe } from '../../application/health/ports';
+import { Clock } from '../../application/ports/clock';
 import { JobQueue } from '../../application/ports/job-queue';
 import { MetricsCache } from '../../application/ports/metrics-cache';
 import { QueueMonitor } from '../../application/ports/queue-monitor';
@@ -14,6 +17,7 @@ import { ReprocessDocumentsByStep } from '../../application/queue/reprocess-by-s
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
+import { HttpExternalServiceProbe } from '../../infrastructure/health/http-external-service-probe';
 import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { AdminQueueController } from './admin-queue.controller';
 
@@ -30,6 +34,16 @@ import { AdminQueueController } from './admin-queue.controller';
       inject: [SettingsRepository],
     },
     ...sessionGuardProviders,
+    // Whether the five services of docs/05 §5.4b are there at all. The probe is wired here rather
+    // than beside the clients it asks about, because what counts as a cheap question is one table
+    // read in one place (docs/05 §5.4c).
+    { provide: ExternalServiceProbe, useClass: HttpExternalServiceProbe },
+    {
+      provide: CheckExternalServices,
+      useFactory: (probe: ExternalServiceProbe, clock: Clock): CheckExternalServices =>
+        new CheckExternalServices(probe, clock),
+      inject: [ExternalServiceProbe, Clock],
+    },
     {
       provide: GetQueueOverview,
       useFactory: (

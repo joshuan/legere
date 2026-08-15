@@ -4,6 +4,7 @@ import { readBoundedJson, readBoundedText } from '../../application/ports/binary
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
+import { serviceEndpoint } from '../config/service-endpoints';
 import { callHeaders } from '../logging/async-call-context';
 
 // The OpenAI embeddings shape, which Ollama, LM Studio, vLLM and the rest implement too
@@ -42,8 +43,11 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
     private readonly gates: ServiceGates,
   ) {
     super();
-    this.baseUrl = config.get('EMBEDDINGS_API_BASE_URL').replace(/\/+$/, '');
-    this.apiKey = config.get('EMBEDDINGS_API_KEY');
+    // Resolved where the probe of docs/05 §5.4c reads it from too, so the address the panel shows is
+    // the address this client calls (`service-endpoints.ts`).
+    const endpoint = serviceEndpoint(config, 'embeddings');
+    this.baseUrl = endpoint.baseUrl;
+    this.apiKey = endpoint.apiKey;
     this.model = config.get('EMBEDDINGS_MODEL');
     this.dimensions = config.get('EMBEDDING_DIMENSIONS');
   }

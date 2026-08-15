@@ -17,6 +17,7 @@ import {
 } from '../../application/ports/document-analyst';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
+import { serviceEndpoint } from '../config/service-endpoints';
 import { callHeaders } from '../logging/async-call-context';
 import { describeLanguage } from './language-names';
 
@@ -152,17 +153,12 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     private readonly gates: ServiceGates,
   ) {
     super();
-    // An empty CLASSIFIER_API_BASE_URL reuses the embeddings endpoint, since one local runtime
-    // usually serves both (docs/12 §12.4).
-    const base =
-      config.get('CLASSIFIER_API_BASE_URL') === ''
-        ? config.get('EMBEDDINGS_API_BASE_URL')
-        : config.get('CLASSIFIER_API_BASE_URL');
-    this.baseUrl = base.replace(/\/+$/, '');
-    this.apiKey =
-      config.get('CLASSIFIER_API_KEY') === ''
-        ? config.get('EMBEDDINGS_API_KEY')
-        : config.get('CLASSIFIER_API_KEY');
+    // Where this service is, resolved where every caller of it reads the same answer — including an
+    // empty CLASSIFIER_API_BASE_URL reusing the embeddings endpoint, since one local runtime usually
+    // serves both (docs/12 §12.4, `service-endpoints.ts`).
+    const endpoint = serviceEndpoint(config, 'classifier');
+    this.baseUrl = endpoint.baseUrl;
+    this.apiKey = endpoint.apiKey;
     this.model = config.get('CLASSIFIER_MODEL');
   }
 
