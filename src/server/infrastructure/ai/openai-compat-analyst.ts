@@ -1,11 +1,17 @@
 import { randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
+import type {
+  DocumentFieldColumn,
+  DocumentFieldSchema,
+  DocumentFieldSpec,
+} from '../../../shared/contracts/document-fields';
 import { readBoundedJson, readBoundedText } from '../../application/ports/binary-source';
 import {
   DocumentAnalyst,
   type DocumentTypeOption,
   type DocumentAnalysis,
+  type FieldExtraction,
   type PageImage,
   type KnownSubject,
 } from '../../application/ports/document-analyst';
@@ -187,6 +193,26 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     );
   }
 
+  // The fields step (docs/05 §5.5 step 5): the same provider, the same gate, the same fencing — a
+  // different question. The schema arrives as data and is spelled out to the model field by field;
+  // what parses is decided by the caller, per field, in code (docs/03 §3.3.10a).
+  async extractFields(
+    schema: DocumentFieldSchema,
+    excerpt: string,
+    pages: readonly PageImage[] = [],
+  ): Promise<FieldExtraction> {
+    if (!this.isConfigured) throw new Error('No document analyst is configured');
+
+    return this.gates.run('classifier', async () => {
+      const nonce = newNonce();
+      const answer = await this.completion([
+        { role: 'system', content: fieldsSystemMessage(schema, nonce) },
+        { role: 'user', content: documentMessageContent(excerpt, pages, nonce) },
+      ]);
+      return { values: readFieldValues(answer.content), usage: answer.usage };
+    });
+  }
+
   private async ask(
     excerpt: string,
     documentTypes: readonly DocumentTypeOption[],
@@ -198,6 +224,26 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     // 🔒 One delimiter per call, unguessable by the document being read (docs/05 §5.5 step 4).
     const nonce = newNonce();
 
+    // 🔒 Two channels, and only one of them is trusted: everything this instance says — the
+    // instructions and the catalogue it files into — is the system message, and the document's
+    // own text is a user message of its own, fenced and declared to be data (docs/05 §5.5
+    // step 4). Before this the two travelled in one string, so an excerpt that closed the fence
+    // read as a new set of instructions standing next to the whole catalogue.
+    const answer = await this.completion([
+      {
+        role: 'system',
+        content: systemMessage(documentTypes, subjectKinds, knownSubjects, language, nonce),
+      },
+      { role: 'user', content: documentMessageContent(excerpt, pages, nonce) },
+    ]);
+
+    return { ...readAnswer(answer.content, documentTypes), usage: answer.usage };
+  }
+
+  // One chat completion, bounded in time and in size — the transport both questions share.
+  private async completion(
+    messages: readonly unknown[],
+  ): Promise<{ content: string; usage: { promptTokens?: number; completionTokens?: number } }> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -208,39 +254,10 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
       body: JSON.stringify({
         model: this.model,
         temperature: TEMPERATURE,
-        // Asking for a JSON object is a hint, not a guarantee — the answer is validated below either
-        // way, and providers that do not support the flag ignore it.
+        // Asking for a JSON object is a hint, not a guarantee — the answer is validated by the
+        // caller either way, and providers that do not support the flag ignore it.
         response_format: { type: 'json_object' },
-        // 🔒 Two channels, and only one of them is trusted: everything this instance says — the
-        // instructions and the catalogue it files into — is the system message, and the document's
-        // own text is a user message of its own, fenced and declared to be data (docs/05 §5.5
-        // step 4). Before this the two travelled in one string, so an excerpt that closed the fence
-        // read as a new set of instructions standing next to the whole catalogue.
-        messages: [
-          {
-            role: 'system',
-            content: systemMessage(documentTypes, subjectKinds, knownSubjects, language, nonce),
-          },
-          {
-            role: 'user',
-            // The text, and — when there are any — the pages it was taken from. Both are the
-            // document rather than instructions, so both travel in the same fenced user message
-            // (docs/05 §5.5 step 4). The pictures are what lets the model say the text is wrong:
-            // the whole point of showing them is that a scan can lie by being empty.
-            content:
-              pages.length === 0
-                ? fenceDocument(excerpt, nonce)
-                : [
-                    { type: 'text', text: fenceDocument(excerpt, nonce) },
-                    ...pages.map((page) => ({
-                      type: 'image_url',
-                      image_url: {
-                        url: `data:image/jpeg;base64,${page.bytes.toString('base64')}`,
-                      },
-                    })),
-                  ],
-          },
-        ],
+        messages,
       }),
       // 🔒 Headers and body alike: when it fires, undici tears the body stream down too, so a
       // runtime that answers and then drips cannot hold the worker either.
@@ -258,7 +275,7 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     if (!parsed.success) throw new Error('Analyst returned an unreadable response');
 
     return {
-      ...readAnswer(parsed.data.choices[0]?.message.content ?? '', documentTypes),
+      content: parsed.data.choices[0]?.message.content ?? '',
       usage: {
         ...(parsed.data.usage?.prompt_tokens === undefined
           ? {}
@@ -269,6 +286,28 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
       },
     };
   }
+}
+
+// The text, and — when there are any — the pages it was taken from. Both are the document rather
+// than instructions, so both travel in the same fenced user message (docs/05 §5.5 step 4). The
+// pictures are what lets the model say the text is wrong: the whole point of showing them is that a
+// scan can lie by being empty.
+function documentMessageContent(
+  excerpt: string,
+  pages: readonly PageImage[],
+  nonce: string,
+): unknown {
+  return pages.length === 0
+    ? fenceDocument(excerpt, nonce)
+    : [
+        { type: 'text', text: fenceDocument(excerpt, nonce) },
+        ...pages.map((page) => ({
+          type: 'image_url',
+          image_url: {
+            url: `data:image/jpeg;base64,${page.bytes.toString('base64')}`,
+          },
+        })),
+      ];
 }
 
 // One language for everything the machine writes, when the instance has said which (docs/05 §5.5).
@@ -337,6 +376,56 @@ function knownSubjectList(knownSubjects: readonly KnownSubject[]): string {
         : `- ${subject.kind}: ${subject.name} — ${truncate(subject.note, MAX_KNOWN_NOTE_CHARS)}`,
     )
     .join('\n');
+}
+
+// The fields question (docs/05 §5.5 step 5): fill exactly the schema's fields, nothing else. The
+// shape each kind answers in is spelled out per field, because "a money" means nothing to a model
+// and `{"amount": …, "currency": …}` means one thing.
+function fieldsSystemMessage(schema: DocumentFieldSchema, nonce: string): string {
+  return [
+    [
+      'You read one document and fill exactly the fields listed below, as one JSON object, nothing',
+      'else. Answer null for a field the document does not state — never invent a value, never',
+      'guess. Copy values as the document writes them.',
+    ].join(' '),
+    `Fields:\n${schema.fields.map(fieldInstruction).join('\n')}`,
+    dataChannelNotice(nonce),
+  ].join('\n\n');
+}
+
+function fieldInstruction(spec: DocumentFieldSpec): string {
+  return `- "${spec.key}" (${fieldShape(spec)}): ${spec.hint}`;
+}
+
+function fieldShape(spec: DocumentFieldSpec): string {
+  switch (spec.kind) {
+    case 'string':
+      return 'text';
+    case 'number':
+      return 'a number';
+    case 'date':
+      return 'a date, "yyyy-mm-dd"';
+    case 'money':
+      return '{"amount": <number>, "currency": "<ISO 4217 code>"}';
+    case 'table':
+      return `an array of rows, each ${columnShape(spec.columns ?? [])}`;
+  }
+}
+
+function columnShape(columns: readonly DocumentFieldColumn[]): string {
+  const parts = columns.map(
+    (column) => `"${column.key}": ${column.kind === 'string' ? '<text>' : '<number>'}`,
+  );
+  return `{${parts.join(', ')}}`;
+}
+
+// The raw object the model answered with; per-field validation belongs to the caller
+// (docs/03 §3.3.10a). Anything that is not an object is an empty answer, not an error — the caller
+// treats a field that did not parse as a field the model did not read.
+function readFieldValues(content: string): Record<string, unknown> {
+  const parsed = safeJson(extractJson(content));
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+  return Object.fromEntries(Object.entries(parsed));
 }
 
 // 🔒 Said in as many words, because a model has no other way to tell the two apart: the next message

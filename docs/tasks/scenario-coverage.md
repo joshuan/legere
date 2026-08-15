@@ -104,6 +104,18 @@ standard lists them.
 | hybrid = text when no provider | `src/server/application/search/search-documents.test.ts` — answers a hybrid query with text alone |
 | RRF merge ordering deterministic | `src/server/application/search/search-documents.test.ts` — merges the two orderings by rank rather than by score; answers the same order for the same input; `test/e2e/search.e2e.test.ts` — orders the same query the same way every time |
 
+## Typed fields
+
+| Scenario | Test |
+|---|---|
+| a schema-typed document extracts, per-field validation drops a bad date and keeps a good vendor | `src/server/application/jobs/handle-document-process.test.ts` — fills the schema of the type the analysis just chose, validated per field; `src/shared/contracts/document-fields.test.ts` — keeps a real calendar day and drops what only looks like one |
+| a `MANUAL` value survives a re-run | `src/server/application/jobs/handle-document-process.test.ts` — keeps a MANUAL value whatever the model reads — fill-blanks per field |
+| a manual type change re-extracts under the new schema, replacing the old reading | `test/e2e/documents.e2e.test.ts` — a type changed by hand re-queues the fields step and clears the stale reading; `src/server/application/jobs/handle-document-process.test.ts` — replaces a reading that speaks another schema wholesale, manual corrections included |
+| no schema → `SKIPPED NO_SCHEMA`; no provider → `NOT_CONFIGURED` | `src/server/application/jobs/handle-document-process.test.ts` — skips NO_SCHEMA where the type carries none, and where there is no type at all; skips NOT_CONFIGURED with a schema but no provider |
+| FTS finds a document by an extracted value | `test/e2e/documents.e2e.test.ts` — edits a typed field, marks it MANUAL, and makes it findable (docs/03 §3.3.10a) |
+| PATCH `fields` validates against the schema | `test/e2e/documents.e2e.test.ts` — refuses a field the schema does not know, and a document whose type has none |
+| `reset: ['fields.<key>']` restores the read value as `AUTO` | `test/e2e/documents.e2e.test.ts` — puts a typed field back to what the model read, as AUTO (docs/07 §7.3) |
+
 ## Files and documents
 
 | Scenario | Test |

@@ -3,6 +3,7 @@
 // One file per resource (docs/07 §7.5); populated as endpoints are implemented.
 export * from './common';
 export * from './enums';
+export * from './document-fields';
 export * from './auth';
 export * from './users';
 export * from './libraries';

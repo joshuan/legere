@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
+  extractedSearchTextOf,
+  fieldSchemaFor,
+  sanitizeFieldValues,
+  type ExtractedFieldSource,
+  type ExtractedFields,
+} from '../../../shared/contracts/document-fields';
+import {
   DOCUMENT_STEPS,
   documentStepSchema,
   type DocumentStep,
@@ -69,16 +76,16 @@ type Canonical =
   | { kind: 'nothing' }
   | { kind: 'failed' };
 
-// What step 3 left for the two steps that read it (docs/05 §5.5). Both of them take the extracted
-// Markdown as their input, so the state of the extraction is the first question either of them asks.
+// What step 3 left for the steps that read it (docs/05 §5.5). All of them take the extracted
+// Markdown as their input, so the state of the extraction is the first question each of them asks.
 // `ready` includes a step 3 that ran and found no text at all: that is a fact about the document
-// rather than a gap in the pipeline, and both steps go on running over it.
+// rather than a gap in the pipeline, and the steps go on running over it.
 type Extraction =
   { kind: 'ready' } | { kind: 'failed' } | { kind: 'missing'; reason: StepSkipReason };
 
-// `document-process`, all five steps (docs/05 §5.5): the canonical PDF built out of the document's
+// `document-process`, all six steps (docs/05 §5.5): the canonical PDF built out of the document's
 // files, the JPG previews of its first page, the Markdown that makes it searchable, and — when a
-// provider is configured — its documentType and its vectors.
+// provider is configured — its documentType, its typed fields and its vectors.
 //
 // Each step records its own status, so a failure is contained: a preview that cannot be rendered
 // leaves the document listed, downloadable and still searchable. Re-running is safe — artifacts are
@@ -147,6 +154,7 @@ export class HandleDocumentProcess extends JobHandler {
           preview: null,
           markdown: null,
           analysis: null,
+          fields: null,
           vectorization: null,
         },
         requested,
@@ -174,12 +182,21 @@ export class HandleDocumentProcess extends JobHandler {
       await this.running(documentId, 'markdown', () => this.extractMarkdown(document, canonical));
     }
 
-    // Steps 4 and 5 read what step 3 wrote, so the document is re-read rather than reusing the
+    // The steps after step 3 read what it wrote, so the document is re-read rather than reusing the
     // stale copy this handler started with.
     const extracted = (await this.documents.findById(document.id)) ?? document;
     if (requested.has('analysis')) {
       await this.running(document.id, 'analysis', () =>
         this.analyse(extracted, payload.analyseInFull ?? false),
+      );
+    }
+    if (requested.has('fields')) {
+      // Read again: the fields are a reading of the document under its type, and the type is what
+      // the analysis just decided — or what a person set, which is the other way this step runs
+      // (docs/05 §5.5 step 5).
+      const current = (await this.documents.findById(document.id)) ?? extracted;
+      await this.running(document.id, 'fields', () =>
+        this.extractFields(current, payload.analyseInFull ?? false),
       );
     }
     if (requested.has('vectorization')) {
@@ -249,7 +266,7 @@ export class HandleDocumentProcess extends JobHandler {
         ? { service: 'docling', endpoint: this.parser.endpoint }
         : stirling;
     }
-    if (step === 'analysis') {
+    if (step === 'analysis' || step === 'fields') {
       return this.analyst.isConfigured
         ? { service: 'classifier', endpoint: this.analyst.endpoint }
         : {};
@@ -538,7 +555,7 @@ export class HandleDocumentProcess extends JobHandler {
   // True means the step has been settled here and must not run.
   private async blockedByExtraction(
     document: Document,
-    step: 'analysis' | 'vectorization',
+    step: 'analysis' | 'fields' | 'vectorization',
   ): Promise<boolean> {
     const extraction = extractionOf(document);
     if (extraction.kind === 'ready') return false;
@@ -702,7 +719,106 @@ export class HandleDocumentProcess extends JobHandler {
     await this.subjects.setForDocument(document.id, ids);
   }
 
-  // Step 5. Chunk the Markdown, embed the chunks, and replace the document's vectors wholesale.
+  // Step 5. The one step that differs by document type, and it differs by data (ADR-022): the
+  // schema the type carries is filled by the same provider that analysed the document, validated
+  // per field in code, and applied fill-blanks per field (docs/05 §5.5 step 5).
+  private async extractFields(document: Document, analyseInFull: boolean): Promise<void> {
+    // The same gate order as the analysis: the step-3 dependency first, so a document whose
+    // extraction failed reads as that and not as anything about its type (docs/05 §5.5).
+    if (await this.blockedByExtraction(document, 'fields')) return;
+
+    const documentTypes = await this.documentTypes.listActive();
+    const slug =
+      document.typeId === null
+        ? null
+        : (documentTypes.find((documentType) => documentType.id === document.typeId)?.slug ?? null);
+    const schema = fieldSchemaFor(slug);
+    if (schema === null) {
+      // No type, or a type without a schema — for most of an archive this is the whole of the step,
+      // and it is a fact about the type rather than a problem with the document (docs/03 §3.3.10a).
+      await this.write(document.id, {
+        steps: { fields: 'SKIPPED' },
+        skipReasons: { fields: 'NO_SCHEMA' },
+      });
+      return;
+    }
+    if (!this.analyst.isConfigured) {
+      await this.write(document.id, {
+        steps: { fields: 'SKIPPED' },
+        skipReasons: { fields: 'NOT_CONFIGURED' },
+      });
+      return;
+    }
+    // The analysis's own page limit, lifted by the same asking: "read this one properly" means the
+    // fields too (docs/05 §5.5 step 5).
+    if (!analyseInFull && this.settings.analystAutoMaxPages > 0) {
+      const pages = document.pageCount ?? 0;
+      if (pages > this.settings.analystAutoMaxPages) {
+        await this.write(document.id, {
+          steps: { fields: 'SKIPPED' },
+          skipReasons: { fields: 'TOO_MANY_PAGES' },
+        });
+        return;
+      }
+    }
+
+    try {
+      const answer = await this.analyst.extractFields(
+        schema,
+        analystExcerpt(document, this.settings.analystExcerptChars),
+        await this.pagesFor(document),
+      );
+      // Per-field validation, in code: an invented value in one field must not discard a good one
+      // beside it (docs/03 §3.3.10a).
+      const read = sanitizeFieldValues(schema, answer.values);
+
+      // Fill-blanks per field: a MANUAL value stands whatever the model reads. A stored answer
+      // speaking another schema is replaced wholesale, manual corrections included — they were
+      // corrections to fields the document no longer has (docs/05 §5.5 step 5).
+      const previous =
+        document.extracted !== null && document.extracted.schema.slug === schema.typeSlug
+          ? document.extracted
+          : null;
+      const values: Record<string, unknown> = {};
+      const sources: Record<string, ExtractedFieldSource> = {};
+      for (const spec of schema.fields) {
+        if (previous !== null && previous.sources[spec.key] === 'MANUAL') {
+          const kept = previous.values[spec.key];
+          if (kept !== undefined) {
+            values[spec.key] = kept;
+            sources[spec.key] = 'MANUAL';
+            continue;
+          }
+        }
+        const value = read[spec.key];
+        if (value !== undefined) {
+          values[spec.key] = value;
+          sources[spec.key] = 'AUTO';
+        }
+      }
+      const extracted: ExtractedFields = {
+        schema: { slug: schema.typeSlug, version: schema.version },
+        values,
+        sources,
+      };
+
+      await this.write(document.id, {
+        steps: { fields: 'DONE' },
+        metrics: { ...(answer.usage ?? {}) },
+        extracted,
+        // The projection the FTS column reads, rewritten with the answer it projects
+        // (docs/04 §4.3).
+        extractedSearchText: extractedSearchTextOf(schema, values),
+        // The model's whole reading, applied or not — what "read as X" and the per-field reset are
+        // drawn from (docs/03 §3.3.10a).
+        auto: { fields: read },
+      });
+    } catch (error) {
+      await this.recordFailure(document.id, 'fields', error);
+    }
+  }
+
+  // Step 6. Chunk the Markdown, embed the chunks, and replace the document's vectors wholesale.
   private async vectorize(document: Document): Promise<void> {
     // 🔒 Before the provider check and before the empty-text one — and the one case where the stored
     // chunks are not touched at all. A run that learnt nothing about the document is no reason for a
@@ -775,7 +891,7 @@ export class HandleDocumentProcess extends JobHandler {
   // other steps keep their own outcomes (docs/05 §5.5).
   private async recordFailure(
     documentId: string,
-    step: 'canonical' | 'preview' | 'markdown' | 'analysis' | 'vectorization',
+    step: DocumentStep,
     error: unknown,
   ): Promise<void> {
     await this.write(documentId, {

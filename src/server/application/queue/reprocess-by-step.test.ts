@@ -68,6 +68,7 @@ describe('ReprocessDocumentsByStep', () => {
           preview: failed === 'preview' ? 'FAILED' : 'DONE',
           markdown: failed === 'markdown' ? 'FAILED' : 'DONE',
           analysis: 'DONE',
+          fields: 'DONE',
           vectorization: 'DONE',
         },
       }),

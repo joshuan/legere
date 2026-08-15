@@ -78,6 +78,7 @@ const rebuilt: DocumentDetailDto = {
     preview: 'PENDING',
     markdown: 'PENDING',
     analysis: 'PENDING',
+    fields: 'PENDING',
     vectorization: 'PENDING',
   },
   skipReasons: {},
@@ -88,6 +89,8 @@ const rebuilt: DocumentDetailDto = {
   failedStep: null,
   files: [makeFile(CROP)],
   createdBy: null,
+  extracted: null,
+  extractedSummary: null,
 };
 
 const SAVE_PATH = `/api/documents/${DOCUMENT_ID}/files/${FILE_ID}`;

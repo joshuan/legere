@@ -20,6 +20,7 @@ import {
   Dropdown,
   Empty,
   Input,
+  InputNumber,
   List,
   Modal,
   Row,
@@ -45,13 +46,19 @@ import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import {
   DOCUMENT_STEPS,
-  type ResettableField,
   type DocumentDetailDto,
   type DocumentEventDto,
   type DocumentFileDto,
   type DocumentFileVersionDto,
+  type DocumentResetEntry,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
+import {
+  fieldSchemaFor,
+  moneyValueSchema,
+  type DocumentFieldSchema,
+  type DocumentFieldSpec,
+} from '../../../shared/contracts/document-fields';
 import {
   pageFormatSchema,
   type PageFormat,
@@ -756,12 +763,24 @@ type MetaChange = {
   subjectIds?: string[];
   documentDate?: string | null;
   pageFormat?: PageFormat;
-  reset?: ResettableField[];
+  // The typed fields of the document's schema (docs/03 §3.3.10a): each key set becomes MANUAL,
+  // null clears value and source both.
+  fields?: Record<string, unknown>;
+  reset?: DocumentResetEntry[];
 };
 
 // The shapes a person may file a document under (docs/05 §5.5 step 1), in the order they are
 // offered: what the pipeline decided, then the two ways of overruling it.
 const PAGE_FORMATS = pageFormatSchema.options;
+
+// What a scalar typed field holds while it is being edited (docs/03 §3.3.10a): each kind keeps the
+// shape its input works in, and only Save turns it back into the stored value. A `table` has no
+// draft because the form does not edit one (docs/11 §11.5).
+type FieldDraft =
+  | { kind: 'string'; value: string }
+  | { kind: 'number'; value: number | null }
+  | { kind: 'date'; value: string | null }
+  | { kind: 'money'; amount: number | null; currency: string };
 
 // What a person may correct, while they are correcting it. Held apart from the document so that
 // nothing is sent until Save: a select that writes on every keystroke turns a glance into an edit.
@@ -774,6 +793,7 @@ type Draft = {
   country: string | null;
   city: string;
   pageFormat: PageFormat;
+  fields: Record<string, FieldDraft>;
 };
 
 // A catalogue row is a living one by construction: `/api/people` and `/api/subjects` return only
@@ -830,8 +850,21 @@ function DetailsPane({
   const [search, setSearch] = useState('');
   const [subjectSearch, setSubjectSearch] = useState('');
   const [kind, setKind] = useState('');
-  const [reset, setReset] = useState<ResettableField[]>([]);
+  const [reset, setReset] = useState<DocumentResetEntry[]>([]);
   const editing = draft !== null;
+
+  // The field schema the document's type carries, if any (docs/03 §3.3.10a): the typed-fields group
+  // below exists only where this is not null.
+  const schema = fieldSchemaFor(document.documentType?.slug);
+  // The stored values, when they speak the schema being drawn: after a manual type change the old
+  // answer speaks the old type's schema and the `fields` step is already queued to replace it
+  // wholesale (docs/03 §3.3.10a) — its badge stands over the em dashes meanwhile.
+  const extractedValues: Record<string, unknown> =
+    schema !== null &&
+    document.extracted !== null &&
+    document.extracted.schema.slug === schema.typeSlug
+      ? document.extracted.values
+      : {};
 
   // 🔒 The options a value may take are the catalogue *and* whatever this document already carries.
   // The two come from different places — the catalogue is fetched once, the document is polled — so
@@ -923,6 +956,13 @@ function DetailsPane({
       languages: document.languages,
       country: document.country,
       city: document.city ?? '',
+      // The scalar typed fields, each in the shape its input works in; a table gets no draft
+      // because the form does not edit one (docs/11 §11.5).
+      fields: Object.fromEntries(
+        (schema?.fields ?? [])
+          .filter((spec) => spec.kind !== 'table')
+          .map((spec) => [spec.key, fieldDraftOf(spec, extractedValues[spec.key])]),
+      ),
     });
   };
 
@@ -934,15 +974,25 @@ function DetailsPane({
   // "Put it back to what was read." The draft shows the machine's value immediately; the server is
   // told it was a reset rather than a choice, so a reset documentType becomes AUTO again and the next
   // run may classify it (docs/03 §3.3.10).
-  const resetFields = (fields: ResettableField[]): void => {
+  const resetFields = (fields: DocumentResetEntry[]): void => {
     if (draft === null) return;
     setReset((chosen) => [...new Set([...chosen, ...fields])]);
-    const next = { ...draft };
+    const next = { ...draft, fields: { ...draft.fields } };
     if (fields.includes('documentType')) next.typeId = autoType?.id ?? null;
     if (fields.includes('languages')) next.languages = document.auto.languages ?? [];
     if (fields.includes('country')) next.country = document.auto.country ?? null;
     if (fields.includes('city')) next.city = document.auto.city ?? '';
     if (fields.includes('documentDate')) next.documentDate = document.auto.date ?? null;
+    // A typed field goes back to the model's own last reading, in the draft as it will on the
+    // server (docs/03 §3.3.10a).
+    for (const entry of fields) {
+      if (!entry.startsWith('fields.')) continue;
+      const key = entry.slice('fields.'.length);
+      const spec = schema?.fields.find((candidate) => candidate.key === key);
+      if (spec !== undefined && spec.kind !== 'table') {
+        next.fields[key] = fieldDraftOf(spec, document.auto.fields?.[key]);
+      }
+    }
     setDraft(next);
   };
 
@@ -980,6 +1030,23 @@ function DetailsPane({
     }
     const city = draft.city.trim() === '' ? null : draft.city.trim();
     if (!reset.includes('city') && city !== document.city) change.city = city;
+    // Only the typed fields that changed, each as its stored shape; an emptied input travels as
+    // null, which clears value and source both (docs/03 §3.3.10a). A field that was reset travels
+    // in `reset` below, never as a value.
+    if (schema !== null) {
+      const fields: Record<string, unknown> = {};
+      for (const spec of schema.fields) {
+        if (spec.kind === 'table') continue;
+        if (reset.includes(`fields.${spec.key}`)) continue;
+        const field = draft.fields[spec.key];
+        if (field === undefined) continue;
+        const value = patchValueOf(field);
+        // A half-written money is not a fact yet, and not a clearing either — it does not travel.
+        if (value === undefined) continue;
+        if (!sameFieldValue(value, extractedValues[spec.key])) fields[spec.key] = value;
+      }
+      if (Object.keys(fields).length > 0) change.fields = fields;
+    }
     if (reset.length > 0) change.reset = reset;
 
     if (Object.keys(change).length > 0) onSave(change);
@@ -1036,7 +1103,7 @@ function DetailsPane({
   const wasRead = (
     auto: string | null | undefined,
     current: string,
-    fields: ResettableField[] = [],
+    fields: DocumentResetEntry[] = [],
   ): ReactNode => {
     if (auto === null || auto === undefined || auto === '' || auto === current) return undefined;
 
@@ -1059,17 +1126,162 @@ function DetailsPane({
   };
 
   // The control plus, when the pipeline read something this no longer matches, a way back to it.
-  const withReset = (fields: ResettableField[], control: ReactNode, differs: boolean): ReactNode =>
-    differs && !fields.some((field) => reset.includes(field)) ? (
-      <Space size={4} wrap>
-        {control}
+  // The wrapper stands whether or not the button does: a tree that changed shape around the input
+  // on the first diverging keystroke would remount it and eat the keys that follow.
+  const withReset = (
+    fields: DocumentResetEntry[],
+    control: ReactNode,
+    differs: boolean,
+  ): ReactNode => (
+    <Space size={4} wrap>
+      {control}
+      {differs && !fields.some((field) => reset.includes(field)) && (
         <Button size="small" type="link" onClick={() => resetFields(fields)}>
           {t('viewer.details.reset')}
         </Button>
-      </Space>
-    ) : (
-      control
+      )}
+    </Space>
+  );
+
+  // One key of the fields draft, replaced wholesale: each control writes its own kind back.
+  const setFieldDraft = (key: string, value: FieldDraft): void => {
+    setDraft((current) =>
+      current === null ? current : { ...current, fields: { ...current.fields, [key]: value } },
     );
+  };
+
+  // The input a scalar kind edits in (docs/11 §11.5): a string is an Input, a number an
+  // InputNumber, a date the same picker the documentDate row uses — and a money two inputs sharing
+  // one width, amount and currency, because it is one fact.
+  const fieldControl = (spec: DocumentFieldSpec, field: FieldDraft, label: string): ReactNode => {
+    if (field.kind === 'number') {
+      return (
+        <InputNumber
+          className="legere-field"
+          aria-label={label}
+          value={field.value}
+          onChange={(value) =>
+            setFieldDraft(spec.key, {
+              kind: 'number',
+              value: typeof value === 'number' ? value : null,
+            })
+          }
+        />
+      );
+    }
+    if (field.kind === 'date') {
+      return (
+        <DatePicker
+          className="legere-field"
+          aria-label={label}
+          // Held as yyyy-mm-dd and only made a dayjs on the way into the picker, exactly as the
+          // documentDate above: a Date would drag a time zone in with it.
+          value={field.value === null ? null : dayjs(field.value)}
+          onChange={(value) =>
+            setFieldDraft(spec.key, {
+              kind: 'date',
+              value: value === null ? null : value.format('YYYY-MM-DD'),
+            })
+          }
+        />
+      );
+    }
+    if (field.kind === 'money') {
+      return (
+        <span className="legere-field legere-field-split">
+          <InputNumber
+            aria-label={label}
+            value={field.amount}
+            onChange={(value) =>
+              setFieldDraft(spec.key, {
+                ...field,
+                amount: typeof value === 'number' ? value : null,
+              })
+            }
+          />
+          <Input
+            aria-label={t('viewer.details.currency')}
+            maxLength={3}
+            value={field.currency}
+            onChange={(event) =>
+              setFieldDraft(spec.key, { ...field, currency: event.target.value.toUpperCase() })
+            }
+          />
+        </span>
+      );
+    }
+    return (
+      <Input
+        className="legere-field"
+        aria-label={label}
+        value={field.value}
+        onChange={(event) => setFieldDraft(spec.key, { kind: 'string', value: event.target.value })}
+      />
+    );
+  };
+
+  // A `table` field as a small read-only table of its rows (docs/11 §11.5): columns from the spec,
+  // headers localized like the field labels. Deliberately not editable in the form — re-reading the
+  // document is how a table is corrected, and a row editor for receipt lines is a spreadsheet
+  // nobody asked for.
+  const fieldTable = (
+    fieldSchema: DocumentFieldSchema,
+    spec: DocumentFieldSpec,
+    value: unknown,
+  ): ReactNode => {
+    const columns = spec.columns ?? [];
+    const rows = !Array.isArray(value)
+      ? []
+      : value.flatMap((row, index) => (isRecord(row) ? [{ rowId: index, cells: row }] : []));
+    if (rows.length === 0 || columns.length === 0) return '';
+    return (
+      <Table
+        size="small"
+        pagination={false}
+        rowKey="rowId"
+        dataSource={rows}
+        columns={columns.map((column) => ({
+          key: column.key,
+          title: t(`viewer.fields.${fieldSchema.typeSlug}.${spec.key}Columns.${column.key}`),
+          dataIndex: ['cells', column.key],
+          // A cell the row does not carry says so the way every empty value here does.
+          render: (cell: unknown) =>
+            typeof cell === 'string' || typeof cell === 'number' ? cell : '—',
+        }))}
+      />
+    );
+  };
+
+  // One row of the typed-fields group (docs/03 §3.3.10a, docs/11 §11.5): the label from the message
+  // catalog (the registry carries none), the value formatted for the reader — and, for the scalar
+  // kinds, the same Edit form, the same grey "read as …" line and the same way back that every
+  // other corrected field has. Every row carries the `fields` step's badge while that step has not
+  // settled, exactly as the place rows carry the analysis's.
+  const typedFieldRow = (fieldSchema: DocumentFieldSchema, spec: DocumentFieldSpec) => {
+    const label = t(`viewer.fields.${fieldSchema.typeSlug}.${spec.key}`);
+    const current = extractedValues[spec.key];
+    if (spec.kind === 'table') {
+      return { label, value: fieldTable(fieldSchema, spec, current), pending: state('fields') };
+    }
+
+    const resetEntry = `fields.${spec.key}`;
+    const autoShown = formatFieldValue(spec, document.auto.fields?.[spec.key]);
+    const field = draft === null ? undefined : draft.fields[spec.key];
+
+    return {
+      label,
+      value:
+        field !== undefined
+          ? withReset(
+              [resetEntry],
+              fieldControl(spec, field, label),
+              autoShown !== '' && autoShown !== formatFieldValue(spec, patchValueOf(field)),
+            )
+          : formatFieldValue(spec, current),
+      pending: state('fields'),
+      note: wasRead(autoShown, formatFieldValue(spec, current), [resetEntry]),
+    };
+  };
 
   const autoType = documentTypes.find(
     (documentType) => documentType.slug === document.auto.typeSlug,
@@ -1469,6 +1681,13 @@ function DetailsPane({
           },
         ]}
       />
+
+      {/* The typed fields sit in the same pane, under the rows above (docs/11 §11.5): a group per
+          the document's field schema, one row per field in schema order, drawn only where the type
+          carries a schema at all (docs/03 §3.3.10a). */}
+      {schema !== null && (
+        <DefinitionList items={schema.fields.map((spec) => typedFieldRow(schema, spec))} />
+      )}
 
       {/* Save ends what Edit started, so it sits at the other end of the same list and on the same
           side: the eye leaves a form at its bottom-right corner (docs/11 §11.5). */}
@@ -1980,6 +2199,99 @@ function formatDate(date: string | null): string {
   return new Intl.DateTimeFormat(navigator.language).format(
     new Date(Number(year), Number(month) - 1, Number(day)),
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// A stored typed value made a draft its input can hold (docs/03 §3.3.10a): a value the wrong shape
+// for its kind is treated as no value, which is also what the server would have refused to store.
+function fieldDraftOf(spec: DocumentFieldSpec, raw: unknown): FieldDraft {
+  switch (spec.kind) {
+    case 'number':
+      return {
+        kind: 'number',
+        value: typeof raw === 'number' && Number.isFinite(raw) ? raw : null,
+      };
+    case 'date':
+      return {
+        kind: 'date',
+        value: typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null,
+      };
+    case 'money': {
+      const money = moneyValueSchema.safeParse(raw);
+      return money.success
+        ? { kind: 'money', amount: money.data.amount, currency: money.data.currency }
+        : { kind: 'money', amount: null, currency: '' };
+    }
+    default:
+      return { kind: 'string', value: typeof raw === 'string' ? raw : '' };
+  }
+}
+
+// What a draft sends on Save: the stored shape of its kind, null for an emptied input (= clear
+// value and source both), or undefined for one that cannot travel yet — a money with only one of
+// its halves is not a fact (docs/03 §3.3.10a).
+function patchValueOf(field: FieldDraft): unknown {
+  if (field.kind === 'string') {
+    const value = field.value.trim();
+    return value === '' ? null : value;
+  }
+  if (field.kind === 'number') return field.value;
+  if (field.kind === 'date') return field.value;
+  const currency = field.currency.trim().toUpperCase();
+  if (field.amount === null && currency === '') return null;
+  if (field.amount === null || !/^[A-Z]{3}$/.test(currency)) return undefined;
+  return { amount: field.amount, currency };
+}
+
+// "Changed" for a typed field: nothing equals nothing, scalars compare as themselves, and a money
+// compares by its two halves.
+function sameFieldValue(a: unknown, b: unknown): boolean {
+  const aEmpty = a === null || a === undefined;
+  const bEmpty = b === null || b === undefined;
+  if (aEmpty || bEmpty) return aEmpty && bEmpty;
+  if (isRecord(a) && isRecord(b)) {
+    const first = moneyValueSchema.safeParse(a);
+    const second = moneyValueSchema.safeParse(b);
+    return (
+      first.success &&
+      second.success &&
+      first.data.amount === second.data.amount &&
+      first.data.currency === second.data.currency
+    );
+  }
+  return a === b;
+}
+
+// A typed value formatted for the reader (docs/11 §11.5): Intl dates and currency amounts, strings
+// and numbers as they are. The empty string where the value is missing or misshapen, which the
+// definition list prints as its em dash.
+function formatFieldValue(spec: DocumentFieldSpec, raw: unknown): string {
+  if (raw === null || raw === undefined) return '';
+  switch (spec.kind) {
+    case 'string':
+      return typeof raw === 'string' ? raw : '';
+    case 'number':
+      return typeof raw === 'number' ? String(raw) : '';
+    case 'date':
+      return typeof raw === 'string' ? formatDate(raw) : '';
+    case 'money': {
+      const money = moneyValueSchema.safeParse(raw);
+      if (!money.success) return '';
+      try {
+        return new Intl.NumberFormat(navigator.language, {
+          style: 'currency',
+          currency: money.data.currency,
+        }).format(money.data.amount);
+      } catch {
+        return `${money.data.amount} ${money.data.currency}`;
+      }
+    }
+    case 'table':
+      return '';
+  }
 }
 
 function placeOf(city: string | null, country: string | null): string {

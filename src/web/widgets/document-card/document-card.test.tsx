@@ -28,6 +28,7 @@ const base: DocumentListDto = {
   country: 'ME',
   city: 'Podgorica',
   languages: ['sr', 'en'],
+  extractedSummary: null,
 };
 
 describe('DocumentCard', () => {

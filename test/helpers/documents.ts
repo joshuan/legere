@@ -51,6 +51,7 @@ export async function seedDocument(options: SeedDocumentOptions = {}): Promise<S
       previewStatus: 'DONE',
       markdownStatus: 'DONE',
       analysisStatus: 'DONE',
+      fieldsStatus: 'SKIPPED',
       vectorizationStatus: 'SKIPPED',
       ...options.document,
     },

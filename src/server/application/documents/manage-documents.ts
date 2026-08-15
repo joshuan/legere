@@ -1,4 +1,14 @@
 import {
+  extractedSearchTextOf,
+  fieldSchemaFor,
+  sanitizeFieldValues,
+  summaryValuesOf,
+  validateFieldValue,
+  validateFieldsPatch,
+  type ExtractedFieldSource,
+  type ExtractedSummary,
+} from '../../../shared/contracts/document-fields';
+import {
   MAX_DOCUMENT_GROUPS,
   type DocumentDetailDto,
   type DocumentEventPage,
@@ -24,7 +34,11 @@ import type { DocumentEventPayload } from '../../domain/entities/document-event'
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { PersonRepository } from '../../domain/repositories/person.repository';
 import type { SubjectRepository } from '../../domain/repositories/subject.repository';
-import { ForbiddenError, NotFoundError } from '../../domain/errors/domain-error';
+import {
+  ForbiddenError,
+  NotFoundError,
+  ValidationFailedError,
+} from '../../domain/errors/domain-error';
 import type { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import type {
   DocumentDetail,
@@ -39,6 +53,7 @@ import type { FileRefRepository } from '../../domain/repositories/file-ref.repos
 import type { FileRepository } from '../../domain/repositories/file.repository';
 import type { Clock } from '../ports/clock';
 import type { FileStorage } from '../ports/file-storage';
+import type { JobQueue } from '../ports/job-queue';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
 
@@ -140,6 +155,7 @@ export class UpdateDocumentMeta {
     private readonly events: DocumentEventRepository,
     private readonly people: PersonRepository,
     private readonly subjects: SubjectRepository,
+    private readonly queue: JobQueue,
   ) {}
 
   async execute(
@@ -173,12 +189,17 @@ export class UpdateDocumentMeta {
     // and acted on there (docs/05 §5.5 step 1).
     if (input.pageFormat !== undefined) update.pageFormat = input.pageFormat;
 
+    // The slug the document ends this PATCH with — what the typed fields below validate against
+    // (docs/03 §3.3.10a).
+    let typeSlugAfter: string | null = detail.documentType?.slug ?? null;
+
     if (input.typeId !== undefined) {
       if (input.typeId === null) {
         // Clearing a documentType is a decision too: it must not read as "never classified", or the
         // next pipeline run would put the old one straight back (docs/03 §3.3.10).
         update.typeId = null;
         update.typeSource = 'NONE';
+        typeSlugAfter = null;
       } else {
         const documentTypes = await this.documentTypes.listActive();
         const chosen = documentTypes.find((documentType) => documentType.id === input.typeId);
@@ -188,6 +209,7 @@ export class UpdateDocumentMeta {
         update.typeId = chosen.id;
         // 🔒 A person's choice is MANUAL, and the classifier never overwrites it (docs/05 §5.5).
         update.typeSource = 'MANUAL';
+        typeSlugAfter = chosen.slug;
       }
     }
 
@@ -216,8 +238,109 @@ export class UpdateDocumentMeta {
           // 🔒 Back to AUTO, not MANUAL: the point of a reset is that the document stops claiming a
           // person chose this, so the next run may classify it again (docs/03 §3.3.10).
           update.typeSource = read === undefined ? 'NONE' : 'AUTO';
+          typeSlugAfter = read?.slug ?? null;
         }
       }
+    }
+
+    // The typed fields (docs/03 §3.3.10a, docs/07 §7.3): validated against the schema of the type
+    // the document ends this PATCH with, edits first and resets after, so "put it back" is the later
+    // instruction — the rule the fixed fields above already follow.
+    const fieldResets = (input.reset ?? []).filter(
+      (entry) => entry === 'fields' || entry.startsWith('fields.'),
+    );
+    if (input.fields !== undefined || fieldResets.length > 0) {
+      const schema = fieldSchemaFor(typeSlugAfter);
+      if (schema === null) {
+        throw new ValidationFailedError({
+          issues: [{ path: ['fields'], message: 'This document type carries no field schema' }],
+        });
+      }
+      // A stored answer speaking another schema is not a base to edit on — those were fields of a
+      // type the document no longer has (docs/03 §3.3.10a).
+      const base =
+        detail.document.extracted !== null &&
+        detail.document.extracted.schema.slug === schema.typeSlug
+          ? detail.document.extracted
+          : null;
+      const values: Record<string, unknown> = { ...(base?.values ?? {}) };
+      const sources: Record<string, ExtractedFieldSource> = { ...(base?.sources ?? {}) };
+
+      if (input.fields !== undefined) {
+        const patch = validateFieldsPatch(schema, input.fields);
+        if (patch.issues.length > 0) {
+          throw new ValidationFailedError({
+            issues: patch.issues.map((issue) => ({
+              path: ['fields', issue.key],
+              message: issue.reason,
+            })),
+          });
+        }
+        for (const [key, value] of Object.entries(patch.values)) {
+          if (value === null) {
+            // Clearing removes value and source both — which is how a field is asked to be read
+            // again on the next run (docs/03 §3.3.10a).
+            delete values[key];
+            delete sources[key];
+          } else {
+            values[key] = value;
+            // 🔒 A value somebody typed is theirs; no run overwrites it (docs/03 §3.3.10a).
+            sources[key] = 'MANUAL';
+          }
+        }
+      }
+
+      const read = detail.document.auto.fields ?? {};
+      for (const entry of fieldResets) {
+        if (entry === 'fields') {
+          // The whole map back to what the model read, sources and all.
+          for (const key of Object.keys(values)) delete values[key];
+          for (const key of Object.keys(sources)) delete sources[key];
+          for (const [key, value] of Object.entries(sanitizeFieldValues(schema, read))) {
+            values[key] = value;
+            sources[key] = 'AUTO';
+          }
+          continue;
+        }
+        const key = entry.slice('fields.'.length);
+        const spec = schema.fields.find((field) => field.key === key);
+        if (spec === undefined) {
+          throw new ValidationFailedError({
+            issues: [{ path: ['reset', entry], message: 'UNKNOWN_FIELD' }],
+          });
+        }
+        // 🔒 Travels as a reset, never as the value typed in: the field goes back to AUTO, so it
+        // stops claiming a person chose it (docs/11 §11.5).
+        const value = validateFieldValue(spec, read[key]);
+        if (value === undefined) {
+          delete values[key];
+          delete sources[key];
+        } else {
+          values[key] = value;
+          sources[key] = 'AUTO';
+        }
+      }
+
+      update.extracted = {
+        schema: { slug: schema.typeSlug, version: schema.version },
+        values,
+        sources,
+      };
+      update.extractedSearchText = extractedSearchTextOf(schema, values);
+    }
+
+    // 🔒 The one edit that enqueues (docs/07 §7.3): the typed fields are a reading of the document
+    // *under its type*, so a changed type re-queues exactly the fields step — one model call, never
+    // a rebuild. The stale reading is cleared now rather than left speaking a schema the document no
+    // longer has, because the re-run may have nothing to replace it with: a type without a schema
+    // skips at NO_SCHEMA and would leave it standing for ever.
+    const typeChanged = update.typeId !== undefined && update.typeId !== detail.document.typeId;
+    if (typeChanged) {
+      if (update.extracted === undefined) {
+        update.extracted = null;
+        update.extractedSearchText = null;
+      }
+      update.fieldsStatus = 'QUEUED';
     }
 
     // People are a set, not a field on the row: sent whole, replaced whole (docs/03 §3.3.19).
@@ -244,6 +367,16 @@ export class UpdateDocumentMeta {
     }
 
     const updated = await this.documents.updateMeta(detail.document.id, update);
+
+    if (typeChanged) {
+      // The same enqueue a reprocess of one step makes (docs/05 §5.4): keyed by the document, so
+      // however many edits race, a document is one piece of work in the queue.
+      await this.queue.enqueue(
+        'document-process',
+        { documentId: detail.document.id, steps: ['fields'] },
+        { singletonKey: detail.document.id },
+      );
+    }
 
     // 🔒 A new format does mean a new canonical, and a new preview and new text with it — and it is
     // still not this request's business to start them. Editing metadata must not remake forty pages,
@@ -384,7 +517,21 @@ export function toListDto(item: DocumentListItem): DocumentListDto {
     country: document.country,
     city: document.city,
     languages: document.languages,
+    extractedSummary: extractedSummaryOf(item.documentType, document),
   };
+}
+
+// The card line's values (docs/11 §11.3): only where the stored reading speaks the schema of the
+// type the card names, because the client formats them by that slug. During the window between a
+// type change and the re-run, the honest answer is nothing.
+function extractedSummaryOf(
+  documentType: { slug: string } | null,
+  document: Document,
+): ExtractedSummary | null {
+  const schema = fieldSchemaFor(documentType?.slug ?? null);
+  if (schema === null || document.extracted === null) return null;
+  if (document.extracted.schema.slug !== schema.typeSlug) return null;
+  return summaryValuesOf(schema, document.extracted.values);
 }
 
 // One file of a document, in page order (docs/07 §7.3). `refs` are already filtered to the libraries
@@ -474,6 +621,7 @@ export function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     failedStep: document.failedStep,
     files: detail.files.map(toFileDto),
     createdBy: detail.createdBy,
+    extracted: document.extracted,
   };
 }
 
@@ -503,7 +651,24 @@ function describeChanges(
   if (before.pageFormat !== after.pageFormat) {
     changes.pageFormat = { from: before.pageFormat, to: after.pageFormat };
   }
+  // The typed fields, one entry per field that moved (docs/03 §3.3.10a). What a value *was* is
+  // exactly what the journal exists to keep — a type change throws the old reading away, and this
+  // is where it survives.
+  const beforeFields = before.extracted?.values ?? {};
+  const afterFields = after.extracted?.values ?? {};
+  for (const key of new Set([...Object.keys(beforeFields), ...Object.keys(afterFields)])) {
+    const from = fieldChangeText(beforeFields[key]);
+    const to = fieldChangeText(afterFields[key]);
+    if (from !== to) changes[`fields.${key}`] = { from, to };
+  }
   return changes;
+}
+
+// A journal entry holds strings; a money or a table value is written as its JSON, which is legible
+// enough for the question the log answers.
+function fieldChangeText(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
 // Every id asked for has to come back from a lookup that returns only what may still be named. An id

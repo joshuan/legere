@@ -63,10 +63,12 @@ import {
 import {
   DocumentAnalyst,
   type DocumentTypeOption,
+  type FieldExtraction,
   type KnownSubject,
   type PageImage,
   type DocumentAnalysis,
 } from '../../src/server/application/ports/document-analyst';
+import type { DocumentFieldSchema } from '../../src/shared/contracts/document-fields';
 import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
 import {
   PageTranscriber,
@@ -125,6 +127,7 @@ function stepKey(step: string): keyof DocumentSteps {
     'preview',
     'markdown',
     'analysis',
+    'fields',
     'vectorization',
   ];
   const found = known.find((candidate) => candidate === step);
@@ -159,6 +162,7 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     ocrUsed: false,
     typeId: null,
     typeSource: 'NONE',
+    extracted: null,
     createdById: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     deletedAt: null,
@@ -232,6 +236,7 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       ...(update.title === undefined ? {} : { title: update.title }),
       ...(update.titleSource === undefined ? {} : { titleSource: update.titleSource }),
       ...(update.description === undefined ? {} : { description: update.description }),
+      ...(update.extracted === undefined ? {} : { extracted: update.extracted }),
     };
     this.documents.set(id, updated);
     return Promise.resolve(updated);
@@ -278,6 +283,7 @@ export class InMemoryDocumentRepository extends DocumentRepository {
           preview: queued(document.steps.preview),
           markdown: queued(document.steps.markdown),
           analysis: queued(document.steps.analysis),
+          fields: queued(document.steps.fields),
           vectorization: queued(document.steps.vectorization),
         },
       });
@@ -1360,6 +1366,20 @@ export class FakeAnalyst extends DocumentAnalyst {
     this.calls.push({ excerpt, documentTypes, pages: pages.length });
     if (this.failing) return Promise.reject(new Error('Analyst request failed with 503'));
     return Promise.resolve(this.answer);
+  }
+
+  // The fields step's question (docs/05 §5.5 step 5); tests set `fieldValues` per case.
+  fieldValues: Record<string, unknown> = {};
+  readonly fieldCalls: Array<{ schemaSlug: string; excerpt: string; pages: number }> = [];
+
+  extractFields(
+    schema: DocumentFieldSchema,
+    excerpt: string,
+    pages: readonly PageImage[] = [],
+  ): Promise<FieldExtraction> {
+    this.fieldCalls.push({ schemaSlug: schema.typeSlug, excerpt, pages: pages.length });
+    if (this.failing) return Promise.reject(new Error('Analyst request failed with 503'));
+    return Promise.resolve({ values: this.fieldValues });
   }
 }
 

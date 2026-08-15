@@ -1,3 +1,4 @@
+import type { ExtractedFields } from '../../../shared/contracts/document-fields';
 import type {
   AutoValues,
   Availability,
@@ -52,6 +53,10 @@ export type ProcessingUpdate = {
   title?: string;
   titleSource?: ValueSource;
   description?: string | null;
+  // The typed-fields answer and its FTS projection, written together (docs/03 §3.3.10a): the
+  // projection is derived from the answer and must never drift from it.
+  extracted?: ExtractedFields | null;
+  extractedSearchText?: string | null;
 };
 
 // Documents by pipeline step and status, for the admin overview (docs/05 §5.8).
@@ -205,6 +210,13 @@ export type UpdateDocumentMetaInput = {
   typeId?: string | null;
   typeSource?: ValueSource;
   pageFormat?: PageFormat;
+  // A person editing the typed fields (docs/03 §3.3.10a, docs/07 §7.3): the whole answer and its
+  // FTS projection, replaced together like the pipeline replaces them.
+  extracted?: ExtractedFields | null;
+  extractedSearchText?: string | null;
+  // A type change re-queues the fields step (docs/05 §5.5 step 5); the caller sets this beside the
+  // typeId so both land in one write.
+  fieldsStatus?: StepStatus;
 };
 
 // The numbers a step can answer with. Every one of them is a question somebody asks of a document

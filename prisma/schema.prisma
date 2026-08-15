@@ -300,9 +300,16 @@ model Document {
   previewStatus       StepStatus               @default(QUEUED) @map("preview_status")
   markdownStatus      StepStatus               @default(QUEUED) @map("markdown_status")
   analysisStatus      StepStatus               @default(QUEUED) @map("analysis_status")
+  fieldsStatus        StepStatus               @default(QUEUED) @map("fields_status")
   vectorizationStatus StepStatus               @default(QUEUED) @map("vectorization_status")
   processingError     String?                  @map("processing_error")
   skipReasons         Json                     @default("{}") @map("skip_reasons")
+  // The typed fields of the document's type (docs/03 §3.3.10a): { schema: {slug, version}, values,
+  // sources }. Null until the fields step first writes it or a person does. The search text beside
+  // it is a projection of the searchable values, read by the search_vector generated column
+  // (docs/04 §4.3) — rewritten whenever `extracted` is, never edited on its own.
+  extracted           Json?
+  extractedSearchText String?                  @map("extracted_search_text")
   languages           String[]                 @map("languages")
   autoValues          Json                     @default("{}") @map("auto_values")
   // The date written on the document, not the day it was filed. A date, not a timestamp: a signing

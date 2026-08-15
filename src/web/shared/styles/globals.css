@@ -307,6 +307,12 @@ pre,
   max-width: 100%;
 }
 
+/* antd gives a number input a narrow width of its own, in a rule injected after this sheet; a
+   number field of this form keeps the form's one width (docs/11 §11.5). */
+.ant-input-number.legere-field {
+  width: 320px;
+}
+
 /* Two controls that together make one field — a city and its country — share that one width. */
 .legere-field-split {
   display: inline-flex;

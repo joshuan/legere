@@ -299,6 +299,7 @@ describe('HandleMaintenance', () => {
         canonical: 'DONE',
         preview: 'DONE',
         markdown: 'DONE',
+        fields: 'DONE',
         analysis: 'DONE',
         vectorization: 'DONE',
       },
@@ -335,6 +336,7 @@ describe('HandleMaintenance', () => {
         preview: 'QUEUED',
         markdown: 'QUEUED',
         analysis: 'QUEUED',
+        fields: 'QUEUED',
         vectorization: 'QUEUED',
       },
     });

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { paginatedSchema, paginationQuerySchema } from './common';
+import { extractedFieldsSchema, extractedSummarySchema } from './document-fields';
 import {
   valueSourceSchema,
   documentEventTypeSchema,
@@ -12,12 +13,13 @@ import {
 
 // Document contracts (docs/07 §7.3).
 
-// The five steps of docs/05 §5.5, named the way the API and the UI refer to them.
+// The six steps of docs/05 §5.5, named the way the API and the UI refer to them.
 export const documentStepSchema = z.enum([
   'canonical',
   'preview',
   'markdown',
   'analysis',
+  'fields',
   'vectorization',
 ]);
 export type DocumentStep = z.infer<typeof documentStepSchema>;
@@ -80,6 +82,10 @@ export const documentListDtoSchema = z.object({
   city: z.string().nullable(),
   // BCP-47 tags, most likely first (docs/03 §3.3.10).
   languages: z.array(z.string()),
+  // The summary-flagged typed fields of the document's schema, as stored (docs/03 §3.3.10a);
+  // formatted by the client from the registry it ships, keyed off documentType.slug. Null where the
+  // type carries no schema or nothing was read.
+  extractedSummary: extractedSummarySchema.nullable(),
 });
 export type DocumentListDto = z.infer<typeof documentListDtoSchema>;
 
@@ -88,6 +94,7 @@ export const documentStepsSchema = z.object({
   preview: stepStatusSchema,
   markdown: stepStatusSchema,
   analysis: stepStatusSchema,
+  fields: stepStatusSchema,
   vectorization: stepStatusSchema,
 });
 
@@ -190,6 +197,9 @@ export const autoValuesSchema = z.object({
   // How well the stored text represents the document, judged by the analyst against the pages it was
   // shown (docs/05 §5.5 step 4). Absent when it was shown none, and so had nothing to compare.
   textQuality: z.enum(['GOOD', 'PARTIAL', 'NONE']).nullish(),
+  // The last full answer of the `fields` step, values only (docs/03 §3.3.10a) — what "read as X"
+  // and the per-field reset are drawn from.
+  fields: z.record(z.unknown()).optional(),
 });
 export type AutoValues = z.infer<typeof autoValuesSchema>;
 
@@ -226,6 +236,9 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   failedStep: z.string().nullable(),
   files: z.array(documentFileDtoSchema),
   createdBy: z.object({ id: z.string().uuid(), displayName: z.string() }).nullable(),
+  // The whole typed-fields answer (docs/03 §3.3.10a): which schema, the values, and who decided
+  // each. Null until the `fields` step first writes it or a person does.
+  extracted: extractedFieldsSchema.nullable(),
 });
 export type DocumentDetailDto = z.infer<typeof documentDetailDtoSchema>;
 
@@ -397,6 +410,22 @@ export const RESETTABLE_FIELDS = [
 export const resettableFieldSchema = z.enum(RESETTABLE_FIELDS);
 export type ResettableField = z.infer<typeof resettableFieldSchema>;
 
+// A reset entry: one of the fixed fields above, the whole typed-fields map (`fields`), or one typed
+// field (`fields.<key>`) — the key is checked against the document's schema in the use case, where
+// the schema is known (docs/07 §7.3).
+export const documentResetEntrySchema = z.union([
+  resettableFieldSchema,
+  z.literal('fields'),
+  z
+    .string()
+    .regex(/^fields\.[A-Za-z][A-Za-z0-9]*$/, 'Expected fields.<key>')
+    .max(80),
+]);
+export type DocumentResetEntry = z.infer<typeof documentResetEntrySchema>;
+
+const MAX_RESET_ENTRIES = 30;
+const MAX_FIELDS_PATCH_KEYS = 30;
+
 export const updateDocumentRequestSchema = z
   .object({
     title: z.string().trim().min(1).max(500).optional(),
@@ -423,9 +452,17 @@ export const updateDocumentRequestSchema = z
     // What shape its pages should be. Changing it rebuilds the canonical, because the shape of a
     // page is decided while it is being made (docs/05 §5.5 step 1).
     pageFormat: pageFormatSchema.optional(),
+    // A partial edit of the typed fields (docs/03 §3.3.10a): each key set becomes MANUAL, null
+    // clears value and source both. Keys and shapes are validated against the document's own schema
+    // in the use case, which is where the schema is known.
+    fields: z
+      .record(z.unknown())
+      .refine((value) => Object.keys(value).length > 0, 'At least one field')
+      .refine((value) => Object.keys(value).length <= MAX_FIELDS_PATCH_KEYS, 'Too many fields')
+      .optional(),
     // Put a field back to what the pipeline read. Not the same as sending that value by hand: a
     // reset documentType becomes AUTO again, so it stops claiming a person chose it (docs/03 §3.3.10).
-    reset: z.array(resettableFieldSchema).min(1).max(RESETTABLE_FIELDS.length).optional(),
+    reset: z.array(documentResetEntrySchema).min(1).max(MAX_RESET_ENTRIES).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: 'At least one field must be provided',

@@ -799,6 +799,7 @@
       "preview": "Preview",
       "markdown": "Text",
       "analysis": "Analysis",
+      "fields": "Fields",
       "vectorization": "Vectors"
     },
     "skipReasons": {
@@ -808,7 +809,8 @@
       "NO_TYPES": "No document types to choose from yet",
       "NO_TEXT": "No text was extracted to work with",
       "MANUAL_TYPE": "The type was set by hand and is left alone",
-      "TOO_MANY_PAGES": "Too long to analyse automatically — ask for it below"
+      "TOO_MANY_PAGES": "Too long to analyse automatically — ask for it below",
+      "NO_SCHEMA": "No field schema for this document type"
     },
     "processing": {
       "title": "Processing",
@@ -827,6 +829,7 @@
       "cityPlaceholder": "City",
       "country": "Country",
       "countryPlaceholder": "Country",
+      "currency": "Currency",
       "created": "Added",
       "ocr": "OCR used",
       "auto": "read as {value}",
@@ -852,6 +855,34 @@
       "editHint": "Edit — or press E",
       "deletedName": "No longer in the catalogue. It stays on this document as a record.",
       "cost": "What it cost"
+    },
+    "fields": {
+      "receipt": {
+        "vendor": "Vendor",
+        "purchasedAt": "Purchased",
+        "total": "Total",
+        "items": "Items",
+        "itemsColumns": {
+          "name": "Item",
+          "quantity": "Quantity",
+          "amount": "Amount"
+        }
+      },
+      "passport": {
+        "holder": "Holder",
+        "number": "Number",
+        "issuedBy": "Issued by",
+        "issuedAt": "Issued",
+        "expiresAt": "Expires",
+        "birthDate": "Date of birth"
+      },
+      "id-card": {
+        "holder": "Holder",
+        "number": "Number",
+        "issuedBy": "Issued by",
+        "issuedAt": "Issued",
+        "expiresAt": "Expires"
+      }
     },
     "addedToCollection": "Added to the collection",
     "log": {

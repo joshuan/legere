@@ -40,6 +40,7 @@ const document1 = {
   country: null,
   city: null,
   languages: [],
+  extractedSummary: null,
 };
 
 const server = createApiMock();

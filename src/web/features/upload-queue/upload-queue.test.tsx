@@ -30,6 +30,7 @@ function listDto(id: string): Record<string, unknown> {
     country: null,
     city: null,
     languages: [],
+    extractedSummary: null,
   };
 }
 
@@ -49,6 +50,7 @@ function detailDto(id: string): Record<string, unknown> {
       preview: 'PENDING',
       markdown: 'PENDING',
       analysis: 'PENDING',
+      fields: 'PENDING',
       vectorization: 'PENDING',
     },
     skipReasons: {},
@@ -56,6 +58,7 @@ function detailDto(id: string): Record<string, unknown> {
     failedStep: null,
     files: [],
     createdBy: null,
+    extracted: null,
   };
 }
 

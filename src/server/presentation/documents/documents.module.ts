@@ -103,14 +103,16 @@ function downloadSettings(config: AppConfig): DownloadSettings {
         events: DocumentEventRepository,
         people: PersonRepository,
         subjects: SubjectRepository,
+        queue: JobQueue,
       ): UpdateDocumentMeta =>
-        new UpdateDocumentMeta(documents, documentTypes, events, people, subjects),
+        new UpdateDocumentMeta(documents, documentTypes, events, people, subjects, queue),
       inject: [
         DocumentRepository,
         DocumentTypeRepository,
         DocumentEventRepository,
         PersonRepository,
         SubjectRepository,
+        JobQueue,
       ],
     },
     {

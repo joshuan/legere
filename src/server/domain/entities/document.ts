@@ -1,3 +1,4 @@
+import type { ExtractedFields } from '../../../shared/contracts/document-fields';
 import {
   DOCUMENT_STEPS,
   type AutoValues,
@@ -22,6 +23,7 @@ export type DocumentSteps = {
   preview: StepStatus;
   markdown: StepStatus;
   analysis: StepStatus;
+  fields: StepStatus;
   vectorization: StepStatus;
 };
 
@@ -60,6 +62,9 @@ export type Document = {
   ocrUsed: boolean;
   typeId: string | null;
   typeSource: ValueSource;
+  // The typed fields of the document's type (docs/03 §3.3.10a); null until the fields step first
+  // writes it or a person does.
+  extracted: ExtractedFields | null;
   createdById: string | null;
   createdAt: Date;
   deletedAt: Date | null;
@@ -120,6 +125,7 @@ export function pendingSteps(): DocumentSteps {
     preview: 'PENDING',
     markdown: 'PENDING',
     analysis: 'PENDING',
+    fields: 'PENDING',
     vectorization: 'PENDING',
   };
 }

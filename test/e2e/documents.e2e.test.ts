@@ -7,6 +7,7 @@ import {
   documentYearsResponseSchema,
   listDocumentsResponseSchema,
 } from '../../src/shared/contracts/documents';
+import { searchResponseSchema } from '../../src/shared/contracts/search';
 import { createInviteResponseSchema, okResponseSchema } from '../../src/shared/contracts/users';
 import { encodeDocumentCursor } from '../../src/server/infrastructure/persistence/cursor';
 import { api, createTestApp, type TestApp } from '../helpers/app';
@@ -944,6 +945,120 @@ describe('Documents (e2e)', () => {
       expect(row.typeId).toBe(documentType.id);
       // 🔒 AUTO, not MANUAL: a reset document stops claiming a person chose this (docs/03 §3.3.10).
       expect(row.typeSource).toBe('AUTO');
+    });
+
+    it('edits a typed field, marks it MANUAL, and makes it findable (docs/03 §3.3.10a)', async () => {
+      const receipt = await testPrisma().documentType.create({
+        data: { slug: 'receipt', name: 'Receipt' },
+      });
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({
+        libraryId: open,
+        title: 'Scan 042',
+        typeId: receipt.id,
+      });
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}`, {
+          fields: { vendor: 'Voli Market', total: { amount: 12.4, currency: 'EUR' } },
+        })
+        .set('Cookie', adminCookie);
+
+      const detail = expectData(res, documentDetailDtoSchema);
+      expect(detail.extracted).toEqual({
+        schema: { slug: 'receipt', version: 1 },
+        values: { vendor: 'Voli Market', total: { amount: 12.4, currency: 'EUR' } },
+        sources: { vendor: 'MANUAL', total: 'MANUAL' },
+      });
+
+      // The FTS projection lands with the answer, and the generated vector picks it up: the vendor
+      // is findable even though no prose of the document says it (docs/04 §4.3).
+      const found = await api(app).get('/api/search?q=Voli&mode=text').set('Cookie', adminCookie);
+      expect(
+        expectData(found, searchResponseSchema).items.map((item) => item.document.id),
+      ).toContain(documentId);
+    });
+
+    it('puts a typed field back to what the model read, as AUTO (docs/07 §7.3)', async () => {
+      const receipt = await testPrisma().documentType.create({
+        data: { slug: 'receipt', name: 'Receipt' },
+      });
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open, typeId: receipt.id });
+      await testPrisma().document.update({
+        where: { id: documentId },
+        data: {
+          extracted: {
+            schema: { slug: 'receipt', version: 1 },
+            values: { vendor: 'Corrected by hand' },
+            sources: { vendor: 'MANUAL' },
+          },
+          autoValues: { fields: { vendor: 'Voli' } },
+        },
+      });
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}`, { reset: ['fields.vendor'] })
+        .set('Cookie', adminCookie);
+
+      const detail = expectData(res, documentDetailDtoSchema);
+      expect(detail.extracted?.values).toEqual({ vendor: 'Voli' });
+      // 🔒 Back to AUTO: a value put back stops claiming a person chose it (docs/03 §3.3.10a).
+      expect(detail.extracted?.sources).toEqual({ vendor: 'AUTO' });
+    });
+
+    it('refuses a field the schema does not know, and a document whose type has none', async () => {
+      const receipt = await testPrisma().documentType.create({
+        data: { slug: 'receipt', name: 'Receipt' },
+      });
+      const open = await givenLibrary('ALL_USERS');
+      const typed = await givenDocument({ libraryId: open, typeId: receipt.id });
+      const unknown = await api(app)
+        .patch(`/api/documents/${typed}`, { fields: { invented: 'x' } })
+        .set('Cookie', adminCookie);
+      expect(unknown.status).toBe(422);
+      expect(expectError(unknown).code).toBe('VALIDATION_FAILED');
+
+      const untyped = await givenDocument({ libraryId: open });
+      const schemaless = await api(app)
+        .patch(`/api/documents/${untyped}`, { fields: { vendor: 'Voli' } })
+        .set('Cookie', adminCookie);
+      expect(schemaless.status).toBe(422);
+      expect(expectError(schemaless).code).toBe('VALIDATION_FAILED');
+    });
+
+    it('a type changed by hand re-queues the fields step and clears the stale reading', async () => {
+      const receipt = await testPrisma().documentType.create({
+        data: { slug: 'receipt', name: 'Receipt' },
+      });
+      const contract = await testPrisma().documentType.create({
+        data: { slug: 'contract', name: 'Contract' },
+      });
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open, typeId: receipt.id });
+      await testPrisma().document.update({
+        where: { id: documentId },
+        data: {
+          extracted: {
+            schema: { slug: 'receipt', version: 1 },
+            values: { vendor: 'Voli' },
+            sources: { vendor: 'MANUAL' },
+          },
+          extractedSearchText: 'Voli',
+        },
+      });
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}`, { typeId: contract.id })
+        .set('Cookie', adminCookie);
+      expect(res.status).toBe(200);
+
+      const row = await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } });
+      // 🔒 The reading belonged to the type (docs/05 §5.5 step 5): gone now, not after a run that
+      // may never replace it — and the step is queued to read again under the new schema.
+      expect(row.extracted).toBeNull();
+      expect(row.extractedSearchText).toBeNull();
+      expect(row.fieldsStatus).toBe('QUEUED');
     });
 
     it('marks a title somebody typed as theirs, and gives it back when asked', async () => {

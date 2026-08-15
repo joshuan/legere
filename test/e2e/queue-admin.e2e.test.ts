@@ -114,6 +114,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         'preview',
         'markdown',
         'analysis',
+        'fields',
         'vectorization',
       ]);
 
@@ -197,12 +198,13 @@ describe('Reprocess and queue administration (e2e)', () => {
         'maintenance',
       ]);
       expect(overview.documents.total).toBe(1);
-      // All five steps are always reported, so a card never vanishes when it reaches zero.
+      // All six steps are always reported, so a card never vanishes when it reaches zero.
       expect(overview.documents.steps.map((entry) => entry.step)).toEqual([
         'canonical',
         'preview',
         'markdown',
         'analysis',
+        'fields',
         'vectorization',
       ]);
       const preview = overview.documents.steps.find((entry) => entry.step === 'preview');

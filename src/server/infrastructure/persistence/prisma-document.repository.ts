@@ -20,6 +20,10 @@ import {
   type DocumentStep,
 } from '../../../shared/contracts/documents';
 import {
+  extractedFieldsSchema,
+  type ExtractedFields,
+} from '../../../shared/contracts/document-fields';
+import {
   stepSkipReasonSchema,
   stepStatusSchema,
   type StepStatus,
@@ -69,10 +73,12 @@ function toDomain(row: PrismaDocument): Document {
       preview: row.previewStatus,
       markdown: row.markdownStatus,
       analysis: row.analysisStatus,
+      fields: row.fieldsStatus,
       vectorization: row.vectorizationStatus,
     },
     processingError: row.processingError,
     skipReasons: toSkipReasons(row.skipReasons),
+    extracted: toExtracted(row.extracted),
     languages: row.languages,
     auto: toAutoValues(row.autoValues),
     // A DATE column comes back as a Date at UTC midnight; the domain speaks yyyy-mm-dd, which is
@@ -118,6 +124,14 @@ function toDateColumn(value: string | null): Date | null {
 function toAutoValues(value: unknown): AutoValues {
   const parsed = autoValuesSchema.safeParse(value);
   return parsed.success ? parsed.data : {};
+}
+
+// The typed-fields answer (docs/03 §3.3.10a). Unparseable means "none": a reading that cannot be
+// read back must never take the document down with it.
+function toExtracted(value: unknown): ExtractedFields | null {
+  if (value === null || value === undefined) return null;
+  const parsed = extractedFieldsSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function toSkipReasons(value: unknown): SkipReasons {
@@ -366,6 +380,7 @@ function filters(query: DocumentFilterInput): Prisma.DocumentWhereInput {
       { previewStatus: 'PENDING' },
       { markdownStatus: 'PENDING' },
       { analysisStatus: 'PENDING' },
+      { fieldsStatus: 'PENDING' },
       { vectorizationStatus: 'PENDING' },
     ];
     and.push(query.processing ? { OR: pending } : { NOT: { OR: pending } });
@@ -392,6 +407,7 @@ const STEP_STATUS_FILTER: Record<
   preview: (status) => (status === undefined ? {} : { previewStatus: status }),
   markdown: (status) => (status === undefined ? {} : { markdownStatus: status }),
   analysis: (status) => (status === undefined ? {} : { analysisStatus: status }),
+  fields: (status) => (status === undefined ? {} : { fieldsStatus: status }),
   vectorization: (status) => (status === undefined ? {} : { vectorizationStatus: status }),
 };
 
@@ -591,6 +607,7 @@ type CounterRow = {
   preview_status: string;
   markdown_status: string;
   analysis_status: string;
+  fields_status: string;
   vectorization_status: string;
   count: bigint;
 };
@@ -613,6 +630,7 @@ function emptyCounters(): StepStatusCounters {
       preview: zeroes(),
       markdown: zeroes(),
       analysis: zeroes(),
+      fields: zeroes(),
       vectorization: zeroes(),
     },
   };
@@ -692,6 +710,17 @@ export class PrismaDocumentRepository implements DocumentRepository {
          WHERE id = ${id}::uuid`;
     }
 
+    // The typed-fields answer and its FTS projection land together — the projection is derived from
+    // the answer and must never drift from it (docs/03 §3.3.10a). Raw, like auto_values above: the
+    // values are a jsonb the typed client cannot say.
+    if (update.extracted !== undefined) {
+      await client.$executeRaw`
+        UPDATE documents
+           SET extracted = ${update.extracted}::jsonb,
+               extracted_search_text = ${update.extractedSearchText ?? null}
+         WHERE id = ${id}::uuid`;
+    }
+
     const row = await client.document.update({
       where: { id },
       data: {
@@ -699,6 +728,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ...(steps.preview === undefined ? {} : { previewStatus: steps.preview }),
         ...(steps.markdown === undefined ? {} : { markdownStatus: steps.markdown }),
         ...(steps.analysis === undefined ? {} : { analysisStatus: steps.analysis }),
+        ...(steps.fields === undefined ? {} : { fieldsStatus: steps.fields }),
         ...(steps.vectorization === undefined ? {} : { vectorizationStatus: steps.vectorization }),
         ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
         ...(update.languages === undefined ? {} : { languages: update.languages }),
@@ -873,7 +903,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
   }
 
   async markUnstartedQueued(documentId: string, tx?: TransactionHandle): Promise<void> {
-    // Raw, because five columns have to move on one condition each and Prisma has no way to say
+    // Raw, because six columns have to move on one condition each and Prisma has no way to say
     // "this column, if it is PENDING" in a single update.
     await clientOf(this.prisma, tx).$executeRaw`
       UPDATE "documents" SET
@@ -881,6 +911,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
         "preview_status"       = CASE WHEN "preview_status"       = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "preview_status"       END,
         "markdown_status"      = CASE WHEN "markdown_status"      = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "markdown_status"      END,
         "analysis_status"      = CASE WHEN "analysis_status"      = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "analysis_status"      END,
+        "fields_status"        = CASE WHEN "fields_status"        = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "fields_status"        END,
         "vectorization_status" = CASE WHEN "vectorization_status" = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "vectorization_status" END
       WHERE "id" = ${documentId}::uuid AND "deleted_at" IS NULL`;
   }
@@ -904,6 +935,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
           { previewStatus: { in: ['PENDING', 'QUEUED'] } },
           { markdownStatus: { in: ['PENDING', 'QUEUED'] } },
           { analysisStatus: { in: ['PENDING', 'QUEUED'] } },
+          { fieldsStatus: { in: ['PENDING', 'QUEUED'] } },
           { vectorizationStatus: { in: ['PENDING', 'QUEUED'] } },
         ],
       },
@@ -934,10 +966,10 @@ export class PrismaDocumentRepository implements DocumentRepository {
   async countByStepStatus(tx?: TransactionHandle): Promise<StepStatusCounters> {
     const rows = await clientOf(this.prisma, tx).$queryRaw<CounterRow[]>`
       SELECT canonical_status, preview_status, markdown_status,
-             analysis_status, vectorization_status, count(*) AS count
+             analysis_status, fields_status, vectorization_status, count(*) AS count
       FROM documents
       WHERE deleted_at IS NULL
-      GROUP BY 1, 2, 3, 4, 5
+      GROUP BY 1, 2, 3, 4, 5, 6
     `;
 
     const counters = emptyCounters();
@@ -948,6 +980,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
       add(counters, 'preview', row.preview_status, count);
       add(counters, 'markdown', row.markdown_status, count);
       add(counters, 'analysis', row.analysis_status, count);
+      add(counters, 'fields', row.fields_status, count);
       add(counters, 'vectorization', row.vectorization_status, count);
     }
     return counters;
@@ -1338,10 +1371,21 @@ export class PrismaDocumentRepository implements DocumentRepository {
     input: UpdateDocumentMetaInput,
     tx?: TransactionHandle,
   ): Promise<Document> {
-    const row = await clientOf(this.prisma, tx).document.update({
+    const client = clientOf(this.prisma, tx);
+    // The typed-fields answer and its FTS projection land together, exactly as in updateProcessing:
+    // one is derived from the other and must never drift from it (docs/03 §3.3.10a).
+    if (input.extracted !== undefined) {
+      await client.$executeRaw`
+        UPDATE documents
+           SET extracted = ${input.extracted}::jsonb,
+               extracted_search_text = ${input.extractedSearchText ?? null}
+         WHERE id = ${id}::uuid`;
+    }
+    const row = await client.document.update({
       where: { id },
       data: {
         ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.fieldsStatus === undefined ? {} : { fieldsStatus: input.fieldsStatus }),
         ...(input.languages === undefined ? {} : { languages: input.languages }),
         ...(input.country === undefined ? {} : { country: input.country }),
         ...(input.city === undefined ? {} : { city: input.city }),

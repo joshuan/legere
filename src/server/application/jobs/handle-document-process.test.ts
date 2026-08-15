@@ -199,6 +199,180 @@ describe('HandleDocumentProcess', () => {
 
   const methodsCalled = (): string[] => pdfs.calls.map((call) => call.method);
 
+  describe('the typed fields (docs/05 §5.5 step 5)', () => {
+    it('fills the schema of the type the analysis just chose, validated per field', async () => {
+      documentTypes.add('receipt');
+      analyst.slug = 'receipt';
+      analyst.fieldValues = {
+        vendor: '  Voli ',
+        purchasedAt: '2026-13-45',
+        total: { amount: '12,40', currency: 'eur' },
+        invented: 'never asked for',
+      };
+      await givenDocument();
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.fields).toBe('DONE');
+      // A bad date is dropped and the good vendor beside it is kept (docs/03 §3.3.10a).
+      expect(document.extracted).toEqual({
+        schema: { slug: 'receipt', version: 1 },
+        values: { vendor: 'Voli', total: { amount: 12.4, currency: 'EUR' } },
+        sources: { vendor: 'AUTO', total: 'AUTO' },
+      });
+      // The model's whole reading is recorded either way — the "read as X" line reads it.
+      expect(document.auto.fields).toEqual({
+        vendor: 'Voli',
+        total: { amount: 12.4, currency: 'EUR' },
+      });
+      expect(analyst.fieldCalls).toHaveLength(1);
+      expect(analyst.fieldCalls[0]?.schemaSlug).toBe('receipt');
+      expect(analyst.fieldCalls[0]?.excerpt).toContain(TEXT_LAYER);
+    });
+
+    it('skips NO_SCHEMA where the type carries none, and where there is no type at all', async () => {
+      analyst.slug = 'invoice';
+      await givenDocument();
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.fields).toBe('SKIPPED');
+      expect(document.skipReasons.fields).toBe('NO_SCHEMA');
+      expect(analyst.fieldCalls).toHaveLength(0);
+    });
+
+    it('skips NOT_CONFIGURED with a schema but no provider', async () => {
+      const receipt = documentTypes.add('receipt');
+      analyst.configured = false;
+      await givenDocument([{}], { typeId: receipt.id, typeSource: 'MANUAL' });
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.fields).toBe('SKIPPED');
+      expect(document.skipReasons.fields).toBe('NOT_CONFIGURED');
+    });
+
+    it('keeps a MANUAL value whatever the model reads — fill-blanks per field', async () => {
+      const receipt = documentTypes.add('receipt');
+      analyst.fieldValues = { vendor: 'Model corp', purchasedAt: '2026-05-12' };
+      await givenDocument([{}], {
+        typeId: receipt.id,
+        typeSource: 'MANUAL',
+        extracted: {
+          schema: { slug: 'receipt', version: 1 },
+          values: { vendor: 'Voli' },
+          sources: { vendor: 'MANUAL' },
+        },
+      });
+
+      await run();
+
+      const document = stateOf();
+      expect(document.extracted).toEqual({
+        schema: { slug: 'receipt', version: 1 },
+        values: { vendor: 'Voli', purchasedAt: '2026-05-12' },
+        sources: { vendor: 'MANUAL', purchasedAt: 'AUTO' },
+      });
+      // What the model said is still on record, so the correction is never a dead end.
+      expect(document.auto.fields).toEqual({ vendor: 'Model corp', purchasedAt: '2026-05-12' });
+    });
+
+    it('replaces a reading that speaks another schema wholesale, manual corrections included', async () => {
+      const receipt = documentTypes.add('receipt');
+      analyst.fieldValues = { vendor: 'Voli' };
+      await givenDocument([{}], {
+        typeId: receipt.id,
+        typeSource: 'MANUAL',
+        // What a passport reading looks like the moment somebody re-types the document (docs/05
+        // §5.5 step 5): corrections to fields the document no longer has.
+        extracted: {
+          schema: { slug: 'passport', version: 1 },
+          values: { holder: 'Ana Petrović' },
+          sources: { holder: 'MANUAL' },
+        },
+      });
+
+      await run();
+
+      expect(stateOf().extracted).toEqual({
+        schema: { slug: 'receipt', version: 1 },
+        values: { vendor: 'Voli' },
+        sources: { vendor: 'AUTO' },
+      });
+    });
+
+    it('is gated by step 3 like the analysis: a failed extraction fails it without owning the failure', async () => {
+      const receipt = documentTypes.add('receipt');
+      await givenDocument([{}], {
+        typeId: receipt.id,
+        typeSource: 'MANUAL',
+        steps: {
+          canonical: 'DONE',
+          preview: 'DONE',
+          markdown: 'FAILED',
+          analysis: 'FAILED',
+          fields: 'PENDING',
+          vectorization: 'FAILED',
+        },
+        processingError: 'parser exploded',
+        failedStep: 'markdown',
+      });
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['fields'] });
+
+      const document = stateOf();
+      expect(document.steps.fields).toBe('FAILED');
+      // The reason stays the one step 3 hit (docs/05 §5.5).
+      expect(document.failedStep).toBe('markdown');
+      expect(document.processingError).toBe('parser exploded');
+      expect(analyst.fieldCalls).toHaveLength(0);
+    });
+
+    it('respects the page limit unasked and lifts it for analyseInFull', async () => {
+      const receipt = documentTypes.add('receipt');
+      settings.analystAutoMaxPages = 2;
+      analyst.fieldValues = { vendor: 'Voli' };
+      await givenDocument([{}], {
+        typeId: receipt.id,
+        typeSource: 'MANUAL',
+        pageCount: 5,
+        steps: {
+          canonical: 'DONE',
+          preview: 'DONE',
+          markdown: 'DONE',
+          analysis: 'DONE',
+          fields: 'PENDING',
+          vectorization: 'DONE',
+        },
+      });
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['fields'] });
+      expect(stateOf().steps.fields).toBe('SKIPPED');
+      expect(stateOf().skipReasons.fields).toBe('TOO_MANY_PAGES');
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['fields'], analyseInFull: true });
+      expect(stateOf().steps.fields).toBe('DONE');
+      expect(stateOf().extracted?.values).toEqual({ vendor: 'Voli' });
+    });
+
+    it('records a failed call against the step itself', async () => {
+      const receipt = documentTypes.add('receipt');
+      analyst.failing = true;
+      await givenDocument([{}], { typeId: receipt.id, typeSource: 'MANUAL' });
+
+      await run();
+
+      const document = stateOf();
+      // The analysis is MANUAL_TYPE-skipped, so the failure is the fields step's own.
+      expect(document.steps.fields).toBe('FAILED');
+      expect(document.failedStep).toBe('fields');
+      expect(document.processingError).toContain('Analyst request failed');
+    });
+  });
+
   describe('the canonical PDF (docs/05 §5.5 step 1)', () => {
     it('takes a PDF as it is: one part, no merge, straight into the bucket', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
@@ -1411,6 +1585,7 @@ describe('HandleDocumentProcess', () => {
         preview: 'DONE',
         markdown,
         analysis: 'DONE',
+        fields: 'DONE',
         vectorization: 'DONE',
       },
       ...overrides,

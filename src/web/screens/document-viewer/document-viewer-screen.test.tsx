@@ -106,12 +106,15 @@ const detail: DocumentDetailDto = {
     preview: 'DONE',
     markdown: 'DONE',
     analysis: 'DONE',
+    fields: 'DONE',
     vectorization: 'SKIPPED',
   },
   processingError: null,
   failedStep: null,
   files: [fileOf(FIRST_FILE)],
   createdBy: null,
+  extracted: null,
+  extractedSummary: null,
 };
 
 // A document made of two scans, which is what everything about composition is really about.
@@ -1708,6 +1711,127 @@ describe('DocumentViewerScreen', () => {
       expect(
         within(rowFor(panel, enMessages.viewer.details.people)).queryByRole('link'),
       ).toBeNull();
+    });
+  });
+
+  // The typed fields of the document's type (docs/03 §3.3.10a): drawn in the details pane only
+  // where the type carries a schema, edited in the same form, put back by the same grey line
+  // (docs/11 §11.5).
+  describe('the typed fields of the document type (docs/03 §3.3.10a)', () => {
+    const RECEIPT_TYPE_ID = 'bbbbbbbb-7777-4777-8777-777777777777';
+
+    // The stored answer and the model's last reading, identical to begin with: what a document
+    // looks like when the pipeline read it and nobody has corrected it yet.
+    const values = {
+      vendor: 'Voli',
+      purchasedAt: '2026-05-12',
+      total: { amount: 12.4, currency: 'EUR' },
+      items: [
+        { name: 'Bread', quantity: 2, amount: 1.2 },
+        { name: 'Milk', quantity: 1, amount: 1.05 },
+      ],
+    };
+
+    const receipt: DocumentDetailDto = {
+      ...detail,
+      documentType: { id: RECEIPT_TYPE_ID, slug: 'receipt', name: 'Receipt' },
+      typeSource: 'MANUAL',
+      extracted: {
+        schema: { slug: 'receipt', version: 1 },
+        values,
+        sources: { vendor: 'AUTO', purchasedAt: 'AUTO', total: 'AUTO', items: 'AUTO' },
+      },
+      auto: { fields: values },
+    };
+
+    async function openDetails(document: DocumentDetailDto): Promise<HTMLElement> {
+      serve(document);
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+      return screen.getByRole('tabpanel');
+    }
+
+    it('renders the typed fields of a receipt, formatted for the reader', async () => {
+      const panel = await openDetails(receipt);
+
+      // The label comes from the message catalog — the registry carries none (docs/03 §3.3.10a) —
+      // and the vendor as it was read…
+      expect(within(panel).getByText(enMessages.viewer.fields.receipt.vendor)).toBeInTheDocument();
+      expect(within(panel).getByText('Voli')).toBeInTheDocument();
+      // …and the money formatted as currency for the reader, one fact with its ISO code.
+      const total = new Intl.NumberFormat(navigator.language, {
+        style: 'currency',
+        currency: 'EUR',
+      }).format(12.4);
+      expect(within(panel).getByText(total)).toBeInTheDocument();
+      // A `table` field is a small table of its rows, headers localized like the labels.
+      expect(within(panel).getByText('Bread')).toBeInTheDocument();
+      expect(
+        within(panel).getByText(enMessages.viewer.fields.receipt.itemsColumns.name),
+      ).toBeInTheDocument();
+    });
+
+    it('saves an edited typed field alone, and nothing else with it', async () => {
+      let patched: unknown = null;
+      server.use(
+        http.patch(`/api/documents/${ID}`, async ({ request }) => {
+          patched = await request.json();
+          return HttpResponse.json(envelope(receipt));
+        }),
+      );
+      const panel = await openDetails(receipt);
+      const details = within(panel);
+      await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+
+      const vendor = details.getByRole('textbox', {
+        name: enMessages.viewer.fields.receipt.vendor,
+      });
+      await userEvent.clear(vendor);
+      await userEvent.type(vendor, 'Voli Market');
+      await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
+
+      // 🔒 Only the field that changed travels (docs/11 §11.5): an untouched total sent back would
+      // become MANUAL because a vendor was corrected, and no run would fill it again.
+      await waitFor(() => expect(patched).toEqual({ fields: { vendor: 'Voli Market' } }));
+    });
+
+    it('puts a typed field back to what was read in one click, travelling as a reset', async () => {
+      let patched: unknown = null;
+      server.use(
+        http.patch(`/api/documents/${ID}`, async ({ request }) => {
+          patched = await request.json();
+          return HttpResponse.json(envelope(receipt));
+        }),
+      );
+      const panel = await openDetails({
+        ...receipt,
+        extracted: {
+          schema: { slug: 'receipt', version: 1 },
+          values: { ...values, vendor: 'Voli d.o.o.' },
+          sources: { vendor: 'MANUAL', purchasedAt: 'AUTO', total: 'AUTO', items: 'AUTO' },
+        },
+      });
+
+      // No Edit: reading "Voli d.o.o., read as Voli" and agreeing with the machine is one gesture.
+      await userEvent.click(within(panel).getByRole('button', { name: 'read as Voli' }));
+
+      // 🔒 It travels as `fields.<key>`, never as the value typed in: a value put back stops
+      // claiming a person chose it (docs/03 §3.3.10a, docs/07 §7.3).
+      await waitFor(() => expect(patched).toEqual({ reset: ['fields.vendor'] }));
+    });
+
+    it('draws no typed-fields group for a type that carries no schema', async () => {
+      const panel = await openDetails({
+        ...detail,
+        documentType: { id: CATEGORY_ID, slug: 'contract', name: 'Contract' },
+        typeSource: 'MANUAL',
+      });
+
+      // The pane is there, the group is not: a contract states nothing typed (docs/11 §11.5).
+      expect(within(panel).getByText(enMessages.viewer.details.size)).toBeInTheDocument();
+      expect(within(panel).queryByText(enMessages.viewer.fields.receipt.vendor)).toBeNull();
     });
   });
 });

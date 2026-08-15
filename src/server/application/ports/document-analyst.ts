@@ -1,3 +1,5 @@
+import type { DocumentFieldSchema } from '../../../shared/contracts/document-fields';
+
 // What the analyst is allowed to choose from (docs/03 §3.3.12): the slug is the stable identifier it
 // answers with, the description is the guidance an admin wrote for exactly this.
 export type DocumentTypeOption = {
@@ -56,6 +58,14 @@ export type DocumentAnalysis = {
 // down — a model reads a page, it does not print it.
 export type PageImage = { bytes: Buffer };
 
+// What the fields step gets back (docs/05 §5.5 step 5): the raw answer, one value per asked key.
+// Deliberately unvalidated here — validation is per field, in code, in the application layer
+// (docs/03 §3.3.10a), so the adapter stays a transport and the rules stay testable without one.
+export type FieldExtraction = {
+  values: Record<string, unknown>;
+  usage?: { promptTokens?: number; completionTokens?: number };
+};
+
 // The AI step is optional in the same way vectorization is (docs/05 §5.5 step 4): unconfigured
 // means SKIPPED, not failed.
 export abstract class DocumentAnalyst {
@@ -80,4 +90,13 @@ export abstract class DocumentAnalyst {
     // no text to be analysed from — and a document is a picture before it is a string.
     pages?: readonly PageImage[],
   ): Promise<DocumentAnalysis>;
+
+  // The fields step (docs/05 §5.5 step 5): the same provider, shown the same text and pages, asked
+  // to fill exactly the schema of the document's type. The schema travels as data — key, kind and
+  // hint per field — and the answer comes back raw; what parses is decided by the caller.
+  abstract extractFields(
+    schema: DocumentFieldSchema,
+    excerpt: string,
+    pages?: readonly PageImage[],
+  ): Promise<FieldExtraction>;
 }

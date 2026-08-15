@@ -48,6 +48,7 @@ function documentAt(index: number, overrides: Partial<DocumentListDto> = {}): Do
     country: 'ME',
     city: 'Podgorica',
     languages: ['sr'],
+    extractedSummary: null,
     ...overrides,
   };
 }
@@ -858,6 +859,7 @@ function detailOf(index: number): Record<string, unknown> {
       preview: 'PENDING',
       markdown: 'PENDING',
       analysis: 'PENDING',
+      fields: 'PENDING',
       vectorization: 'PENDING',
     },
     skipReasons: {},
@@ -868,5 +870,6 @@ function detailOf(index: number): Record<string, unknown> {
     failedStep: null,
     files: [],
     createdBy: null,
+    extracted: null,
   };
 }

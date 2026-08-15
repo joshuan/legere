@@ -45,6 +45,7 @@ const hit = {
     country: null,
     city: null,
     languages: [],
+    extractedSummary: null,
   },
   score: 0.0166,
   snippet: 'the <mark>deposit</mark> is due before occupancy',

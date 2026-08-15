@@ -39,6 +39,7 @@ const RENTAL = {
   country: null,
   city: null,
   languages: [],
+  extractedSummary: null,
 };
 
 const PASSPORT = { ...RENTAL, id: 'aaaaaaaa-2222-4222-8222-222222222222', title: 'Passport scan' };
