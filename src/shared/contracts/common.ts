@@ -40,6 +40,10 @@ export const ERROR_CODES = [
   // 🔒 A document is emptied by deleting it, not by taking its parts away (docs/03 §3.3.10).
   'DOCUMENT_LAST_FILE',
   'FILE_ALREADY_IN_DOCUMENT',
+  // The edges between documents (docs/03 §3.3.23): one per pair, never to itself, and gone is gone.
+  'LINK_EXISTS',
+  'LINK_NOT_FOUND',
+  'LINK_SELF',
   'CANONICAL_NOT_READY',
   'DOCUMENT_UNAVAILABLE',
   'ONBOARDING_CLOSED',

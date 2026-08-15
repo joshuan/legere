@@ -280,6 +280,7 @@ function documentRow(id: string) {
     extracted: null,
     createdById: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    lastEventAt: new Date('2026-01-01T00:00:00.000Z'),
     deletedAt: null,
   };
 }

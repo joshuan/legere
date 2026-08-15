@@ -17,13 +17,18 @@ import {
   type PaginationQuery,
 } from '../../../shared/contracts/common';
 import {
+  createDocumentLinkRequestSchema,
   listDocumentGroupsQuerySchema,
   listDocumentsQuerySchema,
   reprocessRequestSchema,
   updateDocumentRequestSchema,
+  type CreateDocumentLinkRequest,
   type DocumentDetailDto,
   type DocumentEventPage,
   type DocumentGroupsResponse,
+  type DocumentLinkDto,
+  type DocumentLinkSuggestionsResponse,
+  type DocumentLinksResponse,
   type DocumentYearsResponse,
   type ListDocumentGroupsQuery,
   type ListDocumentsQuery,
@@ -72,6 +77,12 @@ import {
   GetDocumentMarkdown,
   type ArtifactKind,
 } from '../../application/documents/download-document';
+import {
+  CreateDocumentLink,
+  DeleteDocumentLink,
+  ListDocumentLinks,
+  SuggestDocumentLinks,
+} from '../../application/documents/document-links';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
 import { SuggestGroupings } from '../../application/documents/suggest-groupings';
 import { UploadDocument } from '../../application/documents/upload-document';
@@ -133,6 +144,10 @@ export class DocumentsController {
     private readonly splitFile: SplitDocumentFile,
     private readonly combine: CombineDocuments,
     private readonly groupings: SuggestGroupings,
+    private readonly documentLinks: ListDocumentLinks,
+    private readonly createLinkTo: CreateDocumentLink,
+    private readonly deleteLinkTo: DeleteDocumentLink,
+    private readonly suggestLinks: SuggestDocumentLinks,
     private readonly config: AppConfig,
   ) {}
 
@@ -212,6 +227,48 @@ export class DocumentsController {
   @UseGuards(DocumentAccessGuard)
   getMarkdown(@CurrentDocument() document: DocumentDetail): Envelope<DocumentMarkdownResponse> {
     return successEnvelope(this.markdown.execute(document));
+  }
+
+  // The edges of this document (docs/03 §3.3.23, docs/07 §7.3): both ends list the same edge, and
+  // 🔒 one whose other side the caller may not read is absent from the answer entirely.
+  @Get(':id/links')
+  @UseGuards(DocumentAccessGuard)
+  async getLinks(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+  ): Promise<Envelope<DocumentLinksResponse>> {
+    return successEnvelope(await this.documentLinks.execute(user, document));
+  }
+
+  @Post(':id/links')
+  @UseGuards(DocumentAccessGuard)
+  async createLink(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @ZodBody(createDocumentLinkRequestSchema) body: CreateDocumentLinkRequest,
+  ): Promise<Envelope<DocumentLinkDto>> {
+    return successEnvelope(await this.createLinkTo.execute(user, document, body.documentId));
+  }
+
+  @Delete(':id/links/:documentId')
+  @UseGuards(DocumentAccessGuard)
+  async deleteLink(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @UuidParam('documentId', 'DOCUMENT_NOT_FOUND', 'Document') otherId: string,
+  ): Promise<Envelope<OkResponse>> {
+    return successEnvelope(await this.deleteLinkTo.execute(user, document, otherId));
+  }
+
+  // Candidates the archive found by the identifiers the documents share (docs/05 §5.6b). Computed
+  // on request, stored never; dismissing one is the client's business.
+  @Get(':id/link-suggestions')
+  @UseGuards(DocumentAccessGuard)
+  async getLinkSuggestions(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+  ): Promise<Envelope<DocumentLinkSuggestionsResponse>> {
+    return successEnvelope(await this.suggestLinks.execute(user, document));
   }
 
   // The document's history (docs/03 §3.3.18). Guarded like the document itself: whoever may read a

@@ -15,6 +15,7 @@ import {
   type DocumentDetail,
   type DocumentFilterInput,
   type DocumentGroupCount,
+  type DocumentListItem,
   type DocumentPage,
   type SearchMatch,
   type StepStatusCounters,
@@ -165,6 +166,7 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     extracted: null,
     createdById: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    lastEventAt: new Date('2026-01-01T00:00:00.000Z'),
     deletedAt: null,
     ...overrides,
   };
@@ -316,6 +318,10 @@ export class InMemoryDocumentRepository extends DocumentRepository {
   countByStepStatus(): Promise<StepStatusCounters> {
     return unused('countByStepStatus');
   }
+  listReadableItems(): Promise<DocumentListItem[]> {
+    return unused('listReadableItems');
+  }
+
   listReadable(): Promise<DocumentPage> {
     return unused('listReadable');
   }

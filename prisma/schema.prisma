@@ -74,6 +74,9 @@ enum DocumentEventType {
   STEP_STARTED
   STEP_FINISHED
   META_CHANGED
+  // An edge to another document, made or removed by a person (docs/03 §3.3.23); written on both.
+  LINKED
+  UNLINKED
 }
 
 // Where a value came from: nobody, the pipeline, or a person (docs/03 §3.3.10).
@@ -120,6 +123,7 @@ model User {
   acceptedInvites  UserInvite[]      @relation("InviteAcceptor")
   passwordResets   PasswordReset[]   @relation("ResetTarget")
   createdResets    PasswordReset[]   @relation("ResetCreator")
+  documentLinks    DocumentLink[]
   libraryAccess    LibraryAccess[]
   collections      Collection[]
   collectionShares CollectionShare[]
@@ -343,6 +347,8 @@ model Document {
   people          DocumentPerson[]
   subjects        DocumentSubject[]
   collectionItems CollectionItem[]
+  linksA          DocumentLink[]    @relation("DocumentLinkA")
+  linksB          DocumentLink[]    @relation("DocumentLinkB")
 
   @@index([typeId])
   @@index([createdAt(sort: Desc)])
@@ -368,6 +374,27 @@ model DocumentEvent {
   // The log is always read for one document, newest first.
   @@index([documentId, at(sort: Desc)])
   @@map("document_events")
+}
+
+// Two documents that belong together and stay two documents (docs/03 §3.3.23, ADR-023). An
+// unordered pair — a_id < b_id always, checked in SQL (docs/04 §4.3) — hard-deleted on removal
+// like a collection item, and cascading with a hard-deleted document.
+model DocumentLink {
+  id          String   @id @default(uuid()) @db.Uuid
+  aId         String   @map("a_id") @db.Uuid
+  bId         String   @map("b_id") @db.Uuid
+  // The person who confirmed it; links are never machine-made (ADR-023).
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  a         Document @relation("DocumentLinkA", fields: [aId], references: [id], onDelete: Cascade)
+  b         Document @relation("DocumentLinkB", fields: [bId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation(fields: [createdById], references: [id])
+
+  @@unique([aId, bId])
+  // One edge, findable from either end: the unique above serves a_id, this serves b_id.
+  @@index([bId])
+  @@map("document_links")
 }
 
 model DocumentChunk {

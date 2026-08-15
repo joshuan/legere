@@ -503,6 +503,10 @@ export const documentEventDtoSchema = z.object({
     source: z.string().optional(),
     library: z.string().optional(),
     path: z.string().optional(),
+    // The other end of a link, as a record (docs/03 §3.3.23): the id may point at nothing by the
+    // time the log is read, and the title is what still says which paper it was.
+    otherDocumentId: z.string().optional(),
+    otherTitle: z.string().optional(),
     changes: z
       .record(z.object({ from: z.string().nullish(), to: z.string().nullish() }))
       .optional(),
@@ -534,3 +538,33 @@ export type ReprocessResponse = z.infer<typeof reprocessResponseSchema>;
 
 export const documentMarkdownResponseSchema = z.object({ markdown: z.string().nullable() });
 export type DocumentMarkdownResponse = z.infer<typeof documentMarkdownResponseSchema>;
+
+// --- document links (docs/03 §3.3.23, docs/07 §7.3) ---------------------------------------------
+//
+// Undirected: both ends list the same edge. An edge whose other side the caller may not read is
+// absent from the answer entirely — not present, not redacted.
+
+export const documentLinkDtoSchema = z.object({
+  document: documentListDtoSchema,
+  linkedAt: z.string().datetime(),
+});
+export type DocumentLinkDto = z.infer<typeof documentLinkDtoSchema>;
+
+export const documentLinksResponseSchema = z.object({ items: z.array(documentLinkDtoSchema) });
+export type DocumentLinksResponse = z.infer<typeof documentLinksResponseSchema>;
+
+export const createDocumentLinkRequestSchema = z.object({ documentId: z.string().uuid() });
+export type CreateDocumentLinkRequest = z.infer<typeof createDocumentLinkRequestSchema>;
+
+// A candidate the archive found by the identifiers the documents share (docs/05 §5.6b), each
+// saying which of them matched — "why is this here" is the first question about a suggestion.
+export const documentLinkSuggestionSchema = z.object({
+  document: documentListDtoSchema,
+  matchedTokens: z.array(z.string()),
+});
+export type DocumentLinkSuggestion = z.infer<typeof documentLinkSuggestionSchema>;
+
+export const documentLinkSuggestionsResponseSchema = z.object({
+  items: z.array(documentLinkSuggestionSchema),
+});
+export type DocumentLinkSuggestionsResponse = z.infer<typeof documentLinkSuggestionsResponseSchema>;

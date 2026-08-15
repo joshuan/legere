@@ -1,6 +1,9 @@
 import {
   documentDetailDtoSchema,
   documentGroupsResponseSchema,
+  documentLinkDtoSchema,
+  documentLinkSuggestionsResponseSchema,
+  documentLinksResponseSchema,
   documentMarkdownResponseSchema,
   listDocumentsResponseSchema,
   uploadDocumentResponseSchema,
@@ -13,6 +16,9 @@ import {
   type DocumentFilters,
   type DocumentGroupBy,
   type DocumentGroupsResponse,
+  type DocumentLinkDto,
+  type DocumentLinkSuggestionsResponse,
+  type DocumentLinksResponse,
   type DocumentSort,
   type DocumentYearsResponse,
   type DocumentMarkdownResponse,
@@ -107,6 +113,25 @@ export const documentApi = {
   events: (id: string): Promise<DocumentEventPage> =>
     apiClient.get(`/api/documents/${id}/events`, { schema: documentEventPageSchema }),
 
+  // The edges of one document (docs/03 §3.3.23, docs/07 §7.3): undirected, person-made, and the
+  // suggestions computed on request rather than remembered (docs/05 §5.6b).
+  links: (id: string): Promise<DocumentLinksResponse> =>
+    apiClient.get(`/api/documents/${id}/links`, { schema: documentLinksResponseSchema }),
+
+  createLink: (id: string, documentId: string): Promise<DocumentLinkDto> =>
+    apiClient.post(`/api/documents/${id}/links`, {
+      body: { documentId },
+      schema: documentLinkDtoSchema,
+    }),
+
+  deleteLink: (id: string, documentId: string): Promise<OkResponse> =>
+    apiClient.delete(`/api/documents/${id}/links/${documentId}`, { schema: okResponseSchema }),
+
+  linkSuggestions: (id: string): Promise<DocumentLinkSuggestionsResponse> =>
+    apiClient.get(`/api/documents/${id}/link-suggestions`, {
+      schema: documentLinkSuggestionsResponseSchema,
+    }),
+
   // Composing a document out of files (docs/07 §7.3 "Document files"). Every one of these answers
   // with the whole document, because a composition change is never local — the canonical, the
   // preview, the text and the analysis are all rebuilt behind it (docs/05 §5.6).
@@ -184,6 +209,8 @@ export const documentKeys = {
   detail: (id: string) => ['document', id] as const,
   markdown: (id: string) => ['document', id, 'markdown'] as const,
   events: (id: string) => ['document', id, 'events'] as const,
+  links: (id: string) => ['document', id, 'links'] as const,
+  linkSuggestions: (id: string) => ['document', id, 'link-suggestions'] as const,
   years: ['documents', 'years'] as const,
   // Counted under whatever filters were in force, so those are part of the key: the same dimension
   // over a narrower shelf is a different answer (docs/07 §7.3).

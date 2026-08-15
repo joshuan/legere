@@ -326,6 +326,15 @@ export abstract class DocumentRepository {
     tx?: TransactionHandle,
   ): Promise<DocumentPage>;
 
+  // The named documents this viewer may read, hydrated like a page, answered in the asked order —
+  // ids the access rule refuses are simply absent (docs/03 §3.3.23: an edge whose other side the
+  // caller may not read is absent entirely).
+  abstract listReadableItems(
+    viewer: Viewer,
+    ids: string[],
+    tx?: TransactionHandle,
+  ): Promise<DocumentListItem[]>;
+
   // Null when the document does not exist, is soft-deleted, or is one this viewer may not read —
   // 🔒 the three are deliberately indistinguishable from outside (docs/08 §8.5).
   // Documents whose files sit *directly* in one folder of a library, by title (docs/07 §7.3).

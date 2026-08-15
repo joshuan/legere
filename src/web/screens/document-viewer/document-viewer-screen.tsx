@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
+  DisconnectOutlined,
   DownOutlined,
   FileTextOutlined,
 } from '@ant-design/icons';
@@ -68,6 +69,7 @@ import { documentTypeApi, documentTypeKeys } from '../../entities/document-type'
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
 import { personApi, personKeys } from '../../entities/person';
+import { searchApi, searchKeys } from '../../entities/search';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { CropEditor } from '../../features/crop-editor';
@@ -382,6 +384,8 @@ export function DocumentViewerScreen({
             </Space>
           </Card>
 
+          <RelatedDocumentsCard id={id} />
+
           {/* The page itself, between what you may do with the document and what the pipeline is doing
               to it (docs/11 §11.5). Small on purpose: the readable copy is the pane on the left, and
               this is the answer to "is this the right document" — which is a glance, not a read. */}
@@ -615,6 +619,176 @@ function PreviewPane({ document }: { document: DocumentDetailDto }) {
 // Download is a split button (docs/11 §11.5b): its main half is the document as one piece, its
 // dropdown the originals it was made of. The default is never silently an original — a document made
 // of forty photographs downloads as one PDF, and whoever wants photograph 23 asks for it by name.
+// What a reader dismissed, for this session (docs/05 §5.6b): the server proposes and never
+// remembers being refused, so the refusal lives here — and only until the tab closes.
+const dismissedLinksKey = (id: string): string => `legere:dismissed-link-suggestions:${id}`;
+
+function readDismissed(id: string): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.sessionStorage.getItem(dismissedLinksKey(id));
+    const parsed: unknown = raw === null ? [] : JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeDismissed(id: string, ids: readonly string[]): void {
+  try {
+    window.sessionStorage.setItem(dismissedLinksKey(id), JSON.stringify(ids));
+  } catch {
+    // A full store is not a reason dismissing should break.
+  }
+}
+
+// The edges of this document (docs/03 §3.3.23, docs/11 §11.5): the linked documents, a picker for
+// linking by hand, and beneath them — quieter — the candidates the archive found by the identifiers
+// they share (docs/05 §5.6b), each saying which ones matched. The card draws nothing at all when
+// there is nothing to draw: a connection is the exception, and an empty box on every document would
+// teach the eye to skip the box.
+function RelatedDocumentsCard({ id }: { id: string }) {
+  const t = useTranslations();
+  const queryClient = useQueryClient();
+  const describeError = useErrorMessage();
+  const { message } = App.useApp();
+  const [dismissed, setDismissed] = useState<readonly string[]>(() => readDismissed(id));
+  const [query, setQuery] = useState('');
+
+  const links = useQuery({
+    queryKey: documentKeys.links(id),
+    queryFn: () => documentApi.links(id),
+  });
+  const suggestions = useQuery({
+    queryKey: documentKeys.linkSuggestions(id),
+    queryFn: () => documentApi.linkSuggestions(id),
+  });
+  // The same search the overlay runs (docs/11 §11.5): papers related only in somebody's head are
+  // found the way anything is found.
+  const found = useQuery({
+    queryKey: searchKeys.query({ q: query, mode: 'hybrid' }),
+    queryFn: () => searchApi.search({ q: query, mode: 'hybrid' }),
+    enabled: query.trim().length > 0,
+  });
+
+  const refresh = (): void => {
+    void queryClient.invalidateQueries({ queryKey: documentKeys.links(id) });
+    void queryClient.invalidateQueries({ queryKey: documentKeys.linkSuggestions(id) });
+    void queryClient.invalidateQueries({ queryKey: documentKeys.events(id) });
+  };
+
+  const link = useMutation({
+    mutationFn: (documentId: string) => documentApi.createLink(id, documentId),
+    onSuccess: () => {
+      setQuery('');
+      refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+  const unlink = useMutation({
+    mutationFn: (documentId: string) => documentApi.deleteLink(id, documentId),
+    onSuccess: refresh,
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
+  const linked = links.data?.items ?? [];
+  const linkedIds = new Set(linked.map((item) => item.document.id));
+  const proposals = (suggestions.data?.items ?? []).filter(
+    (candidate) =>
+      !linkedIds.has(candidate.document.id) && !dismissed.includes(candidate.document.id),
+  );
+
+  if (linked.length === 0 && proposals.length === 0) return null;
+
+  const options = (found.data?.items ?? [])
+    .filter((hit) => hit.document.id !== id && !linkedIds.has(hit.document.id))
+    .map((hit) => ({ value: hit.document.id, label: hit.document.title }));
+
+  const dismiss = (documentId: string): void => {
+    setDismissed((current) => {
+      const next = [...current, documentId];
+      writeDismissed(id, next);
+      return next;
+    });
+  };
+
+  return (
+    <Card title={t('viewer.links.title')} size="small">
+      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        {linked.map((item) => (
+          <div
+            key={item.document.id}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
+          >
+            <Link
+              href={`/documents/${item.document.id}`}
+              style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}
+            >
+              <FileTextOutlined aria-hidden />
+              <Typography.Text ellipsis style={{ flex: 1 }} title={item.document.title}>
+                {item.document.title}
+              </Typography.Text>
+            </Link>
+            {item.document.documentType !== null && <Tag>{item.document.documentType.name}</Tag>}
+            <Tooltip title={t('viewer.links.unlink')}>
+              <Button
+                size="small"
+                type="text"
+                icon={<DisconnectOutlined />}
+                aria-label={t('viewer.links.unlink')}
+                disabled={unlink.isPending}
+                onClick={() => unlink.mutate(item.document.id)}
+              />
+            </Tooltip>
+          </div>
+        ))}
+
+        <Select
+          showSearch
+          // The server ranks; re-filtering by label here would second-guess it.
+          filterOption={false}
+          style={{ width: '100%' }}
+          placeholder={t('viewer.links.link')}
+          aria-label={t('viewer.links.link')}
+          value={null}
+          onSearch={setQuery}
+          loading={found.isFetching}
+          onChange={(documentId: string) => link.mutate(documentId)}
+          options={options}
+          notFoundContent={null}
+        />
+
+        {proposals.map((candidate) => (
+          <div key={candidate.document.id}>
+            <Typography.Text type="secondary" ellipsis style={{ display: 'block' }}>
+              {candidate.document.title}
+            </Typography.Text>
+            {/* Why this is here (docs/05 §5.6b): the identifiers the two documents share. */}
+            <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+              {t('viewer.links.cites', { tokens: candidate.matchedTokens.join(', ') })}
+            </Typography.Text>
+            <Space size={4}>
+              <Button
+                size="small"
+                type="link"
+                disabled={link.isPending}
+                onClick={() => link.mutate(candidate.document.id)}
+              >
+                {t('viewer.links.accept')}
+              </Button>
+              <Button size="small" type="text" onClick={() => dismiss(candidate.document.id)}>
+                {t('viewer.links.dismiss')}
+              </Button>
+            </Space>
+          </div>
+        ))}
+      </Space>
+    </Card>
+  );
+}
+
 function DownloadSplitButton({ document }: { document: DocumentDetailDto }) {
   const t = useTranslations();
   const ready = document.steps.canonical === 'DONE';
@@ -2159,11 +2333,23 @@ function describeEvent(event: DocumentEventDto, t: ReturnType<typeof useTranslat
       ? t('viewer.log.fileMissingBare')
       : t('viewer.log.fileMissing', { path });
   }
+  // A record, not a live reference: the title still says which paper it was after the other side
+  // is gone (docs/03 §3.3.23).
+  if (event.type === 'LINKED' || event.type === 'UNLINKED') {
+    const title = payload.otherTitle ?? payload.otherDocumentId ?? '';
+    return event.type === 'LINKED'
+      ? t('viewer.log.linked', { title })
+      : t('viewer.log.unlinked', { title });
+  }
 
   const changes = Object.entries(payload.changes ?? {})
     .map(([field, change]) =>
       t('viewer.log.change', {
-        field: t(`viewer.details.${field}`),
+        // A typed field's entry names the field by its key ("fields.vendor" → "vendor"): legible
+        // without a per-schema catalogue lookup the log cannot make (docs/03 §3.3.10a).
+        field: field.startsWith('fields.')
+          ? field.slice('fields.'.length)
+          : t(`viewer.details.${field}`),
         from:
           change.from === null || change.from === undefined || change.from === ''
             ? '—'

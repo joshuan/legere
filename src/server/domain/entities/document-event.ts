@@ -36,6 +36,10 @@ export type DocumentEventPayload = {
   source?: string | undefined;
   library?: string | undefined;
   path?: string | undefined;
+  // The other end of a link, as a record rather than a live reference: the document it names may
+  // be gone by the time this is read (docs/03 §3.3.23).
+  otherDocumentId?: string | undefined;
+  otherTitle?: string | undefined;
   // Field name → what it was and what it became, for a hand correction.
   changes?:
     | Record<string, { from?: string | null | undefined; to?: string | null | undefined }>

@@ -7,6 +7,7 @@ import type {
   DocumentDetailDto,
   DocumentFileDto,
   DocumentFileVersionDto,
+  DocumentListDto,
 } from '../../../shared/contracts/documents';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
@@ -200,6 +201,12 @@ function serve(
       ),
     ),
     http.get('/api/collections', () => HttpResponse.json(envelope({ items: [] }))),
+    // The sidebar's related-documents card asks for both on every visit (docs/11 §11.5); nothing
+    // to draw is the default, and the card then draws nothing at all.
+    http.get(`/api/documents/${ID}/links`, () => HttpResponse.json(envelope({ items: [] }))),
+    http.get(`/api/documents/${ID}/link-suggestions`, () =>
+      HttpResponse.json(envelope({ items: [] })),
+    ),
   );
 }
 
@@ -1832,6 +1839,123 @@ describe('DocumentViewerScreen', () => {
       // The pane is there, the group is not: a contract states nothing typed (docs/11 §11.5).
       expect(within(panel).getByText(enMessages.viewer.details.size)).toBeInTheDocument();
       expect(within(panel).queryByText(enMessages.viewer.fields.receipt.vendor)).toBeNull();
+    });
+  });
+  describe('the related documents (docs/03 §3.3.23, docs/11 §11.5)', () => {
+    const OTHER_ID = 'bbbbbbbb-9999-4999-8999-999999999999';
+    const otherDocument: DocumentListDto = {
+      id: OTHER_ID,
+      title: 'Act of acceptance',
+      fileCount: 1,
+      primaryExt: 'pdf',
+      sizeBytes: '1024',
+      pageCount: 1,
+      documentType: { id: CATEGORY_ID, slug: 'contract', name: 'Contract' },
+      availability: 'AVAILABLE',
+      processing: false,
+      origin: 'LIBRARY',
+      hasPreview: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      documentDate: null,
+      people: [],
+      subjects: [],
+      country: null,
+      city: null,
+      languages: [],
+      extractedSummary: null,
+    };
+    const linksUrl = `/api/documents/${ID}/links`;
+    const suggestionsUrl = `/api/documents/${ID}/link-suggestions`;
+    const edge = { document: otherDocument, linkedAt: '2026-08-15T00:00:00.000Z' };
+
+    beforeEach(() => window.sessionStorage.clear());
+
+    it('lists the linked documents, each a way into its own viewer', async () => {
+      serve();
+      server.use(http.get(linksUrl, () => HttpResponse.json(envelope({ items: [edge] }))));
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+      expect(await screen.findByText('Act of acceptance')).toBeInTheDocument();
+      expect(screen.getByText(enMessages.viewer.links.title)).toBeInTheDocument();
+      expect(screen.getByText('Act of acceptance').closest('a')).toHaveAttribute(
+        'href',
+        `/documents/${OTHER_ID}`,
+      );
+    });
+
+    it('unlinks with one click and the row goes', async () => {
+      let removed = false;
+      serve();
+      server.use(
+        http.get(linksUrl, () => HttpResponse.json(envelope({ items: removed ? [] : [edge] }))),
+        http.delete(`${linksUrl}/${OTHER_ID}`, () => {
+          removed = true;
+          return HttpResponse.json(envelope({ ok: true }));
+        }),
+      );
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await screen.findByText('Act of acceptance');
+
+      await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.links.unlink }));
+
+      await waitFor(() => expect(screen.queryByText('Act of acceptance')).not.toBeInTheDocument());
+      expect(removed).toBe(true);
+    });
+
+    it('proposes a citing document, says which identifiers matched, and links it on accept', async () => {
+      const posted: unknown[] = [];
+      serve();
+      server.use(
+        http.get(suggestionsUrl, () =>
+          HttpResponse.json(
+            envelope({ items: [{ document: otherDocument, matchedTokens: ['12-2019'] }] }),
+          ),
+        ),
+        http.post(linksUrl, async ({ request }) => {
+          posted.push(await request.json());
+          return HttpResponse.json(envelope(edge), { status: 201 });
+        }),
+      );
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+      // Why this is here travels with the proposal (docs/05 §5.6b).
+      expect(await screen.findByText('Cites 12-2019')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.links.accept }));
+
+      await waitFor(() => expect(posted).toEqual([{ documentId: OTHER_ID }]));
+    });
+
+    it('dismisses a suggestion client-side, for the session, with no request', async () => {
+      serve();
+      server.use(
+        http.get(suggestionsUrl, () =>
+          HttpResponse.json(
+            envelope({ items: [{ document: otherDocument, matchedTokens: ['12-2019'] }] }),
+          ),
+        ),
+      );
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await screen.findByText('Cites 12-2019');
+
+      await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.links.dismiss }));
+
+      // The whole card goes with the last thing it had to draw (docs/11 §11.5), and the refusal
+      // is held client-side for the session — the server proposes, it never remembers being
+      // refused (docs/05 §5.6b).
+      await waitFor(() =>
+        expect(screen.queryByText(enMessages.viewer.links.title)).not.toBeInTheDocument(),
+      );
+      expect(
+        window.sessionStorage.getItem(`legere:dismissed-link-suggestions:${ID}`) ?? '',
+      ).toContain(OTHER_ID);
+    });
+
+    it('draws no card at all when there is nothing to draw', async () => {
+      serve();
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+      await screen.findByText(detail.title);
+      expect(screen.queryByText(enMessages.viewer.links.title)).not.toBeInTheDocument();
     });
   });
 });

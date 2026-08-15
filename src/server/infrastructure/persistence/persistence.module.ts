@@ -8,6 +8,7 @@ import { PersonRepository } from '../../domain/repositories/person.repository';
 import { SettingsRepository } from '../../domain/repositories/settings.repository';
 import { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
 import { SubjectRepository } from '../../domain/repositories/subject.repository';
+import { DocumentLinkRepository } from '../../domain/repositories/document-link.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
@@ -23,6 +24,7 @@ import { PrismaCategoryRepository } from './prisma-document-type.repository';
 import { PrismaCollectionRepository } from './prisma-collection.repository';
 import { PrismaDocumentChunkRepository } from './prisma-document-chunk.repository';
 import { PrismaDocumentEventRepository } from './prisma-document-event.repository';
+import { PrismaDocumentLinkRepository } from './prisma-document-link.repository';
 import { PrismaDocumentRepository } from './prisma-document.repository';
 import { PrismaPersonRepository } from './prisma-person.repository';
 import { PrismaSettingsRepository } from './prisma-settings.repository';
@@ -56,6 +58,7 @@ const REPOSITORIES = [
   { provide: FileRefRepository, useClass: PrismaFileRefRepository },
   { provide: FileRepository, useClass: PrismaFileRepository },
   { provide: DocumentRepository, useClass: PrismaDocumentRepository },
+  { provide: DocumentLinkRepository, useClass: PrismaDocumentLinkRepository },
   { provide: DocumentEventRepository, useClass: PrismaDocumentEventRepository },
   { provide: PersonRepository, useClass: PrismaPersonRepository },
   { provide: SubjectRepository, useClass: PrismaSubjectRepository },
@@ -83,6 +86,7 @@ const REPOSITORIES = [
     FileRefRepository,
     FileRepository,
     DocumentRepository,
+    DocumentLinkRepository,
     DocumentEventRepository,
     PersonRepository,
     SubjectRepository,

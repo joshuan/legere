@@ -70,6 +70,10 @@ class StubSearchRepository extends DocumentRepository {
     return Promise.resolve([]);
   }
 
+  listReadableItems() {
+    return notUsed();
+  }
+
   countByStepStatus() {
     return notUsed();
   }

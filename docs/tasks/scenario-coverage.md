@@ -116,6 +116,17 @@ standard lists them.
 | PATCH `fields` validates against the schema | `test/e2e/documents.e2e.test.ts` — refuses a field the schema does not know, and a document whose type has none |
 | `reset: ['fields.<key>']` restores the read value as `AUTO` | `test/e2e/documents.e2e.test.ts` — puts a typed field back to what the model read, as AUTO (docs/07 §7.3) |
 
+## Document links
+
+| Scenario | Test |
+|---|---|
+| create/list/unlink round-trip on both ends | `test/e2e/document-links.e2e.test.ts` — creates one edge both ends list, and removes it from either end |
+| duplicate → `LINK_EXISTS`, self → `LINK_SELF` | `test/e2e/document-links.e2e.test.ts` — refuses a duplicate in either spelling, and a document linked to itself |
+| an edge whose other side the caller cannot read is absent from the list | `test/e2e/document-links.e2e.test.ts` — hides an edge whose other side the caller may not read — absent, not redacted |
+| hard-deleting a document takes its edges | `test/e2e/document-links.e2e.test.ts` — takes the edges of a hard-deleted document with it |
+| suggestions are deterministic, cite their identifiers, and store nothing | `test/e2e/document-links.e2e.test.ts` — proposes the documents that cite this one, saying which identifiers matched; excludes what is already linked, and stores nothing about a refusal; `src/server/domain/entities/document-link.test.ts` — reads number-bearing tokens off the title and the opening of the text |
+| suggestions exclude self and the already-linked | `test/e2e/document-links.e2e.test.ts` — proposes the documents that cite this one (asserts self is absent); excludes what is already linked |
+
 ## Files and documents
 
 | Scenario | Test |

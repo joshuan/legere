@@ -23,9 +23,23 @@ const payloadSchema = z
     service: z.string().optional(),
     endpoint: z.string().optional(),
     requestId: z.string().optional(),
+    // What the step cost and what it produced (docs/03 §3.3.18). These were written and then
+    // stripped right here on the way back out, so the log answered "how long did this take" with
+    // silence — the schema is the one place "known shape" is decided, and it had fallen behind
+    // the writer.
+    durationMs: z.number().optional(),
+    chars: z.number().optional(),
+    pages: z.number().optional(),
+    ocrUsed: z.boolean().optional(),
+    promptTokens: z.number().optional(),
+    completionTokens: z.number().optional(),
+    transcribed: z.boolean().optional(),
     source: z.string().optional(),
     library: z.string().optional(),
     path: z.string().optional(),
+    // The other end of a link, as a record (docs/03 §3.3.23).
+    otherDocumentId: z.string().optional(),
+    otherTitle: z.string().optional(),
     changes: z
       .record(z.object({ from: z.string().nullish(), to: z.string().nullish() }))
       .optional(),

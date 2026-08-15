@@ -167,7 +167,11 @@ describe('DocumentCard', () => {
   describe('the extracted-fields line (docs/11 §11.3, docs/03 §3.3.10a)', () => {
     const receipt: typeof base = {
       ...base,
-      documentType: { id: 'bbbbbbbb-2222-4222-8222-222222222222', slug: 'receipt', name: 'Receipt' },
+      documentType: {
+        id: 'bbbbbbbb-2222-4222-8222-222222222222',
+        slug: 'receipt',
+        name: 'Receipt',
+      },
       extractedSummary: {
         vendor: 'Voli',
         purchasedAt: '2026-05-12',

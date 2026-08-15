@@ -65,6 +65,10 @@ export const documentEventTypeSchema = z.enum([
   'STEP_STARTED',
   'STEP_FINISHED',
   'META_CHANGED',
+  // An edge to another document, made or removed by a person (docs/03 §3.3.23). Written on both
+  // documents, carrying the other's id and title as a record.
+  'LINKED',
+  'UNLINKED',
 ]);
 export type DocumentEventType = z.infer<typeof documentEventTypeSchema>;
 

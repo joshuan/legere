@@ -19,6 +19,12 @@ import {
 } from '../../application/documents/compose-document';
 import { DocumentFileBytes } from '../../application/documents/document-file-bytes';
 import {
+  CreateDocumentLink,
+  DeleteDocumentLink,
+  ListDocumentLinks,
+  SuggestDocumentLinks,
+} from '../../application/documents/document-links';
+import {
   DownloadDocumentCanonical,
   DownloadDocumentFile,
   GetDocumentArtifactUrl,
@@ -38,6 +44,7 @@ import { JobQueue } from '../../application/ports/job-queue';
 import { MimeDetector } from '../../application/ports/mime-detector';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { CollectionRepository } from '../../domain/repositories/collection.repository';
+import { DocumentLinkRepository } from '../../domain/repositories/document-link.repository';
 import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { PersonRepository } from '../../domain/repositories/person.repository';
@@ -260,6 +267,41 @@ function downloadSettings(config: AppConfig): DownloadSettings {
       useFactory: (candidates: GroupingCandidateReader, config: AppConfig): SuggestGroupings =>
         new SuggestGroupings(candidates, { windowMinutes: config.get('GROUPING_WINDOW_MINUTES') }),
       inject: [GroupingCandidateReader, AppConfig],
+    },
+    {
+      provide: ListDocumentLinks,
+      useFactory: (
+        documents: DocumentRepository,
+        links: DocumentLinkRepository,
+      ): ListDocumentLinks => new ListDocumentLinks(documents, links),
+      inject: [DocumentRepository, DocumentLinkRepository],
+    },
+    {
+      provide: CreateDocumentLink,
+      useFactory: (
+        documents: DocumentRepository,
+        links: DocumentLinkRepository,
+        events: DocumentEventRepository,
+        clock: Clock,
+      ): CreateDocumentLink => new CreateDocumentLink(documents, links, events, clock),
+      inject: [DocumentRepository, DocumentLinkRepository, DocumentEventRepository, Clock],
+    },
+    {
+      provide: DeleteDocumentLink,
+      useFactory: (
+        documents: DocumentRepository,
+        links: DocumentLinkRepository,
+        events: DocumentEventRepository,
+      ): DeleteDocumentLink => new DeleteDocumentLink(documents, links, events),
+      inject: [DocumentRepository, DocumentLinkRepository, DocumentEventRepository],
+    },
+    {
+      provide: SuggestDocumentLinks,
+      useFactory: (
+        documents: DocumentRepository,
+        links: DocumentLinkRepository,
+      ): SuggestDocumentLinks => new SuggestDocumentLinks(documents, links),
+      inject: [DocumentRepository, DocumentLinkRepository],
     },
     {
       provide: DownloadDocumentCanonical,

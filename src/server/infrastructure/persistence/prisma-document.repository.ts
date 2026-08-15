@@ -79,6 +79,7 @@ function toDomain(row: PrismaDocument): Document {
     processingError: row.processingError,
     skipReasons: toSkipReasons(row.skipReasons),
     extracted: toExtracted(row.extracted),
+    lastEventAt: row.lastEventAt,
     languages: row.languages,
     auto: toAutoValues(row.autoValues),
     // A DATE column comes back as a Date at UTC midnight; the domain speaks yyyy-mm-dd, which is
@@ -944,6 +945,30 @@ export class PrismaDocumentRepository implements DocumentRepository {
       take: limit,
     });
     return rows.map((row) => row.id);
+  }
+
+  async listReadableItems(
+    viewer: Viewer,
+    ids: string[],
+    tx?: TransactionHandle,
+  ): Promise<DocumentListItem[]> {
+    if (ids.length === 0) return [];
+    const client = clientOf(this.prisma, tx);
+    const rows = await client.document.findMany({
+      where: {
+        id: { in: ids },
+        deletedAt: null,
+        ...readableBy(viewer, await shareReach(client, viewer)),
+      },
+      include: LIST_INCLUDE,
+    });
+    const items = await this.toItems(rows, tx);
+    // In the asked order, with what the access rule refused simply absent (docs/03 §3.3.23).
+    const byId = new Map(items.map((item) => [item.document.id, item] as const));
+    return ids.flatMap((id) => {
+      const item = byId.get(id);
+      return item === undefined ? [] : [item];
+    });
   }
 
   async listIdsByStepStatus(

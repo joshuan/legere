@@ -1105,6 +1105,9 @@ describe('Documents (e2e)', () => {
             service: 'docling',
             endpoint: 'http://docling:5001',
             requestId: '11111111-1111-4111-8111-111111111111',
+            durationMs: 4200,
+            chars: 665,
+            ocrUsed: true,
           },
         },
       });
@@ -1114,6 +1117,11 @@ describe('Documents (e2e)', () => {
         .set('Cookie', adminCookie);
       const [adminEntry] = expectData(asAdmin, documentEventPageSchema).items;
       expect(adminEntry?.payload.endpoint).toBe('http://docling:5001');
+      // What the step cost survives the trip back out (docs/03 §3.3.18): the read-side schema used
+      // to strip these, so the log answered "how long did this take" with silence.
+      expect(adminEntry?.payload.durationMs).toBe(4200);
+      expect(adminEntry?.payload.chars).toBe(665);
+      expect(adminEntry?.payload.ocrUsed).toBe(true);
 
       const reader = await inviteUser(`logreader${seq}@legere.local`);
       const asUser = await api(app)

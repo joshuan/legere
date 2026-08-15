@@ -67,6 +67,9 @@ export type Document = {
   extracted: ExtractedFields | null;
   createdById: string | null;
   createdAt: Date;
+  // The newest entry in the document's journal, of any kind (docs/03 §3.3.18); never null — a
+  // document with no entries reads as its own createdAt.
+  lastEventAt: Date;
   deletedAt: Date | null;
 };
 

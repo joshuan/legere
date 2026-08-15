@@ -66,6 +66,9 @@
       "FILE_NOT_FOUND": "This file is no longer part of this document.",
       "DOCUMENT_LAST_FILE": "A document keeps at least one file. Delete the document instead.",
       "FILE_ALREADY_IN_DOCUMENT": "These bytes are already a file of another document.",
+      "LINK_EXISTS": "These two documents are already linked.",
+      "LINK_NOT_FOUND": "There is no link between these documents.",
+      "LINK_SELF": "A document cannot be linked to itself.",
       "CANONICAL_NOT_READY": "The document is still being assembled. Try again in a moment.",
       "FILE_NOT_IMAGE": "Only an image can be cropped."
     }
@@ -911,7 +914,9 @@
         "ocr": "recognised",
         "tokens": "{prompt}+{completion} tokens",
         "transcribed": "Read by a model"
-      }
+      },
+      "linked": "Linked with “{title}”",
+      "unlinked": "Unlinked from “{title}”"
     },
     "crop": {
       "title": "Crop this page",
@@ -956,6 +961,14 @@
       "NONE": "None of this document was read",
       "explained": "The model that looked at the pages says the text below is not what is on them. A photograph lit from one side, or a table pressed against its rules, is read badly by a recogniser and well by a model that can see.",
       "readAgain": "Read the pages again"
+    },
+    "links": {
+      "title": "Related documents",
+      "link": "Link a document…",
+      "unlink": "Unlink",
+      "cites": "Cites {tokens}",
+      "accept": "Link",
+      "dismiss": "Dismiss"
     }
   },
   "nav": {

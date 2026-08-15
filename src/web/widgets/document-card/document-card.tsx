@@ -233,7 +233,11 @@ function summaryParts(document: DocumentListDto, locale: string): string[] {
   return parts;
 }
 
-function formatSummaryValue(spec: DocumentFieldSpec, value: unknown, locale: string): string | null {
+function formatSummaryValue(
+  spec: DocumentFieldSpec,
+  value: unknown,
+  locale: string,
+): string | null {
   switch (spec.kind) {
     case 'string':
       return typeof value === 'string' && value !== '' ? value : null;
