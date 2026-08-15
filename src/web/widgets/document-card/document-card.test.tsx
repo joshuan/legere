@@ -163,4 +163,42 @@ describe('DocumentCard', () => {
     renderWithProviders(<DocumentCard document={base} />);
     expect(screen.queryByText(/file/)).not.toBeInTheDocument();
   });
+
+  describe('the extracted-fields line (docs/11 §11.3, docs/03 §3.3.10a)', () => {
+    const receipt: typeof base = {
+      ...base,
+      documentType: { id: 'bbbbbbbb-2222-4222-8222-222222222222', slug: 'receipt', name: 'Receipt' },
+      extractedSummary: {
+        vendor: 'Voli',
+        purchasedAt: '2026-05-12',
+        total: { amount: 12.4, currency: 'EUR' },
+      },
+    };
+
+    it('draws one line of summary values in schema order, formatted for the reader', () => {
+      renderWithProviders(<DocumentCard document={receipt} fields={['fields']} />);
+
+      // Schema order — vendor, date, total — with middle dots, money through Intl.
+      expect(screen.getByText(/Voli · .*2026 · €12\.40/)).toBeInTheDocument();
+    });
+
+    it('draws nothing at all for a type that carries no schema', () => {
+      renderWithProviders(
+        <DocumentCard
+          document={{ ...receipt, documentType: base.documentType }}
+          fields={['fields']}
+        />,
+      );
+
+      expect(screen.queryByText(/Voli/)).not.toBeInTheDocument();
+    });
+
+    it('draws nothing where the option is on and the document has nothing to say', () => {
+      renderWithProviders(
+        <DocumentCard document={{ ...receipt, extractedSummary: null }} fields={['fields']} />,
+      );
+
+      expect(screen.queryByText(/Voli/)).not.toBeInTheDocument();
+    });
+  });
 });

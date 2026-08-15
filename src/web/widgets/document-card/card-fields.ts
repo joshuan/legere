@@ -15,6 +15,9 @@ export const documentCardFieldSchema = z.enum([
   'subjects',
   'place',
   'languages',
+  // The summary values of the document's field schema (docs/03 §3.3.10a), one formatted line —
+  // "Voli · 12,40 EUR · 12.05.2026" on a receipt. Nothing at all where the type carries no schema.
+  'fields',
 ]);
 export type DocumentCardField = z.infer<typeof documentCardFieldSchema>;
 

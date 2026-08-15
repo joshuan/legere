@@ -708,7 +708,8 @@
         "people": "People",
         "subjects": "Subjects",
         "place": "Place",
-        "languages": "Languages"
+        "languages": "Languages",
+        "fields": "Extracted fields"
       }
     },
     "groupBy": {

@@ -2,9 +2,14 @@
 
 import { FileTextOutlined, LoadingOutlined } from '@ant-design/icons';
 import { Card, Space, Tag, Tooltip, Typography, theme } from 'antd';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useState } from 'react';
+import {
+  fieldSchemaFor,
+  moneyValueSchema,
+  type DocumentFieldSpec,
+} from '../../../shared/contracts/document-fields';
 import type { DocumentListDto } from '../../../shared/contracts/documents';
 import { documentFiles } from '../../entities/document';
 import { DEFAULT_DOCUMENT_CARD_FIELDS, type DocumentCardField } from './card-fields';
@@ -29,6 +34,7 @@ export function DocumentCard({
   selection?: { picked: boolean; onToggle: () => void };
 }) {
   const t = useTranslations();
+  const locale = useLocale();
   // A thumbnail can be missing even when the step says DONE — an artifact swept from the bucket, a
   // document deleted mid-scroll. The icon is the honest fallback rather than a broken image.
   const [thumbFailed, setThumbFailed] = useState(false);
@@ -37,6 +43,9 @@ export function DocumentCard({
   const shows = (field: DocumentCardField): boolean => fields.includes(field);
   // As a person would say where something is, and only the halves that are known.
   const place = [document.city, document.country].filter((part) => part !== null).join(', ');
+  // What was read off the paper, formatted for the reader (docs/11 §11.3): the summary values of
+  // the document's field schema, in schema order. Empty where the type carries no schema.
+  const extractedParts = shows('fields') ? summaryParts(document, locale) : [];
 
   const card = (
     <Card
@@ -140,6 +149,9 @@ export function DocumentCard({
           <Tag color="default">{t('documents.badges.unavailable')}</Tag>
         )}
       </Space>
+      {/* The extracted fields, one line, middle dots between values — what was read off the paper
+            (docs/03 §3.3.10a). Drawn like the names below: a line of text, never a stack of tags. */}
+      {extractedParts.length > 0 && <NameLine names={extractedParts} separator=" · " />}
       {/* Names, not badges: who and what the document is about is read as a line of text, and one
             line of it — a document naming eight people must not make a card eight rows taller
             (docs/11 §11.3). */}
@@ -188,8 +200,8 @@ export function DocumentCard({
 }
 
 // One line of names, cut off rather than wrapped, with the whole list on hover.
-function NameLine({ names }: { names: string[] }) {
-  const joined = names.join(', ');
+function NameLine({ names, separator = ', ' }: { names: string[]; separator?: string }) {
+  const joined = names.join(separator);
   return (
     <Typography.Paragraph
       type="secondary"
@@ -200,4 +212,56 @@ function NameLine({ names }: { names: string[] }) {
       {joined}
     </Typography.Paragraph>
   );
+}
+
+// The summary values in schema order, each formatted for the reader — the client's half of
+// `extractedSummary` (docs/07 §7.3): the server sends values as stored, the registry the client
+// ships says what they are.
+function summaryParts(document: DocumentListDto, locale: string): string[] {
+  const schema = fieldSchemaFor(document.documentType?.slug ?? null);
+  const summary = document.extractedSummary;
+  if (schema === null || summary === null) return [];
+
+  const parts: string[] = [];
+  for (const spec of schema.fields) {
+    if (spec.summary !== true) continue;
+    const value = summary[spec.key];
+    if (value === undefined || value === null) continue;
+    const text = formatSummaryValue(spec, value, locale);
+    if (text !== null) parts.push(text);
+  }
+  return parts;
+}
+
+function formatSummaryValue(spec: DocumentFieldSpec, value: unknown, locale: string): string | null {
+  switch (spec.kind) {
+    case 'string':
+      return typeof value === 'string' && value !== '' ? value : null;
+    case 'number':
+      return typeof value === 'number' ? new Intl.NumberFormat(locale).format(value) : null;
+    case 'date': {
+      if (typeof value !== 'string') return null;
+      const parsed = new Date(`${value}T00:00:00Z`);
+      if (Number.isNaN(parsed.getTime())) return null;
+      return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(
+        parsed,
+      );
+    }
+    case 'money': {
+      const parsed = moneyValueSchema.safeParse(value);
+      if (!parsed.success) return null;
+      try {
+        return new Intl.NumberFormat(locale, {
+          style: 'currency',
+          currency: parsed.data.currency,
+        }).format(parsed.data.amount);
+      } catch {
+        // A currency Intl does not know is still a currency the receipt named.
+        return `${new Intl.NumberFormat(locale).format(parsed.data.amount)} ${parsed.data.currency}`;
+      }
+    }
+    // A table is a pane's to draw (docs/11 §11.5), never a card line's.
+    case 'table':
+      return null;
+  }
 }

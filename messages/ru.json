@@ -708,7 +708,8 @@
         "people": "Люди",
         "subjects": "Объекты",
         "place": "Место",
-        "languages": "Языки"
+        "languages": "Языки",
+        "fields": "Извлечённые поля"
       }
     },
     "groupBy": {
