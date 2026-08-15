@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**The backlog M0–M13 is implemented**: `docs/tasks/backlog.md` is fully ticked, and every mandatory
-scenario of `docs/14 §14.8` is mapped to a test in `docs/tasks/scenario-coverage.md`. The
-specification (documents 01–14 in `docs/`) remains the source of truth; new work
-continues the same way — take the first unchecked task, tick it off in the same commit.
+**The backlog M0–M24 is implemented**; M25–M30 are planned and unchecked in
+`docs/tasks/backlog.md`. Every mandatory scenario of `docs/14 §14.8` is mapped to a test in
+`docs/tasks/scenario-coverage.md`. The specification (documents 01–14 in `docs/`) remains the source
+of truth; new work continues the same way — take the first unchecked task, tick it off in the same
+commit, and where a task changes what the docs say, the doc moves first (golden rule 3).
 
 ## Commands
 

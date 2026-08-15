@@ -33,7 +33,7 @@ resolved (each document ends with its resolution notes).
 | Document | About |
 |----------|-------|
 | [`tasks/README.md`](./tasks/README.md) | How to execute tasks, the working loop, Definition of Done |
-| [`tasks/backlog.md`](./tasks/backlog.md) | The numbered implementation plan (M0–M9), derived from these documents |
+| [`tasks/backlog.md`](./tasks/backlog.md) | The numbered implementation plan, derived from these documents |
 
 Take the first unchecked task; one task = one PR; tick it off in the same PR.
 

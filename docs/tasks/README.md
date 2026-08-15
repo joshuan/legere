@@ -60,6 +60,20 @@ disagree, the doc wins — and report the discrepancy.
 | M14 | Repairs and the operator's view | merges that hold, a queue that can be paused, an instance page |
 | M15 | Closing what the audit found | the findings of [`security-audit-2026-08.md`](./security-audit-2026-08.md), fixed and tested |
 | M16 | Reading the archive the way you keep it | two viewer defects; a home screen that can be sorted, arranged and grouped |
+| M17 | A page that can be read | source-shaped pages, an uncapped analyst, step costs, selection and grouping that work |
+| M18 | Reading what a camera saw | vision transcription, page correction, "half recognised" surfaced |
+| M19 | Where an upload is watched | the upload panel; unsupported formats refused at the door |
+| M20 | Work that waits for what it needs | step dependencies honoured; a gate per external service |
+| M21 | The screen gives its height to the document | one strip of viewer chrome; the search overlay replaces the top bar |
+| M22 | The paper knows its fields, and its neighbours | typed fields per document type; document links |
+| M23 | The panel says where a service is, and whether it answers | external-service health on `/admin/queue` |
+| M24 | The panel beside the document stops being a second screen | every viewer action moves to the tab that owns its subject |
+| M25 | The pages come back in the order the paper meant | a per-file page order, obeyed by the canonical, arranged by hand |
+| M26 | A loupe over the corner being dragged | pixel-accurate cropping on small screens |
+| M27 | What a person confirmed, the machine believes | `MANUAL` values travel into every later model call as ground truth |
+| M28 | The pane about the document, in three sections | what it says / what it is / what it cost |
+| M29 | The pipeline grades its own work | 0–100 marks for legibility, extraction and field confidence |
+| M30 | Schemas for the papers this archive actually holds | `flight`, `invoice`, `lab-report`, `civil-certificate`; `receipt`, `passport`, `id-card` revised |
 
 Milestones are strictly sequential; tasks within a milestone are ordered by dependency.
 
