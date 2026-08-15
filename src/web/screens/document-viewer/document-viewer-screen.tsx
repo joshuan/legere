@@ -18,6 +18,7 @@ import {
   Col,
   Collapse,
   DatePicker,
+  Divider,
   Dropdown,
   Empty,
   Input,
@@ -51,6 +52,7 @@ import {
   type DocumentEventDto,
   type DocumentFileDto,
   type DocumentFileVersionDto,
+  type DocumentListDto,
   type DocumentResetEntry,
   type DocumentStep,
 } from '../../../shared/contracts/documents';
@@ -158,35 +160,12 @@ export function DocumentViewerScreen({
     onError: (error: unknown) => void message.error(describeError(error)),
   });
 
-  const [steps, setSteps] = useState<DocumentStep[]>([]);
-  // Asking for this one document to be analysed however long it is. Separate from the reprocess
-  // button beside it, because it is a different request: not "run this again" but "the limit does
-  // not apply to this one" (docs/05 §5.5 step 4).
-  const analyseInFull = useMutation({
-    mutationFn: () => documentApi.reprocess(id, { steps: ['analysis'], analyseInFull: true }),
-    onSuccess: () => {
-      void message.success(t('viewer.processing.queued'), 2);
-      refresh();
-    },
-    onError: (error: unknown) => void message.error(describeError(error)),
-  });
-
   // Reading the document again, from the pages up: the recogniser of last resort runs in step 3,
   // and everything downstream of it is read off what that step wrote (docs/05 §5.5).
   const readAgain = useMutation({
     mutationFn: () => documentApi.reprocess(id, { steps: ['markdown', 'analysis'] }),
     onSuccess: () => {
       void message.success(t('viewer.processing.queued'), 2);
-      refresh();
-    },
-    onError: (error: unknown) => void message.error(describeError(error)),
-  });
-
-  const reprocess = useMutation({
-    mutationFn: () => documentApi.reprocess(id, steps.length === 0 ? {} : { steps }),
-    onSuccess: () => {
-      void message.success(t('viewer.processing.queued'), 2);
-      setSteps([]);
       refresh();
     },
     onError: (error: unknown) => void message.error(describeError(error)),
@@ -241,11 +220,14 @@ export function DocumentViewerScreen({
               ),
             },
             {
+              key: 'related',
+              label: t('viewer.tabs.related'),
+              children: <RelatedPane id={id} active={active === 'related'} />,
+            },
+            {
               key: 'log',
               label: t('viewer.tabs.log'),
-              children: (
-                <LogPane id={id} active={active === 'log'} processing={detail.processing} />
-              ),
+              children: <LogPane document={detail} active={active === 'log'} isAdmin={isAdmin} />,
             },
             {
               key: 'details',
@@ -286,7 +268,7 @@ export function DocumentViewerScreen({
             {
               key: 'files',
               label: t('viewer.tabs.files'),
-              children: <FilesPane document={detail} />,
+              children: <FilesPane document={detail} isAdmin={isAdmin} />,
             },
           ]}
         />
@@ -362,33 +344,33 @@ export function DocumentViewerScreen({
             )}
           </Card>
 
+          {/* 🔒 What is left of the panel, and why (docs/11 §11.5): it says what the document is
+              called, what it is about in a line, and what it looks like. Everything that *acts* on
+              the document has gone to the tab that owns the question it answers — Download and
+              Delete to Files, the links to Related, the pipeline to Log — because a panel carrying
+              all of them was a second screen standing beside the first, drawn in full on every
+              document whether or not anybody had come to act on one. */}
           <Card>
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              <DownloadSplitButton document={detail} />
-
-              {/* Only the caller's own collections: adding to somebody else's is not a thing a
-                  reader may do (docs/03 §3.4). */}
-              <Select
-                showSearch
-                optionFilterProp="label"
-                style={{ width: '100%' }}
-                placeholder={t('viewer.addToCollection')}
-                aria-label={t('viewer.addToCollection')}
-                loading={collections.isPending}
-                value={null}
-                onChange={(collectionId: string) => addToCollection.mutate(collectionId)}
-                options={(collections.data?.items ?? [])
-                  .filter((collection) => collection.mine)
-                  .map((collection) => ({ value: collection.id, label: collection.name }))}
-              />
-            </Space>
+            {/* Only the caller's own collections: adding to somebody else's is not a thing a
+                reader may do (docs/03 §3.4). */}
+            <Select
+              showSearch
+              optionFilterProp="label"
+              style={{ width: '100%' }}
+              placeholder={t('viewer.addToCollection')}
+              aria-label={t('viewer.addToCollection')}
+              loading={collections.isPending}
+              value={null}
+              onChange={(collectionId: string) => addToCollection.mutate(collectionId)}
+              options={(collections.data?.items ?? [])
+                .filter((collection) => collection.mine)
+                .map((collection) => ({ value: collection.id, label: collection.name }))}
+            />
           </Card>
 
-          <RelatedDocumentsCard id={id} />
-
-          {/* The page itself, between what you may do with the document and what the pipeline is doing
-              to it (docs/11 §11.5). Small on purpose: the readable copy is the pane on the left, and
-              this is the answer to "is this the right document" — which is a glance, not a read. */}
+          {/* The page itself, last in the panel (docs/11 §11.5). Small on purpose: the readable copy
+              is the pane on the left, and this is the answer to "is this the right document" —
+              which is a glance, not a read. */}
           {detail.hasPreview && (
             <Card styles={{ body: { padding: 8 } }}>
               {/* The URL is an API route that 302s to a signed URL; next/image would proxy and cache
@@ -409,95 +391,148 @@ export function DocumentViewerScreen({
               />
             </Card>
           )}
-
-          <Card title={t('viewer.processing.title')} size="small">
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              {/* One row per step: pick it, see its state, read what happened to it. A grid rather
-                  than stacked rows because the status tags have different widths — laid out
-                  independently, every label would start at a different place (docs/11 §11.5). */}
-              <div className={`legere-steps${isAdmin ? ' has-select' : ''}`}>
-                {DOCUMENT_STEPS.map((step) => {
-                  const reason = detail.skipReasons[step];
-                  const label = t(`viewer.steps.${step}`);
-                  const failure = detail.failedStep === step ? detail.processingError : null;
-                  return (
-                    <Fragment key={step}>
-                      {isAdmin && (
-                        <Checkbox
-                          aria-label={label}
-                          checked={steps.includes(step)}
-                          onChange={(event) =>
-                            setSteps((chosen) =>
-                              event.target.checked
-                                ? [...chosen, step]
-                                : chosen.filter((other) => other !== step),
-                            )
-                          }
-                        />
-                      )}
-                      <Tag color={statusColor(detail.steps[step])}>{detail.steps[step]}</Tag>
-                      <Typography.Text>{label}</Typography.Text>
-                      {/* SKIPPED alone reads like a failure; the reason says which harmless one it
-                          was, and whether it is something an admin can change (docs/03 §3.3.10). */}
-                      {reason !== undefined && (
-                        <Typography.Text type="secondary" className="legere-step-note">
-                          {t(`viewer.skipReasons.${reason}`)}
-                        </Typography.Text>
-                      )}
-                      {failure !== null && (
-                        <Typography.Text type="danger" className="legere-step-note">
-                          {failure}
-                        </Typography.Text>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </div>
-
-              {/* A failure the server could not attribute to a step still has to be readable. */}
-              {detail.processingError !== null && detail.failedStep === null && (
-                <Typography.Text type="danger" style={{ whiteSpace: 'pre-wrap' }}>
-                  {detail.processingError}
-                </Typography.Text>
-              )}
-
-              {/* The way past the automatic limit, offered exactly where the limit is visible: the
-                  analysis row says it was skipped for being long, and this is the answer to that
-                  (docs/11 §11.5). */}
-              {isAdmin && detail.skipReasons.analysis === 'TOO_MANY_PAGES' && (
-                <Button
-                  onClick={() => analyseInFull.mutate()}
-                  loading={analyseInFull.isPending}
-                  type="primary"
-                >
-                  {t('viewer.processing.analyseInFull')}
-                </Button>
-              )}
-
-              {isAdmin && (
-                <Button onClick={() => reprocess.mutate()} loading={reprocess.isPending}>
-                  {steps.length === 0
-                    ? t('viewer.processing.reprocessAll')
-                    : t('viewer.processing.reprocessSelected', { count: steps.length })}
-                </Button>
-              )}
-            </Space>
-          </Card>
-
-          {/* Last on the page, below everything the document can still be used for: a destructive
-              action sharing an edge with Download is one somebody presses by accident
-              (docs/11 §11.5d). */}
-          {isAdmin && <DeleteCard document={detail} />}
         </Space>
       </Col>
     </Row>
   );
 }
 
-// 🔒 The one control in Legere that destroys anything (docs/03 §3.3.10, docs/11 §11.5d). The
-// confirmation is a modal rather than a popover because it has an inventory to read out: what goes,
-// and — the part nobody can infer — what stays and what will happen to it.
-function DeleteCard({ document }: { document: DocumentDetailDto }) {
+// What is being done to the document right now, at the head of the tab that also says what has been
+// done to it (docs/11 §11.5): "is it finished, and did anything break" and "what happened" are one
+// question asked twice, and the first used to stand in the sidebar of every document while the
+// second was a tab away.
+function ProcessingSection({
+  document,
+  isAdmin,
+}: {
+  document: DocumentDetailDto;
+  isAdmin: boolean;
+}) {
+  const t = useTranslations();
+  const queryClient = useQueryClient();
+  const describeError = useErrorMessage();
+  const { message } = App.useApp();
+  const [steps, setSteps] = useState<DocumentStep[]>([]);
+
+  const refresh = (): void => {
+    void queryClient.invalidateQueries({ queryKey: documentKeys.detail(document.id) });
+    void queryClient.invalidateQueries({ queryKey: documentKeys.events(document.id) });
+  };
+
+  // Asking for this one document to be analysed however long it is. Separate from the reprocess
+  // button beside it, because it is a different request: not "run this again" but "the limit does
+  // not apply to this one" (docs/05 §5.5 step 4).
+  const analyseInFull = useMutation({
+    mutationFn: () =>
+      documentApi.reprocess(document.id, { steps: ['analysis'], analyseInFull: true }),
+    onSuccess: () => {
+      void message.success(t('viewer.processing.queued'), 2);
+      refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
+  const reprocess = useMutation({
+    mutationFn: () => documentApi.reprocess(document.id, steps.length === 0 ? {} : { steps }),
+    onSuccess: () => {
+      void message.success(t('viewer.processing.queued'), 2);
+      setSteps([]);
+      refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      {/* A heading rather than a card: the main column draws the document on the page itself, and
+          a box inside a tab would be a frame around one half of it (docs/11 §11.5). */}
+      <Typography.Title level={5} style={{ margin: 0 }}>
+        {t('viewer.processing.title')}
+      </Typography.Title>
+
+      {/* One row per step: pick it, see its state, read what happened to it. A grid rather than
+          stacked rows because the status tags have different widths — laid out independently, every
+          label would start at a different place (docs/11 §11.5). */}
+      <div className={`legere-steps${isAdmin ? ' has-select' : ''}`}>
+        {DOCUMENT_STEPS.map((step) => {
+          const reason = document.skipReasons[step];
+          const label = t(`viewer.steps.${step}`);
+          const failure = document.failedStep === step ? document.processingError : null;
+          return (
+            <Fragment key={step}>
+              {isAdmin && (
+                <Checkbox
+                  aria-label={label}
+                  checked={steps.includes(step)}
+                  onChange={(event) =>
+                    setSteps((chosen) =>
+                      event.target.checked
+                        ? [...chosen, step]
+                        : chosen.filter((other) => other !== step),
+                    )
+                  }
+                />
+              )}
+              <Tag color={statusColor(document.steps[step])}>{document.steps[step]}</Tag>
+              <Typography.Text>{label}</Typography.Text>
+              {/* SKIPPED alone reads like a failure; the reason says which harmless one it was, and
+                  whether it is something an admin can change (docs/03 §3.3.10). */}
+              {reason !== undefined && (
+                <Typography.Text type="secondary" className="legere-step-note">
+                  {t(`viewer.skipReasons.${reason}`)}
+                </Typography.Text>
+              )}
+              {failure !== null && (
+                <Typography.Text type="danger" className="legere-step-note">
+                  {failure}
+                </Typography.Text>
+              )}
+            </Fragment>
+          );
+        })}
+      </div>
+
+      {/* A failure the server could not attribute to a step still has to be readable. */}
+      {document.processingError !== null && document.failedStep === null && (
+        <Typography.Text type="danger" style={{ whiteSpace: 'pre-wrap' }}>
+          {document.processingError}
+        </Typography.Text>
+      )}
+
+      {isAdmin && (
+        <Space wrap>
+          <Button onClick={() => reprocess.mutate()} loading={reprocess.isPending}>
+            {steps.length === 0
+              ? t('viewer.processing.reprocessAll')
+              : t('viewer.processing.reprocessSelected', { count: steps.length })}
+          </Button>
+
+          {/* The way past the automatic limit, offered exactly where the limit is visible: the
+              analysis row says it was skipped for being long, and this is the answer to that
+              (docs/11 §11.5). */}
+          {document.skipReasons.analysis === 'TOO_MANY_PAGES' && (
+            <Button
+              onClick={() => analyseInFull.mutate()}
+              loading={analyseInFull.isPending}
+              type="primary"
+            >
+              {t('viewer.processing.analyseInFull')}
+            </Button>
+          )}
+        </Space>
+      )}
+    </Space>
+  );
+}
+
+// 🔒 The one control in Legere that destroys anything (docs/03 §3.3.10, docs/11 §11.5d). At the foot
+// of the Files tab, under the rows it is about to count: a deletion is a decision about the bytes,
+// and the whole list stands between it and Download at the top — a destructive action sharing an
+// edge with Download is one somebody presses by accident.
+//
+// The confirmation is a modal rather than a popover because it has an inventory to read out: what
+// goes, and — the part nobody can infer — what stays and what will happen to it.
+function DeleteSection({ document }: { document: DocumentDetailDto }) {
   const t = useTranslations();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -524,8 +559,10 @@ function DeleteCard({ document }: { document: DocumentDetailDto }) {
   });
 
   return (
-    <Card size="small">
-      <Button danger block onClick={() => setAsking(true)}>
+    // A rule of its own above it, and nothing after it: this is where the tab ends (docs/11 §11.5d).
+    <>
+      <Divider style={{ marginBottom: 16 }} />
+      <Button danger onClick={() => setAsking(true)}>
         {t('viewer.delete.action')}
       </Button>
 
@@ -555,7 +592,7 @@ function DeleteCard({ document }: { document: DocumentDetailDto }) {
           <Typography.Text type="warning">{t('viewer.delete.forGood')}</Typography.Text>
         </Space>
       </Modal>
-    </Card>
+    </>
   );
 }
 
@@ -644,12 +681,17 @@ function writeDismissed(id: string, ids: readonly string[]): void {
   }
 }
 
-// The edges of this document (docs/03 §3.3.23, docs/11 §11.5): the linked documents, a picker for
-// linking by hand, and beneath them — quieter — the candidates the archive found by the identifiers
-// they share (docs/05 §5.6b), each saying which ones matched. The card draws nothing at all when
-// there is nothing to draw: a connection is the exception, and an empty box on every document would
-// teach the eye to skip the box.
-function RelatedDocumentsCard({ id }: { id: string }) {
+// The edges of this document (docs/03 §3.3.23, docs/11 §11.5e): a picker for linking by hand, the
+// linked documents, and beneath them — quieter — the candidates the archive found by the identifiers
+// they share (docs/05 §5.6b), each saying which ones matched.
+//
+// A tab rather than a card in the sidebar: a link is a document, and a document deserves the width
+// one is shown at — in an 8/24 column each was a truncated line of text, and the picker had one
+// search box's worth of room to answer in. 🔒 The tab is drawn whether or not there is anything in
+// it: the card's "draw nothing at all" was right for a card standing in a panel nobody asked to see,
+// but a tab that vanished with the last link would take the picker with it, and the first link could
+// then only be made on a document that already has one.
+function RelatedPane({ id, active }: { id: string; active: boolean }) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
@@ -657,15 +699,19 @@ function RelatedDocumentsCard({ id }: { id: string }) {
   const [dismissed, setDismissed] = useState<readonly string[]>(() => readDismissed(id));
   const [query, setQuery] = useState('');
 
+  // Fetched only when the tab is open, exactly like the log: the suggestions cost the server one
+  // search per identifier this document carries (docs/05 §5.6b), and most visits never ask.
   const links = useQuery({
     queryKey: documentKeys.links(id),
     queryFn: () => documentApi.links(id),
+    enabled: active,
   });
   const suggestions = useQuery({
     queryKey: documentKeys.linkSuggestions(id),
     queryFn: () => documentApi.linkSuggestions(id),
+    enabled: active,
   });
-  // The same search the overlay runs (docs/11 §11.5): papers related only in somebody's head are
+  // The same search the overlay runs (docs/11 §11.5e): papers related only in somebody's head are
   // found the way anything is found.
   const found = useQuery({
     queryKey: searchKeys.query({ q: query, mode: 'hybrid' }),
@@ -700,8 +746,6 @@ function RelatedDocumentsCard({ id }: { id: string }) {
       !linkedIds.has(candidate.document.id) && !dismissed.includes(candidate.document.id),
   );
 
-  if (linked.length === 0 && proposals.length === 0) return null;
-
   const options = (found.data?.items ?? [])
     .filter((hit) => hit.document.id !== id && !linkedIds.has(hit.document.id))
     .map((hit) => ({ value: hit.document.id, label: hit.document.title }));
@@ -715,77 +759,143 @@ function RelatedDocumentsCard({ id }: { id: string }) {
   };
 
   return (
-    <Card title={t('viewer.links.title')} size="small">
-      <Space direction="vertical" size="small" style={{ width: '100%' }}>
-        {linked.map((item) => (
-          <div
-            key={item.document.id}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}
-          >
-            <Link
-              href={`/documents/${item.document.id}`}
-              style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}
+    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      {/* Above the list rather than under it, for the reason Add files stands above the file rows:
+          the thing somebody came to do is not at the bottom of what is already done. */}
+      <Select
+        showSearch
+        // The server ranks; re-filtering by label here would second-guess it.
+        filterOption={false}
+        style={{ width: '100%', maxWidth: 480 }}
+        placeholder={t('viewer.links.link')}
+        aria-label={t('viewer.links.link')}
+        value={null}
+        onSearch={setQuery}
+        loading={found.isFetching}
+        onChange={(documentId: string) => link.mutate(documentId)}
+        options={options}
+        notFoundContent={null}
+      />
+
+      {linked.length === 0 ? (
+        <Empty description={t('viewer.links.none')} />
+      ) : (
+        <List
+          dataSource={linked}
+          rowKey={(item) => item.document.id}
+          size="small"
+          renderItem={(item) => (
+            <List.Item
+              actions={[
+                <Tooltip key="unlink" title={t('viewer.links.unlink')}>
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<DisconnectOutlined />}
+                    aria-label={t('viewer.links.unlink')}
+                    disabled={unlink.isPending}
+                    onClick={() => unlink.mutate(item.document.id)}
+                  />
+                </Tooltip>,
+              ]}
             >
-              <FileTextOutlined aria-hidden />
-              <Typography.Text ellipsis style={{ flex: 1 }} title={item.document.title}>
-                {item.document.title}
-              </Typography.Text>
-            </Link>
-            {item.document.documentType !== null && <Tag>{item.document.documentType.name}</Tag>}
-            <Tooltip title={t('viewer.links.unlink')}>
-              <Button
-                size="small"
-                type="text"
-                icon={<DisconnectOutlined />}
-                aria-label={t('viewer.links.unlink')}
-                disabled={unlink.isPending}
-                onClick={() => unlink.mutate(item.document.id)}
+              <List.Item.Meta
+                avatar={<DocumentThumb document={item.document} />}
+                title={<Link href={`/documents/${item.document.id}`}>{item.document.title}</Link>}
+                description={
+                  item.document.documentType === null ? null : (
+                    <Tag>{item.document.documentType.name}</Tag>
+                  )
+                }
               />
-            </Tooltip>
-          </div>
-        ))}
-
-        <Select
-          showSearch
-          // The server ranks; re-filtering by label here would second-guess it.
-          filterOption={false}
-          style={{ width: '100%' }}
-          placeholder={t('viewer.links.link')}
-          aria-label={t('viewer.links.link')}
-          value={null}
-          onSearch={setQuery}
-          loading={found.isFetching}
-          onChange={(documentId: string) => link.mutate(documentId)}
-          options={options}
-          notFoundContent={null}
+            </List.Item>
+          )}
         />
+      )}
 
-        {proposals.map((candidate) => (
-          <div key={candidate.document.id}>
-            <Typography.Text type="secondary" ellipsis style={{ display: 'block' }}>
-              {candidate.document.title}
-            </Typography.Text>
-            {/* Why this is here (docs/05 §5.6b): the identifiers the two documents share. */}
-            <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-              {t('viewer.links.cites', { tokens: candidate.matchedTokens.join(', ') })}
-            </Typography.Text>
-            <Space size={4}>
-              <Button
-                size="small"
-                type="link"
-                disabled={link.isPending}
-                onClick={() => link.mutate(candidate.document.id)}
+      {proposals.length > 0 && (
+        <>
+          {/* Quieter than the links, and under a heading of their own: a proposal is not a fact
+              about the document until somebody says so (docs/05 §5.6b). */}
+          <Typography.Title level={5} style={{ margin: 0 }}>
+            {t('viewer.links.suggestions')}
+          </Typography.Title>
+          <List
+            dataSource={proposals}
+            rowKey={(candidate) => candidate.document.id}
+            size="small"
+            renderItem={(candidate) => (
+              <List.Item
+                actions={[
+                  <Button
+                    key="accept"
+                    size="small"
+                    type="link"
+                    disabled={link.isPending}
+                    onClick={() => link.mutate(candidate.document.id)}
+                  >
+                    {t('viewer.links.accept')}
+                  </Button>,
+                  <Button
+                    key="dismiss"
+                    size="small"
+                    type="text"
+                    onClick={() => dismiss(candidate.document.id)}
+                  >
+                    {t('viewer.links.dismiss')}
+                  </Button>,
+                ]}
               >
-                {t('viewer.links.accept')}
-              </Button>
-              <Button size="small" type="text" onClick={() => dismiss(candidate.document.id)}>
-                {t('viewer.links.dismiss')}
-              </Button>
-            </Space>
-          </div>
-        ))}
-      </Space>
-    </Card>
+                <List.Item.Meta
+                  avatar={<DocumentThumb document={candidate.document} />}
+                  title={
+                    <Typography.Text type="secondary">{candidate.document.title}</Typography.Text>
+                  }
+                  // Why this is here (docs/05 §5.6b): the identifiers the two documents share.
+                  description={t('viewer.links.cites', {
+                    tokens: candidate.matchedTokens.join(', '),
+                  })}
+                />
+              </List.Item>
+            )}
+          />
+        </>
+      )}
+    </Space>
+  );
+}
+
+// The other document's first page, at the size of a row (docs/11 §11.5e) — what the sidebar card
+// never had the width for, and the fastest answer to "which act was that". The same fallback the
+// file rows use: an artifact can be missing even where the step says it was made.
+function DocumentThumb({ document }: { document: DocumentListDto }) {
+  const { token } = theme.useToken();
+
+  return (
+    <div
+      style={{
+        width: 44,
+        height: 56,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--legere-well)',
+        overflow: 'hidden',
+      }}
+    >
+      {document.hasPreview ? (
+        // An API route that 302s to a signed URL (docs/10 §10.8).
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={documentFiles.thumb(document.id)}
+          alt=""
+          loading="lazy"
+          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+        />
+      ) : (
+        <FileTextOutlined style={{ fontSize: 20, color: token.colorTextQuaternary }} aria-hidden />
+      )}
+    </div>
   );
 }
 
@@ -794,13 +904,12 @@ function DownloadSplitButton({ document }: { document: DocumentDetailDto }) {
   const ready = document.steps.canonical === 'DONE';
 
   return (
-    <Space.Compact style={{ width: '100%' }}>
+    <Space.Compact>
       <Tooltip title={ready ? undefined : t('viewer.canonical.assembling')}>
         {/* antd drops the href of a disabled button, so there is nothing left to click through to
             while the document is not one piece yet (docs/11 §11.5b). */}
         <Button
           type="primary"
-          block
           disabled={!ready}
           {...(ready ? { href: documentFiles.canonical(document.id, { download: true }) } : {})}
         >
@@ -1892,7 +2001,12 @@ function DetailsPane({
 // a table of step costs nobody had asked for. Every action rebuilds the document — the canonical
 // PDF, the preview, the text, the analysis — so the pane says so once, quietly, and then stays
 // usable while it happens.
-function FilesPane({ document }: { document: DocumentDetailDto }) {
+//
+// It is also where the document as a whole is handed over and where it is destroyed (docs/11 §11.5b,
+// §11.5d): "the document as one piece", "one of the originals" and "these are the originals" are
+// three answers to one question, and the dropdown of the first is a list of exactly the rows below
+// it. Download stands at the top, Delete at the foot with the whole list between them.
+function FilesPane({ document, isAdmin }: { document: DocumentDetailDto; isAdmin: boolean }) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
@@ -1965,12 +2079,12 @@ function FilesPane({ document }: { document: DocumentDetailDto }) {
 
   return (
     <Space direction="vertical" size="small" style={{ width: '100%' }}>
+      {/* The two things that can be done with the document as a whole, and then — under both — the
+          price of touching anything below (docs/11 §11.5a). No heading of its own: the tab is
+          called Files, and a title under its own label is the same word twice. */}
       <Row align="middle" justify="space-between" gutter={[8, 8]}>
         <Col>
-          {/* No heading of its own: the tab is called Files, and a title under its own label is the
-              same word twice (docs/11 §11.5a). What the tab cannot say is the price of touching
-              anything here, so that is what stands at the top instead. */}
-          <Typography.Text type="secondary">{t('viewer.files.rebuildNote')}</Typography.Text>
+          <DownloadSplitButton document={document} />
         </Col>
         <Col>
           <UploadButton
@@ -1979,6 +2093,8 @@ function FilesPane({ document }: { document: DocumentDetailDto }) {
           />
         </Col>
       </Row>
+
+      <Typography.Text type="secondary">{t('viewer.files.rebuildNote')}</Typography.Text>
 
       {/* Real files only: a row appears when its file has landed and the list is refetched, never
           before — what is on its way is watched in the panel (docs/11 §11.5a). */}
@@ -2137,6 +2253,9 @@ function FilesPane({ document }: { document: DocumentDetailDto }) {
         )}
       />
 
+      {/* Last in the tab, below everything the document can still be used for (docs/11 §11.5d). */}
+      {isAdmin && <DeleteSection document={document} />}
+
       {cropping !== null && (
         <CropEditor
           open
@@ -2218,9 +2337,46 @@ function EarlierVersions({
   );
 }
 
+// What is being done to the document and what has been done to it, in that order (docs/11 §11.5):
+// the pipeline's own panel above, the history below. They are one question asked twice — "is it
+// finished, and did anything break", then "what happened" — and the first used to stand in the
+// sidebar of every document while the second was a tab away.
+function LogPane({
+  document,
+  active,
+  isAdmin,
+}: {
+  document: DocumentDetailDto;
+  active: boolean;
+  isAdmin: boolean;
+}) {
+  const t = useTranslations();
+
+  return (
+    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <ProcessingSection document={document} isAdmin={isAdmin} />
+
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <Typography.Title level={5} style={{ margin: 0 }}>
+          {t('viewer.log.history')}
+        </Typography.Title>
+        <HistoryTable id={document.id} active={active} processing={document.processing} />
+      </Space>
+    </Space>
+  );
+}
+
 // The history of the document (docs/03 §3.3.18): who did what to it, and what the pipeline made of
 // it, newest first. Fetched only when the tab is open — most visits never ask.
-function LogPane({ id, active, processing }: { id: string; active: boolean; processing: boolean }) {
+function HistoryTable({
+  id,
+  active,
+  processing,
+}: {
+  id: string;
+  active: boolean;
+  processing: boolean;
+}) {
   const t = useTranslations();
   const events = useQuery({
     queryKey: documentKeys.events(id),

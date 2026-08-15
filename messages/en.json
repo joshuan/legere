@@ -797,7 +797,7 @@
     "saved": "Saved",
     "documentType": "Type",
     "auto": "auto",
-    "download": "Download",
+    "download": "Download the document",
     "addToCollection": "Add to collection",
     "editTitle": "Edit the title",
     "editDescription": "Edit the description",
@@ -815,6 +815,7 @@
     "tabs": {
       "preview": "Preview",
       "text": "Text",
+      "related": "Related",
       "details": "Details",
       "files": "Files",
       "log": "Log"
@@ -926,6 +927,7 @@
       "change": "{field}: {from} → {to}",
       "when": "When",
       "what": "What happened",
+      "history": "History",
       "who": "Who",
       "cost": {
         "ms": "{value} ms",
@@ -984,7 +986,8 @@
       "readAgain": "Read the pages again"
     },
     "links": {
-      "title": "Related documents",
+      "none": "Nothing is linked to this document yet",
+      "suggestions": "Suggestions",
       "link": "Link a document…",
       "unlink": "Unlink",
       "cites": "Cites {tokens}",

@@ -701,7 +701,7 @@ The candidates are found deterministically — no model, no storage, computed on
 Accepting one creates an ordinary link (`03 §3.3.23`), by the person, under the person's rights.
 Dismissing is client-side and lasts the session — the server proposes, it never remembers being
 refused. Best-effort by design: papers that cite each other's numbers are found, papers related only
-in somebody's head are what the manual link picker is for (`11 §11.5`).
+in somebody's head are what the manual link picker is for (`11 §11.5e`).
 
 ## 5.7. Files disappearing and returning
 

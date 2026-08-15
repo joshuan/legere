@@ -355,7 +355,7 @@ files show as unavailable cards. This is the primary "explore what got mounted" 
 
 ## 11.5. Document viewer (`/documents/:id/:tab?`)
 
-Tabs: `preview`, `text`, `log`, `details`, `files`.
+Tabs: `preview`, `text`, `related`, `log`, `details`, `files`.
 
 The open tab is the last segment of the address — `/documents/:id/text` — so a link to a document can
 be a link to its text, and a reload lands where it was left. `/documents/:id` opens the preview; an
@@ -502,7 +502,29 @@ document pinned to the height of a phone would be a worse read, not a better one
   (`03 §3.3.10`), which until now was written down and read by nobody. Everybody sees the warning,
   because it is a fact about the document; only an admin is offered the re-read beside it, because
   that is a request to spend the pipeline.
-- **`Log`** — the document's history as a table — when, what happened, who — newest first
+- **`Related`** — the documents this one belongs with, and the ones the archive thinks it might:
+  see §11.5e.
+- **`Log`** — what is being done to the document, and what has been done to it. **Two sections, in
+  that order**, because they are one question asked twice: "is it finished, and did anything break"
+  is answered by the first, "what happened" by the second, and the first used to stand in the
+  sidebar of every document while the second was a tab away. Each carries its own heading —
+  **Processing** and **History** — and neither repeats the word on the tab.
+  **Processing** is the panel of `05 §5.5`: six steps, one row each
+  (`RUNNING` means the pipeline is on that step right now — the viewer polls every 5 s
+  while the document is processing, so a long step shows its progress by moving on, not by a bar),
+  laid out as a grid — select, state, name — so every name starts at the same x whatever width the
+  status tag happens to have. What a step has to say about itself goes **under its own name**, in
+  that same column: a `SKIPPED` step **always shows why** ("not needed for this file type", "no AI
+  provider configured", and the rest of docs/03 §3.3.10), because the label alone reads as a failure
+  to everyone who has not read the pipeline; a `FAILED` step shows its `processingError` there too,
+  attached to the step that produced it rather than pooled at the bottom where it names
+  nothing. An error the server could not attribute to any step still renders under the list. ADMIN
+  gets a checkbox at the start of each row and one **Reprocess** button below — the step names are
+  already on screen, so a second list of them to tick would be the same five words twice — and,
+  where the analysis was skipped for length alone, **Analyse the whole document** beside the reason
+  it names: the answer to a limit belongs where the limit is visible, and it is a different request
+  from "run this again" (`05 §5.5` step 4).
+  **History** is the document's history as a table — when, what happened, who — newest first
   (03 §3.3.18): added, queued, each
   step started and settled, what a person changed and from what. A failed step carries its message,
   because the log is where somebody goes when something went wrong; a skipped one carries its
@@ -518,7 +540,8 @@ document pinned to the height of a phone would be a worse read, not a better one
   id is on the started and the finished entry, and on the request the service itself logged, so
   "analysis failed" stops being a dead end. An admin additionally sees the host, which nobody else
   can act on and nobody else is shown.
-  Fetched only when the tab is open — most visits never ask.
+  The history is fetched only when the tab is open — most visits never ask. The steps above it cost
+  nothing extra: they are read off the document the screen already holds and already polls.
 - **Right (sidebar), opening with what the document is called:** the **title** — inline-editable when
   permitted, and wrapping rather than truncating, because a document's name is the one string on this
   screen nobody may be shown half of — and directly under it the **description**, in secondary text,
@@ -529,45 +552,38 @@ document pinned to the height of a phone would be a worse read, not a better one
   text, not a form — which is what they have always done and what keeps them out of the Details
   editor, where a field is corrected rather than written. 🔒 The `E` shortcut below belongs to the
   Details pane and does nothing while an inline editor holds the focus: a bare letter that opens a
-  form while somebody is typing a title is a bare letter that eats the title. Then the **Download
-  split button** of §11.5b,
-  Add-to-collection select, then **Related documents** — the links of `03 §3.3.23`: each linked
-  document one compact row, thumbnail, title and type, a link into its own viewer; an unlink beside
-  it for whoever may edit; **Link a document…** beneath, a search picker over the archive (the same
-  `GET /api/search` the overlay uses), because the papers related only in somebody's head are found
-  the way anything is found. Under the links, the **suggestions** of `05 §5.6b`, visually quieter and
-  each saying which identifiers matched — "cites № 12-2019" — with **Link** and **Dismiss**;
-  dismissing is client-side and lasts the session, exactly like the grouping suggestions of §11.3.
-  The card draws nothing at all — no heading, no empty state — when there are no links and no
-  suggestions: a connection is the exception, and an empty box on every document would teach the eye
-  to skip the box. Then **the page itself** — the first-page preview, between what may be done
-  with the document and what the pipeline is doing to it, shown only once that step has produced one.
-  Small on purpose: the readable copy is the pane on the left, and this answers "is this the right
-  document", which is a glance rather than a read. Then the processing status panel: six steps, one
-  row each
-  (`RUNNING` in the panel means the pipeline is on that step right now — the viewer polls every 5 s
-  while the document is processing, so a long step shows its progress by moving on, not by a bar),
-  laid out as a grid — select, state, name — so every name starts at the same x whatever width the
-  status tag happens to have. What a step has to say about itself goes **under its own name**, in
-  that same column: a `SKIPPED` step **always shows why** ("not needed for this file type", "no AI
-  provider configured", and the rest of docs/03 §3.3.10), because the label alone reads as a failure
-  to everyone who has not read the pipeline; a `FAILED` step shows its `processingError` there too,
-  attached to the step that produced it rather than pooled at the bottom of the card where it names
-  nothing. ADMIN gets a checkbox at the start of each row and one "Reprocess" button below — the
-  step names are already on screen, so a second list of them to tick would be the same five words
-  twice. An error the server could not attribute to any step still renders under the list.
-  Last in the sidebar, an admin's **Delete** — see §11.5d.
-  **The document type is deliberately not among these.** It is one of the things a machine decided,
-  and those are corrected in the Details pane and nowhere else (above): a select here would be a
-  second place to change one field, which is how the two halves of one screen come to disagree about
-  what it holds.
+  form while somebody is typing a title is a bare letter that eats the title. Then the
+  **Add-to-collection** select — only the caller's own collections, because adding to somebody
+  else's is not a thing a reader may do (`03 §3.4`) — and then **the page itself**, the first-page
+  preview, shown only once that step has produced one. Small on purpose: the readable copy is the
+  pane on the left, and this answers "is this the right document", which is a glance rather than a
+  read. And that is the whole panel.
+  🔒 **What the sidebar is for, and what it is not.** It says what the document is called, what it is
+  about in a line, and what it looks like — it is the label on the folder, not a control room. Every
+  action that used to stand here has gone to the tab that owns the question it answers: **Download**
+  and **Delete** to `Files`, because both are about the bytes the document is made of (§11.5a);
+  the **links** to `Related` (§11.5e); the **processing panel** to `Log`, beside the history of the
+  same work. A panel carrying a download, a delete, a link picker, six step rows and a reprocess
+  button was a second screen standing next to the first, and it was drawn in full on every document
+  whether or not anybody had come to act on one — while the tabs, which is where somebody who *has*
+  come to act already looks, were half empty. Reading is the common case here as it is in the Details
+  pane, and the rule is the same: the panel beside the document holds what is read at a glance, and
+  everything that is *done* lives where its subject lives.
+  **The document type is deliberately not among these** either. It is one of the things a machine
+  decided, and those are corrected in the Details pane and nowhere else (above): a select here would
+  be a second place to change one field, which is how the two halves of one screen come to disagree
+  about what it holds.
 
 ## 11.5d. Deleting a document
 
-**Admin only, at the bottom of the sidebar, below everything the document can still be used for**
-(`07 §7.3`). A destructive action that shares an edge with Download is a destructive action somebody
-will press by accident, so it stands apart, in the red the rest of the screen never uses, and it is
-the last thing on the page rather than the first.
+**Admin only, at the foot of the `Files` tab, below everything the document can still be used for**
+(`07 §7.3`). It belongs to that tab because a deletion is a decision about the bytes: what the modal
+below has to say is an inventory of files, counted and weighed, and the list it is counting is the
+one on the screen. It is the **last** thing in the tab, under the file rows and a rule of its own,
+while **Download** is at the top — 🔒 a destructive action that shares an edge with Download is a
+destructive action somebody will press by accident, and putting both in one tab is only safe as
+long as the whole list stands between them. It is drawn in the red the rest of the screen never
+uses.
 
 **The confirmation is a modal and not a popover, because it has something to say.** A deletion here
 is real (`03 §3.3.10`, ADR-015 as amended) and nothing undoes it, so the modal is written as an
@@ -624,6 +640,13 @@ off the only file is not offered at all rather than refused after the fact. Abov
 files** — the same global queue and the same panel (§11.3a), addressed to this document rather than to
 the library, appending in the order chosen.
 
+**The tab opens with the two things you can do with the document as a whole**: the **Download split
+button** of §11.5b on the left, **Add files** on the right, and the rebuild note under them. This is
+where they belong rather than in the sidebar: "the document as one piece", "one of the originals"
+and "these are the originals" are three answers to one question, and the dropdown of the first is a
+list of exactly the rows below it. A person who came for the bytes now comes to one place. **Delete**
+closes the tab from the other end — §11.5d.
+
 **The list holds real files only.** A row appears when its file has landed and the list is refetched,
 never before: a file on its way is watched in the upload panel, where every other upload is watched,
 so nothing in the composition of a document is a row that might yet turn out not to exist. Leaving the
@@ -651,7 +674,8 @@ twice.
 
 ## 11.5b. Download: the document, or what it was made of
 
-**Download** is a split button. Its main half hands over the **canonical PDF** — the document as one
+**Download** is a split button, at the head of the `Files` tab (§11.5a). Its main half hands over the
+**canonical PDF** — the document as one
 piece, searchable, straightened, in page order — because that is what somebody asking for "the
 document" means. Its dropdown lists the originals, one entry per file, named as they arrived, each
 downloading exactly those bytes; a file the volume has lost is listed disabled with the reason.
@@ -679,6 +703,41 @@ cuts the corner off or keeps the table it is lying on.
 - The preview inside the modal shows the source image as it is; the perspective correction happens
   when the canonical is built, and the modal says what the result will be ("the page will be
   straightened to a rectangle") rather than pretending to render it.
+
+## 11.5e. The Related tab
+
+The edges of `03 §3.3.23`: the papers that belong with this one — the act with its contract, the
+receipt with the act — and the ones the archive noticed citing it (`05 §5.6b`). **A tab of its own,
+not a card in the sidebar.** A link is a document, and a document deserves the width a document is
+shown at: as a card in a 8/24 column each one was a truncated line of text with an unlink beside it,
+and the picker that finds the next one had one search box's worth of room to show its results in.
+The tab also gives the connection an address — `/documents/:id/related` is a link to what this paper
+answers, which is the thing to send somebody who asks how the two are related.
+
+- **Link a document…** at the top, a search picker over the archive (the same `GET /api/search` the
+  overlay uses, ranked by the server and never re-sorted here), because the papers related only in
+  somebody's head are found the way anything is found. It stands above the list rather than under it
+  for the same reason **Add files** does in §11.5a: the thing you came to do is not at the bottom of
+  what is already done.
+- **The links**, one row each, laid out like the file rows of §11.5a: the other document's
+  first-page thumbnail, its title as a link into its own viewer, its type, and an **unlink** for
+  whoever may edit. The thumbnail is what the sidebar never had room for, and it is the fastest
+  answer to "which act was that".
+- **The suggestions** of `05 §5.6b` under their own quieter heading, each saying which identifiers
+  matched — "cites № 12-2019" — with **Link** and **Dismiss**. Dismissing is client-side and lasts
+  the session, exactly like the grouping suggestions of §11.3: the server proposes and never
+  remembers being refused.
+
+**Asked for only when the tab is opened**, exactly like the log: the suggestions cost the server one
+phrase search per identifier the document carries (`05 §5.6b`), and they used to be computed on
+every visit to every document to fill a card most readers never looked at.
+
+🔒 **The tab is always there, and says so when there is nothing in it.** The card it replaces drew
+nothing at all when there were no links and no suggestions, which was right for a card standing in
+a panel nobody asked to see — an empty box on every document teaches the eye to skip the box. A tab
+is not that: it is a place somebody navigated to, and one that vanished when a document had no links
+would take the picker with it, so the way to make the first link would exist only on documents that
+already have one. The empty state says there are none, and the picker above it stays.
 
 ## 11.6. Search (`/search?q=`)
 

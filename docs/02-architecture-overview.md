@@ -372,7 +372,7 @@ old artifacts keep serving until the new ones land.
   kept, but a collection answers "my shelf", not "this paper answers that one".
 - **Consequences:** a `document_links` table — pair-unique, hard-deleted like a collection item,
   cascading with a hard-deleted document; three endpoints and a suggestions endpoint (`07 §7.3`); a
-  sidebar card in the viewer (`11 §11.5`); a link is visible only where **both** ends are
+  tab of its own in the viewer (`11 §11.5e`); a link is visible only where **both** ends are
   (`03 §3.4`).
 
 ### ADR-013. CI — a single Docker image to GHCR; deployment outside the repository

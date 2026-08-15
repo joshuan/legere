@@ -201,11 +201,16 @@ function serve(
       ),
     ),
     http.get('/api/collections', () => HttpResponse.json(envelope({ items: [] }))),
-    // The sidebar's related-documents card asks for both on every visit (docs/11 §11.5); nothing
-    // to draw is the default, and the card then draws nothing at all.
+    // What the Related tab asks for once it is opened (docs/11 §11.5e); nothing linked and nothing
+    // proposed is the default, which is the empty state.
     http.get(`/api/documents/${ID}/links`, () => HttpResponse.json(envelope({ items: [] }))),
     http.get(`/api/documents/${ID}/link-suggestions`, () =>
       HttpResponse.json(envelope({ items: [] })),
+    ),
+    // And what the Log tab asks for, since the processing panel now stands above the history
+    // (docs/11 §11.5). A document nothing has happened to yet is the default.
+    http.get(`/api/documents/${ID}/events`, () =>
+      HttpResponse.json(envelope({ items: [], nextCursor: null })),
     ),
   );
 }
@@ -452,7 +457,8 @@ describe('DocumentViewerScreen', () => {
     expect(await screen.findByText('Rental agreement')).toBeInTheDocument();
     const embed = document.querySelector('object');
     expect(embed).toHaveAttribute('data', `/api/documents/${ID}/canonical`);
-    // Both the sidebar button and the <object> fallback hand over the same one piece.
+    // Whatever hands the document over — here the <object>'s own fallback — hands over the one
+    // piece; the split button that does the same is on the Files tab (docs/11 §11.5a).
     const downloads = screen.getAllByRole('link', { name: enMessages.viewer.download });
     expect(downloads.length).toBeGreaterThan(0);
     for (const link of downloads) {
@@ -1003,9 +1009,17 @@ describe('DocumentViewerScreen', () => {
   });
 
   describe('Download: the document, or what it was made of (docs/11 §11.5b)', () => {
-    it('lists the originals under the one piece, one entry per file', async () => {
-      serve(twoFiles);
+    // It stands at the head of the Files tab now: "the document as one piece", "one of the
+    // originals" and "these are the originals" are three answers to one question (docs/11 §11.5a).
+    async function openFiles(document: DocumentDetailDto = twoFiles): Promise<void> {
+      serve(document);
       renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
+      await screen.findByText('page-1.jpg');
+    }
+
+    it('lists the originals under the one piece, one entry per file', async () => {
+      await openFiles();
 
       await userEvent.click(
         await screen.findByRole('button', { name: enMessages.viewer.downloadOriginals }),
@@ -1019,8 +1033,7 @@ describe('DocumentViewerScreen', () => {
     });
 
     it('keeps the originals reachable while the one piece is not built yet', async () => {
-      serve({ ...twoFiles, steps: { ...detail.steps, canonical: 'FAILED' } });
-      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await openFiles({ ...twoFiles, steps: { ...detail.steps, canonical: 'FAILED' } });
 
       // 🔒 antd drops the href of a disabled button, so the main half leads nowhere…
       const download = await screen.findByText(enMessages.viewer.download);
@@ -1034,6 +1047,29 @@ describe('DocumentViewerScreen', () => {
       );
       expect(await screen.findByRole('link', { name: 'page-1.jpg' })).toBeInTheDocument();
     });
+
+    // 🔒 The whole file list stands between them, which is the only thing that makes it safe to put
+    // a download and a deletion in one tab (docs/11 §11.5d).
+    it('keeps the length of the list between Download and Delete', async () => {
+      serve(twoFiles);
+      renderWithProviders(<DocumentViewerScreen id={ID} isAdmin />);
+      await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
+      await screen.findByText('page-1.jpg');
+
+      // Scoped to the tab: the preview pane behind it carries the <object>'s own fallback link,
+      // which says the same words.
+      const panel = screen.getByRole('tabpanel');
+      // An `a` while the canonical is ready, a `button` while it is not (docs/11 §11.5b).
+      const download = within(panel).getByText(enMessages.viewer.download).closest('a, button');
+      const list = panel.querySelector('.ant-list');
+      const remove = screen.getByRole('button', { name: enMessages.viewer.delete.action });
+      if (download === null || list === null) throw new Error('expected Download above the list');
+
+      const follows = (before: Element, after: Element): boolean =>
+        (before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+      expect(follows(download, list)).toBe(true);
+      expect(follows(list, remove)).toBe(true);
+    });
   });
 
   it('shows the per-step states and the error behind a failure', async () => {
@@ -1044,7 +1080,9 @@ describe('DocumentViewerScreen', () => {
       failedStep: 'preview',
     });
 
-    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    // The panel stands at the head of the Log tab now, above the history of the same work
+    // (docs/11 §11.5).
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
 
     expect(await screen.findByText(enMessages.viewer.processing.title)).toBeInTheDocument();
     expect(screen.getByText('FAILED')).toBeInTheDocument();
@@ -1067,7 +1105,7 @@ describe('DocumentViewerScreen', () => {
       ),
     );
 
-    renderWithProviders(<DocumentViewerScreen id={ID} isAdmin={false} />);
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" isAdmin={false} />);
 
     expect(await screen.findByText(enMessages.viewer.skipReasons.NOT_NEEDED)).toBeInTheDocument();
     // The one an admin can act on: it names what is missing from the instance.
@@ -1111,38 +1149,54 @@ describe('DocumentViewerScreen', () => {
       }),
     );
 
-    const asUser = renderWithProviders(<DocumentViewerScreen id={ID} />);
-    expect(await screen.findByText('Rental agreement')).toBeInTheDocument();
+    const asUser = renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
+    expect(await screen.findByText(enMessages.viewer.processing.title)).toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: enMessages.viewer.processing.reprocessAll }),
     ).not.toBeInTheDocument();
     asUser.unmount();
 
-    renderWithProviders(<DocumentViewerScreen id={ID} isAdmin />);
-    const panel = await screen.findByText(enMessages.viewer.processing.title);
-    const card = panel.closest('.ant-card');
-    if (!(card instanceof HTMLElement)) throw new Error('expected the processing card');
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" isAdmin />);
+    await screen.findByText(enMessages.viewer.processing.title);
+    // Scoped to the tab, which now holds the panel and the history both (docs/11 §11.5).
+    const panel = within(screen.getByRole('tabpanel'));
 
-    await userEvent.click(
-      within(card).getByRole('checkbox', { name: enMessages.viewer.steps.preview }),
-    );
-    await userEvent.click(within(card).getByRole('button', { name: /Reprocess 1 steps/ }));
+    await userEvent.click(panel.getByRole('checkbox', { name: enMessages.viewer.steps.preview }));
+    await userEvent.click(panel.getByRole('button', { name: /Reprocess 1 steps/ }));
 
     await waitFor(() => expect(body).toEqual({ steps: ['preview'] }));
+  });
+
+  // Two sections, in that order: "is it finished, and did anything break", then "what happened"
+  // (docs/11 §11.5).
+  it('puts what is being done to the document above what has been done to it', async () => {
+    serve(detail);
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
+
+    const processing = await screen.findByText(enMessages.viewer.processing.title);
+    const history = screen.getByText(enMessages.viewer.log.history);
+    expect(
+      processing.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // And neither of them repeats the word on the tab.
+    expect(processing.textContent).not.toBe(enMessages.viewer.tabs.log);
+    expect(history.textContent).not.toBe(enMessages.viewer.tabs.log);
   });
 
   // 🔒 The one control that destroys anything (docs/11 §11.5d). What is tested here is that nobody
   // reaches it by accident and that the modal says what will happen before it does.
   describe('deleting a document (docs/11 §11.5d)', () => {
+    // At the foot of the Files tab now: a deletion is a decision about the bytes, and the modal's
+    // inventory counts the very rows above it (docs/11 §11.5d).
     it('is offered to an admin and to nobody else', async () => {
-      const asUser = renderWithProviders(<DocumentViewerScreen id={ID} />);
-      expect(await screen.findByText('Rental agreement')).toBeInTheDocument();
+      const asUser = renderWithProviders(<DocumentViewerScreen id={ID} tab="files" />);
+      expect(await screen.findByText('rental.pdf')).toBeInTheDocument();
       expect(
         screen.queryByRole('button', { name: enMessages.viewer.delete.action }),
       ).not.toBeInTheDocument();
       asUser.unmount();
 
-      renderWithProviders(<DocumentViewerScreen id={ID} isAdmin />);
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="files" isAdmin />);
 
       expect(
         await screen.findByRole('button', { name: enMessages.viewer.delete.action }),
@@ -1158,7 +1212,7 @@ describe('DocumentViewerScreen', () => {
         }),
       );
       serve(twoFiles);
-      renderWithProviders(<DocumentViewerScreen id={ID} isAdmin />);
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="files" isAdmin />);
 
       await userEvent.click(
         await screen.findByRole('button', { name: enMessages.viewer.delete.action }),
@@ -1186,7 +1240,7 @@ describe('DocumentViewerScreen', () => {
         ...detail,
         files: [fileOf(FIRST_FILE, { origin: 'MANAGED', refs: [], storageKey: 'files/x/a.pdf' })],
       });
-      renderWithProviders(<DocumentViewerScreen id={ID} isAdmin />);
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="files" isAdmin />);
 
       await userEvent.click(
         await screen.findByRole('button', { name: enMessages.viewer.delete.action }),
@@ -1841,7 +1895,7 @@ describe('DocumentViewerScreen', () => {
       expect(within(panel).queryByText(enMessages.viewer.fields.receipt.vendor)).toBeNull();
     });
   });
-  describe('the related documents (docs/03 §3.3.23, docs/11 §11.5)', () => {
+  describe('the Related tab (docs/03 §3.3.23, docs/11 §11.5e)', () => {
     const OTHER_ID = 'bbbbbbbb-9999-4999-8999-999999999999';
     const otherDocument: DocumentListDto = {
       id: OTHER_ID,
@@ -1854,7 +1908,8 @@ describe('DocumentViewerScreen', () => {
       availability: 'AVAILABLE',
       processing: false,
       origin: 'LIBRARY',
-      hasPreview: false,
+      // It has a first page, which is what the row draws beside its title (docs/11 §11.5e).
+      hasPreview: true,
       createdAt: '2026-01-01T00:00:00.000Z',
       documentDate: null,
       people: [],
@@ -1873,14 +1928,29 @@ describe('DocumentViewerScreen', () => {
     it('lists the linked documents, each a way into its own viewer', async () => {
       serve();
       server.use(http.get(linksUrl, () => HttpResponse.json(envelope({ items: [edge] }))));
-      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />);
 
       expect(await screen.findByText('Act of acceptance')).toBeInTheDocument();
-      expect(screen.getByText(enMessages.viewer.links.title)).toBeInTheDocument();
       expect(screen.getByText('Act of acceptance').closest('a')).toHaveAttribute(
         'href',
         `/documents/${OTHER_ID}`,
       );
+      // The type it is filed under, and the first page of it — what the sidebar card never had the
+      // width for, and the fastest answer to "which act was that" (docs/11 §11.5e).
+      expect(screen.getByText('Contract')).toBeInTheDocument();
+      expect(document.querySelector(`img[src*="/${OTHER_ID}/thumb"]`)).not.toBeNull();
+    });
+
+    // The composition of a claim about two documents has an address of its own (docs/11 §11.5e).
+    it('puts the tab in the address', async () => {
+      serve();
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.related }),
+      );
+
+      expect(replace).toHaveBeenCalledWith(`/documents/${ID}/related`);
     });
 
     it('unlinks with one click and the row goes', async () => {
@@ -1893,7 +1963,7 @@ describe('DocumentViewerScreen', () => {
           return HttpResponse.json(envelope({ ok: true }));
         }),
       );
-      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />);
       await screen.findByText('Act of acceptance');
 
       await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.links.unlink }));
@@ -1916,10 +1986,11 @@ describe('DocumentViewerScreen', () => {
           return HttpResponse.json(envelope(edge), { status: 201 });
         }),
       );
-      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />);
 
-      // Why this is here travels with the proposal (docs/05 §5.6b).
+      // Why this is here travels with the proposal, under a heading of its own (docs/05 §5.6b).
       expect(await screen.findByText('Cites 12-2019')).toBeInTheDocument();
+      expect(screen.getByText(enMessages.viewer.links.suggestions)).toBeInTheDocument();
       await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.links.accept }));
 
       await waitFor(() => expect(posted).toEqual([{ documentId: OTHER_ID }]));
@@ -1934,28 +2005,53 @@ describe('DocumentViewerScreen', () => {
           ),
         ),
       );
-      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />);
       await screen.findByText('Cites 12-2019');
 
       await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.links.dismiss }));
 
-      // The whole card goes with the last thing it had to draw (docs/11 §11.5), and the refusal
-      // is held client-side for the session — the server proposes, it never remembers being
-      // refused (docs/05 §5.6b).
+      // The proposal goes with its heading, and the refusal is held client-side for the session —
+      // the server proposes, it never remembers being refused (docs/05 §5.6b).
       await waitFor(() =>
-        expect(screen.queryByText(enMessages.viewer.links.title)).not.toBeInTheDocument(),
+        expect(screen.queryByText(enMessages.viewer.links.suggestions)).not.toBeInTheDocument(),
       );
       expect(
         window.sessionStorage.getItem(`legere:dismissed-link-suggestions:${ID}`) ?? '',
       ).toContain(OTHER_ID);
     });
 
-    it('draws no card at all when there is nothing to draw', async () => {
+    // 🔒 A tab that vanished with the last link would take the picker with it, and the first link
+    // could then be made only on a document that already has one (docs/11 §11.5e).
+    it('says there is nothing linked, and still offers the way to link something', async () => {
       serve();
-      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />);
 
+      expect(await screen.findByText(enMessages.viewer.links.none)).toBeInTheDocument();
+      expect(
+        screen.getByRole('combobox', { name: enMessages.viewer.links.link }),
+      ).toBeInTheDocument();
+    });
+
+    // The suggestions cost the server one search per identifier the document carries (05 §5.6b),
+    // and most visits never open this tab at all.
+    it('asks for nothing until the tab is opened', async () => {
+      let asked = 0;
+      serve();
+      server.use(
+        http.get(suggestionsUrl, () => {
+          asked += 1;
+          return HttpResponse.json(envelope({ items: [] }));
+        }),
+      );
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
       await screen.findByText(detail.title);
-      expect(screen.queryByText(enMessages.viewer.links.title)).not.toBeInTheDocument();
+
+      expect(asked).toBe(0);
+
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.related }),
+      );
+      await waitFor(() => expect(asked).toBe(1));
     });
   });
 });
