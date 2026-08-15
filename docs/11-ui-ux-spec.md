@@ -704,6 +704,24 @@ cuts the corner off or keeps the table it is lying on.
   when the canonical is built, and the modal says what the result will be ("the page will be
   straightened to a rectangle") rather than pretending to render it.
 
+**While a corner is being placed, a loupe watches it.** The image is on screen at whatever fits
+under 60 vh, so a photograph three thousand pixels wide arrives at about a fifth of its resolution —
+and the corner being placed is under the very pointer placing it. A small square floats beside the
+handle showing that corner's neighbourhood **from the source image at no less than its own
+resolution**: the modal scales the image down, the loupe does not, so the last two pixels are
+visible at the moment they are being chosen rather than after the document has been rebuilt. The
+crop outline runs through it and a crosshair marks the exact point — a magnified patch of paper with
+no line across it says nothing about where the corner is. It follows the corner while it moves, sits
+beside the handle rather than under it — flipping to the other side, or below, when that edge of the
+image is close — and never leaves the image it is magnifying, which is what keeps it inside the
+modal. Until the image has loaded there is nothing to magnify and no loupe appears.
+
+**The keyboard gets the same eye.** The loupe shows while a focused handle is being nudged and stays
+until the handle is left, because the arrow keys are exactly the moment one pixel matters; a pointer
+that lets the corner go takes the loupe with it. It costs nothing to fetch — it draws from the very
+image the modal has already loaded, never a second request for the same bytes — and it says nothing:
+a caption on a magnifying glass would be words at the one moment a person is looking at pixels.
+
 ## 11.5e. The Related tab
 
 The edges of `03 §3.3.23`: the papers that belong with this one — the act with its contract, the

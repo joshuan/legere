@@ -817,7 +817,7 @@ rule 3 the docs move first with each task: `03 §3.3.16`, `05 §5.5`/`§5.6`, `0
 
 ## M26 — A loupe over the corner being dragged
 
-- [ ] **M26.1 — The corner is watched through a loupe**
+- [x] **M26.1 — The corner is watched through a loupe**
   **Goal:** on a 14-inch screen, the corner of a photographed A4 sheet can be placed to the pixel instead of to the general area.
   **Docs:** [`11 §11.5c`](../11-ui-ux-spec.md#115c-the-crop-editor)
   **What is being spent.** The crop editor shows the image at whatever size fits under 60 vh — a 3000-pixel-wide photograph lands on screen at roughly a fifth of its resolution, and the corner being placed is hidden under the very pointer placing it. The handles nudge by exact pixels, but nobody can see what they are nudging onto.

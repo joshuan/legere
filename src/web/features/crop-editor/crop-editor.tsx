@@ -14,6 +14,7 @@ import type { Crop, DocumentFileDto } from '../../../shared/contracts/documents'
 import type { CropSuggestionResponse } from '../../../shared/contracts/files';
 import { useErrorMessage } from '../../shared/lib';
 import { cropApi } from './api';
+import { Loupe } from './loupe';
 import { useImageFrame } from './use-image-frame';
 
 // The crop editor of docs/11 §11.5c: the image at the largest size that fits, four corners joined by
@@ -91,6 +92,45 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
   const [proposal, setProposal] = useState<CropSuggestionResponse['method'] | null>(null);
   const dragging = useRef<number | null>(null);
 
+  // What the loupe is watching, and what it magnifies against (docs/11 §11.5c). The corner is state
+  // rather than the drag ref because a loupe that appears has to be rendered; the image's own size
+  // is read off the element the modal already loaded, so nothing is fetched twice.
+  const [watched, setWatched] = useState<number | null>(null);
+  const [natural, setNatural] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+
+  const readNatural = useCallback((): void => {
+    const element = imageRef.current;
+    if (element === null) return;
+    setNatural((current) =>
+      current.width === element.naturalWidth && current.height === element.naturalHeight
+        ? current
+        : { width: element.naturalWidth, height: element.naturalHeight },
+    );
+  }, []);
+
+  // The image landed: where it landed, and how much of itself it had to give up to land there.
+  const handleLoad = useCallback((): void => {
+    measure();
+    readNatural();
+  }, [measure, readNatural]);
+
+  // A corner is being placed. The size is re-read here too, because an image cached by the browser
+  // can be complete before this modal ever attached an onLoad to it.
+  const watch = useCallback(
+    (index: number): void => {
+      readNatural();
+      setWatched(index);
+    },
+    [readNatural],
+  );
+
+  const unwatch = useCallback((index: number): void => {
+    setWatched((current) => (current === index ? null : current));
+  }, []);
+
   // Opening on a file that already has a crop starts from it; one without starts from the whole
   // image. Adjusted during render rather than in an effect, so the first frame anybody sees is
   // already the right quadrilateral. Keyed by the file, so a background refetch of the document
@@ -157,6 +197,7 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
     (index: number) =>
     (event: ReactPointerEvent<HTMLButtonElement>): void => {
       dragging.current = index;
+      watch(index);
       const handle = event.currentTarget;
       // Capture keeps the corner following a pointer that has left the handle — and not every
       // environment the tests run in implements it.
@@ -180,6 +221,8 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
     (event: ReactPointerEvent<HTMLButtonElement>): void => {
       if (dragging.current !== index) return;
       dragging.current = null;
+      // The corner has been let go, and the loupe goes with it (docs/11 §11.5c).
+      unwatch(index);
       const handle = event.currentTarget;
       if (
         typeof handle.hasPointerCapture === 'function' &&
@@ -197,6 +240,9 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
       if (direction === undefined) return;
       // An arrow key inside a dialog otherwise scrolls it out from under the corner.
       event.preventDefault();
+      // The arrow keys are exactly the moment one pixel matters, so the loupe comes out for them
+      // too — and stays until the handle is left (docs/11 §11.5c).
+      watch(index);
       if (frame.width <= 0 || frame.height <= 0) return;
       const pixels = event.shiftKey ? NUDGE_PIXELS_FAST : NUDGE_PIXELS;
       nudgeBy(index, (direction[0] * pixels) / frame.width, (direction[1] * pixels) / frame.height);
@@ -259,7 +305,7 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
               src={cropApi.contentUrl(documentId, file.id)}
               alt={file.name}
               draggable={false}
-              onLoad={measure}
+              onLoad={handleLoad}
               style={{ display: 'block', maxWidth: '100%', maxHeight: '60vh' }}
             />
 
@@ -299,6 +345,7 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
                 onPointerUp={endDrag(index)}
                 onPointerCancel={endDrag(index)}
                 onKeyDown={nudge(index)}
+                onBlur={() => unwatch(index)}
                 style={{
                   position: 'absolute',
                   left: `${percent(x)}%`,
@@ -317,6 +364,17 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
                 }}
               />
             ))}
+
+            {/* Beside the corner being placed, inside the image, gone when it is let go. */}
+            {watched !== null && (
+              <Loupe
+                image={imageRef}
+                points={points}
+                index={watched}
+                frame={frame}
+                natural={natural}
+              />
+            )}
           </div>
         </div>
 
