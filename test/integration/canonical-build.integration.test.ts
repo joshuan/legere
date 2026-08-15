@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { Prisma } from '@prisma/client';
 import sharp from 'sharp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, type TestContext } from 'vitest';
 import type { Crop } from '../../src/shared/contracts/documents';
@@ -208,6 +209,78 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
       );
     },
   );
+
+  // The pages inside one file (docs/05 §5.5 step 1.1). A three-page PDF scanned in the wrong order
+  // becomes a canonical whose pages read first to last — and the file it was built from is byte for
+  // byte what it was.
+  itWithStirling('reads a shuffled PDF in the order the file records', async () => {
+    const document = await prisma.document.create({ data: { title: 'Out of order' } });
+    // As the scanner left it: the pages of the paper are 1, 2, 3 and they arrived 3, 1, 2.
+    const scan = pdfWithText([
+      'THIRD page of the paper',
+      'FIRST page of the paper',
+      'SECOND page of the paper',
+    ]);
+    await givenFile(document.id, 0, {
+      name: 'scan.pdf',
+      ext: 'pdf',
+      mimeType: 'application/pdf',
+      bytes: scan,
+    });
+    const file = await prisma.file.findFirstOrThrow({ where: { name: 'scan.pdf' } });
+    // What a person dragged into place: page 2 of the file first, then 3, then 1.
+    await prisma.file.update({ where: { id: file.id }, data: { pageOrder: [1, 2, 0] } });
+
+    const built = await build.execute({ ...documentRow(document.id), title: 'Out of order' });
+
+    if (built.kind !== 'built') throw new Error('the canonical was not built');
+    expect(built.pageCount).toBe(3);
+
+    const pdfs = new StirlingPdfToolbox(config, new ServiceGates());
+    const text = await pdfs.pdfToMarkdown(built.pdf);
+    expect(text.indexOf('FIRST page')).toBeGreaterThanOrEqual(0);
+    // The paper, read the way the paper reads.
+    expect(text.indexOf('FIRST page')).toBeLessThan(text.indexOf('SECOND page'));
+    expect(text.indexOf('SECOND page')).toBeLessThan(text.indexOf('THIRD page'));
+
+    // 🔒 Not a byte of the original was rewritten: a page order is an instruction the build reads,
+    // never an edit to the file (docs/03 §3.3.16, ADR-007).
+    expect(storage.get(originalKeyOf({ id: file.id, ext: 'pdf', storageKey: null })).body).toEqual(
+      scan,
+    );
+    // And the build counted the file's pages on its way past, which is what an edit checks an order
+    // against (docs/03 §3.3.16).
+    const counted = await prisma.file.findUniqueOrThrow({ where: { id: file.id } });
+    expect(counted.pageCount).toBe(3);
+  });
+
+  itWithStirling('rebuilds to the pages as they arrived once the order is cleared', async () => {
+    const document = await prisma.document.create({ data: { title: 'Put back' } });
+    await givenFile(document.id, 0, {
+      name: 'restored.pdf',
+      ext: 'pdf',
+      mimeType: 'application/pdf',
+      bytes: pdfWithText([
+        'THIRD page of the paper',
+        'FIRST page of the paper',
+        'SECOND page of the paper',
+      ]),
+    });
+    const file = await prisma.file.findFirstOrThrow({ where: { name: 'restored.pdf' } });
+    await prisma.file.update({ where: { id: file.id }, data: { pageOrder: [1, 2, 0] } });
+    await build.execute({ ...documentRow(document.id), title: 'Put back' });
+
+    // Clearing costs nothing to say, because nothing was ever changed (docs/05 §5.6).
+    await prisma.file.update({ where: { id: file.id }, data: { pageOrder: Prisma.DbNull } });
+    const built = await build.execute({ ...documentRow(document.id), title: 'Put back' });
+
+    if (built.kind !== 'built') throw new Error('the canonical was not built');
+    const pdfs = new StirlingPdfToolbox(config, new ServiceGates());
+    const text = await pdfs.pdfToMarkdown(built.pdf);
+    // The scanner's own order is back, whole and unaltered.
+    expect(text.indexOf('THIRD page')).toBeLessThan(text.indexOf('FIRST page'));
+    expect(text.indexOf('FIRST page')).toBeLessThan(text.indexOf('SECOND page'));
+  });
 
   itWithStirling('leaves out a file nothing can render and says so', async () => {
     const document = await prisma.document.create({ data: { title: 'One good page' } });

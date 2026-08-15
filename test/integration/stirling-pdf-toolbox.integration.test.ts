@@ -95,6 +95,20 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
     expect(text.indexOf('First part, page one')).toBeLessThan(text.indexOf('Second part'));
   });
 
+  itWithStirling('puts the pages of one PDF into the order it is given', async () => {
+    // What step 1.1 does with a file that carries a page order (docs/05 §5.5 step 1.1). The order
+    // is 0-based here and 1-based at the container, which is the one thing this call translates.
+    const reordered = await pdfs.rearrangePages(
+      pdfWithText(['THIRD', 'FIRST', 'SECOND']),
+      [1, 2, 0],
+    );
+
+    expect(await pdfs.pdfPageCount(reordered)).toBe(3);
+    const text = await pdfs.pdfToMarkdown(reordered);
+    expect(text.indexOf('FIRST')).toBeLessThan(text.indexOf('SECOND'));
+    expect(text.indexOf('SECOND')).toBeLessThan(text.indexOf('THIRD'));
+  });
+
   itWithStirling('stamps the title and the date into the metadata', async () => {
     const stamped = await pdfs.stampMetadata(pdfWithText(['A page']), {
       title: 'Lease agreement',

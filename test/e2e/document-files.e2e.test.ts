@@ -490,6 +490,160 @@ describe('Document files (e2e)', () => {
     });
   });
 
+  // The pages inside one file (docs/03 §3.3.16, docs/07 §7.3): the unit below the file, written
+  // beside it and obeyed by the build — never a change to the bytes.
+  describe('the order of the pages inside a file', () => {
+    // What a canonical build would have left behind: the pages of this file, counted.
+    const givenCountedPages = async (fileId: string, pageCount: number): Promise<void> => {
+      await testPrisma().file.update({ where: { id: fileId }, data: { pageCount } });
+    };
+
+    it('stores the order a person chose and rebuilds the document', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({ files: [{ name: 'scan.pdf' }] });
+      const fileId = fileIds[0] ?? '';
+      await givenCountedPages(fileId, 3);
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileId}`, { pageOrder: [2, 0, 1] })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      expect(expectData(res, documentDetailDtoSchema).files[0]).toMatchObject({
+        pageOrder: [2, 0, 1],
+        pageCount: 3,
+      });
+      // Every composition change enqueues the same rebuild (docs/05 §5.6).
+      expect(await processJobs(documentId)).toHaveLength(1);
+
+      const cleared = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileId}`, { pageOrder: null })
+        .set('Cookie', adminCookie);
+
+      // Nothing to undo: the file was never rewritten (docs/03 §3.3.16).
+      expect(expectData(cleared, documentDetailDtoSchema).files[0]).toMatchObject({
+        pageOrder: null,
+        pageCount: 3,
+      });
+    });
+
+    it('refuses an order that is not exactly the pages of that file', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({ files: [{ name: 'scan.pdf' }] });
+      const fileId = fileIds[0] ?? '';
+      await givenCountedPages(fileId, 3);
+
+      for (const pageOrder of [
+        [0, 1],
+        [0, 0, 1],
+        [0, 1, 3],
+      ]) {
+        const res = await api(app)
+          .patch(`/api/documents/${documentId}/files/${fileId}`, { pageOrder })
+          .set('Cookie', adminCookie);
+        expect(res.status).toBe(422);
+        expect(expectError(res).code).toBe('VALIDATION_FAILED');
+      }
+
+      expect((await detailOf(documentId)).files[0]?.pageOrder).toBeNull();
+    });
+
+    it('refuses an order for a file whose pages nothing has counted yet', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({
+        files: [{ name: 'fresh.pdf' }],
+      });
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileIds[0]}`, { pageOrder: [0] })
+        .set('Cookie', adminCookie);
+
+      // There is nothing to check the permutation against (docs/07 §7.3).
+      expect(res.status).toBe(422);
+      expect(expectError(res).code).toBe('VALIDATION_FAILED');
+    });
+
+    it('refuses to order the pages of something that has none', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({
+        files: [{ name: 'photo.jpg', mimeType: 'image/jpeg', ext: 'jpg' }],
+      });
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileIds[0]}`, { pageOrder: [0] })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(422);
+      expect(expectError(res).code).toBe('FILE_NOT_PDF');
+    });
+
+    it('redirects one page of an original to a signed URL of the picture in the bucket', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({ files: [{ name: 'scan.pdf' }] });
+      const fileId = fileIds[0] ?? '';
+      await givenCountedPages(fileId, 3);
+      // Already rendered by an earlier request: the second one is a redirect and nothing else
+      // (docs/09 §9.2).
+      const key = artifactKeys.filePageThumb(fileId, 1);
+      await app.files.put(key, Buffer.from('a page'), 'image/jpeg');
+
+      const res = await api(app)
+        .get(`/api/documents/${documentId}/files/${fileId}/pages/1/thumb`)
+        .set('Cookie', adminCookie)
+        .redirects(0);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain(key);
+      // A picture Legere rendered itself, shown where it stands (docs/09 §9.2).
+      expect(deliveryOf(res.headers.location)).toEqual({
+        contentType: 'image/jpeg',
+        disposition: 'inline',
+      });
+    });
+
+    it('has no page to answer past the count, or on a file with no pages', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({
+        files: [{ name: 'scan.pdf' }, { name: 'photo.jpg', mimeType: 'image/jpeg', ext: 'jpg' }],
+      });
+      await givenCountedPages(fileIds[0] ?? '', 3);
+
+      const past = await api(app)
+        .get(`/api/documents/${documentId}/files/${fileIds[0]}/pages/3/thumb`)
+        .set('Cookie', adminCookie);
+      const nonsense = await api(app)
+        .get(`/api/documents/${documentId}/files/${fileIds[0]}/pages/-1/thumb`)
+        .set('Cookie', adminCookie);
+      const image = await api(app)
+        .get(`/api/documents/${documentId}/files/${fileIds[1]}/pages/0/thumb`)
+        .set('Cookie', adminCookie);
+
+      expect(past.status).toBe(404);
+      expect(expectError(past).code).toBe('NOT_FOUND');
+      // A page named `-1` is a page of the file that does not exist, and nothing else (docs/07 §7.1).
+      expect(nonsense.status).toBe(404);
+      expect(image.status).toBe(422);
+      expect(expectError(image).code).toBe('FILE_NOT_PDF');
+    });
+
+    it('🔒 shows a page to exactly whoever may read the document', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({
+        visibility: 'RESTRICTED',
+        files: [{ name: 'private.pdf' }],
+      });
+      const fileId = fileIds[0] ?? '';
+      await givenCountedPages(fileId, 1);
+      await app.files.put(
+        artifactKeys.filePageThumb(fileId, 0),
+        Buffer.from('a page'),
+        'image/jpeg',
+      );
+      const outsider = await inviteUser(`pages${seq}@legere.local`);
+
+      const res = await api(app)
+        .get(`/api/documents/${documentId}/files/${fileId}/pages/0/thumb`)
+        .set('Cookie', outsider.cookie);
+
+      // The same guard as the file's own content: these are the same bytes, one page at a time.
+      expect(res.status).toBe(404);
+      expect(expectError(res).code).toBe('DOCUMENT_NOT_FOUND');
+    });
+  });
+
   describe('splitting', () => {
     it('gives the file a document of its own and leaves the rest behind', async () => {
       const { documentId, fileIds } = await givenLibraryDocument({

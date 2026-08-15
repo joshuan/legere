@@ -45,11 +45,25 @@ documents/{documentId}/canonical.pdf   # always — every document is a PDF (05 
 documents/{documentId}/preview.jpg     # first page of the canonical
 documents/{documentId}/thumb.jpg       # the same, smaller, for lists
 files/{fileId}/original.{ext}          # a managed file's own bytes: an upload, or something we made
+files/{fileId}/pages/{n}.jpg           # one page of that file's own original, small, 0-based
 ```
 
-- A `LIBRARY` file has no object at all: its bytes stay on the volume and are streamed from there.
-  The canonical PDF is the one copy Legere keeps of a library document's content, which is why the
-  document keeps reading after the volume is unplugged (05 §5.7).
+- A `LIBRARY` file's **original** has no object at all: its bytes stay on the volume and are streamed
+  from there. The canonical PDF is the one copy Legere keeps of a library document's content, which
+  is why the document keeps reading after the volume is unplugged (05 §5.7). Its page thumbnails, on
+  the other hand, are ours like any other derived artifact and live under `files/{fileId}/` beside
+  where a managed original would be — the layout is by file, not by origin, so one prefix holds
+  everything Legere made out of one file whichever storage the file itself is in.
+- **A page thumbnail is rendered once and then simply exists.** `GET /api/documents/:id/files/:fileId/pages/:page/thumb`
+  (`07 §7.3`) answers a small JPG of one page of the **original** file — the pages as they arrived,
+  which is what a person rearranging them has to look at, and therefore not a slice of the canonical,
+  whose pages are already the answer. It is drawn through the same PDF→JPG operation the preview uses
+  (`05 §5.5` step 2), written under the key above, and every later request is a signed URL to that
+  object. It may be cached indefinitely by whoever holds it: 🔒 **the bytes it was rendered from are
+  immutable** — a file is never rewritten (`03 §3.3.16`), and a page order is written beside the file
+  rather than into it, so page 3 of a file is the same picture for ever. The route sits behind the
+  document access guard, exactly as the file's own content does; the object itself is reachable only
+  through a signed URL that guard has already issued.
 - **The key is part of the answer to "where is this file".** `DocumentFileDto.storageKey`
   (`07 §7.3`) carries it, and the viewer prints it beside the file, naming the object storage as
   such, in the same place a library file names its volume and path (`11 §11.5a`). A `LIBRARY` file's
@@ -111,8 +125,11 @@ an object's life:
   the trash (`05 §5.7a`) and its object stays exactly where it was — the key does not change, because
   the file did not. `maintenance` deletes it once the item is older than `TRASH_RETENTION_DAYS`
   (default 30, `12 §12.4`), and an admin may delete it sooner. This is the only scheduled deletion of
-  anything in Legere, and it is confined to objects of ours: a `LIBRARY` file has no object at all,
-  so the sweep has nothing to do for it and its bytes on the volume are never touched.
+  anything in Legere, and it is confined to objects of ours. What goes when a file is destroyed for
+  good is **everything under its own prefix** — the original where there is one, and every page
+  thumbnail rendered off it — because those objects exist for a file that will not: a page of nothing
+  is not a picture anybody can ask for again. A `LIBRARY` file's bytes on the volume are still never
+  touched, and never can be; what it loses is only what Legere made.
 - `maintenance` collects those orphans, and now under both layouts: an object under
   `documents/{id}/` whose document does not exist at all, and an object under `files/{fileId}/` whose
   file does not exist at all. The second half is what makes a failed delete self-healing instead of a

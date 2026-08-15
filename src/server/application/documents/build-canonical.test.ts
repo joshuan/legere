@@ -154,6 +154,83 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
     expect(pdfs.calls).toContainEqual({ method: 'scalePages', fileName: 'A4:PORTRAIT' });
   });
 
+  // The pages inside one file (docs/05 §5.5 step 1.1). A PDF part is counted every build and read in
+  // the order the file records — and the file itself is never opened for writing, here or anywhere.
+  describe('the pages of one file', () => {
+    const givenPdf = async (
+      documentId: string,
+      pageOrder: number[] | null = null,
+    ): Promise<string> => {
+      const key = `files/pdf-${documentId}/original.pdf`;
+      const file = files.add(
+        {
+          id: `pdf-${documentId}`,
+          contentHash: `pdf-${documentId}`,
+          origin: 'MANAGED',
+          storageKey: key,
+          mimeType: 'application/pdf',
+          ext: 'pdf',
+          name: 'scan.pdf',
+          pageOrder,
+        },
+        documentId,
+      );
+      await storage.put(key, Buffer.from('scan'), 'application/pdf');
+      return file.id;
+    };
+
+    it('counts the pages of the PDF it reads and writes the number on the file', async () => {
+      pdfs.pageCount = 7;
+      const document = documentFixture();
+      const fileId = await givenPdf(document.id);
+
+      await build.execute(document);
+
+      // The one moment anything opens the file, so the one moment its page count can be known —
+      // and what an edit checks a page order against later (docs/03 §3.3.16).
+      expect(files.files.get(fileId)?.pageCount).toBe(7);
+    });
+
+    it('puts the pages into the stored order before the merge, without touching the file', async () => {
+      pdfs.pageCount = 3;
+      const document = documentFixture();
+      const fileId = await givenPdf(document.id, [2, 0, 1]);
+
+      await build.execute(document);
+
+      expect(pdfs.calls).toContainEqual({ method: 'rearrangePages', fileName: '2,0,1' });
+      // 🔒 The object the file's bytes live in is exactly what was put there: the rearranged PDF is
+      // the part, and the original stays the original (docs/03 §3.3.16, ADR-007).
+      expect(storage.get(`files/pdf-${document.id}/original.pdf`).body.toString()).toBe('scan');
+      expect(files.files.get(fileId)?.pageOrder).toEqual([2, 0, 1]);
+    });
+
+    it('asks for nothing when the pages already stand as they should', async () => {
+      pdfs.pageCount = 3;
+      const document = documentFixture();
+      await givenPdf(document.id, [0, 1, 2]);
+
+      await build.execute(document);
+
+      // The natural order spelled out is still the natural order, and not worth a call.
+      expect(methods()).not.toContain('rearrangePages');
+    });
+
+    it('ignores an order that does not describe the pages it just counted', async () => {
+      pdfs.pageCount = 2;
+      const document = documentFixture();
+      const fileId = await givenPdf(document.id, [2, 0, 1]);
+
+      const built = await build.execute(document);
+
+      // The document outranks the correction: the pages stand as they arrived, exactly as an
+      // unreadable crop leaves the whole image in place (docs/05 §5.5 step 1.1).
+      expect(built.kind).toBe('built');
+      expect(methods()).not.toContain('rearrangePages');
+      expect(files.files.get(fileId)?.pageCount).toBe(2);
+    });
+  });
+
   it('keeps the canonical when the format cannot be applied', async () => {
     images.size = A4_PORTRAIT;
     pdfs.failures.add('scalePages');

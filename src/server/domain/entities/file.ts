@@ -1,4 +1,4 @@
-import type { Crop } from '../../../shared/contracts/documents';
+import type { Crop, PageOrder } from '../../../shared/contracts/documents';
 import type { FileOrigin, TrashReason, ValueSource } from '../../../shared/contracts/enums';
 
 // A file: the bytes themselves, once, however many places they turn up in (docs/03 §3.3.16).
@@ -16,6 +16,12 @@ export type File = {
   name: string;
   crop: Crop | null;
   cropSource: ValueSource;
+  // The pages inside this one file (docs/03 §3.3.16). `pageOrder` is a permutation of its 0-based
+  // page indices, null for the order they arrived in; `pageCount` is how many the last canonical
+  // build counted, null until one has. Both are meaningful only for a PDF, exactly as a crop is
+  // meaningful only for an image, and neither is ever a change to the bytes.
+  pageOrder: PageOrder | null;
+  pageCount: number | null;
   // In the trash since, and how it got there (docs/05 §5.7a). A file is part of exactly one document
   // or it is in here; nothing else is a place for a file to be.
   trashedAt: Date | null;
@@ -56,4 +62,41 @@ export function isImageFile(file: Pick<File, 'mimeType'>): boolean {
 // A crop a person dragged is never replaced by a machine (docs/03 §3.3.16).
 export function canOverwriteCrop(file: Pick<File, 'cropSource'>): boolean {
   return file.cropSource !== 'MANUAL';
+}
+
+// Only a PDF has pages to put in order: an image is one page, a format nothing renders is none
+// (docs/03 §3.3.16). Asked of the detected type on the row, like every other question about what a
+// file is.
+export function isPdfFile(file: Pick<File, 'mimeType'>): boolean {
+  return file.mimeType.split(';')[0]?.trim().toLowerCase() === 'application/pdf';
+}
+
+// Whether a list of indices is exactly the pages of a file of `pageCount` pages, each once — which
+// is the whole of what makes a stored page order storable (docs/07 §7.3). A short list, a repeated
+// index and an index past the end are the three ways to get it wrong, and this refuses all three by
+// answering the one question that covers them: is every page named, once?
+export function isPagePermutation(order: readonly number[], pageCount: number): boolean {
+  if (order.length !== pageCount) return false;
+  const seen = new Set<number>();
+  for (const index of order) {
+    if (!Number.isInteger(index) || index < 0 || index >= pageCount) return false;
+    if (seen.has(index)) return false;
+    seen.add(index);
+  }
+  return true;
+}
+
+// The order a build should read this file's pages in, or `null` for "as they arrived". A stored
+// order that does not describe the pages just counted — a row written by another version, a count
+// that has moved — is no order at all: the pages stand as they are and the document is still the
+// document, exactly as an unreadable crop leaves the whole image in place (docs/05 §5.5 step 1.1).
+export function effectivePageOrder(
+  file: Pick<File, 'pageOrder'>,
+  pageCount: number,
+): readonly number[] | null {
+  if (file.pageOrder === null) return null;
+  if (!isPagePermutation(file.pageOrder, pageCount)) return null;
+  // The natural order is not worth a call to Stirling.
+  if (file.pageOrder.every((index, position) => index === position)) return null;
+  return file.pageOrder;
 }

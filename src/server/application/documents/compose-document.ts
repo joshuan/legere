@@ -9,7 +9,7 @@ import type {
 } from '../../../shared/contracts/files';
 import { canEditDocumentMeta } from '../../domain/entities/document';
 import { classifyFormat } from '../../domain/entities/document-format';
-import { isImageFile, type File } from '../../domain/entities/file';
+import { isImageFile, isPagePermutation, isPdfFile, type File } from '../../domain/entities/file';
 import { detectPageEdges } from '../../domain/entities/page-detection';
 import {
   ConflictError,
@@ -204,10 +204,11 @@ export class ReorderDocumentFiles {
   }
 }
 
-// PATCH /api/documents/:id/files/:fileId (docs/07 §7.3): the quadrilateral of this file's content,
-// or `null` to put the whole image back. A crop is a number written beside a file, never a change to
-// its bytes (docs/03 §3.3.16).
-export class SetDocumentFileCrop {
+// PATCH /api/documents/:id/files/:fileId (docs/07 §7.3): what one file says about itself — the
+// quadrilateral its content sits in, and the order its own pages are read in. Both are numbers
+// written beside a file and never a change to its bytes (docs/03 §3.3.16); either may be sent
+// alone, and both together are one edit and therefore one rebuild.
+export class UpdateDocumentFile {
   constructor(
     private readonly documents: DocumentRepository,
     private readonly files: FileRepository,
@@ -224,24 +225,39 @@ export class SetDocumentFileCrop {
   ): Promise<DocumentDetailDto> {
     assertMayCompose(viewer, detail);
     const file = fileOf(detail, fileId);
-    assertImage(file);
     const documentId = detail.document.id;
 
+    // Every refusal before anything is written, so a body carrying one good half and one bad one
+    // changes nothing at all rather than half of what it asked for.
+    const crop = input.crop;
+    if (crop !== undefined) assertImage(file);
+    const pageOrder = input.pageOrder;
+    if (pageOrder !== undefined) assertPdf(file);
+    if (pageOrder !== undefined && pageOrder !== null) assertPagesOf(file, pageOrder);
+
     await this.unitOfWork.run(async (tx) => {
-      // 🔒 A crop somebody dragged is theirs: MANUAL is what stops the next rebuild from replacing
-      // it with what a detector found (docs/03 §3.3.16). Clearing it returns the file to NONE, so
-      // the machine may answer again.
-      const cropSource = input.crop === null ? 'NONE' : 'MANUAL';
-      await this.files.setCrop(fileId, input.crop, cropSource, tx);
+      const changes: Record<string, { from?: string | null; to?: string | null }> = {};
+
+      if (crop !== undefined) {
+        // 🔒 A crop somebody dragged is theirs: MANUAL is what stops the next rebuild from replacing
+        // it with what a detector found (docs/03 §3.3.16). Clearing it returns the file to NONE, so
+        // the machine may answer again.
+        const cropSource = crop === null ? 'NONE' : 'MANUAL';
+        await this.files.setCrop(fileId, crop, cropSource, tx);
+        changes.crop = { from: file.cropSource, to: cropSource };
+      }
+
+      if (pageOrder !== undefined) {
+        await this.files.setPageOrder(fileId, pageOrder, tx);
+        changes.pageOrder = { from: pagesLabel(file.pageOrder), to: pagesLabel(pageOrder) };
+      }
+
       await this.events.record(
         {
           documentId,
           type: 'META_CHANGED',
           actorId: viewer.id,
-          payload: {
-            path: file.name,
-            changes: { crop: { from: file.cropSource, to: cropSource } },
-          },
+          payload: { path: file.name, changes },
         },
         tx,
       );
@@ -584,6 +600,40 @@ export function assertImage(file: Pick<File, 'mimeType'>): void {
   if (!isImageFile(file)) {
     throw new UnprocessableError('FILE_NOT_IMAGE', 'Only an image file can be cropped');
   }
+}
+
+// And the other way round: only a PDF has pages to put in order. An image is one page and a format
+// nothing renders is none (docs/03 §3.3.16).
+export function assertPdf(file: Pick<File, 'mimeType'>): void {
+  if (!isPdfFile(file)) {
+    throw new UnprocessableError('FILE_NOT_PDF', 'Only a PDF file has pages to put in order');
+  }
+}
+
+// The order names every page of *this* file, exactly once. What "every page" means is the count the
+// last canonical build wrote down (docs/05 §5.5 step 1.1): a file no build has opened yet takes no
+// order at all, because there is nothing to check one against and an unchecked permutation is a
+// canonical built out of pages that do not exist (docs/07 §7.3).
+export function assertPagesOf(file: Pick<File, 'pageCount'>, order: readonly number[]): void {
+  if (file.pageCount === null) {
+    throw new UnprocessableError(
+      'VALIDATION_FAILED',
+      'Nothing has counted the pages of this file yet, so an order for them cannot be checked',
+    );
+  }
+  if (!isPagePermutation(order, file.pageCount)) {
+    throw new UnprocessableError(
+      'VALIDATION_FAILED',
+      `The order must name each of the ${file.pageCount} pages of this file exactly once`,
+    );
+  }
+}
+
+// A page order as the journal reads it: the pages counted the way a person counts them, from one.
+// `null` for a file that has none, which is what the log should say rather than a word invented for
+// it (docs/03 §3.3.18).
+function pagesLabel(order: readonly number[] | null): string | null {
+  return order === null ? null : order.map((index) => index + 1).join(', ');
 }
 
 // The composition changed, so the canonical PDF and everything read off it are stale. The old

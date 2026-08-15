@@ -1,4 +1,4 @@
-import type { Crop } from '../../../shared/contracts/documents';
+import type { Crop, PageOrder } from '../../../shared/contracts/documents';
 import type {
   FileOrigin,
   FileRefStatus,
@@ -60,6 +60,20 @@ export abstract class FileRepository {
     cropSource: ValueSource,
     tx?: TransactionHandle,
   ): Promise<File>;
+
+  // The order this file's pages are read in, or `null` for the order they arrived in
+  // (docs/03 §3.3.16). The caller has already checked that it is a permutation of the pages the
+  // file is recorded as having; nothing here rewrites a byte of the file itself.
+  abstract setPageOrder(
+    id: string,
+    pageOrder: PageOrder | null,
+    tx?: TransactionHandle,
+  ): Promise<File>;
+
+  // How many pages the canonical build just counted in this file (docs/05 §5.5 step 1.1). Written on
+  // every build that opens it, because that is the only moment anything knows, and it is what an
+  // edit checks a page order against without asking Stirling itself.
+  abstract recordPageCount(id: string, pageCount: number, tx?: TransactionHandle): Promise<void>;
 
   abstract softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void>;
 

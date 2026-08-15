@@ -389,7 +389,18 @@ they are served to the client via short-lived signed URLs after an access check.
         Measured on the photographed lab report this work exists for: 643 characters recognised
         before and 768 after, with three of the nine rows of its results table arriving with their
         labels where none did before; on the same page under a harsher side light, 465 against 751;
-      - a PDF → itself, as is; its pages are the part;
+      - a PDF → itself, as is; its pages are the part. Its pages are also **counted** here, every
+        time, and the number is written onto the file (`03 §3.3.16`) — this is the one moment
+        anything in Legere opens that file, and knowing how many pages it holds is what lets an edit
+        refuse a wrong page order later without a round trip of its own. Where the file carries a
+        `pageOrder`, the pages are put into it **before the merge**, through Stirling's
+        page-rearrange endpoint: the part is the file read in that order, and 🔒 **the file itself is
+        untouched** — a `LIBRARY` original lies on a read-only volume (ADR-007) and a `MANAGED`
+        original stays the original, so the order is an instruction this pass obeys and never a
+        rewrite (`03 §3.3.16`). An order that is not a permutation of the pages just counted — a file
+        replaced by different bytes under a stored order, a row written by another version — is
+        ignored and the pages stand as they arrived, on the same reasoning as an unreadable crop:
+        the document is worth more than the correction;
       - an office format, plain text or Markdown → Stirling `file → pdf`;
       - a format nothing can render → the file contributes no page, and the step records
         `UNSUPPORTED_FORMAT` as the reason it is incomplete rather than failing the whole document.
@@ -640,6 +651,15 @@ document to read, search and categorize.
   is one of ours.
 - **Reorder.** Positions are rewritten wholesale from the order the client sends; the order is the
   page order of the canonical PDF and nothing else depends on it.
+- **Order the pages inside a file.** The unit above is the file; this one is finer. A PDF file
+  carries a `pageOrder` (03 §3.3.16) — a permutation of its own 0-based page indices — and the
+  canonical build applies it to that part before the parts are merged (§5.5 step 1.1). It is sent
+  whole, like a reorder, and checked against the page count the last build recorded: a list that is
+  not a permutation of exactly that many pages is refused, and so is one sent for a file no build has
+  opened yet (`07 §7.3`). `null` puts the pages back the way they arrived, which costs nothing to
+  say because nothing was ever changed — a shuffled scan is corrected by writing the order beside the
+  file, never by rewriting it. Only a PDF has pages to order: an image is one page, and a format
+  nothing can render is none.
 - **Crop.** An image file carries a quadrilateral in normalized coordinates (03 §3.3.16) — four
   points, not a rectangle, because a photograph taken at an angle has none. Building the canonical
   applies it as a **perspective transform**: the quad is mapped onto a rectangle whose size is

@@ -43,6 +43,8 @@ function makeFile(crop: Crop | null): DocumentFileDto {
     isImage: true,
     crop,
     cropSource: crop === null ? 'NONE' : 'MANUAL',
+    pageOrder: null,
+    pageCount: null,
     refs: [],
     storageKey: `files/${FILE_ID}/original.jpg`,
     earlierVersions: [],

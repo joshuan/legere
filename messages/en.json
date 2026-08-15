@@ -70,7 +70,8 @@
       "LINK_NOT_FOUND": "There is no link between these documents.",
       "LINK_SELF": "A document cannot be linked to itself.",
       "CANONICAL_NOT_READY": "The document is still being assembled. Try again in a moment.",
-      "FILE_NOT_IMAGE": "Only an image can be cropped."
+      "FILE_NOT_IMAGE": "Only an image can be cropped.",
+      "FILE_NOT_PDF": "Only a PDF has pages to put in order."
     }
   },
   "auth": {

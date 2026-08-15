@@ -66,14 +66,15 @@ import {
   CombineDocuments,
   ReorderDocumentFiles,
   ReplaceDocumentFile,
-  SetDocumentFileCrop,
   SplitDocumentFile,
   SuggestDocumentFileCrop,
+  UpdateDocumentFile,
 } from '../../application/documents/compose-document';
 import {
   DownloadDocumentCanonical,
   DownloadDocumentFile,
   GetDocumentArtifactUrl,
+  GetDocumentFilePageThumb,
   GetDocumentMarkdown,
   type ArtifactKind,
 } from '../../application/documents/download-document';
@@ -93,6 +94,7 @@ import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
+import { PageIndexParam } from '../http/page-index-param.pipe';
 import { UuidParam } from '../http/uuid-param.pipe';
 import { sendDownload } from '../http/send-download';
 import { CurrentDocument, DocumentAccessGuard } from './document-access.guard';
@@ -138,8 +140,9 @@ export class DocumentsController {
     private readonly upload: UploadDocument,
     private readonly addFile: AddDocumentFile,
     private readonly reorderFiles: ReorderDocumentFiles,
-    private readonly setCrop: SetDocumentFileCrop,
+    private readonly updateFile: UpdateDocumentFile,
     private readonly suggestCrop: SuggestDocumentFileCrop,
+    private readonly pageThumb: GetDocumentFilePageThumb,
     private readonly replaceFile: ReplaceDocumentFile,
     private readonly splitFile: SplitDocumentFile,
     private readonly combine: CombineDocuments,
@@ -319,6 +322,8 @@ export class DocumentsController {
     return successEnvelope(await this.reorderFiles.execute(user, document, body));
   }
 
+  // What one file says about itself: the crop of its content, the order of its own pages, or both
+  // in one edit — and one rebuild either way (docs/07 §7.3).
   @Patch(':id/files/:fileId')
   @UseGuards(DocumentAccessGuard)
   async patchFile(
@@ -327,7 +332,7 @@ export class DocumentsController {
     @UuidParam('fileId', 'FILE_NOT_FOUND', 'File') fileId: string,
     @ZodBody(updateDocumentFileRequestSchema) body: UpdateDocumentFileRequest,
   ): Promise<Envelope<DocumentDetailDto>> {
-    return successEnvelope(await this.setCrop.execute(user, document, fileId, body));
+    return successEnvelope(await this.updateFile.execute(user, document, fileId, body));
   }
 
   // A better copy of one page, in the same place: the body is the file, exactly as for the append
@@ -379,6 +384,20 @@ export class DocumentsController {
     @Res() res: Response,
   ): Promise<void> {
     sendDownload(res, await this.fileContent.execute(document, fileId));
+  }
+
+  // One page of one original, small (docs/07 §7.3, docs/09 §9.2). 🔒 Guarded exactly as the file's
+  // own content is, because it is the same bytes: whoever may read the document may look at its
+  // pages, and nobody else may.
+  @Get(':id/files/:fileId/pages/:page/thumb')
+  @UseGuards(DocumentAccessGuard)
+  async getFilePageThumb(
+    @CurrentDocument() document: DocumentDetail,
+    @UuidParam('fileId', 'FILE_NOT_FOUND', 'File') fileId: string,
+    @PageIndexParam('page') page: number,
+    @Res() res: Response,
+  ): Promise<void> {
+    sendDownload(res, await this.pageThumb.execute(document, fileId, page));
   }
 
   // An update rather than a creation: nothing new appears, several documents become one

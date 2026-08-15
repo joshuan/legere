@@ -551,6 +551,10 @@ export function toFileDto(file: DocumentFileView): DocumentFileDto {
     isImage: isImageFile(file),
     crop: file.crop,
     cropSource: file.cropSource,
+    // The pages inside this file: the order they are read in, and how many of them the last build
+    // counted (docs/03 §3.3.16). Both null for everything that is not a PDF anybody has built from.
+    pageOrder: file.pageOrder,
+    pageCount: file.pageCount,
     refs: file.refs,
     // A LIBRARY file has no object at all — its bytes stay on the volume (docs/09 §9.2) — so it has
     // no key rather than a derived one. A MANAGED file's key is what the row recorded, falling back

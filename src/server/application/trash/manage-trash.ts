@@ -17,7 +17,7 @@ import type { Download } from '../documents/download-document';
 import type { FileStorage } from '../ports/file-storage';
 import type { JobQueue } from '../ports/job-queue';
 import type { UnitOfWork } from '../ports/unit-of-work';
-import { originalDelivery, originalKeyOf } from '../storage/artifact-keys';
+import { artifactKeys, originalDelivery, originalKeyOf } from '../storage/artifact-keys';
 
 // The trash (docs/05 §5.7a, docs/07 §7.3, docs/11 §11.13b): every file that has left a document and
 // has not been destroyed yet. An admin's, because everything here either destroys bytes or makes a
@@ -219,11 +219,17 @@ export async function purge(
   });
 
   for (const file of held) {
-    if (file.origin !== 'MANAGED') continue;
+    // Everything under the file's own prefix, not only its original: the page thumbnails rendered
+    // off it exist for a file that is about to stop existing, and a page of nothing is not a picture
+    // anybody can ask for again (docs/09 §9.2). A LIBRARY file has no original here and may still
+    // have those, which is why the prefix is listed rather than one key being guessed — and its
+    // bytes on the volume are, as ever, untouched.
     try {
-      await storage.delete(originalKeyOf(file));
+      const objects = await storage.list(artifactKeys.filePrefix(file.id));
+      for (const object of objects) await storage.delete(object.key);
     } catch {
-      // The row is gone, so the object is an orphan and the hourly sweep collects it (docs/09 §9.2).
+      // The row is gone, so the objects are orphans and the hourly sweep collects them
+      // (docs/09 §9.2).
       continue;
     }
   }

@@ -43,6 +43,9 @@ function fileOf(id: string, overrides: Partial<DocumentFileDto> = {}): DocumentF
     isImage: false,
     crop: null,
     cropSource: 'NONE',
+    // The pages as they arrived, and nobody has counted them (docs/03 §3.3.16).
+    pageOrder: null,
+    pageCount: null,
     refs: [
       { libraryId: LIBRARY_ID, libraryName: 'Invoices', path: 'a/rental.pdf', status: 'HASHED' },
     ],

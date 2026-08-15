@@ -16,6 +16,11 @@ export const artifactKeys = {
   // no object at all — its bytes stay on the volume.
   fileOriginal: (fileId: string, ext: string): string =>
     `files/${fileId}/original.${ext === '' ? 'bin' : ext}`,
+  // One page of a file's own original, rendered small (docs/09 §9.2). 0-based, the way a page order
+  // counts (docs/03 §3.3.16). Written once and then simply there: the bytes it was drawn from are
+  // immutable, so page 3 of a file is the same picture for ever. A LIBRARY file has these even
+  // though it has no original here — the layout is by file, not by where the file's own bytes live.
+  filePageThumb: (fileId: string, page: number): string => `files/${fileId}/pages/${page}.jpg`,
   // Everything belonging to one document, for maintenance sweeps.
   documentPrefix: (documentId: string): string => `documents/${documentId}/`,
   // The same for one file.

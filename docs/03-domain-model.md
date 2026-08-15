@@ -734,6 +734,8 @@ volume or sent from their browser; it is never what they read. What they read is
 | name | string | the file's own name, as it arrived: the last path segment, or the uploaded file name |
 | crop | json? | the quadrilateral of this file's content, normalized to `0…1` of the image: `{ points: [[x,y] ×4] }` in the order top-left, top-right, bottom-right, bottom-left. Only meaningful for images; applied when the canonical PDF is built (§5.5) |
 | cropSource | ValueSource | `NONE` (uncropped), `AUTO` (found by edge detection), `MANUAL` (a person dragged the corners). `MANUAL` is never overwritten by a rebuild |
+| pageOrder | json? | the order this file's pages are read in: an array of its **0-based** page indices, each exactly once. `NULL` is the order they arrived in. Only meaningful for PDFs, exactly as `crop` is only meaningful for images; applied when the canonical PDF is built (§5.5 step 1.1) |
+| pageCount | int? | how many pages this file has, counted afresh every time the canonical build reads it (§5.5 step 1.1). `NULL` until one has. This is what a `pageOrder` is checked against, so an edit can refuse a wrong permutation without a round trip to Stirling |
 | trashedAt | timestamptz? | in the trash since (`05 §5.7a`): the file has left every document and is waiting to be deleted or restored. `NULL` for a file that is part of one |
 | trashedReason | TrashReason? | why it left: `REPLACED` by a better copy, or `DOCUMENT_DELETED` with the document it was part of |
 | trashedFrom | string? | the title the document had when the file left it — a record, not a link: that document is usually gone, and "which paper was this a page of" is the question somebody looking at the trash actually asks |
@@ -755,15 +757,30 @@ volume or sent from their browser; it is never what they read. What they read is
 - A file in the trash has no `DocumentFile` row, keeps its bytes, and is what the trash screen lists.
   Restoring it makes a **new** document (`05 §5.7a`); emptying the trash is the one place a file row
   is deleted outright.
-- Bytes are never modified. A crop is a number written beside a file, not a change to it: the
-  original stays exactly as it arrived and the canonical PDF is rebuilt instead (§5.6).
+- Bytes are never modified. A crop and a page order are numbers written beside a file, not changes
+  to it: the original stays exactly as it arrived and the canonical PDF is rebuilt instead (§5.6).
+
+**The pages inside one file.** A duplex scanner interleaves them, a phone app appends the page that
+was rescanned, a batch lands back to front. Until `pageOrder` existed the smallest thing anybody
+could put in order was a whole file (§3.3.17), and the only cure for a shuffled PDF was to scan it
+again. The order is written beside the file exactly as a crop is, and 🔒 **the original bytes are
+never rewritten**: a `LIBRARY` file lies on a volume mounted read-only
+([ADR-007](./02-architecture-overview.md#adr-007-external-library--read-only-volume-scheduled-scanning)),
+and a `MANAGED` original stays the original somebody uploaded, so the order is an instruction the
+canonical build reads (§5.5 step 1.1) and never an edit to a file. Which is also why clearing it
+restores what arrived, whole and unaltered: there was nothing to undo.
+
+The permutation is checked against `pageCount` — every build counts the pages of every PDF it opens
+and writes the number down — so what a file holds is known at edit time without asking Stirling, and
+a file no build has read yet takes no order at all rather than one nothing can verify (`07 §7.3`).
 
 ### 3.3.17. DocumentFile
 
 The join that makes a document a sequence rather than a bag: `(documentId, position)` unique,
 `fileId` unique among live rows (a file has one home, §3.3.16). Position is 0-based and contiguous;
-reordering rewrites positions. Adding, removing, reordering or re-cropping a row invalidates the
-document's canonical PDF and enqueues a rebuild (§5.6).
+reordering rewrites positions. Adding, removing, reordering or re-cropping a row — or reordering the
+pages inside the file a row points at (§3.3.16) — invalidates the document's canonical PDF and
+enqueues a rebuild (§5.6).
 
 ### 3.3.23. DocumentLink
 

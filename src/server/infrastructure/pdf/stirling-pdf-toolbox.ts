@@ -26,6 +26,7 @@ const ENDPOINTS = {
   pdfToImage: '/api/v1/convert/pdf/img',
   ocr: '/api/v1/misc/ocr-pdf',
   imagesToPdf: '/api/v1/convert/img/pdf',
+  rearrangePages: '/api/v1/general/rearrange-pages',
   mergePdfs: '/api/v1/general/merge-pdfs',
   updateMetadata: '/api/v1/misc/update-metadata',
   pageCount: '/api/v1/analysis/page-count',
@@ -50,6 +51,8 @@ const TIMEOUTS_MS: Record<keyof typeof ENDPOINTS, number> = {
   // the whole pipeline, and the reason the budget is not simply one number for the container.
   ocr: 30 * 60_000,
   imagesToPdf: 5 * 60_000,
+  // Rewriting a page tree: the pages are copied by reference, not re-rendered.
+  rearrangePages: 2 * 60_000,
   mergePdfs: 5 * 60_000,
   // Rewriting a metadata dictionary; anything slower is a container in trouble.
   updateMetadata: 60_000,
@@ -160,6 +163,19 @@ export class StirlingPdfToolbox extends PdfToolbox {
     // magnifying what is printed on it.
     form.append('scaleFactor', '1');
     return this.postForBytes('scalePages', form);
+  }
+
+  async rearrangePages(source: BinarySource, order: readonly number[]): Promise<Buffer> {
+    if (order.length === 0) throw new Error('rearrangePages needs at least one page');
+
+    const form = new FormData();
+    form.append('fileInput', await blobOf(source), 'input.pdf');
+    // Stirling counts pages from one; a stored page order counts from zero, the way the file's own
+    // indices do (docs/03 §3.3.16). `CUSTOM` is what makes it read `pageNumbers` as the order to put
+    // the pages in rather than as a selection to keep.
+    form.append('pageNumbers', order.map((index) => index + 1).join(','));
+    form.append('customMode', 'CUSTOM');
+    return this.postForBytes('rearrangePages', form);
   }
 
   async mergePdfs(parts: readonly BinarySource[]): Promise<Buffer> {

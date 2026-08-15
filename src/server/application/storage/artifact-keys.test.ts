@@ -36,6 +36,17 @@ describe('artifactKeys', () => {
     ).toBe(true);
   });
 
+  // A picture of one page of that file's own original, 0-based the way a page order counts
+  // (docs/03 §3.3.16, docs/09 §9.2). Under the file's prefix, so emptying the trash and the orphan
+  // sweep both take it with the file.
+  it('lays a page of one file out under that file', () => {
+    expect(artifactKeys.filePageThumb(fileId, 0)).toBe(`files/${fileId}/pages/0.jpg`);
+    expect(artifactKeys.filePageThumb(fileId, 41)).toBe(`files/${fileId}/pages/41.jpg`);
+    expect(artifactKeys.filePageThumb(fileId, 0).startsWith(artifactKeys.filePrefix(fileId))).toBe(
+      true,
+    );
+  });
+
   it('prefers the key a file recorded over the one the layout would give it', () => {
     expect(originalKeyOf({ id: fileId, ext: 'pdf', storageKey: 'files/older/layout.pdf' })).toBe(
       'files/older/layout.pdf',

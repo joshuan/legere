@@ -60,6 +60,15 @@ export abstract class PdfToolbox {
   // and searchable at once. Run before, it would be the thing that made it unreadable.
   abstract scalePages(source: BinarySource, geometry: PageScale): Promise<Buffer>;
 
+  // The pages of one PDF put into the order the file records, before it becomes a part of the
+  // canonical (docs/05 §5.5 step 1.1). `order` names every 0-based page index of the source exactly
+  // once, so what comes back has the same pages in a different sequence and nothing else changes.
+  //
+  // 🔒 The source is not the file: it is the bytes read out of the file, and the answer becomes the
+  // part. A `LIBRARY` original lies on a read-only volume and a `MANAGED` original stays the
+  // original (docs/03 §3.3.16) — a page order is an instruction, never an edit.
+  abstract rearrangePages(source: BinarySource, order: readonly number[]): Promise<Buffer>;
+
   // The parts of a document, in position order, into one PDF (docs/05 §5.5 step 1). A single-part
   // document never gets here — its part already is the canonical.
   abstract mergePdfs(parts: readonly BinarySource[]): Promise<Buffer>;

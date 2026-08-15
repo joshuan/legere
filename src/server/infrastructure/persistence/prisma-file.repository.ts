@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type File as PrismaFile } from '@prisma/client';
-import { cropSchema, type Crop } from '../../../shared/contracts/documents';
+import {
+  cropSchema,
+  pageOrderSchema,
+  type Crop,
+  type PageOrder,
+} from '../../../shared/contracts/documents';
 import type { TrashReason, ValueSource } from '../../../shared/contracts/enums';
 import { artifactKeys } from '../../application/storage/artifact-keys';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
@@ -29,6 +34,8 @@ function toDomain(row: PrismaFile): File {
     name: row.name,
     crop: toCrop(row.crop),
     cropSource: row.cropSource,
+    pageOrder: toPageOrder(row.pageOrder),
+    pageCount: row.pageCount,
     trashedAt: row.trashedAt,
     trashedReason: row.trashedReason,
     trashedFrom: row.trashedFrom,
@@ -47,10 +54,24 @@ function toCrop(value: unknown): Crop | null {
   return parsed.success ? parsed.data : null;
 }
 
+// The same for the page order: jsonb, so it is parsed rather than trusted. An order that cannot be
+// read is no order — the pages stand as they arrived, which is what the build does with one that
+// does not fit the file either (docs/05 §5.5 step 1.1).
+function toPageOrder(value: unknown): PageOrder | null {
+  const parsed = pageOrderSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 // A JSON column set to `null` must become SQL NULL rather than the JSON literal `null`, which is a
 // different value and would read back as "a crop nobody can parse".
 function toCropColumn(crop: Crop | null): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
   return crop === null ? Prisma.DbNull : { points: crop.points };
+}
+
+function toPageOrderColumn(
+  order: PageOrder | null,
+): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
+  return order === null ? Prisma.DbNull : [...order];
 }
 
 // The columns a unique violation names, so a P2002 can be attributed to the index that raised it.
@@ -147,6 +168,25 @@ export class PrismaFileRepository implements FileRepository {
       data: { crop: toCropColumn(crop), cropSource },
     });
     return toDomain(row);
+  }
+
+  async setPageOrder(
+    id: string,
+    pageOrder: PageOrder | null,
+    tx?: TransactionHandle,
+  ): Promise<File> {
+    const row = await clientOf(this.prisma, tx).file.update({
+      where: { id },
+      data: { pageOrder: toPageOrderColumn(pageOrder) },
+    });
+    return toDomain(row);
+  }
+
+  // `updateMany` rather than `update`: the build writes this while the file may be going away under
+  // it — a document deleted mid-rebuild — and a count nobody can write is not worth failing a
+  // canonical over (docs/05 §5.5 step 1.1).
+  async recordPageCount(id: string, pageCount: number, tx?: TransactionHandle): Promise<void> {
+    await clientOf(this.prisma, tx).file.updateMany({ where: { id }, data: { pageCount } });
   }
 
   async softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void> {

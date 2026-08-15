@@ -4,7 +4,7 @@ import { classifyFormat } from '../../domain/entities/document-format';
 import { pageGeometryOf, type SourceShape } from '../../domain/entities/document-page-geometry';
 import { hasUsableTextLayer } from '../../domain/entities/document-text';
 import { ocrLanguagesOf } from '../../domain/entities/document-language';
-import type { File } from '../../domain/entities/file';
+import { effectivePageOrder, type File } from '../../domain/entities/file';
 import type { DocumentFile, FileRepository } from '../../domain/repositories/file.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
@@ -110,7 +110,7 @@ export class BuildCanonical {
   private async partOf(file: DocumentFile): Promise<Part | null> {
     const format = classifyFormat(file.mimeType);
 
-    if (format === 'PDF') return { pdf: await toBuffer(await this.open(file)), shape: null };
+    if (format === 'PDF') return { pdf: await this.pdfPartOf(file), shape: null };
 
     if (format === 'IMAGE') {
       // The crop is applied here and nowhere else: the original file is never rewritten, and the
@@ -146,6 +146,27 @@ export class BuildCanonical {
     }
 
     return null;
+  }
+
+  // A PDF is already pages, so the part is the file — read in the order the file records, where it
+  // records one (docs/05 §5.5 step 1.1).
+  //
+  // Its pages are counted here, every build, and the number written onto the row: this is the one
+  // moment anything opens the file, and knowing how many pages it holds is what lets an edit refuse
+  // a wrong order later without a round trip of its own (docs/03 §3.3.16). A stored order that does
+  // not describe the pages just counted is ignored rather than fatal — the same treatment an
+  // unreadable crop gets, and for the same reason: the document outranks the correction.
+  //
+  // 🔒 The rearranged bytes are the part and nothing else. The file is not rewritten, cannot be for
+  // a LIBRARY original (ADR-007), and is not for a MANAGED one either.
+  private async pdfPartOf(file: DocumentFile): Promise<Buffer> {
+    const bytes = await toBuffer(await this.open(file));
+    const pageCount = await this.pdfs.pdfPageCount(bytes);
+    if (pageCount !== file.pageCount) await this.files.recordPageCount(file.id, pageCount);
+
+    const order = effectivePageOrder(file, pageCount);
+    if (order === null) return bytes;
+    return this.pdfs.rearrangePages(bytes, order);
   }
 
   // Levelling the lighting and taking out the skew, best-effort like the format and the stamping

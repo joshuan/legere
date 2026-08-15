@@ -116,6 +116,20 @@ export const cropSchema = z.object({
 });
 export type Crop = z.infer<typeof cropSchema>;
 
+// 🔒 How many pages one file may be said to have. A page order arrives as an array from a browser,
+// and an array with no ceiling is a request that costs whatever the sender felt like; 2000 is past
+// any paper an archive holds and short of a payload nobody meant to send. What actually decides a
+// valid order is the file's own recorded page count (docs/03 §3.3.16) — this is only the outer
+// bound, checked before anything is looked up.
+export const MAX_FILE_PAGES = 2000;
+
+// The order the pages of one file are read in (docs/03 §3.3.16): its own 0-based page indices, each
+// exactly once. That it is a *permutation* of a particular file's pages cannot be checked here — the
+// schema does not know which file — so the shape is checked here and the permutation where the file
+// is known (docs/07 §7.3).
+export const pageOrderSchema = z.array(z.number().int().nonnegative()).min(1).max(MAX_FILE_PAGES);
+export type PageOrder = z.infer<typeof pageOrderSchema>;
+
 // A copy of this page that a better one replaced (docs/05 §5.6). It is in the trash, so it is no
 // part of the document — but "what did this page look like before" is a question about the page, and
 // this is where it is answered. Its bytes download from the document's own file-content route, by
@@ -151,6 +165,12 @@ export const documentFileDtoSchema = z.object({
   isImage: z.boolean(),
   crop: cropSchema.nullable(),
   cropSource: valueSourceSchema,
+  // The pages inside this one file (docs/03 §3.3.16): the order they are read in — null where they
+  // stand as they arrived — and how many of them the last canonical build counted, null until one
+  // has. Only a PDF ever carries either, and the two together are what says whether this row has
+  // pages worth arranging at all.
+  pageOrder: pageOrderSchema.nullable(),
+  pageCount: z.number().int().nonnegative().nullable(),
   // Where the same bytes lie on the volumes the caller can see; empty for a managed file.
   refs: z.array(documentFileRefSchema),
   // The other half of the same question, for the file that has no volume: the key a MANAGED file's

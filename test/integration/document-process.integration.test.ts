@@ -245,6 +245,30 @@ describe('Document processing (integration)', () => {
     expect(reader.opened).toContain(SOURCE_PATH);
   });
 
+  it('reads a file in its stored page order, and keeps that order across a reprocess', async () => {
+    const documentId = await givenLibraryDocument();
+    const file = await prisma.file.findFirstOrThrow({ where: { name: SOURCE_PATH } });
+    await prisma.file.update({ where: { id: file.id }, data: { pageOrder: [2, 0, 1] } });
+    pdfs.pageCount = 3;
+    pdfs.defaultMarkdown = 'Long enough to read as a text layer over three pages. '.repeat(20);
+
+    await handler.handle({ documentId });
+
+    expect(pdfs.calls).toContainEqual({ method: 'rearrangePages', fileName: '2,0,1' });
+    // The build counted the file's pages on its way past (docs/03 §3.3.16).
+    expect((await prisma.file.findUniqueOrThrow({ where: { id: file.id } })).pageCount).toBe(3);
+
+    // Every step again, from the top: a page order is a property of the file, and nothing in the
+    // pipeline writes it — so a reprocess obeys it exactly as the first run did (docs/05 §5.6).
+    pdfs.calls.length = 0;
+    await handler.handle({ documentId });
+
+    const after = await prisma.file.findUniqueOrThrow({ where: { id: file.id } });
+    expect(after.pageOrder).toEqual([2, 0, 1]);
+    expect(after.pageCount).toBe(3);
+    expect(pdfs.calls).toContainEqual({ method: 'rearrangePages', fileName: '2,0,1' });
+  });
+
   it('stores the Markdown where the full-text index picks it up', async () => {
     const documentId = await givenLibraryDocument();
 

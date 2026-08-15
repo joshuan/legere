@@ -1,9 +1,12 @@
 import type { Readable } from 'node:stream';
 import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
 import type { DocumentDetail } from '../../domain/repositories/document.repository';
+import { toBuffer } from '../ports/binary-source';
 import type { Delivery, FileStorage } from '../ports/file-storage';
+import type { ImageTool } from '../ports/image-tool';
+import type { PdfToolbox } from '../ports/pdf-toolbox';
 import { artifactKeys, originalDelivery, originalKeyOf } from '../storage/artifact-keys';
-import { fileOf } from './compose-document';
+import { assertPdf, fileOf } from './compose-document';
 import type { DocumentFileBytes } from './document-file-bytes';
 
 // Bytes reach a client one of two ways (docs/09 §9.1–9.2): what sits on the read-only volume is
@@ -26,6 +29,18 @@ export type Download =
 export type DownloadSettings = {
   signedUrlTtlSec: number;
 };
+
+// What a page thumbnail costs to make: the resolution it is rendered at, and the size it is kept at
+// (docs/09 §9.2). The same two numbers the document's own thumbnail uses, for the same reason —
+// these are pictures of pages, shown a strip at a time.
+export type PageThumbSettings = DownloadSettings & {
+  thumbMaxDim: number;
+};
+
+// All a page render needs of the bytes port: one file, opened (docs/09 §9.1–9.2). Named so the
+// dependency is the method rather than the class — the real `DocumentFileBytes` satisfies it, and a
+// test needs no stand-in for the rest of it.
+export type FileBytesReader = Pick<DocumentFileBytes, 'open'>;
 
 // Which derived artifact a route is after (docs/09 §9.2).
 export type ArtifactKind = 'preview' | 'thumb';
@@ -140,6 +155,62 @@ export class GetDocumentArtifactUrl {
         this.settings.signedUrlTtlSec,
         delivery,
       ),
+    };
+  }
+}
+
+// GET /api/documents/:id/files/:fileId/pages/:page/thumb (docs/07 §7.3): one page of one **original**
+// file, small. Not a page of the canonical — the canonical's pages are already the answer, and what
+// somebody putting a shuffled scan in order needs to look at is the pages as they arrived
+// (docs/11 §11.5a).
+//
+// Rendered on the first request and kept in the bucket (docs/09 §9.2); every request after that is a
+// redirect to the object. 🔒 That cache never goes stale, and the reason is a rule rather than a
+// guess: file bytes are never rewritten (docs/03 §3.3.16) and a page order is written beside the
+// file, so page 3 of a file is the same picture for ever.
+//
+// 🔒 The access check is the guard on the route, exactly as for the file's own content: these are
+// the same bytes, one page at a time, and the object behind them is only reachable through a signed
+// URL this endpoint issues after that guard has passed.
+export class GetDocumentFilePageThumb {
+  constructor(
+    private readonly bytes: FileBytesReader,
+    private readonly storage: FileStorage,
+    private readonly pdfs: PdfToolbox,
+    private readonly images: ImageTool,
+    private readonly settings: PageThumbSettings,
+  ) {}
+
+  async execute(detail: DocumentDetail, fileId: string, page: number): Promise<Download> {
+    const file = fileOf(detail, fileId);
+    assertPdf(file);
+
+    // Bounded by what the last build counted, and a file no build has opened has no pages to ask
+    // for: an unbounded page number is a render and an object per request, which is a bill anybody
+    // with a session could run up (docs/07 §7.3).
+    if (file.pageCount === null || page >= file.pageCount) {
+      throw new NotFoundError('NOT_FOUND', 'This file has no such page');
+    }
+
+    const key = artifactKeys.filePageThumb(file.id, page);
+    if (!(await this.storage.exists(key))) {
+      const rendered = await this.pdfs.pdfPageJpg(await toBuffer(await this.bytes.open(file)), {
+        // Stirling counts pages from one; this route counts from zero, the way a page order does.
+        page: page + 1,
+      });
+      const thumb = await this.images.toJpegPreview(rendered, {
+        maxDim: this.settings.thumbMaxDim,
+      });
+      await this.storage.put(key, thumb, 'image/jpeg');
+    }
+
+    // A picture Legere rendered itself, shown where it stands — the terms the document's own preview
+    // is served on (docs/09 §9.2).
+    const delivery: Delivery = { disposition: 'inline', contentType: 'image/jpeg' };
+    return {
+      kind: 'redirect',
+      delivery,
+      url: await this.storage.getSignedUrl(key, this.settings.signedUrlTtlSec, delivery),
     };
   }
 }

@@ -53,6 +53,9 @@ export const ERROR_CODES = [
   'CURSOR_SORT_MISMATCH',
   'LIBRARY_PATH_INVALID',
   'FILE_NOT_IMAGE',
+  // The other half of the same rule: only an image is cropped, and only a PDF has pages to put in
+  // order (docs/03 §3.3.16).
+  'FILE_NOT_PDF',
   'EMAIL_CODE_INVALID',
   'REGISTRATION_TICKET_INVALID',
   'INVITE_INVALID',

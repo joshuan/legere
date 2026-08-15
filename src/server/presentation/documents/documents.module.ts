@@ -13,9 +13,9 @@ import {
   CombineDocuments,
   ReorderDocumentFiles,
   ReplaceDocumentFile,
-  SetDocumentFileCrop,
   SplitDocumentFile,
   SuggestDocumentFileCrop,
+  UpdateDocumentFile,
 } from '../../application/documents/compose-document';
 import { DocumentFileBytes } from '../../application/documents/document-file-bytes';
 import {
@@ -28,8 +28,10 @@ import {
   DownloadDocumentCanonical,
   DownloadDocumentFile,
   GetDocumentArtifactUrl,
+  GetDocumentFilePageThumb,
   GetDocumentMarkdown,
   type DownloadSettings,
+  type PageThumbSettings,
 } from '../../application/documents/download-document';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
 import {
@@ -41,6 +43,7 @@ import { FileStorage } from '../../application/ports/file-storage';
 import { ImageTool } from '../../application/ports/image-tool';
 import { LibraryReader } from '../../application/ports/library-reader';
 import { JobQueue } from '../../application/ports/job-queue';
+import { PdfToolbox } from '../../application/ports/pdf-toolbox';
 import { MimeDetector } from '../../application/ports/mime-detector';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { CollectionRepository } from '../../domain/repositories/collection.repository';
@@ -62,6 +65,12 @@ import { DocumentsController } from './documents.controller';
 
 function downloadSettings(config: AppConfig): DownloadSettings {
   return { signedUrlTtlSec: config.get('SIGNED_URL_TTL_SEC') };
+}
+
+// A page of a file is shown at the size a list thumbnail is shown at, because that is what it is
+// (docs/09 §9.2).
+function pageThumbSettings(config: AppConfig): PageThumbSettings {
+  return { ...downloadSettings(config), thumbMaxDim: config.get('THUMB_MAX_DIM') };
 }
 
 // Documents (docs/06 §6.5): the read model, the bytes, the composition of files, metadata editing,
@@ -203,15 +212,14 @@ function downloadSettings(config: AppConfig): DownloadSettings {
       inject: [DocumentRepository, FileRepository, DocumentEventRepository, JobQueue, UnitOfWork],
     },
     {
-      provide: SetDocumentFileCrop,
+      provide: UpdateDocumentFile,
       useFactory: (
         documents: DocumentRepository,
         files: FileRepository,
         events: DocumentEventRepository,
         queue: JobQueue,
         unitOfWork: UnitOfWork,
-      ): SetDocumentFileCrop =>
-        new SetDocumentFileCrop(documents, files, events, queue, unitOfWork),
+      ): UpdateDocumentFile => new UpdateDocumentFile(documents, files, events, queue, unitOfWork),
       inject: [DocumentRepository, FileRepository, DocumentEventRepository, JobQueue, UnitOfWork],
     },
     {
@@ -323,6 +331,18 @@ function downloadSettings(config: AppConfig): DownloadSettings {
       useFactory: (files: FileStorage, config: AppConfig): GetDocumentArtifactUrl =>
         new GetDocumentArtifactUrl(files, downloadSettings(config)),
       inject: [FileStorage, AppConfig],
+    },
+    {
+      provide: GetDocumentFilePageThumb,
+      useFactory: (
+        bytes: DocumentFileBytes,
+        files: FileStorage,
+        pdfs: PdfToolbox,
+        images: ImageTool,
+        config: AppConfig,
+      ): GetDocumentFilePageThumb =>
+        new GetDocumentFilePageThumb(bytes, files, pdfs, images, pageThumbSettings(config)),
+      inject: [DocumentFileBytes, FileStorage, PdfToolbox, ImageTool, AppConfig],
     },
     {
       provide: GetDocumentMarkdown,

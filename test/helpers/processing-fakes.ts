@@ -41,7 +41,12 @@ import {
   type UpdateLibraryInput,
 } from '../../src/server/domain/repositories/library.repository';
 import { RelativePath } from '../../src/server/domain/value-objects/relative-path';
-import type { Crop, DocumentGroupBy, DocumentStep } from '../../src/shared/contracts/documents';
+import type {
+  Crop,
+  DocumentGroupBy,
+  DocumentStep,
+  PageOrder,
+} from '../../src/shared/contracts/documents';
 import type { StepStatus, TrashReason } from '../../src/shared/contracts/enums';
 import { toBuffer, type BinarySource } from '../../src/server/application/ports/binary-source';
 import { ImageTool, type JpegPreviewOptions } from '../../src/server/application/ports/image-tool';
@@ -372,6 +377,10 @@ export function fileFixture(overrides: Partial<File> = {}): File {
     name: 'a.pdf',
     crop: null,
     cropSource: 'NONE',
+    // The pages as they arrived, and nobody has counted them: what every file reads as until a
+    // canonical build opens it (docs/03 §3.3.16).
+    pageOrder: null,
+    pageCount: null,
     // Part of a document, which is where a file is unless somebody put it in the trash
     // (docs/05 §5.7a).
     trashedAt: null,
@@ -432,6 +441,22 @@ export class InMemoryFileRepository extends FileRepository {
     const updated = { ...file, crop, cropSource };
     this.files.set(id, updated);
     return Promise.resolve(updated);
+  }
+
+  setPageOrder(id: string, pageOrder: PageOrder | null): Promise<File> {
+    const file = this.files.get(id);
+    if (file === undefined) throw new Error(`No file ${id}`);
+    const updated = { ...file, pageOrder: pageOrder === null ? null : [...pageOrder] };
+    this.files.set(id, updated);
+    return Promise.resolve(updated);
+  }
+
+  // What the last canonical build counted in this file (docs/05 §5.5 step 1.1). Recorded rather
+  // than asserted on directly, so a test can watch the count arrive on a file that had none.
+  recordPageCount(id: string, pageCount: number): Promise<void> {
+    const file = this.files.get(id);
+    if (file !== undefined) this.files.set(id, { ...file, pageCount });
+    return Promise.resolve();
   }
 
   softDelete(id: string, deletedAt: Date): Promise<void> {
@@ -882,6 +907,15 @@ export class FakePdfToolbox extends PdfToolbox {
     // Carries what it was given, so a test can follow one page's bytes into the canonical.
     const bodies = await Promise.all(images.map((image) => describe(image.body)));
     return Buffer.from(`image-pdf(${bodies.join(',')})`);
+  }
+
+  // The pages of one file put into the order the file records (docs/05 §5.5 step 1.1). The call
+  // names the order it was given and the result carries it, so a test can see both that the
+  // rearrange happened and what it was asked for — and that it did not happen at all where the
+  // pages already stand as they should.
+  async rearrangePages(source: BinarySource, order: readonly number[]): Promise<Buffer> {
+    this.check('rearrangePages', order.join(','));
+    return Buffer.from(`rearranged(${order.join(',')})(${await describe(source)})`);
   }
 
   // The parts of a document, in position order (docs/05 §5.5 step 1). The result names them, so a

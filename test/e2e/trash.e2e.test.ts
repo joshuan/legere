@@ -285,6 +285,27 @@ describe('Trash (e2e)', () => {
     expect(app.files.keys()).not.toContain(key);
   });
 
+  it('takes the pictures of a file’s pages with the file, whatever storage the file was in', async () => {
+    const ours = await givenUploadedDocument('ours.pdf', PDF);
+    const theirs = await givenLibraryDocument('theirs.pdf', Buffer.from('a scan on a volume'));
+    // A page thumbnail is ours whichever storage the file's own bytes are in (docs/09 §9.2): a
+    // library original has no object here and its rendered pages do.
+    const pages = [
+      artifactKeys.filePageThumb(ours.fileId, 0),
+      artifactKeys.filePageThumb(theirs.fileId, 0),
+    ];
+    for (const key of pages) await app.files.put(key, Buffer.from('a page'), 'image/jpeg');
+    for (const documentId of [ours.documentId, theirs.documentId]) {
+      await api(app).delete(`/api/documents/${documentId}`).set('Cookie', adminCookie);
+    }
+
+    await api(app).delete('/api/admin/trash').set('Cookie', adminCookie);
+
+    // The pages of a file that no longer exists are pictures of nothing anybody can ask for again.
+    for (const key of pages) expect(app.files.keys()).not.toContain(key);
+    expect(app.files.keys()).not.toContain(artifactKeys.fileOriginal(ours.fileId, 'pdf'));
+  });
+
   it('is an admin’s, all of it', async () => {
     const cookie = await inviteUser(`trashreader${seq}@legere.local`);
     const { documentId, fileId } = await givenLibraryDocument('not-yours.pdf');
