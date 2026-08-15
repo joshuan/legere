@@ -1456,6 +1456,170 @@ describe('DocumentViewerScreen', () => {
       expect(screen.queryByRole('button', { name: enMessages.viewer.files.crop })).toBeNull();
     });
 
+    // The pages inside one file, arranged on the row that holds it (docs/11 §11.5a).
+    describe('arranging the pages of one file', () => {
+      const PAGES = enMessages.viewer.files.pages;
+
+      // A PDF a build has been through: three pages counted, standing as they arrived.
+      const threePages: DocumentDetailDto = {
+        ...detail,
+        files: [fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3 })],
+      };
+
+      const pageThumbs = (): string[] =>
+        [...globalThis.document.querySelectorAll('img')]
+          .map((image) => image.getAttribute('src') ?? '')
+          .filter((src) => src.includes('/pages/'));
+
+      const tile = (page: number, position: number): HTMLElement =>
+        screen.getByRole('button', {
+          name: PAGES.page
+            .replace('{page}', String(page))
+            .replace('{position}', String(position))
+            .replace('{total}', '3'),
+        });
+
+      async function openPages(document: DocumentDetailDto = threePages): Promise<void> {
+        serve(document);
+        renderWithProviders(<DocumentViewerScreen id={ID} />);
+        await userEvent.click(
+          await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }),
+        );
+        await screen.findByText('lease.pdf');
+      }
+
+      it('opens the row into a strip of its pages, and asks for no thumbnail before that', async () => {
+        await openPages();
+
+        // Opening the tab costs nothing for the rows nobody expands (docs/11 §11.5a).
+        expect(pageThumbs()).toEqual([]);
+
+        await userEvent.click(screen.getByRole('button', { name: PAGES.arrange }));
+
+        expect(screen.getByTestId('page-strip')).toBeInTheDocument();
+        expect(pageThumbs()).toEqual([
+          `/api/documents/${ID}/files/${FIRST_FILE}/pages/0/thumb`,
+          `/api/documents/${ID}/files/${FIRST_FILE}/pages/1/thumb`,
+          `/api/documents/${ID}/files/${FIRST_FILE}/pages/2/thumb`,
+        ]);
+
+        // And it closes again from the same control.
+        await userEvent.click(screen.getByRole('button', { name: PAGES.arrange }));
+        expect(screen.queryByTestId('page-strip')).toBeNull();
+      });
+
+      // 🔒 The strip never renders for a file that has no pages to arrange (docs/11 §11.5a).
+      it('offers nothing to arrange on a file whose pages no build has counted', async () => {
+        serve(detail);
+        renderWithProviders(<DocumentViewerScreen id={ID} />);
+        await userEvent.click(
+          await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }),
+        );
+
+        await screen.findByText('rental.pdf');
+        expect(screen.queryByRole('button', { name: PAGES.arrange })).toBeNull();
+        expect(screen.queryByTestId('page-strip')).toBeNull();
+      });
+
+      it('offers nothing to arrange on a single-page file or on an image', async () => {
+        await openFiles({
+          ...twoFiles,
+          files: [
+            fileOf(FIRST_FILE, {
+              name: 'page-1.jpg',
+              ext: 'jpg',
+              mimeType: 'image/jpeg',
+              isImage: true,
+              pageCount: 4,
+            }),
+            fileOf(SECOND_FILE, { position: 1, name: 'page-2.pdf', pageCount: 1 }),
+          ],
+        });
+
+        // A photograph has no pages, whatever a count says; one page is not an order.
+        expect(screen.queryByRole('button', { name: PAGES.arrange })).toBeNull();
+      });
+
+      // 🔒 The keyboard path end to end, from the row to the request: a hit area only a mouse can
+      // use is half a fix (docs/11 §11.3, §11.5a).
+      it('moves a page with the arrow keys and saves the whole permutation', async () => {
+        let sent: unknown = null;
+        server.use(
+          http.patch(`/api/documents/${ID}/files/${FIRST_FILE}`, async ({ request }) => {
+            sent = await request.json();
+            return HttpResponse.json(envelope(threePages));
+          }),
+        );
+        await openPages();
+        await userEvent.click(screen.getByRole('button', { name: PAGES.arrange }));
+
+        await userEvent.click(tile(1, 1));
+        await userEvent.keyboard('{ArrowRight}');
+        expect(tile(1, 2)).toHaveFocus();
+
+        // Nothing has gone out while the pages were being moved.
+        expect(sent).toBeNull();
+        await userEvent.click(screen.getByRole('button', { name: PAGES.save }));
+
+        await waitFor(() => expect(sent).toEqual({ pageOrder: [1, 0, 2] }));
+        expect(await screen.findByText(PAGES.saved)).toBeInTheDocument();
+      });
+
+      it('wears a Rearranged tag while the stored order differs from the natural one', async () => {
+        await openPages({
+          ...detail,
+          files: [fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3, pageOrder: [2, 0, 1] })],
+        });
+
+        expect(screen.getByText(enMessages.viewer.files.rearranged)).toBeInTheDocument();
+      });
+
+      it('wears none while the pages read as they arrived', async () => {
+        // A stored order that says exactly what the file already said is not a rearrangement.
+        await openPages({
+          ...detail,
+          files: [fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3, pageOrder: [0, 1, 2] })],
+        });
+
+        expect(screen.queryByText(enMessages.viewer.files.rearranged)).toBeNull();
+        expect(screen.getByRole('button', { name: PAGES.arrange })).toBeInTheDocument();
+      });
+
+      it('drops the tag when the order the file arrived in is restored', async () => {
+        const rearranged: DocumentDetailDto = {
+          ...detail,
+          files: [fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3, pageOrder: [2, 0, 1] })],
+        };
+        let restored: unknown = null;
+        serve(rearranged);
+        // Registered after `serve`, so these answer ahead of the handlers it put up: the document
+        // reads as it arrived again once the order has been cleared.
+        server.use(
+          http.get(`/api/documents/${ID}`, () =>
+            HttpResponse.json(envelope(restored === null ? rearranged : threePages)),
+          ),
+          http.patch(`/api/documents/${ID}/files/${FIRST_FILE}`, async ({ request }) => {
+            restored = await request.json();
+            return HttpResponse.json(envelope(threePages));
+          }),
+        );
+        renderWithProviders(<DocumentViewerScreen id={ID} />);
+        await userEvent.click(
+          await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }),
+        );
+        await screen.findByText('lease.pdf');
+        await userEvent.click(screen.getByRole('button', { name: PAGES.arrange }));
+
+        await userEvent.click(screen.getByRole('button', { name: PAGES.restore }));
+
+        // Cleared the way Clear crop clears a crop (docs/11 §11.5c).
+        await waitFor(() => expect(restored).toEqual({ pageOrder: null }));
+        await waitFor(() =>
+          expect(screen.queryByText(enMessages.viewer.files.rearranged)).toBeNull(),
+        );
+      });
+    });
+
     it('sends a chosen file in place of the row it was chosen on', async () => {
       let replaced: string | null = null;
       let sentName: string | null = null;

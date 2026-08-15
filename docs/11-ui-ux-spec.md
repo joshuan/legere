@@ -660,7 +660,8 @@ clickable would be a promise it will not keep. **Download** on the row is the wa
 it is right there.
 
 Per row: **Download** (this original alone), **Replace**, **Crop** for an image (§11.5c),
-**Move up / Move down**, and **Split off** — which says plainly what it does, "this file becomes its
+**Arrange pages** for a PDF that has more than one of them (below), **Move up / Move down**, and
+**Split off** — which says plainly what it does, "this file becomes its
 own document", because "remove" would promise a deletion that never happens (`05 §5.6`). Splitting
 off the only file is not offered at all rather than refused after the fact. Above the list: **Add
 files** — the same global queue and the same panel (§11.3a), addressed to this document rather than to
@@ -691,6 +692,41 @@ whole reason it was kept. They live in the trash (`05 §5.7a`) and the line says
 a file of ours names the day it will be deleted, and a library original says it is on the volume and
 that Legere will not read it again. Getting one back into a document is done from the trash and makes
 a new document, so nothing here pretends to be an undo of the page order.
+
+**The pages inside one file, in the order they are read.** A PDF whose pages a build has counted and
+found more than one of gains **Arrange pages** on its row, and pressing it opens the row into a
+**strip**: one numbered thumbnail per page, in the order stored beside the file (`03 §3.3.16`) — the
+order they arrived in where none is stored. Each thumbnail is a page of the **original**, as it
+arrived, because that is what somebody putting pages back in order is looking at (`07 §7.3`); the
+number on it is the page's own, so a file that reads 3, 1, 2 says so without anything having to be
+counted. The thumbnails are asked for **only when the strip is opened** — a document of forty scans
+is a tab that must cost nothing to look at, and the rows nobody expands cost nothing at all.
+🔒 **Nothing is drawn for a single-page or non-PDF file**: there is nothing to arrange in one page
+and no pages at all in a photograph, and a control that opens onto a single thumbnail is a control
+that teaches the eye to skip the row.
+
+**A page is dragged into place, and moved with the keyboard.** Dragging is a pointer gesture and a
+finger is a pointer: the page follows it and the strip closes around where it will land, so the
+gesture works on the tablet the scans were made on rather than only at a desk. 🔒 **The arrow keys do
+the same work** — a focused page moves one position at a time and keeps the focus as it travels —
+for the reason the grid's cards give in §11.3: a hit area only a mouse can use is half a fix. Each
+page says its own number and where it now stands, so the order can be read by somebody who is not
+looking at the thumbnails at all.
+
+**Nothing is sent until it is saved.** The strip holds the pending order itself, with **Save** and
+**Cancel** under it: Save sends the **whole permutation** — every page of that file exactly once, the
+way a file reorder sends the whole order (`07 §7.3`) — and Cancel puts the strip back to what is
+stored, having sent nothing at all. Both are quiet while the two agree, because a Save that would
+change nothing is a request that says nothing. **Restore original order** clears the stored order the
+way **Clear crop** clears a crop (§11.5c): it sends `null`, the file goes back to reading as it
+arrived, and — the order having only ever been an instruction beside bytes nobody rewrote
+(`03 §3.3.16`) — there is nothing to undo. What happens after any of the three is what the tab
+already says once above the list: changing the files rebuilds the document.
+
+**A file whose pages have been moved says so on its row.** A **Rearranged** tag stands beside
+**Cropped**, on the same terms: it is there while the stored order differs from the one the file
+arrived in, and gone the moment it does not — so a list of forty scans says at a glance which of them
+somebody has already been through.
 
 Every one of these rebuilds the document — the canonical PDF, the preview, the text, the analysis —
 so the tab says so once, quietly, above the list: "Changing the files rebuilds the document." While

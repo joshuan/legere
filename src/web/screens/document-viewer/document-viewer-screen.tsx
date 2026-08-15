@@ -76,6 +76,7 @@ import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { CropEditor } from '../../features/crop-editor';
 import { UploadButton } from '../../features/document-upload';
+import { PageArranger, hasArrangeablePages, isRearranged } from '../../features/page-arranger';
 import { useUploadQueue } from '../../features/upload-queue';
 import { useErrorMessage, formatBytes } from '../../shared/lib';
 import { isViewerTab, type ViewerTab } from './viewer-tab';
@@ -2083,6 +2084,18 @@ function FilesPane({ document, isAdmin }: { document: DocumentDetailDto; isAdmin
   // end of the list, so the row it lands on is the only honest place to show it going (docs/11
   // §11.5a) — a queued card above the list would be about a file that is not arriving.
   const [replacing, setReplacing] = useState<string | null>(null);
+  // Which rows have their pages open (docs/11 §11.5a). A set rather than one id, because arranging
+  // one file is no reason to close the strip somebody left open two rows up — and it starts empty,
+  // which is what makes the page thumbnails cost nothing on a tab nobody expands.
+  const [arranging, setArranging] = useState<ReadonlySet<string>>(() => new Set());
+
+  const toggleArranging = (fileId: string): void => {
+    setArranging((current) => {
+      const next = new Set(current);
+      if (!next.delete(fileId)) next.add(fileId);
+      return next;
+    });
+  };
 
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.detail(document.id) });
@@ -2203,6 +2216,22 @@ function FilesPane({ document, isAdmin }: { document: DocumentDetailDto; isAdmin
                     </Button>,
                   ]
                 : []),
+              // The pages inside one file, for the file that has more than one of them (docs/11
+              // §11.5a). Offered on nothing else: an image has no pages and a file no build has
+              // counted has none anybody can name.
+              ...(hasArrangeablePages(file)
+                ? [
+                    <Button
+                      key="pages"
+                      size="small"
+                      type="link"
+                      aria-expanded={arranging.has(file.id)}
+                      onClick={() => toggleArranging(file.id)}
+                    >
+                      {t('viewer.files.pages.arrange')}
+                    </Button>,
+                  ]
+                : []),
               <Button
                 key="up"
                 size="small"
@@ -2274,6 +2303,10 @@ function FilesPane({ document, isAdmin }: { document: DocumentDetailDto; isAdmin
                   <span>{file.name}</span>
                   {!file.available && <Tag color="default">{t('viewer.files.missing')}</Tag>}
                   {file.crop !== null && <Tag color="blue">{t('viewer.files.cropped')}</Tag>}
+                  {/* Beside it, on the same terms: the pages of this file are read in an order
+                      somebody chose, so the list says at a glance which files were touched
+                      (docs/11 §11.5a). */}
+                  {isRearranged(file) && <Tag color="blue">{t('viewer.files.rearranged')}</Tag>}
                 </Space>
               }
               description={
@@ -2309,6 +2342,9 @@ function FilesPane({ document, isAdmin }: { document: DocumentDetailDto; isAdmin
                   {file.earlierVersions.length > 0 && (
                     <EarlierVersions documentId={document.id} versions={file.earlierVersions} />
                   )}
+                  {/* The row opened into its own pages, and only then are their thumbnails asked
+                      for: a document of forty scans costs nothing to look at (docs/11 §11.5a). */}
+                  {arranging.has(file.id) && <PageArranger documentId={document.id} file={file} />}
                 </Space>
               }
             />

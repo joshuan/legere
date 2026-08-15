@@ -1051,6 +1051,17 @@
     "documents": "Documents",
     "browse": "Browse",
     "search": "Search",
+      "rearranged": "Rearranged",
+      "pages": {
+        "arrange": "Arrange pages",
+        "hint": "Drag a page into place, or move a focused one with the arrow keys.",
+        "page": "Page {page}, now {position} of {total}",
+        "save": "Save",
+        "cancel": "Cancel",
+        "restore": "Restore original order",
+        "saved": "The page order is saved; the document is being rebuilt.",
+        "restored": "The pages read as they arrived again; the document is being rebuilt."
+      },
     "collections": "Collections",
     "administration": "Administration",
     "settings": "Settings",

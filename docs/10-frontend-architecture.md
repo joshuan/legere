@@ -11,7 +11,7 @@ Next owns `src/app` (routing only, thin files); all UI code lives in `src/web` b
 src/web/
 ├── screens/      # top-level screen compositions, one slice per route (FSD "pages", renamed)
 ├── widgets/      # self-contained UI blocks (document-grid, viewer-panel, queue-dashboard, app-sidebar, upload-panel, search-overlay)
-├── features/     # user actions (login-form, invite-wizard, crop-editor, document-upload, share-collection)
+├── features/     # user actions (login-form, invite-wizard, crop-editor, page-arranger, document-upload, share-collection)
 ├── entities/     # domain UI + api hooks (document, library, collection, document type, user)
 └── shared/       # ui-kit wrappers, api client, i18n utils, config, lib (format, hooks)
 ```
