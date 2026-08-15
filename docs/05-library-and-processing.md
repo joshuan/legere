@@ -52,7 +52,7 @@ library volume, which stays read-only for the whole product (ADR-004).
   library document is ever handed to a user through the back door.
 - The document is created with `source = UPLOAD`, `createdById` = the uploader, the file name as its
   title, and every pipeline step `QUEUED`; `document-process` is enqueued in the same transaction.
-- From that point it is an ordinary document: the same five steps, the same viewer, the same search,
+- From that point it is an ordinary document: the same six steps, the same viewer, the same search,
   the same collections and sharing. The only differences are where the bytes live and who owns it.
 - `UPLOAD_MAX_BYTES` (default 100 MiB) caps a single upload; a larger body is refused with
   `413`/`VALIDATION_FAILED` before anything is stored.
@@ -199,7 +199,7 @@ stays under the hour a `document-process` job has ([`06 §6.8`](./06-backend-arc
 | Stirling: PDF → first-page image | 2 min |
 | Stirling: page count, metadata stamp | 1 min |
 | Docling: submitting the canonical PDF / one long poll / collecting the result | 5 min / 30 s / 2 min |
-| The analyst reading one document | 5 min |
+| The analyst reading one document — the analysis, and the fields step again | 5 min each |
 | One batch of embeddings | 2 min |
 | The captcha check on the login path | 5 s |
 
@@ -241,11 +241,11 @@ and two numbers on every gate:
 | `cooldownSeconds` | 0…600 | how long a finished unit's slot stays shut before the next unit may take it — after a success and after a failure alike, because a container that has just fallen over is the last one to hurry |
 
 A gate is named after the **service** an operator configures rather than after the step that calls
-it, which is why the one serving step 4 is `classifier` and not `analyst`: the thing being throttled
-is whatever `CLASSIFIER_API_BASE_URL` points at (`12 §12.4`), and a knob that turns a service down
-belongs in the same namespace as the knob that turned it on. The pipeline goes on calling its step
-the analysis and the port goes on being a `DocumentAnalyst` — those are read by whoever reads the
-code, and the gates are read by whoever reads the environment.
+it, which is why the one serving steps 4 and 5 is `classifier` and not `analyst`: the thing being
+throttled is whatever `CLASSIFIER_API_BASE_URL` points at (`12 §12.4`), and a knob that turns a
+service down belongs in the same namespace as the knob that turned it on. The pipeline goes on
+calling its steps the analysis and the fields and the port goes on being a `DocumentAnalyst` — those
+are read by whoever reads the code, and the gates are read by whoever reads the environment.
 
 Callers that find a gate shut wait in **FIFO order**, so a queue of them does not become a lottery
 and the document that arrived first is not starved by the ones behind it. With `concurrency: 1` the
@@ -257,8 +257,8 @@ place where it matters. Each Stirling call is a unit: a conversion, a merge, a r
 One whole Docling parse is a *single* unit from submitting the canonical PDF to collecting the
 result, every poll included — the expensive work happens on the Docling server in between, and
 metering the polls would count the cheapest requests of the exchange while the conversion everybody
-is waiting on ran through ungated. One analyst call, one transcription and one batch of embeddings
-are each a unit.
+is waiting on ran through ungated. One analyst call — the analysis, or the fields step (§5.5 step
+5) — one transcription and one batch of embeddings are each a unit.
 
 **Both numbers default to `0`, and a gate of zeroes is not a gate.** An instance that upgrades into
 this behaves exactly as it behaved: nothing waits anywhere until an operator decides something
@@ -302,7 +302,7 @@ Steps run sequentially for a document; each step records its status
 not block steps independent of it (no preview — text is still extracted, and vice versa).
 
 ```
-files ──► (1) canonical PDF ──► (2) JPG preview ──► (3) Markdown ──► (4) analysis ──► (5) vectorization
+files ──► (1) canonical PDF ──► (2) JPG preview ──► (3) Markdown ──► (4) analysis ──► (5) fields ──► (6) vectorization
             │
             └─ per file: crop (images) → correct (images) → to PDF → merge in order → text layer
                → page format → metadata; and step 3 re-reads a recognised document with a vision model
@@ -436,23 +436,23 @@ Every `SKIPPED` step records **why** (docs/03 §3.3.10), because "skipped" alone
 from "broken" by the person looking at it: not needed for this format, format unsupported, provider
 not configured, no document types defined, no text to embed, or a document type a person set by hand.
 
-🔒 **The last two steps read what step 3 wrote, and neither runs when step 3 did not write it.**
-Analysis and vectorization both take the extracted Markdown as their input, so the row is read again
-after step 3 and its `markdown` status is the first question either of them asks — current for a full
-run and for a subset reprocess alike, because it is read from the database rather than from the copy
-the job started with. Step 3 `FAILED` → the step records `FAILED` without running and **without
-touching `processingError` or `failedStep`**: the reason belongs to the step that hit it, and a root
-cause replaced by its consequence is a root cause nobody can find. That is exactly what step 2
-already does when step 1 fails. Step 3 `SKIPPED` → the step is `SKIPPED` too, inheriting the reason
-step 3 recorded — `UNSUPPORTED_FORMAT` for a document nothing can render — and falling back to
-`NO_TEXT` when there is none to inherit. Step 3 still `PENDING` or `QUEUED` → `SKIPPED` with
-`NO_TEXT`, which is what a subset reprocess asking for the analysis or the vectorization without the
-extraction ever having run leaves behind, and "not extracted yet" is not text either. The question
-comes **before** each step's own ones — before `MANUAL_TYPE`, `NOT_CONFIGURED` and `TOO_MANY_PAGES`
-for the analysis, before `NOT_CONFIGURED` and the empty-text check for the vectorization — so a
-forty-page document whose extraction failed reads as a failed extraction rather than as a document
-too long to analyse, and the reason recorded is the one somebody can act on. No new skip reason is
-needed for any of it (03 §3.3.10).
+🔒 **The steps after step 3 read what it wrote, and none of them runs when step 3 did not write it.**
+The analysis, the fields and the vectorization all take the extracted Markdown as their input, so the
+row is read again after step 3 and its `markdown` status is the first question each of them asks —
+current for a full run and for a subset reprocess alike, because it is read from the database rather
+than from the copy the job started with. Step 3 `FAILED` → the step records `FAILED` without running
+and **without touching `processingError` or `failedStep`**: the reason belongs to the step that hit
+it, and a root cause replaced by its consequence is a root cause nobody can find. That is exactly
+what step 2 already does when step 1 fails. Step 3 `SKIPPED` → the step is `SKIPPED` too, inheriting
+the reason step 3 recorded — `UNSUPPORTED_FORMAT` for a document nothing can render — and falling
+back to `NO_TEXT` when there is none to inherit. Step 3 still `PENDING` or `QUEUED` → `SKIPPED` with
+`NO_TEXT`, which is what a subset reprocess asking for a later step without the extraction ever
+having run leaves behind, and "not extracted yet" is not text either. The question comes **before**
+each step's own ones — before `MANUAL_TYPE`, `NOT_CONFIGURED` and `TOO_MANY_PAGES` for the analysis,
+before `NO_SCHEMA` and the rest for the fields, before `NOT_CONFIGURED` and the empty-text check for
+the vectorization — so a forty-page document whose extraction failed reads as a failed extraction
+rather than as a document too long to analyse, and the reason recorded is the one somebody can act
+on. No new skip reason is needed for any of it (03 §3.3.10).
 
 Without the rule the failure hides, which is how it was found. The `markdown` column is deliberately
 **not** cleared when the step fails — a stale extraction stays searchable, and half an archive is
@@ -463,8 +463,9 @@ that fails outright, because only the second one is visible.
 
 What does **not** change is a step 3 that succeeded and found nothing. `DONE` with empty text is a
 document that *was* read and had no text to give, which is a fact about the document rather than a
-gap in the pipeline: the analysis still runs, because it can look at the pages as pictures (step 4),
-and the vectorization clears the chunks and records `NO_TEXT`. 🔒 The gate above does the opposite
+gap in the pipeline: the analysis still runs, because it can look at the pages as pictures (step
+4) — and so does the fields step, for the same reason (step 5) — and the vectorization clears the
+chunks and records `NO_TEXT`. 🔒 The gate above does the opposite
 with those chunks — **it leaves them exactly where they are**. A step that never looked at the
 document has learnt nothing about it, and the last good vectors stay for the same reason the stale
 Markdown stays searchable: a document that was findable yesterday should not become unfindable
@@ -521,7 +522,32 @@ because a run that told us nothing new happened to it.
    sees what the machine would have called it (03 §3.3.10). A title is the one field here that has no
    blank to fill — every document has a file name — which is why it is governed by who decided rather
    than by whether it is empty.
-5. **Vectorization:** chunking of the Markdown (by headings/paragraphs, with overlap) →
+5. **Typed fields:** the one step that differs by document type, and it differs by **data**
+   (ADR-022). The type the document now carries — the analysis just chose it, or a person did — is
+   looked up in the field-schema registry (`03 §3.3.10a`): no schema, or no type at all, →
+   `SKIPPED` with `NO_SCHEMA`, which for most of an archive is the whole of the step. With a schema,
+   the same provider that analysed the document (`CLASSIFIER_*`) is shown the same text and the same
+   pages as pictures, and asked to fill exactly those fields — a vendor, a total and a day off a
+   receipt; a holder, a number and an expiry off a passport — answering null where the paper does
+   not say. **Each field is validated on its own, in code**, and an invalid one is dropped rather
+   than poisoning the rest: a date must be a real calendar day (the `documentDate` rule), an amount
+   a finite number, a currency a plausible ISO 4217 code; a table field validates row by row and
+   keeps the rows that parse. **Fill-blanks, per field:** a value whose source is `MANUAL` stands
+   whatever the model reads, and the whole answer is recorded in `autoValues.fields` either way, so
+   the viewer can say "read as X" under a corrected value and offer the way back (`11 §11.5`).
+   The gates it shares with the analysis it asks in the same order: the step-3 dependency above,
+   then `NO_SCHEMA`, then `NOT_CONFIGURED` without a provider, then `TOO_MANY_PAGES` past
+   `CLASSIFIER_AUTO_MAX_PAGES` — lifted by the same `analyseInFull` asking (`07 §7.3`), because
+   "read this one properly" means the fields too. After a valid answer the searchable values are
+   flattened into `extractedSearchText` and the FTS vector picks them up (`04 §4.3`): a receipt is
+   findable by the vendor the model read off it even where OCR mangled that word in the text.
+   🔒 **A manual type change replaces the reading.** The fields are a reading of the document *under
+   its type* — the same paper asked for a receipt's fields and a contract's is two different
+   questions — so a `PATCH` that changes the type re-queues this step (`07 §7.3`), and the step,
+   finding the stored answer speaking another schema, replaces it wholesale, manual corrections
+   included: they were corrections to fields the document no longer has. The journal keeps what they
+   were (`03 §3.3.18`).
+6. **Vectorization:** chunking of the Markdown (by headings/paragraphs, with overlap) →
    `EmbeddingProvider` → chunk vectors into pgvector, replacing whatever the document had in one
    transaction (03 §3.3.11). Provider not configured → `SKIPPED` (graceful degradation: semantic
    search unavailable, everything else works); text extracted and empty → `SKIPPED` with `NO_TEXT`,
@@ -608,6 +634,31 @@ Groups of one are not suggestions. A document a person has already touched — t
 into a collection — is never suggested for absorption, because a suggestion that undoes somebody's
 work is worse than no suggestion. Nothing about a suggestion is stored: it is computed from what is
 already known, so dismissing one is a client-side act and the list is always current.
+
+## 5.6b. Noticing that documents cite each other
+
+An act names its contract's number; a payment order names the account of the invoice it settles. The
+papers of one matter arrive as separate documents (ADR-023) and Legere **suggests** the link between
+them exactly as §5.6a suggests a grouping: a suggestion is a question, and the answer is a click.
+
+The candidates are found deterministically — no model, no storage, computed on request:
+
+- **The probes are the document's own identifiers**: the values of its searchable extracted string
+  fields that carry a digit (`03 §3.3.10a` — a document number is the archetype), and, beneath
+  those, number-bearing tokens from the title and the opening of the text — at least four characters,
+  at least one digit, a bare year excluded, because "2019" links half the archive to the other half.
+  At most a handful of probes, the most distinctive first.
+- **Each probe is one FTS query** against `search_vector`, as a phrase, under the caller's own access
+  rule (`03 §3.4`) — the same GIN index search already uses (`04 §4.4`), so a probe costs what a
+  search costs.
+- **Candidates rank by how many probes they answered**, then by `lastEventAt`; the document itself
+  and everything already linked to it are excluded; at most five come back, each saying which
+  identifiers matched, because "why is this here" is the first question about a suggestion.
+
+Accepting one creates an ordinary link (`03 §3.3.23`), by the person, under the person's rights.
+Dismissing is client-side and lasts the session — the server proposes, it never remembers being
+refused. Best-effort by design: papers that cite each other's numbers are found, papers related only
+in somebody's head are what the manual link picker is for (`11 §11.5`).
 
 ## 5.7. Files disappearing and returning
 

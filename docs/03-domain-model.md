@@ -24,7 +24,8 @@ Library ─┬─< FileRef >── File (n:1, by contentHash; a path where those
 File ──< DocumentFile >── Document   (ordered: position; per-file crop)
 
 Document ─┬─< DocumentChunk (embeddings)
-          └── Document type (n:1)
+          ├── Document type (n:1)
+          └─< DocumentLink >─ Document   (undirected pair, §3.3.23)
 
 EmailVerification (standalone, keyed by email; used by registration & password reset)
 ```
@@ -41,7 +42,7 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `FileOrigin` | `LIBRARY`, `MANAGED` | where a file's bytes live: on the read-only volume (addressed by `FileRef`s) or in our own bucket (uploaded from a browser, or produced by us). A document's own origin is derived from its files rather than stored — see §3.3.10 |
 | `StepStatus` | `PENDING`, `QUEUED`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. **`PENDING` and `QUEUED` are the two halves of what used to be one word**: `QUEUED` says a job exists and a worker will get to it; `PENDING` says nothing is scheduled — the artifact is out of date and waits for the hourly sweep (`05 §5.4`) or for somebody to ask. A migration that resets a step produces the second, and while the two shared a name the archive read as busy for the two hours before the sweep noticed, with the queue counter beside it honestly showing nothing. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes a step that has not started reads as "stuck". The mark is best-effort and never the reason a job fails |
 | `PageFormat` | `AUTO`, `A4`, `MATCH_SOURCE` | what shape the pages of the canonical take (`05 §5.5` step 1). `AUTO` reads it off the pictures the pages were made from |
-| `ValueSource` | `NONE`, `AUTO`, `MANUAL` | who decided a value: nobody, the pipeline, a person. Carried by `typeSource` and `titleSource` — one vocabulary, because it is one question |
+| `ValueSource` | `NONE`, `AUTO`, `MANUAL` | who decided a value: nobody, the pipeline, a person. Carried by `typeSource` and `titleSource`, and — as the two words `AUTO`/`MANUAL` inside JSON — by the per-field `sources` of the typed fields (§3.3.10a): one vocabulary, because it is one question |
 | `TrashReason` | `REPLACED`, `DOCUMENT_DELETED` | how a file came to be in the trash (`05 §5.7a`). Not "who deleted it" but "what happened to it", which is what decides whether there is a newer copy to compare it with |
 | `ScanRunStatus` | `RUNNING`, `DONE`, `FAILED` | |
 | `VerificationPurpose` | `REGISTRATION`, `PASSWORD_RESET` | on `EmailVerification` |
@@ -229,11 +230,13 @@ one; the canonical is rebuildable from them at any moment, so it is an artifact 
 | title | string | initial = the name of the first file, without its extension. Named by the analysis where nobody has chosen one; editable |
 | description | text? | a few hundred characters answering "what is this": what the document is, between whom, what for. Read by the analysis where the field is empty; editable |
 | markdown | text? | the extracted Markdown representation |
-| searchVector | tsvector | generated from title + markdown (see 04) |
-| canonicalStatus / previewStatus / markdownStatus / analysisStatus / vectorizationStatus | StepStatus | pipeline step statuses |
+| searchVector | tsvector | generated from title + markdown + extractedSearchText (see 04) |
+| canonicalStatus / previewStatus / markdownStatus / analysisStatus / fieldsStatus / vectorizationStatus | StepStatus | pipeline step statuses |
+| extracted | json? | the typed fields of the document's type (§3.3.10a): `{ schema: { slug, version }, values, sources }`. `NULL` until the `fields` step first writes it or a person does |
+| extractedSearchText | text? | the searchable extracted values, flattened for the FTS column (04 §4.3). Derived from `extracted` and rewritten whenever it is — never edited on its own |
 | processingError | string? | last error message (truncated to 2000 chars) |
 | skipReasons | json | why a step is `SKIPPED`, per step — see below; empty for steps that ran |
-| autoValues | json | what the pipeline decided — `{title?, description?, typeSlug?, languages?, country?, city?, date?, people?, subjects?, textQuality?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction. `textQuality` is the odd one out: not a value the reader may correct but a judgement *about* the text — `GOOD`, `PARTIAL` or `NONE`, answered by the analysis because it is the only step that sees both the pages and what was read off them (`05 §5.5` step 4), and said where the text is read (`11 §11.5`) |
+| autoValues | json | what the pipeline decided — `{title?, description?, typeSlug?, languages?, country?, city?, date?, people?, subjects?, textQuality?, fields?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction. `fields` is the last full answer of the `fields` step (§3.3.10a), values only. `textQuality` is the odd one out: not a value the reader may correct but a judgement *about* the text — `GOOD`, `PARTIAL` or `NONE`, answered by the analysis because it is the only step that sees both the pages and what was read off them (`05 §5.5` step 4), and said where the text is read (`11 §11.5`) |
 | documentDate | date? | the date written on the document — signed, issued, departing. A date, not a timestamp: a signing has no clock, and midnight in some zone would invent a precision the paper does not have. Read by the analysis, editable |
 | languages | string[] | BCP-47 tags of what the document is written in, most likely first — `['ru']`, `['ru','sr-Latn']`. Detected from the extracted text, editable; empty when there was too little text to tell |
 | country | string? | ISO 3166-1 alpha-2 of where the document belongs — the issuer's country, the place of an event |
@@ -315,7 +318,7 @@ Which is also why the pair outlives a run that never touched the step it names: 
 them only where it may re-run that step (`07 §7.3`), because a run that leaves a failure standing and
 takes away the record of it leaves the document pointing at nothing.
 
-**Skip reasons.** `SKIPPED` on its own reads like something went wrong, and three of the five steps
+**Skip reasons.** `SKIPPED` on its own reads like something went wrong, and four of the six steps
 skip for reasons an operator can act on. Each skipped step records why, from a closed set:
 
 | Reason | Meaning |
@@ -323,6 +326,7 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 | `NOT_NEEDED` | nothing to do for this document — no file of it is an image, so there is nothing to crop |
 | `UNSUPPORTED_FORMAT` | the format has no representation the product can build |
 | `NOT_CONFIGURED` | the instance has no classifier / embeddings provider (docs/05 §5.5) |
+| `NO_SCHEMA` | the document's type carries no field schema, or the document has no type at all (§3.3.10a) — for most of an archive this is the whole of the `fields` step, and it is a fact about the type rather than a problem with the document |
 | `NO_TYPES` | retained for documents processed before step 4 became a full analysis; no longer produced — with no document types defined the step still runs, because it also reads where the document is from |
 | `NO_TEXT` | there is no extracted text to work from: the extraction ran and yielded none, or it has not run at all — which is what a reprocess asking for the analysis or the vectorization on their own leaves them looking at (`05 §5.5`) |
 | `TOO_MANY_PAGES` | longer than `CLASSIFIER_AUTO_MAX_PAGES`: not analysed unasked at all, because a verdict read off the first ten pages of a forty-page contract looks exactly like one read off the whole (`05 §5.5` step 4). A person may still ask, from the document's own page |
@@ -346,7 +350,7 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
   file no more than one may — a file has exactly one home.
 - 🔒 **Deleting a document (admin) is a real deletion, and the one place ADR-015 does not hold.** The
   row goes, and with it the journal, the chunks, the Markdown, the collection items, the links to
-  people and subjects and the `DocumentFile` rows. Its **artifacts** go from the bucket too (§9.2):
+  people and subjects, the links to other documents (§3.3.23) and the `DocumentFile` rows. Its **artifacts** go from the bucket too (§9.2):
   they are derived from files that are no longer arranged into anything, and they are the one part
   of a document that can be built again from what is kept.
   **Its files go to the trash** (`05 §5.7a`), not to the incinerator. A file has exactly one home
@@ -365,6 +369,66 @@ skip for reasons an operator can act on. Each skipped step records why, from a c
 `documents/{id}/canonical.pdf`, `documents/{id}/preview.jpg`, `documents/{id}/thumb.jpg`.
 A document owns no source bytes of its own: those belong to its files
 (`files/{fileId}/original.{ext}` for managed ones, a path on a volume for library ones).
+
+### 3.3.10a. Typed fields
+
+What a paper of a given type **states**, as data: a receipt names a vendor, a total and a day; a
+passport a holder, a number and an expiry. The generic pipeline already reads everything else about
+such a document — its text, its type, its date, its people — and this is the last step of that
+reading: the facts that are typed because the *type* types them (ADR-022).
+
+**The schema is the type's, and it ships with the code.** A **field schema** is a versioned list of
+field specs — key, kind, whether the value is searchable, whether it belongs on a card — kept in a
+registry in `src/shared/contracts`, keyed by the document type's slug. It is data, deliberately:
+today the registry is a constant and only `receipt`, `passport` and `id-card` carry one; the day
+schemas become admin-editable they move into a table without the stored answers changing shape,
+because every answer already names the slug and version it speaks. Field **kinds** are the closed
+set `string`, `number`, `date` (a calendar day, the `documentDate` rule), `money`
+(`{ amount, currency }`, one fact — an amount without its currency is not a fact), and `table` (rows
+of `string`/`number` columns — the lines of a receipt). Field labels are not in the registry: they
+are message-catalog keys derived from the slug and the field key, localized like everything else
+(ADR-016).
+
+**What is stored.** One JSON on the document — `extracted` — self-describing:
+
+```
+{ schema:  { slug: 'receipt', version: 1 },
+  values:  { vendor: 'Voli', purchasedAt: '2026-05-12', total: { amount: 12.4, currency: 'EUR' }, items: [...] },
+  sources: { vendor: 'AUTO', purchasedAt: 'MANUAL', total: 'AUTO', items: 'AUTO' } }
+```
+
+`values` holds the current answer, corrections included; `sources` says who decided each field, in
+the two words of `ValueSource` that apply (a field with no value has no entry — that is its `NONE`).
+The model's own last reading lives in `autoValues.fields`, values only, recorded whether or not it
+was applied — which is what lets the viewer say "read as X" under a corrected value and offer the
+way back (`11 §11.5`). `extractedSearchText` is the projection the FTS column reads: the values of
+searchable fields, flattened to text, rewritten by whatever writes `extracted` (04 §4.3).
+
+**Fill-blanks, per field.** The `fields` step (05 §5.5 step 5) applies the model's answer only where
+`sources` does not say `MANUAL` — the rule the analysis already follows, one level finer. A person
+edits a field through `PATCH` (07 §7.3): setting a value marks it `MANUAL`, clearing it (null)
+removes value and source both, which is how a field is asked to be read again; `reset` restores what
+the model read and marks it `AUTO`, so a value put back stops claiming a person chose it.
+
+**Validation is per field, in code, not in the model's gift.** A date must be a real calendar day in
+a plausible century; an amount a finite number; a currency a plausible ISO 4217 code; a table
+validates row by row and keeps the rows that parse. An invalid field is dropped and the rest of the
+answer stands — the rule the analysis follows for the same reason: an invented value in one field
+must not discard a good one beside it.
+
+🔒 **The fields belong to the type, so a type change replaces the reading.** The same paper asked for
+a receipt's fields and a contract's is two different questions, and an answer kept across the switch
+would be values speaking a schema the document no longer has. A manual type change re-queues the
+step (07 §7.3), and the step, finding `extracted.schema` disagreeing with the type it now reads for,
+replaces the answer wholesale — manual corrections included, because they were corrections to fields
+this document no longer carries. The journal keeps what they were (§3.3.18). A type merely
+*soft-deleted* out of the catalogue is gentler: the values stay as a record (the schema lives in the
+code, so they still render), and the next run skips with `NO_SCHEMA`.
+
+**No catalogue, on purpose.** Extracted values live on the document and nowhere else: there is no
+instance-wide list of passport numbers the way there is one of people (§3.3.19), because nothing
+files by these values — they are read *on* a document by whoever may read the document, and the
+access rule of §3.4 is the whole of their protection.
 
 ### 3.3.19. Person
 
@@ -540,9 +604,9 @@ somebody corrected it, and who corrected it.
 |---|---|---|
 | id | uuid | |
 | documentId | uuid | cascade on physical delete; a soft-deleted document keeps its log (ADR-015) |
-| type | DocumentEventType | `CREATED`, `FILE_ATTACHED`, `FILE_MISSING`, `QUEUED`, `STEP_STARTED`, `STEP_FINISHED`, `META_CHANGED` |
+| type | DocumentEventType | `CREATED`, `FILE_ATTACHED`, `FILE_MISSING`, `QUEUED`, `STEP_STARTED`, `STEP_FINISHED`, `META_CHANGED`, `LINKED`, `UNLINKED` |
 | actorId | uuid? | who did it; **null is the pipeline acting on its own** |
-| payload | json | what the entry needs to be readable: `step`, `status`, `reason`, `error`, `steps`, `source`, `path`, `changes` (field → `{from, to}`), and for a step: `service`, `endpoint`, `requestId`, and what it cost — `durationMs`, `chars`, `pages`, `ocrUsed`, `promptTokens`, `completionTokens` |
+| payload | json | what the entry needs to be readable: `step`, `status`, `reason`, `error`, `steps`, `source`, `path`, `changes` (field → `{from, to}`), for a link: `otherDocumentId` and `otherTitle` (a record, not a live reference — the other side may be gone by the time this is read), and for a step: `service`, `endpoint`, `requestId`, and what it cost — `durationMs`, `chars`, `pages`, `ocrUsed`, `promptTokens`, `completionTokens` |
 | at | timestamptz | |
 
 **What it cost.** The entry that *settles* a step says how long it took (`durationMs`) — the pair of
@@ -701,6 +765,40 @@ The join that makes a document a sequence rather than a bag: `(documentId, posit
 reordering rewrites positions. Adding, removing, reordering or re-cropping a row invalidates the
 document's canonical PDF and enqueues a rebuild (§5.6).
 
+### 3.3.23. DocumentLink
+
+Two documents that belong together and are still two documents: the act beside its contract, the
+receipt beside the act (ADR-023). A document is one paper (§3.3.10) and combine is for the files of
+*one* paper — a link is how separate papers about one matter point at each other without becoming
+pages of each other.
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid | |
+| aId / bId | uuid | the two documents, stored as an **unordered pair**: `aId < bId` always (application-enforced, checked in SQL), so one edge cannot exist twice in two spellings |
+| createdById | uuid? | the person who confirmed it; links are never machine-made (ADR-023) |
+| createdAt | timestamptz | |
+
+**Invariants:**
+- A link is undirected and untyped: "these two belong together", nothing more. A vocabulary of link
+  kinds is deferred exactly as person roles are (§3.3.19).
+- `aId ≠ bId`; one live edge per pair (`unique (aId, bId)` with the ordering above).
+- **Hard-deleted on removal**, like a `CollectionItem`: an edge is a record of a present fact, not
+  history — the journal is where "was linked, then unlinked" lives, as `LINKED`/`UNLINKED` entries
+  written on **both** documents (§3.3.18).
+- A hard-deleted document takes its edges with it (DB cascade, §3.3.10). A **soft**-deleted one — a
+  document absorbed by combine — keeps them on the row that went away, invisible with it: the read
+  rule below already filters them, and a record of where files came from keeps its record of what it
+  stood beside.
+- 🔒 **A link is visible only where both ends are.** Listing a document's links filters the other
+  side through `canReadDocument` (§3.4) — a title leaking through an edge would be a smaller version
+  of the leak the collection-item rule already refuses (§3.3.14). Creating one requires
+  `canEditDocumentMeta` on the document being edited and `canReadDocument` on the other; removing —
+  `canEditDocumentMeta` on either end, because an edge belongs to both.
+
+The pipeline proposes candidates — documents that visibly cite each other's identifiers — and a
+person confirms or dismisses (05 §5.6b). Nothing about a suggestion is stored, in either direction.
+
 ## 3.4. Access model (authoritative summary)
 
 Full rules in [`08 §8.5`](./08-auth-and-authorization.md); the model in one place:
@@ -735,6 +833,10 @@ canEditDocumentMeta(user, doc):        # title, document type, the composition o
 
 canManageCollection(user, c):  c.ownerId == user.id or ADMIN
 canReadCollection(user, c):    owner, ADMIN, or active share (user-specific or instance-wide)
+
+linkDocuments(user, a, b):     canEditDocumentMeta(user, a) and canReadDocument(user, b)   # §3.3.23
+unlinkDocuments(user, a, b):   canEditDocumentMeta(user, a) or canEditDocumentMeta(user, b)
+# a listed link shows its other side only where canReadDocument holds for it — both ends, always
 ```
 
 An `ApiToken` (§3.3.22) adds no rule to this table: it resolves to its owner and then every check
@@ -748,10 +850,10 @@ above runs unchanged — with one subtraction, that the caller may only read.
 | File detached from a document | the file becomes a document of its own, with its own canonical PDF; nothing is deleted (§5.6) |
 | Document absorbed into another | its files move over in order, its own row is soft-deleted, and its collections/metadata are left behind with it (§5.6) |
 | Library soft-deleted | its documents disappear from all listings; artifacts/data retained |
-| Document deleted (admin) | **hard** (§3.3.10): the row, its journal, chunks, Markdown, collection items, people/subject links, `DocumentFile` rows and its artifacts are gone for good. Its files go to the **trash** (`05 §5.7a`) with `DOCUMENT_DELETED`; a `LIBRARY` file's `FileRef`s are kept `EXCLUDED` so the next scan does not ingest it again (§3.3.9) |
+| Document deleted (admin) | **hard** (§3.3.10): the row, its journal, chunks, Markdown, collection items, people/subject links, document links (§3.3.23), `DocumentFile` rows and its artifacts are gone for good. Its files go to the **trash** (`05 §5.7a`) with `DOCUMENT_DELETED`; a `LIBRARY` file's `FileRef`s are kept `EXCLUDED` so the next scan does not ingest it again (§3.3.9) |
 | File replaced in a document | the new bytes take the old file's position; the old file goes to the **trash** with `REPLACED` and `replacedById` pointing at the file now in its place (`05 §5.6`) |
 | File in the trash | a `MANAGED` one is deleted with its object once it is older than `TRASH_RETENTION_DAYS`; a `LIBRARY` one waits for a person, because its bytes are on a read-only volume. Either can be deleted at once, or restored — which makes a **new** document (`05 §5.7a`) |
-| Document type soft-deleted | documents' document type reset to NONE |
+| Document type soft-deleted | documents' document type reset to NONE; their `extracted` values stay as a record (the schema is in the code, so they still render), and the next `fields` run skips `NO_SCHEMA` (§3.3.10a) |
 | Collection soft-deleted | hidden for everyone incl. shares |
 | User soft-deleted | sessions and API tokens revoked; their collections hidden; shares die with the collection, and the documents they created stay accessible to ADMIN only |
 

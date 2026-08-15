@@ -129,12 +129,20 @@ Onboarding when already onboarded → 404 page.
   ("Some files missing"), `UNAVAILABLE` (grey "Files missing").
 - **What else a card says is chosen here** (a multi-select beside the order): the **file type**
   badge, the **document type**, the **date on the document**, the **people**, the **subjects**, the
-  **place** and the **languages**. The extension and the document type are in that set rather than
+  **place**, the **languages** and the **extracted fields**. The extension and the document type are
+  in that set rather than
   fixed, so both can be switched off: what you came for differs by archive, and somebody filing
   scans by person does not need to be told PDF forty times. The names are drawn as one line of
   secondary text each, cut off rather than wrapped, so a document naming eight people does not make
   a card eight rows taller; everything else is a tag. A field the document has no value for draws
   nothing at all.
+  **The extracted fields are one such line**: the summary values of the document's field schema
+  (`03 §3.3.10a`) in schema order, formatted for the reader's locale — "Voli · 12,40 EUR ·
+  12.05.2026" on a receipt, a number and an expiry on a passport — separated by middle dots, cut off
+  rather than wrapped like the names above. Formatting is the client's, from the registry it ships
+  (`extractedSummary` on the row travels as stored values, `07 §7.3`); a document whose type carries
+  no schema, or whose fields are empty, draws nothing at all, so the option costs nothing on the
+  shelves it does not serve.
   **The state badges are not in the set.** A card may say less about what a document *is*, never
   less about what is happening to it — hiding "Processing" or "Files missing" would be a card that
   lies by omission.
@@ -408,6 +416,20 @@ document pinned to the height of a phone would be a worse read, not a better one
   the pipeline read differently carries a **reset** next to it, which puts it back to what was read —
   travelling as a reset rather than as the same value typed in, so a reset document type becomes `AUTO`
   again instead of claiming somebody chose it.
+  **The typed fields sit in the same pane, under the rows above** — a group per the document's field
+  schema (`03 §3.3.10a`), one row per field, drawn only where the type carries a schema at all: the
+  vendor, the total and the day of a receipt; the holder, the number and the expiry of a passport.
+  Values are formatted for the reader (`Intl` dates and currency amounts), an em dash where nothing
+  was read; a `table` field renders as a small table of its rows and is the one field the form does
+  not edit — re-reading the document is how a table is corrected, and a row editor for receipt lines
+  is a spreadsheet nobody asked for. Everything else follows the rules this pane already has: the
+  scalar fields join the same **Edit** form as ordinary inputs (a `money` field is two inputs sharing
+  one width, amount and currency, because it is one fact); a field the model read differently carries
+  the same grey "read as …" line, which outside the form is the same one-click reset, travelling as
+  `reset: ['fields.<key>']` rather than as a value typed in (`07 §7.3`); Save sends only the fields
+  that changed, and a changed one becomes `MANUAL`, after which no run overwrites it. While the
+  `fields` step has not settled, the group carries that step's badge exactly as the place carries the
+  analysis's.
   🔒 **The page format is the one row here that is not a correction to a record**, and the form says so
   where it is being changed: a warning under the select — the pages keep the shape they have until the
   document is processed again — because the format is read while the pages are made (05 §5.5 step 1)
@@ -470,7 +492,7 @@ document pinned to the height of a phone would be a worse read, not a better one
   (`sr-Latn`) than a list worth shipping — but nobody should have to reach for that to say "Russian".
   **A field whose step has not settled carries that step's badge** — `RUNNING` or `PENDING`, the same
   words the processing panel uses — in place of the em dash, or in front of a value that is about to
-  be rewritten. Which step owns which field follows the pipeline (05 §5.5): pages from the preview,
+  be rewritten. Which step owns which field follows the pipeline (05 §5.5): the typed fields from the `fields` step, pages from the preview,
   text/languages/OCR from the parse, place and document type from the AI step. Nothing else gets a badge:
   size, type and hash are facts about the file, and no step will ever change them.
   🔒 **When the analysis judged this text incomplete, the text tab says so** — above the text, where
@@ -509,10 +531,19 @@ document pinned to the height of a phone would be a worse read, not a better one
   Details pane and does nothing while an inline editor holds the focus: a bare letter that opens a
   form while somebody is typing a title is a bare letter that eats the title. Then the **Download
   split button** of §11.5b,
-  Add-to-collection select, **the page itself** — the first-page preview, between what may be done
+  Add-to-collection select, then **Related documents** — the links of `03 §3.3.23`: each linked
+  document one compact row, thumbnail, title and type, a link into its own viewer; an unlink beside
+  it for whoever may edit; **Link a document…** beneath, a search picker over the archive (the same
+  `GET /api/search` the overlay uses), because the papers related only in somebody's head are found
+  the way anything is found. Under the links, the **suggestions** of `05 §5.6b`, visually quieter and
+  each saying which identifiers matched — "cites № 12-2019" — with **Link** and **Dismiss**;
+  dismissing is client-side and lasts the session, exactly like the grouping suggestions of §11.3.
+  The card draws nothing at all — no heading, no empty state — when there are no links and no
+  suggestions: a connection is the exception, and an empty box on every document would teach the eye
+  to skip the box. Then **the page itself** — the first-page preview, between what may be done
   with the document and what the pipeline is doing to it, shown only once that step has produced one.
   Small on purpose: the readable copy is the pane on the left, and this answers "is this the right
-  document", which is a glance rather than a read. Then the processing status panel: five steps, one
+  document", which is a glance rather than a read. Then the processing status panel: six steps, one
   row each
   (`RUNNING` in the panel means the pipeline is on that step right now — the viewer polls every 5 s
   while the document is processing, so a long step shows its progress by moving on, not by a bar),

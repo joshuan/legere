@@ -300,7 +300,10 @@ model Document {
   previewStatus        StepStatus     @default(QUEUED) @map("preview_status")
   markdownStatus       StepStatus     @default(QUEUED) @map("markdown_status")
   analysisStatus StepStatus     @default(QUEUED) @map("analysis_status")
+  fieldsStatus         StepStatus     @default(QUEUED) @map("fields_status")
   vectorizationStatus  StepStatus     @default(QUEUED) @map("vectorization_status")
+  extracted            Json?
+  extractedSearchText  String?        @map("extracted_search_text")
   processingError      String?        @map("processing_error")
   skipReasons          Json           @default("{}") @map("skip_reasons")
   languages            String[]
@@ -342,6 +345,22 @@ model DocumentEvent {
 
   @@index([documentId, at(sort: Desc)])
   @@map("document_events")
+}
+
+model DocumentLink {
+  id          String   @id @default(uuid()) @db.Uuid
+  aId         String   @map("a_id") @db.Uuid
+  bId         String   @map("b_id") @db.Uuid
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  a         Document @relation("DocumentLinkA", fields: [aId], references: [id], onDelete: Cascade)
+  b         Document @relation("DocumentLinkB", fields: [bId], references: [id], onDelete: Cascade)
+  createdBy User?    @relation(fields: [createdById], references: [id])
+
+  @@unique([aId, bId])
+  @@index([bId])
+  @@map("document_links")
 }
 
 model DocumentChunk {
@@ -500,6 +519,32 @@ CREATE INDEX documents_search_vector_idx ON documents USING GIN (search_vector);
 > language-specific stemmer would mis-stem half of it. Exactness is compensated by `websearch_to_tsquery`
 > prefix matching and by semantic search.
 
+**Amended by the typed-fields migration (M22.1):** the searchable extracted values
+(`extracted_search_text`, `03 §3.3.10a`) join the vector, at weight `A` — a field the model read off
+the paper is as precise a hit as the title. A generated column's expression cannot be altered in
+place, so the migration drops and recreates the column and its index:
+
+```sql
+ALTER TABLE documents DROP COLUMN search_vector;
+ALTER TABLE documents
+  ADD COLUMN search_vector tsvector
+  GENERATED ALWAYS AS (
+    setweight(to_tsvector('simple', coalesce(title, '')), 'A') ||
+    setweight(to_tsvector('simple', coalesce(extracted_search_text, '')), 'A') ||
+    setweight(to_tsvector('simple', coalesce(markdown, '')), 'B')
+  ) STORED;
+CREATE INDEX documents_search_vector_idx ON documents USING GIN (search_vector);
+
+-- document_links: the pair is unordered and the storage says so
+ALTER TABLE document_links ADD CONSTRAINT document_links_pair_ordered CHECK (a_id < b_id);
+```
+
+The same migration backfills `fields_status` for the archive that predates the step: `PENDING` where
+the document's type carries a schema (the hourly sweep of `05 §5.4` walks them through the new step
+over the following hours), `SKIPPED` with `skip_reasons.fields = 'NO_SCHEMA'` everywhere else — so an
+archive of mostly schemaless documents does not spend a week reading as "processing" for a step that
+has nothing to do.
+
 ```sql
 -- 3) vector index (cosine)
 CREATE INDEX document_chunks_embedding_idx ON document_chunks
@@ -566,8 +611,10 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 | filter/browse by year, "what happened in March" | `documents(document_date DESC NULLS LAST)` (raw SQL, §4.3) |
 | filter by place | `documents(country) WHERE country IS NOT NULL`, `documents(city) WHERE city IS NOT NULL` — partial, because the analysis finds a place for only some documents and an index over the rest would be NULL entries nothing looks up (raw SQL, §4.3) |
 | filter by pipeline step + status | none: five low-cardinality enum columns, and the queue screen's counters bound the answer |
-| FTS | GIN on `search_vector`, query via `websearch_to_tsquery('simple', $1)` |
+| FTS | GIN on `search_vector`, query via `websearch_to_tsquery('simple', $1)` — extracted field values included, via `extracted_search_text` in the generated column (§4.3) |
 | semantic search | HNSW cosine on `document_chunks.embedding`, `ORDER BY embedding <=> $1 LIMIT k` |
+| the links of one document, from either end | `document_links` unique `(a_id, b_id)` read from the left + the `(b_id)` index — one edge, findable from both sides |
+| link suggestions: probing the archive for a document's identifiers (`05 §5.6b`) | the same GIN on `search_vector` — a probe is an ordinary FTS query |
 | the events of one document, newest first | `document_events(document_id, at DESC)` |
 | admin scan journal | `scan_runs(library_id, started_at DESC)` |
 | at most one RUNNING scan per library | `scan_runs_running_uq` partial unique index |

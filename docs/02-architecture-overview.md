@@ -326,6 +326,55 @@ plain text, which is what makes search and OCR one code path instead of four. Th
 composition change re-runs the whole pipeline for that document — paid in the background, and the
 old artifacts keep serving until the new ones land.
 
+### ADR-022. Typed fields — a schema per document type, shipped as data in code
+
+- **Decision:** a document type may carry a **field schema** — the typed facts a paper of that kind
+  states: a receipt names a vendor, a total and a day; a passport a holder, a number and an expiry.
+  Schemas are **data, not code paths**: a versioned registry in `src/shared/contracts`, keyed by the
+  type's slug, shipped with the release and read by the server and the client alike. A sixth
+  pipeline step — `fields` ([`05 §5.5`](./05-library-and-processing.md#55-document-processing-pipeline-document-process))
+  — asks the classifier provider to fill the schema and stores the answer on the document
+  ([`03 §3.3.10a`](./03-domain-model.md)) with a per-field record of who decided; searchable values
+  join the FTS index ([`04 §4.3`](./04-database-schema.md#43-raw-sql-in-migrations-required-steps)).
+  The first schemas: `receipt`, `passport`, `id-card`.
+- **Why:** a photograph of a till receipt is typed JSON waiting to be read, and the pipeline already
+  reads everything else about it. Keeping the schema as data keeps **one pipeline**: the trunk
+  (canonical → preview → text → vectors) stays identical for every document — which is what ADR-021
+  bought — and the one type-dependent thing is a parameter of one step, never a branch in six.
+- **Alternatives:** a pipeline per document type — rejected: N half-tested pipelines and the end of
+  "by step 2 every document is a PDF". Admin-authored schemas in the DB — **deferred, not refused**:
+  an editor for field schemas is a form builder, and the registry is shaped so its rows can move
+  into a table without the stored values changing shape — the answer on a document already names the
+  schema slug and version it speaks. A separate receipts service — rejected: the archive is one
+  product and one search, and what specialisation needs is a provider behind a port (the
+  Stirling/Docling/vision pattern of ADR-012/018/019), never a second product.
+- **Consequences:** a sixth step-status column and a `NO_SCHEMA` skip reason; the `extracted` JSON of
+  `03 §3.3.10a`; the FTS column rebuilt to carry the searchable values; a manual type change
+  re-runs the step under the new schema ([`07 §7.3`](./07-api-specification.md#73-endpoints)).
+  Schemas version forward: a bumped version is re-read on the next run, and a stored answer always
+  says which version wrote it.
+
+### ADR-023. Document links — undirected, untyped, person-confirmed
+
+- **Decision:** two documents can be **linked**: an undirected, untyped edge
+  ([`03 §3.3.23`](./03-domain-model.md)), created by a person and deleted by a person. The pipeline
+  **suggests** candidates — from identifiers the documents visibly share
+  ([`05 §5.6b`](./05-library-and-processing.md#56b-noticing-that-documents-cite-each-other)) — and
+  never creates one.
+- **Why:** the papers of one matter arrive as separate documents and stay that way: an act is not a
+  page of its contract (ADR-021 keeps "one paper, one document"), and a receipt has a type and
+  fields of its own. What is missing is the connective tissue between them, and the smallest honest
+  edge is an undirected one.
+- **Alternatives:** typed links (fulfils / pays-for / annex-of) — deferred exactly as person roles
+  were (`03 §3.3.19`): the vocabulary is real and not yet knowable, and a half-guessed one is worse
+  than none. Auto-created links — rejected: `05 §5.6a`'s rule stands — a machine proposes, a person
+  confirms — because an edge is a claim about both of its ends. Collections as the only grouping —
+  kept, but a collection answers "my shelf", not "this paper answers that one".
+- **Consequences:** a `document_links` table — pair-unique, hard-deleted like a collection item,
+  cascading with a hard-deleted document; three endpoints and a suggestions endpoint (`07 §7.3`); a
+  sidebar card in the viewer (`11 §11.5`); a link is visible only where **both** ends are
+  (`03 §3.4`).
+
 ### ADR-013. CI — a single Docker image to GHCR; deployment outside the repository
 - **Decision:** GitHub Actions: on every PR — `typecheck` + `lint` + `test` + `build` (with a
   PostgreSQL+pgvector service); on `main`/tag — build of a **single** image `ghcr.io/<owner>/legere`.

@@ -111,6 +111,15 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
   access; collection item filtering per viewer; admin sees everything.
 - Search: FTS finds title & body; access filtering inside search; hybrid = text when no provider;
   RRF merge ordering deterministic.
+- Typed fields (03 §3.3.10a, 05 §5.5 step 5): a schema-typed document extracts, per-field validation
+  drops a bad date and keeps a good vendor; a `MANUAL` value survives a re-run; a manual type change
+  re-extracts under the new schema, replacing the old reading; no schema → `SKIPPED NO_SCHEMA`, no
+  provider → `NOT_CONFIGURED`; FTS finds a document by an extracted value; PATCH `fields` validates
+  against the schema and `reset: ['fields.<key>']` restores the read value as `AUTO`.
+- Document links (03 §3.3.23): create/list/unlink round-trip on both ends; duplicate → `LINK_EXISTS`,
+  self → `LINK_SELF`; an edge whose other side the caller cannot read is absent from the list;
+  hard-deleting a document takes its edges; suggestions are deterministic (a document citing
+  another's number proposes it), exclude self and the already-linked, and store nothing.
 - Files and documents: a canonical PDF is built for every document whatever it is made of; adding,
   reordering, cropping and splitting each rebuild it; splitting off a file yields a document of its
   own and refuses to empty the last one (`DOCUMENT_LAST_FILE`); combining moves files in the chosen

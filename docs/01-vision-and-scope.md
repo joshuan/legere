@@ -46,6 +46,8 @@ One person can hold both roles (the typical home scenario: the admin is also the
 | **Scan set** | A user-selected set of scan images of one physical document, merged into a single PDF with margins cropped |
 | **Job** | A unit of work in the processing queue: library scan, hashing, canonical assembly, parsing, preview, analysis, vectorization |
 | **Document type** | A document type from a managed reference list (passport, contract, invoice, manual…); assigned automatically, editable manually |
+| **Field schema** | The typed facts a document of a given type states — a receipt names a vendor, a total and a day. Shipped with the code per type slug (ADR-022), filled by the pipeline, corrected by hand |
+| **Document link** | An undirected, untyped connection between two documents — the act beside its contract (ADR-023). Made by a person; the pipeline only suggests |
 | **Stirling-PDF** | An external self-hosted PDF tooling service (sibling container): conversion to PDF, OCR, merge, crop |
 
 ## 1.5. MVP boundaries (scope)
@@ -56,7 +58,7 @@ One person can hold both roles (the typical home scenario: the admin is also the
 - Processing queue (pg-boss) with retries, priorities, and observability (statuses in the admin panel).
 - Content-based deduplication (SHA-256).
 - Pipeline: canonicalization to PDF → first-page JPG preview → Markdown extraction (with OCR for
-  scans) → analysis → vectorization.
+  scans) → analysis → typed fields (per document type) → vectorization.
 - Document viewer: previews in lists, viewing the source (streamed from the library) and the Markdown
   representation.
 - Search: full-text (PostgreSQL FTS over Markdown) + semantic (pgvector), hybrid results.
