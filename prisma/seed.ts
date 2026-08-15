@@ -16,7 +16,9 @@ const ARGON2_OPTIONS = {
 
 const DEV_PASSWORD = 'password';
 
-// The same list migration 1 inserts (docs/03 §3.3.12) so dev and prod agree.
+// The same list migration 1 inserts (docs/03 §3.3.12) so dev and prod agree, followed by the types
+// added since — a slug whose field schema ships in the registry (docs/03 §3.3.10a) needs a document
+// type to be read under, and on a live instance an admin creates it like any other (docs/04 §4.6).
 const DEFAULT_CATEGORIES: ReadonlyArray<{ slug: string; name: string; description: string }> = [
   { slug: 'passport', name: 'Passport', description: 'Passports and travel documents.' },
   { slug: 'id-card', name: 'ID card', description: 'National ID cards, driver licenses, permits.' },
@@ -48,6 +50,12 @@ const DEFAULT_CATEGORIES: ReadonlyArray<{ slug: string; name: string; descriptio
     slug: 'other',
     name: 'Other',
     description: 'Documents that do not fit any other documentType.',
+  },
+  // Added after migration 1, for the field schema of docs/03 §3.3.10a.
+  {
+    slug: 'flight',
+    name: 'Flight',
+    description: 'Air tickets, itinerary receipts and boarding passes.',
   },
 ];
 

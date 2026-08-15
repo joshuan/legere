@@ -129,6 +129,97 @@ export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
       { key: 'expiresAt', kind: 'date', summary: true, hint: 'The expiry date, as yyyy-mm-dd' },
     ],
   },
+  // One schema for every paper an airline prints (docs/03 §3.3.10a): an e-ticket, an itinerary
+  // receipt and a boarding pass differ in which fields they fill, not in what they are. The booking
+  // is stated once and the coupons table carries a row per passenger per leg.
+  {
+    typeSlug: 'flight',
+    version: 1,
+    fields: [
+      {
+        key: 'airline',
+        kind: 'string',
+        searchable: true,
+        summary: true,
+        hint: 'The airline the ticket was issued by, as the paper names it; where a code-share prints two carriers, the one whose name heads the document',
+      },
+      {
+        key: 'bookingReference',
+        kind: 'string',
+        searchable: true,
+        summary: true,
+        hint: 'The booking reference the paper repeats on every page — six letters and digits, printed as "Booking reference", "Reservation code", "PNR" or "Record locator". Not the ticket number',
+      },
+      {
+        key: 'totalPrice',
+        kind: 'money',
+        summary: true,
+        hint: 'What the whole booking cost, with its ISO 4217 currency, where the paper states a price — the total for all passengers, taxes and fees included. A boarding pass states none: answer null',
+      },
+      {
+        key: 'coupons',
+        kind: 'table',
+        hint: 'One row per passenger per leg, in the order the paper lists them: a single-leg ticket for four passengers is four rows, a two-passenger itinerary is two, a boarding pass is one. A leg flown by every passenger on the booking is still one row each',
+        columns: [
+          {
+            key: 'passenger',
+            kind: 'string',
+            searchable: true,
+            hint: 'The passenger of this coupon, spelled as the ticket spells them — surname first where it is printed that way',
+          },
+          {
+            key: 'flightNumber',
+            kind: 'string',
+            searchable: true,
+            hint: 'The flight as printed: the carrier code and its number, e.g. "TK 1030"',
+          },
+          {
+            key: 'from',
+            kind: 'string',
+            searchable: true,
+            hint: 'Where this leg departs from — the three-letter airport code with the city beside it where the paper prints both, e.g. "IST Istanbul"',
+          },
+          {
+            key: 'to',
+            kind: 'string',
+            searchable: true,
+            hint: 'Where this leg arrives, written the same way as the departure airport',
+          },
+          {
+            key: 'date',
+            kind: 'string',
+            hint: 'The day this leg departs, as yyyy-mm-dd, taken from the departure date printed beside the flight',
+          },
+          {
+            key: 'departure',
+            kind: 'string',
+            hint: 'The departure time as printed, local to the departure airport, e.g. "18:45"',
+          },
+          {
+            key: 'arrival',
+            kind: 'string',
+            hint: 'The arrival time as printed, local to the arrival airport',
+          },
+          {
+            key: 'seat',
+            kind: 'string',
+            hint: 'The seat as printed, e.g. "12A" — a ticket issued before check-in names none',
+          },
+          {
+            key: 'class',
+            kind: 'string',
+            hint: 'The cabin or fare as printed — "Economy", "Business", or the single booking-class letter where that is all the paper gives',
+          },
+          {
+            key: 'ticketNumber',
+            kind: 'string',
+            searchable: true,
+            hint: 'The ticket number in the airline\'s own digits, e.g. "235 2400161930" — one per passenger, repeated on each of that passenger\'s coupons, and not the booking reference',
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 export function fieldSchemaFor(typeSlug: string | null | undefined): DocumentFieldSchema | null {

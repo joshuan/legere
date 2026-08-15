@@ -908,6 +908,24 @@
         "issuedBy": "Issued by",
         "issuedAt": "Issued",
         "expiresAt": "Expires"
+      },
+      "flight": {
+        "airline": "Airline",
+        "bookingReference": "Booking reference",
+        "totalPrice": "Price",
+        "coupons": "Coupons",
+        "couponsColumns": {
+          "passenger": "Passenger",
+          "flightNumber": "Flight",
+          "from": "From",
+          "to": "To",
+          "date": "Date",
+          "departure": "Departure",
+          "arrival": "Arrival",
+          "seat": "Seat",
+          "class": "Class",
+          "ticketNumber": "Ticket number"
+        }
       }
     },
     "addedToCollection": "Added to the collection",

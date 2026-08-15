@@ -387,14 +387,26 @@ reading: the facts that are typed because the *type* types them (ADR-022).
 **The schema is the type's, and it ships with the code.** A **field schema** is a versioned list of
 field specs — key, kind, whether the value is searchable, whether it belongs on a card — kept in a
 registry in `src/shared/contracts`, keyed by the document type's slug. It is data, deliberately:
-today the registry is a constant and only `receipt`, `passport` and `id-card` carry one; the day
-schemas become admin-editable they move into a table without the stored answers changing shape,
-because every answer already names the slug and version it speaks. Field **kinds** are the closed
-set `string`, `number`, `date` (a calendar day, the `documentDate` rule), `money`
+today the registry is a constant and only `receipt`, `passport`, `id-card` and `flight` carry one;
+the day schemas become admin-editable they move into a table without the stored answers changing
+shape, because every answer already names the slug and version it speaks. Field **kinds** are the
+closed set `string`, `number`, `date` (a calendar day, the `documentDate` rule), `money`
 (`{ amount, currency }`, one fact — an amount without its currency is not a fact), and `table` (rows
 of `string`/`number` columns — the lines of a receipt). Field labels are not in the registry: they
 are message-catalog keys derived from the slug and the field key, localized like everything else
 (ADR-016).
+
+**One `flight` for every paper an airline prints.** An e-ticket, an itinerary receipt and a boarding
+pass are one journey wearing three layouts: they differ in which fields they fill, not in what they
+are. So the booking is stated once — the `airline`, the `bookingReference` all three papers repeat,
+and the `totalPrice` where the paper names a price at all — and a `coupons` table carries one row
+per passenger per leg. A single-leg ticket issued for four people is four rows; a two-passenger
+itinerary is two; a boarding pass is one row and no price. Three types instead of one would file the
+same journey under three names and leave the reader to guess which of them the drawer holds. A slug
+that carries a schema is also a document type the instance has to hold — the reading happens under
+the type, and a schema nothing points at is read for nobody — which is why `flight` joins the types
+the dev seed creates (`04 §4.6`); on a live instance an admin adds it as they add any other
+(§3.3.12).
 
 **What is stored.** One JSON on the document — `extracted` — self-describing:
 

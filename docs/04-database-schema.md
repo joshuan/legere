@@ -640,7 +640,9 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 - admin user `admin@legere.local` / password `password` (role ADMIN, language EN);
 - regular user `user@legere.local` / password `password`;
 - the default document type set (03 §3.3.12) — the same list is also inserted by production migration 1,
-  so a fresh prod instance has document types out of the box;
+  so a fresh prod instance has document types out of the box — followed by the types added since,
+  whose field schemas ship in the registry (03 §3.3.10a) and which a live instance's admin creates
+  like any other;
 - one library pointing at `LIBRARY_ROOT` (rootPath `""`, visibility ALL_USERS, enabled) — dev
   compose mounts `./dev-library` there;
 - no documents — they appear via a real scan, which keeps the seed honest.

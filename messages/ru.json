@@ -908,6 +908,24 @@
         "issuedBy": "Кем выдана",
         "issuedAt": "Дата выдачи",
         "expiresAt": "Действительна до"
+      },
+      "flight": {
+        "airline": "Авиакомпания",
+        "bookingReference": "Код бронирования",
+        "totalPrice": "Стоимость",
+        "coupons": "Купоны",
+        "couponsColumns": {
+          "passenger": "Пассажир",
+          "flightNumber": "Рейс",
+          "from": "Откуда",
+          "to": "Куда",
+          "date": "Дата",
+          "departure": "Вылет",
+          "arrival": "Прилёт",
+          "seat": "Место",
+          "class": "Класс",
+          "ticketNumber": "Номер билета"
+        }
       }
     },
     "addedToCollection": "Добавлено в коллекцию",
