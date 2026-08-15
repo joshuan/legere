@@ -6,6 +6,13 @@ import { execFileSync } from 'node:child_process';
 
 const BUMPS = ['patch', 'minor', 'major'];
 
+// A CI run appears a beat after the push and then takes minutes to finish. Both are "not yet",
+// not "no", so the command waits them out at the console instead of sending the person away to run
+// it again later. The limits are impatience rather than policy — Ctrl-C is always the other answer.
+const POLL_INTERVAL_MS = 15_000;
+const APPEARANCE_LIMIT_MS = 2 * 60_000;
+const COMPLETION_LIMIT_MS = 30 * 60_000;
+
 function run(command, args, options = {}) {
   const output = execFileSync(command, args, { encoding: 'utf8', ...options });
   // With `stdio: 'inherit'` there is nothing captured to return.
@@ -15,6 +22,38 @@ function run(command, args, options = {}) {
 function fail(message) {
   console.error(`release: ${message}`);
   process.exit(1);
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// One line that rewrites itself on a terminal — back to the start, then erase whatever a longer
+// previous line left — and plain lines where a carriage return means nothing: a log, a pipe.
+function progress(message) {
+  if (process.stdout.isTTY) process.stdout.write(`\rrelease: ${message}\u001b[K`);
+  else console.log(`release: ${message}`);
+}
+
+function elapsedSince(startedAt) {
+  const seconds = Math.round((Date.now() - startedAt) / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+// Polls `read` until `done` holds, keeping the console posted on how long the wait has been going.
+// Returns null when the limit runs out — what that silence means is the caller's to say. `what` is
+// kept short on purpose: a line that wraps cannot be rewritten in place.
+async function waitFor(read, done, limitMs, what) {
+  const startedAt = Date.now();
+  let waited = false;
+  let value = read();
+  while (!done(value) && Date.now() - startedAt < limitMs) {
+    progress(`waiting for ${what} — ${elapsedSince(startedAt)}`);
+    waited = true;
+    await sleep(POLL_INTERVAL_MS);
+    value = read();
+  }
+  // A rewritten line keeps the cursor on itself; what is printed next deserves its own line.
+  if (waited && process.stdout.isTTY) process.stdout.write('\n');
+  return done(value) ? value : null;
 }
 
 const bump = process.argv[2] ?? 'minor';
@@ -31,18 +70,41 @@ if (head !== run('git', ['rev-parse', 'origin/main'])) {
   fail('local main and origin/main differ — push (or pull) first, and let CI answer');
 }
 
-// The gate: the CI workflow already ran on this very commit and came back green. A red run names
-// itself; a run still going asks for patience, not for a local rerun.
-const runsJson = run('gh', [
-  'api',
-  `repos/{owner}/{repo}/actions/workflows/ci.yml/runs?head_sha=${head}`,
-  '--jq',
-  '.workflow_runs | map({status, conclusion, html_url})',
-]);
-const runs = JSON.parse(runsJson);
-if (runs.length === 0) fail(`no CI run exists for ${head} — was it pushed just now? Wait for one`);
-const unfinished = runs.find((entry) => entry.status !== 'completed');
-if (unfinished !== undefined) fail(`CI is still running for ${head}: ${unfinished.html_url}`);
+// The gate: the CI workflow ran on this very commit and came back green. A red run names itself; a
+// run still going is waited on right here, because the answer is coming and the command wants it.
+const ciRuns = () =>
+  JSON.parse(
+    run('gh', [
+      'api',
+      `repos/{owner}/{repo}/actions/workflows/ci.yml/runs?head_sha=${head}`,
+      '--jq',
+      '.workflow_runs | map({status, conclusion, html_url})',
+    ]),
+  );
+
+const started = await waitFor(
+  ciRuns,
+  (entries) => entries.length > 0,
+  APPEARANCE_LIMIT_MS,
+  `a CI run on ${head.slice(0, 7)} to appear`,
+);
+if (started === null) fail(`no CI run appeared for ${head} — is the push the workflow's trigger?`);
+
+// The URL is said once, in a line of its own: the countdown below rewrites itself and has to fit.
+const pending = started.find((entry) => entry.status !== 'completed');
+if (pending !== undefined) console.log(`release: CI is still running: ${pending.html_url}`);
+
+const runs = await waitFor(
+  ciRuns,
+  (entries) => entries.every((entry) => entry.status === 'completed'),
+  COMPLETION_LIMIT_MS,
+  'CI to finish',
+);
+if (runs === null) {
+  const minutes = COMPLETION_LIMIT_MS / 60_000;
+  fail(`CI has not finished for ${head} in ${minutes} minutes: ${pending.html_url}`);
+}
+
 const red = runs.find((entry) => entry.conclusion !== 'success');
 if (red !== undefined) fail(`CI is not green for ${head}: ${red.html_url}`);
 

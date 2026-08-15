@@ -248,12 +248,16 @@ What the command does, in order (`scripts/release.mjs`):
 1. **Refuses anything but a clean, pushed `main`.** Not on `main`, a dirty tree, or a local `main`
    that differs from `origin/main` — each is its own refusal, because what is released must be
    exactly what CI looked at.
-2. **Gates on the CI that already ran.** It asks GitHub for the `CI` workflow runs on `HEAD`'s own
-   SHA: no run yet or still running → wait and rerun the command; red → the failing run's URL is the
-   answer. 🔒 **Nothing is re-run locally.** The suite was green on this very commit in CI; running
-   it again on the same bytes buys a slower copy of an answer that already exists. A release is cut
-   in the time it takes to bump a number, not in the time it takes to re-earn a green that is
-   already on the screen.
+2. **Gates on the CI that already ran — and waits for it when it has not finished.** It asks GitHub
+   for the `CI` workflow runs on `HEAD`'s own SHA and polls every 15 s, printing the elapsed wait on
+   one line that rewrites itself: up to 2 minutes for a run to appear at all (a push needs a moment
+   to become a run), then up to 30 minutes for it to finish. A wait that outlives its limit becomes
+   a refusal naming the run; red is a refusal at once, the failing run's URL being the whole answer.
+   Waiting is the point: "not yet" is not "no", and the person who typed the command should not have
+   to come back and type it again. 🔒 **Nothing is re-run locally.** The suite was green on this very
+   commit in CI; running it again on the same bytes buys a slower copy of an answer that exists. A
+   release is cut in the time it takes to bump a number, not in the time it takes to re-earn a green
+   that is already on the screen.
 3. **Writes the version commit and the tag as one move** — `npm version`, which bumps `package.json`
    (+ lockfile), commits `chore(release): X.Y.Z` and lays the annotated tag `vX.Y.Z` on that very
    commit — then pushes both in one `git push --follow-tags`.
