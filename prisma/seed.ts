@@ -57,6 +57,17 @@ const DEFAULT_CATEGORIES: ReadonlyArray<{ slug: string; name: string; descriptio
     name: 'Flight',
     description: 'Air tickets, itinerary receipts and boarding passes.',
   },
+  {
+    slug: 'lab-report',
+    name: 'Lab report',
+    description: 'Laboratory reports: analytes, their values and the intervals they are read by.',
+  },
+  {
+    slug: 'civil-certificate',
+    name: 'Civil certificate',
+    description:
+      'Registry-office certificates on numbered blanks: birth, death, marriage, divorce.',
+  },
 ];
 
 // Uniqueness for soft-deletable models lives in partial unique indexes (docs/04 §4.3), which Prisma

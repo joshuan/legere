@@ -387,14 +387,14 @@ reading: the facts that are typed because the *type* types them (ADR-022).
 **The schema is the type's, and it ships with the code.** A **field schema** is a versioned list of
 field specs — key, kind, whether the value is searchable, whether it belongs on a card — kept in a
 registry in `src/shared/contracts`, keyed by the document type's slug. It is data, deliberately:
-today the registry is a constant and only `receipt`, `passport`, `id-card`, `flight` and `invoice`
-carry one; the day schemas become admin-editable they move into a table without the stored answers
-changing shape, because every answer already names the slug and version it speaks. Field **kinds**
-are the closed set `string`, `number`, `date` (a calendar day, the `documentDate` rule), `money`
-(`{ amount, currency }`, one fact — an amount without its currency is not a fact), and `table` (rows
-of `string`/`number` columns — the lines of a receipt). Field labels are not in the registry: they
-are message-catalog keys derived from the slug and the field key, localized like everything else
-(ADR-016).
+today the registry is a constant and only `receipt`, `passport`, `id-card`, `flight`, `invoice`,
+`lab-report` and `civil-certificate` carry one; the day schemas become admin-editable they move into
+a table without the stored answers changing shape, because every answer already names the slug and
+version it speaks. Field **kinds** are the closed set `string`, `number`, `date` (a calendar day,
+the `documentDate` rule), `money` (`{ amount, currency }`, one fact — an amount without its currency
+is not a fact), and `table` (rows of `string`/`number` columns — the lines of a receipt). Field
+labels are not in the registry: they are message-catalog keys derived from the slug and the field
+key, localized like everything else (ADR-016).
 
 **One `flight` for every paper an airline prints.** An e-ticket, an itinerary receipt and a boarding
 pass are one journey wearing three layouts: they differ in which fields they fill, not in what they
@@ -437,6 +437,44 @@ read, so its hint teaches the markings themselves: a masked card number, a POS/T
 as the vendor: a withdrawal has a merchant, a moment, a sum and a card, which is every field that
 matters here — a type of its own is owed only when that proves too small to hold one, and not
 before.
+
+**One row per analyte, and the panels flattened.** A clinical lab report is a header and a table:
+who was tested, by which laboratory, under which order number — and then result after result,
+printed under headings that group them into a blood count, a biochemistry panel, a single
+qualitative test. Those headings are typography rather than structure, so `lab-report` states the
+header once — the `patient`, the `facility`, the `orderNumber` and the two dates — and pours every
+panel into one `results` table: `analyte`, `value`, `unit`, `reference`, `flag`, a row apiece. The
+`value` is a *string* because half of what a laboratory answers is not a number: "positive", "not
+detected", "<0.5" are results, and a numeric column would drop them along with the reason the report
+was ordered. A column typed that way holds both ends of it: a number answered where the column asks
+for text is kept as the digits it was printed with — the mirror of a number column already reading
+"12,40" as the number it is. Of the two dates the one that matters is `collectedAt`: a result speaks
+about the morning the blood was drawn and not the afternoon the printer ran, which is why that is
+the day on the card and `reportedAt` merely a fact beside it. `lab-report` joins the types the dev
+seed creates (`04 §4.6`), beside the broader `medical` the catalogue already carries for everything
+a laboratory did not print.
+
+**A card in a wallet and a blank from a registry office are different papers.** `id-card` and
+`passport` are for what a person carries to be shown: a photograph, a number, an expiry, a holder.
+What a *ЗАГС* or a *matična služba* prints on a numbered blank — a birth, a death, a marriage, a
+divorce — is none of those: it never expires, and its number is the number of the form it was struck
+on. So `civil-certificate` states what such a paper actually carries: the `certificateNumber` of the
+blank, the `actNumber` and `actDate` of the record in the registry book standing behind it, the
+`issuedBy` office, the event itself as `eventDate` and `eventPlace`, and the `issuedAt` day the
+blank was handed over — which on a duplicate drawn forty years later is not the day of the event.
+🔒 **Who the paper is about is not a field of it.** The child, the deceased, the two who married are
+*people*, and people are what the document's people links are for (§3.3.19): a name copied into a
+field beside those links would be a second vocabulary for the same person, unsearchable as a person
+and uncorrectable as one. The wallet cards keep their `holder`, because a card states its bearer the
+way it states its number — and both gain the state that issued them. `id-card` **v2** and `passport`
+**v2** add `issuingCountry`: the document's own `country` is one coarse code for where the paper
+belongs, which the analysis may fill with the place of the event or the country the drawer sits in,
+while which state issued the card is printed on the card and wanted exactly — a Serbian archive
+holding a Russian licence answers "Russia" here and nothing else does. `id-card` **v2** adds the
+`birthDate` a licence prints and the `categories` it grants, the vehicle classes being the one thing
+a licence says that no other card in a wallet does. Both are version bumps and neither is a type
+change: the next `fields` run re-reads under the newer schema and every correction survives it
+(below). `civil-certificate` joins the dev seed's types the way `flight` does.
 
 **What is stored.** One JSON on the document — `extracted` — self-describing:
 

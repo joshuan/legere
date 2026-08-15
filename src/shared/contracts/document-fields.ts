@@ -128,9 +128,11 @@ export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
       },
     ],
   },
+  // v2 (docs/03 §3.3.10a): a card in a wallet says which state issued it, and the document's own
+  // `country` — one coarse code for where the paper belongs — is not that answer.
   {
     typeSlug: 'passport',
-    version: 1,
+    version: 2,
     fields: [
       {
         key: 'holder',
@@ -147,6 +149,12 @@ export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
         hint: 'The passport number, exactly as printed',
       },
       {
+        key: 'issuingCountry',
+        kind: 'string',
+        searchable: true,
+        hint: 'The state that issued this passport, as the document itself names it on the cover or in the data page — the country of issue, and not the country the archive keeping the paper sits in',
+      },
+      {
         key: 'issuedBy',
         kind: 'string',
         searchable: true,
@@ -157,9 +165,11 @@ export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
       { key: 'birthDate', kind: 'date', hint: "The holder's date of birth, as yyyy-mm-dd" },
     ],
   },
+  // v2 (docs/03 §3.3.10a): the same issuing state as the passport, and the two things a driving
+  // licence prints that no other card in a wallet does — the birth date and the vehicle classes.
   {
     typeSlug: 'id-card',
-    version: 1,
+    version: 2,
     fields: [
       {
         key: 'holder',
@@ -176,6 +186,12 @@ export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
         hint: 'The card or licence number, exactly as printed',
       },
       {
+        key: 'issuingCountry',
+        kind: 'string',
+        searchable: true,
+        hint: 'The state that issued this card, as the card itself names it — the country printed at its head, in the coat of arms or under the authority. A Russian driving licence kept in a Serbian drawer answers Russia',
+      },
+      {
         key: 'issuedBy',
         kind: 'string',
         searchable: true,
@@ -183,6 +199,12 @@ export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
       },
       { key: 'issuedAt', kind: 'date', hint: 'The date of issue, as yyyy-mm-dd' },
       { key: 'expiresAt', kind: 'date', summary: true, hint: 'The expiry date, as yyyy-mm-dd' },
+      { key: 'birthDate', kind: 'date', hint: "The holder's date of birth, as yyyy-mm-dd" },
+      {
+        key: 'categories',
+        kind: 'string',
+        hint: 'The vehicle categories a driving licence grants, exactly as the card prints them and in its own order — "B, B1, M", "A1 A B CE" — the letters and their separators, without the dates printed against them. A card that is not a licence has none',
+      },
     ],
   },
   // One schema for every paper an airline prints (docs/03 §3.3.10a): an e-ticket, an itinerary
@@ -388,6 +410,128 @@ export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
       },
     ],
   },
+  // One row per analyte, panels flattened (docs/03 §3.3.10a): the headings a lab report groups its
+  // results under are typography, not structure. The value is a string because "positive" is a
+  // result, and the date that matters is the one the sample was taken on.
+  {
+    typeSlug: 'lab-report',
+    version: 1,
+    fields: [
+      {
+        key: 'patient',
+        kind: 'string',
+        searchable: true,
+        summary: true,
+        hint: 'The person the sample was taken from, as the report prints the name — not the doctor who ordered the analysis, whose name is usually beside it, and not whoever paid for it',
+      },
+      {
+        key: 'facility',
+        kind: 'string',
+        searchable: true,
+        hint: 'The laboratory or clinic that ran the analysis and signs the result, as printed at the head of the report. Where a collection point and a laboratory are both named, the laboratory that produced the numbers',
+      },
+      {
+        key: 'orderNumber',
+        kind: 'string',
+        searchable: true,
+        hint: 'The number this report is filed under at the laboratory — "order", "accession", "заказ №", "broj uputa", "lab ID", often repeated in the barcode — exactly as printed, and not the patient\'s card or insurance number',
+      },
+      {
+        key: 'collectedAt',
+        kind: 'date',
+        summary: true,
+        hint: 'The day the sample was taken, as yyyy-mm-dd — "дата взятия", "uzorkovanje", "collected", "sample date". This is the day the result speaks about; where the paper prints only one date, it is this one',
+      },
+      {
+        key: 'reportedAt',
+        kind: 'date',
+        hint: 'The day the laboratory issued the result, as yyyy-mm-dd — "дата выдачи", "izdato", "reported", the day beside the signature — a day or two after the sample was taken, and sometimes longer',
+      },
+      {
+        key: 'results',
+        kind: 'table',
+        hint: 'One row per analyte, in printed order, with the panels flattened: a blood count, a biochemistry panel and a single serology test on one report are rows of one table. A heading grouping them is not a row of its own, and neither is a subtotal',
+        columns: [
+          {
+            key: 'analyte',
+            kind: 'string',
+            searchable: true,
+            hint: 'What was measured, as the report names it — "Hemoglobin", "Гемоглобин", "Glucose", "TSH", "Anti-HBs" — the analyte alone, without the panel heading above it and without the method in brackets after it',
+          },
+          {
+            key: 'value',
+            kind: 'string',
+            hint: 'The result as printed: the number where the analyte is measured, the word where it is judged — "positive", "negative", "not detected". Copied as it stands, "<" or ">" kept where the instrument prints one, comma or dot as the report uses, and the unit left to its own column',
+          },
+          {
+            key: 'unit',
+            kind: 'string',
+            hint: 'What the result is counted in, as printed — "g/L", "10^9/L", "mmol/L", "мкМЕ/мл". A qualitative result has none',
+          },
+          {
+            key: 'reference',
+            kind: 'string',
+            hint: 'The normal interval printed beside the result — "4.0–9.0", "< 5.7", "negative", "муж. 130–160" — copied whole, exactly as it stands, including the sex or age it is qualified by',
+          },
+          {
+            key: 'flag',
+            kind: 'string',
+            hint: 'The mark the report puts against a result outside its interval — "H", "L", "↑", "↓", "abnormal", an asterisk — or the short note printed in that column instead. A result inside the interval carries none',
+          },
+        ],
+      },
+    ],
+  },
+  // The state papers on numbered blanks (docs/03 §3.3.10a): a registry office prints a birth, a
+  // death, a marriage or a divorce on a form that never expires, and whose number is the form's.
+  // Who the paper is about stays on the document's people links (§3.3.19) — it is not a field here.
+  {
+    typeSlug: 'civil-certificate',
+    version: 1,
+    fields: [
+      {
+        key: 'certificateNumber',
+        kind: 'string',
+        searchable: true,
+        summary: true,
+        hint: 'The number of the blank itself, series and number together as printed — "II-МЮ № 123456", "Ser. A No. 004512" — the identifier struck on the form, which is not the number of the act record behind it',
+      },
+      {
+        key: 'actNumber',
+        kind: 'string',
+        searchable: true,
+        hint: 'The number of the record in the registry book — "запись акта о рождении №", "matični broj upisa", "entry no." — the number a duplicate of this certificate is later issued against',
+      },
+      {
+        key: 'actDate',
+        kind: 'date',
+        hint: 'The day that record was entered in the registry book, as yyyy-mm-dd — days or weeks after the event itself, and often years before this particular blank was printed',
+      },
+      {
+        key: 'issuedBy',
+        kind: 'string',
+        searchable: true,
+        hint: 'The registry office that issued it, as printed — the ЗАГС, the matična služba, the register office — with the district and town the paper names',
+      },
+      {
+        key: 'eventDate',
+        kind: 'date',
+        summary: true,
+        hint: 'The day of the event this paper certifies — the birth, the death, the marriage, the divorce — as yyyy-mm-dd. Not the day the certificate was made out',
+      },
+      {
+        key: 'eventPlace',
+        kind: 'string',
+        searchable: true,
+        hint: 'Where that event happened, as printed — the town, with the district, republic or country where the paper spells them out',
+      },
+      {
+        key: 'issuedAt',
+        kind: 'date',
+        hint: 'The day this blank was made out and handed over, as yyyy-mm-dd — on a duplicate drawn decades after the event, its own recent day',
+      },
+    ],
+  },
 ];
 
 export function fieldSchemaFor(typeSlug: string | null | undefined): DocumentFieldSchema | null {
@@ -471,7 +615,12 @@ function cleanMoney(raw: unknown): MoneyValue | undefined {
 }
 
 function cleanCell(column: DocumentFieldColumn, raw: unknown): string | number | undefined {
-  return column.kind === 'string' ? cleanString(raw, MAX_CELL_CHARS) : cleanNumber(raw);
+  if (column.kind !== 'string') return cleanNumber(raw);
+  // A column typed `string` because it must hold both — a lab result is 6.31 as readily as it is
+  // "positive" — keeps a number the model answered as the digits it printed, rather than dropping
+  // half of what the column exists for (docs/03 §3.3.10a).
+  const value = typeof raw === 'number' && Number.isFinite(raw) ? String(raw) : raw;
+  return cleanString(value, MAX_CELL_CHARS);
 }
 
 // Row by row, cell by cell: an unreadable cell is dropped, a row with nothing readable goes with it.

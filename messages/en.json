@@ -908,6 +908,7 @@
       "passport": {
         "holder": "Holder",
         "number": "Number",
+        "issuingCountry": "Issuing country",
         "issuedBy": "Issued by",
         "issuedAt": "Issued",
         "expiresAt": "Expires",
@@ -916,9 +917,12 @@
       "id-card": {
         "holder": "Holder",
         "number": "Number",
+        "issuingCountry": "Issuing country",
         "issuedBy": "Issued by",
         "issuedAt": "Issued",
-        "expiresAt": "Expires"
+        "expiresAt": "Expires",
+        "birthDate": "Date of birth",
+        "categories": "Categories"
       },
       "flight": {
         "airline": "Airline",
@@ -960,6 +964,30 @@
           "adjustment": "Adjustment",
           "due": "Due"
         }
+      },
+      "lab-report": {
+        "patient": "Patient",
+        "facility": "Laboratory",
+        "orderNumber": "Order number",
+        "collectedAt": "Collected",
+        "reportedAt": "Reported",
+        "results": "Results",
+        "resultsColumns": {
+          "analyte": "Analyte",
+          "value": "Result",
+          "unit": "Unit",
+          "reference": "Reference range",
+          "flag": "Flag"
+        }
+      },
+      "civil-certificate": {
+        "certificateNumber": "Certificate number",
+        "actNumber": "Act record number",
+        "actDate": "Act record date",
+        "issuedBy": "Registry office",
+        "eventDate": "Date of the event",
+        "eventPlace": "Place of the event",
+        "issuedAt": "Issued"
       }
     },
     "addedToCollection": "Added to the collection",
@@ -1023,6 +1051,17 @@
       "missing": "Missing",
       "missingReason": "the volume no longer has it",
       "cropped": "Cropped",
+      "rearranged": "Rearranged",
+      "pages": {
+        "arrange": "Arrange pages",
+        "hint": "Drag a page into place, or move a focused one with the arrow keys.",
+        "page": "Page {page}, now {position} of {total}",
+        "save": "Save",
+        "cancel": "Cancel",
+        "restore": "Restore original order",
+        "saved": "The page order is saved; the document is being rebuilt.",
+        "restored": "The pages read as they arrived again; the document is being rebuilt."
+      },
       "objectStorage": "Object storage",
       "replace": "Replace",
       "replaced": "The file is replaced; the old one is in the trash.",
@@ -1051,17 +1090,6 @@
     "documents": "Documents",
     "browse": "Browse",
     "search": "Search",
-      "rearranged": "Rearranged",
-      "pages": {
-        "arrange": "Arrange pages",
-        "hint": "Drag a page into place, or move a focused one with the arrow keys.",
-        "page": "Page {page}, now {position} of {total}",
-        "save": "Save",
-        "cancel": "Cancel",
-        "restore": "Restore original order",
-        "saved": "The page order is saved; the document is being rebuilt.",
-        "restored": "The pages read as they arrived again; the document is being rebuilt."
-      },
     "collections": "Collections",
     "administration": "Administration",
     "settings": "Settings",

@@ -19,11 +19,56 @@ if (flight === undefined) throw new Error('The flight schema left the registry')
 const invoice = DOCUMENT_FIELD_SCHEMAS.find((schema) => schema.typeSlug === 'invoice');
 if (invoice === undefined) throw new Error('The invoice schema left the registry');
 
+const labReport = DOCUMENT_FIELD_SCHEMAS.find((schema) => schema.typeSlug === 'lab-report');
+if (labReport === undefined) throw new Error('The lab-report schema left the registry');
+
+const civilCertificate = DOCUMENT_FIELD_SCHEMAS.find(
+  (schema) => schema.typeSlug === 'civil-certificate',
+);
+if (civilCertificate === undefined)
+  throw new Error('The civil-certificate schema left the registry');
+
+const idCard = DOCUMENT_FIELD_SCHEMAS.find((schema) => schema.typeSlug === 'id-card');
+if (idCard === undefined) throw new Error('The id-card schema left the registry');
+
+const passport = DOCUMENT_FIELD_SCHEMAS.find((schema) => schema.typeSlug === 'passport');
+if (passport === undefined) throw new Error('The passport schema left the registry');
+
 const spec = (key: string) => {
   const found = receipt.fields.find((field) => field.key === key);
   if (found === undefined) throw new Error(`No field ${key} on the receipt schema`);
   return found;
 };
+
+// The fill-blanks rule as the `fields` step applies it (docs/03 §3.3.10a, docs/05 §5.5 step 5):
+// the stored answer stands where it says MANUAL, the fresh reading fills the rest, and the whole
+// of it is keyed on the schema's slug — which is why a version bump re-reads rather than replaces.
+function applyFillBlanks(
+  schema: DocumentFieldSchema,
+  stored: ExtractedFields | null,
+  answer: unknown,
+): ExtractedFields {
+  const read = sanitizeFieldValues(schema, answer);
+  const previous = stored !== null && stored.schema.slug === schema.typeSlug ? stored : null;
+  const values: Record<string, unknown> = {};
+  const sources: Record<string, ExtractedFieldSource> = {};
+  for (const field of schema.fields) {
+    if (previous !== null && previous.sources[field.key] === 'MANUAL') {
+      const kept = previous.values[field.key];
+      if (kept !== undefined) {
+        values[field.key] = kept;
+        sources[field.key] = 'MANUAL';
+        continue;
+      }
+    }
+    const value = read[field.key];
+    if (value !== undefined) {
+      values[field.key] = value;
+      sources[field.key] = 'AUTO';
+    }
+  }
+  return { schema: { slug: schema.typeSlug, version: schema.version }, values, sources };
+}
 
 describe('fieldSchemaFor (docs/03 §3.3.10a)', () => {
   it('answers the schema of a slug that carries one, and null for the rest', () => {
@@ -32,6 +77,8 @@ describe('fieldSchemaFor (docs/03 §3.3.10a)', () => {
     expect(fieldSchemaFor('id-card')?.typeSlug).toBe('id-card');
     expect(fieldSchemaFor('flight')?.typeSlug).toBe('flight');
     expect(fieldSchemaFor('invoice')?.typeSlug).toBe('invoice');
+    expect(fieldSchemaFor('lab-report')?.typeSlug).toBe('lab-report');
+    expect(fieldSchemaFor('civil-certificate')?.typeSlug).toBe('civil-certificate');
     expect(fieldSchemaFor('contract')).toBeNull();
     expect(fieldSchemaFor(null)).toBeNull();
     expect(fieldSchemaFor(undefined)).toBeNull();
@@ -926,36 +973,6 @@ describe('the receipt schema at v2 (docs/03 §3.3.10a)', () => {
     expect(text).not.toContain('card');
   });
 
-  // The fill-blanks rule as the `fields` step applies it (docs/03 §3.3.10a, docs/05 §5.5 step 5):
-  // the stored answer stands where it says MANUAL, the fresh reading fills the rest, and the whole
-  // of it is keyed on the schema's slug — which is why a version bump re-reads rather than replaces.
-  function applyFillBlanks(
-    schema: DocumentFieldSchema,
-    stored: ExtractedFields | null,
-    answer: unknown,
-  ): ExtractedFields {
-    const read = sanitizeFieldValues(schema, answer);
-    const previous = stored !== null && stored.schema.slug === schema.typeSlug ? stored : null;
-    const values: Record<string, unknown> = {};
-    const sources: Record<string, ExtractedFieldSource> = {};
-    for (const field of schema.fields) {
-      if (previous !== null && previous.sources[field.key] === 'MANUAL') {
-        const kept = previous.values[field.key];
-        if (kept !== undefined) {
-          values[field.key] = kept;
-          sources[field.key] = 'MANUAL';
-          continue;
-        }
-      }
-      const value = read[field.key];
-      if (value !== undefined) {
-        values[field.key] = value;
-        sources[field.key] = 'AUTO';
-      }
-    }
-    return { schema: { slug: schema.typeSlug, version: schema.version }, values, sources };
-  }
-
   it('re-reads a v1 answer at v2 and keeps the field a person corrected', () => {
     // What the document has held since before the bump: a vendor somebody typed, the rest read.
     const stored: ExtractedFields = {
@@ -979,5 +996,356 @@ describe('the receipt schema at v2 (docs/03 §3.3.10a)', () => {
     expect(next.values['statementDescriptor']).toBe('TROPIC MALOPRODAJA VISEGRAD BA');
     expect(next.sources['card']).toBe('AUTO');
     expect(next.sources['statementDescriptor']).toBe('AUTO');
+  });
+});
+
+// One row per analyte, panels flattened (docs/03 §3.3.10a): the answer below is shaped like the
+// clinical lab report this schema was written from — a blood count, a biochemistry panel and a
+// serology test printed under three headings on one sheet, and rows of one table here.
+describe('the lab-report schema (docs/03 §3.3.10a)', () => {
+  const labSpec = (key: string) => {
+    const found = labReport.fields.find((field) => field.key === key);
+    if (found === undefined) throw new Error(`No field ${key} on the lab-report schema`);
+    return found;
+  };
+
+  const report = {
+    patient: 'Petrović Ana',
+    facility: 'Laboratorija Konzilijum, Beograd',
+    orderNumber: 'LK-2026-0418-77',
+    collectedAt: '2026-04-18',
+    reportedAt: '2026-04-19',
+    results: [
+      // Krvna slika — the panel heading is not a row of its own.
+      { analyte: 'Hemoglobin', value: '143', unit: 'g/L', reference: '130–170' },
+      { analyte: 'Eritrociti', value: '4.82', unit: '10^12/L', reference: '4.30–5.70' },
+      { analyte: 'Leukociti', value: '11.4', unit: '10^9/L', reference: '4.0–9.0', flag: 'H' },
+      { analyte: 'Trombociti', value: '244', unit: '10^9/L', reference: '150–400' },
+      // Biohemija — the comma is how the paper prints it, and the column keeps it as printed.
+      { analyte: 'Glukoza', value: '5,9', unit: 'mmol/L', reference: '4.1–5.9' },
+      {
+        analyte: 'Holesterol ukupni',
+        value: '6.31',
+        unit: 'mmol/L',
+        reference: '< 5.2',
+        flag: '↑',
+      },
+      // Serologija — a verdict and a value the instrument could only bound from above.
+      {
+        analyte: 'Anti-SARS-CoV-2 IgG',
+        value: 'positive',
+        reference: 'negative',
+        flag: 'abnormal',
+      },
+      { analyte: 'Troponin I', value: '<0.01', unit: 'ng/mL', reference: '< 0.04' },
+    ],
+  };
+
+  it('draws the result columns the details table draws, in the schema order', () => {
+    const columns = labSpec('results').columns ?? [];
+    expect(columns.map((column) => column.key)).toEqual([
+      'analyte',
+      'value',
+      'unit',
+      'reference',
+      'flag',
+    ]);
+    // What was measured is what a person searches by; a number, its unit and its interval are read
+    // on the document and belong out of the index.
+    expect(
+      columns.filter((column) => column.searchable === true).map((column) => column.key),
+    ).toEqual(['analyte']);
+  });
+
+  it('reads three panels as one table, verdicts and bounded values included', () => {
+    const values = sanitizeFieldValues(labReport, report);
+    expect(values['patient']).toBe('Petrović Ana');
+    expect(values['facility']).toBe('Laboratorija Konzilijum, Beograd');
+    expect(values['orderNumber']).toBe('LK-2026-0418-77');
+    expect(values['results']).toEqual(report.results);
+    // 🔒 "positive" is a result: a numeric column would have dropped it, and "<0.01" with it.
+    expect(values['results']).toContainEqual({
+      analyte: 'Anti-SARS-CoV-2 IgG',
+      value: 'positive',
+      reference: 'negative',
+      flag: 'abnormal',
+    });
+    // A result inside its interval carries no flag, and that absence is not an empty cell. Compared
+    // as text because the cells are drawn in the schema's order (docs/11 §11.5), not the answer's.
+    expect(JSON.stringify(values['results'])).toContain(
+      JSON.stringify({ analyte: 'Hemoglobin', value: '143', unit: 'g/L', reference: '130–170' }),
+    );
+  });
+
+  it('keeps a result the model answered as a number, printed as it stands', () => {
+    const values = sanitizeFieldValues(labReport, {
+      results: [
+        { analyte: 'Hemoglobin', value: 143, unit: 'g/L', reference: '130–170' },
+        { analyte: 'Glukoza', value: 5.9, unit: 'mmol/L' },
+      ],
+    });
+    expect(values['results']).toEqual([
+      { analyte: 'Hemoglobin', value: '143', unit: 'g/L', reference: '130–170' },
+      { analyte: 'Glukoza', value: '5.9', unit: 'mmol/L' },
+    ]);
+  });
+
+  it('drops a date it cannot read without losing the analytes beside it', () => {
+    const values = sanitizeFieldValues(labReport, {
+      patient: '  Petrović Ana  ',
+      // The day as the report prints it rather than as a calendar day.
+      collectedAt: '18.04.2026',
+      reportedAt: '2026-04-19',
+      results: ['not a row', { unit: '' }, { analyte: 'Hemoglobin', value: '143' }],
+    });
+    expect(values).toEqual({
+      patient: 'Petrović Ana',
+      reportedAt: '2026-04-19',
+      results: [{ analyte: 'Hemoglobin', value: '143' }],
+    });
+  });
+
+  it('carries the patient and the day the sample was taken on the card', () => {
+    const summary = summaryValuesOf(labReport, sanitizeFieldValues(labReport, report));
+    // 🔒 The day the sample was taken, not the day the printer ran: that is what the result speaks
+    // about (docs/03 §3.3.10a).
+    expect(summary).toEqual({ patient: 'Petrović Ana', collectedAt: '2026-04-18' });
+    expect(Object.keys(summary ?? {})).toEqual(['patient', 'collectedAt']);
+  });
+
+  it('is found by the patient, the laboratory, the order number and every analyte', () => {
+    const text = extractedSearchTextOf(labReport, sanitizeFieldValues(labReport, report));
+    expect(text).toBe(
+      [
+        'Petrović Ana',
+        'Laboratorija Konzilijum, Beograd',
+        'LK-2026-0418-77',
+        'Hemoglobin',
+        'Eritrociti',
+        'Leukociti',
+        'Trombociti',
+        'Glukoza',
+        'Holesterol ukupni',
+        'Anti-SARS-CoV-2 IgG',
+        'Troponin I',
+      ].join('\n'),
+    );
+    // The numbers, their units and their intervals stay on the document.
+    expect(text).not.toContain('mmol/L');
+    expect(text).not.toContain('6.31');
+  });
+});
+
+// The state papers on numbered blanks (docs/03 §3.3.10a): the answers below are shaped like a birth
+// certificate and a marriage certificate — a form that never expires, whose number is the form's,
+// with a registry-book record standing behind it.
+describe('the civil-certificate schema (docs/03 §3.3.10a)', () => {
+  const birth = {
+    certificateNumber: 'II-МЮ № 123456',
+    actNumber: '1042',
+    actDate: '1990-01-09',
+    issuedBy: 'Отдел ЗАГС Кировского района города Санкт-Петербурга',
+    eventDate: '1990-01-02',
+    eventPlace: 'город Ленинград, РСФСР',
+    issuedAt: '1990-01-09',
+  };
+
+  // A duplicate drawn thirty years after the wedding: the blank is new, the record is not.
+  const marriageDuplicate = {
+    certificateNumber: 'Ser. A No. 004512',
+    actNumber: '318',
+    actDate: '1994-06-11',
+    issuedBy: 'Matična služba opštine Stari grad, Beograd',
+    eventDate: '1994-06-11',
+    eventPlace: 'Beograd, Republika Srbija',
+    issuedAt: '2024-09-30',
+  };
+
+  it('states the fields of a numbered blank, and nobody it is about', () => {
+    expect(civilCertificate.version).toBe(1);
+    expect(civilCertificate.fields.map((field) => field.key)).toEqual([
+      'certificateNumber',
+      'actNumber',
+      'actDate',
+      'issuedBy',
+      'eventDate',
+      'eventPlace',
+      'issuedAt',
+    ]);
+    // 🔒 Who the paper is about stays on the document's people links (docs/03 §3.3.10a, §3.3.19):
+    // a name copied into a field beside them would be a second vocabulary for the same person.
+    for (const key of ['holder', 'patient', 'child', 'name', 'spouse']) {
+      expect(civilCertificate.fields.some((field) => field.key === key)).toBe(false);
+    }
+  });
+
+  it('reads a birth certificate down to the record standing behind the blank', () => {
+    const values = sanitizeFieldValues(civilCertificate, birth);
+    expect(values).toEqual(birth);
+  });
+
+  it('keeps the day of the event apart from the day a duplicate was printed', () => {
+    const values = sanitizeFieldValues(civilCertificate, marriageDuplicate);
+    expect(values['eventDate']).toBe('1994-06-11');
+    expect(values['actDate']).toBe('1994-06-11');
+    // The blank is thirty years younger than the marriage it certifies.
+    expect(values['issuedAt']).toBe('2024-09-30');
+  });
+
+  it('drops a number-shaped date without losing the blank number beside it', () => {
+    const values = sanitizeFieldValues(civilCertificate, {
+      certificateNumber: '  II-МЮ № 123456  ',
+      // A century no registry office ever printed, and a day that is not one.
+      actDate: '1890-01-09',
+      eventDate: '1990-02-31',
+      issuedBy: 'Отдел ЗАГС Кировского района города Санкт-Петербурга',
+    });
+    expect(values).toEqual({
+      certificateNumber: 'II-МЮ № 123456',
+      issuedBy: 'Отдел ЗАГС Кировского района города Санкт-Петербурга',
+    });
+  });
+
+  it('carries the blank number and the day of the event on the card', () => {
+    const summary = summaryValuesOf(
+      civilCertificate,
+      sanitizeFieldValues(civilCertificate, marriageDuplicate),
+    );
+    expect(summary).toEqual({
+      certificateNumber: 'Ser. A No. 004512',
+      eventDate: '1994-06-11',
+    });
+    expect(Object.keys(summary ?? {})).toEqual(['certificateNumber', 'eventDate']);
+  });
+
+  it('is found by both numbers, the office and the place of the event', () => {
+    const text = extractedSearchTextOf(
+      civilCertificate,
+      sanitizeFieldValues(civilCertificate, birth),
+    );
+    expect(text).toBe(
+      [
+        'II-МЮ № 123456',
+        '1042',
+        'Отдел ЗАГС Кировского района города Санкт-Петербурга',
+        'город Ленинград, РСФСР',
+      ].join('\n'),
+    );
+    // The days are on the paper and out of the index: nobody looks a certificate up by "1990-01-02".
+    expect(text).not.toContain('1990-01-02');
+  });
+});
+
+// The wallet cards at v2 (docs/03 §3.3.10a): both now say which state issued them, and a driving
+// licence says the two further things only a licence says.
+describe('id-card and passport at v2 (docs/03 §3.3.10a)', () => {
+  // The Russian driving licence a Serbian archive holds — which is the whole reason the issuing
+  // state is a field: the document's own country row does not answer it.
+  const licence = {
+    holder: 'ПЕТРОВ ИВАН СЕРГЕЕВИЧ / PETROV IVAN',
+    number: '99 12 345678',
+    issuingCountry: 'Russia',
+    issuedBy: 'ГИБДД 7803',
+    issuedAt: '2019-11-14',
+    expiresAt: '2029-11-14',
+    birthDate: '1985-03-21',
+    categories: 'B, B1, M',
+  };
+
+  it('states the fields each card carries at v2, in the order the details table draws them', () => {
+    expect(idCard.version).toBe(2);
+    expect(idCard.fields.map((field) => field.key)).toEqual([
+      'holder',
+      'number',
+      'issuingCountry',
+      'issuedBy',
+      'issuedAt',
+      'expiresAt',
+      'birthDate',
+      'categories',
+    ]);
+    expect(passport.version).toBe(2);
+    expect(passport.fields.map((field) => field.key)).toEqual([
+      'holder',
+      'number',
+      'issuingCountry',
+      'issuedBy',
+      'issuedAt',
+      'expiresAt',
+      'birthDate',
+    ]);
+  });
+
+  it('reads a driving licence down to the state that issued it and the classes it grants', () => {
+    const values = sanitizeFieldValues(idCard, licence);
+    expect(values).toEqual(licence);
+    // The categories are printed on the card and read off it as printed, separators and all.
+    expect(values['categories']).toBe('B, B1, M');
+  });
+
+  it('is found by the holder, the number, the issuing state and the authority', () => {
+    const text = extractedSearchTextOf(idCard, sanitizeFieldValues(idCard, licence));
+    expect(text).toBe(
+      ['ПЕТРОВ ИВАН СЕРГЕЕВИЧ / PETROV IVAN', '99 12 345678', 'Russia', 'ГИБДД 7803'].join('\n'),
+    );
+    // The classes are on the card and out of the index: "B" would match half an archive.
+    expect(text).not.toContain('B, B1, M');
+  });
+
+  it('re-reads a v1 id-card answer at v2 and keeps the fields a person corrected', () => {
+    // What the document has held since before the bump: a holder and a number somebody typed.
+    const stored: ExtractedFields = {
+      schema: { slug: 'id-card', version: 1 },
+      values: {
+        holder: 'Петров Иван Сергеевич',
+        number: '99 12 345678',
+        issuedAt: '2019-11-14',
+      },
+      sources: { holder: 'MANUAL', number: 'MANUAL', issuedAt: 'AUTO' },
+    };
+
+    const next = applyFillBlanks(idCard, stored, licence);
+
+    // 🔒 A version bump is not a type change: the slug agrees, so the card is simply read again —
+    // both corrections survive it and the fields v2 added arrive as the model read them.
+    expect(next.schema).toEqual({ slug: 'id-card', version: 2 });
+    expect(next.values['holder']).toBe('Петров Иван Сергеевич');
+    expect(next.values['number']).toBe('99 12 345678');
+    expect(next.sources['holder']).toBe('MANUAL');
+    expect(next.sources['number']).toBe('MANUAL');
+    expect(next.values['issuingCountry']).toBe('Russia');
+    expect(next.values['birthDate']).toBe('1985-03-21');
+    expect(next.values['categories']).toBe('B, B1, M');
+    expect(next.sources['issuingCountry']).toBe('AUTO');
+    expect(next.sources['categories']).toBe('AUTO');
+    // The field that was read rather than typed is read again, and stays AUTO.
+    expect(next.sources['issuedAt']).toBe('AUTO');
+  });
+
+  it('re-reads a v1 passport answer at v2 and keeps the field a person corrected', () => {
+    const stored: ExtractedFields = {
+      schema: { slug: 'passport', version: 1 },
+      values: { holder: 'Ana Petrović', number: '008 123456', expiresAt: '2031-05-04' },
+      sources: { holder: 'MANUAL', number: 'AUTO', expiresAt: 'AUTO' },
+    };
+
+    const next = applyFillBlanks(passport, stored, {
+      holder: 'PETROVIC ANA',
+      number: '008123456',
+      issuingCountry: 'Serbia',
+      issuedBy: 'PU Beograd',
+      issuedAt: '2021-05-04',
+      expiresAt: '2031-05-04',
+      birthDate: '1988-07-19',
+    });
+
+    expect(next.schema).toEqual({ slug: 'passport', version: 2 });
+    expect(next.values['holder']).toBe('Ana Petrović');
+    expect(next.sources['holder']).toBe('MANUAL');
+    // Read again where nobody had corrected it, the new field included.
+    expect(next.values['number']).toBe('008123456');
+    expect(next.sources['number']).toBe('AUTO');
+    expect(next.values['issuingCountry']).toBe('Serbia');
+    expect(next.sources['issuingCountry']).toBe('AUTO');
   });
 });
