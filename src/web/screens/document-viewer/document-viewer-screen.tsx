@@ -42,7 +42,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { DefinitionList } from '../../shared/ui/definition-list';
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
@@ -1103,9 +1103,34 @@ function mergeById<T extends { id: string }>(
   return [...catalogue, ...onDocument.filter((entry) => !seen.has(entry.id))];
 }
 
-// Everything about the document that is not the document, in one list: what the file is, what the
-// pipeline made of it — and, behind an Edit button, a way to correct the parts a machine guessed
-// (docs/11 §11.5). What it is made *of* is the Files tab's question, and is answered there.
+// Which step writes which field (docs/05 §5.5): the page count comes with the preview, the text and
+// the languages with the parse, the place and the documentType with the AI step. A field whose step
+// has not settled is a field whose value is provisional, and it says so rather than showing an em
+// dash that reads as "there is none".
+//
+// Module-level because two of the pane's three sections ask it (docs/11 §11.5), and the second of
+// them is drawn apart from the form so that opening the form leaves it alone.
+function pendingState(
+  document: DocumentDetailDto,
+  steps: readonly DocumentStep[],
+): 'PENDING' | 'RUNNING' | undefined {
+  const statuses = steps.map((step) => document.steps[step]);
+  if (statuses.includes('RUNNING')) return 'RUNNING';
+  // A field is provisional whether a worker is on the way or nothing is scheduled at all; which of
+  // those it is belongs to the step's own chip, not to every field the step writes.
+  return statuses.includes('PENDING') || statuses.includes('QUEUED') ? 'PENDING' : undefined;
+}
+
+// Everything about the document that is not the document, in three titled sections (docs/11 §11.5):
+// **What it says** — every row a machine read off the page, which is the only one of the three
+// anybody may correct, and which therefore carries the Edit button in its own heading; **What it
+// is** — the facts of the artifact, which nothing here edits; **What it cost** — what the pipeline
+// spent getting here. What the document is made *of* is the Files tab's question, and is answered
+// there.
+//
+// This component is the pane and its first section; the other two are drawn beside it and are held
+// apart on purpose (below), so that opening the form re-renders the rows the form can touch and
+// nothing else.
 function DetailsPane({
   document,
   documentTypes,
@@ -1128,7 +1153,6 @@ function DetailsPane({
   saving: boolean;
 }) {
   const t = useTranslations();
-  const size = useMemo(() => formatBytes(document.sizeBytes), [document.sizeBytes]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [search, setSearch] = useState('');
   const [subjectSearch, setSubjectSearch] = useState('');
@@ -1364,17 +1388,9 @@ function DetailsPane({
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  // Which step writes which field (docs/05 §5.5): the page count comes with the preview, the text
-  // and the languages with the parse, the place and the documentType with the AI step. A field whose
-  // step has not settled is a field whose value is provisional, and it says so rather than showing
-  // an em dash that reads as "there is none".
-  const state = (...steps: DocumentStep[]): 'PENDING' | 'RUNNING' | undefined => {
-    const statuses = steps.map((step) => document.steps[step]);
-    if (statuses.includes('RUNNING')) return 'RUNNING';
-    // A field is provisional whether a worker is on the way or nothing is scheduled at all; which of
-    // those it is belongs to the step's own chip, not to every field the step writes.
-    return statuses.includes('PENDING') || statuses.includes('QUEUED') ? 'PENDING' : undefined;
-  };
+  // Which step writes which field, for the rows of this section (above).
+  const state = (...steps: DocumentStep[]): 'PENDING' | 'RUNNING' | undefined =>
+    pendingState(document, steps);
 
   // "read as X" — shown only where the machine's answer and the current one differ, because
   // repeating a value that nobody changed is noise (docs/03 §3.3.10).
@@ -1573,16 +1589,449 @@ function DetailsPane({
   const autoPlace = placeOf(document.auto.city ?? null, document.auto.country ?? null);
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-      {/* Above the list and to the right, where a form's own control belongs: it acts on everything
-          below it, and it must not be hunted for at the end of a long list (docs/11 §11.5). */}
-      <div className="legere-form-actions">
-        {!editing && (
-          <Tooltip title={t('viewer.details.editHint')}>
-            <Button onClick={startEditing}>{t('common.actions.edit')}</Button>
-          </Tooltip>
+    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      {/* 1. What it says — every row a machine read off the page, and the only section of the three
+          anybody may correct (docs/11 §11.5). */}
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        {/* 🔒 The Edit button stands in this section's own heading and not above the pane: a control
+            belongs over the rows it acts on and over no others, and the two sections below hold
+            nothing it could touch (docs/11 §11.5). */}
+        <div className="legere-section-head">
+          <Typography.Title level={5} style={{ margin: 0 }}>
+            {t('viewer.details.says')}
+          </Typography.Title>
+          {!editing && (
+            <Tooltip title={t('viewer.details.editHint')}>
+              <Button onClick={startEditing}>{t('common.actions.edit')}</Button>
+            </Tooltip>
+          )}
+        </div>
+
+        <DefinitionList
+          items={[
+            {
+              label: t('viewer.details.documentType'),
+              value:
+                draft !== null ? (
+                  withReset(
+                    ['documentType'],
+                    <Select
+                      allowClear
+                      className="legere-field"
+                      placeholder={t('viewer.documentType')}
+                      aria-label={t('viewer.documentType')}
+                      value={draft.typeId ?? undefined}
+                      onChange={(typeId?: string) => setDraft({ ...draft, typeId: typeId ?? null })}
+                      options={documentTypes.map((documentType) => ({
+                        value: documentType.id,
+                        label: documentType.name,
+                      }))}
+                    />,
+                    document.auto.typeSlug !== undefined &&
+                      document.auto.typeSlug !== null &&
+                      (autoType?.id ?? null) !== draft.typeId,
+                  )
+                ) : (
+                  <Space size={4} wrap>
+                    {/* The type is a folder that already has a screen of its own (docs/11 §11.4). */}
+                    {document.documentType === null ? (
+                      ''
+                    ) : (
+                      <Link href={`/browse/types/${document.documentType.id}`}>
+                        {document.documentType.name}
+                      </Link>
+                    )}
+                    {/* Chosen by the classifier and not confirmed by anybody since (03 §3.3.10). */}
+                    {document.typeSource === 'AUTO' && <Tag color="blue">{t('viewer.auto')}</Tag>}
+                  </Space>
+                ),
+              pending: state('analysis'),
+              note: wasRead(
+                autoType?.name ?? document.auto.typeSlug,
+                document.documentType?.name ?? '',
+                ['documentType'],
+              ),
+            },
+            {
+              label: t('viewer.details.people'),
+              value:
+                draft !== null ? (
+                  <Select
+                    mode="multiple"
+                    className="legere-field"
+                    optionFilterProp="label"
+                    placeholder={t('viewer.details.peoplePlaceholder')}
+                    aria-label={t('viewer.details.people')}
+                    value={draft.peopleIds}
+                    searchValue={search}
+                    onSearch={setSearch}
+                    onChange={(peopleIds: string[]) => setDraft({ ...draft, peopleIds })}
+                    // A name the catalogue no longer holds stays here so it can be seen and taken
+                    // off, and cannot be put back on — which is what 03 §3.3.19 means when it says
+                    // only new documents stop being able to name it.
+                    options={personOptions.map((person) => ({
+                      value: person.id,
+                      label: person.name,
+                      disabled: person.deleted,
+                    }))}
+                    optionRender={(option) => nameOrRecord(option.label, option.data.disabled)}
+                    labelRender={(label) =>
+                      nameOrRecord(label.label, isDeleted(personOptions, label.value))
+                    }
+                    // A name the catalogue does not have yet is added to it: the analyst does exactly
+                    // that on its own, and whoever corrects it must not need an admin (03 §3.3.19).
+                    dropdownRender={(menu) => (
+                      <>
+                        {menu}
+                        {isNewName(search, people) && (
+                          <Button
+                            type="link"
+                            block
+                            onClick={() => {
+                              const name = search.trim();
+                              setSearch('');
+                              void onCreatePerson(name).then((personId) =>
+                                setDraft((current) =>
+                                  current === null
+                                    ? current
+                                    : { ...current, peopleIds: [...current.peopleIds, personId] },
+                                ),
+                              );
+                            }}
+                          >
+                            {t('viewer.details.addPerson', { name: search.trim() })}
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  />
+                ) : (
+                  joinNames(
+                    document.people.map((person) => ({
+                      id: person.id,
+                      node: wayIn(person.name, `/browse/people/${person.id}`, person.deleted),
+                    })),
+                  )
+                ),
+              pending: state('analysis'),
+              note: wasRead(
+                (document.auto.people ?? []).join(', '),
+                document.people.map((person) => person.name).join(', '),
+              ),
+            },
+            {
+              // A kind is not an object, so it is not printed as one (docs/11 §11.5). The row above
+              // says what sort of thing this document is about; the row below says which one. Editing
+              // stays a single control over subjects — a subject *is* a kind plus a name, and choosing
+              // the two apart would let somebody choose a pair that is not a row — so here the kinds
+              // simply follow what the select holds.
+              label: t('viewer.details.subjectKinds'),
+              value: joinNames(
+                kinds.map((subjectKind) => ({
+                  id: subjectKind.id,
+                  // Not a browse screen: `/browse/subjects/:kind` lists the *things* of a kind, and
+                  // what is wanted here is the documents. The home screen carries the filter in its
+                  // URL, which is where filters live (docs/11 §11.3).
+                  node:
+                    draft !== null ? (
+                      subjectKind.name
+                    ) : (
+                      <Link href={documentsHref({ subjectKindId: subjectKind.id })}>
+                        {subjectKind.name}
+                      </Link>
+                    ),
+                })),
+              ),
+              pending: state('analysis'),
+              note: wasRead(
+                distinctKinds(document.auto.subjects ?? []),
+                kinds.map((subjectKind) => subjectKind.name).join(', '),
+              ),
+            },
+            {
+              label: t('viewer.details.subjects'),
+              value:
+                draft !== null ? (
+                  <Select
+                    mode="multiple"
+                    className="legere-field"
+                    optionFilterProp="label"
+                    placeholder={t('viewer.details.subjectsPlaceholder')}
+                    aria-label={t('viewer.details.subjects')}
+                    value={draft.subjectIds}
+                    searchValue={subjectSearch}
+                    onSearch={setSubjectSearch}
+                    onChange={(subjectIds: string[]) => setDraft({ ...draft, subjectIds })}
+                    options={subjectOptions.map((subject) => ({
+                      value: subject.id,
+                      label: `${subject.name} · ${subject.kind}`,
+                      disabled: subject.deleted,
+                    }))}
+                    optionRender={(option) => nameOrRecord(option.label, option.data.disabled)}
+                    labelRender={(label) =>
+                      nameOrRecord(label.label, isDeleted(subjectOptions, label.value))
+                    }
+                    // Adding one takes both halves — a name with no kind is not a thing anybody can
+                    // file by — so the footer asks for the kind before it offers to add (03 §3.3.20).
+                    dropdownRender={(menu) => (
+                      <>
+                        {menu}
+                        {subjectSearch.trim() !== '' && (
+                          <Space.Compact style={{ width: '100%', padding: 4 }}>
+                            <AutoComplete
+                              style={{ width: '45%' }}
+                              value={kind}
+                              onChange={setKind}
+                              placeholder={t('viewer.details.subjectKind')}
+                              // The catalogue of kinds, not the kinds that happen to be in use: a kind
+                              // with nothing in it yet is still one to file under (docs/03 §3.3.20a).
+                              options={subjectKinds.map((subjectKind) => ({
+                                value: subjectKind.name,
+                              }))}
+                            />
+                            <Button
+                              type="primary"
+                              disabled={kind.trim() === ''}
+                              onClick={() => {
+                                const name = subjectSearch.trim();
+                                const chosenKind = kind.trim();
+                                setSubjectSearch('');
+                                setKind('');
+                                void onCreateSubject(chosenKind, name).then((subjectId) =>
+                                  setDraft((current) =>
+                                    current === null
+                                      ? current
+                                      : {
+                                          ...current,
+                                          subjectIds: [...current.subjectIds, subjectId],
+                                        },
+                                  ),
+                                );
+                              }}
+                            >
+                              {t('viewer.details.addSubject', { name: subjectSearch.trim() })}
+                            </Button>
+                          </Space.Compact>
+                        )}
+                      </>
+                    )}
+                  />
+                ) : (
+                  joinNames(
+                    document.subjects.map((subject) => ({
+                      id: subject.id,
+                      // The thing itself, without its kind trailing after it: the row above carries
+                      // that. `/browse/subjects/:kind/:id` is the shelf this thing already has.
+                      node: wayIn(
+                        subject.name,
+                        `/browse/subjects/${subject.kindId}/${subject.id}`,
+                        subject.deleted,
+                      ),
+                    })),
+                  )
+                ),
+              pending: state('analysis'),
+              note: wasRead(
+                (document.auto.subjects ?? []).map((subject) => subject.name).join(', '),
+                document.subjects.map((subject) => subject.name).join(', '),
+              ),
+            },
+            {
+              label: t('viewer.details.documentDate'),
+              value:
+                draft !== null ? (
+                  withReset(
+                    ['documentDate'],
+                    <DatePicker
+                      className="legere-field"
+                      aria-label={t('viewer.details.documentDate')}
+                      // The value is a calendar day, so it is held as yyyy-mm-dd and only becomes a
+                      // dayjs on the way into the picker: a Date would drag a time zone in with it.
+                      value={draft.documentDate === null ? null : dayjs(draft.documentDate)}
+                      onChange={(value) =>
+                        setDraft({
+                          ...draft,
+                          documentDate: value === null ? null : value.format('YYYY-MM-DD'),
+                        })
+                      }
+                    />,
+                    document.auto.date !== undefined && document.auto.date !== draft.documentDate,
+                  )
+                ) : // The whole day is the link, and it leads to its year: that is the folder the
+                // archive is arranged into, and it already has a screen (docs/11 §11.4).
+                yearOf(document.documentDate) === null ? (
+                  formatDate(document.documentDate)
+                ) : (
+                  <Link href={`/browse/years/${yearOf(document.documentDate) ?? ''}`}>
+                    {formatDate(document.documentDate)}
+                  </Link>
+                ),
+              pending: state('analysis'),
+              note: wasRead(document.auto.date, document.documentDate ?? '', ['documentDate']),
+            },
+            {
+              label: t('viewer.details.pageFormat'),
+              // The one field here that is an instruction rather than a correction: the format is read
+              // while the pages are made, and they are made already (docs/05 §5.5 step 1). So saving it
+              // changes what the next build will do and nothing about the document on screen.
+              value:
+                draft !== null ? (
+                  <Select
+                    className="legere-field"
+                    aria-label={t('viewer.details.pageFormat')}
+                    value={draft.pageFormat}
+                    onChange={(value: PageFormat) => setDraft({ ...draft, pageFormat: value })}
+                    options={PAGE_FORMATS.map((value) => ({
+                      value,
+                      label: t(`viewer.details.pageFormats.${value}`),
+                    }))}
+                  />
+                ) : (
+                  t(`viewer.details.pageFormats.${document.pageFormat}`)
+                ),
+              pending: state('canonical'),
+              // 🔒 Said where it is being decided, and only once the choice differs from what the
+              // document holds: a new format is an instruction for the next build, so the pages keep
+              // the shape they have until somebody asks for them again (docs/11 §11.5). A warning
+              // rather than a rebuild — remaking forty pages and recognising their text afresh is not
+              // something a metadata form gets to start on its own.
+              note:
+                draft !== null && draft.pageFormat !== document.pageFormat ? (
+                  <Typography.Text type="warning">
+                    {t('viewer.details.pageFormatRebuild')}
+                  </Typography.Text>
+                ) : undefined,
+            },
+            {
+              label: t('viewer.details.languages'),
+              // Free-form on purpose: BCP-47 has more tags than any list worth shipping, and the ones
+              // already on the document are offered with their names spelled out.
+              value:
+                draft !== null
+                  ? withReset(
+                      ['languages'],
+                      <Select
+                        mode="tags"
+                        className="legere-field"
+                        // Searched by the name, not by the value: "Rus" has to find "Russian (ru)",
+                        // which is the whole point of offering the list (docs/11 §11.5).
+                        optionFilterProp="label"
+                        placeholder={t('viewer.details.languagesPlaceholder')}
+                        aria-label={t('viewer.details.languages')}
+                        value={draft.languages}
+                        onChange={(languages: string[]) => setDraft({ ...draft, languages })}
+                        options={languageOptions(document.languages, document.auto.languages ?? [])}
+                      />,
+                      (document.auto.languages ?? []).join('|') !== draft.languages.join('|') &&
+                        (document.auto.languages ?? []).length > 0,
+                    )
+                  : document.languages.map(displayLanguage).join(', '),
+              pending: state('markdown', 'analysis'),
+              note: wasRead(autoLanguages, document.languages.map(displayLanguage).join(', '), [
+                'languages',
+              ]),
+            },
+            {
+              label: t('viewer.details.place'),
+              value:
+                draft !== null
+                  ? withReset(
+                      // A place is one fact written in two boxes: putting it back has to put both
+                      // back, or a reset city would keep somebody's country.
+                      ['city', 'country'],
+                      <span className="legere-field legere-field-split">
+                        <Input
+                          placeholder={t('viewer.details.cityPlaceholder')}
+                          aria-label={t('viewer.details.city')}
+                          value={draft.city}
+                          onChange={(event) => setDraft({ ...draft, city: event.target.value })}
+                        />
+                        <Select
+                          showSearch
+                          allowClear
+                          optionFilterProp="label"
+                          placeholder={t('viewer.details.countryPlaceholder')}
+                          aria-label={t('viewer.details.country')}
+                          value={draft.country ?? undefined}
+                          onChange={(country?: string) =>
+                            setDraft({ ...draft, country: country ?? null })
+                          }
+                          options={COUNTRY_OPTIONS}
+                        />
+                      </span>,
+                      autoPlace !== '' &&
+                        autoPlace !==
+                          placeOf(
+                            draft.city.trim() === '' ? null : draft.city.trim(),
+                            draft.country,
+                          ),
+                    )
+                  : joinNames(placeWaysIn(document.city, document.country)),
+              pending: state('analysis'),
+              // One fact in two boxes, so putting it back puts both back — a reset city that kept
+              // somebody's country would be a place that was never read anywhere.
+              note: wasRead(autoPlace, placeOf(document.city, document.country), [
+                'city',
+                'country',
+              ]),
+            },
+          ]}
+        />
+
+        {/* The typed fields close this section, under the rows above (docs/11 §11.5): a group per
+            the document's field schema, one row per field in schema order, drawn only where the type
+            carries a schema at all (docs/03 §3.3.10a). */}
+        {schema !== null && (
+          <DefinitionList items={schema.fields.map((spec) => typedFieldRow(schema, spec))} />
         )}
-      </div>
+
+        {/* Save ends what Edit started, so it sits at the other end of the same section and on the
+            same side: the eye leaves a form at its bottom-right corner (docs/11 §11.5). */}
+        {editing && (
+          <div className="legere-form-actions">
+            <Space>
+              <Button onClick={stopEditing}>{t('common.actions.cancel')}</Button>
+              <Button type="primary" loading={saving} onClick={save}>
+                {t('common.actions.save')}
+              </Button>
+            </Space>
+          </div>
+        )}
+      </Space>
+
+      {/* 2. What it is — the artifact rather than the reading (docs/11 §11.5). */}
+      <WhatItIsSection document={document} />
+
+      {/* 3. What it cost — what the pipeline spent getting here. The journal has one line per
+          moment and this is the same numbers read the other way round, by step, because "how long
+          did the text take, and did it read anything" is a question about the document, not about
+          the log (docs/03 §3.3.18, docs/11 §11.5). */}
+      <StepCostSection documentId={document.id} />
+    </Space>
+  );
+}
+
+// 2. What it is: size, pages, added, OCR used — the facts of the artifact, which nobody may correct
+// and no form here edits (docs/11 §11.5). Two of them are still being counted while the pipeline
+// runs, so they carry their step's badge exactly as the read rows above do — a badge says a number
+// is on its way, not that somebody may choose it.
+//
+// 🔒 A component of its own, memoized on the document it describes, so that opening the form above
+// leaves it alone: the Edit button acts on the section it stands in, and a section with nothing to
+// edit should not re-render because a draft changed somewhere else.
+const WhatItIsSection = memo(function WhatItIsSection({
+  document,
+}: {
+  document: DocumentDetailDto;
+}) {
+  const t = useTranslations();
+  const size = useMemo(() => formatBytes(document.sizeBytes), [document.sizeBytes]);
+
+  return (
+    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Typography.Title level={5} style={{ margin: 0 }}>
+        {t('viewer.details.is')}
+      </Typography.Title>
 
       <DefinitionList
         items={[
@@ -1591,367 +2040,7 @@ function DetailsPane({
             label: t('viewer.details.pages'),
             value: document.pageCount,
             emphasis: true,
-            pending: state('preview'),
-          },
-          {
-            label: t('viewer.details.documentType'),
-            value:
-              draft !== null ? (
-                withReset(
-                  ['documentType'],
-                  <Select
-                    allowClear
-                    className="legere-field"
-                    placeholder={t('viewer.documentType')}
-                    aria-label={t('viewer.documentType')}
-                    value={draft.typeId ?? undefined}
-                    onChange={(typeId?: string) => setDraft({ ...draft, typeId: typeId ?? null })}
-                    options={documentTypes.map((documentType) => ({
-                      value: documentType.id,
-                      label: documentType.name,
-                    }))}
-                  />,
-                  document.auto.typeSlug !== undefined &&
-                    document.auto.typeSlug !== null &&
-                    (autoType?.id ?? null) !== draft.typeId,
-                )
-              ) : (
-                <Space size={4} wrap>
-                  {/* The type is a folder that already has a screen of its own (docs/11 §11.4). */}
-                  {document.documentType === null ? (
-                    ''
-                  ) : (
-                    <Link href={`/browse/types/${document.documentType.id}`}>
-                      {document.documentType.name}
-                    </Link>
-                  )}
-                  {/* Chosen by the classifier and not confirmed by anybody since (03 §3.3.10). */}
-                  {document.typeSource === 'AUTO' && <Tag color="blue">{t('viewer.auto')}</Tag>}
-                </Space>
-              ),
-            pending: state('analysis'),
-            note: wasRead(
-              autoType?.name ?? document.auto.typeSlug,
-              document.documentType?.name ?? '',
-              ['documentType'],
-            ),
-          },
-          {
-            label: t('viewer.details.people'),
-            value:
-              draft !== null ? (
-                <Select
-                  mode="multiple"
-                  className="legere-field"
-                  optionFilterProp="label"
-                  placeholder={t('viewer.details.peoplePlaceholder')}
-                  aria-label={t('viewer.details.people')}
-                  value={draft.peopleIds}
-                  searchValue={search}
-                  onSearch={setSearch}
-                  onChange={(peopleIds: string[]) => setDraft({ ...draft, peopleIds })}
-                  // A name the catalogue no longer holds stays here so it can be seen and taken
-                  // off, and cannot be put back on — which is what 03 §3.3.19 means when it says
-                  // only new documents stop being able to name it.
-                  options={personOptions.map((person) => ({
-                    value: person.id,
-                    label: person.name,
-                    disabled: person.deleted,
-                  }))}
-                  optionRender={(option) => nameOrRecord(option.label, option.data.disabled)}
-                  labelRender={(label) =>
-                    nameOrRecord(label.label, isDeleted(personOptions, label.value))
-                  }
-                  // A name the catalogue does not have yet is added to it: the analyst does exactly
-                  // that on its own, and whoever corrects it must not need an admin (03 §3.3.19).
-                  dropdownRender={(menu) => (
-                    <>
-                      {menu}
-                      {isNewName(search, people) && (
-                        <Button
-                          type="link"
-                          block
-                          onClick={() => {
-                            const name = search.trim();
-                            setSearch('');
-                            void onCreatePerson(name).then((personId) =>
-                              setDraft((current) =>
-                                current === null
-                                  ? current
-                                  : { ...current, peopleIds: [...current.peopleIds, personId] },
-                              ),
-                            );
-                          }}
-                        >
-                          {t('viewer.details.addPerson', { name: search.trim() })}
-                        </Button>
-                      )}
-                    </>
-                  )}
-                />
-              ) : (
-                joinNames(
-                  document.people.map((person) => ({
-                    id: person.id,
-                    node: wayIn(person.name, `/browse/people/${person.id}`, person.deleted),
-                  })),
-                )
-              ),
-            pending: state('analysis'),
-            note: wasRead(
-              (document.auto.people ?? []).join(', '),
-              document.people.map((person) => person.name).join(', '),
-            ),
-          },
-          {
-            // A kind is not an object, so it is not printed as one (docs/11 §11.5). The row above
-            // says what sort of thing this document is about; the row below says which one. Editing
-            // stays a single control over subjects — a subject *is* a kind plus a name, and choosing
-            // the two apart would let somebody choose a pair that is not a row — so here the kinds
-            // simply follow what the select holds.
-            label: t('viewer.details.subjectKinds'),
-            value: joinNames(
-              kinds.map((subjectKind) => ({
-                id: subjectKind.id,
-                // Not a browse screen: `/browse/subjects/:kind` lists the *things* of a kind, and
-                // what is wanted here is the documents. The home screen carries the filter in its
-                // URL, which is where filters live (docs/11 §11.3).
-                node:
-                  draft !== null ? (
-                    subjectKind.name
-                  ) : (
-                    <Link href={documentsHref({ subjectKindId: subjectKind.id })}>
-                      {subjectKind.name}
-                    </Link>
-                  ),
-              })),
-            ),
-            pending: state('analysis'),
-            note: wasRead(
-              distinctKinds(document.auto.subjects ?? []),
-              kinds.map((subjectKind) => subjectKind.name).join(', '),
-            ),
-          },
-          {
-            label: t('viewer.details.subjects'),
-            value:
-              draft !== null ? (
-                <Select
-                  mode="multiple"
-                  className="legere-field"
-                  optionFilterProp="label"
-                  placeholder={t('viewer.details.subjectsPlaceholder')}
-                  aria-label={t('viewer.details.subjects')}
-                  value={draft.subjectIds}
-                  searchValue={subjectSearch}
-                  onSearch={setSubjectSearch}
-                  onChange={(subjectIds: string[]) => setDraft({ ...draft, subjectIds })}
-                  options={subjectOptions.map((subject) => ({
-                    value: subject.id,
-                    label: `${subject.name} · ${subject.kind}`,
-                    disabled: subject.deleted,
-                  }))}
-                  optionRender={(option) => nameOrRecord(option.label, option.data.disabled)}
-                  labelRender={(label) =>
-                    nameOrRecord(label.label, isDeleted(subjectOptions, label.value))
-                  }
-                  // Adding one takes both halves — a name with no kind is not a thing anybody can
-                  // file by — so the footer asks for the kind before it offers to add (03 §3.3.20).
-                  dropdownRender={(menu) => (
-                    <>
-                      {menu}
-                      {subjectSearch.trim() !== '' && (
-                        <Space.Compact style={{ width: '100%', padding: 4 }}>
-                          <AutoComplete
-                            style={{ width: '45%' }}
-                            value={kind}
-                            onChange={setKind}
-                            placeholder={t('viewer.details.subjectKind')}
-                            // The catalogue of kinds, not the kinds that happen to be in use: a kind
-                            // with nothing in it yet is still one to file under (docs/03 §3.3.20a).
-                            options={subjectKinds.map((subjectKind) => ({
-                              value: subjectKind.name,
-                            }))}
-                          />
-                          <Button
-                            type="primary"
-                            disabled={kind.trim() === ''}
-                            onClick={() => {
-                              const name = subjectSearch.trim();
-                              const chosenKind = kind.trim();
-                              setSubjectSearch('');
-                              setKind('');
-                              void onCreateSubject(chosenKind, name).then((subjectId) =>
-                                setDraft((current) =>
-                                  current === null
-                                    ? current
-                                    : {
-                                        ...current,
-                                        subjectIds: [...current.subjectIds, subjectId],
-                                      },
-                                ),
-                              );
-                            }}
-                          >
-                            {t('viewer.details.addSubject', { name: subjectSearch.trim() })}
-                          </Button>
-                        </Space.Compact>
-                      )}
-                    </>
-                  )}
-                />
-              ) : (
-                joinNames(
-                  document.subjects.map((subject) => ({
-                    id: subject.id,
-                    // The thing itself, without its kind trailing after it: the row above carries
-                    // that. `/browse/subjects/:kind/:id` is the shelf this thing already has.
-                    node: wayIn(
-                      subject.name,
-                      `/browse/subjects/${subject.kindId}/${subject.id}`,
-                      subject.deleted,
-                    ),
-                  })),
-                )
-              ),
-            pending: state('analysis'),
-            note: wasRead(
-              (document.auto.subjects ?? []).map((subject) => subject.name).join(', '),
-              document.subjects.map((subject) => subject.name).join(', '),
-            ),
-          },
-          {
-            label: t('viewer.details.documentDate'),
-            value:
-              draft !== null ? (
-                withReset(
-                  ['documentDate'],
-                  <DatePicker
-                    className="legere-field"
-                    aria-label={t('viewer.details.documentDate')}
-                    // The value is a calendar day, so it is held as yyyy-mm-dd and only becomes a
-                    // dayjs on the way into the picker: a Date would drag a time zone in with it.
-                    value={draft.documentDate === null ? null : dayjs(draft.documentDate)}
-                    onChange={(value) =>
-                      setDraft({
-                        ...draft,
-                        documentDate: value === null ? null : value.format('YYYY-MM-DD'),
-                      })
-                    }
-                  />,
-                  document.auto.date !== undefined && document.auto.date !== draft.documentDate,
-                )
-              ) : // The whole day is the link, and it leads to its year: that is the folder the
-              // archive is arranged into, and it already has a screen (docs/11 §11.4).
-              yearOf(document.documentDate) === null ? (
-                formatDate(document.documentDate)
-              ) : (
-                <Link href={`/browse/years/${yearOf(document.documentDate) ?? ''}`}>
-                  {formatDate(document.documentDate)}
-                </Link>
-              ),
-            pending: state('analysis'),
-            note: wasRead(document.auto.date, document.documentDate ?? '', ['documentDate']),
-          },
-          {
-            label: t('viewer.details.pageFormat'),
-            // The one field here that is an instruction rather than a correction: the format is read
-            // while the pages are made, and they are made already (docs/05 §5.5 step 1). So saving it
-            // changes what the next build will do and nothing about the document on screen.
-            value:
-              draft !== null ? (
-                <Select
-                  className="legere-field"
-                  aria-label={t('viewer.details.pageFormat')}
-                  value={draft.pageFormat}
-                  onChange={(value: PageFormat) => setDraft({ ...draft, pageFormat: value })}
-                  options={PAGE_FORMATS.map((value) => ({
-                    value,
-                    label: t(`viewer.details.pageFormats.${value}`),
-                  }))}
-                />
-              ) : (
-                t(`viewer.details.pageFormats.${document.pageFormat}`)
-              ),
-            pending: state('canonical'),
-            // 🔒 Said where it is being decided, and only once the choice differs from what the
-            // document holds: a new format is an instruction for the next build, so the pages keep
-            // the shape they have until somebody asks for them again (docs/11 §11.5). A warning
-            // rather than a rebuild — remaking forty pages and recognising their text afresh is not
-            // something a metadata form gets to start on its own.
-            note:
-              draft !== null && draft.pageFormat !== document.pageFormat ? (
-                <Typography.Text type="warning">
-                  {t('viewer.details.pageFormatRebuild')}
-                </Typography.Text>
-              ) : undefined,
-          },
-          {
-            label: t('viewer.details.languages'),
-            // Free-form on purpose: BCP-47 has more tags than any list worth shipping, and the ones
-            // already on the document are offered with their names spelled out.
-            value:
-              draft !== null
-                ? withReset(
-                    ['languages'],
-                    <Select
-                      mode="tags"
-                      className="legere-field"
-                      // Searched by the name, not by the value: "Rus" has to find "Russian (ru)",
-                      // which is the whole point of offering the list (docs/11 §11.5).
-                      optionFilterProp="label"
-                      placeholder={t('viewer.details.languagesPlaceholder')}
-                      aria-label={t('viewer.details.languages')}
-                      value={draft.languages}
-                      onChange={(languages: string[]) => setDraft({ ...draft, languages })}
-                      options={languageOptions(document.languages, document.auto.languages ?? [])}
-                    />,
-                    (document.auto.languages ?? []).join('|') !== draft.languages.join('|') &&
-                      (document.auto.languages ?? []).length > 0,
-                  )
-                : document.languages.map(displayLanguage).join(', '),
-            pending: state('markdown', 'analysis'),
-            note: wasRead(autoLanguages, document.languages.map(displayLanguage).join(', '), [
-              'languages',
-            ]),
-          },
-          {
-            label: t('viewer.details.place'),
-            value:
-              draft !== null
-                ? withReset(
-                    // A place is one fact written in two boxes: putting it back has to put both
-                    // back, or a reset city would keep somebody's country.
-                    ['city', 'country'],
-                    <span className="legere-field legere-field-split">
-                      <Input
-                        placeholder={t('viewer.details.cityPlaceholder')}
-                        aria-label={t('viewer.details.city')}
-                        value={draft.city}
-                        onChange={(event) => setDraft({ ...draft, city: event.target.value })}
-                      />
-                      <Select
-                        showSearch
-                        allowClear
-                        optionFilterProp="label"
-                        placeholder={t('viewer.details.countryPlaceholder')}
-                        aria-label={t('viewer.details.country')}
-                        value={draft.country ?? undefined}
-                        onChange={(country?: string) =>
-                          setDraft({ ...draft, country: country ?? null })
-                        }
-                        options={COUNTRY_OPTIONS}
-                      />
-                    </span>,
-                    autoPlace !== '' &&
-                      autoPlace !==
-                        placeOf(draft.city.trim() === '' ? null : draft.city.trim(), draft.country),
-                  )
-                : joinNames(placeWaysIn(document.city, document.country)),
-            pending: state('analysis'),
-            // One fact in two boxes, so putting it back puts both back — a reset city that kept
-            // somebody's country would be a place that was never read anywhere.
-            note: wasRead(autoPlace, placeOf(document.city, document.country), ['city', 'country']),
+            pending: pendingState(document, ['preview']),
           },
           {
             label: t('viewer.details.created'),
@@ -1960,39 +2049,13 @@ function DetailsPane({
           {
             label: t('viewer.details.ocr'),
             value: document.ocrUsed ? t('common.yes') : t('common.no'),
-            pending: state('markdown'),
+            pending: pendingState(document, ['markdown']),
           },
         ]}
       />
-
-      {/* The typed fields sit in the same pane, under the rows above (docs/11 §11.5): a group per
-          the document's field schema, one row per field in schema order, drawn only where the type
-          carries a schema at all (docs/03 §3.3.10a). */}
-      {schema !== null && (
-        <DefinitionList items={schema.fields.map((spec) => typedFieldRow(schema, spec))} />
-      )}
-
-      {/* Save ends what Edit started, so it sits at the other end of the same list and on the same
-          side: the eye leaves a form at its bottom-right corner (docs/11 §11.5). */}
-      {editing && (
-        <div className="legere-form-actions">
-          <Space>
-            <Button onClick={stopEditing}>{t('common.actions.cancel')}</Button>
-            <Button type="primary" loading={saving} onClick={save}>
-              {t('common.actions.save')}
-            </Button>
-          </Space>
-        </div>
-      )}
-
-      {/* What the pipeline spent getting here. The journal has one line per step and this is the
-          same numbers read the other way round — by step rather than by moment — because "how long
-          did the text take, and did it read anything" is a question about the document, not about
-          the log (docs/03 §3.3.18, docs/11 §11.5). */}
-      <StepCostSection documentId={document.id} />
     </Space>
   );
-}
+});
 
 // A document is an ordered list of files (docs/03 §3.3.10), and this is where that list is visible
 // and editable (docs/11 §11.5a). A tab of its own rather than the last section of Details: what a
@@ -2797,9 +2860,15 @@ function stepCost(event: DocumentEventDto, t: ReturnType<typeof useTranslations>
   return parts;
 }
 
-// The cost of each step, newest run only: a step re-run three times has three entries in the log and
-// one truthful answer here (docs/03 §3.3.18).
-function StepCostSection({ documentId }: { documentId: string }) {
+// 3. What it cost: one row per step, the newest run only — a step re-run three times has three
+// entries in the log and one truthful answer here (docs/03 §3.3.18, docs/11 §11.5). Only the numbers
+// that step actually reported: 🔒 a missing number is not a zero, it means that step does not answer
+// that question — so a step that answered none of them has no row, and a document nothing has
+// finished on yet has no section.
+//
+// Memoized on the document id, like the section above it, so that opening the form in **What it
+// says** does not re-render a table the form cannot touch.
+const StepCostSection = memo(function StepCostSection({ documentId }: { documentId: string }) {
   const t = useTranslations();
   // The same query the Log tab uses, so opening both costs one request (docs/10 §10.4).
   const events = useQuery({
@@ -2826,14 +2895,17 @@ function StepCostSection({ documentId }: { documentId: string }) {
   if (rows.length === 0) return null;
 
   return (
-    <div style={{ marginTop: 24 }}>
-      <Typography.Title level={5}>{t('viewer.details.cost')}</Typography.Title>
+    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Typography.Title level={5} style={{ margin: 0 }}>
+        {t('viewer.details.cost')}
+      </Typography.Title>
+
       <DefinitionList
         items={rows.map((row) => ({
           label: t(`viewer.steps.${row.step}`),
           value: row.cost,
         }))}
       />
-    </div>
+    </Space>
   );
-}
+});

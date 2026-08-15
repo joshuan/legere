@@ -1898,6 +1898,166 @@ describe('DocumentViewerScreen', () => {
       expect(within(panel).queryByText(enMessages.viewer.fields.receipt.vendor)).toBeNull();
     });
   });
+
+  // What it says, what it is, what it cost (docs/11 §11.5): three questions about one document, and
+  // only the first of them has an answer anybody may correct.
+  describe('the Details pane in three sections (docs/11 §11.5)', () => {
+    const RECEIPT_TYPE_ID = 'bbbbbbbb-7777-4777-8777-777777777777';
+
+    // A typed document, so the schema's own group is on the screen to be filed with the rest.
+    const receipt: DocumentDetailDto = {
+      ...detail,
+      documentType: { id: RECEIPT_TYPE_ID, slug: 'receipt', name: 'Receipt' },
+      typeSource: 'MANUAL',
+      extracted: {
+        schema: { slug: 'receipt', version: 1 },
+        values: { vendor: 'Voli' },
+        sources: { vendor: 'AUTO' },
+      },
+    };
+
+    // A step that settled and said what it spent, so the third section has a row to draw.
+    function withCost(): void {
+      server.use(
+        http.get(`/api/documents/${ID}/events`, () =>
+          HttpResponse.json(
+            envelope({
+              items: [
+                {
+                  id: 'eeeeeeee-8888-4888-8888-888888888888',
+                  type: 'STEP_FINISHED',
+                  at: '2026-08-12T10:00:00.000Z',
+                  actor: null,
+                  payload: { step: 'markdown', status: 'DONE', durationMs: 4200, chars: 1200 },
+                },
+              ],
+              nextCursor: null,
+            }),
+          ),
+        ),
+      );
+    }
+
+    async function openDetails(document: DocumentDetailDto = receipt): Promise<HTMLElement> {
+      serve(document);
+      withCost();
+      renderWithProviders(<DocumentViewerScreen id={ID} />);
+      await userEvent.click(
+        await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+      return screen.getByRole('tabpanel');
+    }
+
+    // A section is addressed by its own heading: a row belongs to the section whose title stands
+    // over it, which is the whole point of the split.
+    function sectionOf(panel: HTMLElement, title: string): HTMLElement {
+      const heading = within(panel).getByRole('heading', { name: title });
+      const section = heading.closest('.ant-space-vertical');
+      if (!(section instanceof HTMLElement)) throw new Error(`expected the "${title}" section`);
+      return section;
+    }
+
+    it('files every row under the section that owns it', async () => {
+      const panel = await openDetails();
+      await within(panel).findByText(enMessages.viewer.details.cost);
+
+      const says = within(sectionOf(panel, enMessages.viewer.details.says));
+      const is = within(sectionOf(panel, enMessages.viewer.details.is));
+
+      // What it says: everything a machine read off the page, the typed fields of its schema
+      // closing the section.
+      for (const label of [
+        enMessages.viewer.details.documentType,
+        enMessages.viewer.details.people,
+        enMessages.viewer.details.subjectKinds,
+        enMessages.viewer.details.subjects,
+        enMessages.viewer.details.documentDate,
+        enMessages.viewer.details.pageFormat,
+        enMessages.viewer.details.languages,
+        enMessages.viewer.details.place,
+        enMessages.viewer.fields.receipt.vendor,
+      ]) {
+        expect(says.getByText(label)).toBeInTheDocument();
+        expect(is.queryByText(label)).toBeNull();
+      }
+
+      // What it is: the artifact rather than the reading — and no longer split across the head and
+      // the foot of the list with everything correctable in between (docs/11 §11.5).
+      for (const label of [
+        enMessages.viewer.details.size,
+        enMessages.viewer.details.pages,
+        enMessages.viewer.details.created,
+        enMessages.viewer.details.ocr,
+      ]) {
+        expect(is.getByText(label)).toBeInTheDocument();
+        expect(says.queryByText(label)).toBeNull();
+      }
+
+      // What it cost: one row per step that answered anything, the newest run only
+      // (docs/03 §3.3.18).
+      const cost = within(sectionOf(panel, enMessages.viewer.details.cost));
+      expect(cost.getByText(enMessages.viewer.steps.markdown)).toBeInTheDocument();
+      expect(cost.getByText(/1200/)).toBeInTheDocument();
+    });
+
+    it('hangs the Edit button in the heading of What it says and nowhere else', async () => {
+      const panel = await openDetails();
+
+      // 🔒 On the same line as the name of the section it acts on: a button over the whole pane
+      // claims rows it cannot touch (docs/11 §11.5).
+      const heading = within(panel).getByRole('heading', { name: enMessages.viewer.details.says });
+      const head = heading.parentElement;
+      if (!(head instanceof HTMLElement)) throw new Error('expected the section heading row');
+      expect(
+        within(head).getByRole('button', { name: enMessages.common.actions.edit }),
+      ).toBeVisible();
+
+      // And exactly one of them in the pane, so nothing above the three sections owns them all.
+      expect(
+        within(panel).getAllByRole('button', { name: enMessages.common.actions.edit }),
+      ).toHaveLength(1);
+
+      // Save ends what Edit started, at the other end of the same section (docs/11 §11.5).
+      await userEvent.click(
+        within(head).getByRole('button', { name: enMessages.common.actions.edit }),
+      );
+      const says = within(sectionOf(panel, enMessages.viewer.details.says));
+      expect(says.getByRole('button', { name: enMessages.common.actions.save })).toBeVisible();
+    });
+
+    it('opens the form in What it says alone, leaving the two sections under it as they were', async () => {
+      const panel = await openDetails();
+      await within(panel).findByText(enMessages.viewer.details.cost);
+
+      const says = sectionOf(panel, enMessages.viewer.details.says);
+      const is = sectionOf(panel, enMessages.viewer.details.is);
+      const cost = sectionOf(panel, enMessages.viewer.details.cost);
+      const before = { is: is.innerHTML, cost: cost.innerHTML };
+
+      await userEvent.click(
+        within(says).getByRole('button', { name: enMessages.common.actions.edit }),
+      );
+
+      // The rows a person may correct became inputs…
+      expect(
+        within(says).getByRole('textbox', { name: enMessages.viewer.details.city }),
+      ).toBeVisible();
+      expect(
+        within(says).getByRole('textbox', { name: enMessages.viewer.fields.receipt.vendor }),
+      ).toBeVisible();
+
+      // 🔒 …and the two sections below are untouched, to the last node of markup: the form acts on
+      // the section it stands in, and there is nothing in these for it to act on (docs/11 §11.5).
+      // They are held apart from it in the code as well, so a draft changing does not re-render
+      // them at all.
+      expect(is.innerHTML).toBe(before.is);
+      expect(cost.innerHTML).toBe(before.cost);
+      expect(within(is).queryAllByRole('textbox')).toHaveLength(0);
+      expect(within(is).queryAllByRole('combobox')).toHaveLength(0);
+      expect(within(cost).queryAllByRole('textbox')).toHaveLength(0);
+    });
+  });
+
   describe('the Related tab (docs/03 §3.3.23, docs/11 §11.5e)', () => {
     const OTHER_ID = 'bbbbbbbb-9999-4999-8999-999999999999';
     const otherDocument: DocumentListDto = {

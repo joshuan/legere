@@ -880,6 +880,8 @@
       "reset": "reset",
       "editHint": "Edit — or press E",
       "deletedName": "No longer in the catalogue. It stays on this document as a record.",
+      "says": "What it says",
+      "is": "What it is",
       "cost": "What it cost"
     },
     "fields": {

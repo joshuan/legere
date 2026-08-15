@@ -406,17 +406,43 @@ document pinned to the height of a phone would be a worse read, not a better one
   already spaces itself; tables at the full width of the pane with real cell rules, a weighted
   header and a scroller of their own, because a fourteen-column invoice must widen nothing; code and
   quotations in the faces §11.15 gives them. Restrained on purpose — the document is the thing being
-  read, and this is only how it is set, `Details` (metadata table: pages, size, created, OCR used,
-  **languages** and **place**), `Files` (§11.5a). Everything a machine decided is **editable here and only here** —
-  document type, languages, country, city — behind one **Edit** button (top right of the pane,
-  or the **E** key; **Escape** leaves) that turns those rows into ordinary inputs, and **Save** at
-  the bottom right that turns them back — rather than controls sitting in the page all the time:
+  read, and this is only how it is set, `Details` (below), `Files` (§11.5a).
+  **The Details pane is three titled sections, in this order: What it says, What it is, What it
+  cost.** They are three questions about one document and only the first of them has an answer
+  anybody may correct. Until this they were one list — two rows nobody can edit at the head, every
+  correctable row under them, added and OCR dropped at the foot, and a single **Edit** button
+  floating at the top right of the whole pane, claiming rows it cannot touch. Which rows are readings
+  off the paper and which are facts of the artifact was a thing the reader learned by pressing it.
+  **What it says** is everything a machine read off the page: the document type, the people, the kind
+  of thing and the thing itself, the document's own date, the page format, the languages, the place,
+  and the typed fields of its schema. 🔒 **The Edit button stands in this section's own heading**,
+  not above the pane — a control belongs over the rows it acts on and over no others — and what it
+  opens is this section and nothing else: the two below it are not touched, and there is nothing in
+  them to touch.
+  **What it is** is the artifact rather than the reading: size, pages, added, OCR used. None of it is
+  anybody's to correct, which is why it is a section and not a scattering of rows above and below a
+  form — no step will ever be asked to read a file's size differently, and the pane should say which
+  of its rows are of that kind without anybody having to press Edit to find out.
+  **What it cost** is what the pipeline spent getting here, read by step rather than by moment: one
+  row per step, naming what that step answered — how long it took, how many pages it worked over,
+  how many characters came out, whether recognition ran, and what a model reported spending
+  (`03 §3.3.18`). **The newest run only:** a step re-run three times has three entries in the journal
+  and one truthful answer here. Only the numbers that step actually reported, because 🔒 **a missing
+  number is not a zero — it means that step does not answer that question** (`03 §3.3.18`'s rule,
+  word for word). A step that reported nothing at all has no row, and a document nothing has finished
+  on yet has no section. The same numbers stand in the journal beside the moment they were spent (the
+  `Log` tab below); this is them arranged by the question a reader asks about the *document* rather
+  than about the log.
+  Everything a machine decided is **editable here and only here** — document type, languages,
+  country, city — behind that one **Edit** button (or the **E** key; **Escape** leaves) that turns
+  the rows of **What it says** into ordinary inputs, and **Save** at the bottom right of that same
+  section that turns them back — rather than controls sitting in the page all the time:
   reading is the common case, and a page of live selects invites edits nobody meant to make. Every
   input is one width; a place is two inputs sharing that one width, because it is one fact. A field
   the pipeline read differently carries a **reset** next to it, which puts it back to what was read —
   travelling as a reset rather than as the same value typed in, so a reset document type becomes `AUTO`
   again instead of claiming somebody chose it.
-  **The typed fields sit in the same pane, under the rows above** — a group per the document's field
+  **The typed fields close What it says, under the rows above** — a group per the document's field
   schema (`03 §3.3.10a`), one row per field, drawn only where the type carries a schema at all: the
   vendor, the total and the day of a receipt; the holder, the number and the expiry of a passport.
   Values are formatted for the reader (`Intl` dates and currency amounts), an em dash where nothing

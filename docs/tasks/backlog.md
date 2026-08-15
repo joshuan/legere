@@ -837,7 +837,7 @@ rule 3 the docs move first with each task: `03 §3.3.16`, `05 §5.5`/`§5.6`, `0
 
 ## M28 — The pane about the document, in three sections
 
-- [ ] **M28.1 — What it says, what it is, what it cost**
+- [x] **M28.1 — What it says, what it is, what it cost**
   **Goal:** the Details pane separates what a person may correct from what simply is — and the Edit button visibly owns the first and nothing else.
   **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`03 §3.3.18`](../03-domain-model.md)
   **What is being spent.** The pane opens with two rows nobody can edit (size, pages), runs every correctable row under them, drops created and OCR at the foot, and floats one Edit button at the top right of the whole pane — so the button claims rows it cannot touch, and the reader learns which rows are facts of the artifact and which are readings off the paper only by pressing it. The step-cost table beneath, meanwhile, is the one section `11 §11.5` never enumerates — `§11.5a` refers to it in passing as "a table of step costs nobody had asked for", and this task is where the spec finally asks for it.

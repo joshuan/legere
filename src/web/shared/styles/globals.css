@@ -330,6 +330,16 @@ pre,
   justify-content: flex-end;
 }
 
+/* A section's heading and the one control that acts on that section, on a line of their own: the
+   name at the start of it, the control at the end (docs/11 §11.5). A button placed over the whole
+   pane claims rows it cannot touch, which is the bug this row exists to end. */
+.legere-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 /* The extracted text of a document (docs/11 §11.5). What the parser hands over is Markdown, and
    rendered with the browser's defaults it reads as a web page from 1996: a heading shoved against
    the tab above it, tables collapsed to the width of their longest word, code the same size as
