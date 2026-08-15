@@ -181,7 +181,10 @@ function UploadRow({ item, onRetry }: { item: UploadQueueItem; onRetry: () => vo
       </Typography.Text>
 
       {item.status === 'waiting' && (
-        <Typography.Text type="secondary" style={{ fontSize: token.fontSizeSM }}>
+        <Typography.Text
+          type="secondary"
+          style={{ fontSize: token.fontSizeSM, flex: '0 0 auto', whiteSpace: 'nowrap' }}
+        >
           {t('documents.upload.panel.queued')}
         </Typography.Text>
       )}
@@ -213,7 +216,10 @@ function UploadRow({ item, onRetry }: { item: UploadQueueItem; onRetry: () => vo
       {/* The bytes were already here, and this says where they are rather than that something went
           wrong (ADR-009). */}
       {item.status === 'duplicate' && item.resultDocumentId !== undefined && (
-        <Link href={`/documents/${item.resultDocumentId}`} style={{ display: 'inline-flex' }}>
+        <Link
+          href={`/documents/${item.resultDocumentId}`}
+          style={{ display: 'inline-flex', flex: '0 0 auto' }}
+        >
           <Tag style={{ marginInlineEnd: 0, cursor: 'pointer' }}>
             {t('documents.upload.panel.duplicate')}
           </Tag>
