@@ -75,6 +75,7 @@ import { personApi, personKeys } from '../../entities/person';
 import { searchApi, searchKeys } from '../../entities/search';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
+import { useIsAdmin } from '../../entities/user';
 import { CropEditor } from '../../features/crop-editor';
 import { UploadButton } from '../../features/document-upload';
 import { PageArranger, hasArrangeablePages, isRearranged } from '../../features/page-arranger';
@@ -86,16 +87,12 @@ import { isViewerTab, type ViewerTab } from './viewer-tab';
 const LIVE_REFRESH_MS = 5000;
 
 // /documents/:id (docs/11 §11.5): read the document, and manage the little that belongs to it.
-export function DocumentViewerScreen({
-  id,
-  tab = 'preview',
-  isAdmin = false,
-}: {
-  id: string;
-  tab?: ViewerTab;
-  isAdmin?: boolean;
-}) {
+export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?: ViewerTab }) {
   const t = useTranslations();
+  // The role decides which of these controls are drawn at all; the API refuses them regardless, so
+  // this is presentation. It comes from the layout that already asked who is signed in, which is
+  // what lets this segment — rewritten on every tab press — await nothing (docs/10 §10.2).
+  const isAdmin = useIsAdmin();
   const router = useRouter();
   // The address is the source of truth, but the tab switches on the click rather than after the
   // navigation: a tab that waits for the router to come back feels broken.

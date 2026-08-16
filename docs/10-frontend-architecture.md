@@ -36,6 +36,7 @@ src/app/
 │   └── reset/[token]/page.tsx       # password-reset landing → wizard
 ├── (app)/                           # session-guarded
 │   ├── layout.tsx                   # sidebar shell; fetches /api/me server-side
+│   ├── loading.tsx                  # the authenticated area's skeleton — the only boundary here
 │   ├── documents/page.tsx           # grid + filters (default screen, redirect from /)
 │   ├── documents/[id]/page.tsx      # viewer
 │   ├── browse/[libraryId]/page.tsx  # folder browsing (?path=)
@@ -56,6 +57,42 @@ src/app/
 cookies via `headers()`); 401 → `redirect('/login?returnTo=...')`. The `admin` segment layout
 additionally checks `role === 'ADMIN'`, else `notFound()`. Client-side, a 401 from any query triggers
 a redirect to `/login` (see §10.5).
+
+**One question, one answer.** `currentUser()` is wrapped in React's `cache`, so everything asking
+inside the same render pass shares a single loopback call: the `(app)` layout asks, the `admin`
+layout asks again a component later, and the second is a memoized hit rather than a request queued
+behind the first. Below the guards nobody asks at all — the layout hands the answer it already holds
+to the client tree through `CurrentUserProvider` (`entities/user`), and a screen that needs to know
+who is reading it calls `useCurrentUser()`, or `useIsAdmin()` when the role is the whole question.
+🔒 **What the context decides is what is drawn, never what may be done.** Every action is authorized
+by the API on its own request ([`08 §8.5`](./08-auth-and-authorization.md)), and the `admin` segment
+keeps its own check on the server, where the cookie is verified, answering `404` exactly as before —
+a role read in the browser is a role a browser can lie about. The guard has stopped being a second
+round trip; it has not moved.
+
+**The pages of `(app)` are synchronous.** With the role already in the tree none of them is an
+`async` server component any more — `documents`, `documents/:id`, `documents/:id/:tab`,
+`collections/:id`, `people`, `subjects`, `subject-kinds`, `document-types` compose their screen and
+return; a route's parameters are read with React's `use(params)` rather than awaited. This is what
+makes a press feel like a press: the App Router cannot commit a navigation before the segment's
+payload exists, and the payload of a page that fetches something of its own does not exist until that
+fetch comes back. That is how pressing a document in the archive came to do nothing whatever — no new
+address, nothing drawn — while the same `/api/me` was asked and answered twice in a row.
+
+**The loading boundary, and the one place it may not go.** A `loading.tsx` is a `<Suspense>` the
+router mounts **around each child slot of the segment the file sits in**, keyed by that child. Newly
+mounted, such a boundary shows its fallback at once, which is what makes an arrival instant; already
+mounted, it keeps what it is showing and waits, because React will not hide content it has already
+revealed in order to satisfy a transition. Both halves of that sentence decide where the file may
+live. `(app)/loading.tsx` wraps the top-level sections — `documents`, `people`, `collections`,
+`admin` — and is the authenticated area's safety net for a segment that really does suspend. 🔒 **No
+`loading.tsx` may sit in `documents/[id]/` or below it.** Such a file would wrap the `[tab]` slot,
+and the viewer moves that slot itself: it switches tabs with `router.replace` between
+`/documents/:id/preview` and `/documents/:id/text`
+([`11 §11.5`](./11-ui-ux-spec.md#115-document-viewer-documentsidtab)). The boundary would be
+re-mounted on every tab press and would blank the document somebody is standing on — the defect this
+section exists to remove, one level down. A test enumerates the boundaries under `src/app` and fails
+when one appears there.
 
 **What the `(app)` layout owns besides the sider:** the upload panel (§10.5a) and the **search
 overlay** ([`11 §11.1a`](./11-ui-ux-spec.md#111a-the-search-overlay)) — both for the same reason,

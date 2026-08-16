@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { useCallback, useState } from 'react';
 import type { DocumentTypeDto } from '../../../shared/contracts/document-types';
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
+import { useIsAdmin } from '../../entities/user';
 import { useErrorMessage } from '../../shared/lib';
 
 type FormValues = {
@@ -16,8 +17,10 @@ type FormValues = {
 
 // /document-types (docs/11 §11.12): the reference list the classifier chooses from and the
 // filters are built on.
-export function DocumentTypesScreen({ isAdmin = false }: { isAdmin?: boolean }) {
+export function DocumentTypesScreen() {
   const t = useTranslations();
+  // The role comes from the layout's own answer, through context (docs/10 §10.2).
+  const isAdmin = useIsAdmin();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();

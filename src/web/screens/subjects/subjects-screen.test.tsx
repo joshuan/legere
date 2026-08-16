@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
-import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
+import { TEST_ADMIN, enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { SubjectsScreen } from './subjects-screen';
 
 const APARTMENT = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -45,7 +45,7 @@ afterAll(() => server.close());
 
 describe('SubjectsScreen', () => {
   it('shows both halves of a thing and how many documents it is on', async () => {
-    renderWithProviders(<SubjectsScreen isAdmin />);
+    renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
 
     expect(await screen.findByText('Njegoševa 5')).toBeInTheDocument();
     expect(screen.getByText('apartment')).toBeInTheDocument();
@@ -61,7 +61,7 @@ describe('SubjectsScreen', () => {
       }),
     );
 
-    renderWithProviders(<SubjectsScreen isAdmin />);
+    renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.edit }),
     );
@@ -97,7 +97,7 @@ describe('SubjectsScreen', () => {
       ),
     );
 
-    renderWithProviders(<SubjectsScreen isAdmin />);
+    renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
     await screen.findByText('the flat');
     // The header checkbox takes both rows; a merge of one row is not a merge.
     const [selectAll] = screen.getAllByRole('checkbox');
@@ -128,7 +128,7 @@ describe('SubjectsScreen', () => {
   });
 
   it('says a delete leaves the documents alone rather than implying they change', async () => {
-    renderWithProviders(<SubjectsScreen isAdmin />);
+    renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.delete }),
     );

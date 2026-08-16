@@ -10,7 +10,7 @@ import type {
   DocumentListDto,
 } from '../../../shared/contracts/documents';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
-import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
+import { TEST_ADMIN, enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { DocumentViewerScreen } from './document-viewer-screen';
 
 // The viewer puts the open tab in the address (docs/11 §11.5), so it needs a router.
@@ -229,7 +229,7 @@ afterAll(() => server.close());
 describe('DocumentViewerScreen', () => {
   it('says where the text is read that some of it was not', async () => {
     serve({ ...detail, auto: { ...detail.auto, textQuality: 'PARTIAL' } }, '# Terms\n\nBody');
-    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" />, { user: TEST_ADMIN });
 
     // The verdict was written down and read by nobody: a fact the archive knew and never said.
     // A page this short on a document this full is the one thing a reader cannot tell by looking
@@ -242,7 +242,7 @@ describe('DocumentViewerScreen', () => {
 
   it('warns about text that is missing entirely, which is the case it exists for', async () => {
     serve({ ...detail, auto: { ...detail.auto, textQuality: 'NONE' } }, null);
-    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" />, { user: TEST_ADMIN });
 
     // 🔒 Drawn after the empty state, the warning would never appear on the one document that needs
     // it most: recognition returned nothing, so there is no text for it to stand under.
@@ -260,7 +260,7 @@ describe('DocumentViewerScreen', () => {
       },
       '# Terms\n\nBody',
     );
-    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" />, { user: TEST_ADMIN });
 
     // "Some of this document was not read" is a different sentence at 12 out of 100 than at 81,
     // and the reader deciding whether to ask for the re-read is who that difference is for
@@ -271,7 +271,7 @@ describe('DocumentViewerScreen', () => {
 
   it('says the words alone where the analysis gave no mark', async () => {
     serve({ ...detail, auto: { ...detail.auto, textQuality: 'PARTIAL' } }, '# Terms\n\nBody');
-    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" />, { user: TEST_ADMIN });
 
     // 🔒 A missing mark is not a zero: nothing is drawn where nothing was answered, least of all a
     // nought (docs/03 §3.3.18).
@@ -281,7 +281,7 @@ describe('DocumentViewerScreen', () => {
 
   it('says nothing about the text when the model found nothing wrong with it', async () => {
     serve({ ...detail, auto: { ...detail.auto, textQuality: 'GOOD' } }, '# Terms\n\nBody');
-    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" />, { user: TEST_ADMIN });
 
     await screen.findByText('Terms');
     expect(screen.queryByText(enMessages.viewer.textQuality.PARTIAL)).not.toBeInTheDocument();
@@ -1152,7 +1152,7 @@ describe('DocumentViewerScreen', () => {
     // a download and a deletion in one tab (docs/11 §11.5d).
     it('keeps the length of the list between Download and Delete', async () => {
       serve(twoFiles);
-      renderWithProviders(<DocumentViewerScreen id={ID} isAdmin />);
+      renderWithProviders(<DocumentViewerScreen id={ID} />, { user: TEST_ADMIN });
       await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
       await screen.findByText('page-1.jpg');
 
@@ -1205,7 +1205,7 @@ describe('DocumentViewerScreen', () => {
       ),
     );
 
-    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" isAdmin={false} />);
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
 
     expect(await screen.findByText(enMessages.viewer.skipReasons.NOT_NEEDED)).toBeInTheDocument();
     // The one an admin can act on: it names what is missing from the instance.
@@ -1256,7 +1256,7 @@ describe('DocumentViewerScreen', () => {
     ).not.toBeInTheDocument();
     asUser.unmount();
 
-    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" isAdmin />);
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />, { user: TEST_ADMIN });
     await screen.findByText(enMessages.viewer.processing.title);
     // Scoped to the tab, which now holds the panel and the history both (docs/11 §11.5).
     const panel = within(screen.getByRole('tabpanel'));
@@ -1296,7 +1296,7 @@ describe('DocumentViewerScreen', () => {
       ).not.toBeInTheDocument();
       asUser.unmount();
 
-      renderWithProviders(<DocumentViewerScreen id={ID} tab="files" isAdmin />);
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="files" />, { user: TEST_ADMIN });
 
       expect(
         await screen.findByRole('button', { name: enMessages.viewer.delete.action }),
@@ -1312,7 +1312,7 @@ describe('DocumentViewerScreen', () => {
         }),
       );
       serve(twoFiles);
-      renderWithProviders(<DocumentViewerScreen id={ID} tab="files" isAdmin />);
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="files" />, { user: TEST_ADMIN });
 
       await userEvent.click(
         await screen.findByRole('button', { name: enMessages.viewer.delete.action }),
@@ -1340,7 +1340,7 @@ describe('DocumentViewerScreen', () => {
         ...detail,
         files: [fileOf(FIRST_FILE, { origin: 'MANAGED', refs: [], storageKey: 'files/x/a.pdf' })],
       });
-      renderWithProviders(<DocumentViewerScreen id={ID} tab="files" isAdmin />);
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="files" />, { user: TEST_ADMIN });
 
       await userEvent.click(
         await screen.findByRole('button', { name: enMessages.viewer.delete.action }),

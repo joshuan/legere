@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
-import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
+import { TEST_ADMIN, enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { PeopleScreen } from './people-screen';
 
 const person = {
@@ -36,7 +36,7 @@ afterAll(() => server.close());
 
 describe('PeopleScreen', () => {
   it('shows the catalogue with what tells two people apart', async () => {
-    renderWithProviders(<PeopleScreen isAdmin />);
+    renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
 
     expect(await screen.findByText('Marija Petrović')).toBeInTheDocument();
     expect(screen.getByText('The landlady')).toBeInTheDocument();
@@ -52,7 +52,7 @@ describe('PeopleScreen', () => {
       }),
     );
 
-    renderWithProviders(<PeopleScreen isAdmin />);
+    renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.edit }),
     );
@@ -73,7 +73,7 @@ describe('PeopleScreen', () => {
     async function openTheMergeDialog(rows: unknown[]): Promise<HTMLElement> {
       server.use(http.get('/api/people', () => HttpResponse.json(envelope({ items: rows }))));
 
-      renderWithProviders(<PeopleScreen isAdmin />);
+      renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
       // All of them, because two rows may well be spelled the same.
       await screen.findAllByText(/Marija Petrovi/);
       // The header checkbox takes every row; a merge of one row is not a merge.

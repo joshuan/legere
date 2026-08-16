@@ -1,4 +1,5 @@
 import { headers } from 'next/headers';
+import { cache } from 'react';
 import { userDtoSchema, type UserDto } from '../../shared/contracts/auth';
 
 // Server components ask the API who the caller is over the loopback of the process they are already
@@ -14,7 +15,7 @@ const INTERNAL_ORIGIN = `http://127.0.0.1:${process.env.PORT ?? '3000'}`;
 
 // The signed-in user, or null when the session is missing, expired or unparseable. Callers decide
 // what that means: the (app) layout redirects to /login, the admin segment answers 404.
-export async function currentUser(): Promise<UserDto | null> {
+async function loadCurrentUser(): Promise<UserDto | null> {
   const headerList = await headers();
 
   const response = await fetch(`${INTERNAL_ORIGIN}/api/me`, {
@@ -29,3 +30,10 @@ export async function currentUser(): Promise<UserDto | null> {
   const parsed = userDtoSchema.safeParse(payload.data);
   return parsed.success ? parsed.data : null;
 }
+
+// 🔒 One question, one answer (docs/10 §10.2). Two guards ask this in the same render pass — the
+// (app) layout, and the admin layout a component below it — and before the memoization each paid for
+// its own loopback call, in sequence, before anything could be drawn. React's `cache` scopes the
+// answer to the pass, so the second guard is a hit rather than a second request. Nothing under the
+// guards asks at all: the layout passes what it has to the client tree instead.
+export const currentUser = cache(loadCurrentUser);

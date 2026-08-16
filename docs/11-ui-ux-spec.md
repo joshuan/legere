@@ -63,6 +63,18 @@ is holding because that number is the reason to be there (§11.13b). A screen wh
 says what it is does not say it twice — the Files tab writes no heading under a tab labelled Files
 (§11.5a), and the documents grid is the archive rather than a page about the archive.
 
+**A press is answered before the server is.** Walking from one section to another draws the next
+screen immediately: the column stays exactly where it is, because it belongs to the layout and not to
+the page, and the content beside it becomes a skeleton in the shape of a screen — a heading, and the
+field of cards this archive mostly is — which is the universal loading state this document asks for
+in its first line. Never a spinner, and never the previous screen frozen with the old address still
+in the bar while somebody presses the link a second time. 🔒 **A skeleton is for arriving at a
+screen, not for moving about inside one.** The viewer changes its own address as its tabs are pressed
+(§11.5) without ever leaving the document; drawing a skeleton over that would take the page away from
+the person reading it in order to announce that the page they are reading is on its way. Where the
+boundary may live so that this cannot happen is [`10 §10.2`](./10-frontend-architecture.md#102-routing-map)'s
+to say, and it says it as an invariant.
+
 ## 11.1a. The search overlay
 
 Search is raised over what is open rather than navigated to. The question "where is that lease"
@@ -1119,6 +1131,9 @@ An empty trash says so plainly rather than showing an empty table: nothing here 
 - Keyboard: dialogs close on Esc; wizard advances on Enter; grid supports arrow-key focus (antd
   defaults suffice — no custom hotkey system in MVP).
 - No dark-pattern empty states: when something is admin-gated, tell the user who can fix it.
+- Arriving at a screen draws a skeleton of that screen and not a spinner (§11.1); a skeleton is
+  never drawn over a screen somebody is already on, and what the route-level one is allowed to cover
+  is fixed in [`10 §10.2`](./10-frontend-architecture.md#102-routing-map).
 
 ## 11.15. Visual identity — "the reading room"
 

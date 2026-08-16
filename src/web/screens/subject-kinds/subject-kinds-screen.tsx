@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { useCallback } from 'react';
 import type { SubjectKindDto } from '../../../shared/contracts/subject-kinds';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
+import { useIsAdmin } from '../../entities/user';
 import { CatalogueManager } from '../../widgets/catalogue-manager';
 
 type FormValues = { name: string; note: string };
@@ -13,8 +14,10 @@ type FormValues = { name: string; note: string };
 // /subject-kinds (docs/11 §11.12a): what sort of thing a subject may be. Renaming one here is
 // a single edit for everything filed under it, which is the whole reason the kinds are a catalogue
 // rather than a string on every row (docs/03 §3.3.20a).
-export function SubjectKindsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
+export function SubjectKindsScreen() {
   const t = useTranslations();
+  // The role comes from the layout's own answer, through context (docs/10 §10.2).
+  const isAdmin = useIsAdmin();
   const queryClient = useQueryClient();
   const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: subjectKindApi.list });
 

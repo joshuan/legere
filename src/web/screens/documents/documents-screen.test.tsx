@@ -5,7 +5,7 @@ import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DocumentListDto } from '../../../shared/contracts/documents';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
-import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
+import { TEST_ADMIN, enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { DocumentsScreen } from './documents-screen';
 
 vi.mock('next/link', () => ({
@@ -474,7 +474,7 @@ describe('DocumentsScreen', () => {
     ).not.toBeInTheDocument();
     asUser.unmount();
 
-    renderWithProviders(<DocumentsScreen isAdmin />);
+    renderWithProviders(<DocumentsScreen />, { user: TEST_ADMIN });
     expect(
       await screen.findByRole('button', { name: enMessages.documents.empty.addLibrary }),
     ).toBeInTheDocument();
@@ -488,7 +488,7 @@ describe('DocumentsScreen', () => {
       ),
     );
 
-    renderWithProviders(<DocumentsScreen isAdmin />);
+    renderWithProviders(<DocumentsScreen />, { user: TEST_ADMIN });
 
     expect(await screen.findByText(enMessages.documents.empty.filtered)).toBeInTheDocument();
     // The library CTA belongs to an empty instance, not to an over-filtered view.
@@ -546,7 +546,7 @@ describe('DocumentsScreen', () => {
         }),
       );
 
-      renderWithProviders(<DocumentsScreen isAdmin={false} />);
+      renderWithProviders(<DocumentsScreen />);
       await screen.findByText('Document 1');
 
       await userEvent.upload(
@@ -569,7 +569,7 @@ describe('DocumentsScreen', () => {
         }),
       );
 
-      renderWithProviders(<DocumentsScreen isAdmin={false} />);
+      renderWithProviders(<DocumentsScreen />);
       await screen.findByText('Document 1');
 
       await userEvent.upload(fileInput(), [
@@ -596,7 +596,7 @@ describe('DocumentsScreen', () => {
         }),
       );
 
-      renderWithProviders(<DocumentsScreen isAdmin={false} />);
+      renderWithProviders(<DocumentsScreen />);
       await screen.findByText('Document 1');
 
       await userEvent.upload(
@@ -628,7 +628,7 @@ describe('DocumentsScreen', () => {
         }),
       );
 
-      renderWithProviders(<DocumentsScreen isAdmin={false} />);
+      renderWithProviders(<DocumentsScreen />);
       await screen.findByText('Document 1');
 
       await userEvent.upload(
@@ -658,7 +658,7 @@ describe('DocumentsScreen', () => {
         }),
       );
 
-      renderWithProviders(<DocumentsScreen isAdmin={false} />);
+      renderWithProviders(<DocumentsScreen />);
       expect(await screen.findByText(enMessages.documents.empty.instance)).toBeInTheDocument();
 
       await userEvent.upload(

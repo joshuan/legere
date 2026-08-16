@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**The backlog M0–M30 is implemented** — there is no unchecked task in
+**The backlog M0–M31 is implemented** — there is no unchecked task in
 `docs/tasks/backlog.md`, so the next piece of work starts by writing one. Every mandatory scenario of `docs/14 §14.8` is mapped to a test in
 `docs/tasks/scenario-coverage.md`. The specification (documents 01–14 in `docs/`) remains the source
 of truth; new work continues the same way — take the first unchecked task, tick it off in the same

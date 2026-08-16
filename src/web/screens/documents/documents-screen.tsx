@@ -28,6 +28,7 @@ import {
   documentKeys,
   type DocumentFilters,
 } from '../../entities/document';
+import { useIsAdmin } from '../../entities/user';
 import { DocumentFiltersBar } from '../../features/document-filters';
 import {
   DEFAULT_DOCUMENT_CARD_FIELDS,
@@ -50,8 +51,11 @@ const LIVE_REFRESH_MS = 5000;
 const STAGGER_LIMIT = 18;
 
 // /documents (docs/11 §11.3): the home screen.
-export function DocumentsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
+export function DocumentsScreen() {
   const t = useTranslations();
+  // Who is reading this comes from the layout that already asked, not from a page that asked again
+  // (docs/10 §10.2).
+  const isAdmin = useIsAdmin();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

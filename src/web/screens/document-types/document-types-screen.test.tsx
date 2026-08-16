@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope, errorEnvelope } from '../../../../test/helpers/msw';
-import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
+import { TEST_ADMIN, enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { DocumentTypesScreen } from './document-types-screen';
 
 const documentType = {
@@ -31,7 +31,7 @@ afterAll(() => server.close());
 
 describe('DocumentTypesScreen', () => {
   it('shows the list with slugs and document counts', async () => {
-    renderWithProviders(<DocumentTypesScreen isAdmin />);
+    renderWithProviders(<DocumentTypesScreen />, { user: TEST_ADMIN });
 
     expect(await screen.findByText('invoice')).toBeInTheDocument();
     expect(screen.getByText('Invoice')).toBeInTheDocument();
@@ -48,7 +48,7 @@ describe('DocumentTypesScreen', () => {
       }),
     );
 
-    renderWithProviders(<DocumentTypesScreen isAdmin />);
+    renderWithProviders(<DocumentTypesScreen />, { user: TEST_ADMIN });
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.admin.documentTypes.actions.create }),
     );
@@ -77,7 +77,7 @@ describe('DocumentTypesScreen', () => {
       ),
     );
 
-    renderWithProviders(<DocumentTypesScreen isAdmin />);
+    renderWithProviders(<DocumentTypesScreen />, { user: TEST_ADMIN });
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.admin.documentTypes.actions.create }),
     );
@@ -100,7 +100,7 @@ describe('DocumentTypesScreen', () => {
   });
 
   it('locks the slug when editing, since it cannot be changed', async () => {
-    renderWithProviders(<DocumentTypesScreen isAdmin />);
+    renderWithProviders(<DocumentTypesScreen />, { user: TEST_ADMIN });
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.edit }),
     );
@@ -123,7 +123,7 @@ describe('DocumentTypesScreen', () => {
       }),
     );
 
-    renderWithProviders(<DocumentTypesScreen isAdmin />);
+    renderWithProviders(<DocumentTypesScreen />, { user: TEST_ADMIN });
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.edit }),
     );
@@ -140,7 +140,7 @@ describe('DocumentTypesScreen', () => {
   });
 
   it('names the documentType and the cost in the delete confirmation', async () => {
-    renderWithProviders(<DocumentTypesScreen isAdmin />);
+    renderWithProviders(<DocumentTypesScreen />, { user: TEST_ADMIN });
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.common.actions.delete }),
     );

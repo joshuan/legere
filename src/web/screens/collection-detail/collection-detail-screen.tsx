@@ -5,20 +5,18 @@ import { App, Button, Empty, Popconfirm, Space, Spin, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { collectionApi, collectionKeys } from '../../entities/collection';
+import { useCurrentUser } from '../../entities/user';
 import { ShareModal } from '../../features/collection-share';
 import { useErrorMessage } from '../../shared/lib';
 import { DocumentCard } from '../../widgets/document-card';
 
 // /collections/:id (docs/11 §11.7). A viewer who is not the owner gets no edit affordances at all —
 // the API would refuse them anyway, and offering them would be a lie.
-export function CollectionDetailScreen({
-  id,
-  currentUserId,
-}: {
-  id: string;
-  currentUserId: string;
-}) {
+export function CollectionDetailScreen({ id }: { id: string }) {
   const t = useTranslations();
+  // Who is reading this comes from the layout that already asked the API, rather than from a page
+  // that had to ask again before this screen could be drawn (docs/10 §10.2).
+  const { id: currentUserId } = useCurrentUser();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();

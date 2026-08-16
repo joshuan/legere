@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
-import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
+import { enMessages, renderWithProviders, testUser } from '../../../../test/helpers/render';
 import { CollectionDetailScreen } from './collection-detail-screen';
 
 vi.mock('next/link', () => ({
@@ -71,13 +71,13 @@ afterAll(() => server.close());
 
 describe('CollectionDetailScreen', () => {
   it('shows the documents the viewer may see', async () => {
-    renderWithProviders(<CollectionDetailScreen id={ID} currentUserId={OWNER_ID} />);
+    renderWithProviders(<CollectionDetailScreen id={ID} />, { user: testUser({ id: OWNER_ID }) });
 
     expect(await screen.findByText('Rental agreement')).toBeInTheDocument();
   });
 
   it('offers no edit affordances to somebody who is not the owner', async () => {
-    renderWithProviders(<CollectionDetailScreen id={ID} currentUserId={OTHER_ID} />);
+    renderWithProviders(<CollectionDetailScreen id={ID} />, { user: testUser({ id: OTHER_ID }) });
 
     expect(await screen.findByText('Rental agreement')).toBeInTheDocument();
     // The API would refuse them anyway; offering them would be a lie (docs/11 §11.7).
@@ -99,7 +99,7 @@ describe('CollectionDetailScreen', () => {
       }),
     );
 
-    renderWithProviders(<CollectionDetailScreen id={ID} currentUserId={OWNER_ID} />);
+    renderWithProviders(<CollectionDetailScreen id={ID} />, { user: testUser({ id: OWNER_ID }) });
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.collections.actions.remove }),
     );
@@ -131,7 +131,7 @@ describe('CollectionDetailScreen', () => {
       }),
     );
 
-    renderWithProviders(<CollectionDetailScreen id={ID} currentUserId={OWNER_ID} />);
+    renderWithProviders(<CollectionDetailScreen id={ID} />, { user: testUser({ id: OWNER_ID }) });
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.collections.actions.share }),
     );
@@ -160,7 +160,7 @@ describe('CollectionDetailScreen', () => {
       }),
     );
 
-    renderWithProviders(<CollectionDetailScreen id={ID} currentUserId={OWNER_ID} />);
+    renderWithProviders(<CollectionDetailScreen id={ID} />, { user: testUser({ id: OWNER_ID }) });
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.collections.actions.share }),
     );

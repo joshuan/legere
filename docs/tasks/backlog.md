@@ -886,3 +886,26 @@ these are its first users.
   **Goal:** a lab report keeps its analytes, a licence its categories, a certificate its blank number — each findable by the string a person remembers.
   **Docs:** [`03 §3.3.10a`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`11 §11.5`](../11-ui-ux-spec.md), [`14 §14.8`](../14-coding-standards.md#148-testing)
   **Acceptance:** the registry gains `lab-report` v1 — `patient` (string, searchable, summary), `facility` (string, searchable), `orderNumber` (string, searchable), `collectedAt` (date, summary: when the sample was taken, which is the date that matters medically), `reportedAt` (date), and a `results` table: `analyte` (searchable), `value` (string: numbers and verdicts both — "positive" is a result), `unit`, `reference` (the printed interval), `flag` (the out-of-range mark or note, as printed) — one row per analyte, panels flattened; the registry gains `civil-certificate` v1 for the state papers on numbered blanks — `certificateNumber` (string, searchable, summary: the blank's series and number), `actNumber` (string, searchable), `actDate` (date), `issuedBy` (string, searchable: the registry office), `eventDate` (date, summary), `eventPlace` (string, searchable), `issuedAt` (date) — and who the paper is about stays on the document's people links, because that is what the links are for; `id-card` moves to v2 with `issuingCountry` (string, searchable: the state that issued it, which the document's own country row does not answer when a Serbian archive holds a Russian licence), `birthDate` (date) and `categories` (string: a licence's vehicle classes as printed); `passport` moves to v2 with `issuingCountry` on the same reasoning; the `lab-report` and `civil-certificate` types join the seed; labels in both catalogs; tests exercise sanitization against answers shaped like the lab report and the driving licence read for this task, and the version bumps preserving `MANUAL` values per field.
+
+---
+
+## M31 — A click on a link is a navigation, not a request
+
+Pressing a document in the archive does nothing at all until the server answers. The link is a
+proper `<Link>` and the address is right; what is wrong is underneath it. Every page of the
+authenticated area is an `async` server component whose first act is `await currentUser()` — a
+loopback call to `/api/me` — and the `(app)` layout has *already* made that call one component
+above, so a navigation pays for the same answer twice, in sequence. Meanwhile `src/app/` holds no
+`loading.tsx` at all, and in the App Router a segment with no loading boundary above it cannot
+commit until its payload arrives: the URL does not change, nothing is drawn, and the archive sits
+there looking broken. `11` has asked for loading as a universal state since its first paragraph, and
+`10 §10.2`'s routing map never named a boundary.
+
+The rule this milestone applies is one the viewer already wrote down for its own tabs — *the tab
+switches on the click rather than after the navigation: a tab that waits for the router to come back
+feels broken* — and never applied to the routes themselves.
+
+- [x] **M31.1 — The page is drawn before the server is asked**
+  **Goal:** a click in the archive lands on the document's screen at once, and the document arrives into it.
+  **Docs:** [`10 §10.2`](../10-frontend-architecture.md#102-routing-map), [`11 §11.1`](../11-ui-ux-spec.md#111-shell--navigation), [`11 §11.14`](../11-ui-ux-spec.md#1114-cross-cutting-ui-rules), [`08`](../08-auth-and-authorization.md)
+  **Acceptance:** the signed-in user is fetched **once per request** — `currentUser` is memoized for the render pass, so the `(app)` layout, the `admin` layout and anything else asking in the same pass share one answer instead of queueing loopback calls; the layout **provides the user to the client tree** it already renders, and every page of `(app)` stops calling `currentUser` for `isAdmin` and becomes a **synchronous** server component — `documents`, `documents/:id`, `documents/:id/:tab`, `collections/:id`, `people`, `subjects`, `subject-kinds`, `document-types` — so the segment has nothing to await and the navigation commits on the press; the screens read the role from that context rather than from a prop handed down by a page that no longer knows it; 🔒 **the `admin` segment's guard stays on the server** — it is authorization, it answers `404` as `08` says, and it does not move into the client because a role read in the browser is a role a browser can lie about; it is merely no longer a second round trip, being a cache hit off the layout's own call; a `loading.tsx` covers the authenticated area as a genuine safety net for a segment that does suspend, drawn as the screen's own skeleton rather than a spinner (`11` opening paragraph), and 🔒 **it must not fire on a viewer tab switch** — `router.replace` between `/documents/:id/preview` and `/documents/:id/text` would otherwise blank the screen it is standing on, which is the very defect this task removes, one level down; localized ru/en with the keys in English; tests cover a page rendering without awaiting anything, the role reaching a screen through the provider, the admin guard still answering `404` to a non-admin, and one `/api/me` per navigation where there were two.

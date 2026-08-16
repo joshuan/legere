@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { useCallback } from 'react';
 import type { PersonDto } from '../../../shared/contracts/people';
 import { personApi, personKeys } from '../../entities/person';
+import { useIsAdmin } from '../../entities/user';
 import { CatalogueManager } from '../../widgets/catalogue-manager';
 
 type FormValues = { name: string; note: string };
@@ -14,8 +15,10 @@ type FormValues = { name: string; note: string };
 // /people (docs/11 §11.12a): the catalogue the analysis writes into and a person corrects.
 // Correcting it here rather than on a document is the point — a name spelled wrong on forty
 // documents is one row, not forty edits (docs/03 §3.3.19).
-export function PeopleScreen({ isAdmin = false }: { isAdmin?: boolean }) {
+export function PeopleScreen() {
   const t = useTranslations();
+  // The role comes from the layout's own answer, through context (docs/10 §10.2).
+  const isAdmin = useIsAdmin();
   const queryClient = useQueryClient();
   const people = useQuery({ queryKey: personKeys.all, queryFn: personApi.list });
 

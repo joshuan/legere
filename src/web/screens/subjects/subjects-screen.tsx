@@ -8,6 +8,7 @@ import { useCallback } from 'react';
 import type { SubjectDto } from '../../../shared/contracts/subjects';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
+import { useIsAdmin } from '../../entities/user';
 import { CatalogueManager } from '../../widgets/catalogue-manager';
 
 type FormValues = { kindId: string; name: string; note: string };
@@ -15,8 +16,10 @@ type FormValues = { kindId: string; name: string; note: string };
 // /subjects (docs/11 §11.12a): the things documents are about. Both halves are editable — a
 // boat filed as a country is corrected by moving it, not by deleting and retyping it
 // (docs/03 §3.3.20).
-export function SubjectsScreen({ isAdmin = false }: { isAdmin?: boolean }) {
+export function SubjectsScreen() {
   const t = useTranslations();
+  // The role comes from the layout's own answer, through context (docs/10 §10.2).
+  const isAdmin = useIsAdmin();
   const queryClient = useQueryClient();
   const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });
   const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: subjectKindApi.list });
