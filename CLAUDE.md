@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**The backlog M0–M24 is implemented**; M25–M30 are planned and unchecked in
-`docs/tasks/backlog.md`. Every mandatory scenario of `docs/14 §14.8` is mapped to a test in
+**The backlog M0–M30 is implemented** — there is no unchecked task in
+`docs/tasks/backlog.md`, so the next piece of work starts by writing one. Every mandatory scenario of `docs/14 §14.8` is mapped to a test in
 `docs/tasks/scenario-coverage.md`. The specification (documents 01–14 in `docs/`) remains the source
 of truth; new work continues the same way — take the first unchecked task, tick it off in the same
 commit, and where a task changes what the docs say, the doc moves first (golden rule 3).
@@ -22,12 +22,19 @@ commit, and where a task changes what the docs say, the doc moves first (golden 
 | `npm test` | the whole suite (unit + integration + e2e) against the dev PostgreSQL |
 | `npm run test:coverage` | the same with the ≥90% line floor on `domain` + `application`; this is what CI runs |
 | `npm run db:migrate` | apply migrations forward (also what the container does on start) |
-| `npm run db:migrate:dev` | author a new migration from a schema change |
+| `npm run db:migrate:dev` | author a new migration from a schema change — **but see below** |
 | `npm run db:seed` | idempotent dev seed: `admin@legere.local` / `password` |
 | `npm run release` | cut a release (`docs/13 §13.3a`); `-- patch` / `-- major` for other bumps |
 
 A single test file: `npx vitest run --project server <path>` (`--project web` for `src/web`). The
 MinIO- and Stirling-backed integration suites skip themselves when those containers are not up.
+
+**Migrations are written by hand, not generated.** `db:migrate:dev` reads the raw SQL of `04 §4.3`
+— the generated `search_vector` column, the pgvector indexes — as drift it must "fix", and fails
+with a syntax error while trying. Write `prisma/migrations/<timestamp>_<slug>/migration.sql`
+yourself in the style of its neighbours, edit `schema.prisma` to match, and apply it with
+`db:migrate`. If a `migrate dev` attempt has already left a failed row behind, clear it with
+`npx prisma migrate resolve --rolled-back <name>` before applying anything else.
 
 A release is `npm run release` and nothing else: it gates on the CI run that already passed for the
 pushed `HEAD` — do **not** re-run the suite locally to "verify before releasing", and do not create
