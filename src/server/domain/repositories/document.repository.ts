@@ -236,6 +236,13 @@ export type StepMetrics = {
   // Which engine produced the text of this step. Two of them write the same field now, and "which
   // one wrote this" is the first question anybody asks of a bad result (docs/05 §5.5 step 3).
   transcribed?: boolean;
+  // What the step made of its own work, out of a hundred (docs/03 §3.3.10): the analysis answers
+  // how readable the pages were and how much of them the text carries, the fields step how sure it
+  // is of its reading. 🔒 Absent where the step did not answer — a missing mark is not a zero — and
+  // recorded rather than acted on, like every other number here.
+  legibility?: number | undefined;
+  extraction?: number | undefined;
+  confidence?: number | undefined;
 };
 
 // One row of a search result before it becomes a DTO (docs/07 §7.3).

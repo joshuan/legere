@@ -847,7 +847,7 @@ rule 3 the docs move first with each task: `03 §3.3.16`, `05 §5.5`/`§5.6`, `0
 
 ## M29 — The pipeline grades its own work
 
-- [ ] **M29.1 — Every reading step says how well it went**
+- [x] **M29.1 — Every reading step says how well it went**
   **Goal:** "how badly was this document read" becomes a number on the document, not a discovery made by opening it.
   **Docs:** [`03 §3.3.10`](../03-domain-model.md), [`03 §3.3.18`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`06 §6.3.3`](../06-backend-architecture.md), [`11 §11.5`](../11-ui-ux-spec.md)
   **What is missing today.** The only judgement in the product is `textQuality` — a ternary, answered in passing, acted on by one alert. The fields step answers values with no word on how sure it is. Nothing anywhere says "this scan was barely legible and the reading shows it" in a form that can be compared, sorted or watched.

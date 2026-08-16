@@ -1377,6 +1377,10 @@ export class FakeAnalyst extends DocumentAnalyst {
     date: null,
     subjects: [],
     textQuality: null,
+    // What the run thought of its own work (docs/05 §5.5 step 4). Silent unless a test says
+    // otherwise — most of them are about something else, and a missing mark is not a zero.
+    legibility: null,
+    extraction: null,
   };
   failing = false;
   readonly calls: Array<{
@@ -1414,6 +1418,8 @@ export class FakeAnalyst extends DocumentAnalyst {
 
   // The fields step's question (docs/05 §5.5 step 5); tests set `fieldValues` per case.
   fieldValues: Record<string, unknown> = {};
+  // And how sure it says it is of the whole reading; null is a step that did not answer.
+  fieldConfidence: number | null = null;
   readonly fieldCalls: Array<{
     schemaSlug: string;
     excerpt: string;
@@ -1434,7 +1440,7 @@ export class FakeAnalyst extends DocumentAnalyst {
       confirmed,
     });
     if (this.failing) return Promise.reject(new Error('Analyst request failed with 503'));
-    return Promise.resolve({ values: this.fieldValues });
+    return Promise.resolve({ values: this.fieldValues, confidence: this.fieldConfidence });
   }
 }
 

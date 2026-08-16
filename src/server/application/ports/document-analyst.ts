@@ -50,6 +50,16 @@ export type DocumentAnalysis = {
   // reported success, and the only way to notice was to open the document. `null` when the model
   // was shown no pages and so has nothing to compare the text against.
   textQuality: 'GOOD' | 'PARTIAL' | 'NONE' | null;
+  // How readable the pages themselves are — focus, lighting, resolution, an edge the desk cut off —
+  // out of a hundred (docs/05 §5.5 step 4). A fact about what the archive was handed, as against
+  // `extraction` below, which is a fact about what this product did with it.
+  legibility: number | null;
+  // How faithfully the stored text carries what those pages visibly say, out of a hundred: the same
+  // question `textQuality` answers in three words, counted (docs/05 §5.5 step 4).
+  //
+  // 🔒 Both are `null` where the model answered nothing usable, and null is not nought: a missing
+  // mark means the step did not answer that question (docs/03 §3.3.18). Neither gates anything.
+  extraction: number | null;
   // What the provider reported spending on this call, when it reports it at all (docs/03 §3.3.18).
   usage?: { promptTokens?: number; completionTokens?: number };
 };
@@ -91,6 +101,10 @@ export type ConfirmedValues = {
 // (docs/03 §3.3.10a), so the adapter stays a transport and the rules stay testable without one.
 export type FieldExtraction = {
   values: Record<string, unknown>;
+  // How sure the step is of this reading, out of a hundred, once over the whole of it
+  // (docs/05 §5.5 step 5). `null` where nothing usable came back — and null is not nought. Kept off
+  // `values` by the adapter, so a schema key is never confused with the step's opinion of itself.
+  confidence: number | null;
   usage?: { promptTokens?: number; completionTokens?: number };
 };
 

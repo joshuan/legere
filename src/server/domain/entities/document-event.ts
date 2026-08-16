@@ -33,6 +33,11 @@ export type DocumentEventPayload = {
   promptTokens?: number | undefined;
   completionTokens?: number | undefined;
   transcribed?: boolean | undefined;
+  // What the step made of its own work, out of a hundred (docs/03 §3.3.18). Absent means it did not
+  // answer that question, exactly like the numbers above it.
+  legibility?: number | undefined;
+  extraction?: number | undefined;
+  confidence?: number | undefined;
   source?: string | undefined;
   library?: string | undefined;
   path?: string | undefined;

@@ -433,6 +433,15 @@ document pinned to the height of a phone would be a worse read, not a better one
   on yet has no section. The same numbers stand in the journal beside the moment they were spent (the
   `Log` tab below); this is them arranged by the question a reader asks about the *document* rather
   than about the log.
+  **A step's row also carries what it thought of its own work**, in the same run of numbers and
+  under the same rule: `legibility 20/100 · extraction 95/100` on the analysis, `confidence 78/100`
+  on the fields (`03 §3.3.10`). Written as a mark out of a hundred rather than as a bare number,
+  because `20` beside `3 pages` and `1200 characters` reads as a fourth measurement of the document
+  and `20/100` reads as a score of the reading. It is drawn where the rest of what a step answered
+  is drawn — this is the row about that step, and "how well did it go" belongs beside "how long did
+  it take" — and 🔒 **nothing on the screen acts on it**: there is no button here that a low mark
+  produces and no colour it turns, because a mark is what the model made of its own output and
+  gating on it would be spending twice on a doubt the machine has about itself (`05 §5.5` step 4).
   Everything a machine decided is **editable here and only here** — document type, languages,
   country, city — behind that one **Edit** button (or the **E** key; **Escape** leaves) that turns
   the rows of **What it says** into ordinary inputs, and **Save** at the bottom right of that same
@@ -528,6 +537,13 @@ document pinned to the height of a phone would be a worse read, not a better one
   (`03 §3.3.10`), which until now was written down and read by nobody. Everybody sees the warning,
   because it is a fact about the document; only an admin is offered the re-read beside it, because
   that is a request to spend the pipeline.
+  **And the warning carries the extraction mark beside its words** where the analysis gave one —
+  `auto.quality.extraction`, the numeric refinement of that same verdict (`03 §3.3.10`) — because
+  "some of this document was not read" is a different sentence at 81 out of 100 than at 12, and the
+  reader deciding whether to bother with the re-read is exactly the person that difference is for.
+  Where there is no mark the warning stands as it always did: 🔒 a missing mark is not a zero, and
+  the words alone are the whole of what was said. The mark decides nothing about whether the
+  warning appears — the three-word verdict does that, as it did before.
 - **`Related`** — the documents this one belongs with, and the ones the archive thinks it might:
   see §11.5e.
 - **`Log`** — what is being done to the document, and what has been done to it. **Two sections, in
@@ -558,9 +574,12 @@ document pinned to the height of a phone would be a worse read, not a better one
   "the machine did this" is said. A table rather than a timeline: a log is scanned for the one row
   that matters, and columns that line up are what makes scanning possible.
   **A settled step also says what it cost:** how long it took, and — where the step answers them —
-  how many pages it worked over, how many characters came out, whether recognition ran, and what a
-  model reported spending, beside the step they belong to (`03 §3.3.18`). Only the numbers that step
-  actually reported: a missing one is not a zero.
+  how many pages it worked over, how many characters came out, whether recognition ran, what a
+  model reported spending, and what it made of its own reading, beside the step they belong to
+  (`03 §3.3.18`). Only the numbers that step actually reported: a missing one is not a zero. The
+  marks are drawn here exactly as they are in **What it cost** above, because here they belong to
+  *that* run of the step and there to the newest one, and the difference between two runs is a
+  thing only the log can show.
   **A step also says who did the work:** the service it went to, and the id it was asked under, in
   monospace under the sentence — values to be copied into a `grep`, not read (03 §3.3.18). The same
   id is on the started and the finished entry, and on the request the service itself logged, so

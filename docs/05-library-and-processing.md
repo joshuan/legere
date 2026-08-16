@@ -572,6 +572,30 @@ because a run that told us nothing new happened to it.
    because a model answering "partial" twice is not a reason to spend twice — and because the
    judgement is about a document somebody is looking at, not a queue somebody is watching. With no document types defined the step still runs, because
    the place is worth the call.
+   **And it says as much in numbers.** Beside that verdict come two marks from 0 to 100.
+   **Legibility** is how readable the pages themselves are — focus, lighting, resolution, a corner
+   the desk cut off — and it is a fact about what the archive was handed. **Extraction** is how
+   faithfully the stored text carries what those pages visibly say, which is the question
+   `textQuality` already answers in three words: the mark is its numeric refinement, and the
+   ternary survives beside it as the coarse verdict the Text tab acts on, because a warning is
+   written in words and not in a score. The two are separate on purpose. A photograph nobody could
+   read whose four legible lines all reached the database is 20 and 95; a crisp scan whose results
+   table came back as prose is 95 and 40 — the first says the archive was given a bad picture, the
+   second says this product read a good one badly, and they are not the same complaint. One word
+   could say neither, and "this scan was barely legible and the reading shows it" is a sentence
+   nothing in the product could say before.
+   **Each mark is validated in code**, like every other field of this answer: clamped to 0–100,
+   and dropped when it is absent, a word, or anything else that is not a number.
+   🔒 **A missing mark is not a zero — it means that step does not answer that question**
+   (`03 §3.3.18`'s rule, word for word). A provider that never learned to answer them and a call
+   that was shown no pages are silences, and a silence read as a nought would be the worst reading
+   this product ever recorded of itself.
+   🔒 **A mark is the model's opinion of its own output, and it gates nothing.** No re-run, no
+   failure and no threshold anywhere reads one — the same reasoning the verdict above already
+   stands on, said again because a number invites a rule in a way a word does not: a model that
+   answers "partial" twice is not a reason to spend twice, and a model that answers 41 twice is
+   not one either. It is written where somebody reading the document meets it (`11 §11.5`), and
+   into the journal beside what the step cost (`03 §3.3.18`), and nowhere that acts.
    **It is shown the catalogue it is filing into**: the kinds already in use, and the things
    themselves with their notes (03 §3.3.20). After the first months an archive stops meeting new
    things — almost every document is about a flat, a car or a company already known — so the job
@@ -642,6 +666,15 @@ because a run that told us nothing new happened to it.
    finding the stored answer speaking another schema, replaces it wholesale, manual corrections
    included: they were corrections to fields the document no longer has. The journal keeps what they
    were (`03 §3.3.18`).
+   **It also says how sure it is**, once, over the whole reading: a **confidence** from 0 to 100,
+   answered beside the fields themselves under a reserved key of that name, which is taken out of
+   the answer before the values are read — no schema uses `confidence` as a field key, and none may,
+   or a paper's own value would be read as the machine's opinion of its reading.
+   One mark and not one per field, because what a reader wants to know is whether this paper was
+   read at all: a receipt whose photograph gave up half its lines is a bad reading of a receipt,
+   and nine separate numbers saying so are nine things to look at instead of one. It travels the
+   same road as the analysis's two — clamped, dropped when it is not a number, 🔒 **a missing mark
+   is not a zero**, and it gates nothing (step 4).
 6. **Vectorization:** chunking of the Markdown (by headings/paragraphs, with overlap) →
    `EmbeddingProvider` → chunk vectors into pgvector, replacing whatever the document had in one
    transaction (03 §3.3.11). Provider not configured → `SKIPPED` (graceful degradation: semantic

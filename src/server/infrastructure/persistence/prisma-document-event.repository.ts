@@ -34,6 +34,11 @@ const payloadSchema = z
     promptTokens: z.number().optional(),
     completionTokens: z.number().optional(),
     transcribed: z.boolean().optional(),
+    // What the step made of its own work (docs/03 §3.3.18) — written here, so it has to be a known
+    // shape here too, or the journal would forget it on the way back out.
+    legibility: z.number().optional(),
+    extraction: z.number().optional(),
+    confidence: z.number().optional(),
     source: z.string().optional(),
     library: z.string().optional(),
     path: z.string().optional(),

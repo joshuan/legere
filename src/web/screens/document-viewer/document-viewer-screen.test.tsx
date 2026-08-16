@@ -252,6 +252,33 @@ describe('DocumentViewerScreen', () => {
     ).toBeInTheDocument();
   });
 
+  it('carries the extraction mark beside the words of the warning', async () => {
+    serve(
+      {
+        ...detail,
+        auto: { ...detail.auto, textQuality: 'PARTIAL', quality: { extraction: 12 } },
+      },
+      '# Terms\n\nBody',
+    );
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);
+
+    // "Some of this document was not read" is a different sentence at 12 out of 100 than at 81,
+    // and the reader deciding whether to ask for the re-read is who that difference is for
+    // (docs/11 §11.5).
+    expect(await screen.findByText(/12\/100/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(enMessages.viewer.textQuality.PARTIAL))).toBeInTheDocument();
+  });
+
+  it('says the words alone where the analysis gave no mark', async () => {
+    serve({ ...detail, auto: { ...detail.auto, textQuality: 'PARTIAL' } }, '# Terms\n\nBody');
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);
+
+    // 🔒 A missing mark is not a zero: nothing is drawn where nothing was answered, least of all a
+    // nought (docs/03 §3.3.18).
+    expect(await screen.findByText(enMessages.viewer.textQuality.PARTIAL)).toBeInTheDocument();
+    expect(screen.queryByText(/\/100/)).toBeNull();
+  });
+
   it('says nothing about the text when the model found nothing wrong with it', async () => {
     serve({ ...detail, auto: { ...detail.auto, textQuality: 'GOOD' } }, '# Terms\n\nBody');
     renderWithProviders(<DocumentViewerScreen id={ID} tab="text" isAdmin />);
@@ -298,6 +325,76 @@ describe('DocumentViewerScreen', () => {
     // the question is actually asked (docs/11 §11.5).
     expect(await screen.findByText(enMessages.viewer.details.cost)).toBeInTheDocument();
     expect(screen.getByText(/1200/)).toBeInTheDocument();
+  });
+
+  it('draws each mark beside the other numbers of the step that answered it, out of a hundred', async () => {
+    serve(detail);
+    server.use(
+      http.get(`/api/documents/${ID}/events`, () =>
+        HttpResponse.json(
+          envelope({
+            items: [
+              {
+                id: 'eeeeeeee-1111-4111-8111-111111111111',
+                type: 'STEP_FINISHED',
+                at: '2026-08-12T10:02:00.000Z',
+                actor: null,
+                payload: {
+                  step: 'fields',
+                  status: 'DONE',
+                  durationMs: 900,
+                  confidence: 78,
+                },
+              },
+              {
+                id: 'eeeeeeee-2222-4222-8222-222222222222',
+                type: 'STEP_FINISHED',
+                at: '2026-08-12T10:01:00.000Z',
+                actor: null,
+                payload: {
+                  step: 'analysis',
+                  status: 'DONE',
+                  durationMs: 3100,
+                  promptTokens: 900,
+                  completionTokens: 40,
+                  legibility: 20,
+                  extraction: 95,
+                },
+              },
+              {
+                id: 'eeeeeeee-3333-4333-8333-333333333333',
+                type: 'STEP_FINISHED',
+                at: '2026-08-12T10:00:00.000Z',
+                actor: null,
+                // A step that answers no mark, which is most of them: nothing out of a hundred
+                // stands in its row.
+                payload: { step: 'markdown', status: 'DONE', durationMs: 4200, chars: 1200 },
+              },
+            ],
+            nextCursor: null,
+          }),
+        ),
+      ),
+    );
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="details" />);
+
+    const heading = await screen.findByRole('heading', { name: enMessages.viewer.details.cost });
+    const section = heading.closest('.ant-space-vertical');
+    if (!(section instanceof HTMLElement)) throw new Error('expected the What it cost section');
+    const rowOf = (step: string): HTMLElement => {
+      const label = within(section).getByText(step);
+      const row = label.parentElement;
+      if (!(row instanceof HTMLElement)) throw new Error(`expected the ${step} row`);
+      return row;
+    };
+
+    // Each mark beside the numbers of the step that answered it, as a score of the reading rather
+    // than a fourth measurement of the document (docs/11 §11.5).
+    expect(rowOf(enMessages.viewer.steps.analysis).textContent).toContain('20/100');
+    expect(rowOf(enMessages.viewer.steps.analysis).textContent).toContain('95/100');
+    expect(rowOf(enMessages.viewer.steps.fields).textContent).toContain('78/100');
+    // 🔒 And nothing out of a hundred where the step answered nothing: a missing mark is not a zero.
+    expect(rowOf(enMessages.viewer.steps.markdown).textContent).not.toContain('/100');
   });
 
   // The tabs are the one strip of chrome the document's own column spends, and the document's name

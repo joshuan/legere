@@ -1214,6 +1214,87 @@ describe('HandleDocumentProcess', () => {
       expect(stateOf().auto.textQuality).toBe('NONE');
     });
 
+    it('keeps the marks each step gave its own work, on the document and in the journal', async () => {
+      documentTypes.add('receipt');
+      analyst.slug = 'receipt';
+      analyst.answer = {
+        ...analyst.answer,
+        textQuality: 'PARTIAL',
+        legibility: 20,
+        extraction: 95,
+      };
+      analyst.fieldValues = { vendor: 'Voli' };
+      analyst.fieldConfidence = 78;
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      // Both steps write into one key, and neither erases the other's half (docs/03 §3.3.10).
+      expect(stateOf().auto.quality).toEqual({ legibility: 20, extraction: 95, confidence: 78 });
+      // The ternary survives beside the number it refines: the Text tab still acts on the word.
+      expect(stateOf().auto.textQuality).toBe('PARTIAL');
+
+      // And on the entry that settles each step, beside what that step cost — so the journal keeps
+      // what *that* run thought of itself (docs/03 §3.3.18).
+      const finished = events.events.filter((event) => event.type === 'STEP_FINISHED');
+      const analysis = finished.find((event) => event.payload?.step === 'analysis');
+      const fields = finished.find((event) => event.payload?.step === 'fields');
+      expect(analysis?.payload).toMatchObject({ legibility: 20, extraction: 95 });
+      expect(analysis?.payload?.confidence).toBeUndefined();
+      expect(fields?.payload).toMatchObject({ confidence: 78 });
+      expect(fields?.payload?.durationMs).toBeTypeOf('number');
+    });
+
+    it('writes no mark at all where the model answered none, because a missing mark is not a zero', async () => {
+      documentTypes.add('receipt');
+      analyst.slug = 'receipt';
+      analyst.fieldValues = { vendor: 'Voli' };
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      // 🔒 An older provider, or a call shown no pages, is a silence — and a silence recorded as a
+      // nought would be the worst reading this product ever made of itself (docs/03 §3.3.18).
+      expect(stateOf().auto.quality).toEqual({});
+      const finished = events.events.filter((event) => event.type === 'STEP_FINISHED');
+      for (const step of ['analysis', 'fields']) {
+        const payload = finished.find((event) => event.payload?.step === step)?.payload;
+        expect(payload?.legibility).toBeUndefined();
+        expect(payload?.extraction).toBeUndefined();
+        expect(payload?.confidence).toBeUndefined();
+      }
+    });
+
+    it('leaves the mark of the other step standing when only one of them runs again', async () => {
+      documentTypes.add('receipt');
+      analyst.slug = 'receipt';
+      analyst.answer = { ...analyst.answer, legibility: 20, extraction: 95 };
+      analyst.fieldValues = { vendor: 'Voli' };
+      analyst.fieldConfidence = 78;
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      await run();
+
+      // The analysis alone, answering differently this time.
+      analyst.answer = { ...analyst.answer, legibility: 55, extraction: 60 };
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['analysis'] });
+
+      // `autoValues` merges a key at a time, and `quality` is the one key two steps write into: a
+      // step that replaced it with its own half would take the other's away (docs/03 §3.3.10).
+      expect(stateOf().auto.quality).toEqual({ legibility: 55, extraction: 60, confidence: 78 });
+    });
+
+    it('clamps a mark an implementation of the port answered outside the range', async () => {
+      analyst.answer = { ...analyst.answer, legibility: 140, extraction: -3 };
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      // The adapter clamps what a provider sends; this is the pipeline refusing to store a mark
+      // out of range whatever hands it one, since an unreadable `autoValues` costs the document
+      // everything else the pipeline read about it (docs/03 §3.3.10).
+      expect(stateOf().auto.quality).toEqual({ legibility: 100, extraction: 0 });
+    });
+
     it('records no documentType when the model answers with a slug nobody defined', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       // 🔒 A hallucinated documentType must not become a real one (docs/05 §5.5 step 4).
@@ -1282,6 +1363,8 @@ describe('HandleDocumentProcess', () => {
         date: null,
         subjects: [],
         textQuality: null,
+        legibility: null,
+        extraction: null,
       };
 
       await run();
@@ -1309,6 +1392,8 @@ describe('HandleDocumentProcess', () => {
         date: null,
         subjects: [],
         textQuality: null,
+        legibility: null,
+        extraction: null,
       };
 
       await run();
@@ -1341,6 +1426,8 @@ describe('HandleDocumentProcess', () => {
           { kind: 'Apartment', name: 'njegoševa 5, AP. 12' },
         ],
         textQuality: null,
+        legibility: null,
+        extraction: null,
       };
 
       await run();
@@ -1363,6 +1450,8 @@ describe('HandleDocumentProcess', () => {
         date: '2026-07-25',
         subjects: [],
         textQuality: null,
+        legibility: null,
+        extraction: null,
       };
 
       await run();
@@ -1391,6 +1480,8 @@ describe('HandleDocumentProcess', () => {
         date: null,
         subjects: [],
         textQuality: null,
+        legibility: null,
+        extraction: null,
       };
 
       await run();
@@ -1421,6 +1512,8 @@ describe('HandleDocumentProcess', () => {
         date: null,
         subjects: [],
         textQuality: null,
+        legibility: null,
+        extraction: null,
       };
 
       await run();

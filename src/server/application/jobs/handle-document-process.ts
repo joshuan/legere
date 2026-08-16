@@ -9,8 +9,12 @@ import {
 } from '../../../shared/contracts/document-fields';
 import {
   DOCUMENT_STEPS,
+  QUALITY_MARKS,
   documentStepSchema,
+  qualityMarkOf,
+  type DocumentQuality,
   type DocumentStep,
+  type QualityMark,
 } from '../../../shared/contracts/documents';
 import {
   clearsRecordedFailure,
@@ -665,9 +669,16 @@ export class HandleDocumentProcess extends JobHandler {
       // actually exists, or the document simply has none (docs/05 §5.5 step 4).
       const chosen =
         documentTypes.find((documentType) => documentType.slug === analysis.typeSlug) ?? null;
+      // What this run thought of its own reading, in the two places it belongs: the journal, where
+      // it stays attached to the run that said it, and the document, where the newest answer is
+      // (docs/03 §3.3.10, §3.3.18). Nothing below branches on either of them.
+      const marks = markUpdate({
+        legibility: analysis.legibility,
+        extraction: analysis.extraction,
+      });
       await this.write(document.id, {
         steps: { analysis: 'DONE' },
-        metrics: { ...(analysis.usage ?? {}) },
+        metrics: { ...(analysis.usage ?? {}), ...marks },
         // 🔒 A documentType a person chose is never overwritten by a machine (docs/03 §3.3.10) —
         // said here, at the write, rather than by skipping the whole step: the document was
         // analysed, the model was told the type it has, and what it would have chosen is kept in
@@ -692,6 +703,9 @@ export class HandleDocumentProcess extends JobHandler {
           // Kept beside what the machine read, because it is a judgement about exactly that: how
           // much of the document the stored text actually is (docs/05 §5.5 step 4).
           ...(analysis.textQuality === null ? {} : { textQuality: analysis.textQuality }),
+          // The same judgement counted, beside the fields step's own mark — one key written by two
+          // steps, so this one carries the other's across (docs/03 §3.3.10).
+          quality: qualityOf(document.auto.quality, ['confidence'], marks),
         },
       });
     } catch (error) {
@@ -832,16 +846,23 @@ export class HandleDocumentProcess extends JobHandler {
         sources,
       };
 
+      // How sure this step is of the whole reading above (docs/05 §5.5 step 5) — recorded and
+      // nothing more: no field is dropped because of it and nothing is asked for again.
+      const marks = markUpdate({ confidence: answer.confidence });
       await this.write(document.id, {
         steps: { fields: 'DONE' },
-        metrics: { ...(answer.usage ?? {}) },
+        metrics: { ...(answer.usage ?? {}), ...marks },
         extracted,
         // The projection the FTS column reads, rewritten with the answer it projects
         // (docs/04 §4.3).
         extractedSearchText: extractedSearchTextOf(schema, values),
         // The model's whole reading, applied or not — what "read as X" and the per-field reset are
         // drawn from (docs/03 §3.3.10a).
-        auto: { fields: read },
+        auto: {
+          fields: read,
+          // The analysis's two marks stay where they are; this step writes only its own.
+          quality: qualityOf(document.auto.quality, ['legibility', 'extraction'], marks),
+        },
       });
     } catch (error) {
       await this.recordFailure(document.id, 'fields', error);
@@ -1000,6 +1021,38 @@ function confirmedFields(extracted: ExtractedFields | null): Record<string, unkn
     if (value !== undefined) fields[key] = value;
   }
   return fields;
+}
+
+// What a step answered about its own work, as the journal and `autoValues` both take it: a mark
+// that came back is a key, and a mark that did not is no key at all. 🔒 A missing mark is not a
+// zero — it means that step does not answer that question (docs/03 §3.3.18) — so `null` is dropped
+// here rather than written down as nought.
+function markUpdate(answered: Partial<Record<QualityMark, number | null>>): DocumentQuality {
+  const marks: DocumentQuality = {};
+  for (const key of QUALITY_MARKS) {
+    // Read through the same rule the adapter reads a provider's answer with, so what is stored is
+    // in range whatever any implementation of the port hands over (docs/03 §3.3.10).
+    const mark = qualityMarkOf(answered[key] ?? null);
+    if (mark !== null) marks[key] = mark;
+  }
+  return marks;
+}
+
+// The one `autoValues` key two steps write into (docs/03 §3.3.10). The column merges a key at a
+// time, so a step rewriting `quality` would replace the other step's marks with nothing at all —
+// it carries theirs across by name and writes only its own, which is what makes an analysis run on
+// its own leave the fields step's confidence standing, and the other way round.
+function qualityOf(
+  recorded: DocumentQuality | undefined,
+  kept: readonly (keyof DocumentQuality)[],
+  mine: DocumentQuality,
+): DocumentQuality {
+  const quality: DocumentQuality = {};
+  for (const key of kept) {
+    const mark = recorded?.[key];
+    if (mark !== undefined) quality[key] = mark;
+  }
+  return { ...quality, ...mine };
 }
 
 // Which slug a document's type answers to, among the types that are still in the catalogue.

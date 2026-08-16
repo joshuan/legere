@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { z } from 'zod';
 import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helpers/outbound';
+import type { DocumentFieldSchema } from '../../../shared/contracts/document-fields';
 import type { DocumentTypeOption, KnownSubject } from '../../application/ports/document-analyst';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { loadConfig } from '../config/app-config';
@@ -69,6 +70,13 @@ function nonceOf(user: string): string {
   if (nonce === undefined) throw new Error('expected a fenced document');
   return nonce;
 }
+
+// One schema, for the questions that are about the fields step rather than about a schema.
+const RECEIPT_SCHEMA: DocumentFieldSchema = {
+  typeSlug: 'receipt',
+  version: 1,
+  fields: [{ key: 'vendor', kind: 'string', hint: 'The shop.', searchable: true }],
+};
 
 const KNOWN: KnownSubject[] = [
   { kind: 'apartment', name: 'Njegoševa 5', note: 'ap. 12, cadastral 1234, landlady Marija' },
@@ -427,6 +435,8 @@ describe('OpenAiCompatAnalyst', () => {
         date: null,
         subjects: [],
         textQuality: null,
+        legibility: null,
+        extraction: null,
         usage: {},
       });
       expect(spy).toHaveBeenCalledTimes(1);
@@ -452,6 +462,8 @@ describe('OpenAiCompatAnalyst', () => {
         country: 'ME',
         city: 'Podgorica',
         textQuality: null,
+        legibility: null,
+        extraction: null,
         usage: {},
       });
     });
@@ -525,6 +537,119 @@ describe('OpenAiCompatAnalyst', () => {
       expect(result.country).toBeNull();
       // Models say "unknown" where the prompt asked for null.
       expect(result.city).toBeNull();
+    });
+  });
+
+  // The two marks the analysis gives its own work, and the one the fields step gives its own
+  // (docs/05 §5.5 steps 4 and 5). Validated here because this is where a provider's answer stops
+  // being a provider's answer.
+  describe('the marks a step gives itself', () => {
+    it('asks for both marks, and teaches the scale so that a number is counted rather than reached for', async () => {
+      const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('{"slug":"invoice"}'));
+
+      await analyst().analyze('text', CATEGORIES);
+
+      const { system } = messagesOf(spy);
+      expect(system).toContain('"legibility": <0-100');
+      expect(system).toContain('"extraction": <0-100');
+      // Anchored at both ends, so the answer is a measurement and not a courtesy.
+      expect(system).toContain('100 is a clean scan');
+      expect(system).toContain('0 an empty text over a page full of writing');
+      // 🔒 And told what the number is for: nothing is re-run because of it (docs/05 §5.5 step 4).
+      expect(system).toContain('nothing is re-run because of them');
+    });
+
+    it('keeps a mark that is in range, and rounds one answered too finely', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        answers('{"legibility":20,"extraction":94.6}'),
+      );
+
+      const result = await analyst().analyze('text', CATEGORIES);
+
+      // A photograph nobody could read whose few legible lines all reached the database: two marks
+      // saying two different things about one document (docs/05 §5.5 step 4).
+      expect(result.legibility).toBe(20);
+      expect(result.extraction).toBe(95);
+    });
+
+    it('clamps a mark that came back outside the range', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        answers('{"legibility":120,"extraction":-40}'),
+      );
+
+      // 120 is a model saying "as good as it gets", not "unreadable": clamped rather than refused.
+      const result = await analyst().analyze('text', CATEGORIES);
+
+      expect(result.legibility).toBe(100);
+      expect(result.extraction).toBe(0);
+    });
+
+    it('drops a mark that is absent, and one that is not a number', async () => {
+      for (const answer of [
+        '{"slug":"invoice"}',
+        '{"legibility":"high","extraction":null}',
+        '{"legibility":"","extraction":{"score":80}}',
+        '{"legibility":true,"extraction":["90"]}',
+      ]) {
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers(answer));
+        const result = await analyst().analyze('text', CATEGORIES);
+
+        // 🔒 A missing mark is not a zero — it means that step does not answer that question
+        // (docs/03 §3.3.18). An older provider simply says nothing, and nothing is what is stored.
+        expect(result.legibility).toBeNull();
+        expect(result.extraction).toBeNull();
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('takes a mark quoted as a string, since that is how providers write JSON numbers', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('{"legibility":" 87 "}'));
+
+      expect((await analyst().analyze('text', CATEGORIES)).legibility).toBe(87);
+    });
+
+    it('loses only the mark when it comes back as prose, never the answer around it', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        answers('{"slug":"invoice","country":"ME","legibility":"very good"}'),
+      );
+
+      const result = await analyst().analyze('text', CATEGORIES);
+
+      // Each field stands or falls on its own here as everywhere else in this answer.
+      expect(result.typeSlug).toBe('invoice');
+      expect(result.country).toBe('ME');
+      expect(result.legibility).toBeNull();
+    });
+
+    it('asks the fields step how sure it is, and keeps that off the fields themselves', async () => {
+      const spy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(answers('{"vendor":"Voli","confidence":78}'));
+
+      const answer = await analyst().extractFields(RECEIPT_SCHEMA, 'Voli d.o.o. 12,40 EUR');
+
+      expect(messagesOf(spy).system).toContain('under the key "confidence"');
+      expect(answer.confidence).toBe(78);
+      // 🔒 The mark is the step's opinion of itself and never one of the paper's own values: it is
+      // taken out before the answer is handed on (docs/05 §5.5 step 5).
+      expect(answer.values).toEqual({ vendor: 'Voli' });
+    });
+
+    it('clamps and drops the fields mark by the same rule as the other two', async () => {
+      for (const [answered, expected] of [
+        ['{"vendor":"Voli","confidence":41}', 41],
+        ['{"vendor":"Voli","confidence":900}', 100],
+        ['{"vendor":"Voli","confidence":"fairly sure"}', null],
+        ['{"vendor":"Voli"}', null],
+        ['not JSON at all', null],
+      ] as const) {
+        vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers(answered));
+
+        const answer = await analyst().extractFields(RECEIPT_SCHEMA, 'text');
+
+        expect(answer.confidence).toBe(expected);
+        vi.restoreAllMocks();
+      }
     });
   });
 

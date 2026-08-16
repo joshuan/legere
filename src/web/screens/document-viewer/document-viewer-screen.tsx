@@ -48,6 +48,7 @@ import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import {
   DOCUMENT_STEPS,
+  QUALITY_MARKS,
   type DocumentDetailDto,
   type DocumentEventDto,
   type DocumentFileDto,
@@ -965,6 +966,17 @@ function TextPane({
   // The verdict the analysis returned about this very text (docs/03 §3.3.10). It was written down
   // and read by nobody, which made it a fact the archive knew and never said.
   const quality = document.auto.textQuality;
+  // And the same judgement counted, where the analysis gave one: "some of this document was not
+  // read" is a different sentence at 81 out of 100 than at 12, and the reader weighing up the
+  // re-read is who that difference is for. 🔒 It decides nothing about whether the warning appears
+  // — the three-word verdict above does that, as it always did (docs/11 §11.5).
+  const extraction = document.auto.quality?.extraction;
+  const verdict =
+    quality === null || quality === undefined
+      ? ''
+      : extraction === undefined
+        ? t(`viewer.textQuality.${quality}`)
+        : `${t(`viewer.textQuality.${quality}`)} — ${t('viewer.textQuality.mark', { value: extraction })}`;
 
   if (loading) return <Spin />;
 
@@ -978,7 +990,7 @@ function TextPane({
         <Alert
           type="warning"
           showIcon
-          message={t(`viewer.textQuality.${quality}`)}
+          message={verdict}
           description={t('viewer.textQuality.explained')}
           {...(isAdmin
             ? {
@@ -2892,6 +2904,13 @@ function stepCost(event: DocumentEventDto, t: ReturnType<typeof useTranslations>
         completion: payload.completionTokens ?? 0,
       }),
     );
+  }
+  // What the step made of its own work, last of the row and out of a hundred, so a mark reads as a
+  // score of the reading rather than as a fourth measurement of the document (docs/11 §11.5).
+  // 🔒 Drawn and nothing more: nothing on this screen acts on one.
+  for (const mark of QUALITY_MARKS) {
+    const value = payload[mark];
+    if (value !== undefined) parts.push(t(`viewer.log.cost.${mark}`, { value }));
   }
   return parts;
 }

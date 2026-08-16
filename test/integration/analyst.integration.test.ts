@@ -49,5 +49,14 @@ describe.runIf(configured)('OpenAiCompatAnalyst against a live model', () => {
     for (const tag of analysis.languages) expect(tag).toMatch(/^[a-z]{2,3}(-[A-Z][a-z]{3})?/);
     if (analysis.country !== null) expect(analysis.country).toMatch(/^[A-Z]{2}$/);
     if (analysis.city !== null) expect(analysis.city.length).toBeLessThanOrEqual(100);
+    // A mark is a whole number in range or nothing at all, whatever this model chose to answer —
+    // and nothing at all is the right answer here, since it was shown no pages (docs/05 §5.5
+    // step 4). The contract again, not the number.
+    for (const mark of [analysis.legibility, analysis.extraction]) {
+      if (mark === null) continue;
+      expect(Number.isInteger(mark)).toBe(true);
+      expect(mark).toBeGreaterThanOrEqual(0);
+      expect(mark).toBeLessThanOrEqual(100);
+    }
   }, 180_000);
 });

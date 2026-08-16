@@ -236,7 +236,7 @@ one; the canonical is rebuildable from them at any moment, so it is an artifact 
 | extractedSearchText | text? | the searchable extracted values, flattened for the FTS column (04 §4.3). Derived from `extracted` and rewritten whenever it is — never edited on its own |
 | processingError | string? | last error message (truncated to 2000 chars) |
 | skipReasons | json | why a step is `SKIPPED`, per step — see below; empty for steps that ran |
-| autoValues | json | what the pipeline decided — `{title?, description?, typeSlug?, languages?, country?, city?, date?, people?, subjects?, textQuality?, fields?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction. `fields` is the last full answer of the `fields` step (§3.3.10a), values only. `textQuality` is the odd one out: not a value the reader may correct but a judgement *about* the text — `GOOD`, `PARTIAL` or `NONE`, answered by the analysis because it is the only step that sees both the pages and what was read off them (`05 §5.5` step 4), and said where the text is read (`11 §11.5`) |
+| autoValues | json | what the pipeline decided — `{title?, description?, typeSlug?, languages?, country?, city?, date?, people?, subjects?, textQuality?, quality?, fields?}` — kept beside the fields a person may correct, so the viewer can show "read as X" next to a hand-set Y. Merged per step, never erased by a correction. `fields` is the last full answer of the `fields` step (§3.3.10a), values only. `textQuality` is the odd one out: not a value the reader may correct but a judgement *about* the text — `GOOD`, `PARTIAL` or `NONE`, answered by the analysis because it is the only step that sees both the pages and what was read off them (`05 §5.5` step 4), and said where the text is read (`11 §11.5`). `quality` is the same kind of thing counted rather than named — see below |
 | documentDate | date? | the date written on the document — signed, issued, departing. A date, not a timestamp: a signing has no clock, and midnight in some zone would invent a precision the paper does not have. Read by the analysis, editable |
 | languages | string[] | BCP-47 tags of what the document is written in, most likely first — `['ru']`, `['ru','sr-Latn']`. Detected from the extracted text, editable; empty when there was too little text to tell |
 | country | string? | ISO 3166-1 alpha-2 of where the document belongs — the issuer's country, the place of an event |
@@ -305,6 +305,24 @@ configured, because the evidence is rarely literal: a Montenegrin train ticket s
 `Podgorica`, never "Montenegro", and the operator's full name lives in the logo, which is a picture.
 Without a provider both stay empty until somebody fills them in; both are editable either way, and a
 value a person set is never overwritten (the rule that already governs the document type).
+
+**How well each reading went.** `autoValues.quality` is what the pipeline thought of its own work on
+this document, as three marks from 0 to 100 — `{legibility?, extraction?, confidence?}`. The analysis
+answers the first two, because it is the step that sees both the pages and what was read off them:
+**legibility** is how readable the pages themselves are, **extraction** how faithfully the stored
+text carries what they visibly say (`05 §5.5` step 4). The `fields` step answers **confidence**, once
+over its whole reading (step 5). All three are the machine's own account of itself rather than
+anything read off the paper, which is why they are in `autoValues` and not among the columns a person
+may correct: there is nothing here to correct, only something to be told. The key is written by two
+steps and merged one mark at a time, like everything else in this column — an analysis that runs
+alone leaves the `fields` step's mark standing, and vice versa.
+🔒 **A missing mark is not a zero.** Absent means the step did not answer that question — an older
+provider, a call shown no pages, an answer that came back as a word — and the viewer draws nothing
+where there is nothing, rather than a nought nobody's work earned.
+🔒 **And a mark gates nothing.** It is an opinion about an output, held by the thing that produced
+it; no re-run, no failure and no threshold anywhere reads one (`05 §5.5` step 4). The same marks are
+written onto the step's `STEP_FINISHED` entry beside what it cost (§3.3.18), so the journal keeps
+what each run thought of itself and a later run cannot quietly rewrite the record of an earlier one.
 
 **A step may be `FAILED` without owning the failure.** The pipeline is a chain: the preview and the
 extraction read the canonical PDF, and the analysis and the vectorization read the extracted text
@@ -701,7 +719,7 @@ somebody corrected it, and who corrected it.
 | documentId | uuid | cascade on physical delete; a soft-deleted document keeps its log (ADR-015) |
 | type | DocumentEventType | `CREATED`, `FILE_ATTACHED`, `FILE_MISSING`, `QUEUED`, `STEP_STARTED`, `STEP_FINISHED`, `META_CHANGED`, `LINKED`, `UNLINKED` |
 | actorId | uuid? | who did it; **null is the pipeline acting on its own** |
-| payload | json | what the entry needs to be readable: `step`, `status`, `reason`, `error`, `steps`, `source`, `path`, `changes` (field → `{from, to}`), for a link: `otherDocumentId` and `otherTitle` (a record, not a live reference — the other side may be gone by the time this is read), and for a step: `service`, `endpoint`, `requestId`, and what it cost — `durationMs`, `chars`, `pages`, `ocrUsed`, `promptTokens`, `completionTokens` |
+| payload | json | what the entry needs to be readable: `step`, `status`, `reason`, `error`, `steps`, `source`, `path`, `changes` (field → `{from, to}`), for a link: `otherDocumentId` and `otherTitle` (a record, not a live reference — the other side may be gone by the time this is read), and for a step: `service`, `endpoint`, `requestId`, what it cost — `durationMs`, `chars`, `pages`, `ocrUsed`, `promptTokens`, `completionTokens` — and what it made of its own work: `legibility` and `extraction` on the analysis, `confidence` on the fields (§3.3.10) |
 | at | timestamptz | |
 
 **What it cost.** The entry that *settles* a step says how long it took (`durationMs`) — the pair of
@@ -712,6 +730,13 @@ accounting because only it knows what its tokenizer did). A step in progress rep
 has spent nothing yet. A missing number is not a zero — it means that step does not answer that
 question. "It took four minutes" and "it returned nothing" are the two halves of one question, and
 until this the log answered neither.
+
+**And what it made of its own work.** The same entry carries the step's marks out of 0 to 100 —
+`legibility` and `extraction` on the analysis, `confidence` on the fields (§3.3.10) — beside the
+numbers above and under exactly the same rule, because they are the same kind of thing: an answer a
+step gave about one run of itself. A step re-run three times has three entries, each keeping what
+*that* run thought, which is what makes "it got worse when we changed the model" a question the
+archive can answer about itself. They are recorded and nothing reads them to decide anything.
 
 **Which service did it.** A step that talks to a container records which one (`service`), where it
 lives (`endpoint`) and the id it was asked under (`requestId`). The id is generated per step and

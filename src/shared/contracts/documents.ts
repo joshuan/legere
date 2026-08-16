@@ -202,6 +202,50 @@ const isoDateSchema = z
     return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
   }, 'Not a calendar date');
 
+// A mark the pipeline gave its own work, out of a hundred (docs/03 §3.3.10). Whole numbers: the
+// difference between 87 and 87.4 is not something a model knows about a page it has just read.
+export const QUALITY_MARK_MIN = 0;
+export const QUALITY_MARK_MAX = 100;
+const qualityMarkSchema = z.number().int().min(QUALITY_MARK_MIN).max(QUALITY_MARK_MAX);
+
+// What each reading step thought of itself (docs/03 §3.3.10, docs/05 §5.5 steps 4 and 5).
+// `legibility` — how readable the pages themselves are; `extraction` — how faithfully the stored
+// text carries what they say, which is `textQuality` counted rather than named; `confidence` — how
+// sure the `fields` step is of its whole reading.
+//
+// 🔒 Every one of them is absent rather than nought where the step did not answer: a missing mark is
+// not a zero (docs/03 §3.3.18). And nothing anywhere branches on one — they are recorded, drawn, and
+// read by people.
+export const documentQualitySchema = z.object({
+  legibility: qualityMarkSchema.optional(),
+  extraction: qualityMarkSchema.optional(),
+  confidence: qualityMarkSchema.optional(),
+});
+export type DocumentQuality = z.infer<typeof documentQualitySchema>;
+
+// The marks by name, in the order a reader meets them: what the pages were like, what was made of
+// them, and how sure the last step is. Written once so the pipeline, the journal and the screen all
+// walk the same three.
+export const QUALITY_MARKS = ['legibility', 'extraction', 'confidence'] as const;
+export type QualityMark = (typeof QUALITY_MARKS)[number];
+
+// One answer read as a mark, wherever it came from. Clamped rather than refused — a model that
+// answers 120 has said "as good as it gets", not "unreadable" — and rounded, because a page is not
+// read to a tenth of a percent. Anything that is not a number at all is `null`, and 🔒 null is not
+// nought: a missing mark means that step does not answer that question (docs/03 §3.3.18). A string
+// of digits counts, since providers quote numbers in JSON often enough that refusing "87" would
+// throw away a real answer over its punctuation.
+export function qualityMarkOf(value: unknown): number | null {
+  const answered =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim() !== ''
+        ? Number(value.trim())
+        : Number.NaN;
+  if (!Number.isFinite(answered)) return null;
+  return Math.min(QUALITY_MARK_MAX, Math.max(QUALITY_MARK_MIN, Math.round(answered)));
+}
+
 export const autoValuesSchema = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
@@ -217,6 +261,8 @@ export const autoValuesSchema = z.object({
   // How well the stored text represents the document, judged by the analyst against the pages it was
   // shown (docs/05 §5.5 step 4). Absent when it was shown none, and so had nothing to compare.
   textQuality: z.enum(['GOOD', 'PARTIAL', 'NONE']).nullish(),
+  // The same judgement counted rather than named, and the fields step's own (docs/03 §3.3.10).
+  quality: documentQualitySchema.optional(),
   // The last full answer of the `fields` step, values only (docs/03 §3.3.10a) — what "read as X"
   // and the per-field reset are drawn from.
   fields: z.record(z.unknown()).optional(),
@@ -520,6 +566,12 @@ export const documentEventDtoSchema = z.object({
     // Whether the text of this step was read off the pages by a vision model rather than recognised
     // (docs/05 §5.5 step 3).
     transcribed: z.boolean().optional(),
+    // What the step made of its own work, out of a hundred (docs/03 §3.3.18): the analysis answers
+    // how readable the pages were and how much of them the text carries, the fields step how sure
+    // it is of its reading. Absent is "it did not say", exactly like the numbers above.
+    legibility: z.number().optional(),
+    extraction: z.number().optional(),
+    confidence: z.number().optional(),
     source: z.string().optional(),
     library: z.string().optional(),
     path: z.string().optional(),

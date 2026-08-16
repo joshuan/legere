@@ -1016,7 +1016,10 @@
         "chars": "{value} characters",
         "ocr": "recognised",
         "tokens": "{prompt}+{completion} tokens",
-        "transcribed": "Read by a model"
+        "transcribed": "Read by a model",
+        "legibility": "legibility {value}/100",
+        "extraction": "extraction {value}/100",
+        "confidence": "confidence {value}/100"
       },
       "linked": "Linked with “{title}”",
       "unlinked": "Unlinked from “{title}”"
@@ -1074,6 +1077,7 @@
       "PARTIAL": "Some of this document was not read",
       "NONE": "None of this document was read",
       "explained": "The model that looked at the pages says the text below is not what is on them. A photograph lit from one side, or a table pressed against its rules, is read badly by a recogniser and well by a model that can see.",
+      "mark": "extraction {value}/100",
       "readAgain": "Read the pages again"
     },
     "links": {

@@ -6,6 +6,7 @@ import type {
   DocumentFieldSchema,
   DocumentFieldSpec,
 } from '../../../shared/contracts/document-fields';
+import { qualityMarkOf } from '../../../shared/contracts/documents';
 import { readBoundedJson, readBoundedText } from '../../application/ports/binary-source';
 import {
   DocumentAnalyst,
@@ -48,6 +49,10 @@ const answerSchema = z.object({
   date: z.string().nullish(),
   subjects: z.array(z.object({ kind: z.string(), name: z.string() })).optional(),
   textQuality: z.string().nullish(),
+  // Left unknown on purpose: the marks are validated in `qualityMarkOf`, so a model that answers
+  // "high" — or an object, or a list — loses its own mark and not the country beside it.
+  legibility: z.unknown(),
+  extraction: z.unknown(),
 });
 
 const SYSTEM_PROMPT = [
@@ -61,7 +66,9 @@ const SYSTEM_PROMPT = [
   '"people": ["<the people this document is about, as it names them>"],',
   '"date": "<the date written on the document, yyyy-mm-dd, or null>",',
   '"subjects": [{"kind": "<apartment, car, country, company…>", "name": "<which one>"}],',
-  '"textQuality": "<GOOD, PARTIAL or NONE — only when you are shown the pages>"}.',
+  '"textQuality": "<GOOD, PARTIAL or NONE — only when you are shown the pages>",',
+  '"legibility": <0-100, only when you are shown the pages>,',
+  '"extraction": <0-100, only when you are shown the pages>}.',
   'Never invent a slug that is not on the list.',
   'When the pages of the document are shown to you as pictures, compare them with the text you were',
   'given and answer textQuality: GOOD when the text is what the pages say, PARTIAL when parts of it',
@@ -69,6 +76,22 @@ const SYSTEM_PROMPT = [
   'not the document: a blank page whose text is empty is GOOD. Shown no pictures, omit the field —',
   'and read the pictures for everything else too, because a page nobody could recognise is still a',
   'page you can read.',
+  'Then say the same thing as two numbers out of 100, which answer two different questions.',
+  'legibility is about the pictures alone: how much of what is written on those pages a careful',
+  'person could make out at all. 100 is a clean scan; 70 a phone photograph of a flat sheet in good',
+  'light; 40 a page where glare, blur, a fold or a shadow costs whole lines; 10 a page you can tell',
+  'is a page and little else.',
+  'extraction is about the text you were given, measured against those same pages: what share of',
+  'what is visibly written there actually reached it, in the right order and with the figures',
+  'intact. 100 is all of it; 60 a page whose table arrived as a run of prose with numbers missing;',
+  '20 a heading and nothing under it; 0 an empty text over a page full of writing.',
+  'Look for what is missing before you answer, and then answer the number you found. These two are',
+  'a record of how well this archive is being read: they change nothing about this document, nothing',
+  'is re-run because of them, and nobody is judging you by them — a flattering number is not a',
+  'kindness, it is a wrong measurement, and 100 is for a page where you looked for a loss and found',
+  'none. Judge the pictures and the text you were actually given and never the document itself: a',
+  'page that is genuinely blank, whose text is empty, is 100 for extraction. Shown no pictures, omit',
+  'both numbers — there is nothing to compare, and a guess is worse than a silence.',
   'The title names this document the way its owner would: what it is, and which one — "Rental',
   'agreement, Njegoševa 12", "Electricity bill, March 2026". Write it in the language of the',
   'document, in one line, without the file name and without quotes. Null if the text says too little',
@@ -103,6 +126,11 @@ const SYSTEM_PROMPT = [
 
 // Deterministic answers: the same document must not land in a different documentType on a reprocess.
 const TEMPERATURE = 0;
+
+// 🔒 The key the fields step's own mark is answered under, reserved against every schema there is
+// or will be (docs/05 §5.5 step 5): it is taken out of the answer before the values are handed on,
+// so a field of a paper could never be read as the machine's opinion of its own reading.
+const CONFIDENCE_KEY = 'confidence';
 
 // "ru", "sr-Latn", "pt-BR" — a language subtag, optionally a script, optionally a region. Anything
 // else the model invents ("russian", "cyrillic") is dropped rather than stored.
@@ -208,7 +236,7 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
         { role: 'system', content: fieldsSystemMessage(schema, nonce, confirmed) },
         { role: 'user', content: documentMessageContent(excerpt, pages, nonce, confirmed) },
       ]);
-      return { values: readFieldValues(answer.content), usage: answer.usage };
+      return { ...readFieldAnswer(answer.content), usage: answer.usage };
     });
   }
 
@@ -401,6 +429,19 @@ function fieldsSystemMessage(
       'You read one document and fill exactly the fields listed below, as one JSON object, nothing',
       'else. Answer null for a field the document does not state — never invent a value, never',
       'guess. Copy values as the document writes them.',
+      // The mark the step gives its own reading (docs/05 §5.5 step 5). Asked for beside the fields
+      // because it is about all of them at once, and anchored so that it is counted rather than
+      // reached for: a reflexive 90 on every document says nothing at all.
+      `Beside them, and under the key "${CONFIDENCE_KEY}", add one number from 0 to 100: how sure`,
+      'you are of this whole reading. Count against yourself first — a field you could not find, a',
+      'figure you read through glare, a row of a table you had to reconstruct, a name you completed',
+      'from half of it. 100 is a document you read off cleanly with nothing left in doubt; 70 one',
+      'where a value or two were legible but not certain; 40 one where the page fought you and the',
+      'fields you did fill could be wrong; 10 a page you could barely read at all. A field the',
+      'document simply does not state is not a doubt — a receipt with no card number is answered',
+      'null and read perfectly. This number is a record of how well this archive is being read: it',
+      'changes nothing here, nothing is re-run because of it, and nobody is judging you by it. Leave',
+      'it out entirely rather than guessing at one.',
     ].join(' '),
     `Fields:\n${schema.fields.map(fieldInstruction).join('\n')}`,
     dataChannelNotice(nonce),
@@ -439,10 +480,21 @@ function columnShape(columns: readonly DocumentFieldColumn[]): string {
 // The raw object the model answered with; per-field validation belongs to the caller
 // (docs/03 §3.3.10a). Anything that is not an object is an empty answer, not an error — the caller
 // treats a field that did not parse as a field the model did not read.
-function readFieldValues(content: string): Record<string, unknown> {
+//
+// 🔒 The step's own mark rides in the same object under a reserved key and is taken out of it here,
+// so `values` stays exactly the schema-shaped answer: no field of any schema is called
+// `confidence`, and none may be, or a paper's own value would be read as the machine's opinion of
+// itself (docs/05 §5.5 step 5).
+function readFieldAnswer(content: string): {
+  values: Record<string, unknown>;
+  confidence: number | null;
+} {
   const parsed = safeJson(extractJson(content));
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
-  return Object.fromEntries(Object.entries(parsed));
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { values: {}, confidence: null };
+  }
+  const { [CONFIDENCE_KEY]: mark, ...values } = Object.fromEntries(Object.entries(parsed));
+  return { values, confidence: qualityMarkOf(mark) };
 }
 
 // 🔒 Said in as many words, because a model has no other way to tell the two apart: the next message
@@ -576,6 +628,8 @@ function readAnswer(
       date: null,
       subjects: [],
       textQuality: null,
+      legibility: null,
+      extraction: null,
     };
   }
 
@@ -590,6 +644,11 @@ function readAnswer(
     date: pickDate(parsed.data.date),
     subjects: pickSubjects(parsed.data.subjects ?? []),
     textQuality: pickTextQuality(parsed.data.textQuality),
+    // Clamped to the range and dropped where it is not a number at all (docs/05 §5.5 step 4). The
+    // rule lives beside the schema that stores it, so the adapter and the pipeline cannot disagree
+    // about what a mark is.
+    legibility: qualityMarkOf(parsed.data.legibility),
+    extraction: qualityMarkOf(parsed.data.extraction),
   };
 }
 
