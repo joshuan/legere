@@ -230,7 +230,9 @@ jobs:
           exit-code: '1'
 ```
 
-- Image: `ghcr.io/<owner>/legere`, tags `main`, `sha-…`, `vX.Y.Z` (+ `latest` for semver tags).
+- Image: `ghcr.io/<owner>/legere`, tags `main`, `sha-…`, `X.Y.Z` (the semver of the tag, without its
+  `v` — that is what `type=semver,pattern={{version}}` writes) and `latest`, the last two published
+  by the tag's run only: a push to `main` tags the branch and leaves `latest` where it was.
 - `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is a **build-arg** (baked into the client bundle at `next build`);
   empty secret → CAPTCHA widget absent, server verification no-op — a working degradation.
 
@@ -261,10 +263,22 @@ What the command does, in order (`scripts/release.mjs`):
 3. **Writes the version commit and the tag as one move** — `npm version`, which bumps `package.json`
    (+ lockfile), commits `chore(release): X.Y.Z` and lays the annotated tag `vX.Y.Z` on that very
    commit — then pushes both in one `git push --follow-tags`.
-4. **CI does the rest** (§13.3): the tag starts `release.yml`, the multi-platform image is published
-   as `vX.Y.Z`/`latest`, and the `publish` job creates the GitHub Release from the tag, its notes
-   assembled from the commit subjects since the previous tag. The person who ran the command is done
-   at step 3; the release page appears when the image it names can be pulled.
+4. **Follows the release build to its end** (§13.3): the tag starts `release.yml`, the
+   multi-platform image is published as `X.Y.Z`/`latest`, and the `publish` job creates the GitHub
+   Release from the tag, its notes assembled from the commit subjects since the previous tag. The
+   command watches that run rather than sending the person to `gh run list`: the one push carries
+   the version commit **and** the tag, so GitHub starts two runs on the same SHA, and only the tag's
+   moves `latest` — it is the one whose `head_branch` is `vX.Y.Z`, and the one followed here. Same
+   rewriting line, now counting jobs (`3/5 jobs`), up to 2 minutes for the run to appear and 45 for
+   it to finish: two native builds and, on a busy day, a queue in front of them.
+5. **Ends where "released" means something: `latest` in the registry.** The command asks GHCR itself
+   what `latest` and `X.Y.Z` resolve to — an anonymous pull token and a `HEAD` on the manifest, the
+   image being public — and finishes only when both are the one digest, which it prints. A red run
+   is a refusal naming the jobs that failed, and it says in the line above whether `latest` moved
+   anyway, because that is the difference between a failed `build` (no image) and a failed `scan`
+   (the image is out and carries a fixable CVE). 🔒 **The push in step 3 is the point of no return**
+   — everything after it only watches, so Ctrl-C costs the report, not the release, and a wait that
+   outlives its limit says exactly that.
 
 Why this is atomic where the old way was not: the tag points at the version commit **by
 construction** (one `npm version` invocation), they travel in one push, and the Release is derived
@@ -291,7 +305,7 @@ setup defines.
 - [ ] `ci.yml`: typecheck/lint/test/build against pgvector Postgres; no real external credentials.
 - [ ] `release.yml`: one image to GHCR with meaningful tags; public `NEXT_PUBLIC_*` via build-args.
 - [ ] Releases cut by `npm run release` only (§13.3a); the GitHub Release is published by CI from
-      the tag, never by hand.
+      the tag, never by hand; the command returns when `latest` points at the image it just cut.
 - [ ] Secrets only in GitHub Secrets; `deploy/` ships a compose file and a `.env.example` of
       placeholders, never a real secret ([`12 §12.7`](./12-build-config-run.md)).
 - [ ] Branch protection active before the first feature PR.

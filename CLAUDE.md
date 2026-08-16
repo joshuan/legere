@@ -38,7 +38,10 @@ yourself in the style of its neighbours, edit `schema.prisma` to match, and appl
 
 A release is `npm run release` and nothing else: it gates on the CI run that already passed for the
 pushed `HEAD` — do **not** re-run the suite locally to "verify before releasing", and do not create
-tags or GitHub Releases by hand (CI publishes the Release from the tag with generated notes).
+tags or GitHub Releases by hand (CI publishes the Release from the tag with generated notes). The
+command then stays at the console until the release is actually out: it returns when
+`ghcr.io/<owner>/legere:latest` resolves to the image this tag built (tens of minutes at worst). The
+push is the point of no return — Ctrl-C after it loses the report, not the release.
 
 ## Golden rules
 

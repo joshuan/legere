@@ -909,3 +909,22 @@ feels broken* — and never applied to the routes themselves.
   **Goal:** a click in the archive lands on the document's screen at once, and the document arrives into it.
   **Docs:** [`10 §10.2`](../10-frontend-architecture.md#102-routing-map), [`11 §11.1`](../11-ui-ux-spec.md#111-shell--navigation), [`11 §11.14`](../11-ui-ux-spec.md#1114-cross-cutting-ui-rules), [`08`](../08-auth-and-authorization.md)
   **Acceptance:** the signed-in user is fetched **once per request** — `currentUser` is memoized for the render pass, so the `(app)` layout, the `admin` layout and anything else asking in the same pass share one answer instead of queueing loopback calls; the layout **provides the user to the client tree** it already renders, and every page of `(app)` stops calling `currentUser` for `isAdmin` and becomes a **synchronous** server component — `documents`, `documents/:id`, `documents/:id/:tab`, `collections/:id`, `people`, `subjects`, `subject-kinds`, `document-types` — so the segment has nothing to await and the navigation commits on the press; the screens read the role from that context rather than from a prop handed down by a page that no longer knows it; 🔒 **the `admin` segment's guard stays on the server** — it is authorization, it answers `404` as `08` says, and it does not move into the client because a role read in the browser is a role a browser can lie about; it is merely no longer a second round trip, being a cache hit off the layout's own call; a `loading.tsx` covers the authenticated area as a genuine safety net for a segment that does suspend, drawn as the screen's own skeleton rather than a spinner (`11` opening paragraph), and 🔒 **it must not fire on a viewer tab switch** — `router.replace` between `/documents/:id/preview` and `/documents/:id/text` would otherwise blank the screen it is standing on, which is the very defect this task removes, one level down; localized ru/en with the keys in English; tests cover a page rendering without awaiting anything, the role reaching a screen through the provider, the admin guard still answering `404` to a non-admin, and one `/api/me` per navigation where there were two.
+
+---
+
+## M32 — A release is over when the image is out
+
+`npm run release` waits for the check that lets it cut the release and then stops waiting for
+anything: it pushes the tag, prints where to watch, and hands back a prompt while the thing a
+release is *for* — the image every deployment pulls — has not been built yet. So the person who ran
+one command runs a second one, `gh run list --workflow Release`, and then a third, until `latest`
+finally moves; and the failure that matters most — a red release build, an image that never got
+published — is the one the command never sees, because it stopped looking one minute in.
+
+The end of a release is not "the tag is pushed". It is `latest` in the registry resolving to the
+image this tag built, and that is the line the command should be allowed to print.
+
+- [x] **M32.1 — The release command waits for `latest`**
+  **Goal:** one command from a green `main` to a pullable image, with nothing to watch afterwards.
+  **Docs:** [`13 §13.3`](../13-ci-cd.md#133-githubworkflowsreleaseyml), [`13 §13.3a`](../13-ci-cd.md#133a-releasing)
+  **Acceptance:** after the push, `scripts/release.mjs` follows `release.yml` to its end and finishes on the registry — it picks **the tag's run** out of the two the one push starts (`head_branch === vX.Y.Z`; `main`'s run tags the branch and never moves `latest`), reports it on the same rewriting line as the CI wait now counting jobs (`3/5 jobs`), waits 2 minutes for the run to appear and 45 for it to finish, then asks GHCR what `X.Y.Z` and `latest` resolve to — an anonymous pull token and a `HEAD` on the manifest, no docker and no extra token scope — and prints the digest only when the two agree; a red run refuses with the failing job names **and** the line saying whether `latest` moved anyway, which is what separates a failed `build` from a failed `scan`; 🔒 **the push stays the point of no return** — everything after it only watches, so a timeout and a Ctrl-C both say the tag is out and CI carries on without the command; `13 §13.3`'s tag list is corrected to what `metadata-action` actually publishes (`X.Y.Z`, not `vX.Y.Z`).
