@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { ungatedServices } from '../../application/queue/queue-settings';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { loadConfig } from '../config/app-config';
 import { AsyncLocalCallContext } from '../logging/async-call-context';
@@ -318,5 +319,69 @@ describe('StirlingPdfToolbox', () => {
     await toolbox('http://stirling:8080/').pdfPageCount(Buffer.from('%PDF-'));
 
     expect(sentRequest(spy).url).toBe('http://stirling:8080/api/v1/analysis/page-count');
+  });
+
+  // 🔒 Every call to the container is one unit at the `stirling` gate (docs/05 §5.4b) — every
+  // method, not most of them. A new method that builds its request by hand and forgets the gate
+  // would leave an operator's "at most one OCR at a time" quietly meaning nothing, and the only
+  // place that shows is the container's own load. The gate itself is tested in service-gate.test.ts;
+  // what is tested here is that this client goes through it.
+  it('lets no two calls overlap while the gate admits one, whichever methods they are', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      inFlight -= 1;
+      return Response.json({ pageCount: 3 });
+    });
+
+    const gates = new ServiceGates();
+    gates.configure({ ...ungatedServices(), stirling: { concurrency: 1, cooldownSeconds: 0 } });
+    const pdfs = toolbox('http://stirling:8080', gates);
+    const bytes = (): Buffer => Buffer.from('%PDF-');
+
+    // Two documents' worth of work at once, which is what a `document-process` concurrency of two
+    // produces, across the whole surface of the client.
+    await Promise.all([
+      pdfs.pdfPageCount(bytes()),
+      pdfs.pdfPageJpg(bytes()),
+      pdfs.ocrPdf(bytes(), ['eng']),
+      pdfs.pdfToMarkdown(bytes()),
+      pdfs.toPdf({ body: bytes(), fileName: 'a.docx' }),
+      pdfs.imagesToPdf([{ body: bytes(), fileName: 'a.jpg' }]),
+      pdfs.mergePdfs([bytes(), bytes()]),
+      pdfs.rearrangePages(bytes(), [1, 0]),
+      pdfs.scalePages(bytes(), { pageSize: 'A4', orientation: 'PORTRAIT' }),
+      pdfs.stampMetadata(bytes(), { title: 'Invoice', date: null }),
+    ]);
+
+    expect(peak).toBe(1);
+  });
+
+  // The other half of the same question, so the check above cannot pass by measuring nothing.
+  it('lets the width of the gate through: two at once when two are allowed', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      inFlight -= 1;
+      return pdfResponse();
+    });
+
+    const gates = new ServiceGates();
+    gates.configure({ ...ungatedServices(), stirling: { concurrency: 2, cooldownSeconds: 0 } });
+    const pdfs = toolbox('http://stirling:8080', gates);
+
+    await Promise.all([
+      pdfs.pdfPageJpg(Buffer.from('%PDF-')),
+      pdfs.pdfPageJpg(Buffer.from('%PDF-')),
+      pdfs.pdfPageJpg(Buffer.from('%PDF-')),
+    ]);
+
+    expect(peak).toBe(2);
   });
 });
