@@ -1002,29 +1002,63 @@ saved filters are built on the list.
 
 ## 11.13. Admin: Queue (`/admin/queue`)
 
-**One block per stage**, and everything about that stage inside it: how deep its queue is, how hard
-it is allowed to work, and — for the stage that has them — the steps it runs. Grouped this way round
-because every question asked of this screen is about one stage: "why is nothing happening in
-document-process" is answered by its depth, its concurrency and its steps together, and those used to
-sit in three bands at three ends of the page.
+**Four tabs, because four different questions are asked of this screen** — and one page holding all
+four answered none of them at a glance. It held five stage cards, a table of steps inside one of them,
+a block of external services, a table of failures and a storage figure, in one column a metre long:
+everything was there, and finding any of it meant scrolling past the rest.
 
-- **Queue depth**: queued / active / recently failed, beside the concurrency that decides how fast
-  the depth falls. `document-process` also carries the units-per-job knob and the language the
-  analysis writes in, because that is the stage that writes those words.
-- **Pipeline counters**, inside the `document-process` block, as a **table**: one row per step, one
-  column per status, so the same word lands in the same place on every line and "which steps are
-  still queued" is answered by reading down a column instead of hunting across five rows of chips.
-  Empty cells are the price and they are worth it — a gap under a column says "none of these" at a
-  glance, which a missing chip cannot. A zero is not drawn: an archive where nothing failed should
-  not read as a wall of noughts. The steps are named **exactly as the document's own page names them** (`§11.5`): one
-  screen calling a step "Тип" while the other calls it "Анализ" is two names for one thing, and the
-  reader is left to work out that they are the same. Statuses are shown as the words the filters use,
-  not as the enum. **Every number is a link**: it goes to
-  `/documents?step=preview&stepStatus=FAILED` — the documents behind it. A counter nobody can act on
-  is a number on a wall; the point of "12 failed previews" is the twelve documents.
+| Tab | The question it answers | What is on it |
+|---|---|---|
+| **Overview** | is anything moving? | one row per stage, and what the bucket holds |
+| **Pipeline** | where are the documents stuck? | the six steps of `05 §5.5`, their counters and their switches |
+| **Services** | is the thing we call answering, and how hard are we asking? | one row per external service |
+| **Failures** | what broke, and can it be run again? | the failed-jobs table |
+
+The open tab is **part of the address** (`/admin/queue/:tab`, `overview` at the bare path), the way the
+viewer's tabs are (`§11.5`): a link to this screen can be a link to the failures. And, for the same
+reason as there, **the tab switches on the click** rather than after the navigation.
+
+**Every control lives beside the numbers it governs**, which is the rule the one-page version was
+built on and the tabs keep — one level down each: a stage's concurrency and its pause on the stage's
+own row in **Overview**, a step's pause on the step's own row in **Pipeline**, a service's gate on the
+service's row in **Services**. Nothing has to be looked for in another tab to be understood.
+
+🔒 **The auto-refresh switch is not called a pause.** It sits in the header, applies to whichever tab
+is open, and reads *Refresh automatically* — because this screen already has two pauses that stop real
+work (a queue's and a step's), and a third one that merely stops the numbers from moving was the
+difference between reading this page and misreading it.
+
+### Overview
+
+- **A summary line** across the top: what is *not* in order, in one sentence — queues paused, steps
+  held, failures in the last day, a service that did not answer — each naming the tab that deals with
+  it. When everything is in order it says so in as many words, because the absence of a warning is
+  otherwise indistinguishable from a page that has not finished loading.
+- **One row per stage** rather than a card per stage: the stage **named twice** (what it does, over
+  what the queue calls it — the technical name is what the failures table and the container's logs
+  say), one line saying what it actually does, its depth as **queued / active / failed in 24 h**, the
+  **concurrency** that decides how fast the depth falls, and the switch that says whether the stage
+  runs at all. A paused stage is tagged as paused on its own row, so a growing queue is never mistaken
+  for a stuck one. A zero failure count is not drawn as a zero.
+- **What the bucket holds**, as of the last `maintenance` run, and `null` until the first one.
+
+### Pipeline
+
+Everything about the inside of `document-process`, which is the only stage that has an inside.
+
+- **The six steps as a table**: one row per step, one column per status, so the same word lands in the
+  same place on every line and "which steps are still queued" is answered by reading down a column
+  instead of hunting across five rows of chips. Empty cells are the price and they are worth it — a
+  gap under a column says "none of these" at a glance, which a missing chip cannot. A zero is not
+  drawn: an archive where nothing failed should not read as a wall of noughts. The steps are named
+  **exactly as the document's own page names them** (`§11.5`): one screen calling a step "Тип" while
+  the other calls it "Анализ" is two names for one thing, and the reader is left to work out that they
+  are the same. Statuses are shown as the words the filters use, not as the enum. **Every number is a
+  link**: it goes to `/documents?step=preview&stepStatus=FAILED` — the documents behind it. A counter
+  nobody can act on is a number on a wall; the point of "12 failed previews" is the twelve documents.
 - **Run again, at three widths**, and each is a different question rather than a bigger version of
   the last: beside a **status**, the documents whose step sits in it; beside a **step**, that step
-  for every document whatever state it is in; and at the top of the block, the **whole pipeline** of
+  for every document whatever state it is in; and at the top of the tab, the **whole pipeline** of
   every document. 🔒 Every status carries it, not only the two that look broken — a step is re-run
   because something *about it* changed, a container gained a language, a model was configured, a bug
   was fixed, and by then the documents that need redoing are precisely the ones marked `DONE`.
@@ -1035,64 +1069,63 @@ sit in three bands at three ends of the page.
   row and pushed the counts off the card, and what it does is said on hover and to a screen reader,
   where a repeated label belongs (`§11.15`). A **paused** step offers none of them: a re-run of it is
   refused (`07 §7.3`), and an icon that answers `409` is worse than an icon that is not there.
-- **Pause and resume one step**, on the step's own row of that table, because the step is the thing
-  being stopped and the row is where it is already named. The same switch as a stage's, read the same
-  way — **on means the step runs** — so the two paused things on this page read alike, and the row of
-  a paused step is tagged as paused beside its counts, the way a paused queue is tagged beside its
-  depth. It is the knob for the trouble an operator actually has: an analyst answering nonsense, a
-  Docling container thrashing. Pausing the stage instead would stop the previews and the vectors to
-  stop the analysis, and every document would wait on a step that was never the problem.
-  A paused step is **held, not skipped** (`05 §5.4d`): the documents queue up at it, nothing is
-  written against it, and resuming sets them going again — which the switch says in a line under it,
-  since "paused" alone leaves a reader to guess whether the work was dropped. It takes effect on the
-  next document with no restart and no re-registered worker.
-- **Every stage is named twice**: what it does, in the reader's language, over what it is called in
-  the queue — the technical name stays because it is what the failed-jobs table and the container's
-  own logs say, but it is not what somebody comes to this page to read. Under the name, one line
-  saying what the stage actually does, for a reader who has never opened `05 §5.5`.
-- **Pause and resume.** Each stage carries a switch, and it is labelled: a switch alone in a corner
-  is a switch nobody can read, and "what does this checkbox do" is a question a screen should never
-  make somebody ask (`§11.14`). It reads as what it is — **on means the stage runs** — because a
-  control you turn *on* to stop something is a double negative. Paused, it keeps taking jobs and runs none of
-  them: the depth grows where an admin can see it, and nothing is lost. It is the honest way to stop
-  one misbehaving step — OCR thrashing, a model answering nonsense — without stopping the instance.
-  A paused queue is labelled as paused everywhere its depth is shown, so a growing queue is never
-  mistaken for a stuck one.
-- **Throughput settings** live in the block of the stage they govern rather than in one row of
-  inputs: how many run at once, and for `document-process` how many units inside one job do. Changes
-  take effect without a restart and survive one (`05 §5.4`); the save is offered only once something
-  differs from what the server holds.
-- **External services**, one block of its own below the stages, because a service is not a stage and
-  putting its gate inside one would hide it from the other: Stirling renders pages for
-  `document-process` and converts an upload for `file-ingest`, and there is one container being
-  asked. One row per service — Stirling, Docling, the analyst, the transcriber, the embeddings —
-  **named twice** the way the stages are, what it is over what it is called in the settings, with a
-  line under it saying which work it serves, for a reader who has never opened `05 §5.4b`. Two inputs
-  each: **how many calls it may be doing at once**, where `0` reads as "as many as the queues ask
-  for", and **how long to wait after one before starting the next**. Both are `0` until somebody
-  changes them, so a block of zeroes is an instance whose services are not gated at all — which is
-  what an upgrade leaves and what the page should say plainly rather than looking misconfigured.
-  Saving works the way the throughput settings above do: offered only once something differs from
-  what the server holds, and in force without a restart. Waiting at a gate is time inside the job
-  (`05 §5.4b`), so a service throttled to a trickle reads as slow jobs on this same page, which is
-  the honest place for it to read as anything.
-- **Where each service is, and whether it answers** (`05 §5.4c`), on the same row as its gate,
-  because "why is nothing happening" is asked of the block that also says how hard the thing is being
-  asked. The **address** sits under the line saying what the service does, as code and truncated
-  rather than wrapped — it is read to be recognised, not transcribed — and where none is configured
-  it says so in words instead of drawing an empty box. The **state** is a tag in its own column, one
-  of the five of `05 §5.4c`, coloured for what it costs: `UP` green, `UNAUTHORIZED` and `ANSWERED`
-  amber because something is there and something is wrong with it, `DOWN` red, `NOT_CONFIGURED` grey
-  — a service this instance was never given is not a fault, and must not read as one. What the tag
-  cannot hold — the HTTP code, how long the probe took, when it was taken, the reason — is on hover,
-  where a detail belongs (`§11.14`). The block carries **one Check button** for all five and says
-  when it last looked; it checks on opening and then only when asked or when the page's own
-  auto-refresh is running, at a **slower cadence than the queue counters**, since a probe leaves the
-  instance and a counter does not. 🔒 It never blocks the block it lives in: gates and their inputs
-  draw and save while every probe is still out, because a page that waits for a dead container to
-  time out is the page an operator cannot use at exactly the moment they need it.
-- **Failed jobs** table: queue, payload summary, error, when, retry count, and a per-row Retry.
-- **Storage usage** as of the last maintenance run.
+- **Pause and resume one step**, on the step's own row, because the step is the thing being stopped
+  and the row is where it is already named. The same switch as a stage's, read the same way — **on
+  means the step runs** — so the two paused things on this screen read alike, and the row of a paused
+  step is tagged as paused beside its counts. It is the knob for the trouble an operator actually has:
+  an analyst answering nonsense, a Docling container thrashing. Pausing the stage instead would stop
+  the previews and the vectors to stop the analysis, and every document would wait on a step that was
+  never the problem. A paused step is **held, not skipped** (`05 §5.4d`): the documents queue up at
+  it, nothing is written against it, and resuming sets them going again — which the switch says in a
+  line under it, since "paused" alone leaves a reader to guess whether the work was dropped. It takes
+  effect on the next document with no restart and no re-registered worker.
+- 🔒 **A step that is waiting for its service says so**, on its own row: *waiting for Stirling: 2*,
+  read from the gate's own counters (`05 §5.4b`). Without it the table is honestly unreadable at the
+  one moment it matters — two documents both show `RUNNING` at the same step while one of them is
+  standing at a gate, because waiting at a gate is time inside the job and the step is marked
+  `RUNNING` before the wait begins. That reads exactly like a gate that does nothing, and it cost an
+  operator an afternoon of looking for a bug that was not there.
+- **How many units inside one job** run at once, and **the language the analysis writes in**: both
+  belong to this tab because both are about what happens inside one document's run.
+
+### Services
+
+One row per external service of `05 §5.4b` — Stirling, Docling, the analyst, the transcriber, the
+embeddings — **named twice** the way the stages are, what it is over what it is called in the
+settings, with a line under it saying which work it serves, for a reader who has never opened
+`05 §5.4b`.
+
+- **Where it is, and whether it answers** (`05 §5.4c`). The **address** sits under the line saying
+  what the service does, as code and truncated rather than wrapped — it is read to be recognised, not
+  transcribed — and where none is configured it says so in words instead of drawing an empty box. The
+  **state** is a tag, one of the five of `05 §5.4c`, coloured for what it costs: `UP` green,
+  `UNAUTHORIZED` and `ANSWERED` amber because something is there and something is wrong with it,
+  `DOWN` red, `NOT_CONFIGURED` grey — a service this instance was never given is not a fault, and must
+  not read as one. What the tag cannot hold — the HTTP code, how long the probe took, when it was
+  taken, the reason — is on hover, where a detail belongs (`§11.14`). One **Check** button for all
+  five, saying when it last looked; it checks on opening and then only when asked or when the page's
+  own auto-refresh is running, at a **slower cadence than the counters**, since a probe leaves the
+  instance and a counter does not. 🔒 It never blocks the rest of the row: gates and their inputs draw
+  and save while every probe is still out, because a page that waits for a dead container to time out
+  is the page an operator cannot use at exactly the moment they need it.
+- **How hard it may be asked**: two inputs — **how many calls it may be doing at once**, where `0`
+  reads as "as many as the queues ask for", and **how long to wait after one before starting the
+  next**. Both are `0` until somebody changes them, so a block of zeroes is an instance whose services
+  are not gated at all — which is what an upgrade leaves and what the page should say plainly rather
+  than looking misconfigured. Saving is offered only once something differs from what the server
+  holds, and takes effect without a restart.
+- 🔒 **What the gate is doing right now**, beside the numbers that decide it: **in flight**, **waiting**
+  and **how long the one at the front has been waiting** (`05 §5.4b`). This is the answer to "is the
+  gate even working", and it is the number an operator reaches for when the queue looks stuck: a gate
+  with one call in flight and three waiting is a throttle doing its job, and the same row with three
+  in flight is a setting that never took. It is live, in-process and stored nowhere — a snapshot of
+  this instant, refreshed with the counters rather than with the probes.
+
+### Failures
+
+The failed-jobs table: queue, payload summary, error, when, retry count, and a per-row **Retry**. The
+tab's own label carries how many there are, so a failure is visible from the other three tabs without
+opening this one.
 
 ## 11.13a. Admin: Instance (`/admin/instance`)
 

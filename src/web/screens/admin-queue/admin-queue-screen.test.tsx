@@ -8,6 +8,12 @@ import { createApiMock, envelope, errorEnvelope } from '../../../../test/helpers
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { AdminQueueScreen } from './admin-queue-screen';
 
+// The screen puts the open tab in the address (docs/11 §11.13), so it needs a router.
+const replace = vi.fn();
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace }),
+}));
+
 const JOB_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
 
 const overview = {
@@ -126,6 +132,10 @@ beforeEach(() => {
     http.get('/api/admin/queue/services', () =>
       HttpResponse.json(envelope({ services: servicesHealth })),
     ),
+    // Every tab reads these two: the switches and the knobs come from the settings, and the summary
+    // line is a reading of them. A test that cares about a particular answer overrides them.
+    http.get('/api/admin/queue/settings', () => HttpResponse.json(envelope(settings))),
+    http.get('/api/admin/queue/analysis', () => HttpResponse.json(envelope({ language: '' }))),
   );
 });
 afterEach(() => {
@@ -135,20 +145,25 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('AdminQueueScreen', () => {
-  it('shows a card per queue with its depths', async () => {
+  it('shows one row per stage with its depths, quiet stages included', async () => {
     renderWithProviders(<AdminQueueScreen />);
 
-    // One block per stage, including the quiet ones — five blocks, five "failed" figures.
-    await waitFor(() =>
-      expect(screen.getAllByText(enMessages.admin.queue.failedRecent)).toHaveLength(5),
-    );
+    // One row per stage rather than a card per stage: five stages read as five lines, and each
+    // column heading is written once (docs/11 §11.13).
+    expect(await screen.findByText(enMessages.admin.queue.failedRecent)).toBeInTheDocument();
+    const ingest = screen.getByText('file-ingest').closest('tr');
+    if (!(ingest instanceof HTMLElement)) throw new Error('expected the file-ingest row');
+    expect(within(ingest).getByText('3')).toBeInTheDocument();
     expect(screen.getAllByText('document-process').length).toBeGreaterThan(0);
-    expect(screen.getByText('file-ingest')).toBeInTheDocument();
     expect(screen.getByText('maintenance')).toBeInTheDocument();
+    // A stage with nothing wrong prints no zero in the failures column.
+    const scan = screen.getByText('library-scan').closest('tr');
+    if (!(scan instanceof HTMLElement)) throw new Error('expected the library-scan row');
+    expect(within(scan).queryByText('4')).not.toBeInTheDocument();
   });
 
   it('shows where the documents stand in the pipeline', async () => {
-    renderWithProviders(<AdminQueueScreen />);
+    renderWithProviders(<AdminQueueScreen tab="pipeline" />);
 
     expect(await screen.findByText(enMessages.admin.queue.pipeline.title)).toBeInTheDocument();
     // The card is on screen before its data is; wait for the figure itself.
@@ -192,7 +207,7 @@ describe('AdminQueueScreen', () => {
   });
 
   it('lists a failure with its payload and retry count', async () => {
-    renderWithProviders(<AdminQueueScreen />);
+    renderWithProviders(<AdminQueueScreen tab="failures" />);
 
     const payload = await screen.findByText(/documentId=bbbbbbbb/);
     const row = payload.closest('tr');
@@ -202,7 +217,7 @@ describe('AdminQueueScreen', () => {
   });
 
   it('keeps the error out of the row until it is asked for', async () => {
-    renderWithProviders(<AdminQueueScreen />);
+    renderWithProviders(<AdminQueueScreen tab="failures" />);
     await screen.findByText(/documentId=bbbbbbbb/);
 
     // A wall of text does not belong in a table cell (docs/11 §11.13).
@@ -222,7 +237,7 @@ describe('AdminQueueScreen', () => {
       }),
     );
 
-    renderWithProviders(<AdminQueueScreen />);
+    renderWithProviders(<AdminQueueScreen tab="failures" />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.admin.queue.actions.retry }),
     );
@@ -238,7 +253,7 @@ describe('AdminQueueScreen', () => {
       ),
     );
 
-    renderWithProviders(<AdminQueueScreen />);
+    renderWithProviders(<AdminQueueScreen tab="failures" />);
     await userEvent.click(
       await screen.findByRole('button', { name: enMessages.admin.queue.actions.retry }),
     );
@@ -258,14 +273,18 @@ describe('AdminQueueScreen', () => {
     expect(screen.getByText(enMessages.admin.queue.hints['document-process'])).toBeInTheDocument();
   });
 
-  it('says what the switch in the corner does, in words', async () => {
+  it('says what the switch on a stage row does, in words', async () => {
     renderWithProviders(<AdminQueueScreen />);
 
     // 🔒 A switch with nothing beside it is a switch nobody can read, and "what does this checkbox
-    // do" is a question the screen should never make somebody ask (docs/11 §11.14).
-    await waitFor(() =>
-      expect(screen.getAllByText(enMessages.admin.queue.pause.title).length).toBe(5),
-    );
+    // do" is a question the screen should never make somebody ask (docs/11 §11.14). The column is
+    // headed once and every row's switch says which stage it belongs to.
+    expect(await screen.findByText(enMessages.admin.queue.pause.title)).toBeInTheDocument();
+    expect(
+      screen.getByRole('switch', {
+        name: enMessages.admin.queue.pause.switch.replace('{queue}', 'document-process'),
+      }),
+    ).toBeInTheDocument();
   });
 
   it('runs a whole step, and the whole pipeline, without naming a status', async () => {
@@ -277,7 +296,7 @@ describe('AdminQueueScreen', () => {
       }),
     );
 
-    renderWithProviders(<AdminQueueScreen />);
+    renderWithProviders(<AdminQueueScreen tab="pipeline" />);
     const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('tr');
     if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step row');
 
@@ -296,7 +315,7 @@ describe('AdminQueueScreen', () => {
   });
 
   it('makes every counter a way to the documents behind it', async () => {
-    renderWithProviders(<AdminQueueScreen />);
+    renderWithProviders(<AdminQueueScreen tab="pipeline" />);
 
     const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('tr');
     if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step row');
@@ -322,7 +341,7 @@ describe('AdminQueueScreen', () => {
       }),
     );
 
-    renderWithProviders(<AdminQueueScreen />);
+    renderWithProviders(<AdminQueueScreen tab="pipeline" />);
     const preview = (await screen.findByText(enMessages.viewer.steps.preview)).closest('tr');
     if (!(preview instanceof HTMLElement)) throw new Error('expected the preview step row');
 
@@ -399,7 +418,7 @@ describe('AdminQueueScreen', () => {
         }),
       );
 
-      renderWithProviders(<AdminQueueScreen />);
+      renderWithProviders(<AdminQueueScreen tab="pipeline" />);
       const analysis = await runSwitch(enMessages.viewer.steps.analysis);
       await waitFor(() => expect(analysis).toBeEnabled());
       await userEvent.click(analysis);
@@ -425,7 +444,7 @@ describe('AdminQueueScreen', () => {
         http.get('/api/admin/queue/analysis', () => HttpResponse.json(envelope({ language: '' }))),
       );
 
-      renderWithProviders(<AdminQueueScreen />);
+      renderWithProviders(<AdminQueueScreen tab="pipeline" />);
 
       const analysis = (await runSwitch(enMessages.viewer.steps.analysis)).closest('tr');
       if (!(analysis instanceof HTMLElement)) throw new Error('expected the analysis row');
@@ -486,7 +505,7 @@ describe('AdminQueueScreen', () => {
     }
 
     it('names every service twice and says which work it serves', async () => {
-      renderWithProviders(<AdminQueueScreen />);
+      renderWithProviders(<AdminQueueScreen tab="services" />);
       const card = await servicesCard();
 
       for (const service of ['stirling', 'docling', 'classifier', 'transcriber', 'embeddings']) {
@@ -511,7 +530,7 @@ describe('AdminQueueScreen', () => {
     });
 
     it('says where each service is, and says so in words where there is no address', async () => {
-      renderWithProviders(<AdminQueueScreen />);
+      renderWithProviders(<AdminQueueScreen tab="services" />);
       const card = await servicesCard();
 
       expect(await within(card).findByText('http://stirling:8080')).toBeInTheDocument();
@@ -526,7 +545,7 @@ describe('AdminQueueScreen', () => {
     });
 
     it('says which services answered and which did not', async () => {
-      renderWithProviders(<AdminQueueScreen />);
+      renderWithProviders(<AdminQueueScreen tab="services" />);
       const card = await servicesCard();
 
       expect(
@@ -559,7 +578,7 @@ describe('AdminQueueScreen', () => {
         }),
       );
 
-      renderWithProviders(<AdminQueueScreen />);
+      renderWithProviders(<AdminQueueScreen tab="services" />);
       const card = await servicesCard();
       await waitFor(() => expect(probes).toBe(1));
 
@@ -582,7 +601,7 @@ describe('AdminQueueScreen', () => {
         http.get('/api/admin/queue/services', () => new Promise<Response>(() => undefined)),
       );
 
-      renderWithProviders(<AdminQueueScreen />);
+      renderWithProviders(<AdminQueueScreen tab="services" />);
       const card = await servicesCard();
 
       const cooldown = within(card).getByRole('spinbutton', {
@@ -598,7 +617,7 @@ describe('AdminQueueScreen', () => {
     });
 
     it('offers the save only once a gate differs, and sends the settings whole', async () => {
-      renderWithProviders(<AdminQueueScreen />);
+      renderWithProviders(<AdminQueueScreen tab="services" />);
       const card = await servicesCard();
       const save = within(card).getByRole('button', { name: enMessages.common.actions.save });
       await waitFor(() => expect(save).toBeDisabled());
@@ -627,7 +646,143 @@ describe('AdminQueueScreen', () => {
 
   // The refresh is a real 5 s interval (docs/11 §11.13), so this waits it out rather than faking
   // timers, which react-query and antd both interact with badly.
-  it('polls while live and stops once paused', { timeout: 30_000 }, async () => {
+  // Four tabs, one question each, and the open one is part of the address (docs/11 §11.13).
+  describe('the tabs', () => {
+    it('draws the tab it is on and none of the others', async () => {
+      renderWithProviders(<AdminQueueScreen />);
+
+      // Overview: the stages and the bucket, and not the step table, the gates or the failures.
+      // Scoped to the open panel, because the tab strip names all four whichever one is open.
+      expect(await screen.findByText(enMessages.admin.queue.stages.title)).toBeInTheDocument();
+      const panel = within(screen.getByRole('tabpanel'));
+      expect(panel.getByText(enMessages.admin.queue.storage.title)).toBeInTheDocument();
+      expect(panel.queryByText(enMessages.admin.queue.pipeline.title)).not.toBeInTheDocument();
+      expect(panel.queryByText(enMessages.admin.queue.services.title)).not.toBeInTheDocument();
+      expect(panel.queryByText(enMessages.admin.queue.failures.title)).not.toBeInTheDocument();
+    });
+
+    it('puts the tab in the address on the press, without waiting for the router', async () => {
+      renderWithProviders(<AdminQueueScreen />);
+      await screen.findByText(enMessages.admin.queue.stages.title);
+
+      await userEvent.click(
+        screen.getByRole('tab', { name: enMessages.admin.queue.tabs.services }),
+      );
+
+      // 🔒 Drawn at once — the press is not waiting on a navigation — and the address follows it.
+      expect(await screen.findByText(enMessages.admin.queue.services.title)).toBeInTheDocument();
+      expect(replace).toHaveBeenCalledWith('/admin/queue/services');
+    });
+
+    it('carries the failure count on the failures tab, from wherever the reader is', async () => {
+      renderWithProviders(<AdminQueueScreen />);
+
+      const failures = await screen.findByRole('tab', {
+        name: new RegExp(enMessages.admin.queue.tabs.failures),
+      });
+      // The four of the fixture, so a failure is visible without opening the tab it lives on. It
+      // arrives with the overview, hence the wait.
+      await waitFor(() => expect(within(failures).getByText('4')).toBeInTheDocument());
+    });
+  });
+
+  // One sentence naming what is not in order, over the rows that answer it (docs/11 §11.13).
+  describe('the summary line', () => {
+    it('names a held step, a silent service and the failures, each linking to its tab', async () => {
+      server.use(
+        http.get('/api/admin/queue/settings', () =>
+          HttpResponse.json(envelope({ ...settings, pausedSteps: ['analysis'] })),
+        ),
+        http.get('/api/admin/queue/analysis', () => HttpResponse.json(envelope({ language: '' }))),
+      );
+
+      renderWithProviders(<AdminQueueScreen />);
+
+      const held = await screen.findByText(
+        enMessages.admin.queue.summary.pausedSteps.replace(
+          '{steps}',
+          enMessages.viewer.steps.analysis,
+        ),
+      );
+      expect(held.closest('a')).toHaveAttribute('href', '/admin/queue/pipeline');
+      // The transcriber is DOWN and the analyst refuses the key in the fixture; Docling is not
+      // configured at all, which is not a fault and must not be named as one (docs/05 §5.4c).
+      const silent = screen.getByText(/Not answering/);
+      expect(silent.closest('a')).toHaveAttribute('href', '/admin/queue/services');
+      expect(silent.textContent).not.toContain(enMessages.admin.queue.services.names.docling);
+      const failed = screen.getByText(
+        enMessages.admin.queue.summary.failures.replace('{count}', '4'),
+      );
+      expect(failed.closest('a')).toHaveAttribute('href', '/admin/queue/failures');
+    });
+
+    it('says so plainly when there is nothing to report', async () => {
+      server.use(
+        http.get('/api/admin/queue/overview', () =>
+          HttpResponse.json(
+            envelope({
+              ...overview,
+              queues: overview.queues.map((queue) => ({ ...queue, failedRecent: 0 })),
+            }),
+          ),
+        ),
+        http.get('/api/admin/queue/services', () =>
+          HttpResponse.json(
+            envelope({
+              services: servicesHealth.map((health) => ({ ...health, status: 'UP' as const })),
+            }),
+          ),
+        ),
+      );
+
+      renderWithProviders(<AdminQueueScreen />);
+
+      // 🔒 An empty strip and a page that has not loaded are the same picture; one of them is worth
+      // worrying about, so the quiet case is stated rather than left blank.
+      expect(await screen.findByText(enMessages.admin.queue.summary.ok)).toBeInTheDocument();
+    });
+  });
+
+  it('saves a stage concurrency from its own row', async () => {
+    let patched: unknown = null;
+    server.use(
+      http.get('/api/admin/queue/settings', () => HttpResponse.json(envelope(settings))),
+      http.get('/api/admin/queue/analysis', () => HttpResponse.json(envelope({ language: '' }))),
+      http.patch('/api/admin/queue/settings', async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(settings));
+      }),
+    );
+
+    renderWithProviders(<AdminQueueScreen />);
+    const input = await screen.findByRole('spinbutton', {
+      name: enMessages.admin.queue.settings.concurrencyFor.replace(
+        '{stage}',
+        enMessages.admin.queue.names['document-process'],
+      ),
+    });
+    // One press of the arrow: 2 → 3. Clearing first would take the field to its floor of 1 on the
+    // way, and the number typed after that would land beside the 1 rather than replacing it.
+    await userEvent.type(input, '{arrowup}');
+
+    const save = screen.getAllByRole('button', { name: enMessages.common.actions.save })[0];
+    if (save === undefined) throw new Error('expected the save button');
+    await waitFor(() => expect(save).toBeEnabled());
+    await userEvent.click(save);
+
+    // Sent whole, gates and pauses included: one knob changing must not reset another (docs/07 §7.3).
+    await waitFor(() =>
+      expect(patched).toEqual({
+        concurrency: { ...settings.concurrency, 'document-process': 3 },
+        unitConcurrency: settings.unitConcurrency,
+        paused: [],
+        pausedSteps: [],
+        services: settings.services,
+      }),
+    );
+  });
+
+  it('refreshes on its own and stops when told to', { timeout: 30_000 }, async () => {
     let calls = 0;
     server.use(
       http.get('/api/admin/queue/overview', () => {
@@ -637,14 +792,15 @@ describe('AdminQueueScreen', () => {
     );
 
     renderWithProviders(<AdminQueueScreen />);
-    await screen.findByText(enMessages.admin.queue.pipeline.title);
+    await screen.findByText(enMessages.admin.queue.stages.title);
     await waitFor(() => expect(calls).toBeGreaterThan(1), { timeout: 15_000 });
 
-    // Pausing is what makes a long error readable while the queue keeps moving.
+    // Stopping the refresh is what makes a long error readable while the queue keeps moving — and it
+    // is not called a pause, because two switches on this screen stop real work (docs/11 §11.13).
     await userEvent.click(screen.getByRole('switch', { name: enMessages.admin.queue.autoRefresh }));
-    const afterPause = calls;
+    const afterStopping = calls;
     await new Promise((resolve) => setTimeout(resolve, 8000));
 
-    expect(calls).toBe(afterPause);
+    expect(calls).toBe(afterStopping);
   });
 });

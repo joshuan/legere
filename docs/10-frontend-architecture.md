@@ -47,7 +47,8 @@ src/app/
 │   └── admin/                       # role-guarded (ADMIN)
 │       ├── libraries/page.tsx  ├── libraries/[id]/page.tsx
 │       ├── users/page.tsx      ├── document types/page.tsx
-│       └── queue/page.tsx
+│       ├── queue/page.tsx      ├── queue/[tab]/page.tsx   # overview | pipeline | services | failures
+│       ├── instance/page.tsx   └── trash/page.tsx
 ├── layout.tsx                       # html/body, AntdRegistry, providers
 ├── error.tsx / global-error.tsx / not-found.tsx
 └── favicon.ico
@@ -72,7 +73,8 @@ round trip; it has not moved.
 
 **The pages of `(app)` are synchronous.** With the role already in the tree none of them is an
 `async` server component any more — `documents`, `documents/:id`, `documents/:id/:tab`,
-`collections/:id`, `people`, `subjects`, `subject-kinds`, `document-types` compose their screen and
+`collections/:id`, `people`, `subjects`, `subject-kinds`, `document-types`, `admin/queue/:tab`
+compose their screen and
 return; a route's parameters are read with React's `use(params)` rather than awaited. This is what
 makes a press feel like a press: the App Router cannot commit a navigation before the segment's
 payload exists, and the payload of a page that fetches something of its own does not exist until that
@@ -92,7 +94,8 @@ and the viewer moves that slot itself: it switches tabs with `router.replace` be
 ([`11 §11.5`](./11-ui-ux-spec.md#115-document-viewer-documentsidtab)). The boundary would be
 re-mounted on every tab press and would blank the document somebody is standing on — the defect this
 section exists to remove, one level down. A test enumerates the boundaries under `src/app` and fails
-when one appears there.
+when one appears there. **The same holds under `admin/queue/[tab]`**, which moves its own slot for the
+same reason and on the same terms ([`11 §11.13`](./11-ui-ux-spec.md)).
 
 **What the `(app)` layout owns besides the sider:** the upload panel (§10.5a) and the **search
 overlay** ([`11 §11.1a`](./11-ui-ux-spec.md#111a-the-search-overlay)) — both for the same reason,

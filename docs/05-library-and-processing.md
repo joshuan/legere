@@ -303,6 +303,22 @@ job that waited, it shows up as a **slow job**, on `/admin/queue`, which is the 
 to show up as anything at all. That is what the knob costs and why it is an operator's rather than a
 default — gating is throughput given away on purpose, and the place it is given away is visible.
 
+**A gate says what it is doing**: how many units are **in flight**, how many are **waiting**, and how
+long the one at the front of the queue has been waiting. Read straight off the semaphore, published in
+the admin overview ([`07 §7.3`](./07-api-specification.md)) and shown on the service's own row and
+against the step that is waiting ([`11 §11.13`](./11-ui-ux-spec.md)). Nothing is stored: it is a
+snapshot of this instant, and a number that would have to be written down to be read is a number that
+would outlive the truth.
+
+🔒 **This exists because the screen was unreadable without it, in the one situation it is for.** The
+`document-process` worker takes a pg-boss batch the size of its concurrency and runs it in parallel, so
+two jobs start together and both mark their step `RUNNING` *before* asking for a slot. With a gate of
+one, both then read `RUNNING` for as long as they alternate — one working, one waiting — which is
+exactly what a gate that does nothing also looks like. There was no way to tell those apart from the
+panel: not on the queue depths, not on the step counters, not in the document's own log, where the wait
+is folded into the step's duration. The gate's own counters are the only honest witness, and an
+operator hunting a throttle that was working all along is the cost of not publishing them.
+
 ## 5.4c. Is the service even there
 
 A gate says how hard a service may be asked. It says nothing about the question an operator actually

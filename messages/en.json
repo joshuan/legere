@@ -464,7 +464,8 @@
       "pipeline": {
         "title": "Documents in the pipeline",
         "total": "{count} documents",
-        "step": "Step"
+        "step": "Step",
+        "howTitle": "How one document is processed"
       },
       "storage": {
         "title": "S3 storage",
@@ -490,7 +491,9 @@
         "analysisLanguage": "The analysis writes in",
         "analysisLanguageAuto": "The language of each document",
         "analysisLanguageHint": "Titles, descriptions and the names invented for people, things and kinds all use this language. Leave it empty and each follows the document it came from.",
-        "concurrency": "At once"
+        "concurrency": "At once",
+        "concurrencyHint": "How many jobs of this stage run at once. Applied without a restart: the workers are registered again with the new number.",
+        "concurrencyFor": "Jobs at once for {stage}"
       },
       "services": {
         "title": "External services",
@@ -549,6 +552,27 @@
         "file-ingest": "Hashes each file, deduplicates it, and makes a document out of it.",
         "document-process": "The five steps below: the canonical PDF, its preview, its text, the analysis, the vectors.",
         "maintenance": "Hourly: expires one-time credentials, sweeps orphaned artifacts, and picks up documents nobody is coming for."
+      },
+      "tabs": {
+        "overview": "Overview",
+        "pipeline": "Pipeline",
+        "services": "Services",
+        "failures": "Failures"
+      },
+      "refresh": {
+        "on": "On",
+        "off": "Off"
+      },
+      "summary": {
+        "ok": "Everything is running: no stage or step is paused, every configured service answered, nothing failed in the last day.",
+        "pausedStages": "Paused stages: {stages}",
+        "pausedSteps": "Paused steps: {steps}",
+        "services": "Not answering: {services}",
+        "failures": "{count} failed in the last 24 h"
+      },
+      "stages": {
+        "title": "Stages",
+        "stage": "Stage"
       }
     },
     "documentTypes": {
