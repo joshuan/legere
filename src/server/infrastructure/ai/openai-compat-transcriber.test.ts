@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ServiceGates } from '../../application/queue/service-gate';
+import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
 import { OpenAiCompatTranscriber } from './openai-compat-transcriber';
 
@@ -11,7 +12,7 @@ const PAGE = { bytes: Buffer.from('page') };
 function transcriberWith(
   answer: unknown,
   status = 200,
-  gates: ServiceGates = new ServiceGates(),
+  gates: ServiceGates = new ServiceGates(new FixedClock()),
 ): OpenAiCompatTranscriber {
   const config = loadConfig({
     DATABASE_URL: 'postgresql://legere:legere@localhost:5432/legere',
@@ -78,7 +79,7 @@ describe('OpenAiCompatTranscriber', () => {
   // One transcription — the whole document in one call — is one unit of the `transcriber` gate
   // (docs/05 §5.4b).
   it('reads a document through the transcriber gate', async () => {
-    const gates = new ServiceGates();
+    const gates = new ServiceGates(new FixedClock());
     const run = vi.spyOn(gates, 'run');
     const transcriber = transcriberWith(completion('# Отчёт'), 200, gates);
 

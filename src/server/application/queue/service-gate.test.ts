@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { QueueSettingsDto } from '../../../shared/contracts/queue';
 import { ServiceGates } from './service-gate';
+import { FixedClock } from '../../../../test/helpers/fakes';
 
 // The per-service gates of docs/05 §5.4b: how many units of one service's work may be in flight, and
 // how long a finished unit's slot stays shut. Everything here is either microtask-deterministic or
 // driven by fake timers — a test that sleeps for a cooldown is a test that waits ten minutes.
 
 function gatesFor(services: QueueSettingsDto['services']): ServiceGates {
-  const gates = new ServiceGates();
+  const gates = new ServiceGates(new FixedClock());
   gates.configure(services);
   return gates;
 }
@@ -131,7 +132,7 @@ describe('ServiceGates', () => {
   });
 
   it('is ungated until something configures it', async () => {
-    const gates = new ServiceGates();
+    const gates = new ServiceGates(new FixedClock());
     const started: string[] = [];
     const hold = deferred();
 
@@ -225,7 +226,7 @@ describe('ServiceGates', () => {
   });
 
   it('leaves a service this version does not gate to run ungated', async () => {
-    const gates = new ServiceGates();
+    const gates = new ServiceGates(new FixedClock());
     // A name a later version stored, or a typo: it configures nothing and gates nothing.
     gates.configure({ ocr: { concurrency: 1, cooldownSeconds: 60 } });
     const started: string[] = [];
@@ -242,5 +243,93 @@ describe('ServiceGates', () => {
     expect(started).toEqual(['a', 'b']);
     hold.resolve();
     await Promise.all(calls);
+  });
+
+  // 🔒 The only honest witness to a working gate: a step waiting at one reads as RUNNING exactly like
+  // a step doing the work, so these three numbers are what an operator has (docs/05 §5.4b).
+  describe('what a gate says it is doing', () => {
+    it('counts the one in flight, the ones waiting, and how long the front has waited', async () => {
+      const clock = new FixedClock();
+      const gates = new ServiceGates(clock);
+      gates.configure({ stirling: { concurrency: 1, cooldownSeconds: 0 } });
+      const hold = deferred();
+
+      const calls = ['a', 'b', 'c'].map(() => gates.run('stirling', () => hold.promise));
+      await flush();
+      clock.advance(4_000);
+
+      const stirling = gates.snapshot().find((row) => row.service === 'stirling');
+      expect(stirling).toEqual({
+        service: 'stirling',
+        inFlight: 1,
+        waiting: 2,
+        // The one at the front has stood there for the whole four seconds; the one behind it arrived
+        // in the same millisecond, and it is the front that is reported.
+        longestWaitMs: 4_000,
+        gated: true,
+      });
+
+      hold.resolve();
+      await Promise.all(calls);
+      // Everything through, nothing left standing.
+      expect(gates.snapshot().find((row) => row.service === 'stirling')).toEqual({
+        service: 'stirling',
+        inFlight: 0,
+        waiting: 0,
+        longestWaitMs: 0,
+        gated: true,
+      });
+    });
+
+    it('falls back as slots come free rather than only at the end', async () => {
+      const clock = new FixedClock();
+      const gates = new ServiceGates(clock);
+      gates.configure({ stirling: { concurrency: 1, cooldownSeconds: 0 } });
+      const holds: Record<string, Deferred> = { a: deferred(), b: deferred() };
+
+      const calls = ['a', 'b'].map((name) =>
+        gates.run('stirling', () => holds[name]?.promise ?? Promise.resolve()),
+      );
+      await flush();
+      expect(gates.snapshot().find((row) => row.service === 'stirling')).toMatchObject({
+        inFlight: 1,
+        waiting: 1,
+      });
+
+      holds.a?.resolve();
+      await flush();
+      expect(gates.snapshot().find((row) => row.service === 'stirling')).toMatchObject({
+        inFlight: 1,
+        waiting: 0,
+      });
+
+      holds.b?.resolve();
+      await Promise.all(calls);
+    });
+
+    it('says an ungated service is ungated rather than reporting three zeroes', () => {
+      const gates = new ServiceGates(new FixedClock());
+      gates.configure({ stirling: { concurrency: 1, cooldownSeconds: 0 } });
+
+      const snapshot = gates.snapshot();
+      // Every service, in the order they are named, so the panel draws one row each (docs/07 §7.3).
+      expect(snapshot.map((row) => row.service)).toEqual([
+        'stirling',
+        'docling',
+        'classifier',
+        'transcriber',
+        'embeddings',
+      ]);
+      expect(snapshot.find((row) => row.service === 'stirling')?.gated).toBe(true);
+      // 🔒 Nothing is being metered there, which is not the same as nothing waiting: three zeroes
+      // read as a throttle that is idle instead of one that is off.
+      expect(snapshot.find((row) => row.service === 'docling')).toEqual({
+        service: 'docling',
+        inFlight: 0,
+        waiting: 0,
+        longestWaitMs: 0,
+        gated: false,
+      });
+    });
   });
 });

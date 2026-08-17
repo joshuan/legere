@@ -1289,7 +1289,9 @@ describe('DocumentViewerScreen', () => {
     // 🔒 The server refuses to run a held step, so the checkbox that would ask for it is not
     // offered — the one beside a step that runs still is.
     await waitFor(() =>
-      expect(panel.getByRole('checkbox', { name: enMessages.viewer.steps.analysis })).toBeDisabled(),
+      expect(
+        panel.getByRole('checkbox', { name: enMessages.viewer.steps.analysis }),
+      ).toBeDisabled(),
     );
     expect(panel.getByRole('checkbox', { name: enMessages.viewer.steps.preview })).toBeEnabled();
   });

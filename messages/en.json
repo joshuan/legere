@@ -465,7 +465,8 @@
         "title": "Documents in the pipeline",
         "total": "{count} documents",
         "step": "Step",
-        "howTitle": "How one document is processed"
+        "howTitle": "How one document is processed",
+        "waitingFor": "waiting for {service}: {count}"
       },
       "storage": {
         "title": "S3 storage",
@@ -539,7 +540,12 @@
           "classifier": "Reads a document and says what it is: type, title, description, date, people, places.",
           "transcriber": "The recogniser of last resort: a vision model reading the pages OCR could not.",
           "embeddings": "Turns the text into vectors for semantic search. One batch counts as one call."
-        }
+        },
+        "gateState": "Right now",
+        "gateStateHint": "What the gate is doing this instant: how many calls are in flight, and how many are waiting for a slot. One in flight with others waiting is a throttle doing its job; several in flight is a limit that never took effect.",
+        "ungated": "Not throttled",
+        "inFlight": "{count} in flight",
+        "waiting": "{count} waiting, longest {seconds} s"
       },
       "names": {
         "library-scan": "Scanning libraries",

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { ServiceGates } from '../../application/queue/service-gate';
+import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
 import { DoclingParser } from './docling-parser';
 
@@ -8,7 +9,7 @@ import { DoclingParser } from './docling-parser';
 // the Stirling toolbox test next to this one.
 function parser(
   overrides: Record<string, string> = {},
-  gates: ServiceGates = new ServiceGates(),
+  gates: ServiceGates = new ServiceGates(new FixedClock()),
 ): DoclingParser {
   return new DoclingParser(
     loadConfig({
@@ -226,7 +227,7 @@ describe('DoclingParser', () => {
   // requests, so metering the polls would count the cheapest exchanges and let the conversion
   // everybody is waiting on run through ungated.
   it('spends a single gate slot on a whole parse, every poll included', async () => {
-    const gates = new ServiceGates();
+    const gates = new ServiceGates(new FixedClock());
     gates.configure({ docling: { concurrency: 1, cooldownSeconds: 0 } });
     const spy = answers('# Done', { polls: 2 });
     const docling = parser({}, gates);

@@ -28,12 +28,46 @@ export const storageUsageSchema = z.object({
 });
 export type StorageUsageDto = z.infer<typeof storageUsageSchema>;
 
+// The services an operator may put a gate in front of (docs/05 §5.4b), keyed the way the
+// environment names them rather than the way the pipeline names its steps: the thing being throttled
+// is whatever `CLASSIFIER_API_BASE_URL` points at, so the gate is `classifier` while the port stays
+// a `DocumentAnalyst`. A name this version does not know is dropped on write, exactly as an unknown
+// queue name is.
+export const SERVICE_NAMES = [
+  'stirling',
+  'docling',
+  'classifier',
+  'transcriber',
+  'embeddings',
+] as const;
+export type ServiceName = (typeof SERVICE_NAMES)[number];
+
+// What one gate is doing this instant (docs/05 §5.4b). 🔒 `gated: false` is not "nothing is waiting":
+// it is a service nobody is metering, where the three numbers would be zeroes that mean nothing —
+// and three zeroes on a screen read as a throttle that is idle rather than as one that is off.
+export const serviceGateStateSchema = z.object({
+  inFlight: z.number().int().nonnegative(),
+  waiting: z.number().int().nonnegative(),
+  // How long the caller at the front has been standing there; `0` when nobody has.
+  longestWaitMs: z.number().int().nonnegative(),
+  gated: z.boolean(),
+});
+export type ServiceGateStateDto = z.infer<typeof serviceGateStateSchema>;
+
+export const serviceGateSnapshotSchema = serviceGateStateSchema.extend({
+  service: z.enum(SERVICE_NAMES),
+});
+export type ServiceGateSnapshotDto = z.infer<typeof serviceGateSnapshotSchema>;
+
 export const queueOverviewResponseSchema = z.object({
   queues: z.array(queueDepthSchema),
   documents: z.object({
     total: z.number().int().nonnegative(),
     steps: z.array(stepCountersSchema),
   }),
+  // Live, in-process, stored nowhere: it shares the counters' 5-second clock rather than the probes'
+  // minute, because this is a read of our own semaphores and not of somebody's container.
+  gates: z.array(serviceGateSnapshotSchema),
   storage: storageUsageSchema.nullable(),
 });
 export type QueueOverviewResponse = z.infer<typeof queueOverviewResponseSchema>;
@@ -93,20 +127,6 @@ export type RetryJobResponse = z.infer<typeof retryJobResponseSchema>;
 // Both are bounded: the point of a queue is that an instance under load stays usable, and a box
 // that lets somebody type 500 is a box that lets somebody take the machine down.
 export const QUEUE_CONCURRENCY_MAX = 32;
-
-// The services an operator may put a gate in front of (docs/05 §5.4b), keyed the way the
-// environment names them rather than the way the pipeline names its steps: the thing being throttled
-// is whatever `CLASSIFIER_API_BASE_URL` points at, so the gate is `classifier` while the port stays
-// a `DocumentAnalyst`. A name this version does not know is dropped on write, exactly as an unknown
-// queue name is.
-export const SERVICE_NAMES = [
-  'stirling',
-  'docling',
-  'classifier',
-  'transcriber',
-  'embeddings',
-] as const;
-export type ServiceName = (typeof SERVICE_NAMES)[number];
 
 // Ten minutes is the longest pause worth offering: past it the job that is waiting has more to fear
 // from the hour pg-boss gives it than from the container it is being polite to (docs/06 §6.8).

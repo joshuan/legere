@@ -213,6 +213,40 @@ describe('Reprocess and queue administration (e2e)', () => {
       const preview = overview.documents.steps.find((entry) => entry.step === 'preview');
       expect(preview?.counts.DONE).toBe(1);
       expect(preview?.counts.FAILED).toBe(0);
+
+      // One row per gated service, in the order they are named, so the panel draws them all
+      // (docs/05 §5.4b). Nothing is in flight here and nothing is gated, which is what an instance
+      // nobody has throttled answers with — said as `gated: false` rather than as three zeroes.
+      expect(overview.gates.map((gate) => gate.service)).toEqual([...SERVICE_NAMES]);
+      expect(overview.gates.every((gate) => !gate.gated)).toBe(true);
+      expect(overview.gates.every((gate) => gate.inFlight === 0 && gate.waiting === 0)).toBe(true);
+    });
+
+    it('says a gate is gated once one is configured, without a restart', async () => {
+      await api(app)
+        .patch('/api/admin/queue/settings', {
+          concurrency: {},
+          unitConcurrency: 1,
+          paused: [],
+          pausedSteps: [],
+          services: { stirling: { concurrency: 1, cooldownSeconds: 0 } },
+        })
+        .set('Cookie', adminCookie);
+
+      const res = await api(app).get('/api/admin/queue/overview').set('Cookie', adminCookie);
+
+      const stirling = expectData(res, queueOverviewResponseSchema).gates.find(
+        (gate) => gate.service === 'stirling',
+      );
+      // Metered from the save onwards: nothing waiting yet, but the row now says it is a throttle
+      // rather than an absence of one — which is the difference an operator came to see.
+      expect(stirling).toEqual({
+        service: 'stirling',
+        inFlight: 0,
+        waiting: 0,
+        longestWaitMs: 0,
+        gated: true,
+      });
     });
 
     it('counts every step of every document, matching what the database holds', async () => {
@@ -652,9 +686,7 @@ describe('Reprocess and queue administration (e2e)', () => {
 
       // Released, so it is enqueued at once rather than waiting up to two hours for the sweep — and
       // for that step alone (docs/05 §5.4d).
-      expect(await processJobs()).toEqual([
-        { data: { documentId: id, steps: ['vectorization'] } },
-      ]);
+      expect(await processJobs()).toEqual([{ data: { documentId: id, steps: ['vectorization'] } }]);
       await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
     });
   });

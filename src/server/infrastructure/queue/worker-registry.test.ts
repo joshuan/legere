@@ -7,6 +7,7 @@ import type { JobHandler } from '../../application/jobs/job-handler';
 import type { QueueName } from '../../application/ports/job-queue';
 import { QueueSettings, ungatedServices } from '../../application/queue/queue-settings';
 import { ServiceGates } from '../../application/queue/service-gate';
+import { FixedClock } from '../../../../test/helpers/fakes';
 import { AppConfig } from '../config/app-config';
 import { PgBossProvider } from './pg-boss.provider';
 import { WorkerRegistry } from './worker-registry';
@@ -61,7 +62,7 @@ describe('WorkerRegistry', () => {
   beforeEach(async () => {
     boss = new RecordingBoss();
     store = new InMemorySettingsRepository();
-    gates = new ServiceGates();
+    gates = new ServiceGates(new FixedClock());
 
     const testing = await Test.createTestingModule({
       providers: [

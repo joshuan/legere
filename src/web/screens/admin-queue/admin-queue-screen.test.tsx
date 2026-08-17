@@ -34,6 +34,15 @@ const overview = {
       { step: 'vectorization', counts: { SKIPPED: 12, PENDING: 0, DONE: 0, FAILED: 0 } },
     ],
   },
+  // What each gate is doing this instant (docs/05 §5.4b): Stirling throttled to one with two waiting,
+  // and everything else ungated — which is what an instance nobody has gated answers with.
+  gates: [
+    { service: 'stirling', inFlight: 1, waiting: 2, longestWaitMs: 7_400, gated: true },
+    { service: 'docling', inFlight: 0, waiting: 0, longestWaitMs: 0, gated: false },
+    { service: 'classifier', inFlight: 0, waiting: 0, longestWaitMs: 0, gated: false },
+    { service: 'transcriber', inFlight: 0, waiting: 0, longestWaitMs: 0, gated: false },
+    { service: 'embeddings', inFlight: 0, waiting: 0, longestWaitMs: 0, gated: false },
+  ],
   storage: { objects: 34, bytes: '1932735283', measuredAt: '2026-01-02T09:00:00.000Z' },
 };
 
@@ -780,6 +789,58 @@ describe('AdminQueueScreen', () => {
         services: settings.services,
       }),
     );
+  });
+
+  // 🔒 The numbers that make a gate legible (docs/05 §5.4b). Without them a throttle that is working
+  // and a setting that never took look exactly alike, and an operator goes looking for a bug.
+  describe('what a gate is doing', () => {
+    it('reports the calls in flight and the queue behind them, on the service row', async () => {
+      renderWithProviders(<AdminQueueScreen tab="services" />);
+
+      const stirling = (
+        await screen.findByText(enMessages.admin.queue.services.names.stirling)
+      ).closest('tr');
+      if (!(stirling instanceof HTMLElement)) throw new Error('expected the Stirling row');
+      expect(
+        within(stirling).getByText(
+          enMessages.admin.queue.services.inFlight.replace('{count}', '1'),
+        ),
+      ).toBeInTheDocument();
+      // Seconds, rounded down: 7 400 ms is "7 s" and never "8".
+      expect(
+        within(stirling).getByText(
+          enMessages.admin.queue.services.waiting.replace('{count}', '2').replace('{seconds}', '7'),
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('says an ungated service is ungated rather than showing it idle', async () => {
+      renderWithProviders(<AdminQueueScreen tab="services" />);
+
+      const docling = (
+        await screen.findByText(enMessages.admin.queue.services.names.docling)
+      ).closest('tr');
+      if (!(docling instanceof HTMLElement)) throw new Error('expected the Docling row');
+      expect(
+        within(docling).getByText(enMessages.admin.queue.services.ungated),
+      ).toBeInTheDocument();
+    });
+
+    it('tags the step whose service has callers waiting, and only that step', async () => {
+      renderWithProviders(<AdminQueueScreen tab="pipeline" />);
+
+      // Stirling serves the canonical and the preview; the fixture has two waiting at it. Docling is
+      // not configured here, so the extraction goes to Stirling too (docs/05 §5.5 step 3).
+      const waiting = enMessages.admin.queue.pipeline.waitingFor
+        .replace('{service}', enMessages.admin.queue.services.names.stirling)
+        .replace('{count}', '2');
+      await waitFor(() => expect(screen.getAllByText(waiting)).toHaveLength(3));
+
+      // The analysis goes to the analyst, whose gate is off: nothing to say on that row.
+      const analysis = screen.getByText(enMessages.viewer.steps.analysis).closest('tr');
+      if (!(analysis instanceof HTMLElement)) throw new Error('expected the analysis row');
+      expect(within(analysis).queryByText(waiting)).not.toBeInTheDocument();
+    });
   });
 
   it('refreshes on its own and stops when told to', { timeout: 30_000 }, async () => {

@@ -2,6 +2,7 @@ import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { ungatedServices } from '../../application/queue/queue-settings';
 import { ServiceGates } from '../../application/queue/service-gate';
+import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
 import { AsyncLocalCallContext } from '../logging/async-call-context';
 import { StirlingPdfToolbox } from './stirling-pdf-toolbox';
@@ -11,7 +12,7 @@ import { StirlingPdfToolbox } from './stirling-pdf-toolbox';
 // contract — a wrong field name fails at runtime with a 400 nobody sees until a document is queued.
 function toolbox(
   url = 'http://stirling:8080',
-  gates: ServiceGates = new ServiceGates(),
+  gates: ServiceGates = new ServiceGates(new FixedClock()),
 ): StirlingPdfToolbox {
   return new StirlingPdfToolbox(
     loadConfig({
@@ -242,7 +243,7 @@ describe('StirlingPdfToolbox', () => {
   // Every call to the container is one unit of the `stirling` gate (docs/05 §5.4b) — the page
   // count included, which reads a small answer rather than a document and is a call all the same.
   it('asks the stirling gate before every call it makes', async () => {
-    const gates = new ServiceGates();
+    const gates = new ServiceGates(new FixedClock());
     const run = vi.spyOn(gates, 'run');
     vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
       Promise.resolve(
@@ -337,7 +338,7 @@ describe('StirlingPdfToolbox', () => {
       return Response.json({ pageCount: 3 });
     });
 
-    const gates = new ServiceGates();
+    const gates = new ServiceGates(new FixedClock());
     gates.configure({ ...ungatedServices(), stirling: { concurrency: 1, cooldownSeconds: 0 } });
     const pdfs = toolbox('http://stirling:8080', gates);
     const bytes = (): Buffer => Buffer.from('%PDF-');
@@ -372,7 +373,7 @@ describe('StirlingPdfToolbox', () => {
       return pdfResponse();
     });
 
-    const gates = new ServiceGates();
+    const gates = new ServiceGates(new FixedClock());
     gates.configure({ ...ungatedServices(), stirling: { concurrency: 2, cooldownSeconds: 0 } });
     const pdfs = toolbox('http://stirling:8080', gates);
 

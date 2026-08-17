@@ -4,6 +4,7 @@ import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helper
 import type { DocumentFieldSchema } from '../../../shared/contracts/document-fields';
 import type { DocumentTypeOption, KnownSubject } from '../../application/ports/document-analyst';
 import { ServiceGates } from '../../application/queue/service-gate';
+import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
 import { fenceDocument, OpenAiCompatAnalyst } from './openai-compat-analyst';
 
@@ -16,7 +17,7 @@ const CATEGORIES: DocumentTypeOption[] = [
 
 function analyst(
   overrides: Record<string, string> = {},
-  gates: ServiceGates = new ServiceGates(),
+  gates: ServiceGates = new ServiceGates(new FixedClock()),
 ): OpenAiCompatAnalyst {
   return new OpenAiCompatAnalyst(
     loadConfig({
@@ -696,7 +697,7 @@ describe('OpenAiCompatAnalyst (a runtime that misbehaves)', () => {
   // The gate is named after the service an operator configures — `classifier`, beside
   // CLASSIFIER_API_BASE_URL — while the port goes on being a DocumentAnalyst (docs/05 §5.4b).
   it('sends a look at a document through the classifier gate', async () => {
-    const gates = new ServiceGates();
+    const gates = new ServiceGates(new FixedClock());
     const run = vi.spyOn(gates, 'run');
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       Response.json({ choices: [{ message: { content: '{"title": "Invoice"}' } }] }),

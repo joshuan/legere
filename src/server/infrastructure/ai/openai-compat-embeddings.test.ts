@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helpers/outbound';
 import { ServiceGates } from '../../application/queue/service-gate';
+import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
 import { OpenAiCompatEmbeddings } from './openai-compat-embeddings';
 
@@ -8,7 +9,7 @@ type FetchSpy = MockInstance<typeof fetch>;
 
 function provider(
   overrides: Record<string, string> = {},
-  gates: ServiceGates = new ServiceGates(),
+  gates: ServiceGates = new ServiceGates(new FixedClock()),
 ): OpenAiCompatEmbeddings {
   return new OpenAiCompatEmbeddings(
     loadConfig({
@@ -154,7 +155,7 @@ describe('OpenAiCompatEmbeddings (a provider that misbehaves)', () => {
   // One batch is one unit of the `embeddings` gate (docs/05 §5.4b): a vectorization that sends four
   // batches asks the provider four times, and each of them waits its turn.
   it('sends every batch through the embeddings gate', async () => {
-    const gates = new ServiceGates();
+    const gates = new ServiceGates(new FixedClock());
     const run = vi.spyOn(gates, 'run');
     vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
       Promise.resolve(Response.json({ data: [{ index: 0, embedding: vector(0) }] })),

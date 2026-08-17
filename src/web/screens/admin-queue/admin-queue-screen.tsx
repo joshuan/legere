@@ -36,6 +36,7 @@ import {
   type QueueDepthDto,
   type ReprocessByStepRequest,
   type ServiceGateDto,
+  type ServiceGateSnapshotDto,
   type ServiceHealthDto,
   type ServiceHealthStatus,
   type ServiceName,
@@ -249,6 +250,11 @@ export function AdminQueueScreen({ tab = 'overview' }: { tab?: AdminQueueTab }) 
 
   const healthOf = (service: ServiceName): ServiceHealthDto | undefined =>
     services.data?.services.find((row) => row.service === service);
+
+  // What the gate in front of that service is doing this instant (docs/05 §5.4b). It arrives with the
+  // counters rather than with the probes: this one is a read of our own semaphore.
+  const gateOf = (service: ServiceName): ServiceGateSnapshotDto | undefined =>
+    overview.data?.gates.find((row) => row.service === service);
 
   // One probe stamps every row with one time (docs/05 §5.4c), so the first row speaks for the block.
   const checkedAt = services.data?.services[0]?.checkedAt;
@@ -561,6 +567,9 @@ export function AdminQueueScreen({ tab = 'overview' }: { tab?: AdminQueueTab }) 
       onTogglePause={togglePauseStep}
       pausing={saveSettings.isPending}
       ready={settings.data !== undefined}
+      gates={overview.data?.gates ?? []}
+      // A configured Docling is one this instance resolved an address for (docs/05 §5.4c).
+      doclingConfigured={healthOf('docling')?.status !== 'NOT_CONFIGURED'}
     />
   );
 
@@ -642,6 +651,23 @@ export function AdminQueueScreen({ tab = 'overview' }: { tab?: AdminQueueTab }) 
               key: 'health',
               render: (_: unknown, service: ServiceName) => (
                 <ServiceState health={healthOf(service)} pending={services.isPending} />
+              ),
+            },
+            {
+              // 🔒 The answer to "is the throttle working", and the only honest witness to it: a step
+              // waiting at a gate reads as RUNNING exactly like a step doing the work
+              // (docs/05 §5.4b).
+              title: (
+                <Space size={4}>
+                  {t('admin.queue.services.gateState')}
+                  <Tooltip title={t('admin.queue.services.gateStateHint')}>
+                    <QuestionCircleOutlined />
+                  </Tooltip>
+                </Space>
+              ),
+              key: 'gate',
+              render: (_: unknown, service: ServiceName) => (
+                <GateState state={gateOf(service)} pending={overview.isPending} />
               ),
             },
             {
@@ -839,6 +865,44 @@ export function AdminQueueScreen({ tab = 'overview' }: { tab?: AdminQueueTab }) 
   );
 }
 
+// What a gate is doing, in the two numbers an operator reaches for and the one they cannot infer:
+// how many calls are in flight, how many are waiting, and how long the one at the front has stood
+// there (docs/05 §5.4b). 🔒 An ungated service says so in words rather than in three zeroes: nothing
+// is being metered there, and a row of noughts reads as a throttle that is idle instead of one that
+// is off.
+function GateState({
+  state,
+  pending,
+}: {
+  state: ServiceGateSnapshotDto | undefined;
+  pending: boolean;
+}) {
+  const t = useTranslations();
+  if (state === undefined) {
+    return pending ? <Spin size="small" /> : <Typography.Text type="secondary">—</Typography.Text>;
+  }
+  if (!state.gated) {
+    return <Typography.Text type="secondary">{t('admin.queue.services.ungated')}</Typography.Text>;
+  }
+  return (
+    <Space direction="vertical" size={0}>
+      <Typography.Text>
+        {t('admin.queue.services.inFlight', { count: state.inFlight })}
+      </Typography.Text>
+      {state.waiting > 0 && (
+        <Typography.Text type="warning">
+          {t('admin.queue.services.waiting', {
+            count: state.waiting,
+            // Seconds, because a wait worth reporting is never milliseconds — and rounded down, so
+            // "1 s" never appears over a wait that has not lasted one.
+            seconds: Math.floor(state.longestWaitMs / 1000),
+          })}
+        </Typography.Text>
+      )}
+    </Space>
+  );
+}
+
 // What is not in order, in one sentence, at the top of the Overview tab (docs/11 §11.13). Each part
 // names the tab that deals with it, because "4 failures" is only useful next to the way to look at
 // them. 🔒 When everything is in order it says so in as many words: an empty strip and a page that
@@ -928,6 +992,39 @@ function Summary({
   );
 }
 
+// Which service does a step, and whether anybody is waiting for it. The mapping is the journal's own
+// (docs/03 §3.3.18): the two that build and render the canonical go to Stirling, the extraction to
+// Docling where there is one, and the readings to the analyst and the embeddings.
+function serviceOfStep(step: DocumentStep, doclingConfigured: boolean): ServiceName | null {
+  if (step === 'canonical' || step === 'preview') return 'stirling';
+  if (step === 'markdown') return doclingConfigured ? 'docling' : 'stirling';
+  if (step === 'analysis' || step === 'fields') return 'classifier';
+  return 'embeddings';
+}
+
+function WaitingForService({
+  step,
+  gates,
+  doclingConfigured,
+}: {
+  step: DocumentStep;
+  gates: readonly ServiceGateSnapshotDto[];
+  doclingConfigured: boolean;
+}) {
+  const t = useTranslations();
+  const service = serviceOfStep(step, doclingConfigured);
+  const gate = gates.find((row) => row.service === service);
+  if (gate === undefined || !gate.gated || gate.waiting === 0) return null;
+  return (
+    <Tag color="gold">
+      {t('admin.queue.pipeline.waitingFor', {
+        service: t(`admin.queue.services.names.${gate.service}`),
+        count: gate.waiting,
+      })}
+    </Tag>
+  );
+}
+
 // One line per status that actually has documents in it; a step with nothing in a status should not
 // spend a row saying zero. In the statuses' own order rather than the server's, so the rows
 // read alike.
@@ -943,6 +1040,8 @@ function PipelineSteps({
   onTogglePause,
   pausing,
   ready,
+  gates,
+  doclingConfigured,
 }: {
   steps: readonly StepCountersDto[];
   total: number;
@@ -954,6 +1053,11 @@ function PipelineSteps({
   onTogglePause: (step: DocumentStep, pause: boolean) => void;
   pausing: boolean;
   ready: boolean;
+  // What each gate is doing, so a step whose service has callers waiting says so (docs/05 §5.4b).
+  gates: readonly ServiceGateSnapshotDto[];
+  // Whether Docling is configured: the markdown step goes to it when it is, and falls back to
+  // Stirling's converter when it is not, exactly as the journal records (docs/05 §5.5 step 3).
+  doclingConfigured: boolean;
 }) {
   const t = useTranslations();
   const { token } = theme.useToken();
@@ -1009,6 +1113,15 @@ function PipelineSteps({
                   />
                 </Tooltip>
                 <Typography.Text strong>{t(`viewer.steps.${row.step}`)}</Typography.Text>
+                {/* 🔒 Two documents both reading RUNNING at one step is what a gate of one looks
+                    like: one is working and the other is standing at it, because waiting at a gate
+                    is time inside the job (docs/05 §5.4b). Without this the table is unreadable at
+                    the one moment it matters. */}
+                <WaitingForService
+                  step={row.step}
+                  gates={gates}
+                  doclingConfigured={doclingConfigured}
+                />
                 {pausedSteps.includes(row.step) ? (
                   // Tagged beside its counts, the way a paused queue is tagged beside its depth: a
                   // growing count must never be mistaken for a stuck one.

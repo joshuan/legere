@@ -6,6 +6,7 @@ import type { Crop } from '../../src/shared/contracts/documents';
 import { BuildCanonical } from '../../src/server/application/documents/build-canonical';
 import { QueueSettings, ungatedServices } from '../../src/server/application/queue/queue-settings';
 import { ServiceGates } from '../../src/server/application/queue/service-gate';
+import { FixedClock } from '../helpers/fakes';
 import { originalKeyOf } from '../../src/server/application/storage/artifact-keys';
 import { FileRepository } from '../../src/server/domain/repositories/file.repository';
 import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
@@ -74,7 +75,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
       new StubLibraryReader(),
       storage,
       new SharpImageTool(),
-      new StirlingPdfToolbox(config, new ServiceGates()),
+      new StirlingPdfToolbox(config, new ServiceGates(new FixedClock())),
       new QueueSettings(moduleRef.get(SettingsRepository), {
         concurrency: {
           'library-scan': 1,
@@ -200,7 +201,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
 
       // The parts are in the order the document holds them, and the text of both readable ones
       // survived the merge.
-      const pdfs = new StirlingPdfToolbox(config, new ServiceGates());
+      const pdfs = new StirlingPdfToolbox(config, new ServiceGates(new FixedClock()));
       const text = await pdfs.pdfToMarkdown(built.pdf);
       expect(text).toContain(PDF_TEXT.slice(0, 40));
       expect(text).toContain(OFFICE_TEXT.slice(0, 40));
@@ -236,7 +237,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
     if (built.kind !== 'built') throw new Error('the canonical was not built');
     expect(built.pageCount).toBe(3);
 
-    const pdfs = new StirlingPdfToolbox(config, new ServiceGates());
+    const pdfs = new StirlingPdfToolbox(config, new ServiceGates(new FixedClock()));
     const text = await pdfs.pdfToMarkdown(built.pdf);
     expect(text.indexOf('FIRST page')).toBeGreaterThanOrEqual(0);
     // The paper, read the way the paper reads.
@@ -275,7 +276,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
     const built = await build.execute({ ...documentRow(document.id), title: 'Put back' });
 
     if (built.kind !== 'built') throw new Error('the canonical was not built');
-    const pdfs = new StirlingPdfToolbox(config, new ServiceGates());
+    const pdfs = new StirlingPdfToolbox(config, new ServiceGates(new FixedClock()));
     const text = await pdfs.pdfToMarkdown(built.pdf);
     // The scanner's own order is back, whole and unaltered.
     expect(text.indexOf('THIRD page')).toBeLessThan(text.indexOf('FIRST page'));

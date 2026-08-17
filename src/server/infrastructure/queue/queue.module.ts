@@ -4,6 +4,7 @@ import { QueueMonitor } from '../../application/ports/queue-monitor';
 import { QueueSettings, type QueueDefaults } from '../../application/queue/queue-settings';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { SettingsRepository } from '../../domain/repositories/settings.repository';
+import { SystemClock } from '../auth/system-clock';
 import { AppConfig } from '../config/app-config';
 import { PgBossJobQueue } from './pg-boss-job-queue';
 import { PgBossQueueMonitor } from './pg-boss-queue-monitor';
@@ -66,7 +67,14 @@ function queueDefaults(config: AppConfig): QueueDefaults {
     // It lives here, in the global queue module, because both the PDF adapters and the AI ones hold
     // a gate and neither may reach into the other (docs/05 §5.4b). Ungated until the stored
     // settings configure it, which the worker registry does as it starts.
-    { provide: ServiceGates, useFactory: (): ServiceGates => new ServiceGates() },
+    // The gates keep a clock, because how long the caller at the front has waited is a number a test
+    // has to be able to drive (docs/05 §5.4b). Constructed here rather than injected: this module is
+    // global and is brought up on its own by the queue integration suite, where the `Clock` provider
+    // of the auth infrastructure is not in the graph at all.
+    {
+      provide: ServiceGates,
+      useFactory: (): ServiceGates => new ServiceGates(new SystemClock()),
+    },
   ],
   exports: [PgBossProvider, WorkerRegistry, JobQueue, QueueMonitor, QueueSettings, ServiceGates],
 })

@@ -14,6 +14,7 @@ import {
   RetryFailedJob,
 } from '../../application/queue/inspect-queue';
 import { ReprocessDocumentsByStep } from '../../application/queue/reprocess-by-step';
+import { ServiceGates } from '../../application/queue/service-gate';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
@@ -53,8 +54,9 @@ import { PipelineController } from './pipeline.controller';
         monitor: QueueMonitor,
         documents: DocumentRepository,
         metrics: MetricsCache,
-      ): GetQueueOverview => new GetQueueOverview(monitor, documents, metrics),
-      inject: [QueueMonitor, DocumentRepository, MetricsCache],
+        gates: ServiceGates,
+      ): GetQueueOverview => new GetQueueOverview(monitor, documents, metrics, gates),
+      inject: [QueueMonitor, DocumentRepository, MetricsCache, ServiceGates],
     },
     {
       provide: ListQueueFailures,
