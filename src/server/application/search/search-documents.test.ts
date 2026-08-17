@@ -58,7 +58,7 @@ class StubSearchRepository extends DocumentRepository {
     throw new Error('countByGroup is not part of search');
   }
 
-  listStaleUnstartedIds(): Promise<string[]> {
+  listStaleUnstartedIds(): Promise<[]> {
     return Promise.resolve([]);
   }
 

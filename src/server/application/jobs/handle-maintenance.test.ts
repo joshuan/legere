@@ -12,11 +12,15 @@ import {
   InMemoryDocumentRepository,
   InMemoryFileRefRepository,
   InMemoryFileRepository,
+  InMemorySettingsRepository,
+  queueSettingsFixture,
 } from '../../../../test/helpers/processing-fakes';
 import { JobQueue, type EnqueueOptions, type QueueName } from '../../application/ports/job-queue';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
 import { InMemoryMetricsCache } from '../../infrastructure/storage/in-memory-metrics-cache';
+import { DOCUMENT_STEPS } from '../../../shared/contracts/documents';
+import { QUEUE_SETTINGS_KEY } from '../queue/queue-settings';
 import { HandleMaintenance } from './handle-maintenance';
 
 const NOW = new Date('2026-03-01T10:00:00.000Z');
@@ -71,8 +75,12 @@ describe('HandleMaintenance', () => {
   let metrics: InMemoryMetricsCache;
   let queue: RecordingJobQueue;
   let handler: HandleMaintenance;
+  // Where a paused step lives, so a test can hold one and watch the sweep leave it alone
+  // (docs/05 §5.4d).
+  let queueStore: InMemorySettingsRepository;
 
   beforeEach(() => {
+    queueStore = new InMemorySettingsRepository();
     clock = new FixedClock(NOW);
     verifications = new InMemoryEmailVerificationRepository(clock);
     invites = new InMemoryUserInviteRepository();
@@ -93,6 +101,7 @@ describe('HandleMaintenance', () => {
       files,
       metrics,
       queue,
+      queueSettingsFixture(4, queueStore),
       new ImmediateUnitOfWork(),
       clock,
       RETENTION_DAYS,
@@ -316,7 +325,8 @@ describe('HandleMaintenance', () => {
     expect(queue.enqueued).toEqual([
       {
         name: 'document-process',
-        payload: { documentId: 'doc-stale' },
+        // The steps that never started, which for a document nothing has touched is all six.
+        payload: { documentId: 'doc-stale', steps: [...DOCUMENT_STEPS] },
         options: { singletonKey: 'doc-stale' },
       },
     ]);
@@ -345,7 +355,9 @@ describe('HandleMaintenance', () => {
 
     await handler.handle();
 
-    expect(queue.enqueued.map((job) => job.payload)).toEqual([{ documentId: 'doc-lost' }]);
+    expect(queue.enqueued.map((job) => job.payload)).toEqual([
+      { documentId: 'doc-lost', steps: [...DOCUMENT_STEPS] },
+    ]);
   });
 
   it('walks through a document whose analysis a retired skip reason used to stand in for', async () => {
@@ -369,7 +381,55 @@ describe('HandleMaintenance', () => {
 
     await handler.handle();
 
-    expect(queue.enqueued.map((job) => job.payload)).toEqual([{ documentId: 'doc-manual-type' }]);
+    // 🔒 That step and nothing else: re-running the six over a document that only needs its
+    // analysis would recognise the scan again to arrive where it already was (docs/05 §5.4).
+    expect(queue.enqueued.map((job) => job.payload)).toEqual([
+      { documentId: 'doc-manual-type', steps: ['analysis'] },
+    ]);
     expect((await documents.findById('doc-manual-type'))?.steps.analysis).toBe('QUEUED');
+  });
+
+  // A held step is unstarted on purpose (docs/05 §5.4d), so the sweep is not the thing that will
+  // start it — and enqueueing it hourly would be an hourly job that does nothing.
+  describe('a paused step (docs/05 §5.4d)', () => {
+    beforeEach(() => {
+      documents.add(
+        documentFixture({
+          id: 'doc-held',
+          steps: {
+            canonical: 'DONE',
+            preview: 'DONE',
+            markdown: 'DONE',
+            analysis: 'PENDING',
+            fields: 'PENDING',
+            vectorization: 'DONE',
+          },
+        }),
+      );
+      documents.setUpdatedAt('doc-held', new Date(NOW.getTime() - 3 * HOUR));
+    });
+
+    it('passes over a document whose only unstarted steps are held', async () => {
+      await queueStore.write(QUEUE_SETTINGS_KEY, { pausedSteps: ['analysis', 'fields'] });
+
+      await handler.handle();
+
+      expect(queue.enqueued).toEqual([]);
+      // And nothing pretends a worker is coming for it.
+      expect((await documents.findById('doc-held'))?.steps.analysis).toBe('PENDING');
+    });
+
+    it('sweeps the steps beside a held one, and leaves the held one where it is', async () => {
+      await queueStore.write(QUEUE_SETTINGS_KEY, { pausedSteps: ['analysis'] });
+
+      await handler.handle();
+
+      expect(queue.enqueued.map((job) => job.payload)).toEqual([
+        { documentId: 'doc-held', steps: ['fields'] },
+      ]);
+      const swept = await documents.findById('doc-held');
+      expect(swept?.steps.fields).toBe('QUEUED');
+      expect(swept?.steps.analysis).toBe('PENDING');
+    });
   });
 });

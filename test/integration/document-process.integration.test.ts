@@ -32,6 +32,7 @@ import {
   FakeImageTool,
   FakeDocumentParser,
   FakePdfToolbox,
+  queueSettingsFixture,
   StubLibraryReader,
 } from '../helpers/processing-fakes';
 
@@ -128,6 +129,9 @@ describe('Document processing (integration)', () => {
       moduleRef.get(UnitOfWork),
       new FakeCallContext(),
       new AnalysisSettings(new InMemorySettingsRepository()),
+      // Nothing paused: this suite is about the pipeline running, and the pause has its own tests
+      // (docs/05 §5.4d).
+      queueSettingsFixture(),
       settings,
       new FixedClock(),
     );

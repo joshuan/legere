@@ -1,5 +1,6 @@
 import { Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import { type Envelope } from '../../../shared/contracts/common';
+import { DOCUMENT_STEPS } from '../../../shared/contracts/documents';
 import {
   listQueueFailuresQuerySchema,
   reprocessByStepRequestSchema,
@@ -89,15 +90,32 @@ export class AdminQueueController {
   // that is now paused gets no worker back, and one that is not does.
   @Patch('settings')
   async updateSettings(
+    @CurrentUser() user: User,
     @ZodBody(updateQueueSettingsRequestSchema) body: UpdateQueueSettingsRequest,
   ): Promise<Envelope<QueueSettingsDto>> {
+    // Read before the write, because releasing a step means enqueueing what it was holding and only
+    // the previous row says which steps those are (docs/05 §5.4d).
+    const before = await this.settings.read();
     const saved = await this.settings.write(body);
     // The gates first, and in their own right: a widened gate releases the callers standing at it
     // straight away, and it must do so even if re-registering the workers goes wrong (docs/05
     // §5.4b). Starting the workers configures them again from the same row, which costs nothing.
     this.gates.configure(saved.services);
     await this.workers.restart();
+    await this.resume(before.pausedSteps, saved.pausedSteps, user.id);
     return successEnvelope(saved);
+  }
+
+  // What a released step was holding, set going (docs/05 §5.4d): that step for the documents whose it
+  // is `PENDING`, through the same use case a repair from this screen uses, bounded the same way and
+  // recorded in each document's history under whoever lifted the pause. What the bound leaves behind
+  // the hourly sweep takes, because nothing is holding those steps any more.
+  private async resume(before: string[], after: string[], actorId: string): Promise<void> {
+    const held = new Set(after);
+    for (const step of DOCUMENT_STEPS) {
+      if (!before.includes(step) || held.has(step)) continue;
+      await this.reprocessByStep.execute({ step, status: 'PENDING' }, actorId);
+    }
   }
 
   // "The previews failed, run them again" (docs/07 §7.3, docs/11 §11.13): every document whose named

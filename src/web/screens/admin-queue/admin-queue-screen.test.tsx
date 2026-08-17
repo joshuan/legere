@@ -42,6 +42,7 @@ const settings: QueueSettingsDto = {
   },
   unitConcurrency: 2,
   paused: [],
+  pausedSteps: [],
   // Every gate off, which is what an instance that has never been gated answers with
   // (docs/05 §5.4b).
   services: {
@@ -367,6 +368,7 @@ describe('AdminQueueScreen', () => {
         concurrency: settings.concurrency,
         unitConcurrency: settings.unitConcurrency,
         paused: ['document-process'],
+        pausedSteps: [],
         services: settings.services,
       }),
     );
@@ -545,6 +547,7 @@ describe('AdminQueueScreen', () => {
           concurrency: settings.concurrency,
           unitConcurrency: settings.unitConcurrency,
           paused: [],
+          pausedSteps: [],
           services: { ...settings.services, stirling: { concurrency: 0, cooldownSeconds: 30 } },
         }),
       );

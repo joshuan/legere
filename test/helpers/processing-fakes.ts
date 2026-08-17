@@ -18,6 +18,7 @@ import {
   type DocumentListItem,
   type DocumentPage,
   type SearchMatch,
+  type StaleDocument,
   type StepStatusCounters,
   type Viewer,
 } from '../../src/server/domain/repositories/document.repository';
@@ -41,11 +42,12 @@ import {
   type UpdateLibraryInput,
 } from '../../src/server/domain/repositories/library.repository';
 import { RelativePath } from '../../src/server/domain/value-objects/relative-path';
-import type {
-  Crop,
-  DocumentGroupBy,
-  DocumentStep,
-  PageOrder,
+import {
+  DOCUMENT_STEPS,
+  type Crop,
+  type DocumentGroupBy,
+  type DocumentStep,
+  type PageOrder,
 } from '../../src/shared/contracts/documents';
 import type { StepStatus, TrashReason } from '../../src/shared/contracts/enums';
 import { toBuffer, type BinarySource } from '../../src/server/application/ports/binary-source';
@@ -278,37 +280,54 @@ export class InMemoryDocumentRepository extends DocumentRepository {
     this.updatedAt.set(documentId, at);
   }
 
-  markUnstartedQueued(documentId: string): Promise<void> {
+  markUnstartedQueued(documentId: string, steps: readonly DocumentStep[]): Promise<void> {
     const document = this.documents.get(documentId);
     if (document !== undefined && document.deletedAt === null) {
       // Written out rather than mapped: an assertion back to DocumentSteps is forbidden here
       // (docs/14 §14.1), and the compiler should be the one checking every step is present.
-      const queued = (status: StepStatus): StepStatus => (status === 'PENDING' ? 'QUEUED' : status);
+      const queued = (step: DocumentStep): StepStatus => {
+        const status = document.steps[step];
+        return steps.includes(step) && status === 'PENDING' ? 'QUEUED' : status;
+      };
       this.documents.set(documentId, {
         ...document,
         steps: {
-          canonical: queued(document.steps.canonical),
-          preview: queued(document.steps.preview),
-          markdown: queued(document.steps.markdown),
-          analysis: queued(document.steps.analysis),
-          fields: queued(document.steps.fields),
-          vectorization: queued(document.steps.vectorization),
+          canonical: queued('canonical'),
+          preview: queued('preview'),
+          markdown: queued('markdown'),
+          analysis: queued('analysis'),
+          fields: queued('fields'),
+          vectorization: queued('vectorization'),
         },
       });
     }
     return Promise.resolve();
   }
 
-  listStaleUnstartedIds(olderThan: Date, limit: number): Promise<string[]> {
+  listStaleUnstartedIds(
+    olderThan: Date,
+    limit: number,
+    ignored: readonly DocumentStep[],
+  ): Promise<StaleDocument[]> {
+    const considered = DOCUMENT_STEPS.filter((step) => !ignored.includes(step));
     // `updatedAt` is a column, not part of the domain entity, so the fake keeps its own note of
     // when a row was last written and the test drives it through `setUpdatedAt`.
-    const stale = [...this.documents.values()].filter(
-      (document: Document) =>
-        document.deletedAt === null &&
-        (this.updatedAt.get(document.id) ?? document.createdAt).getTime() < olderThan.getTime() &&
-        Object.values(document.steps).some((status) => status === 'PENDING' || status === 'QUEUED'),
-    );
-    return Promise.resolve(stale.slice(0, limit).map((document: Document) => document.id));
+    const stale = [...this.documents.values()]
+      .filter(
+        (document: Document) =>
+          document.deletedAt === null &&
+          (this.updatedAt.get(document.id) ?? document.createdAt).getTime() < olderThan.getTime(),
+      )
+      .map((document: Document) => ({
+        id: document.id,
+        steps: considered.filter(
+          (step) => document.steps[step] === 'PENDING' || document.steps[step] === 'QUEUED',
+        ),
+      }))
+      // A document held only on a paused step is not waiting for anything this sweep can give it
+      // (docs/05 §5.4d).
+      .filter((stalled) => stalled.steps.length > 0);
+    return Promise.resolve(stale.slice(0, limit));
   }
 
   // Newest first, like the query it stands in for (docs/07 §7.3).
@@ -1117,10 +1136,14 @@ export class InMemoryDocumentChunkRepository extends DocumentChunkRepository {
   }
 }
 
-// How many units inside one job run at once (docs/05 §5.4). A plain QueueSettings over an in-memory
-// store: the class is what the pipeline takes, and there is nothing worth faking in it.
-export function queueSettingsFixture(unitConcurrency = 4): QueueSettings {
-  return new QueueSettings(new InMemorySettingsRepository(), {
+// How many units inside one job run at once (docs/05 §5.4), and which steps are held (§5.4d). A
+// plain QueueSettings over an in-memory store: the class is what the pipeline takes, and there is
+// nothing worth faking in it. A test that pauses a step passes its own store in and writes to it.
+export function queueSettingsFixture(
+  unitConcurrency = 4,
+  settings: InMemorySettingsRepository = new InMemorySettingsRepository(),
+): QueueSettings {
+  return new QueueSettings(settings, {
     concurrency: {
       'library-scan': 1,
       'file-ingest': 1,

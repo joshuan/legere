@@ -6,6 +6,7 @@ import {
 } from '../../src/shared/contracts/documents';
 import {
   listQueueFailuresResponseSchema,
+  pausedStepsResponseSchema,
   queueOverviewResponseSchema,
   reprocessByStepResponseSchema,
   retryJobResponseSchema,
@@ -545,6 +546,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         unitConcurrency: 1,
         // A queue this version does not have is dropped rather than stored for ever (docs/05 §5.4).
         paused: ['document-process', 'thumbnails'],
+        pausedSteps: [],
         services: {},
       })
       .set('Cookie', adminCookie);
@@ -571,10 +573,90 @@ describe('Reprocess and queue administration (e2e)', () => {
         concurrency: {},
         unitConcurrency: 1,
         paused: [],
+        pausedSteps: [],
         services: {},
       })
       .set('Cookie', adminCookie);
     expect(expectData(resumed, queueSettingsSchema).paused).toEqual([]);
+  });
+
+  // The finer knob (docs/05 §5.4d): one step of the pipeline, held while everything else runs.
+  describe('a paused step', () => {
+    const pause = (pausedSteps: string[]) =>
+      api(app)
+        .patch('/api/admin/queue/settings', {
+          concurrency: {},
+          unitConcurrency: 1,
+          paused: [],
+          pausedSteps,
+          services: {},
+        })
+        .set('Cookie', adminCookie);
+
+    it('is stored, published to every reader, and refuses to be run for the asking', async () => {
+      const saved = await pause(['analysis', 'thumbnails']);
+      // A step this version does not run is dropped, as an unknown queue name is.
+      expect(expectData(saved, queueSettingsSchema).pausedSteps).toEqual(['analysis']);
+
+      // 🔒 Not an admin's fact: whoever opened the document is owed the difference between a step
+      // waiting for a worker and a step nothing is coming for (docs/07 §7.3, docs/11 §11.5).
+      const userCookie = await inviteUser(`reader${seq}@legere.local`);
+      const published = await api(app).get('/api/pipeline/paused-steps').set('Cookie', userCookie);
+      expect(expectData(published, pausedStepsResponseSchema).pausedSteps).toEqual(['analysis']);
+
+      const documentId = await givenProcessedDocument();
+      await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+
+      // One document, one step, and it is the held one: nothing to enqueue, so the answer is the
+      // reason rather than a job that would do nothing.
+      const refused = await api(app)
+        .post(`/api/documents/${documentId}/reprocess`, { steps: ['analysis'] })
+        .set('Cookie', adminCookie);
+      expect(refused.status).toBe(409);
+      expect(expectError(refused).code).toBe('STEPS_PAUSED');
+
+      // The same over the archive, which is the button beside the counter on /admin/queue.
+      const repair = await api(app)
+        .post('/api/admin/queue/reprocess', { step: 'analysis' })
+        .set('Cookie', adminCookie);
+      expect(repair.status).toBe(409);
+      expect(await processJobs()).toEqual([]);
+
+      // A request that names it among others keeps the others and drops it.
+      const partial = await api(app)
+        .post(`/api/documents/${documentId}/reprocess`, { steps: ['analysis', 'preview'] })
+        .set('Cookie', adminCookie);
+      expect(expectData(partial, reprocessResponseSchema).steps).toEqual(['preview']);
+
+      await pause([]);
+    });
+
+    it('sets the documents it was holding going again when it is released', async () => {
+      await pause(['vectorization']);
+      // A document waiting on the held step and on nothing else.
+      const { id } = await seedDocument({
+        document: {
+          title: 'Waiting on its vectors',
+          canonicalStatus: 'DONE',
+          previewStatus: 'DONE',
+          markdownStatus: 'DONE',
+          analysisStatus: 'DONE',
+          fieldsStatus: 'DONE',
+          vectorizationStatus: 'PENDING',
+        },
+        files: [{ sizeBytes: 100n }],
+      });
+      await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+
+      await pause([]);
+
+      // Released, so it is enqueued at once rather than waiting up to two hours for the sweep — and
+      // for that step alone (docs/05 §5.4d).
+      expect(await processJobs()).toEqual([
+        { data: { documentId: id, steps: ['vectorization'] } },
+      ]);
+      await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+    });
   });
 
   it('sets how hard the instance works, and applies it without a restart', async () => {
@@ -591,6 +673,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         concurrency: { 'file-ingest': 8, 'document-process': 3 },
         unitConcurrency: 4,
         paused: [],
+        pausedSteps: [],
         services: {},
       })
       .set('Cookie', adminCookie);
@@ -613,6 +696,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         concurrency: { 'file-ingest': 32 },
         unitConcurrency: 32,
         paused: [],
+        pausedSteps: [],
         services: {},
       })
       .set('Cookie', adminCookie);
@@ -637,6 +721,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         concurrency: {},
         unitConcurrency: 1,
         paused: [],
+        pausedSteps: [],
         services: {
           stirling: { concurrency: 1, cooldownSeconds: 30 },
           docling: { concurrency: 32, cooldownSeconds: 600 },
@@ -668,6 +753,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         concurrency: {},
         unitConcurrency: 1,
         paused: [],
+        pausedSteps: [],
         services: {},
       })
       .set('Cookie', adminCookie);

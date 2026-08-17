@@ -18,12 +18,15 @@ import { DocumentEventRepository } from '../../domain/repositories/document-even
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { HttpExternalServiceProbe } from '../../infrastructure/health/http-external-service-probe';
+import { QueueSettings } from '../../application/queue/queue-settings';
 import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { AdminQueueController } from './admin-queue.controller';
+import { PipelineController } from './pipeline.controller';
 
-// Admin queue observability (docs/06 §6.5).
+// Admin queue observability (docs/06 §6.5), and the one route beside it that is not an admin's: which
+// steps the pipeline is holding, which every reader of a document is owed (docs/05 §5.4d).
 @Module({
-  controllers: [AdminQueueController],
+  controllers: [AdminQueueController, PipelineController],
   providers: [
     // The analysis language lives with the queue knobs: same kind of setting, same screen
     // (docs/05 §5.5).
@@ -71,14 +74,16 @@ import { AdminQueueController } from './admin-queue.controller';
         documents: DocumentRepository,
         events: DocumentEventRepository,
         queue: JobQueue,
+        queueSettings: QueueSettings,
         config: AppConfig,
       ): ReprocessDocumentsByStep =>
         new ReprocessDocumentsByStep(
           documents,
-          new ReprocessDocument(documents, events, queue),
+          new ReprocessDocument(documents, events, queue, queueSettings),
+          queueSettings,
           config.get('QUEUE_REPROCESS_MAX'),
         ),
-      inject: [DocumentRepository, DocumentEventRepository, JobQueue, AppConfig],
+      inject: [DocumentRepository, DocumentEventRepository, JobQueue, QueueSettings, AppConfig],
     },
   ],
 })

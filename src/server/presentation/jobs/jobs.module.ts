@@ -205,6 +205,9 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         unitOfWork: UnitOfWork,
         calls: CallContext,
         analysisSettings: AnalysisSettings,
+        // Which steps this instance is holding, read per job rather than at start-up
+        // (docs/05 §5.4d).
+        queueSettings: QueueSettings,
         config: AppConfig,
         clock: Clock,
       ): HandleDocumentProcess =>
@@ -227,6 +230,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           unitOfWork,
           calls,
           analysisSettings,
+          queueSettings,
           processingSettings(config),
           clock,
         ),
@@ -249,6 +253,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         UnitOfWork,
         CallContext,
         AnalysisSettings,
+        QueueSettings,
         AppConfig,
         Clock,
       ],
@@ -265,6 +270,8 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         files: FileStorage,
         metrics: MetricsCache,
         queue: JobQueue,
+        // A step the instance is holding is not one the sweep re-enqueues (docs/05 §5.4d).
+        queueSettings: QueueSettings,
         unitOfWork: UnitOfWork,
         clock: Clock,
         config: AppConfig,
@@ -279,6 +286,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
           files,
           metrics,
           queue,
+          queueSettings,
           unitOfWork,
           clock,
           config.get('TRASH_RETENTION_DAYS'),
@@ -293,6 +301,7 @@ function processingSettings(config: AppConfig): ProcessingSettings {
         FileStorage,
         MetricsCache,
         JobQueue,
+        QueueSettings,
         UnitOfWork,
         Clock,
         AppConfig,

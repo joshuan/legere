@@ -7,6 +7,7 @@ import {
   type ServiceName,
   type UpdateQueueSettingsRequest,
 } from '../../../shared/contracts/queue';
+import { DOCUMENT_STEPS, type DocumentStep } from '../../../shared/contracts/documents';
 import type { SettingsRepository } from '../../domain/repositories/settings.repository';
 import { QUEUE_NAMES, type QueueName } from '../ports/job-queue';
 
@@ -58,6 +59,8 @@ export class QueueSettings {
       // Nothing is paused until somebody pauses it: an instance with an empty settings table works
       // every queue it has (docs/05 §5.4).
       paused: overrides?.paused ?? [],
+      // And runs every step of the pipeline (docs/05 §5.4d).
+      pausedSteps: overrides?.pausedSteps ?? [],
       services: Object.fromEntries(
         SERVICE_NAMES.map((service) => [
           service,
@@ -92,10 +95,20 @@ export class QueueSettings {
       // Same rule as the concurrencies: only queues that exist. A paused name nobody serves would
       // sit in the settings row for ever, pausing nothing (docs/05 §5.4).
       paused: knownQueues(input.paused),
+      // And the same rule again for the steps (docs/05 §5.4d): a step this version does not run is
+      // dropped rather than stored, exactly as an unknown queue name is.
+      pausedSteps: knownSteps(input.pausedSteps),
       services,
     };
     await this.settings.write(QUEUE_SETTINGS_KEY, value);
     return value;
+  }
+
+  // The steps no job may run right now (docs/05 §5.4d), as everything that has to decide reads them.
+  // Here rather than at each call site because "what is paused" is one question, and a settings row
+  // this version cannot read must answer it with "nothing" rather than stop the pipeline.
+  async heldSteps(): Promise<ReadonlySet<DocumentStep>> {
+    return new Set((await this.read()).pausedSteps.filter(isDocumentStep));
   }
 }
 
@@ -137,12 +150,25 @@ function knownQueues(value: unknown): QueueName[] {
   return QUEUE_NAMES.filter((queue) => named.has(queue));
 }
 
+// The steps this version has, in pipeline order, out of the names it was given. A step an upgrade
+// removed — or a typo — must not sit in the settings row holding nothing back for ever.
+function knownSteps(value: unknown): DocumentStep[] {
+  if (!Array.isArray(value)) return [];
+  const named = new Set(value.filter((entry): entry is string => typeof entry === 'string'));
+  return DOCUMENT_STEPS.filter((step) => named.has(step));
+}
+
+function isDocumentStep(value: string): value is DocumentStep {
+  return DOCUMENT_STEPS.some((step) => step === value);
+}
+
 // Whatever is in the column has been in a database in between: a shape this version does not know is
 // ignored rather than crashing the workers on start.
 function parse(value: unknown): {
   concurrency?: Record<string, number>;
   unitConcurrency?: number;
   paused?: QueueName[];
+  pausedSteps?: DocumentStep[];
   services?: Record<string, Partial<ServiceGateDto>>;
 } | null {
   if (value === null || typeof value !== 'object') return null;
@@ -160,6 +186,7 @@ function parse(value: unknown): {
   return {
     concurrency,
     paused: knownQueues(record.paused),
+    pausedSteps: knownSteps(record.pausedSteps),
     services: parseServices(record.services),
     ...(typeof unit === 'number' && Number.isInteger(unit) && unit >= 1
       ? { unitConcurrency: unit }

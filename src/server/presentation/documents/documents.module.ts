@@ -43,6 +43,7 @@ import { FileStorage } from '../../application/ports/file-storage';
 import { ImageTool } from '../../application/ports/image-tool';
 import { LibraryReader } from '../../application/ports/library-reader';
 import { JobQueue } from '../../application/ports/job-queue';
+import { QueueSettings } from '../../application/queue/queue-settings';
 import { PdfToolbox } from '../../application/ports/pdf-toolbox';
 import { MimeDetector } from '../../application/ports/mime-detector';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
@@ -372,8 +373,10 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
         documents: DocumentRepository,
         events: DocumentEventRepository,
         queue: JobQueue,
-      ): ReprocessDocument => new ReprocessDocument(documents, events, queue),
-      inject: [DocumentRepository, DocumentEventRepository, JobQueue],
+        // What the instance is holding: a paused step is not run for the asking (docs/05 §5.4d).
+        queueSettings: QueueSettings,
+      ): ReprocessDocument => new ReprocessDocument(documents, events, queue, queueSettings),
+      inject: [DocumentRepository, DocumentEventRepository, JobQueue, QueueSettings],
     },
   ],
 })

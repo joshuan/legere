@@ -157,17 +157,25 @@ Rules:
   an OCR container thrashing, a model answering nonsense — without stopping the instance or
   editing env. Resuming re-registers the worker and the backlog drains. Which queues are paused is a
   stored setting like the concurrencies beside it ([`11 §11.13`](./11-ui-ux-spec.md)).
+- **A single step can be paused too**, which is the finer knob the one above is not: pausing
+  `document-process` stops the previews and the vectors to stop the analysis, and usually only one of
+  the six is misbehaving. It is a stored setting beside the paused queues, and it holds rather than
+  skips — §5.4d.
 - **Nobody waits unstarted for ever.** The hourly `maintenance` sweep re-enqueues documents whose row
   nothing has written to for two hours and whose steps have not started — **`PENDING` or `QUEUED`,
   and both for a reason**: `PENDING` is a step nothing was ever scheduled for, which is what a
   migration that resets every step leaves behind and what it has no queue to write to; `QUEUED` is a
   step a job *was* made for, and it is swept too because the job can go missing — a crash between the
   enqueue and the run leaves a row claiming a worker is on the way when none is, and a claim about
-  the queue that only the queue can check is a claim that has to be re-checked. The sweep marks what
-  it takes as `QUEUED` there and then, so the moment a step stops being unscheduled is the moment the
-  archive says so (`03 §3.3.10`). At most 200 a run, so an upgrade that rebuilds an archive spreads
-  over hours instead of filling the queue in one; the handler is idempotent, so being wrong costs one
-  repeated run and never a broken document.
+  the queue that only the queue can check is a claim that has to be re-checked. It asks for **those
+  steps and not the whole pipeline**: a document waiting on its vectors alone is worth one embedding
+  call, and re-running the six steps of §5.5 over it would OCR a scan again to arrive where it
+  already was. The sweep marks what it takes as `QUEUED` there and then, so the moment a step stops
+  being unscheduled is the moment the archive says so (`03 §3.3.10`). At most 200 a run, so an
+  upgrade that rebuilds an archive spreads over hours instead of filling the queue in one; the
+  handler is idempotent, so being wrong costs one repeated run and never a broken document. A step a
+  pause is holding is not swept at all (§5.4d) — it is unstarted on purpose, and enqueueing it hourly
+  would be an hourly job that does nothing.
 
 ## 5.4a. What one document may cost
 
@@ -337,6 +345,61 @@ must make the page slow to draw once, not hang it — and every service is probe
 of them cost one timeout rather than five. The result is held for a few seconds, so two admins and a
 reloading tab do not multiply the traffic to a container that may already be struggling; the answer
 says when it was taken, so a held one reads as held.
+
+## 5.4d. A step can be paused
+
+A queue is a stage, and `document-process` is the one stage that holds a pipeline: its six steps
+(§5.5) run inside a single job. So the pause of §5.4 is all-or-nothing exactly where the trouble
+never is — an analyst answering nonsense is a reason to stop the analysis, not to stop building
+canonical PDFs, rendering previews and reading text, which is what pausing the stage does. **Each
+step of §5.5 carries a pause of its own**, stored beside the paused queues in the one settings row
+(`03 §3.3.21`) and switched on the same screen (`11 §11.13`). It is read **per job** rather than at
+start-up, so it takes effect on the next document and re-registers nothing: a queue pause decides
+whether a worker exists, a step pause decides what a worker does.
+
+**A paused step is held, not skipped.** The job runs, the steps beside it run, and the paused one is
+left exactly as it was — `PENDING`, nothing scheduled for it. Nothing at all is written against it:
+no status, no `skipReasons` entry, no journal line, because a step that has not run has learnt
+nothing about the document and a verdict it never reached must not be recorded as one. That is the
+whole difference between pausing a step and turning it off. `SKIPPED` is an outcome, and an outcome
+would have to be undone by hand on every document that collected it while a container was broken.
+
+**A held step holds what reads it**, and only where the input is missing *because* of the pause
+(§5.5):
+
+- `canonical` held leaves no PDF to render or read, so `preview` and `markdown` are held with it —
+  unless an earlier run already built one, in which case they read what is in the bucket exactly as
+  a subset reprocess does;
+- `markdown` held leaves no text, so `analysis`, `fields` and `vectorization` are held — unless an
+  earlier run already extracted it;
+- `analysis` held leaves the document's type undecided, so `fields` is held **where the document has
+  no type at all**; one that carries a type already — chosen by a person, or read by an earlier
+  run — has its fields extracted as usual.
+
+An input that is missing for a reason of its own is not a pause and does not become one: a `markdown`
+that `FAILED` still fails the steps that read it, and one that was `SKIPPED` still passes its reason
+down (`03 §3.3.10`). What the pause protects is the document that has simply not got there yet.
+
+**Resuming drains what waited.** Releasing a step is the moment its documents move: the release
+enqueues that step for the documents whose it is `PENDING`, newest first and bounded per call by
+`QUEUE_REPROCESS_MAX` — the same work, through the same use case, as a repair asked for from
+`/admin/queue` (`07 §7.3`). What the bound leaves behind the hourly sweep takes within two hours,
+because nothing holds those steps any more, and it asks only for the steps that never started
+(§5.4). So a pause that lasted a week over ten thousand documents drains in batches instead of one
+push — and drains without re-reading a page that was read already.
+
+**A pause outranks a person asking.** A reprocess — the button on one document, or a repair across
+the archive — does not run a paused step: the paused ones are dropped from what it asks for, and a
+request that names nothing else is refused (`409 STEPS_PAUSED`, `07 §7.3`) rather than answered with
+a job that would do nothing. "This step runs nowhere" is what the switch was turned for, and a switch
+other screens can talk around is a switch nobody can trust. Trying a repaired container is done by
+resuming the step, watching a document and pausing again — which the settings row records either way.
+
+**A held document reads as unfinished, because it is.** `processing` stays true while any step is
+`PENDING` (`03 §3.3.10`), and the document's own page names the held step and says it is paused
+rather than leaving a reader to wonder what is taking so long (`11 §11.5`). The archive is not
+claiming that something is coming; it is saying that something has not happened, and — for the admin
+who reads the same screen — where the switch that stopped it is.
 
 ## 5.5. Document processing pipeline (`document-process`)
 

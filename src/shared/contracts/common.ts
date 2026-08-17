@@ -46,6 +46,9 @@ export const ERROR_CODES = [
   'LINK_SELF',
   'CANONICAL_NOT_READY',
   'DOCUMENT_UNAVAILABLE',
+  // 🔒 A step this instance is holding is not run for the asking (docs/05 §5.4d): a reprocess whose
+  // every step is paused would enqueue a job that does nothing, so it is refused instead.
+  'STEPS_PAUSED',
   'ONBOARDING_CLOSED',
   'VALIDATION_FAILED',
   // 🔒 A cursor names the order it was cut from (docs/07 §7.1). Answering it from another column

@@ -143,8 +143,9 @@ export function AdminQueueScreen() {
       concurrency: draft.concurrency,
       unitConcurrency: draft.unitConcurrency,
       // Sent whole (docs/07 §7.3): the pause switches live in each block's header, and saving the
-      // throughput must not quietly resume what somebody paused.
+      // throughput must not quietly resume what somebody paused — a queue or a step (docs/05 §5.4d).
       paused,
+      pausedSteps,
       services: draft.services,
     });
   };
@@ -183,6 +184,9 @@ export function AdminQueueScreen() {
   // Paused, a queue keeps taking jobs and runs none of them: the depth grows where an admin can see
   // it and nothing is lost (docs/11 §11.13). It rides inside the settings, which are sent whole.
   const paused = settings.data?.paused ?? [];
+  // The same for a single step of the pipeline: held at PENDING, nothing written against it, and
+  // resuming sets the documents that piled up going again (docs/05 §5.4d).
+  const pausedSteps = settings.data?.pausedSteps ?? [];
 
   const togglePause = (queue: string, pause: boolean): void => {
     const current = settings.data;
@@ -191,6 +195,7 @@ export function AdminQueueScreen() {
       concurrency: current.concurrency,
       unitConcurrency: current.unitConcurrency,
       paused: pause ? [...current.paused, queue] : current.paused.filter((name) => name !== queue),
+      pausedSteps: current.pausedSteps,
       services: current.services,
     });
   };

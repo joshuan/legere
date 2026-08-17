@@ -21,6 +21,7 @@ import {
   type Document,
   type DocumentSteps,
 } from '../../domain/entities/document';
+import { heldSteps } from '../../domain/entities/pipeline-pause';
 import { chunkMarkdown } from '../../domain/entities/document-chunks';
 import { detectLanguages, ocrLanguagesOf } from '../../domain/entities/document-language';
 import {
@@ -58,6 +59,7 @@ import type { PdfToolbox } from '../ports/pdf-toolbox';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import { artifactKeys } from '../storage/artifact-keys';
 import type { AnalysisSettings } from '../settings/analysis-settings';
+import type { QueueSettings } from '../queue/queue-settings';
 import { JobHandler } from './job-handler';
 import type { ProcessingSettings } from './processing-settings';
 
@@ -119,6 +121,7 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly unitOfWork: UnitOfWork,
     private readonly calls: CallContext,
     private readonly analysisSettings: AnalysisSettings,
+    private readonly queueSettings: QueueSettings,
     private readonly settings: ProcessingSettings,
     private readonly clock: Clock,
   ) {
@@ -142,6 +145,17 @@ export class HandleDocumentProcess extends JobHandler {
     const document = await this.documents.findById(documentId);
     // Soft-deleted or gone between enqueue and delivery: nothing to process, and nothing to fail.
     if (document === null || document.deletedAt !== null) return;
+
+    // 🔒 What this instance is holding, read here rather than at start-up, so pausing a step takes
+    // effect on the next document and re-registers no worker (docs/05 §5.4d). Held steps leave this
+    // run entirely: the row keeps the status it already has, and nothing below writes to it — not
+    // even the clean slate, which is a statement about a step that is about to run.
+    for (const step of heldSteps(await this.queueSettings.heldSteps(), document)) {
+      requested.delete(step);
+    }
+    // Everything asked for is held. Nothing to do, and nothing to say about it: the job was made
+    // before the pause, or by the sweep that does not know about this document's own state.
+    if (requested.size === 0) return;
 
     // A re-run starts from a clean slate — of the steps it was asked to run. An error from a
     // previous attempt must not outlive the attempt that replaces it, and must outlive one that

@@ -10,6 +10,7 @@ import type { FileStorage, StoredObjectInfo } from '../ports/file-storage';
 import type { JobQueue } from '../ports/job-queue';
 import type { MetricsCache } from '../ports/metrics-cache';
 import type { UnitOfWork } from '../ports/unit-of-work';
+import type { QueueSettings } from '../queue/queue-settings';
 import { purge } from '../trash/manage-trash';
 import { JobHandler } from './job-handler';
 
@@ -53,6 +54,7 @@ export class HandleMaintenance extends JobHandler {
     private readonly files: FileStorage,
     private readonly metrics: MetricsCache,
     private readonly queue: JobQueue,
+    private readonly queueSettings: QueueSettings,
     private readonly unitOfWork: UnitOfWork,
     private readonly clock: Clock,
     private readonly trashRetentionDays: number,
@@ -72,16 +74,24 @@ export class HandleMaintenance extends JobHandler {
     // Documents nobody is coming for: a job lost to a crash, or a migration that reset every step
     // and had no way to enqueue anything (docs/05 §5.4). The handler is idempotent, so the cost of
     // being wrong here is one repeated run and never a broken document.
+    //
+    // 🔒 A step this instance is holding is not one of them (docs/05 §5.4d): it is unstarted on
+    // purpose, and a document waiting at a pause would otherwise be enqueued hourly, for ever, to be
+    // held again — an hourly job that does nothing but keep the queue busy.
     const stalled = await this.documents.listStaleUnstartedIds(
       new Date(now.getTime() - STALE_AFTER_MS),
       STALE_BATCH,
+      [...(await this.queueSettings.heldSteps())],
     );
-    for (const documentId of stalled) {
-      await this.queue.enqueue('document-process', { documentId }, { singletonKey: documentId });
+    for (const { id, steps } of stalled) {
+      // Those steps, and not the whole pipeline: a document waiting on its vectors is worth one
+      // embedding call, and re-running all six over it would recognise a scan again to arrive where
+      // it already was (docs/05 §5.4).
+      await this.queue.enqueue('document-process', { documentId: id, steps }, { singletonKey: id });
       // And the row says so straight away: the sweep is the moment a PENDING step stops being
       // unscheduled, and a counter that only changed when a worker got round to it would keep the
       // old ambiguity alive under a new name (docs/03 §3.3.10).
-      await this.documents.markUnstartedQueued(documentId);
+      await this.documents.markUnstartedQueued(id, steps);
     }
 
     // 🔒 The one destruction in Legere that happens on a clock (docs/05 §5.7a): files of ours that

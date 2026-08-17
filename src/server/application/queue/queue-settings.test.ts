@@ -58,6 +58,7 @@ describe('QueueSettings', () => {
       concurrency: { 'file-ingest': 8, 'document-process': 3 },
       unitConcurrency: 4,
       paused: ['document-process'],
+      pausedSteps: [],
       services: { docling: { concurrency: 1, cooldownSeconds: 60 } },
     });
 
@@ -79,6 +80,7 @@ describe('QueueSettings', () => {
       concurrency: {},
       unitConcurrency: 1,
       paused: [],
+      pausedSteps: [],
       services: {
         // Past both bounds, and below them.
         docling: { concurrency: 900, cooldownSeconds: 9000 },
@@ -124,6 +126,7 @@ describe('QueueSettings', () => {
       unitConcurrency: 1,
       // A queue an earlier version had, a typo, and the same queue twice.
       paused: ['thumbnails', 'maintenance', 'document-process', 'maintenance'],
+      pausedSteps: [],
       services: {},
     });
 
@@ -135,6 +138,7 @@ describe('QueueSettings', () => {
       concurrency: { 'file-ingest': 900, 'document-process': 0 },
       unitConcurrency: 900,
       paused: [],
+      pausedSteps: [],
       services: {},
     });
 
@@ -175,5 +179,37 @@ describe('QueueSettings', () => {
 
     expect(read.concurrency['file-ingest']).toBe(4);
     expect(read.paused).toEqual([]);
+  });
+
+  // The steps of the pipeline, held one at a time (docs/05 §5.4d).
+  describe('paused steps', () => {
+    it('holds nothing until somebody says otherwise', async () => {
+      expect((await settings.read()).pausedSteps).toEqual([]);
+      expect([...(await settings.heldSteps())]).toEqual([]);
+    });
+
+    it('keeps only the steps it runs, deduplicated and in pipeline order', async () => {
+      const written = await settings.write({
+        concurrency: {},
+        unitConcurrency: 1,
+        paused: [],
+        // A step an earlier version had, a typo, the same step twice, and two real ones out of
+        // order: a setting that holds nothing must not be able to sit in a database looking as
+        // though it did.
+        pausedSteps: ['thumbnails', 'analysis', 'canonical', 'analysis'],
+        services: {},
+      });
+
+      expect(written.pausedSteps).toEqual(['canonical', 'analysis']);
+      expect((await settings.read()).pausedSteps).toEqual(['canonical', 'analysis']);
+      expect([...(await settings.heldSteps())]).toEqual(['canonical', 'analysis']);
+    });
+
+    it('ignores a stored list it cannot read rather than holding the pipeline', async () => {
+      await store.write(QUEUE_SETTINGS_KEY, { pausedSteps: 'analysis' });
+
+      expect((await settings.read()).pausedSteps).toEqual([]);
+      expect([...(await settings.heldSteps())]).toEqual([]);
+    });
   });
 });

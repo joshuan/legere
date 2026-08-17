@@ -39,6 +39,7 @@
       "DOCUMENT_TYPE_SLUG_TAKEN": "A document type with this slug already exists.",
       "COLLECTION_NAME_TAKEN": "You already have a collection with this name.",
       "DOCUMENT_UNAVAILABLE": "The original file is currently unavailable.",
+      "STEPS_PAUSED": "That step is paused, so nothing was started. Resume it on the queue page.",
       "ONBOARDING_CLOSED": "This instance has already been set up.",
       "VALIDATION_FAILED": "Please check the highlighted fields.",
       "CURSOR_SORT_MISMATCH": "The order changed while this page was open. Reload to see it.",

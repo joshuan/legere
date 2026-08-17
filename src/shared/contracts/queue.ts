@@ -166,8 +166,13 @@ export const queueSettingsSchema = z.object({
   concurrency: z.record(z.string(), z.number().int().min(1).max(QUEUE_CONCURRENCY_MAX)),
   unitConcurrency: z.number().int().min(1).max(QUEUE_CONCURRENCY_MAX),
   // Queues whose workers are not registered: jobs arrive and wait, nothing consumes them
-  // (docs/05 §5.4). The way to stop one misbehaving step without stopping the instance.
+  // (docs/05 §5.4). The way to stop one misbehaving stage without stopping the instance.
   paused: z.array(z.string()),
+  // The same idea one level down (docs/05 §5.4d): steps of the pipeline that no job runs. A queue
+  // pause decides whether a worker exists; a step pause decides what a worker does, so this one is
+  // read per job and re-registers nothing. A paused step is *held* — left at PENDING with nothing
+  // written against it — rather than skipped, because a step that has not run has reached no verdict.
+  pausedSteps: z.array(z.string()),
   // How many calls each external service may be doing at once, and how long its slot stays shut
   // afterwards. It travels beside the queue knobs because it is the same kind of setting — how hard
   // this instance works — and it lives in the same settings row (docs/05 §5.4b, docs/07 §7.3).
@@ -178,3 +183,10 @@ export type QueueSettingsDto = z.infer<typeof queueSettingsSchema>;
 // Sent whole: the form shows every knob at once, so it saves every knob at once.
 export const updateQueueSettingsRequestSchema = queueSettingsSchema;
 export type UpdateQueueSettingsRequest = z.infer<typeof updateQueueSettingsRequestSchema>;
+
+// GET /api/pipeline/paused-steps — the one fact about the queue that is not an admin's alone
+// (docs/05 §5.4d, docs/11 §11.5). A step reading `PENDING` for ever is either waiting for a worker or
+// paused, and whoever opened the document is owed the difference; nothing else about the queue is
+// published here, and a paused step is not a secret — it is visible on every document it holds.
+export const pausedStepsResponseSchema = z.object({ pausedSteps: z.array(documentStepSchema) });
+export type PausedStepsResponse = z.infer<typeof pausedStepsResponseSchema>;

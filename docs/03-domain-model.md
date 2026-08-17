@@ -40,7 +40,7 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `LibraryVisibility` | `ALL_USERS`, `RESTRICTED` | new libraries default to `RESTRICTED` (fail-closed) |
 | `FileRefStatus` | `DISCOVERED`, `HASHED`, `MISSING`, `EXCLUDED` | `EXCLUDED` is the mark an admin's deletion leaves on a volume it may not write to (§3.3.9): the bytes are still there and Legere will not read them again |
 | `FileOrigin` | `LIBRARY`, `MANAGED` | where a file's bytes live: on the read-only volume (addressed by `FileRef`s) or in our own bucket (uploaded from a browser, or produced by us). A document's own origin is derived from its files rather than stored — see §3.3.10 |
-| `StepStatus` | `PENDING`, `QUEUED`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. **`PENDING` and `QUEUED` are the two halves of what used to be one word**: `QUEUED` says a job exists and a worker will get to it; `PENDING` says nothing is scheduled — the artifact is out of date and waits for the hourly sweep (`05 §5.4`) or for somebody to ask. A migration that resets a step produces the second, and while the two shared a name the archive read as busy for the two hours before the sweep noticed, with the queue counter beside it honestly showing nothing. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes a step that has not started reads as "stuck". The mark is best-effort and never the reason a job fails |
+| `StepStatus` | `PENDING`, `QUEUED`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. **`PENDING` and `QUEUED` are the two halves of what used to be one word**: `QUEUED` says a job exists and a worker will get to it; `PENDING` says nothing is scheduled — the artifact is out of date and waits for the hourly sweep (`05 §5.4`), for somebody to ask, or, where the step is paused (`05 §5.4d`), for the pause to be lifted: a held step is `PENDING` and stays there on purpose, which is why the sweep leaves it alone and the screens say which of the two it is. A migration that resets a step produces the second, and while the two shared a name the archive read as busy for the two hours before the sweep noticed, with the queue counter beside it honestly showing nothing. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes a step that has not started reads as "stuck". The mark is best-effort and never the reason a job fails |
 | `PageFormat` | `AUTO`, `A4`, `MATCH_SOURCE` | what shape the pages of the canonical take (`05 §5.5` step 1). `AUTO` reads it off the pictures the pages were made from |
 | `ValueSource` | `NONE`, `AUTO`, `MANUAL` | who decided a value: nobody, the pipeline, a person. Carried by `typeSource` and `titleSource`, and — as the two words `AUTO`/`MANUAL` inside JSON — by the per-field `sources` of the typed fields (§3.3.10a): one vocabulary, because it is one question |
 | `TrashReason` | `REPLACED`, `DOCUMENT_DELETED` | how a file came to be in the trash (`05 §5.7a`). Not "who deleted it" but "what happened to it", which is what decides whether there is a newer copy to compare it with |
@@ -365,7 +365,7 @@ front of it (`05 §5.5` step 4), and the protection lives where it belongs — t
   bucket is ours and does not go missing behind our back — so only library files move this needle.
   **The canonical PDF outlives all of them**: a document whose volume was unplugged still reads,
   still searches and still downloads as a PDF, and says plainly that its originals are elsewhere.
-- `processing`: `true` while any step is `PENDING`, `QUEUED` or `RUNNING` and prerequisites are not `FAILED`. A document nothing is scheduled for is still unfinished — the reader is told it is not done, and the step's own status is where "and nothing is coming for it right now" is said.
+- `processing`: `true` while any step is `PENDING`, `QUEUED` or `RUNNING` and prerequisites are not `FAILED`. A document nothing is scheduled for is still unfinished — the reader is told it is not done, and the step's own status is where "and nothing is coming for it right now" is said. A step held by a pause (`05 §5.4d`) is one of those: the document is unfinished and the flag says so, while the page saying *which* step it is is where the pause is named.
 - `fileCount`, `sizeBytes`: how many files the document is made of and what they weigh together.
 
 **Invariants:**
@@ -669,7 +669,7 @@ An instance knob an admin turns at runtime: a key, a JSON value, and when it las
 
 | Field | Type | Notes |
 |---|---|---|
-| key | string | primary key; `queue` is the first one — concurrency per queue, units inside a job, and which queues are paused |
+| key | string | primary key; `queue` is the first one — concurrency per queue, units inside a job, which queues are paused, and which steps of the pipeline are held (`05 §5.4d`) |
 | value | json | whatever that key means |
 | updatedAt | timestamptz | |
 

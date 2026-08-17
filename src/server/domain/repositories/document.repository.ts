@@ -65,6 +65,12 @@ export type StepStatusCounters = {
   steps: Record<DocumentStep, Record<StepStatus, number>>;
 };
 
+// A document the hourly sweep found waiting, and exactly what it is waiting for (docs/05 §5.4).
+export type StaleDocument = {
+  id: string;
+  steps: DocumentStep[];
+};
+
 // Who is asking. Access is decided in SQL rather than after the fact, so a page of 30 is 30 the
 // caller may read — not 30 rows filtered down to 4 (docs/03 §3.4).
 export type Viewer = {
@@ -277,20 +283,32 @@ export abstract class DocumentRepository {
 
   abstract countByStepStatus(tx?: TransactionHandle): Promise<StepStatusCounters>;
 
+  // The named steps of this document become QUEUED where nothing is scheduled for them, because the
+  // caller has just scheduled them (docs/03 §3.3.10). Only PENDING moves: a step that is DONE, FAILED
+  // or SKIPPED has an outcome, and the run about to happen may or may not touch it. Only the named
+  // ones move either: a step the sweep did not ask for — one a pause is holding (docs/05 §5.4d) — has
+  // no job coming and must not be made to look as though it had.
+  abstract markUnstartedQueued(
+    documentId: string,
+    steps: readonly DocumentStep[],
+    tx?: TransactionHandle,
+  ): Promise<void>;
+
   // Documents left waiting: a step is PENDING and nothing has written to the row since `olderThan`.
   // A document being processed right now has its steps written as they run, so it is never in this
   // answer — what is, is a document whose job was lost or was never enqueued at all, which is what a
   // migration that resets statuses leaves behind (docs/05 §5.4).
-  // Every step of this document that nothing is scheduled for becomes QUEUED, because the caller has
-  // just scheduled it (docs/03 §3.3.10). Only PENDING moves: a step that is DONE, FAILED or SKIPPED
-  // has an outcome, and the run about to happen may or may not touch it.
-  abstract markUnstartedQueued(documentId: string, tx?: TransactionHandle): Promise<void>;
-
+  //
+  // Each answer carries the unstarted steps themselves, because that is what the sweep asks for: a
+  // document waiting on its vectors is worth one embedding call, not the whole pipeline again. Steps
+  // in `ignored` are looked at nowhere — neither to find a document nor to describe one — so a
+  // document held only on a paused step is not in this answer at all (docs/05 §5.4d).
   abstract listStaleUnstartedIds(
     olderThan: Date,
     limit: number,
+    ignored: readonly DocumentStep[],
     tx?: TransactionHandle,
-  ): Promise<string[]>;
+  ): Promise<StaleDocument[]>;
 
   // The documents whose named step sits in a given status, newest first — what "the previews failed,
   // run them again" needs to find (docs/07 §7.3). Bounded by the caller: a repair on a large archive

@@ -572,9 +572,16 @@ document pinned to the height of a phone would be a worse read, not a better one
   provider configured", and the rest of docs/03 §3.3.10), because the label alone reads as a failure
   to everyone who has not read the pipeline; a `FAILED` step shows its `processingError` there too,
   attached to the step that produced it rather than pooled at the bottom where it names
-  nothing. An error the server could not attribute to any step still renders under the list. ADMIN
+  nothing. An error the server could not attribute to any step still renders under the list. A step
+  the instance has **paused** (`05 §5.4d`) says so on its own row — a tag beside the status and, under
+  the name, the line that a step held by a pause is `PENDING` on purpose and nothing is coming for it
+  until somebody lifts it. Every reader sees it, not only an admin: "this document has been half
+  processed for two days" is asked by whoever opened the document, and the honest answer is that a
+  step was switched off rather than that the queue is slow. ADMIN
   gets a checkbox at the start of each row and one **Reprocess** button below — the step names are
-  already on screen, so a second list of them to tick would be the same five words twice — and,
+  already on screen, so a second list of them to tick would be the same five words twice — with a
+  paused step **not selectable**, since a re-run of it is refused (`07 §7.3`) and a checkbox that
+  buys a `409` is a checkbox that lies — and,
   where the analysis was skipped for length alone, **Analyse the whole document** beside the reason
   it names: the answer to a limit belongs where the limit is visible, and it is a different request
   from "run this again" (`05 §5.5` step 4).
@@ -1026,7 +1033,19 @@ sit in three bands at three ends of the page.
   is capped per call, so a huge archive drains in batches rather than in one indigestible push.
   It is an **icon**, repeated once per status per step: a worded button was the widest thing in the
   row and pushed the counts off the card, and what it does is said on hover and to a screen reader,
-  where a repeated label belongs (`§11.15`).
+  where a repeated label belongs (`§11.15`). A **paused** step offers none of them: a re-run of it is
+  refused (`07 §7.3`), and an icon that answers `409` is worse than an icon that is not there.
+- **Pause and resume one step**, on the step's own row of that table, because the step is the thing
+  being stopped and the row is where it is already named. The same switch as a stage's, read the same
+  way — **on means the step runs** — so the two paused things on this page read alike, and the row of
+  a paused step is tagged as paused beside its counts, the way a paused queue is tagged beside its
+  depth. It is the knob for the trouble an operator actually has: an analyst answering nonsense, a
+  Docling container thrashing. Pausing the stage instead would stop the previews and the vectors to
+  stop the analysis, and every document would wait on a step that was never the problem.
+  A paused step is **held, not skipped** (`05 §5.4d`): the documents queue up at it, nothing is
+  written against it, and resuming sets them going again — which the switch says in a line under it,
+  since "paused" alone leaves a reader to guess whether the work was dropped. It takes effect on the
+  next document with no restart and no re-registered worker.
 - **Every stage is named twice**: what it does, in the reader's language, over what it is called in
   the queue — the technical name stays because it is what the failed-jobs table and the container's
   own logs say, but it is not what somebody comes to this page to read. Under the name, one line

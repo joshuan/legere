@@ -26,7 +26,9 @@ import {
   queueSettingsFixture,
   StubLibraryReader,
 } from '../../../../test/helpers/processing-fakes';
+import type { DocumentStep } from '../../../shared/contracts/documents';
 import type { Document } from '../../domain/entities/document';
+import { QUEUE_SETTINGS_KEY } from '../queue/queue-settings';
 import type { File } from '../../domain/entities/file';
 import { RelativePath } from '../../domain/value-objects/relative-path';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
@@ -74,8 +76,11 @@ describe('HandleDocumentProcess', () => {
   let embeddings: FakeEmbeddingProvider;
   let calls: FakeCallContext;
   let handler: HandleDocumentProcess;
+  // The one settings row a pause lives in (docs/05 §5.4d), kept where the tests can write to it.
+  let queueStore: InMemorySettingsRepository;
 
   beforeEach(() => {
+    queueStore = new InMemorySettingsRepository();
     documents = new InMemoryDocumentRepository();
     fileRepo = new InMemoryFileRepository();
     events = new FakeDocumentEventRepository();
@@ -123,6 +128,7 @@ describe('HandleDocumentProcess', () => {
       transcriberPageImageMaxDim: 1600,
     };
 
+    const queueSettings = queueSettingsFixture(4, queueStore);
     handler = new HandleDocumentProcess(
       documents,
       events,
@@ -152,10 +158,17 @@ describe('HandleDocumentProcess', () => {
       new ImmediateUnitOfWork(),
       calls,
       new AnalysisSettings(new InMemorySettingsRepository()),
+      queueSettings,
       settings,
       clock,
     );
   });
+
+  // Holding a step for the run about to happen (docs/05 §5.4d). Written straight into the settings
+  // store the handler reads, because that is where a pause lives — one row, read per job.
+  async function pauseSteps(...steps: DocumentStep[]): Promise<void> {
+    await queueStore.write(QUEUE_SETTINGS_KEY, { pausedSteps: steps });
+  }
 
   // A document and the files it is made of: a library file gets a ref pointing at the stub volume,
   // a managed one gets its bytes in the bucket.
@@ -2127,6 +2140,93 @@ describe('HandleDocumentProcess', () => {
     });
   });
 
+  // A step this instance is holding (docs/05 §5.4d). Held, not skipped: the row keeps what it had,
+  // and the steps beside it go on running.
+  describe('a paused step (docs/05 §5.4d)', () => {
+    it('leaves the held step untouched while the steps beside it run and settle', async () => {
+      await pauseSteps('analysis');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.canonical).toBe('DONE');
+      expect(document.steps.preview).toBe('DONE');
+      expect(document.steps.markdown).toBe('DONE');
+      // 🔒 Nothing at all was written about the held step: not a status, not a skip reason, not an
+      // entry in the journal. A step that has not run has reached no verdict to record.
+      expect(document.steps.analysis).toBe('PENDING');
+      expect(document.skipReasons.analysis).toBeUndefined();
+      expect(events.events.filter((event) => event.payload?.step === 'analysis')).toEqual([]);
+      // And the analyst was never called.
+      expect(analyst.calls).toHaveLength(0);
+    });
+
+    it('holds the steps that read the canonical when the canonical is held with them', async () => {
+      await pauseSteps('canonical');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      const document = stateOf();
+      // 🔒 Not FAILED: there is no canonical because nobody was allowed to build one, which is a
+      // fact about the switch rather than about the document.
+      expect(document.steps.canonical).toBe('PENDING');
+      expect(document.steps.preview).toBe('PENDING');
+      expect(document.steps.markdown).toBe('PENDING');
+      expect(document.steps.vectorization).toBe('PENDING');
+      expect(storage.keys()).toEqual([]);
+    });
+
+    it('runs the steps that read the canonical when an earlier run built one', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      await run();
+      const built = canonicalOf();
+
+      await pauseSteps('canonical');
+      pdfs.calls.length = 0;
+      await run();
+
+      // The canonical in the bucket is the one the first run made — nothing rebuilt it — and the
+      // steps that read it ran over it again.
+      expect(canonicalOf()).toBe(built);
+      expect(stateOf().steps.preview).toBe('DONE');
+      expect(stateOf().steps.markdown).toBe('DONE');
+    });
+
+    it('holds the fields step behind a held analysis only until the document has a type', async () => {
+      const receipt = documentTypes.add('receipt');
+      await pauseSteps('analysis');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+
+      // Nothing decided the type, so "this type has no schema" would be a verdict about a type
+      // nobody has read.
+      expect(stateOf().steps.fields).toBe('PENDING');
+      expect(stateOf().skipReasons.fields).toBeUndefined();
+
+      // A person chooses one: the fields are a reading under *that* type, and the analysis is not
+      // needed for it.
+      documents.add({ ...stateOf(), typeId: receipt.id, typeSource: 'MANUAL' });
+      await run();
+
+      expect(stateOf().steps.fields).toBe('DONE');
+      expect(stateOf().steps.analysis).toBe('PENDING');
+    });
+
+    it('writes nothing at all when every step it was asked for is held', async () => {
+      await pauseSteps('vectorization');
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      documents.updates.length = 0;
+
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['vectorization'] });
+
+      expect(documents.updates).toEqual([]);
+      expect(stateOf().steps.vectorization).toBe('PENDING');
+    });
+  });
+
   it('rejects a payload that is not a document id', async () => {
     await expect(handler.handle({ id: DOCUMENT_ID })).rejects.toThrow();
   });
@@ -2177,6 +2277,7 @@ describe('HandleDocumentProcess', () => {
       new ImmediateUnitOfWork(),
       calls,
       new AnalysisSettings(new InMemorySettingsRepository()),
+      queueSettingsFixture(unitConcurrency, queueStore),
       settings,
       new FixedClock(),
     );

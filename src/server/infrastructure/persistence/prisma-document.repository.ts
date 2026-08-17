@@ -46,6 +46,7 @@ import {
   type ProcessingUpdate,
   type SearchFilters,
   type SearchMatch,
+  type StaleDocument,
   type StepStatusCounters,
   type UpdateDocumentMetaInput,
   type Viewer,
@@ -394,6 +395,22 @@ function filters(query: DocumentFilterInput): Prisma.DocumentWhereInput {
   }
 
   return and.length === 0 ? where : { ...where, AND: and };
+}
+
+// The column each step records itself in, by the name the API calls the step (docs/03 §3.3.10).
+const STEP_COLUMN = {
+  canonical: 'canonicalStatus',
+  preview: 'previewStatus',
+  markdown: 'markdownStatus',
+  analysis: 'analysisStatus',
+  fields: 'fieldsStatus',
+  vectorization: 'vectorizationStatus',
+} as const satisfies Record<DocumentStep, string>;
+
+// Not started, in both of the ways a step can fail to be: nothing was ever scheduled for it, or
+// something was and the job went missing (docs/05 §5.4).
+function unstarted(status: StepStatus): boolean {
+  return status === 'PENDING' || status === 'QUEUED';
 }
 
 // Which column each step of the pipeline records itself in (docs/03 §3.3.10). A step is a name in
@@ -903,25 +920,40 @@ export class PrismaDocumentRepository implements DocumentRepository {
     }
   }
 
-  async markUnstartedQueued(documentId: string, tx?: TransactionHandle): Promise<void> {
+  async markUnstartedQueued(
+    documentId: string,
+    steps: readonly DocumentStep[],
+    tx?: TransactionHandle,
+  ): Promise<void> {
+    if (steps.length === 0) return;
+    const asked = (step: DocumentStep): boolean => steps.includes(step);
     // Raw, because six columns have to move on one condition each and Prisma has no way to say
-    // "this column, if it is PENDING" in a single update.
+    // "this column, if it is PENDING" in a single update. The condition is asked here rather than in
+    // JavaScript over the row that was read a moment ago: a step a worker has picked up in between
+    // must not be dragged back to QUEUED.
     await clientOf(this.prisma, tx).$executeRaw`
       UPDATE "documents" SET
-        "canonical_status"     = CASE WHEN "canonical_status"     = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "canonical_status"     END,
-        "preview_status"       = CASE WHEN "preview_status"       = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "preview_status"       END,
-        "markdown_status"      = CASE WHEN "markdown_status"      = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "markdown_status"      END,
-        "analysis_status"      = CASE WHEN "analysis_status"      = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "analysis_status"      END,
-        "fields_status"        = CASE WHEN "fields_status"        = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "fields_status"        END,
-        "vectorization_status" = CASE WHEN "vectorization_status" = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "vectorization_status" END
+        "canonical_status"     = CASE WHEN ${asked('canonical')}     AND "canonical_status"     = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "canonical_status"     END,
+        "preview_status"       = CASE WHEN ${asked('preview')}       AND "preview_status"       = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "preview_status"       END,
+        "markdown_status"      = CASE WHEN ${asked('markdown')}      AND "markdown_status"      = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "markdown_status"      END,
+        "analysis_status"      = CASE WHEN ${asked('analysis')}      AND "analysis_status"      = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "analysis_status"      END,
+        "fields_status"        = CASE WHEN ${asked('fields')}        AND "fields_status"        = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "fields_status"        END,
+        "vectorization_status" = CASE WHEN ${asked('vectorization')} AND "vectorization_status" = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "vectorization_status" END
       WHERE "id" = ${documentId}::uuid AND "deleted_at" IS NULL`;
   }
 
   async listStaleUnstartedIds(
     olderThan: Date,
     limit: number,
+    ignored: readonly DocumentStep[],
     tx?: TransactionHandle,
-  ): Promise<string[]> {
+  ): Promise<StaleDocument[]> {
+    // A step the caller is not asking about is looked at nowhere: it neither puts a document in this
+    // answer nor is named in one. With every step held there is nothing to sweep at all
+    // (docs/05 §5.4d).
+    const considered = DOCUMENT_STEPS.filter((step) => !ignored.includes(step));
+    if (considered.length === 0) return [];
+
     const rows = await clientOf(this.prisma, tx).document.findMany({
       where: {
         deletedAt: null,
@@ -931,20 +963,26 @@ export class PrismaDocumentRepository implements DocumentRepository {
         // it is here because the job can go missing: a crash between the enqueue and the run leaves
         // a row saying a worker is on the way when none is. The handler is idempotent, so the cost of
         // sweeping one that was fine is a repeated run (docs/05 §5.4).
-        OR: [
-          { canonicalStatus: { in: ['PENDING', 'QUEUED'] } },
-          { previewStatus: { in: ['PENDING', 'QUEUED'] } },
-          { markdownStatus: { in: ['PENDING', 'QUEUED'] } },
-          { analysisStatus: { in: ['PENDING', 'QUEUED'] } },
-          { fieldsStatus: { in: ['PENDING', 'QUEUED'] } },
-          { vectorizationStatus: { in: ['PENDING', 'QUEUED'] } },
-        ],
+        OR: considered.map((step) => ({
+          [STEP_COLUMN[step]]: { in: ['PENDING', 'QUEUED'] },
+        })),
       },
-      select: { id: true },
+      select: {
+        id: true,
+        canonicalStatus: true,
+        previewStatus: true,
+        markdownStatus: true,
+        analysisStatus: true,
+        fieldsStatus: true,
+        vectorizationStatus: true,
+      },
       orderBy: { createdAt: 'asc' },
       take: limit,
     });
-    return rows.map((row) => row.id);
+    return rows.map((row) => ({
+      id: row.id,
+      steps: considered.filter((step) => unstarted(row[STEP_COLUMN[step]])),
+    }));
   }
 
   async listReadableItems(

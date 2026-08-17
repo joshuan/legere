@@ -3,10 +3,13 @@ import {
   documentFixture,
   FakeDocumentEventRepository,
   InMemoryDocumentRepository,
+  InMemorySettingsRepository,
+  queueSettingsFixture,
 } from '../../../../test/helpers/processing-fakes';
 import { ReprocessDocument } from '../documents/reprocess-document';
 import { JobQueue, type EnqueueOptions, type QueueName } from '../ports/job-queue';
 import type { TransactionHandle } from '../ports/unit-of-work';
+import { QUEUE_SETTINGS_KEY } from './queue-settings';
 import { ReprocessDocumentsByStep } from './reprocess-by-step';
 
 // Records what was enqueued; nothing else here needs a queue.
@@ -41,17 +44,22 @@ describe('ReprocessDocumentsByStep', () => {
   let documents: InMemoryDocumentRepository;
   let events: FakeDocumentEventRepository;
   let queue: RecordingJobQueue;
+  // Where a paused step lives (docs/05 §5.4d): a repair does not run one.
+  let queueStore: InMemorySettingsRepository;
 
   beforeEach(() => {
     documents = new InMemoryDocumentRepository();
     events = new FakeDocumentEventRepository();
     queue = new RecordingJobQueue();
+    queueStore = new InMemorySettingsRepository();
   });
 
   function useCase(maxPerCall = 500): ReprocessDocumentsByStep {
+    const settings = queueSettingsFixture(4, queueStore);
     return new ReprocessDocumentsByStep(
       documents,
-      new ReprocessDocument(documents, events, queue),
+      new ReprocessDocument(documents, events, queue, settings),
+      settings,
       maxPerCall,
     );
   }
@@ -131,5 +139,35 @@ describe('ReprocessDocumentsByStep', () => {
 
     expect(result).toEqual({ enqueued: 0 });
     expect(queue.enqueued).toHaveLength(0);
+  });
+
+  // A pause outranks a repair, and says so rather than answering `enqueued: 0` (docs/05 §5.4d).
+  it('refuses to run a step the instance is holding', async () => {
+    given('11111111-1111-4111-8111-111111111111', 'preview', '2026-01-01T00:00:00.000Z');
+    await queueStore.write(QUEUE_SETTINGS_KEY, { pausedSteps: ['preview'] });
+
+    await expect(useCase().execute({ step: 'preview', status: 'FAILED' })).rejects.toMatchObject({
+      code: 'STEPS_PAUSED',
+      httpStatus: 409,
+    });
+    expect(queue.enqueued).toHaveLength(0);
+  });
+
+  it('runs the rest of the pipeline for every document while one step is held', async () => {
+    given('11111111-1111-4111-8111-111111111111', 'preview', '2026-01-01T00:00:00.000Z');
+    await queueStore.write(QUEUE_SETTINGS_KEY, { pausedSteps: ['analysis'] });
+
+    // The widest question of docs/11 §11.13: the whole pipeline of every document.
+    const result = await useCase().execute({});
+
+    expect(result).toEqual({ enqueued: 1 });
+    expect(queue.enqueued[0]?.payload).toEqual({
+      documentId: '11111111-1111-4111-8111-111111111111',
+      // The held step is not in the job at all, and the document's own row keeps it where it was.
+      steps: ['canonical', 'preview', 'markdown', 'fields', 'vectorization'],
+    });
+    expect(documents.documents.get('11111111-1111-4111-8111-111111111111')?.steps.analysis).toBe(
+      'DONE',
+    );
   });
 });
