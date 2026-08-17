@@ -151,9 +151,12 @@ const server = createApiMock();
 function serve(
   document: DocumentDetailDto = detail,
   markdown: string | null = '# Terms\n\nBody',
+  // Which steps the instance is holding (docs/05 §5.4d): none, unless a test is about that.
+  pausedSteps: string[] = [],
 ): void {
   server.use(
     http.get(`/api/documents/${ID}`, () => HttpResponse.json(envelope(document))),
+    http.get('/api/pipeline/paused-steps', () => HttpResponse.json(envelope({ pausedSteps }))),
     http.get(`/api/documents/${ID}/markdown`, () => HttpResponse.json(envelope({ markdown }))),
     http.get('/api/document-types', () =>
       HttpResponse.json(
@@ -1265,6 +1268,30 @@ describe('DocumentViewerScreen', () => {
     await userEvent.click(panel.getByRole('button', { name: /Reprocess 1 steps/ }));
 
     await waitFor(() => expect(body).toEqual({ steps: ['preview'] }));
+  });
+
+  // A step the instance is holding (docs/05 §5.4d): PENDING on purpose, which is a different answer
+  // from "the queue is slow" and is owed to whoever opened the document (docs/11 §11.5).
+  it('says a step is paused, to every reader, and lets nobody select it for a re-run', async () => {
+    serve({ ...detail, steps: { ...detail.steps, analysis: 'PENDING' } }, null, ['analysis']);
+
+    const asUser = renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
+    await screen.findByText(enMessages.viewer.processing.title);
+    // Not an admin's fact: the reader is told why the document has been half processed for days.
+    expect(await screen.findByText(enMessages.viewer.processing.pausedTag)).toBeInTheDocument();
+    expect(screen.getByText(enMessages.viewer.processing.pausedHint)).toBeInTheDocument();
+    asUser.unmount();
+
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />, { user: TEST_ADMIN });
+    await screen.findByText(enMessages.viewer.processing.title);
+    const panel = within(screen.getByRole('tabpanel'));
+
+    // 🔒 The server refuses to run a held step, so the checkbox that would ask for it is not
+    // offered — the one beside a step that runs still is.
+    await waitFor(() =>
+      expect(panel.getByRole('checkbox', { name: enMessages.viewer.steps.analysis })).toBeDisabled(),
+    );
+    expect(panel.getByRole('checkbox', { name: enMessages.viewer.steps.preview })).toBeEnabled();
   });
 
   // Two sections, in that order: "is it finished, and did anything break", then "what happened"

@@ -72,6 +72,7 @@ import { documentTypeApi, documentTypeKeys } from '../../entities/document-type'
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
 import { personApi, personKeys } from '../../entities/person';
+import { pipelineApi, queueKeys } from '../../entities/queue';
 import { searchApi, searchKeys } from '../../entities/search';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
@@ -413,6 +414,18 @@ function ProcessingSection({
   const { message } = App.useApp();
   const [steps, setSteps] = useState<DocumentStep[]>([]);
 
+  // Which steps the instance is holding (docs/05 §5.4d). Read by every reader, not only an admin:
+  // "this document has been half processed for two days" is asked by whoever opened it, and a step
+  // held on purpose is a different answer from a queue that is slow (docs/11 §11.5). Instance-wide
+  // and slow to change, so it is not polled with the document beside it.
+  const pausedSteps = useQuery({
+    queryKey: queueKeys.pausedSteps,
+    queryFn: pipelineApi.pausedSteps,
+    staleTime: 60_000,
+  });
+  const paused = (step: DocumentStep): boolean =>
+    (pausedSteps.data?.pausedSteps ?? []).includes(step);
+
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.detail(document.id) });
     void queryClient.invalidateQueries({ queryKey: documentKeys.events(document.id) });
@@ -463,6 +476,9 @@ function ProcessingSection({
                 <Checkbox
                   aria-label={label}
                   checked={steps.includes(step)}
+                  // 🔒 A held step is not selectable: the server refuses to run it (docs/07 §7.3),
+                  // and a checkbox that buys a 409 is a checkbox that lies.
+                  disabled={paused(step)}
                   onChange={(event) =>
                     setSteps((chosen) =>
                       event.target.checked
@@ -473,7 +489,22 @@ function ProcessingSection({
                 />
               )}
               <Tag color={statusColor(document.steps[step])}>{document.steps[step]}</Tag>
-              <Typography.Text>{label}</Typography.Text>
+              <Typography.Text>
+                {label}
+                {paused(step) && (
+                  <>
+                    {' '}
+                    <Tag color="orange">{t('viewer.processing.pausedTag')}</Tag>
+                  </>
+                )}
+              </Typography.Text>
+              {/* Waiting on purpose, which is a different thing from waiting for a worker: without
+                  this line the row says PENDING and leaves the reader to wonder (docs/05 §5.4d). */}
+              {paused(step) && (
+                <Typography.Text type="secondary" className="legere-step-note">
+                  {t('viewer.processing.pausedHint')}
+                </Typography.Text>
+              )}
               {/* SKIPPED alone reads like a failure; the reason says which harmless one it was, and
                   whether it is something an admin can change (docs/03 §3.3.10). */}
               {reason !== undefined && (

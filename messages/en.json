@@ -453,7 +453,10 @@
         "switch": "Pause {queue}",
         "tag": "Paused",
         "title": "Run this stage",
-        "hint": "Paused, the stage keeps taking work and runs none of it: the queue grows where you can see it and nothing is lost. The honest way to stop one misbehaving stage without stopping the instance."
+        "hint": "Paused, the stage keeps taking work and runs none of it: the queue grows where you can see it and nothing is lost. The honest way to stop one misbehaving stage without stopping the instance.",
+        "stepSwitch": "Run the {step} step",
+        "stepTitle": "Run this step",
+        "stepHint": "Paused, the step is held rather than skipped: the documents queue up at it, nothing is written against it, and resuming sets them going again. The rest of the pipeline keeps running."
       },
       "reprocess": {
         "enqueued": "{count} documents re-enqueued"
@@ -844,7 +847,9 @@
       "queued": "Reprocessing queued",
       "reprocessAll": "Reprocess everything",
       "reprocessSelected": "Reprocess {count} steps",
-      "analyseInFull": "Analyse the whole document"
+      "analyseInFull": "Analyse the whole document",
+      "pausedTag": "Paused",
+      "pausedHint": "This step is paused for the whole instance: it is waiting on purpose, and nothing is coming for it until an administrator resumes it."
     },
     "details": {
       "size": "Size",

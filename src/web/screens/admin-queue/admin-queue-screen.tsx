@@ -24,6 +24,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { stepStatusSchema, type StepStatus } from '../../../shared/contracts/enums';
+import type { DocumentStep } from '../../../shared/contracts/documents';
 import type { GlobalToken } from 'antd';
 import {
   SERVICE_COOLDOWN_MAX_SECONDS,
@@ -196,6 +197,22 @@ export function AdminQueueScreen() {
       unitConcurrency: current.unitConcurrency,
       paused: pause ? [...current.paused, queue] : current.paused.filter((name) => name !== queue),
       pausedSteps: current.pausedSteps,
+      services: current.services,
+    });
+  };
+
+  // The same switch one level down, on the row where the step is already named (docs/11 §11.13).
+  // Releasing one sets the documents it was holding going again, which the server does on the save.
+  const togglePauseStep = (step: DocumentStep, pause: boolean): void => {
+    const current = settings.data;
+    if (current === undefined) return;
+    saveSettings.mutate({
+      concurrency: current.concurrency,
+      unitConcurrency: current.unitConcurrency,
+      paused: current.paused,
+      pausedSteps: pause
+        ? [...current.pausedSteps, step]
+        : current.pausedSteps.filter((name) => name !== step),
       services: current.services,
     });
   };
@@ -477,6 +494,10 @@ export function AdminQueueScreen() {
                   total={overview.data?.documents.total ?? 0}
                   onRunAgain={(request) => reprocess.mutate(request)}
                   running={reprocess.isPending ? (reprocess.variables ?? null) : null}
+                  pausedSteps={pausedSteps}
+                  onTogglePause={togglePauseStep}
+                  pausing={saveSettings.isPending}
+                  ready={settings.data !== undefined}
                 />
               </>
             )}
@@ -688,12 +709,21 @@ function PipelineSteps({
   total,
   onRunAgain,
   running,
+  pausedSteps,
+  onTogglePause,
+  pausing,
+  ready,
 }: {
   steps: readonly StepCountersDto[];
   total: number;
   onRunAgain: (request: ReprocessByStepRequest) => void;
   // The request being run right now, if any — so exactly the button that was pressed spins.
   running: ReprocessByStepRequest | null;
+  // The steps this instance is holding (docs/05 §5.4d): tagged here, and not offered a re-run.
+  pausedSteps: readonly string[];
+  onTogglePause: (step: DocumentStep, pause: boolean) => void;
+  pausing: boolean;
+  ready: boolean;
 }) {
   const t = useTranslations();
   const { token } = theme.useToken();
@@ -734,14 +764,34 @@ function PipelineSteps({
             dataIndex: 'step',
             render: (_: unknown, row: StepCountersDto) => (
               <Space size={4}>
+                {/* On means the step runs, as the switch on the stage above reads: the two paused
+                    things on this page must read alike (docs/11 §11.13). */}
+                <Tooltip title={t('admin.queue.pause.stepHint')}>
+                  <Switch
+                    size="small"
+                    checked={!pausedSteps.includes(row.step)}
+                    disabled={!ready}
+                    loading={pausing}
+                    aria-label={t('admin.queue.pause.stepSwitch', {
+                      step: t(`viewer.steps.${row.step}`),
+                    })}
+                    onChange={(runs) => onTogglePause(row.step, !runs)}
+                  />
+                </Tooltip>
                 <Typography.Text strong>{t(`viewer.steps.${row.step}`)}</Typography.Text>
-                <RunAgain
-                  label={t('admin.queue.actions.runStep')}
-                  loading={
-                    running !== null && running.step === row.step && running.status === undefined
-                  }
-                  onClick={() => onRunAgain({ step: row.step })}
-                />
+                {pausedSteps.includes(row.step) ? (
+                  // Tagged beside its counts, the way a paused queue is tagged beside its depth: a
+                  // growing count must never be mistaken for a stuck one.
+                  <Tag color="orange">{t('admin.queue.pause.tag')}</Tag>
+                ) : (
+                  <RunAgain
+                    label={t('admin.queue.actions.runStep')}
+                    loading={
+                      running !== null && running.step === row.step && running.status === undefined
+                    }
+                    onClick={() => onRunAgain({ step: row.step })}
+                  />
+                )}
               </Space>
             ),
           },
@@ -764,13 +814,17 @@ function PipelineSteps({
                       previews" is the twelve documents. Both halves of the question travel — the
                       API refuses one without the other. */}
                   <Link href={`/documents?step=${row.step}&stepStatus=${status}`}>{count}</Link>
-                  <RunAgain
-                    label={t('admin.queue.actions.runAgain')}
-                    loading={
-                      running !== null && running.step === row.step && running.status === status
-                    }
-                    onClick={() => onRunAgain({ step: row.step, status })}
-                  />
+                  {/* 🔒 A held step is offered no re-run at all: the server refuses one, and an
+                      icon that answers 409 is worse than an icon that is not there. */}
+                  {!pausedSteps.includes(row.step) && (
+                    <RunAgain
+                      label={t('admin.queue.actions.runAgain')}
+                      loading={
+                        running !== null && running.step === row.step && running.status === status
+                      }
+                      onClick={() => onRunAgain({ step: row.step, status })}
+                    />
+                  )}
                 </Space>
               );
             },

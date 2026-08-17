@@ -1,5 +1,6 @@
 import {
   listQueueFailuresResponseSchema,
+  pausedStepsResponseSchema,
   queueOverviewResponseSchema,
   queueSettingsSchema,
   reprocessByStepRequestSchema,
@@ -8,6 +9,7 @@ import {
   servicesHealthResponseSchema,
   updateQueueSettingsRequestSchema,
   type ListQueueFailuresResponse,
+  type PausedStepsResponse,
   type QueueOverviewResponse,
   type QueueSettingsDto,
   type ReprocessByStepRequest,
@@ -75,8 +77,17 @@ export const servicesHealthApi = {
     apiClient.get('/api/admin/queue/services', { schema: servicesHealthResponseSchema }),
 };
 
+// Which steps the pipeline is holding (docs/05 §5.4d). The one queue fact that is not an admin's:
+// a step reading PENDING for ever is either waiting for a worker or paused, and the document's own
+// page has to be able to say which (docs/11 §11.5).
+export const pipelineApi = {
+  pausedSteps: (): Promise<PausedStepsResponse> =>
+    apiClient.get('/api/pipeline/paused-steps', { schema: pausedStepsResponseSchema }),
+};
+
 export const queueKeys = {
   settings: ['queue', 'settings'] as const,
+  pausedSteps: ['pipeline', 'paused-steps'] as const,
   analysis: ['queue', 'analysis'] as const,
   overview: ['admin', 'queue', 'overview'] as const,
   failures: ['admin', 'queue', 'failures'] as const,

@@ -4,5 +4,6 @@ export {
   queueSettingsApi,
   analysisSettingsApi,
   servicesHealthApi,
+  pipelineApi,
   queueKeys,
 } from './api';

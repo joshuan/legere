@@ -379,6 +379,77 @@ describe('AdminQueueScreen', () => {
     expect(await within(card).findByText(enMessages.admin.queue.pause.tag)).toBeInTheDocument();
   });
 
+  // The finer switch, on the row where the step is already named (docs/11 §11.13, docs/05 §5.4d).
+  describe('pausing one step of the pipeline', () => {
+    const runSwitch = (step: string): Promise<HTMLElement> =>
+      screen.findByRole('switch', {
+        name: enMessages.admin.queue.pause.stepSwitch.replace('{step}', step),
+      });
+
+    it('holds a step without touching the queues or the gates beside it', async () => {
+      let patched: unknown = null;
+      let state = { ...settings };
+      server.use(
+        http.get('/api/admin/queue/settings', () => HttpResponse.json(envelope(state))),
+        http.get('/api/admin/queue/analysis', () => HttpResponse.json(envelope({ language: '' }))),
+        http.patch('/api/admin/queue/settings', async ({ request }) => {
+          patched = await request.json();
+          state = { ...settings, pausedSteps: ['analysis'] };
+          return HttpResponse.json(envelope(state));
+        }),
+      );
+
+      renderWithProviders(<AdminQueueScreen />);
+      const analysis = await runSwitch(enMessages.viewer.steps.analysis);
+      await waitFor(() => expect(analysis).toBeEnabled());
+      await userEvent.click(analysis);
+
+      // Sent whole, like every other save on this page: holding a step must not reset a
+      // concurrency, a gate, or a queue somebody paused.
+      await waitFor(() =>
+        expect(patched).toEqual({
+          concurrency: settings.concurrency,
+          unitConcurrency: settings.unitConcurrency,
+          paused: [],
+          pausedSteps: ['analysis'],
+          services: settings.services,
+        }),
+      );
+    });
+
+    it('tags a held step and offers it no way to be run again', async () => {
+      server.use(
+        http.get('/api/admin/queue/settings', () =>
+          HttpResponse.json(envelope({ ...settings, pausedSteps: ['analysis'] })),
+        ),
+        http.get('/api/admin/queue/analysis', () => HttpResponse.json(envelope({ language: '' }))),
+      );
+
+      renderWithProviders(<AdminQueueScreen />);
+
+      const analysis = (await runSwitch(enMessages.viewer.steps.analysis)).closest('tr');
+      if (!(analysis instanceof HTMLElement)) throw new Error('expected the analysis row');
+      expect(within(analysis).getByText(enMessages.admin.queue.pause.tag)).toBeInTheDocument();
+      // 🔒 Neither the per-step icon nor the one beside its count: the server refuses a re-run of a
+      // held step, and an icon that answers 409 is worse than no icon (docs/11 §11.13).
+      expect(
+        within(analysis).queryByRole('button', { name: enMessages.admin.queue.actions.runStep }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(analysis).queryByRole('button', { name: enMessages.admin.queue.actions.runAgain }),
+      ).not.toBeInTheDocument();
+      // The counter itself stays a link: the twelve documents behind it are still the point.
+      expect(within(analysis).getAllByRole('link')).toHaveLength(1);
+
+      // A step that is not held keeps both.
+      const preview = (await runSwitch(enMessages.viewer.steps.preview)).closest('tr');
+      if (!(preview instanceof HTMLElement)) throw new Error('expected the preview row');
+      expect(
+        within(preview).getByRole('button', { name: enMessages.admin.queue.actions.runStep }),
+      ).toBeInTheDocument();
+    });
+  });
+
   // A gate per external service, in one block of its own below the stages: a service is not a
   // stage, and Stirling serves two of them (docs/11 §11.13, docs/05 §5.4b).
   describe('the external services block', () => {
