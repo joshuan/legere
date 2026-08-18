@@ -12,6 +12,20 @@
   Mappers convert explicitly (`value ?? null`). Do not mix `?:` and `| null` on one field without
   need.
 - Nest decorators only in `src/server/infrastructure` and `src/server/presentation`.
+- 🔒 **A field initializer may not read a constructor parameter property.** `constructor(private readonly clock: Clock)`
+  assigns in the constructor *body*, and a class field initializes before that body runs — so
+  `private readonly gates = new Map(… this.clock …)` gets `undefined`, silently, in a class the
+  compiler is perfectly happy with. Build what a field needs **inside the constructor, from the
+  parameter**. This shipped once: every service gate took an undefined clock, and the first document
+  that had to wait at one died on `clock.now()` with the whole `canonical` step around it — 318
+  documents before anybody looked.
+- 🔒 **The transform the tests run and the compiler that ships must agree on class fields.** They did
+  not: `.swcrc` (the test and dev runner) sets `useDefineForClassFields: false`, while `tsc` at
+  `target: ES2023` defaults it to `true`, so the emit that ran in CI was not the emit that ran in
+  production — which is how the bug above passed 1695 green tests. The build now says `false`
+  explicitly, beside the `experimentalDecorators` it belongs with, and a test asserts the two files
+  still say the same thing (§14.8). A difference between them is a difference no test can catch by
+  testing behaviour, so it is pinned where it can only be changed on purpose.
 - No legacy/back-compat code: the app ships as one unit — when contracts change, old code is deleted,
   not kept "just in case". The only history is DB migrations.
 

@@ -979,3 +979,23 @@ nothing there named a wait.
   **Goal:** "is the throttle working" is answered by looking, not by reading logs on the host.
   **Docs:** [`05 §5.4b`](../05-library-and-processing.md#54b-per-service-gates), [`07 §7.3`](../07-api-specification.md), [`11 §11.13`](../11-ui-ux-spec.md), [`14 §14.8`](../14-coding-standards.md#148-testing)
   **Acceptance:** `ServiceGates` answers a snapshot — per service `inFlight`, `waiting` and `longestWaitMs`, the last being how long the caller at the front has stood there and `0` when nobody has — read straight off the semaphore, stored nowhere and computed from a clock the tests control; it travels in `GET /api/admin/queue/overview` beside the counters it shares a 5-second clock with, one row per service in `SERVICE_NAMES` order, and deliberately **not** in `/services`, whose answer is a cached probe of somebody else's container; the **Services** tab shows the three numbers on each service's row beside the two that decide them, so one call in flight with three waiting reads as a throttle doing its job and three in flight reads as a setting that never took; the **Pipeline** tab tags the step whose service has callers waiting — *waiting for Stirling: 2* — mapping step to service exactly as the journal does (`canonical`/`preview` → stirling, `markdown` → docling where it is configured and stirling where it is not, `analysis`/`fields` → classifier, `vectorization` → embeddings), which is what makes two documents reading `RUNNING` at one step legible instead of alarming; an ungated service (`0`) shows no counters rather than three zeroes, because nothing is being metered there; localized ru/en with the keys in English; tests cover a gate of one reporting one in flight and the rest waiting with a growing longest wait, the numbers falling back as slots free, an ungated gate reporting nothing, the overview carrying a row per service, and the pipeline row tagging the step whose service has waiters.
+
+---
+
+## M35 — The emit that ships is the emit that was tested
+
+`0.16.0` took the `canonical` step of 318 documents down with
+`Cannot read properties of undefined (reading 'now')`, and every one of 1695 tests was green when it
+shipped. The class the gates live in read a constructor parameter property from a field initializer —
+legal TypeScript, and `undefined` at run time under native class fields, because a field initializes
+before the constructor body it is assigned in. It only fires where a caller actually waits, which is
+what an operator gets the moment they set a gate to one call at a time.
+
+The reason no test saw it is the more important half: `.swcrc`, which the test runner and the dev
+server transpile with, lowers class fields to constructor assignments, while `tsc` at `target:
+ES2023` emits them natively. CI ran one language and production ran another.
+
+- [x] **M35.1 — The gate keeps its clock, and the two toolchains agree**
+  **Goal:** the failure is gone from the code, and the class of failure is gone from the repository.
+  **Docs:** [`14 §14.1`](../14-coding-standards.md#141-typescript--strictly-by-the-types), [`05 §5.4b`](../05-library-and-processing.md#54b-per-service-gates)
+  **Acceptance:** `ServiceGates` builds its gates **inside the constructor, from the parameter**, so no field initializer reads `this.` of anything the constructor body assigns; `tsconfig.server.json` states `useDefineForClassFields: false` explicitly beside the `experimentalDecorators` it belongs with — the value `.swcrc` already uses, and the pairing legacy decorators want — so the build and the test transform emit the same JavaScript; `14 §14.1` carries both rules, the second naming what it cost; a test asserts the two config files still agree, because behaviour cannot catch a divergence that only exists in the emit; and the built artifact is exercised the way production exercises it — a gate of one, three callers, one in flight and two waiting — which fails on the code as it shipped and passes on the code that replaces it.

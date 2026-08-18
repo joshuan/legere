@@ -118,11 +118,16 @@ class ServiceGate {
 // One gate per service, reachable by name. Ungated until something configures it, which is what an
 // instance with no stored settings and no `SERVICE_*` environment gets (docs/05 §5.4b).
 export class ServiceGates {
-  constructor(private readonly clock: Clock) {}
+  private readonly gates: Map<ServiceName, ServiceGate>;
 
-  private readonly gates = new Map<ServiceName, ServiceGate>(
-    SERVICE_NAMES.map((service) => [service, new ServiceGate(this.clock)]),
-  );
+  // 🔒 Built here, from the parameter, and never from `this.clock` in a field initializer: under the
+  // class-field semantics this compiles to (`target: ES2023`), every initializer runs *before* the
+  // constructor body, so a parameter property read from one is `undefined`. That shipped once — each
+  // gate took an undefined clock, and the first caller that had to wait died on `clock.now()` with
+  // the whole step around it (`14 §14.1`).
+  constructor(clock: Clock) {
+    this.gates = new Map(SERVICE_NAMES.map((service) => [service, new ServiceGate(clock)]));
+  }
 
   // Everything the settings hold, in one call: this is what boot and every admin save both do, so
   // a knob that changed and a knob that did not travel together (docs/07 §7.3).

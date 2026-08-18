@@ -4,6 +4,12 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "experimentalDecorators": true,
+    // 🔒 Explicit, and `false` on purpose (docs/14 §14.1): at `target: ES2023` tsc would default this
+    // to `true`, while `.swcrc` — the transform the tests and the dev runner use — says `false`. The
+    // build then emitted class fields the test run never saw, which is how a field initializer
+    // reading a constructor parameter property passed CI and crashed in production. `false` is also
+    // the pairing legacy decorators want, and legacy is what Nest uses above.
+    "useDefineForClassFields": false,
     "emitDecoratorMetadata": true,
     "jsx": "react-jsx",
     "outDir": "dist",
