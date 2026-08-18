@@ -1,4 +1,9 @@
-import type { SearchQuery, SearchResponse } from '../../../shared/contracts/search';
+import {
+  SEARCH_MATCH_FIELDS,
+  type SearchMatchField,
+  type SearchQuery,
+  type SearchResponse,
+} from '../../../shared/contracts/search';
 import type {
   DocumentRepository,
   SearchFilters,
@@ -46,6 +51,7 @@ export class SearchDocuments {
         document: toListDto(hit.item),
         score: hit.score,
         snippet: hit.snippet,
+        matchedIn: hit.matchedIn,
       })),
       semanticAvailable,
     };
@@ -63,16 +69,21 @@ export class SearchDocuments {
   }
 }
 
+type FusedHit = {
+  item: SearchMatch['item'];
+  score: number;
+  snippet: string | null;
+  matchedIn: SearchMatchField[];
+};
+
 // Two orderings with no common scale are merged by position, not by score (docs/07 §7.3). Ties break
 // on the document id, so the same query always answers in the same order.
-function fuse(
-  text: readonly SearchMatch[],
-  semantic: readonly SearchMatch[],
-): { item: SearchMatch['item']; score: number; snippet: string | null }[] {
-  const scores = new Map<
-    string,
-    { item: SearchMatch['item']; score: number; snippet: string | null }
-  >();
+//
+// A document both halves found keeps both halves' reasons (docs/11 §11.6): "the words are in its
+// file name, and it is about this too" is one honest sentence, and dropping either half of it would
+// make a fused hit look like whichever engine happened to reach it first.
+function fuse(text: readonly SearchMatch[], semantic: readonly SearchMatch[]): FusedHit[] {
+  const scores = new Map<string, FusedHit>();
 
   for (const list of [text, semantic]) {
     for (const match of list) {
@@ -81,16 +92,27 @@ function fuse(
       const existing = scores.get(id);
 
       if (existing === undefined) {
-        scores.set(id, { item: match.item, score: contribution, snippet: match.snippet });
+        scores.set(id, {
+          item: match.item,
+          score: contribution,
+          snippet: match.snippet,
+          matchedIn: ordered(match.matchedIn),
+        });
         continue;
       }
       existing.score += contribution;
       // A text snippet carries the highlight, so it wins over a chunk excerpt when both exist.
       if (existing.snippet === null) existing.snippet = match.snippet;
+      existing.matchedIn = ordered([...existing.matchedIn, ...match.matchedIn]);
     }
   }
 
   return [...scores.values()].sort(
     (a, b) => b.score - a.score || a.item.document.id.localeCompare(b.item.document.id),
   );
+}
+
+// One reason each, always in the same order, whichever engine said it (docs/07 §7.3).
+function ordered(fields: readonly SearchMatchField[]): SearchMatchField[] {
+  return SEARCH_MATCH_FIELDS.filter((field) => fields.includes(field));
 }

@@ -70,7 +70,14 @@ beforeEach(() => {
       searched.push(new URL(request.url).search);
       return HttpResponse.json(
         envelope({
-          items: [{ document: RENTAL, score: 0.5, snippet: 'the <mark>deposit</mark> is due' }],
+          items: [
+            {
+              document: RENTAL,
+              score: 0.5,
+              snippet: 'the <mark>deposit</mark> is due',
+              matchedIn: ['text'],
+            },
+          ],
           semanticAvailable: true,
         }),
       );
@@ -123,6 +130,18 @@ describe('the search overlay', () => {
     expect(await screen.findByText('Rental agreement')).toBeInTheDocument();
     expect((await screen.findByText('deposit')).tagName).toBe('MARK');
     expect(screen.getByText('Contract')).toBeInTheDocument();
+  });
+
+  // 🔒 The overlay is three rows and a way in; a column of tags in it would be an explanation nobody
+  // stopped to read (docs/11 §11.6). The reasons are the search screen's.
+  it('draws no reasons, however many the answer carries', async () => {
+    renderWithProviders(<ScreenWithOpener />);
+    await openWithHotkey();
+    await userEvent.type(screen.getByLabelText(enMessages.search.placeholder), 'deposit');
+
+    await screen.findByText('Rental agreement');
+    expect(screen.queryByText(enMessages.search.why)).not.toBeInTheDocument();
+    expect(screen.queryByText(enMessages.search.matchedIn.text)).not.toBeInTheDocument();
   });
 
   it('says nothing found in the words the search page uses', async () => {

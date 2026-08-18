@@ -545,6 +545,60 @@ over the following hours), `SKIPPED` with `skip_reasons.fields = 'NO_SCHEMA'` ev
 archive of mostly schemaless documents does not spend a week reading as "processing" for a step that
 has nothing to do.
 
+**Amended again by M37.1 (a search over every field the document has):** two of the document's own
+columns were searchable by nobody — the **description**, which is the one sentence saying what the
+paper is, and the **place**, which is how half the archive is remembered ("that Podgorica thing").
+They join the vector, description at `B` beside the prose it summarises and place at `C`, because a
+city is a fact about a document and not what the document says. Recreated the same way, an
+expression being unalterable in place:
+
+```sql
+ALTER TABLE documents DROP COLUMN search_vector;
+ALTER TABLE documents
+  ADD COLUMN search_vector tsvector
+  GENERATED ALWAYS AS (
+    setweight(to_tsvector('simple', translate(coalesce(title, ''), '_-.', '   ')), 'A') ||
+    setweight(
+      to_tsvector('simple', translate(coalesce(extracted_search_text, ''), '_-.', '   ')), 'A') ||
+    setweight(to_tsvector('simple', translate(coalesce(description, ''), '_-.', '   ')), 'B') ||
+    setweight(to_tsvector('simple', translate(coalesce(markdown, ''), '_-.', '   ')), 'B') ||
+    setweight(
+      to_tsvector(
+        'simple',
+        translate(coalesce(country, '') || ' ' || coalesce(city, ''), '_-.', '   ')
+      ), 'C')
+  ) STORED;
+CREATE INDEX documents_search_vector_idx ON documents USING GIN (search_vector);
+
+-- The names that live in other tables, indexed where they live (§4.4), by the same rule.
+CREATE INDEX files_name_fts_idx ON files
+  USING GIN (to_tsvector('simple', translate(name, '_-.', '   ')));
+CREATE INDEX people_name_fts_idx ON people
+  USING GIN (to_tsvector('simple', translate(name, '_-.', '   ')));
+CREATE INDEX subjects_name_fts_idx ON subjects
+  USING GIN (to_tsvector('simple', translate(name, '_-.', '   ')));
+```
+
+🔒 **`translate` is not decoration: it is the rule that lets what is stored meet what is typed.**
+Postgres' parser reads `kadastar.pdf` as one `file` token and `IMG_0042.jpg` as one `img_0042.jpg`,
+so an index built straight off a name answers only to that name typed out in full, extension
+included — while people type `kadastar`, or `IMG_0042`, or the number off the act. `_`, `-` and `.`
+therefore become separators on **both sides of every comparison**: here, in the three name indexes,
+and in the query (`07 §7.3`), which must translate the caller's words by the same expression or the
+index cannot serve it. It is why an uploaded document — whose title *is* its file name (`05 §5.1`) —
+and a document number stored as `12-2019` became findable at all.
+
+🔒 **A name is matched where it lives and is never copied onto the document.** The **file names** —
+which is what a person types when they remember the scan and not the paper — and the names of the
+**people** and **things** a document is about are rows in other tables, and a generated column can
+only see its own row. The alternative was a projection column beside `extracted_search_text`,
+rewritten whenever a file is attached, detached, replaced, split, combined or renamed and whenever a
+person or a thing is renamed, merged or relinked: a dozen write paths, each of which silently makes
+a document unfindable when it forgets, and one merge that renames somebody on a thousand documents
+at once. The query joins the three tables instead (`07 §7.3`), each through a GIN index on the very
+expression the query asks — so a rename is searchable the moment it is committed, and nothing can
+drift because nothing is copied.
+
 ```sql
 -- 3) vector index (cosine)
 CREATE INDEX document_chunks_embedding_idx ON document_chunks
@@ -611,7 +665,8 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 | filter/browse by year, "what happened in March" | `documents(document_date DESC NULLS LAST)` (raw SQL, §4.3) |
 | filter by place | `documents(country) WHERE country IS NOT NULL`, `documents(city) WHERE city IS NOT NULL` — partial, because the analysis finds a place for only some documents and an index over the rest would be NULL entries nothing looks up (raw SQL, §4.3) |
 | filter by pipeline step + status | none: five low-cardinality enum columns, and the queue screen's counters bound the answer |
-| FTS | GIN on `search_vector`, query via `websearch_to_tsquery('simple', $1)` — extracted field values included, via `extracted_search_text` in the generated column (§4.3) |
+| FTS: the document's own words | GIN on `search_vector`, query via `websearch_to_tsquery('simple', $1)` — title, extracted field values (via `extracted_search_text`), description, Markdown and place, all in the generated column (§4.3) |
+| FTS: the names of what a document is made of and about | GIN on `to_tsvector('simple', name)` over `files`, `people` and `subjects` (§4.3) — one index scan per table, joined to the document through `document_files` / `document_people` / `document_subjects`, whose own primary keys close the join. Deliberately not denormalised onto the document: a name is matched where it lives (§4.3) |
 | semantic search | HNSW cosine on `document_chunks.embedding`, `ORDER BY embedding <=> $1 LIMIT k` |
 | the links of one document, from either end | `document_links` unique `(a_id, b_id)` read from the left + the `(b_id)` index — one edge, findable from both sides |
 | link suggestions: probing the archive for a document's identifiers (`05 §5.6b`) | the same GIN on `search_vector` — a probe is an ordinary FTS query |

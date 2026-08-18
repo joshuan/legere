@@ -9,7 +9,13 @@ import { SearchDocuments } from './search-documents';
 
 const VIEWER = { id: 'user-1', role: 'USER' } as const;
 
-function match(id: string, rank: number, snippet: string | null): SearchMatch {
+function match(
+  id: string,
+  rank: number,
+  snippet: string | null,
+  // Why the engine says it found this one (docs/07 §7.3); the text half's default reason.
+  matchedIn: SearchMatch['matchedIn'] = ['text'],
+): SearchMatch {
   return {
     item: {
       document: { ...documentFixture(), id, title: `Document ${id}` },
@@ -25,6 +31,7 @@ function match(id: string, rank: number, snippet: string | null): SearchMatch {
     },
     rank,
     snippet,
+    matchedIn,
   };
 }
 
@@ -148,6 +155,26 @@ describe('SearchDocuments', () => {
     ]);
     // A text snippet carries the highlight, so it wins over a chunk excerpt.
     expect(result.items[0]?.snippet).toBe('both from text');
+  });
+
+  // Why a row is here survives the fusion (docs/07 §7.3, docs/11 §11.6): a document both engines
+  // reached matched the words *and* the meaning, and saying only one of those would make a fused hit
+  // look like whichever engine happened to reach it first.
+  it("keeps both halves' reasons, in one fixed order", async () => {
+    documents.text = [match('both', 1, 'from text', ['fileName', 'title'])];
+    documents.vector = [match('both', 1, 'from chunk', ['meaning'])];
+
+    const result = await search.execute(VIEWER, query);
+
+    expect(result.items[0]?.matchedIn).toEqual(['title', 'fileName', 'meaning']);
+  });
+
+  it('says of a semantic-only hit that it matched the meaning and nothing else', async () => {
+    documents.vector = [match('only-vector', 1, 'from chunk', ['meaning'])];
+
+    const result = await search.execute(VIEWER, query);
+
+    expect(result.items[0]?.matchedIn).toEqual(['meaning']);
   });
 
   it('answers the same order for the same input', async () => {

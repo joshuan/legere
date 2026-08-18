@@ -88,14 +88,28 @@ export function SearchScreen() {
         enterButton
       />
 
+      {/* 🔒 What the instrument is looking at, said where it is used (docs/11 §11.6): a box with a
+          magnifying glass in it is a promise nobody can read the terms of, and an empty answer to a
+          file name teaches people the archive does not hold what it holds. */}
+      <Typography.Text type="secondary">{t('search.reach')}</Typography.Text>
+
       <Space wrap size="middle">
         <Radio.Group
           value={mode.success ? mode.data : 'hybrid'}
           onChange={(event) => navigate({ mode: searchModeSchema.parse(event.target.value) })}
         >
-          <Radio.Button value="hybrid">{t('search.modes.hybrid')}</Radio.Button>
-          <Radio.Button value="text">{t('search.modes.text')}</Radio.Button>
-          <Tooltip title={semanticAvailable ? undefined : t('search.semanticUnavailable')}>
+          {/* And what each mode does with the words, where the mode is chosen. */}
+          <Tooltip title={t('search.modeHints.hybrid')}>
+            <Radio.Button value="hybrid">{t('search.modes.hybrid')}</Radio.Button>
+          </Tooltip>
+          <Tooltip title={t('search.modeHints.text')}>
+            <Radio.Button value="text">{t('search.modes.text')}</Radio.Button>
+          </Tooltip>
+          <Tooltip
+            title={
+              semanticAvailable ? t('search.modeHints.semantic') : t('search.semanticUnavailable')
+            }
+          >
             {/* Disabled rather than hidden: the instance *could* have it, and the tooltip says why
                 it does not (docs/11 §11.6). */}
             <Radio.Button value="semantic" disabled={!semanticAvailable}>
@@ -136,7 +150,11 @@ export function SearchScreen() {
           dataSource={results.data?.items ?? []}
           renderItem={(hit) => (
             <List.Item key={hit.document.id}>
-              <SearchResultRow document={hit.document} snippet={hit.snippet} />
+              <SearchResultRow
+                document={hit.document}
+                snippet={hit.snippet}
+                matchedIn={hit.matchedIn}
+              />
             </List.Item>
           )}
         />

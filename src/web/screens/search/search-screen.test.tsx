@@ -49,6 +49,8 @@ const hit = {
   },
   score: 0.0166,
   snippet: 'the <mark>deposit</mark> is due before occupancy',
+  // Why the row is here (docs/07 §7.3, docs/11 §11.6).
+  matchedIn: ['text'],
 };
 
 const server = createApiMock();
@@ -85,6 +87,44 @@ describe('SearchScreen', () => {
     // <mark> comes from ts_headline and is the only markup the snippet may carry (docs/07 §7.3).
     expect(marked.tagName).toBe('MARK');
     expect(screen.getByText('Contract')).toBeInTheDocument();
+  });
+
+  // 🔒 A box with a magnifying glass in it is a promise nobody can read the terms of, and an empty
+  // answer to a file name teaches people the archive does not hold what it holds (docs/11 §11.6).
+  it('says what it is looking at, before anything is typed', async () => {
+    renderWithProviders(<SearchScreen />);
+
+    expect(await screen.findByText(enMessages.search.reach)).toBeInTheDocument();
+  });
+
+  it('says of every result why it is here', async () => {
+    serve({
+      items: [
+        { ...hit, matchedIn: ['fileName'] },
+        {
+          ...hit,
+          document: { ...hit.document, id: 'ffffffff-3333-4333-8333-333333333333' },
+          snippet: null,
+          matchedIn: ['meaning'],
+        },
+      ],
+      semanticAvailable: true,
+    });
+    renderWithProviders(<SearchScreen />);
+
+    await screen.findAllByText('Rental agreement');
+    expect(screen.getByText(enMessages.search.matchedIn.fileName)).toBeInTheDocument();
+    expect(screen.getByText(enMessages.search.matchedIn.meaning)).toBeInTheDocument();
+    expect(screen.getAllByText(enMessages.search.why)).toHaveLength(2);
+  });
+
+  // The recent documents an empty query answers with are not results, and nothing matched them.
+  it('tags nothing where nothing was searched for', async () => {
+    currentSearch = '';
+    renderWithProviders(<SearchScreen />);
+
+    await screen.findByText('Rental agreement');
+    expect(screen.queryByText(enMessages.search.why)).not.toBeInTheDocument();
   });
 
   it('puts a new query into the URL, so a search can be linked', async () => {

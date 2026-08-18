@@ -1179,6 +1179,24 @@
       "hybrid": "Hybrid",
       "text": "Text",
       "semantic": "Semantic"
+    },
+    "reach": "Searches the title, the fields read off the paper, the description, the text, the place — and the names of the files, the people and the things a document is about.",
+    "why": "Matched in",
+    "modeHints": {
+      "hybrid": "Both at once: the words and the meaning, the two orderings fused.",
+      "text": "The words themselves, wherever the archive keeps them.",
+      "semantic": "The meaning of the sentence, matched against the text of the documents."
+    },
+    "matchedIn": {
+      "title": "title",
+      "fileName": "file name",
+      "person": "person",
+      "subject": "thing",
+      "fields": "field",
+      "description": "description",
+      "place": "place",
+      "text": "text",
+      "meaning": "meaning"
     }
   },
   "collections": {

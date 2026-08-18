@@ -904,6 +904,24 @@ Search input + mode toggle (`Hybrid | Text | Semantic`; semantic disabled with a
 highlighted snippet (`<mark>`), document type, score-ordered. Empty query → recent documents. No results →
 suggestions ("check spelling, try semantic mode").
 
+**The search says what it searches.** A box with a magnifying glass in it is a promise nobody can
+read the terms of: typing the name of a scan and getting nothing back teaches a person that the
+archive does not hold it, when what actually happened is that they searched for something the
+instrument was not looking at. So the screen names its own reach in one line under the input — the
+title, the fields read off the paper, the description, the text, the place, and **the names of the
+files, the people and the things** (`07 §7.3`) — and each mode says in a tooltip what it does with
+the words: **Text** matches them, **Semantic** matches the meaning of the sentence against the text
+of the documents, **Hybrid** runs both and fuses the two orderings.
+
+**And every result says why it is here.** A row carries small quiet tags for the parts that matched
+— *title*, *file name*, *person*, *thing*, *field*, *description*, *place*, *text*, *meaning* —
+because a hit whose snippet quotes a paragraph that does not contain the query reads as a bug, and
+the honest answer is usually "because the scan is called that". It is the same answer the
+suggestions of §11.5e give beside a proposal, for the same reason: a machine that proposes something
+owes the reader what it went on. The tags stand on the search screen and not in the overlay
+(§11.1a): the overlay is three rows and a way in, and a column of tags in it would be an
+explanation nobody stopped to read.
+
 **The overlay is the quick way in; this is the instrument.** Most searches are answered by the first
 few rows of §11.1a and never arrive here — but the modes, the filters and the whole ranked list are
 here, with an input of its own inside its own content, because narrowing a search is work done with

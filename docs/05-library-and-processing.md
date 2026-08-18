@@ -866,7 +866,9 @@ The candidates are found deterministically — no model, no storage, computed on
   At most a handful of probes, the most distinctive first.
 - **Each probe is one FTS query** against `search_vector`, as a phrase, under the caller's own access
   rule (`03 §3.4`) — the same GIN index search already uses (`04 §4.4`), so a probe costs what a
-  search costs.
+  search costs. It is the *whole* of that search (`07 §7.3`), file names included: a scan filed as
+  `act-12-2019.pdf` answers to the number written on the act it belongs with, which is exactly the
+  kind of coincidence a suggestion exists to notice.
 - **Candidates rank by how many probes they answered**, then by `lastEventAt`; the document itself
   and everything already linked to it are excluded; at most five come back, each saying which
   identifiers matched, because "why is this here" is the first question about a suggestion.

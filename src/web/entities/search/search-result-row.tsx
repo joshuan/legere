@@ -1,8 +1,10 @@
 'use client';
 
 import { List, Space, Tag, Typography } from 'antd';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import type { DocumentListDto } from '../../../shared/contracts/documents';
+import type { SearchMatchField } from '../../../shared/contracts/search';
 import { documentFiles } from '../document';
 
 // One result, drawn the same way wherever a result is read (docs/11 §11.6): thumbnail, title, the
@@ -13,6 +15,7 @@ export function SearchResultRow({
   document: item,
   snippet = null,
   linked = true,
+  matchedIn,
 }: {
   document: DocumentListDto;
   // Absent where there is nothing matched to quote — the recent documents an empty query answers
@@ -21,6 +24,9 @@ export function SearchResultRow({
   // The overlay makes the whole row the target, so the title there is text rather than a second
   // link inside it.
   linked?: boolean;
+  // Why this row is here (docs/11 §11.6). Given on the search screen and deliberately not in the
+  // overlay, which is three rows and a way in; a row given none draws exactly as it always did.
+  matchedIn?: readonly SearchMatchField[];
 }) {
   return (
     <List.Item.Meta
@@ -44,8 +50,33 @@ export function SearchResultRow({
           {item.documentType !== null && <Tag color="blue">{item.documentType.name}</Tag>}
         </Space>
       }
-      description={<SearchSnippet snippet={snippet} />}
+      description={
+        <>
+          <SearchSnippet snippet={snippet} />
+          {matchedIn !== undefined && matchedIn.length > 0 && <MatchedIn fields={matchedIn} />}
+        </>
+      }
     />
+  );
+}
+
+// What the engine matched, in the words a reader uses for those parts (docs/11 §11.6). Quiet on
+// purpose: it is the footnote to a result, not the result — but it is the difference between "why is
+// this here" and "because the scan is called that".
+function MatchedIn({ fields }: { fields: readonly SearchMatchField[] }) {
+  const t = useTranslations();
+
+  return (
+    <Space size={4} wrap>
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        {t('search.why')}
+      </Typography.Text>
+      {fields.map((field) => (
+        <Tag key={field} bordered={false}>
+          {t(`search.matchedIn.${field}`)}
+        </Tag>
+      ))}
+    </Space>
   );
 }
 

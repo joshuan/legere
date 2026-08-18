@@ -23,6 +23,7 @@ import {
   extractedFieldsSchema,
   type ExtractedFields,
 } from '../../../shared/contracts/document-fields';
+import type { SearchMatchField } from '../../../shared/contracts/search';
 import {
   stepSkipReasonSchema,
   stepStatusSchema,
@@ -527,6 +528,15 @@ function readableSql(viewer: Viewer): Prisma.Sql {
 //
 // Separated from the method so the query can be read without a database: every value still travels
 // as a bound parameter through `Prisma.sql`, and a test asserts that it does (docs/14 §14.1).
+//
+// 🔒 The names of what a document is made of and about are matched **where they live** (docs/04
+// §4.3): `named` is three index scans over `files`, `people` and `subjects`, joined back to the
+// document by the link tables' own keys. Nothing is denormalised onto the document, so a file
+// attached a second ago and a person renamed a second ago are both findable at once, and no write
+// path can silently make a document unfindable by forgetting to rewrite a projection.
+//
+// The candidate set is a UNION of index scans rather than an `OR` in one WHERE, because an OR
+// between a GIN match and a join condition is a sequential scan of the archive.
 export function searchByTextSql(
   viewer: Viewer,
   query: string,
@@ -535,30 +545,142 @@ export function searchByTextSql(
 ): Prisma.Sql {
   return Prisma.sql`
     WITH q AS MATERIALIZED (
-      SELECT websearch_to_tsquery('simple', ${query}) AS tsq
+      -- 🔒 One rule of tokenisation for the query and for everything it is compared against
+      -- (docs/04 §4.3): underscore, hyphen and dot are separators here exactly as they are in the
+      -- stored vector and in the three name indexes. Postgres reads kadastar.pdf as one token, so
+      -- without this the archive answers only to a file name typed out in full — which is not how
+      -- anybody searches.
+      SELECT websearch_to_tsquery('simple', translate(${query}, '_-.', '   ')) AS tsq
+    ), named AS MATERIALIZED (
+      SELECT df.document_id AS id, 'fileName'::text AS kind, f.name AS name
+      FROM document_files df
+      JOIN files f ON f.id = df.file_id, q
+      WHERE to_tsvector('simple', translate(f.name, '_-.', '   ')) @@ q.tsq
+      UNION ALL
+      SELECT dp.document_id, 'person'::text, p.name
+      FROM document_people dp
+      JOIN people p ON p.id = dp.person_id, q
+      WHERE to_tsvector('simple', translate(p.name, '_-.', '   ')) @@ q.tsq
+      UNION ALL
+      SELECT ds.document_id, 'subject'::text, s.name
+      FROM document_subjects ds
+      JOIN subjects s ON s.id = ds.subject_id, q
+      WHERE to_tsvector('simple', translate(s.name, '_-.', '   ')) @@ q.tsq
+    ), names AS MATERIALIZED (
+      SELECT id,
+             string_agg(name, ' ') AS names,
+             bool_or(kind = 'fileName') AS in_file_name,
+             bool_or(kind = 'person') AS in_person,
+             bool_or(kind = 'subject') AS in_subject
+      FROM named
+      GROUP BY id
+    ), candidates AS MATERIALIZED (
+      SELECT d.id FROM documents d, q WHERE d.search_vector @@ q.tsq
+      UNION
+      SELECT n.id FROM names n
     ), matches AS MATERIALIZED (
+      -- One ranking, not two scales fused by hand: the matched names join the document's own vector
+      -- at weight A, so a document found by the name of its scan ranks with the titles.
       SELECT d.id,
-             ts_rank(d.search_vector, q.tsq) AS score,
+             ts_rank(
+               d.search_vector ||
+                 setweight(
+                   to_tsvector('simple', translate(coalesce(n.names, ''), '_-.', '   ')),
+                   'A'
+                 ),
+               q.tsq
+             ) AS score,
+             -- What the highlight is cut from: the short answers first, so a hit that lives in a
+             -- file name is quoted as one instead of showing the opening line of a document that
+             -- matched somewhere else entirely.
              -- The cast is load-bearing: a JavaScript number binds as bigint, and there is no
              -- left(text, bigint).
-             left(coalesce(d.markdown, d.title), ${MAX_HEADLINE_CHARS}::int) AS excerpt
-      FROM documents d, q
-      WHERE d.search_vector @@ q.tsq
-        AND ${readableSql(viewer)}
+             -- The names are quoted in their normalised form, because that is the form the query
+             -- tokenises to: \`IMG_0042.jpg\` highlights as \`IMG 0042 jpg\` rather than coming back
+             -- as an unmarked line. Only the names — punctuation in a file name is noise, and
+             -- punctuation in prose is where the sentences are.
+             left(
+               concat_ws(
+                 ' · ',
+                 d.title,
+                 translate(n.names, '_-.', '   '),
+                 d.description,
+                 d.markdown
+               ),
+               ${MAX_HEADLINE_CHARS}::int
+             ) AS excerpt,
+             coalesce(n.in_file_name, false) AS in_file_name,
+             coalesce(n.in_person, false) AS in_person,
+             coalesce(n.in_subject, false) AS in_subject
+      FROM candidates c
+      JOIN documents d ON d.id = c.id
+      LEFT JOIN names n ON n.id = d.id, q
+      WHERE ${readableSql(viewer)}
         AND ${filtersSql(filters)}
       ORDER BY score DESC, d.id
       LIMIT ${limit}
     )
+    -- Why each row is here, asked of the answered page alone: to_tsvector over the Markdown of every
+    -- candidate would be the whole archive re-parsed on every keystroke.
     SELECT m.id,
            ts_headline(
              'simple',
              m.excerpt,
              q.tsq,
              'MaxFragments=2, MinWords=5, MaxWords=24, StartSel=<mark>, StopSel=</mark>'
-           ) AS snippet
-    FROM matches m, q
+           ) AS snippet,
+           m.in_file_name,
+           m.in_person,
+           m.in_subject,
+           to_tsvector('simple', translate(coalesce(d.title, ''), '_-.', '   ')) @@ q.tsq
+             AS in_title,
+           to_tsvector('simple', translate(coalesce(d.extracted_search_text, ''), '_-.', '   '))
+             @@ q.tsq AS in_fields,
+           to_tsvector('simple', translate(coalesce(d.description, ''), '_-.', '   ')) @@ q.tsq
+             AS in_description,
+           to_tsvector(
+             'simple',
+             translate(coalesce(d.country, '') || ' ' || coalesce(d.city, ''), '_-.', '   ')
+           ) @@ q.tsq AS in_place,
+           -- 🔒 SEC-25. The prose is read out of the vector that already holds it, never tokenised
+           -- again: to_tsvector over an unbounded Markdown column, once per row of the answered
+           -- page, is exactly the unbounded work the shape of this query exists to avoid. Weight B
+           -- is the description and the Markdown together, so a word that is in both is credited to
+           -- the description alone — an incomplete reason, never a wrong one (docs/07 §7.3).
+           ts_filter(d.search_vector, '{b}') @@ q.tsq
+             AND NOT (
+               to_tsvector('simple', translate(coalesce(d.description, ''), '_-.', '   ')) @@ q.tsq
+             ) AS in_text
+    FROM matches m
+    JOIN documents d ON d.id = m.id, q
     ORDER BY m.score DESC, m.id
   `;
+}
+
+// The flags the query answers with, in the order reasons are said in (docs/07 §7.3).
+type MatchFlags = {
+  in_title: boolean;
+  in_file_name: boolean;
+  in_person: boolean;
+  in_subject: boolean;
+  in_fields: boolean;
+  in_description: boolean;
+  in_place: boolean;
+  in_text: boolean;
+};
+
+function matchedFieldsOf(flags: MatchFlags): SearchMatchField[] {
+  const said: Array<[boolean, SearchMatchField]> = [
+    [flags.in_title, 'title'],
+    [flags.in_file_name, 'fileName'],
+    [flags.in_person, 'person'],
+    [flags.in_subject, 'subject'],
+    [flags.in_fields, 'fields'],
+    [flags.in_description, 'description'],
+    [flags.in_place, 'place'],
+    [flags.in_text, 'text'],
+  ];
+  return said.flatMap(([matched, field]) => (matched ? [field] : []));
 }
 
 // What "has no value here" means, one dimension at a time (docs/11 §11.3).
@@ -1153,13 +1275,13 @@ export class PrismaDocumentRepository implements DocumentRepository {
   ): Promise<SearchMatch[]> {
     const client = clientOf(this.prisma, tx);
 
-    const rows = await client.$queryRaw<{ id: string; snippet: string }[]>(
+    const rows = await client.$queryRaw<Array<{ id: string; snippet: string } & MatchFlags>>(
       searchByTextSql(viewer, query, filters, limit),
     );
 
     return this.hydrate(
       client,
-      rows.map((row) => ({ id: row.id, snippet: row.snippet })),
+      rows.map((row) => ({ id: row.id, snippet: row.snippet, matchedIn: matchedFieldsOf(row) })),
       tx,
     );
   }
@@ -1196,7 +1318,9 @@ export class PrismaDocumentRepository implements DocumentRepository {
 
     return this.hydrate(
       client,
-      rows.map((row) => ({ id: row.id, snippet: row.snippet })),
+      // 🔒 The nearest chunk is all this half knows: it never claims a word was found, because none
+      // was looked for (docs/07 §7.3).
+      rows.map((row) => ({ id: row.id, snippet: row.snippet, matchedIn: ['meaning' as const] })),
       tx,
     );
   }
@@ -1204,7 +1328,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
   // Ranked ids → full list rows, in the order the ranking produced.
   private async hydrate(
     client: ReturnType<typeof clientOf>,
-    ranked: { id: string; snippet: string | null }[],
+    ranked: { id: string; snippet: string | null; matchedIn: SearchMatchField[] }[],
     tx?: TransactionHandle,
   ): Promise<SearchMatch[]> {
     if (ranked.length === 0) return [];
@@ -1219,7 +1343,9 @@ export class PrismaDocumentRepository implements DocumentRepository {
     // that vanished between the two queries leaves a gap rather than promoting everything below it.
     const found = ranked.flatMap((entry, index) => {
       const row = byId.get(entry.id);
-      return row === undefined ? [] : [{ row, rank: index + 1, snippet: entry.snippet }];
+      return row === undefined
+        ? []
+        : [{ row, rank: index + 1, snippet: entry.snippet, matchedIn: entry.matchedIn }];
     });
     const items = await this.toItems(
       found.map((entry) => entry.row),
@@ -1228,7 +1354,9 @@ export class PrismaDocumentRepository implements DocumentRepository {
 
     return items.flatMap((item, index) => {
       const entry = found[index];
-      return entry === undefined ? [] : [{ item, rank: entry.rank, snippet: entry.snippet }];
+      return entry === undefined
+        ? []
+        : [{ item, rank: entry.rank, snippet: entry.snippet, matchedIn: entry.matchedIn }];
     });
   }
 

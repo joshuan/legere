@@ -17,7 +17,7 @@ describe('searchByTextSql', () => {
 
     // The only place the column is touched is inside the cut, and the cut is a bound parameter.
     expect(occurrences(sql.text, 'd.markdown')).toBe(1);
-    expect(sql.text).toContain('left(coalesce(d.markdown, d.title)');
+    expect(sql.text).toContain('d.markdown\n               ),');
     expect(sql.values).toContain(8000);
     // What ts_headline is handed is that prefix, under its own name — not the column.
     expect(sql.text).toContain('m.excerpt');
@@ -44,8 +44,24 @@ describe('searchByTextSql', () => {
     const sql = searchByTextSql(ADMIN, 'invoice', {}, 50);
 
     expect(occurrences(sql.text, 'websearch_to_tsquery')).toBe(1);
-    // And it is read three times from the one place it is built: the match, the rank, the headline.
-    expect(occurrences(sql.text, 'q.tsq')).toBe(3);
+    // And every reader takes it from that one place: the three name branches, the match, the rank,
+    // the headline and one per reason a hit may carry (docs/07 §7.3). What matters is that the
+    // parser runs once over the words a person typed, not how many comparisons read the result.
+    expect(occurrences(sql.text, 'q.tsq')).toBeGreaterThan(3);
+  });
+
+  // 🔒 SEC-25, again: the reasons a hit carries are computed for the answered page, and the one
+  // unbounded column among them is read out of the stored vector rather than tokenised a second
+  // time — `d.markdown` is touched once in the whole statement, inside the bounded cut.
+  it('says why a hit matched without reading the Markdown twice', () => {
+    const sql = searchByTextSql(ADMIN, 'invoice', {}, 50);
+
+    expect(occurrences(sql.text, 'd.markdown')).toBe(1);
+    expect(sql.text).toContain("ts_filter(d.search_vector, '{b}')");
+    // The names are matched where they live, each through the index on that very expression.
+    expect(occurrences(sql.text, "translate(f.name, '_-.', '   ')")).toBe(1);
+    expect(occurrences(sql.text, "translate(p.name, '_-.', '   ')")).toBe(1);
+    expect(occurrences(sql.text, "translate(s.name, '_-.', '   ')")).toBe(1);
   });
 
   it('sends every value as a bound parameter, including the words a person typed', () => {

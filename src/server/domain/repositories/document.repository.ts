@@ -6,6 +6,7 @@ import type {
   DocumentSort,
   DocumentStep,
 } from '../../../shared/contracts/documents';
+import type { SearchMatchField } from '../../../shared/contracts/search';
 import type {
   PageFormat,
   ValueSource,
@@ -258,6 +259,9 @@ export type SearchMatch = {
   // position, not the engine's own score.
   rank: number;
   snippet: string | null;
+  // Which parts of the document the engine matched (docs/07 §7.3): the answer to "why is this here",
+  // which is the first question about any result the reader did not expect.
+  matchedIn: SearchMatchField[];
 };
 
 export type SearchFilters = {

@@ -166,6 +166,157 @@ describe('Search (e2e)', () => {
     });
   });
 
+  // Everything the document has a word in (docs/04 §4.3, docs/07 §7.3): its own columns, and the
+  // names of what it is made of and about — which is what a person actually remembers about a scan.
+  describe('every field the document has', () => {
+    it('finds a document by the name of the file it is made of, and says so', async () => {
+      const libraryId = await givenLibrary();
+      const document = await seedDocument({
+        document: { title: 'Untitled scan', markdown: 'Nothing quotable in the body.' },
+        libraryId,
+        files: [{ name: 'IMG_0042.jpg', path: 'phone/IMG_0042.jpg', sizeBytes: 100n }],
+      });
+      await givenDocument(libraryId, 'Another paper', 'Nothing quotable in the body.');
+
+      const res = await search(adminCookie, '?q=IMG_0042&mode=text');
+
+      const results = expectData(res, searchResponseSchema);
+      expect(results.items.map((hit) => hit.document.id)).toEqual([document.id]);
+      // Why the row is here, said out loud (docs/11 §11.6) — and quoted, because the headline is cut
+      // from the names as well as from the prose.
+      expect(results.items[0]?.matchedIn).toEqual(['fileName']);
+      expect(results.items[0]?.snippet).toContain('<mark>');
+    });
+
+    it('ranks a file-name hit with the titles rather than under the archive', async () => {
+      const libraryId = await givenLibrary();
+      const byName = await seedDocument({
+        document: { title: 'Untitled scan', markdown: null },
+        libraryId,
+        files: [{ name: 'kadastar.pdf', path: 'scans/kadastar.pdf', sizeBytes: 100n }],
+      });
+      // A document that only mentions the word in passing, deep in its text.
+      await givenDocument(libraryId, 'Long report', `Preamble. ${'filler '.repeat(200)} kadastar.`);
+
+      const res = await search(adminCookie, '?q=kadastar&mode=text');
+
+      expect(expectData(res, searchResponseSchema).items[0]?.document.id).toBe(byName.id);
+    });
+
+    it('finds a document by a name it is about, the moment that name changes', async () => {
+      const libraryId = await givenLibrary();
+      const person = await testPrisma().person.create({ data: { name: 'Marija Petrovic' } });
+      const document = await givenDocument(libraryId, 'Untitled', 'Nothing about anybody.');
+      await testPrisma().documentPerson.create({
+        data: { documentId: document, personId: person.id },
+      });
+
+      const found = expectData(
+        await search(adminCookie, '?q=Petrovic&mode=text'),
+        searchResponseSchema,
+      );
+      expect(found.items.map((hit) => hit.document.id)).toEqual([document]);
+      expect(found.items[0]?.matchedIn).toEqual(['person']);
+
+      // 🔒 Nothing is copied onto the document, so a rename is searchable at once and the old name
+      // stops answering — a projection would have left both wrong until something rewrote it
+      // (docs/04 §4.3).
+      await testPrisma().person.update({
+        where: { id: person.id },
+        data: { name: 'Marija Kovac' },
+      });
+
+      const renamed = expectData(
+        await search(adminCookie, '?q=Kovac&mode=text'),
+        searchResponseSchema,
+      );
+      expect(renamed.items.map((hit) => hit.document.id)).toEqual([document]);
+      expect(
+        expectData(await search(adminCookie, '?q=Petrovic&mode=text'), searchResponseSchema).items,
+      ).toEqual([]);
+    });
+
+    it('finds a document by the thing it is about', async () => {
+      const libraryId = await givenLibrary();
+      const kind = await testPrisma().subjectKind.create({ data: { name: 'apartment' } });
+      const subject = await testPrisma().subject.create({
+        data: { kindId: kind.id, name: 'Njegoseva 5' },
+      });
+      const document = await givenDocument(libraryId, 'Untitled', 'Nothing about anything.');
+      await testPrisma().documentSubject.create({
+        data: { documentId: document, subjectId: subject.id },
+      });
+
+      const res = await search(adminCookie, '?q=Njegoseva&mode=text');
+
+      const results = expectData(res, searchResponseSchema);
+      expect(results.items.map((hit) => hit.document.id)).toEqual([document]);
+      expect(results.items[0]?.matchedIn).toEqual(['subject']);
+    });
+
+    it('finds a document by its description and by its place', async () => {
+      const libraryId = await givenLibrary();
+      const described = await seedDocument({
+        document: {
+          title: 'Untitled one',
+          markdown: null,
+          description: 'A statement of the water meter readings.',
+        },
+        libraryId,
+      });
+      const placed = await seedDocument({
+        document: { title: 'Untitled two', markdown: null, country: 'ME', city: 'Podgorica' },
+        libraryId,
+      });
+
+      const byDescription = expectData(
+        await search(adminCookie, '?q=meter&mode=text'),
+        searchResponseSchema,
+      );
+      const byPlace = expectData(
+        await search(adminCookie, '?q=Podgorica&mode=text'),
+        searchResponseSchema,
+      );
+
+      expect(byDescription.items.map((hit) => hit.document.id)).toEqual([described.id]);
+      expect(byDescription.items[0]?.matchedIn).toEqual(['description']);
+      expect(byPlace.items.map((hit) => hit.document.id)).toEqual([placed.id]);
+      expect(byPlace.items[0]?.matchedIn).toEqual(['place']);
+    });
+
+    it('names every part that matched, not only the first', async () => {
+      const libraryId = await givenLibrary();
+      const document = await seedDocument({
+        document: { title: 'Deposit receipt', markdown: 'The deposit was paid in full.' },
+        libraryId,
+        files: [{ name: 'deposit.pdf', path: 'bank/deposit.pdf', sizeBytes: 100n }],
+      });
+
+      const res = await search(adminCookie, '?q=deposit&mode=text');
+
+      const hit = expectData(res, searchResponseSchema).items.find(
+        (item) => item.document.id === document.id,
+      );
+      expect(hit?.matchedIn).toEqual(['title', 'fileName', 'text']);
+    });
+
+    // 🔒 A name matching inside a document the caller may not read is not a row (docs/07 §7.3): the
+    // access rule is in the same query, before the limit.
+    it('never surfaces a document through a name the caller may not read', async () => {
+      const secret = await givenLibrary('RESTRICTED');
+      await seedDocument({
+        document: { title: 'Untitled', markdown: null },
+        libraryId: secret,
+        files: [{ name: 'kadastar.pdf', path: 'secret/kadastar.pdf', sizeBytes: 100n }],
+      });
+      const user = await inviteUser(`searchnames${seq}@legere.local`);
+
+      const res = await search(user.cookie, '?q=kadastar&mode=text');
+
+      expect(expectData(res, searchResponseSchema).items).toEqual([]);
+    });
+  });
+
   describe('access', () => {
     it('never surfaces a document from a library the caller cannot see', async () => {
       const open = await givenLibrary('ALL_USERS');
