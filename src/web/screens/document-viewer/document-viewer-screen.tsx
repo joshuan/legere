@@ -25,6 +25,7 @@ import {
   InputNumber,
   List,
   Modal,
+  Popconfirm,
   Row,
   Select,
   Space,
@@ -53,6 +54,7 @@ import {
   type DocumentEventDto,
   type DocumentFileDto,
   type DocumentFileVersionDto,
+  type DocumentLinkSuggestion,
   type DocumentListDto,
   type DocumentResetEntry,
   type DocumentStep,
@@ -222,7 +224,7 @@ export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?
             {
               key: 'related',
               label: t('viewer.tabs.related'),
-              children: <RelatedPane id={id} active={active === 'related'} />,
+              children: <RelatedPane id={id} active={active === 'related'} isAdmin={isAdmin} />,
             },
             {
               key: 'log',
@@ -721,13 +723,17 @@ function writeDismissed(id: string, ids: readonly string[]): void {
 // it: the card's "draw nothing at all" was right for a card standing in a panel nobody asked to see,
 // but a tab that vanished with the last link would take the picker with it, and the first link could
 // then only be made on a document that already has one.
-function RelatedPane({ id, active }: { id: string; active: boolean }) {
+function RelatedPane({ id, active, isAdmin }: { id: string; active: boolean; isAdmin: boolean }) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();
   const [dismissed, setDismissed] = useState<readonly string[]>(() => readDismissed(id));
   const [query, setQuery] = useState('');
+  // Which proposal is being read (docs/11 §11.5e). A row is a title and a thumbnail, which is enough
+  // to tell two acts apart and not enough to decide anything about them — so pressing one opens the
+  // document itself, and the decision is taken with the paper on screen.
+  const [peeked, setPeeked] = useState<DocumentLinkSuggestion | null>(null);
 
   // Fetched only when the tab is open, exactly like the log: the suggestions cost the server one
   // search per identifier this document carries (docs/05 §5.6b), and most visits never ask.
@@ -759,6 +765,7 @@ function RelatedPane({ id, active }: { id: string; active: boolean }) {
     mutationFn: (documentId: string) => documentApi.createLink(id, documentId),
     onSuccess: () => {
       setQuery('');
+      setPeeked(null);
       refresh();
     },
     onError: (error: unknown) => void message.error(describeError(error)),
@@ -768,6 +775,38 @@ function RelatedPane({ id, active }: { id: string; active: boolean }) {
     onSuccess: refresh,
     onError: (error: unknown) => void message.error(describeError(error)),
   });
+
+  // "These are not two papers": the other document's files are appended to this one and its own
+  // record goes (docs/05 §5.6), and this document is rebuilt from the whole. The reader stays where
+  // they are — the survivor is the document they are already reading (docs/11 §11.5e).
+  const combine = useMutation({
+    mutationFn: (documentId: string) => documentApi.combine(id, { documentIds: [documentId] }),
+    onSuccess: () => {
+      void message.success(t('viewer.links.combined'), 3);
+      setPeeked(null);
+      refresh();
+      void queryClient.invalidateQueries({ queryKey: documentKeys.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: documentKeys.markdown(id) });
+      void queryClient.invalidateQueries({ queryKey: ['documents'] });
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
+  // 🔒 "The same paper, scanned twice": the copy that is not being read is deleted rather than
+  // merged into a document that would then hold every page twice (docs/03 §3.3.10, docs/11 §11.5e).
+  // Admin only, because the endpoint is.
+  const duplicate = useMutation({
+    mutationFn: (documentId: string) => documentApi.remove(documentId),
+    onSuccess: () => {
+      void message.success(t('viewer.links.duplicateDone'), 3);
+      setPeeked(null);
+      refresh();
+      void queryClient.invalidateQueries({ queryKey: ['documents'] });
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
+  const deciding = link.isPending || combine.isPending || duplicate.isPending;
 
   const linked = links.data?.items ?? [];
   const linkedIds = new Set(linked.map((item) => item.document.id));
@@ -861,11 +900,51 @@ function RelatedPane({ id, active }: { id: string; active: boolean }) {
                     key="accept"
                     size="small"
                     type="link"
-                    disabled={link.isPending}
+                    disabled={deciding}
                     onClick={() => link.mutate(candidate.document.id)}
                   >
                     {t('viewer.links.accept')}
                   </Button>,
+                  // The two answers a pair of papers can have besides "they are related", offered on
+                  // the row and again at the foot of the peek, so neither is somewhere the other is
+                  // not (docs/11 §11.5e). Both are confirmed first: a press in a list of proposals
+                  // is a smaller gesture than what it agrees to.
+                  <Popconfirm
+                    key="combine"
+                    title={t('viewer.links.combineConfirm')}
+                    description={t('viewer.links.combineNote', {
+                      title: candidate.document.title,
+                    })}
+                    okText={t('viewer.links.combine')}
+                    cancelText={t('common.actions.cancel')}
+                    onConfirm={() => combine.mutate(candidate.document.id)}
+                  >
+                    <Button size="small" type="link" disabled={deciding}>
+                      {t('viewer.links.combine')}
+                    </Button>
+                  </Popconfirm>,
+                  ...(isAdmin
+                    ? [
+                        <Popconfirm
+                          key="duplicate"
+                          title={t('viewer.links.duplicateConfirm', {
+                            title: candidate.document.title,
+                          })}
+                          description={t('viewer.links.duplicateNote', {
+                            files: candidate.document.fileCount,
+                            size: formatBytes(candidate.document.sizeBytes),
+                          })}
+                          okText={t('viewer.links.duplicate')}
+                          okButtonProps={{ danger: true }}
+                          cancelText={t('common.actions.cancel')}
+                          onConfirm={() => duplicate.mutate(candidate.document.id)}
+                        >
+                          <Button size="small" type="link" danger disabled={deciding}>
+                            {t('viewer.links.duplicate')}
+                          </Button>
+                        </Popconfirm>,
+                      ]
+                    : []),
                   <Button
                     key="dismiss"
                     size="small"
@@ -876,23 +955,213 @@ function RelatedPane({ id, active }: { id: string; active: boolean }) {
                   </Button>,
                 ]}
               >
-                <List.Item.Meta
-                  avatar={<DocumentThumb document={candidate.document} />}
-                  title={
-                    <Typography.Text type="secondary">{candidate.document.title}</Typography.Text>
-                  }
-                  // Why this is here (docs/05 §5.6b): the identifiers the two documents share.
-                  description={t('viewer.links.cites', {
-                    tokens: candidate.matchedTokens.join(', '),
-                  })}
-                />
+                {/* The row is the way into the document it proposes: pressing the thumbnail or the
+                    title opens it in place, read-only, with the decision at its foot (docs/11
+                    §11.5e). A button rather than a div with a handler, so it is reachable by
+                    keyboard and announced as what it is. */}
+                <button
+                  type="button"
+                  className="legere-row-button"
+                  aria-label={t('viewer.links.peek', { title: candidate.document.title })}
+                  onClick={() => setPeeked(candidate)}
+                >
+                  <List.Item.Meta
+                    avatar={<DocumentThumb document={candidate.document} />}
+                    title={
+                      <Typography.Text type="secondary">{candidate.document.title}</Typography.Text>
+                    }
+                    // Why this is here (docs/05 §5.6b): the identifiers the two documents share.
+                    description={t('viewer.links.cites', {
+                      tokens: candidate.matchedTokens.join(', '),
+                    })}
+                  />
+                </button>
               </List.Item>
             )}
           />
         </>
       )}
+
+      {peeked !== null && (
+        <DocumentPeek
+          candidate={peeked}
+          isAdmin={isAdmin}
+          deciding={deciding}
+          onLink={() => link.mutate(peeked.document.id)}
+          onCombine={() => combine.mutate(peeked.document.id)}
+          onDuplicate={() => duplicate.mutate(peeked.document.id)}
+          onClose={() => setPeeked(null)}
+        />
+      )}
     </Space>
   );
+}
+
+// A suggested document, read where it was suggested (docs/11 §11.5e): the candidate drawn as the
+// viewer draws it — the canonical PDF, the text, the log, the details, the files — with its title at
+// the head as the way into the full viewer, and at the foot the three things a reader may decide
+// about the pair.
+//
+// 🔒 It reads and never writes: every pane is given its read-only state, so nothing here edits,
+// uploads, re-runs, crops, reorders, splits or deletes. An editor opened in a peek is an editor
+// nobody navigated to, and the paper it would correct is not the one the question is about.
+//
+// 🔒 And it draws no Related tab of its own: suggestions inside a suggestion are a corridor, and the
+// question in front of the reader is about the two documents they already have.
+function DocumentPeek({
+  candidate,
+  isAdmin,
+  deciding,
+  onLink,
+  onCombine,
+  onDuplicate,
+  onClose,
+}: {
+  candidate: DocumentLinkSuggestion;
+  isAdmin: boolean;
+  deciding: boolean;
+  onLink: () => void;
+  onCombine: () => void;
+  onDuplicate: () => void;
+  onClose: () => void;
+}) {
+  const t = useTranslations();
+  const [active, setActive] = useState<PeekTab>('preview');
+  const proposed = candidate.document;
+
+  const document = useQuery({
+    queryKey: documentKeys.detail(proposed.id),
+    queryFn: () => documentApi.get(proposed.id),
+  });
+  // Asked for when the text is opened and not before, exactly as the log is (docs/11 §11.5e): a
+  // look at a document is usually a look at its first page, and the peek costs one fetch.
+  const markdown = useQuery({
+    queryKey: documentKeys.markdown(proposed.id),
+    queryFn: () => documentApi.markdown(proposed.id),
+    enabled: active === 'text',
+  });
+
+  const detail = document.data;
+
+  return (
+    <Modal
+      open
+      width={960}
+      onCancel={onClose}
+      // The title is the document's own, and it is the way to the screen where the document may be
+      // worked on: a peek deliberately has no such place in it.
+      title={
+        <Space size={8} wrap>
+          <Link href={`/documents/${proposed.id}`}>{proposed.title}</Link>
+          <Typography.Text type="secondary">
+            {t('viewer.links.cites', { tokens: candidate.matchedTokens.join(', ') })}
+          </Typography.Text>
+        </Space>
+      }
+      footer={[
+        ...(isAdmin
+          ? [
+              <Popconfirm
+                key="duplicate"
+                title={t('viewer.links.duplicateConfirm', { title: proposed.title })}
+                description={t('viewer.links.duplicateNote', {
+                  files: proposed.fileCount,
+                  size: formatBytes(proposed.sizeBytes),
+                })}
+                okText={t('viewer.links.duplicate')}
+                okButtonProps={{ danger: true }}
+                cancelText={t('common.actions.cancel')}
+                onConfirm={onDuplicate}
+              >
+                <Button danger disabled={deciding || detail === undefined}>
+                  {t('viewer.links.duplicate')}
+                </Button>
+              </Popconfirm>,
+            ]
+          : []),
+        <Popconfirm
+          key="combine"
+          title={t('viewer.links.combineConfirm')}
+          description={t('viewer.links.combineNote', { title: proposed.title })}
+          okText={t('viewer.links.combine')}
+          cancelText={t('common.actions.cancel')}
+          onConfirm={onCombine}
+        >
+          <Button disabled={deciding || detail === undefined}>{t('viewer.links.combine')}</Button>
+        </Popconfirm>,
+        // Closing a look is not refusing a suggestion: the row keeps Dismiss (docs/11 §11.5e).
+        <Button key="cancel" onClick={onClose}>
+          {t('common.actions.cancel')}
+        </Button>,
+        <Button
+          key="link"
+          type="primary"
+          loading={deciding}
+          disabled={detail === undefined}
+          onClick={onLink}
+        >
+          {t('viewer.links.accept')}
+        </Button>,
+      ]}
+    >
+      {detail === undefined ? (
+        <Spin />
+      ) : (
+        <div className="legere-peek">
+          <Tabs
+            activeKey={active}
+            onChange={(key) => setActive(isPeekTab(key) ? key : 'preview')}
+            items={[
+              {
+                key: 'preview',
+                label: t('viewer.tabs.preview'),
+                children: <PreviewPane document={detail} />,
+              },
+              {
+                key: 'text',
+                label: t('viewer.tabs.text'),
+                children: (
+                  <TextPane
+                    document={detail}
+                    markdown={markdown.data?.markdown ?? null}
+                    loading={markdown.isPending}
+                    isAdmin={false}
+                  />
+                ),
+              },
+              {
+                key: 'log',
+                label: t('viewer.tabs.log'),
+                children: <LogPane document={detail} active={active === 'log'} isAdmin={false} />,
+              },
+              {
+                key: 'details',
+                label: t('viewer.tabs.details'),
+                children: <DetailsPane document={detail} readOnly />,
+              },
+              {
+                key: 'files',
+                label: t('viewer.tabs.files'),
+                // 🔒 `isAdmin` is false whoever is reading: what an admin may decide about the
+                // pair is at the foot of the peek, and the pane itself offers nothing to anybody
+                // (docs/11 §11.5e).
+                children: <FilesPane document={detail} isAdmin={false} readOnly />,
+              },
+            ]}
+          />
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// The tabs of a peek: the viewer's own, minus the one that would draw another list of documents
+// (docs/11 §11.5e).
+const PEEK_TABS = ['preview', 'text', 'log', 'details', 'files'] as const;
+type PeekTab = (typeof PEEK_TABS)[number];
+
+function isPeekTab(value: string): value is PeekTab {
+  return PEEK_TABS.some((tab) => tab === value);
 }
 
 // The other document's first page, at the size of a row (docs/11 §11.5e) — what the sidebar card
@@ -975,19 +1244,21 @@ function DownloadSplitButton({ document }: { document: DocumentDetailDto }) {
   );
 }
 
+// The re-read is an operation, so it travels as one: a pane drawn for somebody who may not act on
+// the document is given neither the handler nor the flag, and the offer is not made (docs/11 §11.5e).
 function TextPane({
   document,
   markdown,
   loading,
   onReadAgain,
-  readingAgain,
+  readingAgain = false,
   isAdmin,
 }: {
   document: DocumentDetailDto;
   markdown: string | null;
   loading: boolean;
-  onReadAgain: () => void;
-  readingAgain: boolean;
+  onReadAgain?: () => void;
+  readingAgain?: boolean;
   isAdmin: boolean;
 }) {
   const t = useTranslations();
@@ -1020,7 +1291,7 @@ function TextPane({
           showIcon
           message={verdict}
           description={t('viewer.textQuality.explained')}
-          {...(isAdmin
+          {...(isAdmin && onReadAgain !== undefined
             ? {
                 action: (
                   <Button size="small" onClick={onReadAgain} loading={readingAgain}>
@@ -1162,6 +1433,11 @@ function pendingState(
   return statuses.includes('PENDING') || statuses.includes('QUEUED') ? 'PENDING' : undefined;
 }
 
+// The catalogues a read-only pane never asks for, as one frozen empty: a fresh `[]` per render
+// would change identity every render and rebuild the memoized option lists under it for nothing
+// (docs/11 §11.5e).
+const NO_CATALOGUE: never[] = [];
+
 // Everything about the document that is not the document, in three titled sections (docs/11 §11.5):
 // **What it says** — every row a machine read off the page, which is the only one of the three
 // anybody may correct, and which therefore carries the Edit button in its own heading; **What it
@@ -1172,26 +1448,33 @@ function pendingState(
 // This component is the pane and its first section; the other two are drawn beside it and are held
 // apart on purpose (below), so that opening the form re-renders the rows the form can touch and
 // nothing else.
+//
+// 🔒 `readOnly` is the pane drawn for somebody who is looking at a document rather than working on
+// it — the peek of §11.5e. It is not "the same pane with the inputs disabled": the form is never
+// opened at all, so the catalogues it would need are not asked for and the keyboard shortcut that
+// opens it does not listen. What is left is the three sections, read.
 function DetailsPane({
   document,
-  documentTypes,
-  people,
+  documentTypes = NO_CATALOGUE,
+  people = NO_CATALOGUE,
   onCreatePerson,
-  subjects,
-  subjectKinds,
+  subjects = NO_CATALOGUE,
+  subjectKinds = NO_CATALOGUE,
   onCreateSubject,
   onSave,
-  saving,
+  saving = false,
+  readOnly = false,
 }: {
   document: DocumentDetailDto;
-  documentTypes: Array<{ id: string; slug: string; name: string }>;
-  people: Array<{ id: string; name: string }>;
-  onCreatePerson: (name: string) => Promise<string>;
-  subjects: Array<{ id: string; kindId: string; kind: string; name: string }>;
-  subjectKinds: Array<{ id: string; name: string }>;
-  onCreateSubject: (kind: string, name: string) => Promise<string>;
-  onSave: (input: MetaChange) => void;
-  saving: boolean;
+  documentTypes?: Array<{ id: string; slug: string; name: string }>;
+  people?: Array<{ id: string; name: string }>;
+  onCreatePerson?: (name: string) => Promise<string>;
+  subjects?: Array<{ id: string; kindId: string; kind: string; name: string }>;
+  subjectKinds?: Array<{ id: string; name: string }>;
+  onCreateSubject?: (kind: string, name: string) => Promise<string>;
+  onSave?: (input: MetaChange) => void;
+  saving?: boolean;
+  readOnly?: boolean;
 }) {
   const t = useTranslations();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -1397,7 +1680,7 @@ function DetailsPane({
     }
     if (reset.length > 0) change.reset = reset;
 
-    if (Object.keys(change).length > 0) onSave(change);
+    if (Object.keys(change).length > 0) onSave?.(change);
     stopEditing();
   };
 
@@ -1407,6 +1690,10 @@ function DetailsPane({
   // well as this pane's own inputs: a bare letter that opens a form while somebody is writing a
   // title is a bare letter that eats the title.
   useEffect(() => {
+    // Nothing to open, so nothing listens: a bare "e" pressed over a document being looked at in a
+    // peek must not open a form on it (docs/11 §11.5e).
+    if (readOnly) return undefined;
+
     const onKey = (event: KeyboardEvent): void => {
       const target = event.target;
       const typing =
@@ -1448,7 +1735,9 @@ function DetailsPane({
     if (auto === null || auto === undefined || auto === '' || auto === current) return undefined;
 
     const text = t('viewer.details.auto', { value: auto });
-    if (editing || fields.length === 0) return text;
+    // In a peek it is a fact about the document and never a way back to it: what was read is worth
+    // saying, and correcting somebody else's document from here is not on offer (docs/11 §11.5e).
+    if (readOnly || editing || fields.length === 0) return text;
 
     return (
       <Tooltip title={t('viewer.details.applyRead')}>
@@ -1457,7 +1746,7 @@ function DetailsPane({
           type="link"
           className="legere-definition-note-action"
           disabled={saving}
-          onClick={() => onSave({ reset: fields })}
+          onClick={() => onSave?.({ reset: fields })}
         >
           {text}
         </Button>
@@ -1641,7 +1930,7 @@ function DetailsPane({
           <Typography.Title level={5} style={{ margin: 0 }}>
             {t('viewer.details.says')}
           </Typography.Title>
-          {!editing && (
+          {!readOnly && !editing && (
             <Tooltip title={t('viewer.details.editHint')}>
               <Button onClick={startEditing}>{t('common.actions.edit')}</Button>
             </Tooltip>
@@ -1731,7 +2020,7 @@ function DetailsPane({
                             onClick={() => {
                               const name = search.trim();
                               setSearch('');
-                              void onCreatePerson(name).then((personId) =>
+                              void onCreatePerson?.(name)?.then((personId) =>
                                 setDraft((current) =>
                                   current === null
                                     ? current
@@ -1838,7 +2127,7 @@ function DetailsPane({
                                 const chosenKind = kind.trim();
                                 setSubjectSearch('');
                                 setKind('');
-                                void onCreateSubject(chosenKind, name).then((subjectId) =>
+                                void onCreateSubject?.(chosenKind, name)?.then((subjectId) =>
                                   setDraft((current) =>
                                     current === null
                                       ? current
@@ -2110,7 +2399,20 @@ const WhatItIsSection = memo(function WhatItIsSection({
 // §11.5d): "the document as one piece", "one of the originals" and "these are the originals" are
 // three answers to one question, and the dropdown of the first is a list of exactly the rows below
 // it. Download stands at the top, Delete at the foot with the whole list between them.
-function FilesPane({ document, isAdmin }: { document: DocumentDetailDto; isAdmin: boolean }) {
+//
+// 🔒 `readOnly` leaves the list and takes the work away (docs/11 §11.5e): the rows, their
+// whereabouts, their earlier versions and every download stay, because that is what reading a
+// document's composition means; adding, replacing, cropping, arranging, reordering, splitting and
+// deleting do not, because a peek is a look at somebody else's document.
+function FilesPane({
+  document,
+  isAdmin,
+  readOnly = false,
+}: {
+  document: DocumentDetailDto;
+  isAdmin: boolean;
+  readOnly?: boolean;
+}) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
@@ -2202,15 +2504,21 @@ function FilesPane({ document, isAdmin }: { document: DocumentDetailDto; isAdmin
         <Col>
           <DownloadSplitButton document={document} />
         </Col>
-        <Col>
-          <UploadButton
-            onFiles={(file) => send([file], { documentId: document.id })}
-            label={t('viewer.files.add')}
-          />
-        </Col>
+        {!readOnly && (
+          <Col>
+            <UploadButton
+              onFiles={(file) => send([file], { documentId: document.id })}
+              label={t('viewer.files.add')}
+            />
+          </Col>
+        )}
       </Row>
 
-      <Typography.Text type="secondary">{t('viewer.files.rebuildNote')}</Typography.Text>
+      {/* The price of touching anything below, said once — and not said at all where nothing below
+          can be touched (docs/11 §11.5e). */}
+      {!readOnly && (
+        <Typography.Text type="secondary">{t('viewer.files.rebuildNote')}</Typography.Text>
+      )}
 
       {/* Real files only: a row appears when its file has landed and the list is refetched, never
           before — what is on its way is watched in the panel (docs/11 §11.5a). */}
@@ -2233,78 +2541,94 @@ function FilesPane({ document, isAdmin }: { document: DocumentDetailDto; isAdmin
               >
                 {t('viewer.files.download')}
               </Button>,
-              // The picker opens on the row the new scan is for, and one file at a time: a page is
-              // replaced by a page (docs/11 §11.5a). The request is ours for the reason the upload
-              // button gives — the endpoint takes the file as the body itself.
-              <Upload
-                key="replace"
-                showUploadList={false}
-                disabled={busy}
-                beforeUpload={(chosen) => {
-                  replace.mutate({ fileId: file.id, file: chosen });
-                  return Upload.LIST_IGNORE;
-                }}
-              >
-                <Button size="small" type="link" disabled={busy} loading={replacing === file.id}>
-                  {t('viewer.files.replace')}
-                </Button>
-              </Upload>,
-              ...(file.isImage
-                ? [
-                    <Button key="crop" size="small" type="link" onClick={() => setCropping(file)}>
-                      {t('viewer.files.crop')}
-                    </Button>,
-                  ]
-                : []),
-              // The pages inside one file, for the file that has more than one of them (docs/11
-              // §11.5a). Offered on nothing else: an image has no pages and a file no build has
-              // counted has none anybody can name.
-              ...(hasArrangeablePages(file)
-                ? [
-                    <Button
-                      key="pages"
-                      size="small"
-                      type="link"
-                      aria-expanded={arranging.has(file.id)}
-                      onClick={() => toggleArranging(file.id)}
-                    >
-                      {t('viewer.files.pages.arrange')}
-                    </Button>,
-                  ]
-                : []),
-              <Button
-                key="up"
-                size="small"
-                type="text"
-                aria-label={t('viewer.files.moveUp', { name: file.name })}
-                icon={<ArrowUpOutlined />}
-                disabled={index === 0 || busy}
-                onClick={() => move(index, -1)}
-              />,
-              <Button
-                key="down"
-                size="small"
-                type="text"
-                aria-label={t('viewer.files.moveDown', { name: file.name })}
-                icon={<ArrowDownOutlined />}
-                disabled={index === document.files.length - 1 || busy}
-                onClick={() => move(index, 1)}
-              />,
-              // Splitting off the only file is not offered at all, rather than refused after the
-              // fact: a document is emptied by deleting it (docs/11 §11.5a).
-              ...(document.files.length > 1
-                ? [
-                    <Button
-                      key="split"
-                      size="small"
-                      type="link"
+              // Everything from here on acts on the document, so a pane that is only being
+              // looked at carries none of it (docs/11 §11.5e).
+              ...(readOnly
+                ? []
+                : [
+                    // The picker opens on the row the new scan is for, and one file at a time: a page is
+                    // replaced by a page (docs/11 §11.5a). The request is ours for the reason the upload
+                    // button gives — the endpoint takes the file as the body itself.
+                    <Upload
+                      key="replace"
+                      showUploadList={false}
                       disabled={busy}
-                      onClick={() => split.mutate(file.id)}
+                      beforeUpload={(chosen) => {
+                        replace.mutate({ fileId: file.id, file: chosen });
+                        return Upload.LIST_IGNORE;
+                      }}
                     >
-                      {t('viewer.files.splitOff')}
-                    </Button>,
-                  ]
-                : []),
+                      <Button
+                        size="small"
+                        type="link"
+                        disabled={busy}
+                        loading={replacing === file.id}
+                      >
+                        {t('viewer.files.replace')}
+                      </Button>
+                    </Upload>,
+                    ...(file.isImage
+                      ? [
+                          <Button
+                            key="crop"
+                            size="small"
+                            type="link"
+                            onClick={() => setCropping(file)}
+                          >
+                            {t('viewer.files.crop')}
+                          </Button>,
+                        ]
+                      : []),
+                    // The pages inside one file, for the file that has more than one of them (docs/11
+                    // §11.5a). Offered on nothing else: an image has no pages and a file no build has
+                    // counted has none anybody can name.
+                    ...(hasArrangeablePages(file)
+                      ? [
+                          <Button
+                            key="pages"
+                            size="small"
+                            type="link"
+                            aria-expanded={arranging.has(file.id)}
+                            onClick={() => toggleArranging(file.id)}
+                          >
+                            {t('viewer.files.pages.arrange')}
+                          </Button>,
+                        ]
+                      : []),
+                    <Button
+                      key="up"
+                      size="small"
+                      type="text"
+                      aria-label={t('viewer.files.moveUp', { name: file.name })}
+                      icon={<ArrowUpOutlined />}
+                      disabled={index === 0 || busy}
+                      onClick={() => move(index, -1)}
+                    />,
+                    <Button
+                      key="down"
+                      size="small"
+                      type="text"
+                      aria-label={t('viewer.files.moveDown', { name: file.name })}
+                      icon={<ArrowDownOutlined />}
+                      disabled={index === document.files.length - 1 || busy}
+                      onClick={() => move(index, 1)}
+                    />,
+                    // Splitting off the only file is not offered at all, rather than refused after the
+                    // fact: a document is emptied by deleting it (docs/11 §11.5a).
+                    ...(document.files.length > 1
+                      ? [
+                          <Button
+                            key="split"
+                            size="small"
+                            type="link"
+                            disabled={busy}
+                            onClick={() => split.mutate(file.id)}
+                          >
+                            {t('viewer.files.splitOff')}
+                          </Button>,
+                        ]
+                      : []),
+                  ]),
             ]}
           >
             <List.Item.Meta
@@ -2392,8 +2716,10 @@ function FilesPane({ document, isAdmin }: { document: DocumentDetailDto; isAdmin
         )}
       />
 
-      {/* Last in the tab, below everything the document can still be used for (docs/11 §11.5d). */}
-      {isAdmin && <DeleteSection document={document} />}
+      {/* Last in the tab, below everything the document can still be used for (docs/11 §11.5d).
+          Never in a peek: the one control that destroys anything belongs on the screen of the
+          document it destroys (docs/11 §11.5e). */}
+      {isAdmin && !readOnly && <DeleteSection document={document} />}
 
       {cropping !== null && (
         <CropEditor

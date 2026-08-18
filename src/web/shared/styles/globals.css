@@ -700,3 +700,56 @@ pre,
     height: calc(100vh - 72px);
   }
 }
+
+/* A row that is the way into the document it names (docs/11 §11.5e). A real button, so it is
+   reachable by keyboard and announced as one — stripped of the chrome a button brings with it,
+   because what is being pressed is the row, and a row that looked like a button would look like a
+   row nobody may read. */
+.legere-row-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.legere-row-button:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: 2px;
+}
+
+/* The peek of §11.5e: the viewer's own panes inside a modal, at a height the modal can keep. The
+   open pane scrolls in itself, so the tabs above it and the decision below it stay where they are
+   while the document is read — the same arrangement the screen makes of the window, made of the
+   modal instead. */
+.legere-peek {
+  display: flex;
+  flex-direction: column;
+  height: 68vh;
+  min-height: 0;
+}
+
+.legere-peek > .ant-tabs,
+.legere-peek > .ant-tabs > .ant-tabs-content-holder,
+.legere-peek > .ant-tabs > .ant-tabs-content-holder > .ant-tabs-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.legere-peek .ant-tabs-tabpane-active {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* The canonical fills the peek rather than the window: the pane it is in is the modal's, and
+   `calc(100vh - 72px)` would put its foot below the bottom of the screen. */
+.legere-peek .legere-viewer-preview {
+  height: 100%;
+}

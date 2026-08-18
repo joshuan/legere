@@ -2485,6 +2485,235 @@ describe('DocumentViewerScreen', () => {
       ).toBeInTheDocument();
     });
 
+    // A row is a title, a type and a thumbnail — enough to tell two acts apart and not enough to
+    // decide anything about them, so pressing one opens the document itself (docs/11 §11.5e).
+    const OTHER_FILE = 'ffffffff-9999-4999-8999-999999999999';
+    const otherDetail: DocumentDetailDto = {
+      ...detail,
+      id: OTHER_ID,
+      title: 'Act of acceptance',
+      documentType: { id: CATEGORY_ID, slug: 'contract', name: 'Contract' },
+      files: [fileOf(OTHER_FILE, { name: 'act.pdf' })],
+    };
+    const proposal = { document: otherDocument, matchedTokens: ['12-2019'] };
+    const peekName = enMessages.viewer.links.peek.replace('{title}', otherDocument.title);
+
+    // The proposal, plus everything the peek of it asks for: the candidate itself and — only where
+    // its own tabs are opened — its text and its journal (docs/11 §11.5e).
+    function propose(): void {
+      serve();
+      server.use(
+        http.get(suggestionsUrl, () => HttpResponse.json(envelope({ items: [proposal] }))),
+        http.get(`/api/documents/${OTHER_ID}`, () => HttpResponse.json(envelope(otherDetail))),
+        http.get(`/api/documents/${OTHER_ID}/markdown`, () =>
+          HttpResponse.json(envelope({ markdown: '# Act' })),
+        ),
+        http.get(`/api/documents/${OTHER_ID}/events`, () =>
+          HttpResponse.json(envelope({ items: [], nextCursor: null })),
+        ),
+      );
+    }
+
+    async function openPeek(): Promise<HTMLElement> {
+      await userEvent.click(await screen.findByRole('button', { name: peekName }));
+      return await screen.findByRole('dialog');
+    }
+
+    it('opens the proposal in place, as the viewer draws it', async () => {
+      propose();
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />, { user: TEST_ADMIN });
+
+      const peek = await openPeek();
+
+      // The candidate, and the way to the screen where a document is worked on (docs/11 §11.5e).
+      expect(within(peek).getByRole('link', { name: otherDocument.title })).toHaveAttribute(
+        'href',
+        `/documents/${OTHER_ID}`,
+      );
+      for (const tab of ['preview', 'text', 'log', 'details', 'files'] as const) {
+        expect(
+          within(peek).getByRole('tab', { name: enMessages.viewer.tabs[tab] }),
+        ).toBeInTheDocument();
+      }
+      // 🔒 And not the tab that would draw another list of documents: suggestions inside a
+      // suggestion are a corridor (docs/11 §11.5e).
+      expect(
+        within(peek).queryByRole('tab', { name: enMessages.viewer.tabs.related }),
+      ).not.toBeInTheDocument();
+    });
+
+    // 🔒 A peek reads and never writes: an editor opened there is an editor nobody navigated to,
+    // and the paper it would correct is not the one the question is about (docs/11 §11.5e).
+    it('offers nothing that acts on the document it is showing, even to an admin', async () => {
+      propose();
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />, { user: TEST_ADMIN });
+      const peek = await openPeek();
+
+      await userEvent.click(
+        within(peek).getByRole('tab', { name: enMessages.viewer.tabs.details }),
+      );
+      expect(
+        within(peek).queryByRole('button', { name: enMessages.common.actions.edit }),
+      ).not.toBeInTheDocument();
+
+      await userEvent.click(within(peek).getByRole('tab', { name: enMessages.viewer.tabs.files }));
+      // The file is there to be read and downloaded; nothing replaces, splits or deletes it.
+      expect(within(peek).getByText('act.pdf')).toBeInTheDocument();
+      expect(
+        within(peek).getByRole('link', { name: enMessages.viewer.files.download }),
+      ).toBeInTheDocument();
+      for (const gone of [
+        enMessages.viewer.files.add,
+        enMessages.viewer.files.replace,
+        enMessages.viewer.files.splitOff,
+        enMessages.viewer.delete.action,
+      ]) {
+        expect(within(peek).queryByRole('button', { name: gone })).not.toBeInTheDocument();
+      }
+
+      // And the pipeline is read, not re-run: the Log tab keeps its rows and loses its controls.
+      await userEvent.click(within(peek).getByRole('tab', { name: enMessages.viewer.tabs.log }));
+      expect(
+        within(peek).queryByRole('button', { name: enMessages.viewer.processing.reprocessAll }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('links the proposal from the foot of the peek', async () => {
+      const posted: unknown[] = [];
+      propose();
+      server.use(
+        http.post(linksUrl, async ({ request }) => {
+          posted.push(await request.json());
+          return HttpResponse.json(envelope(edge), { status: 201 });
+        }),
+      );
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />);
+      const peek = await openPeek();
+
+      await userEvent.click(
+        within(peek).getByRole('button', { name: enMessages.viewer.links.accept }),
+      );
+
+      await waitFor(() => expect(posted).toEqual([{ documentId: OTHER_ID }]));
+      // The look is over: the decision was taken (docs/11 §11.5e).
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    });
+
+    // "These are not two papers" (docs/05 §5.6): the other's files are appended to this document,
+    // and its own record goes.
+    it('combines the two after the confirmation, from the row', async () => {
+      const posted: unknown[] = [];
+      propose();
+      server.use(
+        http.post(`/api/documents/${ID}/combine`, async ({ request }) => {
+          posted.push(await request.json());
+          return HttpResponse.json(envelope(detail));
+        }),
+      );
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />);
+      await screen.findByText('Cites 12-2019');
+
+      await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.links.combine }));
+      // 🔒 Nothing is sent by the press itself: a press in a list of proposals is a smaller gesture
+      // than what it agrees to (docs/11 §11.5e). The popconfirm's OK is the newest such button.
+      expect(posted).toEqual([]);
+      const confirm = screen
+        .getAllByRole('button', { name: enMessages.viewer.links.combine })
+        .at(-1);
+      if (confirm === undefined) throw new Error('the popconfirm never opened');
+      await userEvent.click(confirm);
+
+      await waitFor(() => expect(posted).toEqual([{ documentIds: [OTHER_ID] }]));
+    });
+
+    it('combines from the peek as well, so neither place hides what the other offers', async () => {
+      const posted: unknown[] = [];
+      propose();
+      server.use(
+        http.post(`/api/documents/${ID}/combine`, async ({ request }) => {
+          posted.push(await request.json());
+          return HttpResponse.json(envelope(detail));
+        }),
+      );
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />);
+      const peek = await openPeek();
+
+      await userEvent.click(
+        within(peek).getByRole('button', { name: enMessages.viewer.links.combine }),
+      );
+      const confirm = screen
+        .getAllByRole('button', { name: enMessages.viewer.links.combine })
+        .at(-1);
+      if (confirm === undefined) throw new Error('the popconfirm never opened');
+      await userEvent.click(confirm);
+
+      await waitFor(() => expect(posted).toEqual([{ documentIds: [OTHER_ID] }]));
+    });
+
+    // 🔒 The same paper scanned twice: the copy that is not being read is deleted rather than merged
+    // into a document that would then hold every page twice (docs/03 §3.3.10, docs/11 §11.5e).
+    it('deletes the candidate as a duplicate, for an admin, after the confirmation', async () => {
+      let deleted: string | null = null;
+      propose();
+      server.use(
+        http.delete(`/api/documents/${OTHER_ID}`, () => {
+          deleted = OTHER_ID;
+          return HttpResponse.json(envelope({ ok: true }));
+        }),
+      );
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />, { user: TEST_ADMIN });
+      const peek = await openPeek();
+
+      await userEvent.click(
+        within(peek).getByRole('button', { name: enMessages.viewer.links.duplicate }),
+      );
+      expect(deleted).toBeNull();
+      const confirm = screen
+        .getAllByRole('button', { name: enMessages.viewer.links.duplicate })
+        .at(-1);
+      if (confirm === undefined) throw new Error('the popconfirm never opened');
+      await userEvent.click(confirm);
+
+      await waitFor(() => expect(deleted).toBe(OTHER_ID));
+    });
+
+    // 🔒 The endpoint refuses a reader (docs/07 §7.3), and a button that buys a 403 is a button that
+    // lies (docs/11 §11.5e).
+    it('offers the duplicate to nobody but an admin, in the row or in the peek', async () => {
+      propose();
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />);
+      await screen.findByText('Cites 12-2019');
+
+      expect(
+        screen.queryByRole('button', { name: enMessages.viewer.links.duplicate }),
+      ).not.toBeInTheDocument();
+
+      const peek = await openPeek();
+      expect(
+        within(peek).queryByRole('button', { name: enMessages.viewer.links.duplicate }),
+      ).not.toBeInTheDocument();
+      // What a reader may decide is still there.
+      expect(
+        within(peek).getByRole('button', { name: enMessages.viewer.links.accept }),
+      ).toBeInTheDocument();
+    });
+
+    // Closing a look is not refusing a suggestion: Dismiss is the row's own business
+    // (docs/11 §11.5e).
+    it('leaves the suggestion where it was when the peek is cancelled', async () => {
+      propose();
+      renderWithProviders(<DocumentViewerScreen id={ID} tab="related" />);
+      const peek = await openPeek();
+
+      await userEvent.click(
+        within(peek).getByRole('button', { name: enMessages.common.actions.cancel }),
+      );
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(await screen.findByText('Cites 12-2019')).toBeInTheDocument();
+      expect(window.sessionStorage.getItem(`legere:dismissed-link-suggestions:${ID}`)).toBeNull();
+    });
+
     // The suggestions cost the server one search per identifier the document carries (05 §5.6b),
     // and most visits never open this tab at all.
     it('asks for nothing until the tab is opened', async () => {

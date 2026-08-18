@@ -842,13 +842,53 @@ answers, which is the thing to send somebody who asks how the two are related.
   whoever may edit. The thumbnail is what the sidebar never had room for, and it is the fastest
   answer to "which act was that".
 - **The suggestions** of `05 §5.6b` under their own quieter heading, each saying which identifiers
-  matched — "cites № 12-2019" — with **Link** and **Dismiss**. Dismissing is client-side and lasts
-  the session, exactly like the grouping suggestions of §11.3: the server proposes and never
-  remembers being refused.
+  matched — "cites № 12-2019" — with **Link**, **Combine**, **It's a duplicate** for an admin, and
+  **Dismiss**. Dismissing is client-side and lasts the session, exactly like the grouping
+  suggestions of §11.3: the server proposes and never remembers being refused.
 
 **Asked for only when the tab is opened**, exactly like the log: the suggestions cost the server one
 phrase search per identifier the document carries (`05 §5.6b`), and they used to be computed on
 every visit to every document to fill a card most readers never looked at.
+
+**A row is not a document, so pressing one opens the document.** A title, a type and a thumbnail are
+enough to tell two acts apart and nowhere near enough to decide anything about them: whoever is
+asked "is this the contract that receipt settles" needs the paper, and until now the answer cost
+leaving the tab for the other document's viewer and finding the way back — which is why a list of
+five proposals was a list nobody acted on. **Pressing a suggestion opens it in place:** a modal
+holding the candidate as §11.5 draws it — the canonical PDF, the text, the log, the details, the
+files, under the same tabs — with its title at the head as a link into the full viewer, for whoever
+does want the place where a document is worked on.
+
+🔒 **The peek reads and never writes.** Nothing in it edits, uploads, re-runs, crops, reorders,
+splits or deletes: it is a look at somebody else's document taken in the middle of a decision about
+this one, and an editor opened there is an editor nobody navigated to — the reader would be
+correcting the wrong paper's metadata with this paper's question still on screen. Every pane is
+drawn exactly as the viewer draws it for a reader who may not edit, which is a state each of them
+already has (§11.5, §11.5a, §11.5d): what survives is what reading needs, the downloads included.
+
+🔒 **And it holds no list of documents.** The peeked document's own Related tab is not among the
+tabs: suggestions inside a suggestion are a corridor, and the question in front of the reader is
+about the two documents they already have. The way to that document's own edges is the title link,
+which is the way to the whole of it.
+
+**The foot of the peek carries the decision**, where the reader has just finished reading — and it
+is the row's own verbs, so nothing is offered in one place and hidden in the other:
+
+- **Link** — the ordinary edge of `03 §3.3.23`, the same `POST /api/documents/:id/links` the row's
+  Link makes. The peek closes and the candidate moves from the proposals up into the links.
+- **Combine** — the two are not two papers: the other's files are appended to this one and its
+  record goes (`POST /api/documents/:id/combine`, `05 §5.6`), and this document rebuilds. 🔒 Behind
+  a confirmation, unlike the deliberate tick-two-and-press of §11.3: a press in a list of proposals
+  is a small gesture, and what it agrees to is that a document stops existing.
+- **It's a duplicate** — ADMIN only: the same paper scanned twice, of which this one is the copy
+  worth keeping, so the other is **deleted** (`DELETE /api/documents/:id`, `03 §3.3.10`) rather than
+  merged into a document that would then hold every page twice. 🔒 Behind the same inventory the
+  Files tab's own delete reads out (§11.5d) — how many files and how much of them go, that the
+  originals on the volume stay where they are and no scan will ingest them again, and that this is
+  not reversible. A reader who is not an admin is not offered it: the endpoint refuses them
+  (`07 §7.3`), and a button that buys a `403` is a button that lies.
+- **Cancel** — closes the peek and changes nothing. Dismissing the proposal is the row's own
+  business, and stays there: closing a look is not refusing a suggestion.
 
 🔒 **The tab is always there, and says so when there is nothing in it.** The card it replaces drew
 nothing at all when there were no links and no suggestions, which was right for a card standing in

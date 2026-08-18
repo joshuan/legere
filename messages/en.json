@@ -1123,7 +1123,16 @@
       "unlink": "Unlink",
       "cites": "Cites {tokens}",
       "accept": "Link",
-      "dismiss": "Dismiss"
+      "dismiss": "Dismiss",
+      "peek": "Look at “{title}”",
+      "combine": "Combine",
+      "combineConfirm": "Make these one document?",
+      "combineNote": "The files of “{title}” are appended to this document, its own record goes, and this document is rebuilt from the whole.",
+      "combined": "Combined — the document is being rebuilt.",
+      "duplicate": "It's a duplicate",
+      "duplicateConfirm": "Delete “{title}” as a duplicate of this document?",
+      "duplicateNote": "The {files, plural, one {# file} other {# files}} it is made of go — {size} in all. Originals in a library stay on the volume and Legere will not read them again. This cannot be undone.",
+      "duplicateDone": "The duplicate is deleted."
     }
   },
   "nav": {
