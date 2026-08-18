@@ -173,8 +173,10 @@ export const configSchema = z.object({
   // AI providers (empty base URL = feature disabled)
   EMBEDDINGS_API_BASE_URL: z.string().default(''),
   EMBEDDINGS_API_KEY: z.string().default(''),
-  EMBEDDINGS_MODEL: z.string().default('text-embedding-3-small'),
-  EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(1536),
+  // A local model by default (docs/12 §12.4): ollama serves bge-m3 on the OpenAI-compatible path
+  // this client speaks, it is multilingual, and 1024 is the width the column is sized for.
+  EMBEDDINGS_MODEL: z.string().default('bge-m3'),
+  EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(1024),
   CLASSIFIER_API_BASE_URL: z.string().default(''),
   CLASSIFIER_API_KEY: z.string().default(''),
   CLASSIFIER_MODEL: z.string().default(''),

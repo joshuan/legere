@@ -33,18 +33,34 @@ export class PrismaDocumentChunkRepository implements DocumentChunkRepository {
         ${chunk.index},
         ${chunk.content},
         ${chunk.charCount},
-        ${toVectorLiteral(chunk.embedding)}::vector
+        ${toVectorLiteral(chunk.embedding)}::vector,
+        ${chunk.model}
       )`,
     );
 
     await client.$executeRaw(
-      Prisma.sql`INSERT INTO document_chunks (id, document_id, "index", content, char_count, embedding)
+      Prisma.sql`INSERT INTO document_chunks (id, document_id, "index", content, char_count, embedding, model)
         VALUES ${Prisma.join(rows)}`,
     );
   }
 
   countForDocument(documentId: string, tx?: TransactionHandle): Promise<number> {
     return clientOf(this.prisma, tx).documentChunk.count({ where: { documentId } });
+  }
+
+  // One grouped count for the panel that owns the pipeline (docs/07 §7.3): more than one row here is
+  // a model switch that has not finished, and that is the one state where a cosine distance between
+  // two chunks means nothing at all (docs/04 §4.5).
+  async countByModel(
+    tx?: TransactionHandle,
+  ): Promise<Array<{ model: string | null; chunks: number }>> {
+    const rows = await clientOf(this.prisma, tx).documentChunk.groupBy({
+      by: ['model'],
+      _count: { _all: true },
+    });
+    return rows
+      .map((row) => ({ model: row.model, chunks: row._count._all }))
+      .sort((a, b) => b.chunks - a.chunks || (a.model ?? '').localeCompare(b.model ?? ''));
   }
 }
 

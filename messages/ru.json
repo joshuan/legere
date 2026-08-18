@@ -466,7 +466,10 @@
         "total": "Документов: {count}",
         "step": "Шаг",
         "howTitle": "Как обрабатывается один документ",
-        "waitingFor": "ждёт {service}: {count}"
+        "waitingFor": "ждёт {service}: {count}",
+        "vectors": "{chunks, plural, one {# фрагмент} few {# фрагмента} many {# фрагментов} other {# фрагмента}} · {model}",
+        "vectorsMixed": "В таблице две модели: {models}. Прогоните шаг по всему архиву.",
+        "vectorsUnknownModel": "модель неизвестна"
       },
       "storage": {
         "title": "Хранилище S3",

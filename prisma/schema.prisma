@@ -403,7 +403,11 @@ model DocumentChunk {
   index      Int
   content    String
   charCount  Int                         @map("char_count")
-  embedding  Unsupported("vector(1536)")
+  embedding  Unsupported("vector(1024)")
+  // Which embedder produced this vector (docs/03 §3.3.11). Two models in one table is a search whose
+  // distances mean nothing, and this is what makes a half-finished switch visible. Null only on a
+  // chunk written before the column existed.
+  model      String?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 

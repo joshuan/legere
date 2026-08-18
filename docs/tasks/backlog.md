@@ -1036,3 +1036,22 @@ being looked at, the empty answer read as "not here" instead of "not searched".
   **Goal:** an empty answer means "not here", not "you searched for something I was not looking at".
   **Docs:** [`11 §11.6`](../11-ui-ux-spec.md#116-search-searchq), [`14 §14.8`](../14-coding-standards.md#148-testing)
   **Acceptance:** `/search` names its own reach in one line under the input — title, fields, description, text, place, and the names of files, people and things — and each mode says in a tooltip what it does with the words (match them, match the meaning, both fused); every result row carries quiet tags for the parts that matched, from `matchedIn`, localized ru/en with the keys in English; 🔒 the tags stand on the search screen and **not** in the overlay of §11.1a, which is three rows and a way in; the shared result row keeps drawing identically in both places when it is given no reasons; tests cover the reach line, a row tagged as a file-name match, a row tagged as a meaning match, and the overlay drawing no tags at all.
+
+---
+
+## M38 — Vectors an instance can actually have
+
+Semantic search has been shipped, documented and unusable: the vector half needs an embeddings
+provider, the column was sized `vector(1536)` for a hosted model, and the usual local ones are 768
+or 1024 wide — so the honest way to switch on the second half of hybrid search was to sign up
+somewhere and send the archive out. The live instance has run that way since the beginning: 0 chunks,
+`semanticAvailable: false`, and 1828 journal entries saying the step was skipped for want of a
+provider.
+
+And the table records nothing about which model wrote a vector, so the day somebody changes models
+the archive holds two incomparable geometries in one column and search goes quietly wrong.
+
+- [x] **M38.1 — A local model by default, and a vector that says who made it**
+  **Goal:** an operator with ollama on the network has semantic search after three environment variables, and a model change can never be a silent one.
+  **Docs:** [`03 §3.3.11`](../03-domain-model.md), [`04 §4.3`](../04-database-schema.md#43-raw-sql-in-migrations-required-steps), [`04 §4.5`](../04-database-schema.md), [`05 §5.5`](../05-library-and-processing.md), [`07 §7.3`](../07-api-specification.md), [`12 §12.4`](../12-build-config-run.md), [`14 §14.8`](../14-coding-standards.md#148-testing)
+  **Acceptance:** a hand-written forward-only migration empties `document_chunks` — derived data whose text was cut from the document's own Markdown, so nothing that cost a scan is lost — retypes `embedding` to `vector(1024)`, adds `model`, recreates the HNSW index, and sets every document whose vectorization was `DONE` or `SKIPPED` back to `PENDING` with its skip reason cleared, so the hourly sweep of `05 §5.4` walks the archive through the new model 200 at a time; a `FAILED` step is left alone, being blocked on its own extraction; the defaults become `EMBEDDINGS_MODEL=bge-m3` and `EMBEDDING_DIMENSIONS=1024`, which is what the column is sized for; `EmbeddingProvider` answers `model` beside `isConfigured` and `endpoint`, and the vectorization step writes it on every chunk it stores; `GET /api/admin/queue/overview` carries `vectors: { chunks, byModel }` from one grouped count, and the Pipeline tab draws it on the vectorization row — 🔒 more than one model in that list is a switch that has not finished, which is the one state where a cosine distance means nothing (`04 §4.5`); localized ru/en with the keys in English; the test fixtures stop repeating the width as a literal and read one shared constant; tests cover a vectorised document storing chunks of the configured width **with** the model that made them, a provider answering another width failing the step rather than half-writing the document, the overview grouping chunks by model, and the admin row drawing the count.

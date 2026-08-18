@@ -782,9 +782,16 @@ alone: recording that something happened is not itself an edit of the document.
 | index | int | 0-based; unique per document |
 | content | text | the chunk text |
 | charCount | int | |
-| embedding | vector(1536) | pgvector; cosine ops |
+| embedding | vector(1024) | pgvector; cosine ops. The width is the model's, and it is fixed by the column — see `04 §4.5` for what changing it costs |
+| model | string? | the embedder that produced this vector (`EMBEDDINGS_MODEL`, `12 §12.4`). Null only on a chunk written before this column existed |
 
 Chunks are replaced wholesale on (re)vectorization: delete all → insert all (in one transaction).
+
+🔒 **A chunk says which model made it**, because two models in one table is a search that quietly
+lies: cosine distance between vectors from different embedders is a number with no meaning, and a
+half-finished model switch would otherwise be invisible until somebody noticed the results were
+wrong. It is written by the step that writes the vector (`05 §5.5` step 6) and counted per model on
+`/admin/queue` (`07 §7.3`).
 
 ### 3.3.12. Document type
 Admin-managed reference list.

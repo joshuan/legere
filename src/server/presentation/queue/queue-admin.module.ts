@@ -16,6 +16,7 @@ import {
 import { ReprocessDocumentsByStep } from '../../application/queue/reprocess-by-step';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
+import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { HttpExternalServiceProbe } from '../../infrastructure/health/http-external-service-probe';
@@ -53,10 +54,17 @@ import { PipelineController } from './pipeline.controller';
       useFactory: (
         monitor: QueueMonitor,
         documents: DocumentRepository,
+        chunks: DocumentChunkRepository,
         metrics: MetricsCache,
         gates: ServiceGates,
-      ): GetQueueOverview => new GetQueueOverview(monitor, documents, metrics, gates),
-      inject: [QueueMonitor, DocumentRepository, MetricsCache, ServiceGates],
+      ): GetQueueOverview => new GetQueueOverview(monitor, documents, chunks, metrics, gates),
+      inject: [
+        QueueMonitor,
+        DocumentRepository,
+        DocumentChunkRepository,
+        MetricsCache,
+        ServiceGates,
+      ],
     },
     {
       provide: ListQueueFailures,

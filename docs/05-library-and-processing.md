@@ -756,7 +756,9 @@ because a run that told us nothing new happened to it.
    is not a zero**, and it gates nothing (step 4).
 6. **Vectorization:** chunking of the Markdown (by headings/paragraphs, with overlap) →
    `EmbeddingProvider` → chunk vectors into pgvector, replacing whatever the document had in one
-   transaction (03 §3.3.11). Provider not configured → `SKIPPED` (graceful degradation: semantic
+   transaction (03 §3.3.11). **Each chunk is stored with the name of the model that embedded it**,
+   because a table holding two models' vectors is a search with no meaning in its distances
+   (03 §3.3.11, 04 §4.5). Provider not configured → `SKIPPED` (graceful degradation: semantic
    search unavailable, everything else works); text extracted and empty → `SKIPPED` with `NO_TEXT`,
    and the chunks of an earlier run go with it, because search must not return a document by text it
    no longer has. Both of those are asked *after* the dependency above — which is the one case where

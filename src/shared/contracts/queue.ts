@@ -59,12 +59,25 @@ export const serviceGateSnapshotSchema = serviceGateStateSchema.extend({
 });
 export type ServiceGateSnapshotDto = z.infer<typeof serviceGateSnapshotSchema>;
 
+// How many vectors the archive holds and which model made them (docs/03 §3.3.11, docs/04 §4.5).
+// 🔒 More than one row in `byModel` is a model switch that has not finished, and that is the one
+// state where a cosine distance between two chunks means nothing at all; a chunk written before the
+// column existed answers `null` for its model rather than pretending to know.
+export const vectorCountsSchema = z.object({
+  chunks: z.number().int().nonnegative(),
+  byModel: z.array(
+    z.object({ model: z.string().nullable(), chunks: z.number().int().nonnegative() }),
+  ),
+});
+export type VectorCounts = z.infer<typeof vectorCountsSchema>;
+
 export const queueOverviewResponseSchema = z.object({
   queues: z.array(queueDepthSchema),
   documents: z.object({
     total: z.number().int().nonnegative(),
     steps: z.array(stepCountersSchema),
   }),
+  vectors: vectorCountsSchema,
   // Live, in-process, stored nowhere: it shares the counters' 5-second clock rather than the probes'
   // minute, because this is a read of our own semaphores and not of somebody's container.
   gates: z.array(serviceGateSnapshotSchema),

@@ -41,6 +41,7 @@ import {
   type ServiceHealthStatus,
   type ServiceName,
   type StepCountersDto,
+  type VectorCounts,
 } from '../../../shared/contracts/queue';
 import {
   analysisSettingsApi,
@@ -561,6 +562,7 @@ export function AdminQueueScreen({ tab = 'overview' }: { tab?: AdminQueueTab }) 
     <PipelineSteps
       steps={overview.data?.documents.steps ?? []}
       total={overview.data?.documents.total ?? 0}
+      vectors={overview.data?.vectors ?? null}
       onRunAgain={(request) => reprocess.mutate(request)}
       running={reprocess.isPending ? (reprocess.variables ?? null) : null}
       pausedSteps={pausedSteps}
@@ -1025,6 +1027,27 @@ function WaitingForService({
   );
 }
 
+// The vectors the archive holds, on the row of the step that writes them (docs/11 §11.13). Quiet
+// while there is one model, loud the moment there are two: cosine distance between vectors from
+// different embedders is a number with no meaning, and a half-finished switch has no other symptom
+// (docs/04 §4.5).
+function Vectors({ counts }: { counts: VectorCounts }) {
+  const t = useTranslations();
+  const named = counts.byModel
+    .map((row) => row.model ?? t('admin.queue.pipeline.vectorsUnknownModel'))
+    .join(', ');
+
+  if (counts.chunks === 0) return null;
+
+  return counts.byModel.length > 1 ? (
+    <Tag color="orange">{t('admin.queue.pipeline.vectorsMixed', { models: named })}</Tag>
+  ) : (
+    <Typography.Text type="secondary">
+      {t('admin.queue.pipeline.vectors', { chunks: counts.chunks, model: named })}
+    </Typography.Text>
+  );
+}
+
 // One line per status that actually has documents in it; a step with nothing in a status should not
 // spend a row saying zero. In the statuses' own order rather than the server's, so the rows
 // read alike.
@@ -1034,6 +1057,7 @@ function WaitingForService({
 function PipelineSteps({
   steps,
   total,
+  vectors,
   onRunAgain,
   running,
   pausedSteps,
@@ -1045,6 +1069,9 @@ function PipelineSteps({
 }: {
   steps: readonly StepCountersDto[];
   total: number;
+  // What the vectorization step has actually produced (docs/03 §3.3.11): null until the overview
+  // has answered once.
+  vectors: VectorCounts | null;
   onRunAgain: (request: ReprocessByStepRequest) => void;
   // The request being run right now, if any — so exactly the button that was pressed spins.
   running: ReprocessByStepRequest | null;
@@ -1122,6 +1149,12 @@ function PipelineSteps({
                   gates={gates}
                   doclingConfigured={doclingConfigured}
                 />
+                {/* What the step has made, on the row that made it (docs/03 §3.3.11): a step
+                    reading DONE over an empty table is the one failure this screen could not show.
+                    🔒 Two models in the list is a switch that has not finished — the state where a
+                    distance between two chunks means nothing (docs/04 §4.5) — so it is a warning
+                    and not a footnote. */}
+                {row.step === 'vectorization' && vectors !== null && <Vectors counts={vectors} />}
                 {pausedSteps.includes(row.step) ? (
                   // Tagged beside its counts, the way a paused queue is tagged beside its depth: a
                   // growing count must never be mistaken for a stuck one.

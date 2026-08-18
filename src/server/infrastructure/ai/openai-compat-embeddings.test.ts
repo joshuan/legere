@@ -98,7 +98,7 @@ describe('OpenAiCompatEmbeddings', () => {
       Response.json({ data: [{ index: 0, embedding: [1, 2, 3, 4] }] }),
     );
 
-    // 🔒 vector(1536) is fixed by the schema: half-written chunks would be worse than none.
+    // 🔒 The column's width is fixed by the schema: half-written chunks would be worse than none.
     await expect(provider().embed(['x'])).rejects.toThrow(/4 dimensions, expected 3/);
   });
 

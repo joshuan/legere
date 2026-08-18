@@ -34,6 +34,9 @@ const overview = {
       { step: 'vectorization', counts: { SKIPPED: 12, PENDING: 0, DONE: 0, FAILED: 0 } },
     ],
   },
+  // What the vectorization step has actually produced (docs/03 §3.3.11): one model, which is what a
+  // healthy archive looks like.
+  vectors: { chunks: 240, byModel: [{ model: 'bge-m3', chunks: 240 }] },
   // What each gate is doing this instant (docs/05 §5.4b): Stirling throttled to one with two waiting,
   // and everything else ungated — which is what an instance nobody has gated answers with.
   gates: [
@@ -192,6 +195,44 @@ describe('AdminQueueScreen', () => {
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
       '/documents?step=markdown&stepStatus=DONE',
     ]);
+  });
+
+  // What the step produced, on the row that produced it (docs/03 §3.3.11): a vectorization reading
+  // DONE over an empty table was the one failure this screen could not show.
+  it('says how many vectors the archive holds, and which model made them', async () => {
+    renderWithProviders(<AdminQueueScreen tab="pipeline" />);
+
+    const row = (await screen.findByText(enMessages.viewer.steps.vectorization)).closest('tr');
+    if (!(row instanceof HTMLElement)) throw new Error('expected the vectorization row');
+    expect(
+      within(row).getByText((content) => content.replace(/\s+/g, ' ') === '240 chunks · bge-m3'),
+    ).toBeInTheDocument();
+  });
+
+  // 🔒 Two models in one table is a search whose distances mean nothing (docs/04 §4.5), and it has
+  // no other symptom — so it is a warning on the row and not a footnote.
+  it('warns when the archive holds two models at once', async () => {
+    server.use(
+      http.get('/api/admin/queue/overview', () =>
+        HttpResponse.json(
+          envelope({
+            ...overview,
+            vectors: {
+              chunks: 300,
+              byModel: [
+                { model: 'bge-m3', chunks: 240 },
+                { model: 'text-embedding-3-small', chunks: 60 },
+              ],
+            },
+          }),
+        ),
+      ),
+    );
+    renderWithProviders(<AdminQueueScreen tab="pipeline" />);
+
+    const row = (await screen.findByText(enMessages.viewer.steps.vectorization)).closest('tr');
+    if (!(row instanceof HTMLElement)) throw new Error('expected the vectorization row');
+    expect(await within(row).findByText(/bge-m3, text-embedding-3-small/)).toBeInTheDocument();
   });
 
   it('shows what the bucket holds, scaled to something readable', async () => {

@@ -141,8 +141,8 @@ SERVICE_COOLDOWN_EMBEDDINGS=0
 # --- AI providers (empty base URL = feature disabled, steps SKIPPED) ---
 EMBEDDINGS_API_BASE_URL=                     # OpenAI-compatible, e.g. https://api.openai.com/v1 or http://ollama:11434/v1
 EMBEDDINGS_API_KEY=
-EMBEDDINGS_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSIONS=1536                    # must match the DB vector(1536); changing requires migration + re-vectorization
+EMBEDDINGS_MODEL=bge-m3                      # multilingual, 1024-wide; what the column is sized for
+EMBEDDING_DIMENSIONS=1024                    # must match the DB vector(1024); changing requires migration + re-vectorization (04 §4.5)
 CLASSIFIER_API_BASE_URL=                     # empty = reuse EMBEDDINGS_API_BASE_URL; both empty = analysis SKIPPED
 CLASSIFIER_API_KEY=
 CLASSIFIER_MODEL=
@@ -306,9 +306,19 @@ you chose actually said.
 
 On macOS the container has no GPU — Docker cannot pass Metal through — so answers take tens of
 seconds instead of one. That is fine for seeing the step work; run ollama natively if you want it
-quick. Embeddings are a separate question: `EMBEDDING_DIMENSIONS` must match the `vector(1536)`
-column, and the usual local embedding models are 768 or 1024, so pointing `EMBEDDINGS_API_BASE_URL`
-at ollama needs a migration first — leave it empty and vectorization stays `SKIPPED`.
+quick.
+
+**Embeddings are a local model by default.** `EMBEDDINGS_MODEL=bge-m3` at
+`EMBEDDING_DIMENSIONS=1024` is what the column is sized for (`04 §4.3`), and ollama serves it on the
+OpenAI-compatible path this client speaks: `ollama pull bge-m3`, then
+`EMBEDDINGS_API_BASE_URL=http://<host>:11434/v1` with no key. bge-m3 is multilingual and takes 8k
+tokens, so a `CHUNK_TARGET_CHARS` chunk fits several times over. Left empty, vectorization stays
+`SKIPPED` and semantic search reports itself unavailable — everything else works (`05 §5.5` step 6).
+A hosted 1536-wide model (OpenAI's `text-embedding-3-small`) is the same three variables plus a key,
+and a migration to widen the column: what that costs, and why the width is not a runtime setting, is
+`04 §4.5`. 🔒 An ollama exposed beyond `127.0.0.1` (`OLLAMA_HOST=0.0.0.0:11434`) is an
+unauthenticated API on that network — firewall it to the instance, since anyone who reaches it can
+run any model on that machine.
 
 Root `docker-compose.yaml` (dev dependencies only — the app itself is NOT in it):
 

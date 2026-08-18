@@ -17,7 +17,7 @@ import {
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { HandleMaintenance } from '../../src/server/application/jobs/handle-maintenance';
 import { api, createTestApp, type TestApp } from '../helpers/app';
-import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
+import { disconnectTestPrisma, embeddingOf, testPrisma, truncateAll } from '../helpers/db';
 import { seedDocument } from '../helpers/documents';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
 
@@ -188,6 +188,46 @@ describe('Reprocess and queue administration (e2e)', () => {
   });
 
   describe('the queue overview', () => {
+    // What the vectorization step has actually produced, and by which model (docs/03 §3.3.11).
+    // 🔒 Two models in one answer is a switch that has not finished — the one state where a cosine
+    // distance between two chunks means nothing at all (docs/04 §4.5) — so the panel has to be able
+    // to say it.
+    it('counts the vectors the archive holds, per model that made them', async () => {
+      const documentId = await givenProcessedDocument();
+      const vector = `[${embeddingOf([1]).join(',')}]`;
+      for (const [index, model] of ['bge-m3', 'bge-m3', 'text-embedding-3-small'].entries()) {
+        await testPrisma().$executeRawUnsafe(
+          `INSERT INTO document_chunks (id, document_id, index, content, char_count, embedding, model)
+           VALUES (gen_random_uuid(), $1::uuid, $2, $3, $4, $5::vector, $6)`,
+          documentId,
+          index,
+          `chunk ${index}`,
+          9,
+          vector,
+          model,
+        );
+      }
+
+      const res = await api(app).get('/api/admin/queue/overview').set('Cookie', adminCookie);
+
+      const overview = expectData(res, queueOverviewResponseSchema);
+      expect(overview.vectors.chunks).toBe(3);
+      // Biggest first, so the model the archive is mostly in leads.
+      expect(overview.vectors.byModel).toEqual([
+        { model: 'bge-m3', chunks: 2 },
+        { model: 'text-embedding-3-small', chunks: 1 },
+      ]);
+    });
+
+    it('reports no vectors at all on an archive nothing has embedded', async () => {
+      await givenProcessedDocument();
+
+      const res = await api(app).get('/api/admin/queue/overview').set('Cookie', adminCookie);
+
+      const overview = expectData(res, queueOverviewResponseSchema);
+      expect(overview.vectors).toEqual({ chunks: 0, byModel: [] });
+    });
+
     it('reports every queue and where the documents stand in the pipeline', async () => {
       await givenProcessedDocument();
 

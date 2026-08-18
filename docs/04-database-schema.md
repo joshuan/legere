@@ -369,7 +369,10 @@ model DocumentChunk {
   index      Int
   content    String
   charCount  Int                       @map("char_count")
-  embedding  Unsupported("vector(1536)")
+  embedding  Unsupported("vector(1024)")
+  // Which embedder produced this vector (docs/03 §3.3.11). Null on a chunk written before the
+  // column existed; never null on one written since.
+  model      String?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
@@ -602,7 +605,7 @@ drift because nothing is copied.
 ```sql
 -- 3) vector index (cosine)
 CREATE INDEX document_chunks_embedding_idx ON document_chunks
-  USING hnsw (embedding vector_cosine_ops);
+  USING hnsw (embedding vector_cosine_ops);  -- vector(1024) since the bge-m3 migration (§4.5)
 
 -- 4) partial unique indexes (soft-delete aware)
 CREATE UNIQUE INDEX users_email_active_uq        ON users (email)        WHERE deleted_at IS NULL;
@@ -685,9 +688,21 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
   already-applied migration, dropping/renaming a column without a data backfill in the same migration.
 - Data moves (backfills) are written inside the migration itself (SQL), so a freshly cloned instance
   and a long-lived one converge to identical states.
-- Changing `EMBEDDING` dimensions (the `vector(1536)` type) requires a migration that recreates
-  `document_chunks` and a full re-vectorization (a `maintenance` job re-enqueues `document-process`
-  vectorization for all documents); do not do this casually.
+- **Changing the embedding model is a migration and a full re-vectorization, and that is on purpose.**
+  The column is `vector(1024)` — the width of the model this instance ships pointed at (`12 §12.4`) —
+  and a vector of another width cannot live in it. Changing it means one migration that empties
+  `document_chunks`, retypes the column, recreates the HNSW index and sets every document's
+  vectorization step back to `PENDING`, which the hourly sweep of `05 §5.4` then walks through 200 at
+  a time. 🔒 **Nothing is lost by that:** a chunk is derived data whose text was cut from the
+  document's own Markdown, which stays where it is — re-embedding never re-reads a scan, never calls
+  Docling, and costs one pass of the cheapest step in the pipeline. What bounds the choice is
+  pgvector: `vector` holds up to 16 000 dimensions but **HNSW indexes at most 2 000**, so a
+  3 072-wide model has to be truncated before it can be indexed at all.
+- **Which model wrote a vector is stored beside it** (`document_chunks.model`, `03 §3.3.11`). Two
+  models in one table is a search that quietly lies — cosine distance between vectors from different
+  embedders is a number with no meaning — and without the column the only way to notice would be to
+  remember. `/admin/queue` counts the chunks per model (`07 §7.3`) so a half-finished switch is
+  visible on the screen that owns the pipeline.
 
 ## 4.6. Seed (dev)
 

@@ -23,7 +23,7 @@ const embeddingsResponseSchema = z.object({
 // step fails and retries rather than occupying a worker.
 const TIMEOUT_MS = 2 * 60_000;
 
-// 🔒 And how much may come back. A batch answers with one vector per text — 1536 numbers, roughly
+// 🔒 And how much may come back. A batch answers with one vector per text — a thousand numbers, roughly
 // 30 KB of JSON each — so a batch of a few hundred is a handful of megabytes. 64 MiB leaves room for
 // any batch size this instance uses and refuses a provider that answers with a stream instead.
 const MAX_ANSWER_BYTES = 64 * 1024 * 1024;
@@ -35,7 +35,7 @@ const MAX_ERROR_BYTES = 64 * 1024;
 export class OpenAiCompatEmbeddings extends EmbeddingProvider {
   private readonly baseUrl: string;
   private readonly apiKey: string;
-  private readonly model: string;
+  private readonly modelName: string;
   private readonly dimensions: number;
 
   constructor(
@@ -48,7 +48,7 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
     const endpoint = serviceEndpoint(config, 'embeddings');
     this.baseUrl = endpoint.baseUrl;
     this.apiKey = endpoint.apiKey;
-    this.model = config.get('EMBEDDINGS_MODEL');
+    this.modelName = config.get('EMBEDDINGS_MODEL');
     this.dimensions = config.get('EMBEDDING_DIMENSIONS');
   }
 
@@ -58,6 +58,10 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
 
   get endpoint(): string {
     return this.baseUrl;
+  }
+
+  get model(): string {
+    return this.modelName;
   }
 
   async embed(texts: readonly string[]): Promise<number[][]> {
@@ -77,7 +81,7 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
         ...(this.apiKey === '' ? {} : { authorization: `Bearer ${this.apiKey}` }),
         ...callHeaders(),
       },
-      body: JSON.stringify({ model: this.model, input: texts }),
+      body: JSON.stringify({ model: this.modelName, input: texts }),
       // 🔒 Headers and body alike: when it fires, undici tears the body stream down too, so a
       // provider that answers and then drips cannot hold the worker either.
       signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -99,7 +103,7 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
     for (const [position] of texts.entries()) {
       const vector = parsed.data.data.find((item) => item.index === position)?.embedding;
       if (vector === undefined) throw new Error(`Embeddings provider skipped text ${position}`);
-      // 🔒 The column is vector(1536): a model of another size would be rejected by Postgres row by
+      // 🔒 The column is vector(1024): a model of another size would be rejected by Postgres row by
       // row, leaving half the chunks written. Better to refuse the whole batch here.
       if (vector.length !== this.dimensions) {
         throw new Error(

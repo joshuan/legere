@@ -466,7 +466,10 @@
         "total": "{count} documents",
         "step": "Step",
         "howTitle": "How one document is processed",
-        "waitingFor": "waiting for {service}: {count}"
+        "waitingFor": "waiting for {service}: {count}",
+        "vectors": "{chunks, plural, one {# chunk} other {# chunks}} · {model}",
+        "vectorsMixed": "Two models in one table: {models}. Re-run this step over the whole archive.",
+        "vectorsUnknownModel": "model unknown"
       },
       "storage": {
         "title": "S3 storage",

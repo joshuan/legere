@@ -22,7 +22,7 @@ import { ConfigModule } from '../../src/server/infrastructure/config/config.modu
 import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
 import { PrismaService } from '../../src/server/infrastructure/persistence/prisma.service';
 import { InMemoryFileStorage } from '../../src/server/infrastructure/storage/in-memory-file-storage';
-import { disconnectTestPrisma, truncateAll } from '../helpers/db';
+import { EMBEDDING_WIDTH, disconnectTestPrisma, embeddingOf, truncateAll } from '../helpers/db';
 import {
   FakeAnalyst,
   FakeTranscriber,
@@ -69,9 +69,9 @@ describe('Document processing (integration)', () => {
     parser = new FakeDocumentParser();
     analyst = new FakeAnalyst();
     embeddings = new FakeEmbeddingProvider();
-    // The column is vector(1536) (docs/04 §4.3); a provider of another width is a configuration
-    // error, which is what the unit suite covers.
-    embeddings.dimensions = 1536;
+    // The column's width is the schema's (docs/04 §4.3); a provider of another width is a
+    // configuration error, which is what the unit suite covers.
+    embeddings.dimensions = EMBEDDING_WIDTH;
     reader = new StubLibraryReader();
     reader.put(SOURCE_PATH, 'source-bytes');
 
@@ -315,14 +315,19 @@ describe('Document processing (integration)', () => {
 
     await handler.handle({ documentId });
 
-    const first = await prisma.$queryRawUnsafe<{ index: number; content: string; dims: number }[]>(
-      `SELECT index, content, vector_dims(embedding) AS dims
+    const first = await prisma.$queryRawUnsafe<
+      { index: number; content: string; dims: number; model: string | null }[]
+    >(
+      `SELECT index, content, vector_dims(embedding) AS dims, model
        FROM document_chunks WHERE document_id = $1::uuid ORDER BY index`,
       documentId,
     );
     expect(first).toHaveLength(1);
     expect(first[0]?.content).toContain('first body');
-    expect(Number(first[0]?.dims)).toBe(1536);
+    expect(Number(first[0]?.dims)).toBe(EMBEDDING_WIDTH);
+    // 🔒 And which model made it, beside it (docs/03 §3.3.11): two models in one table is a search
+    // whose distances mean nothing, and nothing else in the row would say so.
+    expect(first[0]?.model).toBe(embeddings.model);
     expect(
       (await prisma.document.findUniqueOrThrow({ where: { id: documentId } })).vectorizationStatus,
     ).toBe('DONE');
@@ -346,7 +351,7 @@ describe('Document processing (integration)', () => {
     await handler.handle({ documentId });
 
     // The same query the search use case will run (docs/04 §4.5): nearest neighbours by cosine.
-    const query = `[${Array.from({ length: 1536 }, (_, index) => (index === 1 ? 21 : 0)).join(',')}]`;
+    const query = `[${embeddingOf([0, 21]).join(',')}]`;
     const nearest = await prisma.$queryRawUnsafe<{ document_id: string; distance: number }[]>(
       `SELECT document_id, embedding <=> $1::vector AS distance
        FROM document_chunks ORDER BY embedding <=> $1::vector LIMIT 1`,

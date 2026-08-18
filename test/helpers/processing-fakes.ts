@@ -1134,6 +1134,16 @@ export class InMemoryDocumentChunkRepository extends DocumentChunkRepository {
   chunksOf(documentId: string): NewDocumentChunk[] {
     return this.byDocument.get(documentId) ?? [];
   }
+
+  countByModel(): Promise<Array<{ model: string | null; chunks: number }>> {
+    const counts = new Map<string, number>();
+    for (const chunks of this.byDocument.values()) {
+      for (const chunk of chunks) counts.set(chunk.model, (counts.get(chunk.model) ?? 0) + 1);
+    }
+    return Promise.resolve(
+      [...counts].map(([model, chunks]) => ({ model, chunks })).sort((a, b) => b.chunks - a.chunks),
+    );
+  }
 }
 
 // How many units inside one job run at once (docs/05 §5.4), and which steps are held (§5.4d). A
@@ -1495,9 +1505,11 @@ export class FakeEmbeddingProvider extends EmbeddingProvider {
   readonly endpoint = 'http://embeddings.test';
   configured = true;
   failing = false;
-  // Vectors are padded to this width; the real column is vector(1536), so anything writing to a
-  // database has to say so (docs/04 §4.3).
+  // Vectors are padded to this width; the real column is `vector(EMBEDDING_DIMENSIONS)`
+  // (docs/04 §4.3), so anything writing to a database has to say so.
   dimensions = 3;
+  // What the chunks will be stamped with (docs/03 §3.3.11).
+  model = 'fake-embeddings';
   readonly batches: string[][] = [];
 
   get isConfigured(): boolean {

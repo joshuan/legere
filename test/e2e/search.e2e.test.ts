@@ -3,7 +3,7 @@ import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/co
 import { searchResponseSchema } from '../../src/shared/contracts/search';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { api, createTestApp, type TestApp } from '../helpers/app';
-import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
+import { disconnectTestPrisma, embeddingOf, testPrisma, truncateAll } from '../helpers/db';
 import { seedDocument } from '../helpers/documents';
 import { cookieNamed, expectData } from '../helpers/http';
 
@@ -119,9 +119,9 @@ describe('Search (e2e)', () => {
     return document.id;
   }
 
-  // The column is vector(1536) (docs/04 §4.3); fixtures name only the first components.
+  // The column's width is the schema's (docs/04 §4.3); fixtures name only the first components.
   function padded(head: number[]): number[] {
-    return Array.from({ length: 1536 }, (_, index) => head[index] ?? 0);
+    return embeddingOf(head);
   }
 
   const search = (cookie: string, query: string) =>

@@ -929,6 +929,9 @@ export class HandleDocumentProcess extends JobHandler {
           content,
           charCount: content.length,
           embedding: vectors[index] ?? [],
+          // Who made this vector, stored beside it (docs/03 §3.3.11): the archive can then say
+          // whether it holds one geometry or two.
+          model: this.embeddings.model,
         })),
       );
       await this.write(document.id, { steps: { vectorization: 'DONE' } });

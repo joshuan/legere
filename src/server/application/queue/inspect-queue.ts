@@ -5,6 +5,7 @@ import type {
 } from '../../../shared/contracts/queue';
 import { NotFoundError } from '../../domain/errors/domain-error';
 import type { DocumentRepository } from '../../domain/repositories/document.repository';
+import type { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import type { MetricsCache } from '../ports/metrics-cache';
 import type { QueueMonitor } from '../ports/queue-monitor';
 import type { ServiceGates } from './service-gate';
@@ -15,6 +16,9 @@ export class GetQueueOverview {
   constructor(
     private readonly monitor: QueueMonitor,
     private readonly documents: DocumentRepository,
+    // The vectors themselves: one grouped count, so the panel that owns the pipeline can say
+    // whether the archive holds one geometry or two (docs/04 §4.5).
+    private readonly chunks: DocumentChunkRepository,
     private readonly metrics: MetricsCache,
     // What each gate of docs/05 §5.4b is doing this instant. In-process and free to read, which is
     // why it rides with the counters rather than behind a route of its own.
@@ -22,9 +26,10 @@ export class GetQueueOverview {
   ) {}
 
   async execute(): Promise<QueueOverviewResponse> {
-    const [queues, counters] = await Promise.all([
+    const [queues, counters, byModel] = await Promise.all([
       this.monitor.depths(),
       this.documents.countByStepStatus(),
+      this.chunks.countByModel(),
     ]);
 
     return {
@@ -34,6 +39,11 @@ export class GetQueueOverview {
         // Always all five steps, in pipeline order, even when a status has no documents in it —
         // a card that disappears when it reaches zero is worse than one showing zero.
         steps: DOCUMENT_STEPS.map((step) => ({ step, counts: counters.steps[step] })),
+      },
+      // What the vectorization step has actually produced, and by which model (docs/03 §3.3.11).
+      vectors: {
+        chunks: byModel.reduce((total, row) => total + row.chunks, 0),
+        byModel,
       },
       // 🔒 The only honest witness to a gate that is working: a step waiting at one reads as RUNNING
       // exactly like a step doing the work (docs/05 §5.4b).
