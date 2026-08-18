@@ -387,6 +387,41 @@ in as many words rather than showing a date that will never arrive.
 |---------------|------|-------|
 | `GET /api/health` | — | `{ status, db, queue }`; 503 on failure. Not rate-limited |
 
+## 7.3a. MCP — the archive as a tool set (`POST /api/mcp`)
+
+One route, so an assistant can be pointed at this instance and search it (ADR-024). **JSON-RPC 2.0
+over a single POST** — the Model Context Protocol's HTTP transport in its simplest honest form: a
+JSON request, a JSON response, no SSE stream, no session id, nothing kept between calls.
+
+| Method | Answer |
+|---|---|
+| `initialize` | `{ protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'legere', version } }`. The client's `protocolVersion` is echoed when this server knows it and the server's own is answered when it does not — the client then decides whether it can live with that |
+| `notifications/initialized` | nothing: a notification has no `id`, so the route answers `202` with an empty body, as every notification does |
+| `ping` | `{}` |
+| `tools/list` | the three tools below, each with its JSON Schema |
+| `tools/call` | `{ content: [{ type: 'text', text }], isError? }` — the tool's answer as one JSON text block, which is what a model reads best |
+
+🔒 **The credential is a read-only API token and nothing else** (`08 §8.2a`): `Authorization: Bearer
+legere_…`. A session cookie is refused here even when it is valid, which is what keeps the CSRF rule
+of `08 §8.4` intact rather than excepted — a browser cannot be induced into a call whose only
+credential it does not hold. The caller is the token's owner: every tool runs under that person's
+access rule, so an assistant sees exactly the archive its owner sees, and a document in a library
+they were never granted does not exist for it.
+
+**The tools**, a closed list over read use cases:
+
+| Tool | Input | What it answers |
+|---|---|---|
+| `search_documents` | `{ query, mode?: hybrid\|text\|semantic, limit?: 1…20 }` | the hybrid search of §7.3, as JSON rows: `id`, `title`, `documentType`, `documentDate`, `place`, `snippet` (the `<mark>` stripped — a model does not read markup), `matchedIn` (why the row is here) and `url`, so an answer can cite the document rather than describe it |
+| `get_document` | `{ documentId }` | what the archive knows about one document: title, description, type, date, place, people, subjects, languages, pages, files, availability, whether it has text at all, and its `url` |
+| `read_document` | `{ documentId, offset?, limit?: 1…50 000 }` | the extracted Markdown, **in slices**: a forty-page scan is a quarter of a million characters and a context window is not, so the answer carries `totalChars` and `nextOffset` and the caller asks again |
+
+A tool that fails answers `isError: true` with the reason as text, because a model recovers from a
+sentence and not from a transport error. Everything that is not a tool's business is JSON-RPC:
+`-32700` for unparsable JSON, `-32600` for a request that is not one (a batch among them — this
+protocol version has none), `-32601` for an unknown method, `-32602` for parameters that do not fit
+the tool's schema.
+
 ## 7.4. DTO serialization
 
 - Persisted "no value" is `null` (Zod `.nullable()`); `undefined`/absent fields are allowed only in

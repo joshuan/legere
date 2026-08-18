@@ -26,6 +26,7 @@ import { JobsModule } from './presentation/jobs/jobs.module';
 import { LibrariesModule } from './presentation/libraries/libraries.module';
 import { QueueAdminModule } from './presentation/queue/queue-admin.module';
 import { TrashAdminModule } from './presentation/trash/trash-admin.module';
+import { McpModule } from './presentation/mcp/mcp.module';
 import { SearchModule } from './presentation/search/search.module';
 import { UsersModule } from './presentation/users/users.module';
 
@@ -56,6 +57,9 @@ import { UsersModule } from './presentation/users/users.module';
     SubjectsModule,
     SubjectKindsModule,
     SearchModule,
+    // The archive as a tool set for an assistant (docs/07 §7.3a, ADR-024): after the search it is
+    // built on, because that is where its tools come from.
+    McpModule,
     CollectionsModule,
     QueueAdminModule,
     TrashAdminModule,

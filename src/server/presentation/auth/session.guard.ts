@@ -4,6 +4,7 @@ import { AuthenticateApiToken } from '../../application/auth/authenticate-api-to
 import { AuthenticateSession } from '../../application/auth/authenticate-session';
 import { ReadOnlyTokenError } from '../../domain/errors/domain-error';
 import { bearerTokenOf } from '../http/bearer';
+import { isReadOnlyPostRoute } from '../http/read-only-post-routes';
 import { SESSION_COOKIE_NAME } from '../http/session-cookie';
 import { attachCaller } from './current-user';
 
@@ -26,18 +27,24 @@ export class SessionGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<Request>();
 
     const bearer = bearerTokenOf(req);
+    const readOnlyPost = isReadOnlyPostRoute(req.method, req.path);
     if (bearer !== undefined) {
       // 🔒 The second of the two layers docs/08 §8.2a describes. The middleware before routing has
       // already refused this, and is where the refusal belongs — but a rule enforced in exactly one
       // place stops being enforced the moment a route is mounted somewhere that place does not
       // cover. Refusing to resolve the credential at all is what makes the sentence in §8.2a true.
-      if (!SAFE_METHODS.has(req.method)) throw new ReadOnlyTokenError();
+      if (!SAFE_METHODS.has(req.method) && !readOnlyPost) throw new ReadOnlyTokenError();
       attachCaller(req, await this.authenticateApiToken.execute(bearer));
       return true;
     }
 
+    // 🔒 And a cookie is not a credential there (docs/08 §8.2a): the route that takes a POST from a
+    // bearer takes nothing else, which is what leaves the origin check of §8.4 inapplicable rather
+    // than excepted. A browser cannot be induced into a call it holds no credential for.
     const cookies: Record<string, string> = req.cookies ?? {};
-    const caller = await this.authenticate.execute(cookies[SESSION_COOKIE_NAME]);
+    const caller = await this.authenticate.execute(
+      readOnlyPost ? undefined : cookies[SESSION_COOKIE_NAME],
+    );
     attachCaller(req, caller);
     return true;
   }

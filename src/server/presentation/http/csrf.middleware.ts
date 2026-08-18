@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { errorEnvelope } from './envelope';
+import { isReadOnlyPostRoute } from './read-only-post-routes';
 
 // Methods that cannot change state, so they need no origin proof.
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -15,6 +16,14 @@ export function csrfOriginCheck(appBaseUrl: string) {
 
   return (req: Request, res: Response, next: NextFunction): void => {
     if (SAFE_METHODS.has(req.method)) {
+      next();
+      return;
+    }
+
+    // 🔒 MCP is JSON-RPC over a POST, and that route authenticates by bearer token alone
+    // (docs/08 §8.2a): it holds no credential a browser sends by itself, so there is no cross-site
+    // request to forge. The check is not weakened here — it has nothing to act on.
+    if (isReadOnlyPostRoute(req.method, req.path)) {
       next();
       return;
     }

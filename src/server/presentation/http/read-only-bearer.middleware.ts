@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { bearerTokenOf } from './bearer';
 import { errorEnvelope } from './envelope';
+import { isReadOnlyPostRoute } from './read-only-post-routes';
 
 // Methods that cannot change state — the only ones an API token is allowed to reach.
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -12,7 +13,13 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 // to ask. The token is not looked up — the header alone decides, so an expired or forged bearer on
 // a POST is refused for the honest reason rather than for being invalid.
 export function readOnlyBearer(req: Request, res: Response, next: NextFunction): void {
-  if (SAFE_METHODS.has(req.method) || bearerTokenOf(req) === undefined) {
+  if (
+    SAFE_METHODS.has(req.method) ||
+    // 🔒 The one route where a POST is a read, declared once (docs/08 §8.2a): MCP is JSON-RPC over
+    // a POST, and it is the only credential that route takes.
+    isReadOnlyPostRoute(req.method, req.path) ||
+    bearerTokenOf(req) === undefined
+  ) {
     next();
     return;
   }

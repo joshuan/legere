@@ -189,6 +189,16 @@ credential which leaks costs its owner nothing but a revocation and can never ch
 - **Lifetime.** Expiry is mandatory (`API_TOKEN_TTL_DAYS`, default 90, max 365): a token nobody can
   remember issuing should stop working by itself. `lastUsedAt` is written at most once a minute, so
   the list can answer "is this one still in use?" without a write per request.
+- 🔒 **One route where a POST is a read** (`07 §7.3a`, ADR-024). MCP speaks JSON-RPC over a single
+  `POST /api/mcp`, so the rule above — a bearer on anything but `GET`/`HEAD`/`OPTIONS` is refused
+  before routing — would refuse the whole protocol. The exception is **one path, declared once**
+  (`isReadOnlyPostRoute`) and consulted by all three of the places that would otherwise refuse it:
+  the origin check, the read-only middleware and `SessionGuard`. What makes it safe is not the
+  narrowness but what is on the other side: **the route accepts no cookie**, so it has no
+  credential a browser sends by itself and CSRF has nothing to act on — the check of §8.4 is not
+  weakened, it is inapplicable. And the tools it dispatches to are a closed list over read use
+  cases, so "read-only" there is a property of the registry rather than a promise about whatever is
+  mounted next.
 - **Not in this feature:** scopes narrower than "read what the owner reads", per-token IP limits,
   and machine accounts without a human owner. Each is a real thing to want; none is needed to let a
   script read an archive, and none can be added silently — a token's authority is exactly its

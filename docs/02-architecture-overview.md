@@ -375,6 +375,36 @@ old artifacts keep serving until the new ones land.
   tab of its own in the viewer (`11 §11.5e`); a link is visible only where **both** ends are
   (`03 §3.4`).
 
+### ADR-024. MCP — the archive as a tool set, spoken by hand
+
+- **Decision:** the instance serves the **Model Context Protocol** at a single route,
+  `POST /api/mcp` ([`07 §7.3a`](./07-api-specification.md)), so an assistant somebody already talks
+  to — Claude, an agent of their own, whatever comes next — can search this archive and read what it
+  finds. The protocol is implemented **in this repository, by hand**: JSON-RPC 2.0 over one POST,
+  four methods (`initialize`, `ping`, `tools/list`, `tools/call`), three read-only tools, JSON
+  responses and no session state.
+- **Why:** what people want from their documents is a conversation, and the honest way to give them
+  one is not to grow a chat product inside a document manager — it is to let the model they already
+  use reach the archive. The credential for exactly that already exists and already says what it
+  allows: a read-only API token that inherits its owner's access
+  ([`08 §8.2a`](./08-auth-and-authorization.md)), whose own documentation names "an assistant
+  answering questions about what is filed here" as the case it was built for. Nothing about the
+  retrieval is new either: the tools are the hybrid search and the document reads this API already
+  serves.
+- **Alternatives:** the official SDK and its Streamable HTTP transport — rejected for now: it wants
+  to own the request and the response, it brings sessions, SSE and resumability this route does not
+  use, and the part actually needed is a JSON-RPC dispatcher over four methods. A chat screen inside
+  Legere (retrieval, context assembly, streaming, citations, and prompt injection from documents the
+  archive did not write) — deferred: it is a second product, and this is the cheapest way to find out
+  whether the retrieval is good enough to build one. A separate process — rejected: one process is
+  ADR-002, and a second one would need this one's database and its access rules.
+- **Consequences:** 🔒 one route where a POST carries a bearer token, which the origin check, the
+  read-only middleware and the session guard all have to know about — declared once and consulted by
+  all three ([`08 §8.2a`](./08-auth-and-authorization.md)). On that route **a cookie authenticates
+  nothing**, which is what makes the exception to the CSRF rule safe rather than trusted: a browser
+  cannot be tricked into a call it has no credential for. The tools are a closed list over read use
+  cases, so "read-only" is a property of the registry and not a promise about future routes.
+
 ### ADR-013. CI — a single Docker image to GHCR; deployment outside the repository
 - **Decision:** GitHub Actions: on every PR — `typecheck` + `lint` + `test` + `build` (with a
   PostgreSQL+pgvector service); on `main`/tag — build of a **single** image `ghcr.io/<owner>/legere`.
