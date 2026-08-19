@@ -741,6 +741,80 @@ The dictionary is `unaccent` rather than a hand-written table: it already knows 
 is. The whole text is folded once before any word is looked at, so a document with no marks in it —
 most of them — costs one comparison.
 
+**Amended by M43.1 (one name, two scripts):** the owner of this archive is
+`Шершнев Евгений Константинович` on every Russian paper in it and `SHERSHNEV EVGENII` on every
+Serbian one — the same person, filed twice, and neither spelling reached the other. `Београд` and
+`Beograd` are the same city. This is neither rule above it: `Б` looks nothing like `B`, so no fold of
+glyphs joins them, and no mark is involved. It is **transliteration**, a mapping between alphabets,
+which rewrites whole words and therefore has to be pointed at exactly what it is for.
+
+Two mappings, because Cyrillic does not have one. **Serbian** Latin is the official bijective
+companion of Serbian Cyrillic (`ц`→`c`, `ч`→`č`, `х`→`h`); **Russian** goes to Latin by the ICAO
+passport rules (`ц`→`ts`, `ч`→`ch`, `х`→`kh`) — not a choice of taste but the spelling printed on
+this archive's own documents. A Cyrillic word is stored under **both** readings rather than guessed
+at, because guessing the language of a word is how an archive loses a document quietly. The Serbian
+reading is folded through `fold_diacritics`, so `чачак` is reachable as `cacak` and not only `čačak`.
+
+```sql
+CREATE FUNCTION transliterate_serbian(source text) RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+    SELECT translate(
+      replace(replace(replace($1, 'љ', 'lj'), 'њ', 'nj'), 'џ', 'dž'),
+      'абвгдђежзијклмнопрстћуфхцчш', 'abvgdđežzijklmnoprstćufhcčš') $$;
+
+CREATE FUNCTION transliterate_russian(source text) RETURNS text  -- ICAO Doc 9303
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+    SELECT translate(
+      replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(
+        $1, 'щ','shch'), 'ж','zh'), 'х','kh'), 'ц','ts'), 'ч','ch'),
+        'ш','sh'), 'ъ','ie'), 'ю','iu'), 'я','ia'), 'ь',''),
+      'абвгдеёзийклмнопрстуфыэ', 'abvgdeeziiklmnoprstufye') $$;
+
+CREATE FUNCTION transliterated_twins(source text) RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+    SELECT CASE WHEN $1 !~ '[Ѐ-ӿ]' THEN '' ELSE (
+      SELECT coalesce(string_agg(DISTINCT reading, ' '), '')
+      FROM (
+        SELECT lower(match[1]) AS run
+        FROM regexp_matches(left($1, 64000), '[[:alnum:]]{3,}', 'g') AS match
+        WHERE match[1] ~ '[Ѐ-ӿ]'
+      ) AS runs,
+      LATERAL (VALUES
+        (fold_diacritics(transliterate_serbian(run))),
+        (transliterate_russian(run))
+      ) AS readings(reading)
+    ) END $$;
+```
+
+🔒 **Both functions require their input already lowercased.** `translate` is per character and the
+mappings are written in lowercase only, so an uppercase Cyrillic letter would pass through untouched
+and leave Cyrillic sitting inside a Latin word. `transliterated_twins` lowercases every run before
+handing it over, and the result only ever reaches `to_tsvector('simple', …)`, which lowercases
+anyway.
+
+🔒 **Three characters is the floor, and it is not arbitrary.** Two-letter Cyrillic words are the
+function words of both languages — `на`, `он`, `но`, `то`, `за`, `да`, `из`, `по` — and they read out
+as `na`, `on`, `no`, `to`, `za`, `da`, `iz`, `po`, which are words a Latin query uses. The
+configuration is `simple` and has no stop words, so folding them would let a search for `no` match
+every Russian document in the archive. Identifiers are unaffected: they carry digits and are already
+`homoglyph_twins`' business.
+
+🔒 **The first 64 000 characters of a value, and that bound is load-bearing.** A `tsvector` may not
+exceed 1 MB, and this is the only one of the three twin functions that fires on *every word of every
+Cyrillic document* rather than on the few tokens carrying a digit or a mark: measured, two readings
+of 12 000 distinct words are 300 kB of vector by themselves, and 300 kB of all-distinct Cyrillic
+prose crossed the ceiling without the bound. Past 64 000 characters a document stays findable in the
+script it was written in — the guarantee it had before any of this; under it, every title, every
+name, every description, every place and some thirty pages of prose are findable in both. **A search
+that misses the tail of one long scan is a smaller failure than a document that cannot be written at
+all**, which is what exceeding the ceiling would mean: the generated column is computed on write.
+Note that the ceiling itself predates all three rules — 450 kB of entirely distinct words already
+overflowed a plain `to_tsvector`.
+
+The query side (`07 §7.3`) carries the other direction, since the stored side only reads Cyrillic
+*out*: somebody typing `Шершнев` reaches the Serbian paper that says `SHERSHNEV` through two further
+branches, one per mapping.
+
 ```sql
 -- 3) vector index (cosine)
 CREATE INDEX document_chunks_embedding_idx ON document_chunks

@@ -257,6 +257,68 @@ describe('Search (e2e)', () => {
       );
     });
 
+    // One person, filed twice: Шершнев Евгений on every Russian paper and SHERSHNEV EVGENII on every
+    // Serbian one (docs/04 §4.3). Б looks nothing like B, so no fold of glyphs joins them — this is
+    // a mapping between alphabets, and it has to work from either side.
+    it('reads a name out of Cyrillic into Latin, and finds it from either side', async () => {
+      const libraryId = await givenLibrary();
+      const russian = await givenDocument(
+        libraryId,
+        'Trudovaya',
+        'Сведения о трудовой деятельности, Шершнев Евгений Константинович, Екатеринбург.',
+      );
+      const serbian = await givenDocument(
+        libraryId,
+        'Saobracajna',
+        'SHERSHNEV EVGENII, BEOGRAD, Stanislava Sremcevica 20A.',
+      );
+
+      const latinQuery = await search(adminCookie, '?q=Shershnev&mode=text');
+      const cyrillicQuery = await search(
+        adminCookie,
+        `?q=${encodeURIComponent('Шершнев')}&mode=text`,
+      );
+
+      expect(
+        expectData(latinQuery, searchResponseSchema)
+          .items.map((hit) => hit.document.id)
+          .sort(),
+      ).toEqual([russian, serbian].sort());
+      expect(
+        expectData(cyrillicQuery, searchResponseSchema)
+          .items.map((hit) => hit.document.id)
+          .sort(),
+      ).toEqual([russian, serbian].sort());
+    });
+
+    it('finds a Serbian city written in either alphabet', async () => {
+      const libraryId = await givenLibrary();
+      const cyrillic = await givenDocument(libraryId, 'Polisa', 'Издато у граду Београд.');
+      const latin = await givenDocument(libraryId, 'Racun', 'Izdato u gradu Beograd.');
+
+      const res = await search(adminCookie, '?q=Beograd&mode=text');
+
+      expect(
+        expectData(res, searchResponseSchema)
+          .items.map((hit) => hit.document.id)
+          .sort(),
+      ).toEqual([cyrillic, latin].sort());
+    });
+
+    // 🔒 Two-letter Cyrillic words are the function words of both languages and read out as na, on,
+    // no, to, za, da — words a Latin query uses. The configuration is `simple` and has no stop
+    // words, so folding them would let a search for `no` match every Russian document there is.
+    it('does not read short Cyrillic words out into Latin function words', async () => {
+      const libraryId = await givenLibrary();
+      await givenDocument(libraryId, 'Dogovor', 'Договор подписан на дом, но не сегодня.');
+
+      const onQuery = await search(adminCookie, '?q=na&mode=text');
+      const noQuery = await search(adminCookie, '?q=no&mode=text');
+
+      expect(expectData(onQuery, searchResponseSchema).items).toEqual([]);
+      expect(expectData(noQuery, searchResponseSchema).items).toEqual([]);
+    });
+
     it('leaves words alone, so a Latin one can never match a Russian one', async () => {
       const libraryId = await givenLibrary();
       // Every letter of Москва has a Latin look-alike; a fold applied to words would make this

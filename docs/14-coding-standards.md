@@ -127,7 +127,8 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
   RRF merge ordering deterministic; a number typed in either alphabet finds the paper it is printed
   on, in both directions, while a Russian word stays unreachable by its Latin look-alike; a word is
   found whether or not the paper kept its diacritics, both ways round, and the highlight still lands
-  on the spelling the paper carries (04 §4.3).
+  on the spelling the paper carries; a name and a city are found in either script, both ways round,
+  while short Cyrillic words are never read out into Latin function words (04 §4.3).
 - Typed fields (03 §3.3.10a, 05 §5.5 step 5): a schema-typed document extracts, per-field validation
   drops a bad date and keeps a good vendor; a `MANUAL` value survives a re-run; a manual type change
   re-extracts under the new schema, replacing the old reading; no schema → `SKIPPED NO_SCHEMA`, no

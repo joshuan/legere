@@ -563,9 +563,24 @@ export function searchByTextSql(
       -- SREMCEVICA. The stored side folds the words it holds and this folds the words it is asked
       -- for; each branch is the whole query, so what a person joined with a space stays joined, and
       -- the first branch still matches the text as written.
+      --
+      -- 🔒 The last two branches are the same words read out of Cyrillic into Latin, one mapping per
+      -- language (docs/04 §4.3): Serbian, whose Latin is its own alphabet's official companion, and
+      -- Russian, by the passport rules that spell this archive's owner SHERSHNEV on half his papers
+      -- and Шершнев on the other half. The stored side carries both readings of every Cyrillic word,
+      -- so these branches exist for the other direction — somebody who types Шершнев reaching the
+      -- Serbian paper that says SHERSHNEV. On a query with no Cyrillic in it they are the first
+      -- branch again, which costs a parse of a handful of words and changes nothing.
       SELECT websearch_to_tsquery('simple', translate(${query}, '_-.', '   ')) ||
-             websearch_to_tsquery('simple', translate(fold_diacritics(${query}), '_-.', '   '))
-               AS tsq
+             websearch_to_tsquery('simple', translate(fold_diacritics(${query}), '_-.', '   ')) ||
+             websearch_to_tsquery(
+               'simple',
+               translate(fold_diacritics(transliterate_serbian(lower(${query}))), '_-.', '   ')
+             ) ||
+             websearch_to_tsquery(
+               'simple',
+               translate(transliterate_russian(lower(${query})), '_-.', '   ')
+             ) AS tsq
     ), named AS MATERIALIZED (
       SELECT df.document_id AS id, 'fileName'::text AS kind, f.name AS name
       FROM document_files df

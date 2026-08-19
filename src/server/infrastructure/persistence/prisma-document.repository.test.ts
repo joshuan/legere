@@ -43,11 +43,11 @@ describe('searchByTextSql', () => {
   it('builds the text query once, where it used to be built three times', () => {
     const sql = searchByTextSql(ADMIN, 'invoice', {}, 50);
 
-    // Twice, not once, and both inside `q`: the words as typed, and the same words with their
-    // diacritics removed (docs/04 §4.3). What this test has always been about is that the parser
-    // runs over the caller's words in one place instead of once per consumer — six readers still
-    // take the result from `q`.
-    expect(occurrences(sql.text, 'websearch_to_tsquery')).toBe(2);
+    // Four readings, not one, and all four inside `q`: the words as typed, the same words with
+    // their diacritics removed, and the two ways Cyrillic is read out into Latin (docs/04 §4.3).
+    // What this test has always been about is that the parser runs over the caller's words in one
+    // place instead of once per consumer — every reader still takes the result from `q`.
+    expect(occurrences(sql.text, 'websearch_to_tsquery')).toBe(4);
     // And every reader takes it from that one place: the three name branches, the match, the rank,
     // the headline and one per reason a hit may carry (docs/07 §7.3). What matters is that the
     // parser runs once over the words a person typed, not how many comparisons read the result.
