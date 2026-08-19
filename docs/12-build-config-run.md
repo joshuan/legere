@@ -582,6 +582,43 @@ something, or a per-request nonce threaded through the Ant Design registry and N
 The second is the one worth having — it is what would blunt a stored XSS — and it is a task of its
 own, tracked in the backlog rather than left as a comment.
 
+## 12.8b. Observing a live instance from the dev machine
+
+Development regularly asks two questions of a running instance — *what is the app logging?* and
+*what does the data say?* — and both have narrow, read-only answers that deserve better than an
+interactive shell on the production host. Two scripts under `scripts/ops/` provide them:
+
+- **`scripts/ops/prod-logs.sh <target>`** — the app's pino JSON log via `ssh <host> docker logs`,
+  plus a one-shot `health` summary of the host. Flags: `--since` (default `1h`), `--tail`
+  (default `200`), `--grep <ERE>`. 🔒 Every target is a **fixed remote command template**; nothing
+  the caller passes is interpolated into the remote command — `--since`/`--tail` are validated
+  against strict patterns and `--grep` filters locally, after the transfer.
+- **`scripts/ops/prod-db.sh "<SQL>"`** (or `-f file.sql`, or `-` for stdin; `--csv` for
+  machine-readable output) — `psql` straight to the instance's database **as a dedicated read-only
+  role**. 🔒 Read-only is a property of that role's privileges in PostgreSQL (membership in
+  `pg_read_all_data` and nothing else), not of the wrapper's discipline; the wrapper adds
+  `default_transaction_read_only=on` and a 15 s `statement_timeout` on top as a seat belt, and never
+  prints the credentials.
+
+**Where the instance's coordinates live — and why not here.** Both scripts read
+`~/.config/legere/ops.env` (path overridable via `LEGERE_OPS_ENV`; template with every variable
+name: [`scripts/ops/ops.env.example`](../scripts/ops/ops.env.example)). This repository is public;
+host names, ssh aliases, container names, database addresses and passwords are each operator's own
+and never belong in it. The scripts therefore carry the *shape* of the access and none of its
+*values*, and refuse loudly (exit 2, naming the template) when the file is missing or incomplete.
+
+**Why this is the sanctioned path.** `.claude/settings.json` (committed) allows exactly these two
+scripts to run unprompted, which makes the routine questions cheap for an AI development agent;
+anything beyond them — an arbitrary ssh, a write, another host — falls outside the allowlist and
+asks first. The alternative this replaces was a blanket ssh permission, which answered the same
+questions while also permitting everything else.
+
+**Scope.** The app container and the database — deliberately nothing more. Stirling, Docling, the
+AI providers and S3 are external services from this application's point of view (`02` ADRs); their
+health is read from the outcomes the pipeline records — `documents.processing_error`,
+`document_events` — via `prod-db.sh`, not from their hosts, whose administration is not this
+repository's business.
+
 ## 12.9. Open questions
 
 None.

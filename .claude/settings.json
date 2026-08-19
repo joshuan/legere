@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./scripts/ops/prod-logs.sh:*)",
+      "Bash(scripts/ops/prod-logs.sh:*)",
+      "Bash(./scripts/ops/prod-db.sh:*)",
+      "Bash(scripts/ops/prod-db.sh:*)"
+    ]
+  }
+}
