@@ -105,7 +105,8 @@ standard lists them.
 | RRF merge ordering deterministic | `src/server/application/search/search-documents.test.ts` — merges the two orderings by rank rather than by score; answers the same order for the same input; `test/e2e/search.e2e.test.ts` — orders the same query the same way every time |
 | a number typed in either alphabet finds the paper, a word stays unreachable by its look-alike | `test/e2e/search.e2e.test.ts` — finds a number typed in either alphabet, whichever one it was scanned in; finds a Serbian paper through the letter its alphabet shares with Latin; leaves words alone, so a Latin one can never match a Russian one; `src/server/infrastructure/persistence/prisma-document.repository.test.ts` — asks in the alphabet the words were typed in and matches through one expression |
 | a word is found with or without its diacritics, both ways, and the highlight keeps the paper's spelling | `test/e2e/search.e2e.test.ts` — finds a word whether or not the paper kept its diacritics, both ways round; keeps the highlight on the words as the paper spells them |
-| a name and a city are found in either script, and short Cyrillic words are not read out into Latin | `test/e2e/search.e2e.test.ts` — reads a name out of Cyrillic into Latin, and finds it from either side; finds a Serbian city written in either alphabet; does not read short Cyrillic words out into Latin function words |
+| a name and a city are found in either script, and short Cyrillic words are not read out into Latin | `test/e2e/search.e2e.test.ts` — reads a name out of Cyrillic into Latin, and finds it from either side; finds a Serbian city written in either alphabet; does not read short Cyrillic words out into Latin words |
+| a hit reached only through a fold answers without a highlight | `test/e2e/search.e2e.test.ts` — answers without a highlight when only the fold matched |
 
 ## Typed fields
 

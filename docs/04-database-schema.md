@@ -704,8 +704,10 @@ depends on who typed it — a Serbian registry, a Turkish rental desk, or a syst
 ```sql
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
--- One-argument `unaccent(text)` is STABLE — it resolves its dictionary through `search_path` — so it
--- may appear in neither a generated column nor an index. The two-argument form is IMMUTABLE.
+-- Both forms of `unaccent` are STABLE — each resolves its dictionary through `search_path` — so
+-- neither may appear in a generated column or an index. The hand-declared IMMUTABLE wrapper is the
+-- workaround PostgreSQL's own documentation prescribes; naming the dictionary is what makes the
+-- declaration honest rather than a lie the planner will believe.
 CREATE FUNCTION fold_diacritics(source text) RETURNS text
   LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
     SELECT unaccent('unaccent'::regdictionary, $1) $$;
@@ -792,24 +794,49 @@ and leave Cyrillic sitting inside a Latin word. `transliterated_twins` lowercase
 handing it over, and the result only ever reaches `to_tsvector('simple', …)`, which lowercases
 anyway.
 
-🔒 **Three characters is the floor, and it is not arbitrary.** Two-letter Cyrillic words are the
-function words of both languages — `на`, `он`, `но`, `то`, `за`, `да`, `из`, `по` — and they read out
-as `na`, `on`, `no`, `to`, `za`, `da`, `iz`, `po`, which are words a Latin query uses. The
-configuration is `simple` and has no stop words, so folding them would let a search for `no` match
-every Russian document in the archive. Identifiers are unaffected: they carry digits and are already
-`homoglyph_twins`' business.
+**Corrected by M43.2 (a bound that holds, and a floor that does).** Two of the three rules above were
+written from reasoning rather than measurement, and both were wrong. What follows is what the schema
+actually does.
 
-🔒 **The first 64 000 characters of a value, and that bound is load-bearing.** A `tsvector` may not
-exceed 1 MB, and this is the only one of the three twin functions that fires on *every word of every
-Cyrillic document* rather than on the few tokens carrying a digit or a mark: measured, two readings
-of 12 000 distinct words are 300 kB of vector by themselves, and 300 kB of all-distinct Cyrillic
-prose crossed the ceiling without the bound. Past 64 000 characters a document stays findable in the
-script it was written in — the guarantee it had before any of this; under it, every title, every
-name, every description, every place and some thirty pages of prose are findable in both. **A search
-that misses the tail of one long scan is a smaller failure than a document that cannot be written at
-all**, which is what exceeding the ceiling would mean: the generated column is computed on write.
-Note that the ceiling itself predates all three rules — 450 kB of entirely distinct words already
-overflowed a plain `to_tsvector`.
+🔒 **Four characters is the floor.** Three was chosen to keep the two-letter function words — `на`,
+`он`, `но` — from becoming `na`, `on`, `no`, and it does exactly that while letting the three-letter
+ones through: `год`→`god`, `сам`→`sam`, `дом`→`dom`, `нет`→`net`, `все`→`vse`, `как`→`kak`. `год` is
+on every dated Russian paper and `сам` in every Serbian sentence, so a search for `god` answered with
+half the archive. At four, what survives are cognates — `план`/`plan`, `дата`/`data`, `банк`/`bank`,
+`тест`/`test` — which mean the same thing in both languages and are a match worth having. The
+configuration is `simple` and has no stop words, so nothing else protects the archive from this.
+Identifiers are unaffected: they carry digits and are `homoglyph_twins`' business.
+
+🔒 **All three folds read the first 32 000 characters of a value, and that bound is load-bearing.** A
+`tsvector` may not exceed 1 MB. The bound was first put on `transliterated_twins` alone, reasoning
+that it fires on every word of every Cyrillic document while the other two fire only on the few
+tokens carrying a digit or a mark — but that reasoning is about *frequency* and the ceiling is about
+*size*. Serbian Latin prose is diacritic-dense and an OCR'd parts list is almost nothing but
+identifiers, so all three reach whole-document amplification on exactly the papers this archive is
+full of: measured, a 326 kB Serbian document indexed to 543 kB before any of this and to 1 060 kB
+after. **Exceeding the ceiling is not a search that misses.** `search_vector` is `STORED`, so it is
+computed on write: the document's markdown step fails and the OCR already paid for is thrown away —
+and `ADD COLUMN … GENERATED … STORED` recomputes every existing row, so one stored document over the
+line aborts a migration that runs on container start. A search that misses the tail of one long scan
+is the smaller failure by a wide margin.
+
+🔒 **A reading equal to the run it came from is not stored.** It is already in the vector these are
+concatenated onto, so `fold_to_latin` of an all-Latin identifier was writing that token twice. With
+the duplicates gone and the bound at 32 000, the identifier-dense worst case sits at 931 kB against
+the ceiling where it was 1 240 kB. Note the ceiling itself predates all of this: 450 kB of entirely
+distinct words already overflowed a plain `to_tsvector`.
+
+32 000 characters covers every title, name, description and place — none come near it — and roughly a
+dozen pages of prose. It is **not** where the names are: the people and things a document is about
+are indexed in their own tables, whose rows are short and are folded whole, so a name the analysis
+found is reachable in every script no matter how long the paper carrying it.
+
+Two limits worth stating plainly, because nothing above implies them. A **fold carries no
+highlight**: `ts_headline` marks the query against the text as written, so a document reached only
+through a twin — `Sremcevica` finding `Sremčevića`, `Shershnev` finding `Шершнев` — comes back with a
+snippet and no `<mark>` in it. And a **fold does not cross a phrase query**: twins are appended after
+the text, so their positions do not sit beside their neighbours' and `"ulica sremcevica"` will not
+match `Ulica Sremčevića`.
 
 The query side (`07 §7.3`) carries the other direction, since the stored side only reads Cyrillic
 *out*: somebody typing `Шершнев` reaches the Serbian paper that says `SHERSHNEV` through two further

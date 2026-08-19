@@ -305,18 +305,37 @@ describe('Search (e2e)', () => {
       ).toEqual([cyrillic, latin].sort());
     });
 
-    // 🔒 Two-letter Cyrillic words are the function words of both languages and read out as na, on,
-    // no, to, za, da — words a Latin query uses. The configuration is `simple` and has no stop
-    // words, so folding them would let a search for `no` match every Russian document there is.
-    it('does not read short Cyrillic words out into Latin function words', async () => {
+    // 🔒 Short Cyrillic words are the function words of both languages and read out as na, on, no,
+    // god, sam, dom — words a Latin query uses. The configuration is `simple` and has no stop words,
+    // so folding them lets a search for `god` answer with every dated Russian paper there is. Four
+    // characters is the floor; three was not enough (docs/04 §4.3).
+    it('does not read short Cyrillic words out into Latin words', async () => {
       const libraryId = await givenLibrary();
-      await givenDocument(libraryId, 'Dogovor', 'Договор подписан на дом, но не сегодня.');
+      await givenDocument(
+        libraryId,
+        'Dogovor',
+        'Договор подписан на дом, но не сегодня. Квитанция за Июль 2026 год.',
+      );
+      await givenDocument(libraryId, 'Ugovor', 'Ја сам потписао уговор.');
 
-      const onQuery = await search(adminCookie, '?q=na&mode=text');
-      const noQuery = await search(adminCookie, '?q=no&mode=text');
+      for (const word of ['na', 'no', 'god', 'sam', 'dom']) {
+        const res = await search(adminCookie, `?q=${word}&mode=text`);
+        expect(expectData(res, searchResponseSchema).items, word).toEqual([]);
+      }
+    });
 
-      expect(expectData(onQuery, searchResponseSchema).items).toEqual([]);
-      expect(expectData(noQuery, searchResponseSchema).items).toEqual([]);
+    // 🔒 A fold carries no highlight, and that is worth pinning: ts_headline marks the query against
+    // the text as written, so a paper reached only through a twin comes back with a snippet and no
+    // mark in it (docs/04 §4.3). The row is the answer; the mark is not always available.
+    it('answers without a highlight when only the fold matched', async () => {
+      const libraryId = await givenLibrary();
+      await givenDocument(libraryId, 'Racun', 'Ulica Sremčevića broj 20.');
+
+      const res = await search(adminCookie, '?q=Sremcevica&mode=text');
+
+      const hit = expectData(res, searchResponseSchema).items[0];
+      expect(hit).toBeDefined();
+      expect(hit?.snippet).not.toContain('<mark>');
     });
 
     it('leaves words alone, so a Latin one can never match a Russian one', async () => {
