@@ -26,7 +26,8 @@ Lines are pino JSON, one object per line: `level` is numeric (30 info, 40 warn, 
 `time` is epoch ms UTC. Request lines carry `req.method`, `req.url`, `res.statusCode`,
 `responseTime`. Two deliberate blind spots (docs/06 §6.7): dynamic path segments are logged as
 `:x` and query strings are dropped entirely, so a specific request is found by time + route shape
-+ status, not by its parameters; request bodies are never logged.
+
+- status, not by its parameters; request bodies are never logged.
 
 Useful patterns:
 
