@@ -192,6 +192,24 @@ describe('Search (e2e)', () => {
       ).toEqual([russian, serbian].sort());
     });
 
+    // Ј (U+0408) is an everyday letter of the Serbian alphabet and is drawn exactly like a Latin J,
+    // so an OCR pass over a Serbian Cyrillic paper puts it inside numbers printed in Latin.
+    it('finds a Serbian paper through the letter its alphabet shares with Latin', async () => {
+      const libraryId = await givenLibrary();
+      const polis = await givenDocument(
+        libraryId,
+        'Polisa',
+        'Полиса осигурања ЈМ2025 од аутоодговорности.',
+      );
+      await givenDocument(libraryId, 'Other', 'Nothing quotable here.');
+
+      const res = await search(adminCookie, '?q=JM2025&mode=text');
+
+      expect(expectData(res, searchResponseSchema).items.map((hit) => hit.document.id)).toEqual([
+        polis,
+      ]);
+    });
+
     it('leaves words alone, so a Latin one can never match a Russian one', async () => {
       const libraryId = await givenLibrary();
       // Every letter of Москва has a Latin look-alike; a fold applied to words would make this

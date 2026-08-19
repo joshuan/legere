@@ -674,6 +674,26 @@ three name indexes, and every comparison in the search (`07 §7.3`) — an index
 query that asks in the very expression it was built on, so there is exactly one place to change if
 the rule ever changes again.
 
+**Amended by M41.2 (the letters Serbian shares with Latin):** the twelve pairs were taken from a
+Russian number plate, which is the right set for Russian and the wrong set for the rest of the
+script. `Ј` (U+0408) is an everyday letter of the Serbian alphabet drawn exactly like a Latin `J`;
+`Ѕ` (U+0405) and `І` (U+0406) are Macedonian and Ukrainian, but an OCR pass set to Cyrillic emits
+either where a paper says `S` or `I`. All three join `fold_to_latin` / `fold_to_cyrillic` and the
+test inside `homoglyph_twins`, making fifteen pairs:
+
+```sql
+CREATE OR REPLACE FUNCTION fold_to_latin(source text) RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+    SELECT translate($1, 'АВЕКМНОРСТУХЈЅІавекмнорстухјѕі', 'ABEKMHOPCTYXJSIabekmhopctyxjsi') $$;
+```
+
+🔒 **Replacing a function is not enough, and nothing warns you.** A stored generated column is not
+recomputed when a function it calls changes, and an expression index is not rebuilt — Postgres has
+no way to know either happened. Both would go on answering by the old mapping, silently and
+indefinitely. Every migration that changes one of these functions therefore rebuilds
+`documents.search_vector` and all four indexes exactly as they were created, and that is the rule for
+any future change to them.
+
 ```sql
 -- 3) vector index (cosine)
 CREATE INDEX document_chunks_embedding_idx ON document_chunks

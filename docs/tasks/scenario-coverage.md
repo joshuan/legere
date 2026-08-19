@@ -103,7 +103,7 @@ standard lists them.
 | access filtering inside search | `test/e2e/search.e2e.test.ts` — never surfaces a document from a library the caller cannot see |
 | hybrid = text when no provider | `src/server/application/search/search-documents.test.ts` — answers a hybrid query with text alone |
 | RRF merge ordering deterministic | `src/server/application/search/search-documents.test.ts` — merges the two orderings by rank rather than by score; answers the same order for the same input; `test/e2e/search.e2e.test.ts` — orders the same query the same way every time |
-| a number typed in either alphabet finds the paper, a word stays unreachable by its look-alike | `test/e2e/search.e2e.test.ts` — finds a number typed in either alphabet, whichever one it was scanned in; leaves words alone, so a Latin one can never match a Russian one; `src/server/infrastructure/persistence/prisma-document.repository.test.ts` — asks in the alphabet the words were typed in and matches through one expression |
+| a number typed in either alphabet finds the paper, a word stays unreachable by its look-alike | `test/e2e/search.e2e.test.ts` — finds a number typed in either alphabet, whichever one it was scanned in; finds a Serbian paper through the letter its alphabet shares with Latin; leaves words alone, so a Latin one can never match a Russian one; `src/server/infrastructure/persistence/prisma-document.repository.test.ts` — asks in the alphabet the words were typed in and matches through one expression |
 
 ## Typed fields
 
