@@ -210,7 +210,8 @@ stays under the hour a `document-process` job has ([`06 §6.8`](./06-backend-arc
 | Stirling: office document → PDF, images → PDF, merge, PDF → Markdown | 5 min |
 | Stirling: PDF → first-page image | 2 min |
 | Stirling: page count, metadata stamp | 1 min |
-| Docling: submitting the canonical PDF / one long poll / collecting the result | 5 min / 30 s / 2 min — per window (§5.5 step 3), and the whole parse shares one 55-minute deadline across its windows, under the job's hour |
+| Docling: submitting the canonical PDF / one long poll / collecting the result | 5 min / 30 s / 2 min — the HTTP exchanges that carry one window (§5.5 step 3) |
+| Docling: one window's conversion, between those exchanges | 30 s per page of the window, floored at 2 min for Docling's own queue and warm-up, which a one-page window pays like any other. Set by measuring rather than reasoning: a dense-table scan — a bank statement, a credit-bureau report — parses at 23–25 s/page, and the flat 5 minutes this used to be was 12.5 s/page over a full window, starving exactly those documents whenever one arrived as a single window while longer siblings passed, windowed. A window-less request is budgeted by the page count it knows, and by a full window's worth where nothing counted anything. With captions on, 55 min flat: a vision model runs once per picture, and pages say nothing about pictures. The whole parse shares one 55-minute deadline across its windows, under the job's hour |
 | The analyst reading one document — the analysis, and the fields step again | 5 min each |
 | One batch of embeddings | 2 min |
 | The captcha check on the login path | 5 s |
@@ -585,7 +586,7 @@ they are served to the client via short-lived signed URLs after an access check.
    🔒 **Docling is asked for the document a window at a time.** A layout parse holds its whole
    answer in memory while it builds it, so the peak grows with the document — 3–4 GB for a
    long manual on a host that has four, which is how one document took down every service beside it
-   (§5.4e was written the same night). A document longer than the window — 24 pages, a constant like
+   (§5.4e was written the same night). A document longer than the window — 12 pages, a constant like
    every §5.4a bound — is therefore submitted window by window through the same endpoint's
    `page_range`, the same upload each time with only the range moving, and the Markdown is stitched
    back in page order; each window is one unit of the `docling` gate (§5.4b), so the cooldown an
@@ -593,8 +594,9 @@ they are served to the client via short-lived signed URLs after an access check.
    ranges are clamped to the page count step 1 just wrote, because a range past the last page is a
    request Docling rejects outright. A document at or under the window sends no `page_range` at all
    — byte for byte the request this step has always sent. What the window buys is a ceiling: the
-   longest document costs Docling no more memory than a two-dozen-page one, and the budgets of
-   §5.4a hold per window while the whole parse shares one 55-minute deadline under the job's hour.
+   longest document costs Docling no more memory than a dozen-page one, and each window gets the
+   per-page budget of §5.4a while the whole parse shares one 55-minute deadline under the job's
+   hour.
    The Stirling fallback below knows nothing of any of this — it reads text without layout and
    without the memory to match.
    - the PDF has a text layer (a meaningful-text threshold, measured over the extracted text divided

@@ -1170,3 +1170,20 @@ repository is public, so the tooling can carry the shape of the access and none 
   **Goal:** the app log and the database are readable from the dev machine through committed, fixed-shape, read-only tooling, with every deployment-specific value outside the repository.
   **Docs:** [`12 §12.8b`](../12-build-config-run.md#128b-observing-a-live-instance-from-the-dev-machine)
   **Acceptance:** `scripts/ops/prod-logs.sh` (targets `app` and `health`) and `scripts/ops/prod-db.sh` (SQL from argument, file or stdin; `--csv`) exist and read every host name, container name and credential from `~/.config/legere/ops.env` (`LEGERE_OPS_ENV` overrides; `scripts/ops/ops.env.example` names the variables), refusing with exit 2 and the template's name when it is missing or incomplete; 🔒 nothing caller-supplied reaches the remote command — targets are fixed templates, `--since`/`--tail` are validated, `--grep` filters locally; 🔒 the database is reached as a dedicated role that is read-only by its PostgreSQL privileges, with `default_transaction_read_only=on` and a 15 s `statement_timeout` as the wrapper's seat belt, and the credential is never printed; `.claude/settings.json` (committed) allows exactly these two scripts unprompted, replacing the blanket ssh permission for routine observation; two project skills under `.claude/skills/` teach when each script answers and that Stirling/Docling/AI-provider health is read from `documents.processing_error` and `document_events`, not from anybody's host.
+
+---
+
+## M45 — A budget per page, not per window
+
+A 13-page scanned bank statement failed its markdown step four times over two days with `Docling
+did not finish within 5 minutes`, while a 40-page credit-bureau report passed beside it — split
+into windows, each inside the budget. The flat five minutes was a per-page allowance in disguise:
+12.5 s/page over a full 24-page window, where a dense-table scan — the paper this archive mostly
+holds — measures 23–25 s/page on the live instance. Thirteen documents of exactly that class sat
+`FAILED` while their host answered everything else in seconds; a document was punished not for
+being long but for being dense, and only when it was short enough to arrive whole.
+
+- [x] **M45.1 — Thirty seconds a page, and a smaller window**
+  **Goal:** a document that is dense rather than long parses to Markdown instead of timing out on a healthy host.
+  **Docs:** [`05 §5.4a`](../05-library-and-processing.md#54a-what-one-document-may-cost), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process)
+  **Acceptance:** one window's conversion budget is **30 s per page of the window, floored at 2 minutes** — set by measuring rather than reasoning: dense-table scans parse at 23–25 s/page, so the flat 5 minutes starved a 13-page statement sent as a single window while longer siblings passed, windowed; a window-less request is budgeted by the page count it knows, and by a full window's worth where nothing counted anything; the captions budget stays flat — a vision model runs once per picture, and pages say nothing about pictures — and the whole parse keeps its one 55-minute deadline under the job's hour; `DOCLING_PAGE_WINDOW` drops from 24 to 12, halving the memory ceiling a window puts on Docling along with the wait a slow window can cost, and doubling the headroom the per-page budget buys; 🔒 the request timeouts of `05 §5.4a` are untouched, being bounds on the HTTP exchanges that carry a window rather than on the conversion between them; tests cover the scaled budget cutting a 12-page window at 6 minutes, the floor cutting a one-page window at 2, an unknown page count budgeted as a full window, and the window arithmetic at 12.

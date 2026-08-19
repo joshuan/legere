@@ -263,7 +263,7 @@ describe('DoclingParser', () => {
   });
 
   // A parse no bigger than the window (docs/05 §5.5 step 3): the longest document costs Docling no
-  // more memory than a two-dozen-page one, because it is asked for a window at a time.
+  // more memory than a dozen-page one, because it is asked for a window at a time.
   describe('a parse no bigger than the window (docs/05 §5.5 step 3)', () => {
     function formOf(init: RequestInit | undefined): FormData {
       const body = init instanceof Object && 'body' in init ? init.body : undefined;
@@ -297,13 +297,17 @@ describe('DoclingParser', () => {
       const markdown = await parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 60 });
 
       // Stitched in page order, one part per window.
-      expect(markdown).toBe('part task-1\n\npart task-25\n\npart task-49');
+      expect(markdown).toBe(
+        'part task-1\n\npart task-13\n\npart task-25\n\npart task-37\n\npart task-49',
+      );
       const submits = spy.mock.calls.filter(([input]) => urlOf(input).includes('/v1/convert'));
       // 1-based, inclusive, and clamped at the last page rather than asked past it — a range past
       // the end is a request Docling rejects outright.
       expect(submits.map(([, init]) => formOf(init).getAll('page_range'))).toEqual([
-        ['1', '24'],
-        ['25', '48'],
+        ['1', '12'],
+        ['13', '24'],
+        ['25', '36'],
+        ['37', '48'],
         ['49', '60'],
       ]);
     });
@@ -311,7 +315,7 @@ describe('DoclingParser', () => {
     it('sends no page_range at all for a document at or under the window', async () => {
       const spy = answers('short document');
 
-      await parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 24 });
+      await parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 12 });
 
       // Byte for byte the request this step has always sent.
       expect(sentRequest(spy).form.getAll('page_range')).toEqual([]);
@@ -335,9 +339,9 @@ describe('DoclingParser', () => {
 
       await parser({}, gates).toMarkdown(PDF, { ocrLanguages: [], pageCount: 60 });
 
-      // Three windows, three units: the cooldown an operator set breathes between the windows of
+      // Five windows, five units: the cooldown an operator set breathes between the windows of
       // one document, not only between documents (docs/05 §5.4b).
-      expect(spy).toHaveBeenCalledTimes(3);
+      expect(spy).toHaveBeenCalledTimes(5);
       expect(spy.mock.calls.every(([service]) => service === 'docling')).toBe(true);
     });
 
@@ -380,6 +384,63 @@ describe('DoclingParser', () => {
 
         await expect(parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 30 })).rejects.toThrow(
           /did not finish within 55 minutes/,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  // One window's conversion budget scales with the pages it carries (docs/05 §5.4a): the layout
+  // parse works page by page, and the flat budget this replaced starved a dense short document
+  // while longer ones passed, windowed.
+  describe('the budget of one window (docs/05 §5.4a)', () => {
+    // A task still working when the budget has already passed: the poll moves the clock, then
+    // answers "started", and the deadline check cuts the conversion.
+    function pollOutlivesBudget(minutes: number): void {
+      vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+        const url = urlOf(input);
+        if (url.includes('/v1/convert')) {
+          return Promise.resolve(Response.json({ task_id: TASK, task_status: 'pending' }));
+        }
+        if (url.includes('/v1/status/poll')) {
+          vi.setSystemTime(Date.now() + minutes * 60_000);
+          return Promise.resolve(Response.json({ task_id: TASK, task_status: 'started' }));
+        }
+        return Promise.resolve(Response.json({ document: { md_content: 'part' } }));
+      });
+    }
+
+    it('gives a dozen dense pages six minutes, not five flat', async () => {
+      vi.useFakeTimers();
+      try {
+        pollOutlivesBudget(7);
+        await expect(parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 12 })).rejects.toThrow(
+          /did not finish within 6 minutes/,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('floors at two minutes — a one-page window still pays the queue and the warm-up', async () => {
+      vi.useFakeTimers();
+      try {
+        pollOutlivesBudget(3);
+        await expect(parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 1 })).rejects.toThrow(
+          /did not finish within 2 minutes/,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('budgets a document nothing counted as a full window', async () => {
+      vi.useFakeTimers();
+      try {
+        pollOutlivesBudget(7);
+        await expect(parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 0 })).rejects.toThrow(
+          /did not finish within 6 minutes/,
         );
       } finally {
         vi.useRealTimers();

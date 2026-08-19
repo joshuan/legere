@@ -25,9 +25,16 @@ const POLL = '/v1/status/poll';
 const RESULT = '/v1/result';
 const POLL_WAIT_SEC = 5;
 
-// How long one window's conversion may take. Parsing a window is seconds; captioning its pictures
-// is minutes, because a vision model runs once per picture on the CPU.
-const BUDGET_MS = 5 * 60 * 1000;
+// How long one window's conversion may take: the layout parse works page by page, so the budget
+// does too. The flat five minutes this used to be was a per-page allowance in disguise — 12.5 s a
+// page over a full window — and a dense-table scan (a bank statement, a credit-bureau report)
+// measures 23–25 s/page on the host this is meant for, so a 13-page statement sent as a single
+// window burned the whole budget and failed while a 40-page sibling passed, split into windows
+// that fit. The floor pays for Docling's own queue and warm-up, which a one-page window meets like
+// any other. Captioning pictures stays flat: a vision model runs once per picture on the CPU, and
+// pages say nothing about pictures.
+const BUDGET_PER_PAGE_MS = 30 * 1000;
+const BUDGET_FLOOR_MS = 2 * 60 * 1000;
 const BUDGET_WITH_CAPTIONS_MS = 55 * 60 * 1000;
 
 // 🔒 The whole parse, across every window, shares one deadline under the document-process job's own
@@ -38,9 +45,10 @@ const PARSE_DEADLINE_MS = 55 * 60 * 1000;
 // How many pages Docling is asked for at a time (docs/05 §5.5 step 3). A layout parse holds its
 // whole answer in memory while it builds it, so the peak grows with the document — 3–4 GB for a
 // long manual on a host that has four, which is how one document took down every service beside it.
-// A constant like every §5.4a bound: the right number is a property of the parser, not something an
-// operator can know.
-export const DOCLING_PAGE_WINDOW = 24;
+// Half the two dozen it began as: a dozen halves that ceiling again and halves the wait the slowest
+// window can cost, doubling the headroom the per-page budget above buys. A constant like every
+// §5.4a bound: the right number is a property of the parser, not something an operator can know.
+export const DOCLING_PAGE_WINDOW = 12;
 
 // 🔒 The budgets above bound the *conversion*; these bound each HTTP request that carries it, which
 // is a different thing and the one a wedged container defeats. Long-polling only keeps requests short
@@ -134,7 +142,7 @@ export class DoclingParser extends DocumentParser {
     window: PageWindow,
     parseDeadline: number,
   ): Promise<string> {
-    const budgetMs = this.windowBudgetMs(parseDeadline);
+    const budgetMs = this.windowBudgetMs(windowPageCount(window, options.pageCount), parseDeadline);
     const taskId = await this.submit(this.buildForm(bytes, options, window));
     await this.awaitTask(taskId, budgetMs);
 
@@ -146,16 +154,20 @@ export class DoclingParser extends DocumentParser {
     return stripImagePlaceholders(result.data.document.md_content ?? '');
   }
 
-  // What this window may spend: its own budget, capped by what is left of the whole parse's
-  // deadline. A parse that has overstayed is cut before the next upload, not after it.
-  private windowBudgetMs(parseDeadline: number): number {
+  // What this window may spend: its pages at the per-page rate, floored, capped by what is left of
+  // the whole parse's deadline. A parse that has overstayed is cut before the next upload, not
+  // after it.
+  private windowBudgetMs(pages: number, parseDeadline: number): number {
     const remaining = parseDeadline - Date.now();
     if (remaining <= 0) {
       throw new Error(
         `Docling did not finish within ${Math.round(PARSE_DEADLINE_MS / 60_000)} minutes`,
       );
     }
-    return Math.min(this.describePictures ? BUDGET_WITH_CAPTIONS_MS : BUDGET_MS, remaining);
+    const budget = this.describePictures
+      ? BUDGET_WITH_CAPTIONS_MS
+      : Math.max(BUDGET_FLOOR_MS, pages * BUDGET_PER_PAGE_MS);
+    return Math.min(budget, remaining);
   }
 
   private buildForm(bytes: Buffer, options: ParseOptions, window: PageWindow): FormData {
@@ -280,6 +292,13 @@ export class DoclingParser extends DocumentParser {
 // A window of pages, 1-based and inclusive; null is the whole document in one request, with no
 // `page_range` field at all.
 type PageWindow = readonly [number, number] | null;
+
+// How many pages a window carries, for its budget: a ranged window knows, a whole-document request
+// is the page count where something counted it and a full window's worth where nothing did.
+function windowPageCount(window: PageWindow, pageCount: number): number {
+  if (window !== null) return window[1] - window[0] + 1;
+  return pageCount > 0 ? pageCount : DOCLING_PAGE_WINDOW;
+}
 
 // The ranges a document is fetched in (docs/05 §5.5 step 3), clamped to the page count because a
 // range past the last page is a request Docling rejects outright. A page count of zero is a
