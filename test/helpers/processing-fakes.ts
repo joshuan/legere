@@ -3,6 +3,7 @@ import {
   DocumentParser,
   type ParseOptions,
 } from '../../src/server/application/ports/document-parser';
+import { ServiceUnavailableError } from '../../src/server/application/ports/service-unavailable';
 import type { Document, DocumentSteps } from '../../src/server/domain/entities/document';
 import { pendingSteps } from '../../src/server/domain/entities/document';
 import type { FileRef } from '../../src/server/domain/entities/file-ref';
@@ -875,8 +876,12 @@ export class FakePdfToolbox extends PdfToolbox {
     this.failures.add(method);
   }
 
+  // The container being away rather than choking on a file (docs/05 §5.4e).
+  unavailable = false;
+
   private check(method: string, fileName?: string): void {
     this.calls.push(fileName === undefined ? { method } : { method, fileName });
+    if (this.unavailable) throw new ServiceUnavailableError('stirling', 'fetch failed');
     if (this.failures.has(method)) {
       const detail = this.failureDetail === '' ? '' : `: ${this.failureDetail}`;
       throw new Error(`Stirling ${method} failed with 500${detail}`);
@@ -978,8 +983,14 @@ export class FakeDocumentParser extends DocumentParser {
     return this.configured;
   }
 
+  // The service being away rather than the document failing to parse (docs/05 §5.4e).
+  unavailable = false;
+
   toMarkdown(_source: BinarySource, options: ParseOptions): Promise<string> {
     this.calls.push({ ocrLanguages: options.ocrLanguages });
+    if (this.unavailable) {
+      return Promise.reject(new ServiceUnavailableError('docling', 'fetch failed'));
+    }
     if (this.failing) return Promise.reject(new Error('Docling toMarkdown failed with 500'));
     return Promise.resolve(this.markdown);
   }
@@ -1397,6 +1408,8 @@ export class InMemorySubjectRepository extends SubjectRepository {
 }
 
 export class FakeAnalyst extends DocumentAnalyst {
+  // The provider being away rather than answering badly (docs/05 §5.4e).
+  unavailable = false;
   configured = true;
   readonly endpoint = 'http://classifier.test';
   answer: DocumentAnalysis = {
@@ -1445,7 +1458,10 @@ export class FakeAnalyst extends DocumentAnalyst {
     confirmed: ConfirmedValues = {},
   ): Promise<DocumentAnalysis> {
     this.calls.push({ excerpt, documentTypes, pages: pages.length, confirmed });
-    if (this.failing) return Promise.reject(new Error('Analyst request failed with 503'));
+    if (this.unavailable) {
+      return Promise.reject(new ServiceUnavailableError('classifier', 'fetch failed'));
+    }
+    if (this.failing) return Promise.reject(new Error('Analyst request failed with 500'));
     return Promise.resolve(this.answer);
   }
 
@@ -1472,7 +1488,10 @@ export class FakeAnalyst extends DocumentAnalyst {
       pages: pages.length,
       confirmed,
     });
-    if (this.failing) return Promise.reject(new Error('Analyst request failed with 503'));
+    if (this.unavailable) {
+      return Promise.reject(new ServiceUnavailableError('classifier', 'fetch failed'));
+    }
+    if (this.failing) return Promise.reject(new Error('Analyst request failed with 500'));
     return Promise.resolve({ values: this.fieldValues, confidence: this.fieldConfidence });
   }
 }
@@ -1491,12 +1510,18 @@ export class FakeTranscriber extends PageTranscriber {
     return this.configured;
   }
 
+  // The provider being away (docs/05 §5.4e); the step around this is best-effort either way.
+  unavailable = false;
+
   transcribe(
     pages: readonly PageImage[],
     languages: readonly string[],
   ): Promise<{ markdown: string; usage: TranscriptionUsage }> {
     this.calls.push({ pages: pages.length, languages });
-    if (this.failing) return Promise.reject(new Error('Transcriber request failed with 503'));
+    if (this.unavailable) {
+      return Promise.reject(new ServiceUnavailableError('transcriber', 'fetch failed'));
+    }
+    if (this.failing) return Promise.reject(new Error('Transcriber request failed with 500'));
     return Promise.resolve({ markdown: this.markdown, usage: this.usage });
   }
 }
@@ -1516,8 +1541,14 @@ export class FakeEmbeddingProvider extends EmbeddingProvider {
     return this.configured;
   }
 
+  // The provider being away rather than refusing a batch (docs/05 §5.4e).
+  unavailable = false;
+
   embed(texts: readonly string[]): Promise<number[][]> {
     this.batches.push([...texts]);
+    if (this.unavailable) {
+      return Promise.reject(new ServiceUnavailableError('embeddings', 'fetch failed'));
+    }
     if (this.failing) return Promise.reject(new Error('Embeddings request failed with 500'));
     // Distinguishable per chunk: position and length, then zeros.
     return Promise.resolve(

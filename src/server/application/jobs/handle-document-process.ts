@@ -56,6 +56,7 @@ import type { FileStorage } from '../ports/file-storage';
 import type { ImageTool } from '../ports/image-tool';
 import type { DocumentParser } from '../ports/document-parser';
 import type { PdfToolbox } from '../ports/pdf-toolbox';
+import { ServiceUnavailableError } from '../ports/service-unavailable';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import { artifactKeys } from '../storage/artifact-keys';
 import type { AnalysisSettings } from '../settings/analysis-settings';
@@ -351,7 +352,7 @@ export class HandleDocumentProcess extends JobHandler {
       });
       return { kind: 'ready', pageCount: built.pageCount, ocrUsed: built.ocrUsed };
     } catch (error) {
-      await this.recordFailure(document.id, 'canonical', error);
+      await this.failOrInterrupt(document.id, 'canonical', error);
       return { kind: 'failed' };
     }
   }
@@ -392,7 +393,7 @@ export class HandleDocumentProcess extends JobHandler {
       await this.files.put(artifactKeys.thumbnail(document.id), thumb, 'image/jpeg');
       await this.write(document.id, { steps: { preview: 'DONE' } });
     } catch (error) {
-      await this.recordFailure(document.id, 'preview', error);
+      await this.failOrInterrupt(document.id, 'preview', error);
     }
   }
 
@@ -447,7 +448,7 @@ export class HandleDocumentProcess extends JobHandler {
         auto: { languages: detected },
       });
     } catch (error) {
-      await this.recordFailure(document.id, 'markdown', error);
+      await this.failOrInterrupt(document.id, 'markdown', error);
     }
   }
 
@@ -723,7 +724,7 @@ export class HandleDocumentProcess extends JobHandler {
         },
       });
     } catch (error) {
-      await this.recordFailure(document.id, 'analysis', error);
+      await this.failOrInterrupt(document.id, 'analysis', error);
     }
   }
 
@@ -879,7 +880,7 @@ export class HandleDocumentProcess extends JobHandler {
         },
       });
     } catch (error) {
-      await this.recordFailure(document.id, 'fields', error);
+      await this.failOrInterrupt(document.id, 'fields', error);
     }
   }
 
@@ -936,7 +937,7 @@ export class HandleDocumentProcess extends JobHandler {
       );
       await this.write(document.id, { steps: { vectorization: 'DONE' } });
     } catch (error) {
-      await this.recordFailure(document.id, 'vectorization', error);
+      await this.failOrInterrupt(document.id, 'vectorization', error);
     }
   }
 
@@ -967,6 +968,25 @@ export class HandleDocumentProcess extends JobHandler {
       processingError: error instanceof Error ? error.message : String(error),
       failedStep: step,
     });
+  }
+
+  // Every step's catch, sorting the two failures that deserve opposite treatments (docs/05 §5.4e).
+  // The document's own failure is deterministic and goes FAILED on the first attempt. The service
+  // being away says nothing about the document: the step returns to QUEUED — true again the moment
+  // it is written, since the rethrow below schedules the retry — `processingError` and `failedStep`
+  // stay untouched, and pg-boss retries the job with its backoff; exhaustion leaves the step QUEUED
+  // for the hourly sweep of docs/05 §5.4. A document is never marked FAILED because a container was
+  // away.
+  private async failOrInterrupt(
+    documentId: string,
+    step: DocumentStep,
+    error: unknown,
+  ): Promise<void> {
+    if (error instanceof ServiceUnavailableError) {
+      await this.write(documentId, { steps: { [step]: 'QUEUED' } });
+      throw error;
+    }
+    await this.recordFailure(documentId, step, error);
   }
 }
 

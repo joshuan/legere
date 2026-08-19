@@ -260,7 +260,10 @@ history from a log already written.
   resolved from the Nest DI container (`app.get(HandleFileIngest)`).
 - Retry policy per queue: `retryLimit: 5`, `retryBackoff: true` (exponential).
   `library-scan` uses a **singleton key** = libraryId (pg-boss `singletonKey`) so one scan per library
-  runs at a time; `document-process` uses singletonKey = documentId.
+  runs at a time; `document-process` uses singletonKey = documentId. `document-process` settles a
+  document's own failures inside the handler and lets exactly one error class reach this policy:
+  `ServiceUnavailableError`, a service being away, which is retried because it is transient and must
+  not be recorded against a document ([`05 §5.4e`](./05-library-and-processing.md#54e-an-outage-is-not-a-verdict)).
 - **`expireInSeconds` is per queue**, and it is a recovery time rather than a work timeout: it is how
   long a job stays `active` after its worker disappeared — a crash, a deploy, a dev restart — before
   pg-boss gives it to someone else. Under the `stately` policy an abandoned job keeps its singleton

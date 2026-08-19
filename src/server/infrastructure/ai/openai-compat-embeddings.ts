@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { readBoundedJson, readBoundedText } from '../../application/ports/binary-source';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
+import {
+  ServiceUnavailableError,
+  isUnavailableStatus,
+  reachService,
+} from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
 import { serviceEndpoint } from '../config/service-endpoints';
@@ -69,8 +74,10 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
     if (texts.length === 0) return [];
 
     // One batch is one unit of the `embeddings` gate (docs/05 §5.4b): a vectorization that sends
-    // four batches asks the provider four times, and each one waits its turn.
-    return this.gates.run('embeddings', () => this.ask(texts));
+    // four batches asks the provider four times, and each one waits its turn. The whole exchange is
+    // classified (docs/05 §5.4e): the transport failing is the provider being away, not this
+    // document failing.
+    return this.gates.run('embeddings', () => reachService('embeddings', () => this.ask(texts)));
   }
 
   private async ask(texts: readonly string[]): Promise<number[][]> {
@@ -87,6 +94,10 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
+    if (isUnavailableStatus(response.status)) {
+      // A proxy answering for a provider that is not there (docs/05 §5.4e).
+      throw new ServiceUnavailableError('embeddings', `/embeddings answered ${response.status}`);
+    }
     if (!response.ok) {
       // The message goes into the step error, so a misconfigured key or model is diagnosable from
       // the admin panel rather than only from the container logs.

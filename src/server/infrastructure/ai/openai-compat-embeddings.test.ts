@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helpers/outbound';
+import { ServiceUnavailableError } from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
@@ -116,6 +117,14 @@ describe('OpenAiCompatEmbeddings', () => {
     );
 
     await expect(provider().embed(['x'])).rejects.toThrow(/404.*model not found/s);
+  });
+
+  it('classifies a 503 as the provider being away, not this document failing (docs/05 §5.4e)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('Service Unavailable', { status: 503 }),
+    );
+
+    await expect(provider().embed(['x'])).rejects.toBeInstanceOf(ServiceUnavailableError);
   });
 
   it('refuses to pretend when nothing is configured', async () => {

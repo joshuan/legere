@@ -15,6 +15,11 @@ import {
   type PageScale,
   type PdfMetadata,
 } from '../../application/ports/pdf-toolbox';
+import {
+  ServiceUnavailableError,
+  isUnavailableStatus,
+  reachService,
+} from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
 import { callHeaders } from '../logging/async-call-context';
@@ -211,14 +216,18 @@ export class StirlingPdfToolbox extends PdfToolbox {
     const form = new FormData();
     form.append('fileInput', await blobOf(source), 'input.pdf');
 
-    return this.gates.run('stirling', async () => {
-      const response = await this.post('pageCount', form);
-      const parsed = pageCountSchema.safeParse(
-        await readBoundedJson(response, MAX_SMALL_ANSWER_BYTES),
-      );
-      if (!parsed.success) throw new Error('Stirling returned an unreadable page count');
-      return parsed.data.pageCount;
-    });
+    return this.gates.run('stirling', () =>
+      // The whole exchange, body read included, so a transport failure anywhere in it reads as the
+      // service being away rather than the document being broken (docs/05 §5.4e).
+      reachService('stirling', async () => {
+        const response = await this.post('pageCount', form);
+        const parsed = pageCountSchema.safeParse(
+          await readBoundedJson(response, MAX_SMALL_ANSWER_BYTES),
+        );
+        if (!parsed.success) throw new Error('Stirling returned an unreadable page count');
+        return parsed.data.pageCount;
+      }),
+    );
   }
 
   // 🔒 Every call to the container goes through the `stirling` gate, and each one is one unit of its
@@ -226,10 +235,13 @@ export class StirlingPdfToolbox extends PdfToolbox {
   // answer has been read, not until the headers arrive — a 200 followed by 60 MB of PDF is still the
   // container doing the work this gate exists to meter.
   private async postForBytes(endpoint: keyof typeof ENDPOINTS, form: FormData): Promise<Buffer> {
-    return this.gates.run('stirling', async () => {
-      const response = await this.post(endpoint, form);
-      return readBoundedBody(response, MAX_BINARY_BYTES);
-    });
+    return this.gates.run('stirling', () =>
+      // As above: the transport failing mid-body is the container going away, not this document.
+      reachService('stirling', async () => {
+        const response = await this.post(endpoint, form);
+        return readBoundedBody(response, MAX_BINARY_BYTES);
+      }),
+    );
   }
 
   private async post(endpoint: keyof typeof ENDPOINTS, form: FormData): Promise<Response> {
@@ -244,6 +256,10 @@ export class StirlingPdfToolbox extends PdfToolbox {
       // down too, so a container that answers and then drips cannot hold the worker either.
       signal: AbortSignal.timeout(TIMEOUTS_MS[endpoint]),
     });
+    if (isUnavailableStatus(response.status)) {
+      // A proxy answering for a container that is not there (docs/05 §5.4e).
+      throw new ServiceUnavailableError('stirling', `${path} answered ${response.status}`);
+    }
     if (!response.ok) {
       // The body carries Stirling's own message; it goes into the job error so the failure is
       // diagnosable from the admin panel instead of being just a status code.

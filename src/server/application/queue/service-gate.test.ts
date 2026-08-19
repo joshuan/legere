@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { QueueSettingsDto } from '../../../shared/contracts/queue';
+import { ServiceUnavailableError } from '../ports/service-unavailable';
 import { ServiceGates } from './service-gate';
 import { FixedClock } from '../../../../test/helpers/fakes';
 
@@ -243,6 +244,104 @@ describe('ServiceGates', () => {
     expect(started).toEqual(['a', 'b']);
     hold.resolve();
     await Promise.all(calls);
+  });
+
+  // 🔒 The hold after a unit died of unavailability (docs/05 §5.4e): a queue of documents must not
+  // walk into a dead container one five-minute timeout at a time.
+  describe('the hold after the service was unreachable', () => {
+    const died = (): Promise<never> =>
+      Promise.reject(new ServiceUnavailableError('stirling', 'fetch failed'));
+
+    it('refuses the units that follow, instantly, and admits again after the hold', async () => {
+      const clock = new FixedClock();
+      const gates = new ServiceGates(clock);
+      gates.configure({ stirling: { concurrency: 1, cooldownSeconds: 0 } });
+      const started: string[] = [];
+
+      await expect(gates.run('stirling', died)).rejects.toThrow('unreachable');
+      // Fail fast, before waiting and before dialing: the refusal is the same typed error, so the
+      // step runner treats it exactly like the failure that armed it.
+      await expect(gates.run('stirling', marks(started, 'refused'))).rejects.toBeInstanceOf(
+        ServiceUnavailableError,
+      );
+      expect(started).toEqual([]);
+
+      clock.advance(30_000);
+      await gates.run('stirling', marks(started, 'probe'));
+      expect(started).toEqual(['probe']);
+    });
+
+    it('works even on a gate of zeroes, which is not throttling healthy work', async () => {
+      const clock = new FixedClock();
+      const gates = new ServiceGates(clock);
+      const started: string[] = [];
+
+      await expect(
+        gates.run('docling', () =>
+          Promise.reject(new ServiceUnavailableError('docling', 'fetch failed')),
+        ),
+      ).rejects.toThrow('unreachable');
+      await expect(gates.run('docling', marks(started, 'refused'))).rejects.toBeInstanceOf(
+        ServiceUnavailableError,
+      );
+      expect(started).toEqual([]);
+
+      clock.advance(30_000);
+      await gates.run('docling', marks(started, 'probe'));
+      expect(started).toEqual(['probe']);
+    });
+
+    it('rearms when the probe dies too', async () => {
+      const clock = new FixedClock();
+      const gates = new ServiceGates(clock);
+      gates.configure({ stirling: { concurrency: 1, cooldownSeconds: 0 } });
+      const started: string[] = [];
+
+      await expect(gates.run('stirling', died)).rejects.toThrow('unreachable');
+      clock.advance(30_000);
+      // The first caller past the hold goes through and is the probe — and it dies here.
+      await expect(gates.run('stirling', died)).rejects.toThrow('unreachable');
+      await expect(gates.run('stirling', marks(started, 'refused'))).rejects.toBeInstanceOf(
+        ServiceUnavailableError,
+      );
+      expect(started).toEqual([]);
+    });
+
+    it('refuses a unit that was already waiting when the one ahead of it died', async () => {
+      const clock = new FixedClock();
+      const gates = new ServiceGates(clock);
+      gates.configure({ stirling: { concurrency: 1, cooldownSeconds: 0 } });
+      const started: string[] = [];
+      const hold = deferred();
+
+      const first = gates.run('stirling', async () => {
+        await hold.promise;
+        throw new ServiceUnavailableError('stirling', 'fetch failed');
+      });
+      const second = gates.run('stirling', marks(started, 'second'));
+      await flush();
+
+      hold.resolve();
+      // 🔒 Checked again on the far side of the queue: the second unit was standing at the gate
+      // before the first died, and it must not dial the dead container either.
+      await expect(first).rejects.toThrow('unreachable');
+      await expect(second).rejects.toBeInstanceOf(ServiceUnavailableError);
+      expect(started).toEqual([]);
+    });
+
+    it('arms nothing on an ordinary failure', async () => {
+      const clock = new FixedClock();
+      const gates = new ServiceGates(clock);
+      gates.configure({ stirling: { concurrency: 1, cooldownSeconds: 0 } });
+      const started: string[] = [];
+
+      // A 500 is the service answering — that document broke it (docs/05 §5.4e).
+      await expect(
+        gates.run('stirling', () => Promise.reject(new Error('Stirling choked on the file'))),
+      ).rejects.toThrow('choked');
+      await gates.run('stirling', marks(started, 'next'));
+      expect(started).toEqual(['next']);
+    });
   });
 
   // 🔒 The only honest witness to a working gate: a step waiting at one reads as RUNNING exactly like

@@ -136,8 +136,12 @@ Rules:
 - **Idempotency is mandatory:** re-running any job with the same input creates no duplicates and breaks
   no state (an "already done?" check is the first step of every handler). pg-boss guarantees
   at-least-once, not exactly-once.
-- **Retries:** exponential backoff (e.g. 5 attempts); exhaustion — a `FAILED` status on the entity + an
-  entry in the error journal (admin panel) with a manual "Retry".
+- **Retries:** exponential backoff (e.g. 5 attempts). What exhaustion means depends on whose failure
+  it was (§5.4e): a **document's own** failure is not retried at all — deterministic work bought
+  again buys the same failure — and goes straight to `FAILED` on the entity, with an entry in the
+  error journal (admin panel) and a manual "Retry"; a **service being away** is retried with the
+  backoff, and exhaustion leaves the interrupted steps `QUEUED` for the hourly sweep below, because
+  an outage is a fact about the instance and never a verdict on a document.
 - **Priorities:** actions explicitly requested by a user (a rebuild after re-cropping, a manual
   rescan) rank above background work.
 - Per-type concurrency is env-configured **and admin-tunable at runtime** ([`11 §11.13`](./11-ui-ux-spec.md)):
@@ -206,7 +210,7 @@ stays under the hour a `document-process` job has ([`06 §6.8`](./06-backend-arc
 | Stirling: office document → PDF, images → PDF, merge, PDF → Markdown | 5 min |
 | Stirling: PDF → first-page image | 2 min |
 | Stirling: page count, metadata stamp | 1 min |
-| Docling: submitting the canonical PDF / one long poll / collecting the result | 5 min / 30 s / 2 min |
+| Docling: submitting the canonical PDF / one long poll / collecting the result | 5 min / 30 s / 2 min — per window (§5.5 step 3), and the whole parse shares one 55-minute deadline across its windows, under the job's hour |
 | The analyst reading one document — the analysis, and the fields step again | 5 min each |
 | One batch of embeddings | 2 min |
 | The captcha check on the login path | 5 s |
@@ -262,11 +266,14 @@ calls — which is the shape of "let the OCR container breathe".
 
 **What is gated is one unit of external work, not one HTTP request**, and the two differ in the one
 place where it matters. Each Stirling call is a unit: a conversion, a merge, a render, an OCR pass.
-One whole Docling parse is a *single* unit from submitting the canonical PDF to collecting the
-result, every poll included — the expensive work happens on the Docling server in between, and
-metering the polls would count the cheapest requests of the exchange while the conversion everybody
-is waiting on ran through ungated. One analyst call — the analysis, or the fields step (§5.5 step
-5) — one transcription and one batch of embeddings are each a unit.
+One **window** of a Docling parse (§5.5 step 3) is a *single* unit from submitting the canonical PDF
+to collecting the result, every poll included — the expensive work happens on the Docling server in
+between, and metering the polls would count the cheapest requests of the exchange while the
+conversion everybody is waiting on ran through ungated. A document at or under the window is one
+window and so one unit, which is what a whole parse used to be; a longer one is several, with the
+gate's own cooldown breathing between them, which is exactly what the cooldown is for. One analyst
+call — the analysis, or the fields step (§5.5 step 5) — one transcription and one batch of
+embeddings are each a unit.
 
 **Both numbers default to `0`, and a gate of zeroes is not a gate.** An instance that upgrades into
 this behaves exactly as it behaved: nothing waits anywhere until an operator decides something
@@ -417,6 +424,53 @@ rather than leaving a reader to wonder what is taking so long (`11 §11.5`). The
 claiming that something is coming; it is saying that something has not happened, and — for the admin
 who reads the same screen — where the switch that stopped it is.
 
+## 5.4e. An outage is not a verdict
+
+A step fails for two reasons that deserve opposite treatments, and until this section they got one.
+**The document's own failure** — a PDF nothing can parse, a model that read the pages and choked on
+them — is deterministic: running it again buys the same failure at the same price, so the step goes
+`FAILED` on the first attempt and waits for a person. **The service being away** — the container
+down, the host unreachable, the proxy answering for a process that is not there — says nothing about
+the document at all, and recording it against one is how a night's outage became ~350 documents
+`FAILED`, each waiting for a hand to press Retry, on the instance whose whole promise is that the
+pipeline runs itself (2026-08-18: an OOM-killed Docling, and every document that met the gap).
+
+**The clients tell the two apart at the only layer that can.** Every service client — Stirling,
+Docling, the analyst, the transcriber, the embeddings provider — throws a typed
+`ServiceUnavailableError` where the transport itself failed (undici's `fetch failed`, an abort on
+the call's own §5.4a timeout) or where the answer was `502`, `503` or `504`: the three ways a proxy
+says "the thing behind me is not there". Nothing else qualifies. A `500` is the service *answering*
+— that document broke it, and the document owns the failure; a `404` is a route that does not exist,
+which is configuration, visible on §5.4c's screen, and still a verdict about this instance rather
+than a moment in time.
+
+**An interrupted step goes back to `QUEUED`, and the job carries the error out.** When a
+`ServiceUnavailableError` reaches the step runner, the step is not `FAILED`: it returns to `QUEUED`
+— true again the moment it is written, since the retry is already scheduled — `processingError` and
+`failedStep` stay untouched, and the error is rethrown so pg-boss retries the whole job with its
+backoff (`06 §6.8`). The steps behind the interrupted one never started and stand `QUEUED` already;
+the ones already `DONE` are not re-run beyond their own idempotent "already done?" checks. Retries
+exhausted leave the steps exactly there, `QUEUED`, which is the state the hourly sweep of §5.4
+already re-enqueues after two quiet hours — so a blip costs seconds, an evening's outage costs the
+evening plus a sweep, and neither costs a person a single click. 🔒 A document is **never** marked
+`FAILED` because a container was away — including a container that is away because its address is
+wrong: that reads as an endless outage, which is honest, is named `DOWN` on `/admin/queue` (§5.4c),
+and drains by itself the moment the address is fixed, rather than leaving a thousand documents
+waiting for a thousand Retries. The transcriber keeps its own rule (§5.5 step 3): best-effort by
+design, its outage leaves the recognised text and interrupts nothing.
+
+**The gate slams shut behind the failure.** For 30 seconds after a unit dies of unavailability, the
+service's gate refuses the units that follow with the same error — instantly, before they wait and
+before they dial. A queue of documents must not walk into a dead container one five-minute timeout
+at a time, and the host on the other side — quite possibly thrashing its way back to life — must not
+spend its first breath on a backlog arriving at full rate. The first caller past the hold goes
+through and is the probe: it succeeds and the gate is open, or it dies and rearms the hold. This
+fail-fast works even where the gate is `0/0` — it is not throttling healthy work, which is what "a
+gate of zeroes is not a gate" (§5.4b) is about; it is the outage classification refusing to learn
+the same fact once per document. Like every §5.4a bound the 30 seconds is a constant, not a setting;
+the breaker keeps no counters and publishes nothing, because §5.4c already answers "is it there" on
+the screen an operator is looking at, live and per service.
+
 ## 5.5. Document processing pipeline (`document-process`)
 
 Steps run sequentially for a document; each step records its status
@@ -528,6 +582,21 @@ they are served to the client via short-lived signed URLs after an access check.
    megabyte-long one costs a millisecond rather than minutes of a worker pinned to a core.
    Docling can also write a caption under every picture — off by default,
    because it is slow enough to matter ([`12 §12.4`](./12-build-config-run.md)).
+   🔒 **Docling is asked for the document a window at a time.** A layout parse holds its whole
+   answer in memory while it builds it, so the peak grows with the document — 3–4 GB for a
+   long manual on a host that has four, which is how one document took down every service beside it
+   (§5.4e was written the same night). A document longer than the window — 24 pages, a constant like
+   every §5.4a bound — is therefore submitted window by window through the same endpoint's
+   `page_range`, the same upload each time with only the range moving, and the Markdown is stitched
+   back in page order; each window is one unit of the `docling` gate (§5.4b), so the cooldown an
+   operator set breathes *between the windows of one document* and not only between documents. The
+   ranges are clamped to the page count step 1 just wrote, because a range past the last page is a
+   request Docling rejects outright. A document at or under the window sends no `page_range` at all
+   — byte for byte the request this step has always sent. What the window buys is a ceiling: the
+   longest document costs Docling no more memory than a two-dozen-page one, and the budgets of
+   §5.4a hold per window while the whole parse shares one 55-minute deadline under the job's hour.
+   The Stirling fallback below knows nothing of any of this — it reads text without layout and
+   without the memory to match.
    - the PDF has a text layer (a meaningful-text threshold, measured over the extracted text divided
      by the page count) → that text is the Markdown;
    - the languages of the result are detected from it and stored on the document (03 §3.3.10); on a

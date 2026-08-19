@@ -1599,10 +1599,102 @@ describe('HandleDocumentProcess', () => {
       const document = stateOf();
       expect(document.steps.analysis).toBe('FAILED');
       expect(document.failedStep).toBe('analysis');
-      expect(document.processingError).toContain('503');
+      expect(document.processingError).toContain('500');
       // The document is still readable and still gets its vectors.
       expect(document.steps.markdown).toBe('DONE');
       expect(document.steps.vectorization).toBe('DONE');
+    });
+  });
+
+  // An outage is not a verdict (docs/05 §5.4e): a service being away puts the step back to QUEUED
+  // and carries the error out to pg-boss, so the retry is the queue's and never a person's.
+  describe('an outage is not a verdict (docs/05 §5.4e)', () => {
+    it('puts an interrupted markdown step back to QUEUED and rethrows, recording no failure', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      parser.configured = true;
+      parser.unavailable = true;
+
+      await expect(run()).rejects.toThrow('unreachable');
+
+      const document = stateOf();
+      // The steps before it keep what they earned; the interrupted one is honestly back in the
+      // queue, because the rethrow above is the retry being scheduled.
+      expect(document.steps.canonical).toBe('DONE');
+      expect(document.steps.preview).toBe('DONE');
+      expect(document.steps.markdown).toBe('QUEUED');
+      expect(document.processingError).toBeNull();
+      expect(document.failedStep).toBeNull();
+    });
+
+    it('does the same for the canonical when Stirling is away', async () => {
+      await givenDocument([
+        { file: { mimeType: 'application/msword', ext: 'doc' }, bytes: 'doc-bytes' },
+      ]);
+      pdfs.unavailable = true;
+
+      await expect(run()).rejects.toThrow('unreachable');
+
+      const document = stateOf();
+      expect(document.steps.canonical).toBe('QUEUED');
+      expect(document.processingError).toBeNull();
+      expect(document.failedStep).toBeNull();
+    });
+
+    it('does the same for the analysis, leaving what the run already earned', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      analyst.unavailable = true;
+
+      await expect(run()).rejects.toThrow('unreachable');
+
+      const document = stateOf();
+      expect(document.steps.markdown).toBe('DONE');
+      expect(document.steps.analysis).toBe('QUEUED');
+      // The steps behind the interrupted one never started this attempt.
+      expect(document.steps.vectorization).not.toBe('DONE');
+      expect(document.processingError).toBeNull();
+    });
+
+    it('does the same for the vectorization', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      embeddings.unavailable = true;
+
+      await expect(run()).rejects.toThrow('unreachable');
+
+      const document = stateOf();
+      expect(document.steps.analysis).toBe('DONE');
+      expect(document.steps.vectorization).toBe('QUEUED');
+      expect(document.processingError).toBeNull();
+    });
+
+    it('leaves the transcriber best-effort: its outage falls back to the recognised text', async () => {
+      transcriber.configured = true;
+      transcriber.unavailable = true;
+      settings.transcriberMaxPages = 20;
+      pdfs.pageCount = 1;
+      pdfs.markdownByContent.set('image-pdf(photo)', '1\n\n2');
+      pdfs.markdownByContent.set('scaled-A4-PORTRAIT(ocr-pdf)', 'Recognized text from the scan');
+      await givenDocument([{ file: { mimeType: 'image/jpeg', ext: 'jpg' }, bytes: 'photo' }]);
+
+      await run();
+
+      // Nothing rethrown and nothing queued again: the step had its answer without the model
+      // (docs/05 §5.5 step 3).
+      expect(stateOf().steps.markdown).toBe('DONE');
+      expect(stateOf().markdown).toBe('Recognized text from the scan');
+    });
+
+    it('still fails the document on a failure the document owns', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      parser.configured = true;
+      // A 500 is the service answering — that document broke it (docs/05 §5.4e).
+      parser.failing = true;
+
+      await run();
+
+      const document = stateOf();
+      expect(document.steps.markdown).toBe('FAILED');
+      expect(document.failedStep).toBe('markdown');
+      expect(document.processingError).toContain('500');
     });
   });
 

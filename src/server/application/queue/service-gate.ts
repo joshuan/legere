@@ -6,9 +6,16 @@ import {
   type ServiceName,
 } from '../../../shared/contracts/queue';
 import type { Clock } from '../ports/clock';
+import { ServiceUnavailableError } from '../ports/service-unavailable';
 
 // One gate's state with the service it belongs to, which is how the overview lists them.
 type ServiceGateStateSnapshot = ServiceGateStateDto & { service: ServiceName };
+
+// How long a gate refuses new units after one died of unavailability (docs/05 §5.4e). A constant
+// like every §5.4a bound: a queue of documents must not walk into a dead container one five-minute
+// timeout at a time, and the host behind it — possibly thrashing its way back to life — must not
+// spend its first breath on a backlog arriving at full rate.
+const UNAVAILABLE_HOLD_MS = 30_000;
 
 // The per-service gates of docs/05 §5.4b. The two knobs of §5.4 count jobs and units; this counts
 // the thing that is actually scarce on a self-hosted box — calls to one container — so an operator
@@ -25,11 +32,18 @@ type ServiceGateStateSnapshot = ServiceGateStateDto & { service: ServiceName };
 
 // A gate is held in the process, and one process is the whole of this instance (ADR-002).
 class ServiceGate {
-  constructor(private readonly clock: Clock) {}
+  constructor(
+    private readonly service: ServiceName,
+    private readonly clock: Clock,
+  ) {}
 
   private concurrency = 0;
   private cooldownMs = 0;
   private inFlight = 0;
+  // Until when this gate refuses new units because the last one died of unavailability
+  // (docs/05 §5.4e). Kept on the gate and published nowhere: §5.4c already answers "is it there"
+  // on the screen an operator is looking at, live and per service.
+  private unavailableUntil = 0;
   // In arrival order, and served from the front: the document that arrived first is not starved by
   // the ones behind it. Each carries the moment it began waiting, which is the only number on this
   // screen an operator cannot infer from the others (docs/05 §5.4b).
@@ -45,16 +59,43 @@ class ServiceGate {
   }
 
   async run<T>(work: () => Promise<T>): Promise<T> {
+    // Fail fast, before waiting and before dialing (docs/05 §5.4e) — and working even on a 0/0
+    // gate, because this is not throttling healthy work: it is the outage classification refusing
+    // to learn the same fact once per document.
+    this.refuseWhileUnavailable();
+
     // Read once: a caller that got in ungated must not start decrementing a counter it never
     // incremented because the gate closed while it was working.
-    if (this.concurrency === 0) return work();
+    if (this.concurrency === 0) return this.watch(work);
 
     await this.acquire();
     try {
-      return await work();
+      // Checked again on the far side of the queue: a unit that was already waiting when the one
+      // ahead of it died must not dial the dead container either.
+      this.refuseWhileUnavailable();
+      return await this.watch(work);
     } finally {
       this.release();
     }
+  }
+
+  // The unit itself, with the breaker watching how it dies: unavailability arms the hold, and the
+  // first caller past the hold is the probe — it succeeds and the gate is open, or it dies here and
+  // rearms it (docs/05 §5.4e).
+  private async watch<T>(work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (error) {
+      if (error instanceof ServiceUnavailableError) {
+        this.unavailableUntil = this.clock.now().getTime() + UNAVAILABLE_HOLD_MS;
+      }
+      throw error;
+    }
+  }
+
+  private refuseWhileUnavailable(): void {
+    if (this.clock.now().getTime() >= this.unavailableUntil) return;
+    throw new ServiceUnavailableError(this.service, 'the service was unreachable moments ago');
   }
 
   // What this gate is doing this instant (docs/05 §5.4b): the answer to "is the throttle working",
@@ -126,7 +167,9 @@ export class ServiceGates {
   // gate took an undefined clock, and the first caller that had to wait died on `clock.now()` with
   // the whole step around it (`14 §14.1`).
   constructor(clock: Clock) {
-    this.gates = new Map(SERVICE_NAMES.map((service) => [service, new ServiceGate(clock)]));
+    this.gates = new Map(
+      SERVICE_NAMES.map((service) => [service, new ServiceGate(service, clock)]),
+    );
   }
 
   // Everything the settings hold, in one call: this is what boot and every admin save both do, so

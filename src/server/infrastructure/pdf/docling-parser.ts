@@ -7,6 +7,11 @@ import {
   type BinarySource,
 } from '../../application/ports/binary-source';
 import { DocumentParser, type ParseOptions } from '../../application/ports/document-parser';
+import {
+  ServiceUnavailableError,
+  isUnavailableStatus,
+  reachService,
+} from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
 import { callHeaders } from '../logging/async-call-context';
@@ -133,31 +138,40 @@ export class DoclingParser extends DocumentParser {
     });
   }
 
+  // The whole exchange — request, status check, body read — with transport failures and 502/503/504
+  // classified as the service being away rather than the document being broken (docs/05 §5.4e).
   private async submit(form: FormData): Promise<string> {
-    // The id of the step this conversion belongs to, so docling-serve logs the same one.
-    const response = await fetch(`${this.baseUrl}${CONVERT}`, {
-      method: 'POST',
-      body: form,
-      headers: callHeaders(),
-      signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS),
-    });
-    if (!response.ok) {
-      const detail = await readBoundedText(response, MAX_SMALL_ANSWER_BYTES).catch(() => '');
-      // The one failure worth spelling out: captions need a model that is not in the stock image,
-      // and "404" on its own sends nobody anywhere useful.
-      const hint =
-        this.describePictures && response.status === 404
-          ? ' — DOCLING_PICTURE_DESCRIPTION is on and the Docling image has no picture-description' +
-            ' model. Build one with `npm run docling:captions`, then restart the container.'
-          : '';
-      throw new Error(
-        `Docling ${CONVERT} failed with ${response.status}: ${detail.slice(0, 500)}${hint}`,
-      );
-    }
+    return reachService('docling', async () => {
+      // The id of the step this conversion belongs to, so docling-serve logs the same one.
+      const response = await fetch(`${this.baseUrl}${CONVERT}`, {
+        method: 'POST',
+        body: form,
+        headers: callHeaders(),
+        signal: AbortSignal.timeout(SUBMIT_TIMEOUT_MS),
+      });
+      if (isUnavailableStatus(response.status)) {
+        throw new ServiceUnavailableError('docling', `${CONVERT} answered ${response.status}`);
+      }
+      if (!response.ok) {
+        const detail = await readBoundedText(response, MAX_SMALL_ANSWER_BYTES).catch(() => '');
+        // The one failure worth spelling out: captions need a model that is not in the stock image,
+        // and "404" on its own sends nobody anywhere useful.
+        const hint =
+          this.describePictures && response.status === 404
+            ? ' — DOCLING_PICTURE_DESCRIPTION is on and the Docling image has no picture-description' +
+              ' model. Build one with `npm run docling:captions`, then restart the container.'
+            : '';
+        throw new Error(
+          `Docling ${CONVERT} failed with ${response.status}: ${detail.slice(0, 500)}${hint}`,
+        );
+      }
 
-    const accepted = taskSchema.safeParse(await readBoundedJson(response, MAX_SMALL_ANSWER_BYTES));
-    if (!accepted.success) throw new Error('Docling accepted the document without a task id');
-    return accepted.data.task_id;
+      const accepted = taskSchema.safeParse(
+        await readBoundedJson(response, MAX_SMALL_ANSWER_BYTES),
+      );
+      if (!accepted.success) throw new Error('Docling accepted the document without a task id');
+      return accepted.data.task_id;
+    });
   }
 
   // Long-polls until the task settles. Each request is short by construction, which is the point:
@@ -189,16 +203,21 @@ export class DoclingParser extends DocumentParser {
   }
 
   private async get(path: string, timeoutMs: number, maxBytes: number): Promise<unknown> {
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      headers: callHeaders(),
-      // 🔒 Headers and body alike: when it fires, undici tears the body stream down too.
-      signal: AbortSignal.timeout(timeoutMs),
+    return reachService('docling', async () => {
+      const response = await fetch(`${this.baseUrl}${path}`, {
+        headers: callHeaders(),
+        // 🔒 Headers and body alike: when it fires, undici tears the body stream down too.
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (isUnavailableStatus(response.status)) {
+        throw new ServiceUnavailableError('docling', `${path} answered ${response.status}`);
+      }
+      if (!response.ok) {
+        const detail = await readBoundedText(response, MAX_SMALL_ANSWER_BYTES).catch(() => '');
+        throw new Error(`Docling ${path} failed with ${response.status}: ${detail.slice(0, 500)}`);
+      }
+      return readBoundedJson(response, maxBytes);
     });
-    if (!response.ok) {
-      const detail = await readBoundedText(response, MAX_SMALL_ANSWER_BYTES).catch(() => '');
-      throw new Error(`Docling ${path} failed with ${response.status}: ${detail.slice(0, 500)}`);
-    }
-    return readBoundedJson(response, maxBytes);
   }
 }
 

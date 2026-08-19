@@ -3,6 +3,11 @@ import { z } from 'zod';
 import { readBoundedJson, readBoundedText } from '../../application/ports/binary-source';
 import type { PageImage } from '../../application/ports/document-analyst';
 import { PageTranscriber, type Transcription } from '../../application/ports/page-transcriber';
+import {
+  ServiceUnavailableError,
+  isUnavailableStatus,
+  reachService,
+} from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
 import { serviceEndpoint } from '../config/service-endpoints';
@@ -84,8 +89,11 @@ export class OpenAiCompatTranscriber extends PageTranscriber {
     if (pages.length === 0) return { markdown: '', usage: {} };
 
     // One transcription — the whole document in one call — is one unit of the `transcriber` gate
-    // (docs/05 §5.4b).
-    return this.gates.run('transcriber', () => this.read(pages, languages));
+    // (docs/05 §5.4b). Classified like every service exchange (docs/05 §5.4e); the step that calls
+    // this is best-effort and falls back to the recognised text either way.
+    return this.gates.run('transcriber', () =>
+      reachService('transcriber', () => this.read(pages, languages)),
+    );
   }
 
   private async read(
@@ -116,6 +124,13 @@ export class OpenAiCompatTranscriber extends PageTranscriber {
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
+    if (isUnavailableStatus(response.status)) {
+      // A proxy answering for a provider that is not there (docs/05 §5.4e).
+      throw new ServiceUnavailableError(
+        'transcriber',
+        `/chat/completions answered ${response.status}`,
+      );
+    }
     if (!response.ok) {
       const detail = await readBoundedText(response, MAX_ERROR_BYTES).catch(() => '');
       throw new Error(

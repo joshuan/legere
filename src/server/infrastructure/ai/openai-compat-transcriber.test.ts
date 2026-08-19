@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ServiceUnavailableError } from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
@@ -88,6 +89,16 @@ describe('OpenAiCompatTranscriber', () => {
     await transcriber.transcribe([], ['ru']);
 
     expect(run.mock.calls.map(([service]) => service)).toEqual(['transcriber']);
+  });
+
+  it('classifies a 502 as the provider being away (docs/05 §5.4e)', async () => {
+    const transcriber = transcriberWith({ error: 'bad gateway' }, 502);
+
+    // The step around this is best-effort either way; the typed error still matters, because it is
+    // what arms the gate's hold (docs/05 §5.4e).
+    await expect(transcriber.transcribe([PAGE], ['ru'])).rejects.toBeInstanceOf(
+      ServiceUnavailableError,
+    );
   });
 
   it('asks for nothing when there are no pages to read', async () => {

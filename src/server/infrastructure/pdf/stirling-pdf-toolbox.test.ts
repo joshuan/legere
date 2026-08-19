@@ -1,5 +1,6 @@
 import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { ServiceUnavailableError } from '../../application/ports/service-unavailable';
 import { ungatedServices } from '../../application/queue/queue-settings';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { FixedClock } from '../../../../test/helpers/fakes';
@@ -308,10 +309,22 @@ describe('StirlingPdfToolbox', () => {
     expect(headers).toEqual({});
   });
 
-  it('lets a transport failure through, so the job retries with backoff', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
+  it('classifies the transport failing as the service being away (docs/05 §5.4e)', async () => {
+    // undici rejects every network-level failure this way; the typed error is what tells the step
+    // runner to queue the step again instead of failing the document.
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
 
-    await expect(toolbox().pdfPageCount(Buffer.from('%PDF-'))).rejects.toThrow('ECONNREFUSED');
+    await expect(toolbox().pdfPageCount(Buffer.from('%PDF-'))).rejects.toBeInstanceOf(
+      ServiceUnavailableError,
+    );
+  });
+
+  it('classifies a 503 the same way — a proxy answering for a container that is not there', async () => {
+    mockStirling(new Response('Service Unavailable', { status: 503 }));
+
+    await expect(toolbox().pdfPageCount(Buffer.from('%PDF-'))).rejects.toBeInstanceOf(
+      ServiceUnavailableError,
+    );
   });
 
   it('tolerates a configured URL with a trailing slash', async () => {

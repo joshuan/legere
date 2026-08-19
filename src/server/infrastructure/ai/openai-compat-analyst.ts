@@ -17,6 +17,11 @@ import {
   type PageImage,
   type KnownSubject,
 } from '../../application/ports/document-analyst';
+import {
+  ServiceUnavailableError,
+  isUnavailableStatus,
+  reachService,
+} from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
 import { serviceEndpoint } from '../config/service-endpoints';
@@ -275,8 +280,17 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     return { ...readAnswer(answer.content, documentTypes), usage: answer.usage };
   }
 
-  // One chat completion, bounded in time and in size — the transport both questions share.
+  // One chat completion, bounded in time and in size — the transport both questions share, and the
+  // one place both are classified (docs/05 §5.4e): the transport failing or a proxy answering
+  // 502/503/504 is the provider being away, while a 500 is the provider answering — that document
+  // broke it, and the document owns the failure.
   private async completion(
+    messages: readonly unknown[],
+  ): Promise<{ content: string; usage: { promptTokens?: number; completionTokens?: number } }> {
+    return reachService('classifier', () => this.exchange(messages));
+  }
+
+  private async exchange(
     messages: readonly unknown[],
   ): Promise<{ content: string; usage: { promptTokens?: number; completionTokens?: number } }> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
@@ -299,6 +313,12 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
+    if (isUnavailableStatus(response.status)) {
+      throw new ServiceUnavailableError(
+        'classifier',
+        `/chat/completions answered ${response.status}`,
+      );
+    }
     if (!response.ok) {
       const detail = await readBoundedText(response, MAX_ERROR_BYTES).catch(() => '');
       throw new Error(`Analyst request failed with ${response.status}: ${truncate(detail)}`);

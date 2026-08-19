@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helpers/outbound';
 import type { DocumentFieldSchema } from '../../../shared/contracts/document-fields';
 import type { DocumentTypeOption, KnownSubject } from '../../application/ports/document-analyst';
+import { ServiceUnavailableError } from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
@@ -660,6 +661,14 @@ describe('OpenAiCompatAnalyst', () => {
     );
 
     await expect(analyst().analyze('text', CATEGORIES)).rejects.toThrow(/429.*rate limited/s);
+  });
+
+  it('classifies a 502 as the provider being away, not this document failing (docs/05 §5.4e)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('Bad Gateway', { status: 502 }));
+
+    await expect(analyst().analyze('text', CATEGORIES)).rejects.toBeInstanceOf(
+      ServiceUnavailableError,
+    );
   });
 
   it('refuses to pretend when nothing is configured', async () => {

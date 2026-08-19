@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { ServiceUnavailableError } from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
@@ -249,5 +250,48 @@ describe('DoclingParser', () => {
     await parser({ DOCLING_URL: 'http://docling:5001/' }).toMarkdown(PDF, { ocrLanguages: [] });
 
     expect(sentRequest(spy).url).toBe('http://docling:5001/v1/convert/file/async');
+  });
+
+  // The service being away is a different failure from the document being broken, and the client is
+  // the only layer that can tell them apart (docs/05 §5.4e).
+  describe('the service being away (docs/05 §5.4e)', () => {
+    it('classifies the transport failing as the service being unreachable', async () => {
+      // undici rejects every network-level failure this way.
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('fetch failed'));
+
+      await expect(parser().toMarkdown(PDF, { ocrLanguages: [] })).rejects.toBeInstanceOf(
+        ServiceUnavailableError,
+      );
+    });
+
+    it('classifies a 502 the same way — a proxy answering for a container that is not there', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('Bad Gateway', { status: 502 }));
+
+      await expect(parser().toMarkdown(PDF, { ocrLanguages: [] })).rejects.toBeInstanceOf(
+        ServiceUnavailableError,
+      );
+    });
+
+    it('classifies its own timeout firing mid-exchange', async () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+        new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+      );
+
+      await expect(parser().toMarkdown(PDF, { ocrLanguages: [] })).rejects.toBeInstanceOf(
+        ServiceUnavailableError,
+      );
+    });
+
+    it('leaves a 500 as the document owning the failure — the service answered', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('conversion blew up', { status: 500 }),
+      );
+
+      const failure: unknown = await parser()
+        .toMarkdown(PDF, { ocrLanguages: [] })
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure).not.toBeInstanceOf(ServiceUnavailableError);
+    });
   });
 });
