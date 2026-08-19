@@ -111,6 +111,6 @@
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.0",
     "unplugin-swc": "^1.5.1",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.10"
   }
 }
