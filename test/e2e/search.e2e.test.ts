@@ -156,6 +156,53 @@ describe('Search (e2e)', () => {
       ]);
     });
 
+    // A number is findable in the alphabet it is typed in, not the one it was printed in (docs/04
+    // §4.3). Twelve Cyrillic capitals are drawn exactly like Latin ones, OCR keeps whichever the
+    // glyph came from, and nobody typing a VIN off their own registration knows which they got.
+    it('finds a number typed in either alphabet, whichever one it was scanned in', async () => {
+      const libraryId = await givenLibrary();
+      // The VIN as OCR read it off a Russian registration: Х, Т, А and М are Cyrillic here.
+      const russian = await givenDocument(
+        libraryId,
+        'Registration',
+        'Идентификационный номер ХТА210700М0596136, двигатель 2103.',
+      );
+      // The same shape of number on a paper printed in Latin.
+      const serbian = await givenDocument(
+        libraryId,
+        'Saobracajna',
+        'Broj sasije XTA210700M0596136',
+      );
+
+      const inLatin = await search(adminCookie, '?q=XTA210700M0596136&mode=text');
+      const inCyrillic = await search(
+        adminCookie,
+        `?q=${encodeURIComponent('ХТА210700М0596136')}&mode=text`,
+      );
+
+      expect(
+        expectData(inLatin, searchResponseSchema)
+          .items.map((hit) => hit.document.id)
+          .sort(),
+      ).toEqual([russian, serbian].sort());
+      expect(
+        expectData(inCyrillic, searchResponseSchema)
+          .items.map((hit) => hit.document.id)
+          .sort(),
+      ).toEqual([russian, serbian].sort());
+    });
+
+    it('leaves words alone, so a Latin one can never match a Russian one', async () => {
+      const libraryId = await givenLibrary();
+      // Every letter of Москва has a Latin look-alike; a fold applied to words would make this
+      // document answer to Mockba, and every Russian word answer to something.
+      await givenDocument(libraryId, 'Place', 'Договор подписан в городе Москва.');
+
+      const res = await search(adminCookie, '?q=Mockba&mode=text');
+
+      expect(expectData(res, searchResponseSchema).items).toEqual([]);
+    });
+
     it('returns nothing for an empty query rather than everything', async () => {
       const libraryId = await givenLibrary();
       await givenDocument(libraryId, 'Something', 'Body');

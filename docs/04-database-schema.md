@@ -602,6 +602,78 @@ at once. The query joins the three tables instead (`07 §7.3`), each through a G
 expression the query asks — so a rename is searchable the moment it is committed, and nothing can
 drift because nothing is copied.
 
+**Amended again by M41.1 (a number in either alphabet):** twelve Cyrillic capitals are drawn exactly
+like Latin ones — `А В Е К М Н О Р С Т У Х` — which is why a Russian number plate is made of those
+twelve and no others: they are the letters that read the same to a foreign camera. OCR keeps
+whichever alphabet the glyph came from, so a VIN read off a Russian registration is stored as
+`ХТА210700М0596136` with four Cyrillic letters inside it, and the person who types
+`XTA210700M0596136` off their own papers gets an empty screen. The two strings are the same string on
+the page; to Postgres they are two unrelated tokens. The same holds in reverse for a Serbian polis
+printed in Latin and searched by somebody thinking in Russian.
+
+```sql
+-- The mapping, written once and in one direction each way; `translate` is per character, so the two
+-- alphabets are given in the same order and the pairing reads down the column.
+CREATE FUNCTION fold_to_latin(source text) RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+    SELECT translate($1, 'АВЕКМНОРСТУХавекмнорстух', 'ABEKMHOPCTYXabekmhopctyx') $$;
+CREATE FUNCTION fold_to_cyrillic(source text) RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+    SELECT translate($1, 'ABEKMHOPCTYXabekmhopctyx', 'АВЕКМНОРСТУХавекмнорстух') $$;
+
+-- Both readings of every identifier in the text, and nothing else.
+CREATE FUNCTION homoglyph_twins(source text) RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+    SELECT coalesce(string_agg(fold_to_latin(run) || ' ' || fold_to_cyrillic(run), ' '), '')
+    FROM (
+      SELECT match[1] AS run
+      FROM regexp_matches($1, '[[:alnum:]]*[0-9][[:alnum:]]*', 'g') AS match
+      WHERE match[1] ~ '[АВЕКМНОРСТУХавекмнорстухABEKMHOPCTYXabekmhopctyx]'
+    ) AS runs $$;
+
+-- How any text in this archive becomes searchable, said once.
+CREATE FUNCTION search_tokens(source text) RETURNS tsvector
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+    SELECT to_tsvector('simple', translate($1, '_-.', '   ')) ||
+           to_tsvector('simple', homoglyph_twins($1)) $$;
+
+ALTER TABLE documents DROP COLUMN search_vector;
+ALTER TABLE documents
+  ADD COLUMN search_vector tsvector
+  GENERATED ALWAYS AS (
+    setweight(search_tokens(coalesce(title, '')), 'A') ||
+    setweight(search_tokens(coalesce(extracted_search_text, '')), 'A') ||
+    setweight(search_tokens(coalesce(description, '')), 'B') ||
+    setweight(search_tokens(coalesce(markdown, '')), 'B') ||
+    setweight(search_tokens(coalesce(country, '') || ' ' || coalesce(city, '')), 'C')
+  ) STORED;
+CREATE INDEX documents_search_vector_idx ON documents USING GIN (search_vector);
+
+-- The names that live in other tables, by the same rule and through the same expression.
+CREATE INDEX files_name_fts_idx    ON files    USING GIN (search_tokens(name));
+CREATE INDEX people_name_fts_idx   ON people   USING GIN (search_tokens(name));
+CREATE INDEX subjects_name_fts_idx ON subjects USING GIN (search_tokens(name));
+```
+
+🔒 **The fold is confined to alphanumeric runs that contain a digit**, because a run with a digit in
+it is an identifier — a VIN, a plate, an account, the number off an act — and identifiers are what
+people copy across keyboards. Words are left exactly as written: every letter of `Москва` has a Latin
+look-alike, and folding words would index it as `Mockba`, make every Russian word answer to something
+Latin, and turn `сор` and `cop` into one token. A digit is the cheap, honest signal that a string is
+a number and not a word.
+
+🔒 **Additive on the stored side, and the query is never folded.** `search_tokens` keeps every token
+as written and adds its twins beside it, so nothing findable before this migration stopped being
+findable and the ranking of ordinary prose did not move. The query (`07 §7.3`) therefore asks for the
+words a person typed, in the alphabet they typed them in — which is what leaves `ts_headline` able to
+mark them in the snippet. Folding the query instead would have found the same documents and lost the
+highlight on every one of them.
+
+`search_tokens` is the one expression both sides are written in: the generated column above, the
+three name indexes, and every comparison in the search (`07 §7.3`) — an index is only usable by a
+query that asks in the very expression it was built on, so there is exactly one place to change if
+the rule ever changes again.
+
 ```sql
 -- 3) vector index (cosine)
 CREATE INDEX document_chunks_embedding_idx ON document_chunks

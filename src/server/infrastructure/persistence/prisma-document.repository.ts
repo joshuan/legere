@@ -550,22 +550,28 @@ export function searchByTextSql(
       -- stored vector and in the three name indexes. Postgres reads kadastar.pdf as one token, so
       -- without this the archive answers only to a file name typed out in full — which is not how
       -- anybody searches.
+      --
+      -- 🔒 The words a person typed are asked for exactly as they typed them, in the alphabet they
+      -- typed them in. The alphabets meet on the other side: search_tokens stores every identifier
+      -- in both (docs/04 §4.3), so a VIN read off a Russian scan as ХТА210700М0596136 answers to
+      -- XTA210700M0596136 without this query ever rewriting anybody's keystrokes — which is what
+      -- leaves the highlight below able to mark them.
       SELECT websearch_to_tsquery('simple', translate(${query}, '_-.', '   ')) AS tsq
     ), named AS MATERIALIZED (
       SELECT df.document_id AS id, 'fileName'::text AS kind, f.name AS name
       FROM document_files df
       JOIN files f ON f.id = df.file_id, q
-      WHERE to_tsvector('simple', translate(f.name, '_-.', '   ')) @@ q.tsq
+      WHERE search_tokens(f.name) @@ q.tsq
       UNION ALL
       SELECT dp.document_id, 'person'::text, p.name
       FROM document_people dp
       JOIN people p ON p.id = dp.person_id, q
-      WHERE to_tsvector('simple', translate(p.name, '_-.', '   ')) @@ q.tsq
+      WHERE search_tokens(p.name) @@ q.tsq
       UNION ALL
       SELECT ds.document_id, 'subject'::text, s.name
       FROM document_subjects ds
       JOIN subjects s ON s.id = ds.subject_id, q
-      WHERE to_tsvector('simple', translate(s.name, '_-.', '   ')) @@ q.tsq
+      WHERE search_tokens(s.name) @@ q.tsq
     ), names AS MATERIALIZED (
       SELECT id,
              string_agg(name, ' ') AS names,
@@ -583,11 +589,7 @@ export function searchByTextSql(
       -- at weight A, so a document found by the name of its scan ranks with the titles.
       SELECT d.id,
              ts_rank(
-               d.search_vector ||
-                 setweight(
-                   to_tsvector('simple', translate(coalesce(n.names, ''), '_-.', '   ')),
-                   'A'
-                 ),
+               d.search_vector || setweight(search_tokens(coalesce(n.names, '')), 'A'),
                q.tsq
              ) AS score,
              -- What the highlight is cut from: the short answers first, so a hit that lives in a
@@ -632,25 +634,18 @@ export function searchByTextSql(
            m.in_file_name,
            m.in_person,
            m.in_subject,
-           to_tsvector('simple', translate(coalesce(d.title, ''), '_-.', '   ')) @@ q.tsq
-             AS in_title,
-           to_tsvector('simple', translate(coalesce(d.extracted_search_text, ''), '_-.', '   '))
-             @@ q.tsq AS in_fields,
-           to_tsvector('simple', translate(coalesce(d.description, ''), '_-.', '   ')) @@ q.tsq
-             AS in_description,
-           to_tsvector(
-             'simple',
-             translate(coalesce(d.country, '') || ' ' || coalesce(d.city, ''), '_-.', '   ')
-           ) @@ q.tsq AS in_place,
+           search_tokens(coalesce(d.title, '')) @@ q.tsq AS in_title,
+           search_tokens(coalesce(d.extracted_search_text, '')) @@ q.tsq AS in_fields,
+           search_tokens(coalesce(d.description, '')) @@ q.tsq AS in_description,
+           search_tokens(coalesce(d.country, '') || ' ' || coalesce(d.city, '')) @@ q.tsq
+             AS in_place,
            -- 🔒 SEC-25. The prose is read out of the vector that already holds it, never tokenised
            -- again: to_tsvector over an unbounded Markdown column, once per row of the answered
            -- page, is exactly the unbounded work the shape of this query exists to avoid. Weight B
            -- is the description and the Markdown together, so a word that is in both is credited to
            -- the description alone — an incomplete reason, never a wrong one (docs/07 §7.3).
            ts_filter(d.search_vector, '{b}') @@ q.tsq
-             AND NOT (
-               to_tsvector('simple', translate(coalesce(d.description, ''), '_-.', '   ')) @@ q.tsq
-             ) AS in_text
+             AND NOT (search_tokens(coalesce(d.description, '')) @@ q.tsq) AS in_text
     FROM matches m
     JOIN documents d ON d.id = m.id, q
     ORDER BY m.score DESC, m.id

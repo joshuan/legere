@@ -124,7 +124,8 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
   visibility via collection share (user-specific and instance-wide); share grants no LIBRARY-doc
   access; collection item filtering per viewer; admin sees everything.
 - Search: FTS finds title & body; access filtering inside search; hybrid = text when no provider;
-  RRF merge ordering deterministic.
+  RRF merge ordering deterministic; a number typed in either alphabet finds the paper it is printed
+  on, in both directions, while a Russian word stays unreachable by its Latin look-alike (04 §4.3).
 - Typed fields (03 §3.3.10a, 05 §5.5 step 5): a schema-typed document extracts, per-field validation
   drops a bad date and keeps a good vendor; a `MANUAL` value survives a re-run; a manual type change
   re-extracts under the new schema, replacing the old reading; no schema → `SKIPPED NO_SCHEMA`, no

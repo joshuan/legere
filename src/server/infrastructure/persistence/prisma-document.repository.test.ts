@@ -59,9 +59,26 @@ describe('searchByTextSql', () => {
     expect(occurrences(sql.text, 'd.markdown')).toBe(1);
     expect(sql.text).toContain("ts_filter(d.search_vector, '{b}')");
     // The names are matched where they live, each through the index on that very expression.
-    expect(occurrences(sql.text, "translate(f.name, '_-.', '   ')")).toBe(1);
-    expect(occurrences(sql.text, "translate(p.name, '_-.', '   ')")).toBe(1);
-    expect(occurrences(sql.text, "translate(s.name, '_-.', '   ')")).toBe(1);
+    expect(occurrences(sql.text, 'search_tokens(f.name)')).toBe(1);
+    expect(occurrences(sql.text, 'search_tokens(p.name)')).toBe(1);
+    expect(occurrences(sql.text, 'search_tokens(s.name)')).toBe(1);
+  });
+
+  // 🔒 The alphabets meet in the index, never in the query (docs/04 §4.3): `search_tokens` is the
+  // one expression both sides are written in, and the words a person typed travel to Postgres
+  // exactly as typed. Folding them here instead would match the same documents and cost the
+  // highlight, because ts_headline marks the query against the text as it was written.
+  it('asks in the alphabet the words were typed in and matches through one expression', () => {
+    const sql = searchByTextSql(ADMIN, 'ХТА210700М0596136', {}, 50);
+
+    // The query reaches the tsquery through the separator rule and nothing else.
+    expect(sql.text).toContain("websearch_to_tsquery('simple', translate($");
+    expect(sql.values).toContain('ХТА210700М0596136');
+    expect(sql.text).not.toContain('fold_to_latin');
+    expect(sql.text).not.toContain('fold_to_cyrillic');
+    // Everything the query is compared against is written in the expression the indexes are built
+    // on: the three names, and each column a hit may be credited to.
+    expect(occurrences(sql.text, 'search_tokens(')).toBe(9);
   });
 
   it('sends every value as a bound parameter, including the words a person typed', () => {
