@@ -25,11 +25,22 @@ const POLL = '/v1/status/poll';
 const RESULT = '/v1/result';
 const POLL_WAIT_SEC = 5;
 
-// How long the whole conversion may take. Parsing a document is seconds; captioning its pictures is
-// minutes, because a vision model runs once per picture on the CPU. The long budget stays under the
-// document-process job's own hour (docs/06 §6.8).
+// How long one window's conversion may take. Parsing a window is seconds; captioning its pictures
+// is minutes, because a vision model runs once per picture on the CPU.
 const BUDGET_MS = 5 * 60 * 1000;
 const BUDGET_WITH_CAPTIONS_MS = 55 * 60 * 1000;
+
+// 🔒 The whole parse, across every window, shares one deadline under the document-process job's own
+// hour (docs/05 §5.4a, docs/06 §6.8): windows must not let a long document spend thirteen budgets
+// where one document used to spend one.
+const PARSE_DEADLINE_MS = 55 * 60 * 1000;
+
+// How many pages Docling is asked for at a time (docs/05 §5.5 step 3). A layout parse holds its
+// whole answer in memory while it builds it, so the peak grows with the document — 3–4 GB for a
+// long manual on a host that has four, which is how one document took down every service beside it.
+// A constant like every §5.4a bound: the right number is a property of the parser, not something an
+// operator can know.
+export const DOCLING_PAGE_WINDOW = 24;
 
 // 🔒 The budgets above bound the *conversion*; these bound each HTTP request that carries it, which
 // is a different thing and the one a wedged container defeats. Long-polling only keeps requests short
@@ -93,6 +104,61 @@ export class DoclingParser extends DocumentParser {
     if (!this.isConfigured) throw new Error('DOCLING_URL is not configured');
 
     const bytes = await toBuffer(source);
+    // 🔒 Docling is asked for the document a window at a time (docs/05 §5.5 step 3): the same
+    // upload each time with only the range moving, so the longest document costs Docling no more
+    // memory than a two-dozen-page one. A document at or under the window — or one whose page count
+    // is unknown — is one window with no `page_range` at all, byte for byte the request this step
+    // has always sent.
+    const windows = pageWindows(options.pageCount);
+    const parseDeadline = Date.now() + PARSE_DEADLINE_MS;
+
+    const parts: string[] = [];
+    for (const window of windows) {
+      // 🔒 One *window* is a single unit of the `docling` gate — submitting, every poll, and
+      // collecting the result (docs/05 §5.4b). The expensive work happens on the Docling server
+      // between those requests, so metering the polls would count the cheapest exchanges of the
+      // conversation while the conversion everybody is waiting on ran through ungated. And the
+      // gate's cooldown breathes between the windows of one document, which is what a cooldown is
+      // for.
+      parts.push(
+        await this.gates.run('docling', () => this.convert(bytes, options, window, parseDeadline)),
+      );
+    }
+    return parts.filter((part) => part !== '').join('\n\n');
+  }
+
+  // One window of the parse, stitched back by the caller in page order.
+  private async convert(
+    bytes: Buffer,
+    options: ParseOptions,
+    window: PageWindow,
+    parseDeadline: number,
+  ): Promise<string> {
+    const budgetMs = this.windowBudgetMs(parseDeadline);
+    const taskId = await this.submit(this.buildForm(bytes, options, window));
+    await this.awaitTask(taskId, budgetMs);
+
+    const result = conversionSchema.safeParse(
+      await this.get(`${RESULT}/${taskId}`, RESULT_TIMEOUT_MS, MAX_RESULT_BYTES),
+    );
+    if (!result.success) throw new Error('Docling answered in a shape this version does not know');
+
+    return stripImagePlaceholders(result.data.document.md_content ?? '');
+  }
+
+  // What this window may spend: its own budget, capped by what is left of the whole parse's
+  // deadline. A parse that has overstayed is cut before the next upload, not after it.
+  private windowBudgetMs(parseDeadline: number): number {
+    const remaining = parseDeadline - Date.now();
+    if (remaining <= 0) {
+      throw new Error(
+        `Docling did not finish within ${Math.round(PARSE_DEADLINE_MS / 60_000)} minutes`,
+      );
+    }
+    return Math.min(this.describePictures ? BUDGET_WITH_CAPTIONS_MS : BUDGET_MS, remaining);
+  }
+
+  private buildForm(bytes: Buffer, options: ParseOptions, window: PageWindow): FormData {
     const form = new FormData();
     form.append('files', new Blob([viewOf(bytes)]), 'input.pdf');
     form.append('to_formats', 'md');
@@ -100,6 +166,12 @@ export class DoclingParser extends DocumentParser {
     // into separate glyph runs — "li č ne" instead of "lične" — which breaks the word for search as
     // well as for reading (docs/05 §5.5).
     form.append('pdf_backend', 'pypdfium2');
+    if (window !== null) {
+      // Two repeated fields, 1-based and inclusive — verified against docling-serve itself, which
+      // answers 200 with the whole document when the field name is wrong.
+      form.append('page_range', String(window[0]));
+      form.append('page_range', String(window[1]));
+    }
 
     if (options.ocrLanguages.length === 0) {
       // The document carries its own text: reading it is both faster and more accurate than
@@ -119,23 +191,7 @@ export class DoclingParser extends DocumentParser {
       form.append('do_picture_description', 'true');
       form.append('picture_description_area_threshold', String(PICTURE_MIN_AREA));
     }
-
-    // 🔒 One whole parse is a *single* unit of the `docling` gate — submitting, every poll, and
-    // collecting the result (docs/05 §5.4b). The expensive work happens on the Docling server
-    // between those requests, so metering the polls would count the cheapest exchanges of the
-    // conversation while the conversion everybody is waiting on ran through ungated.
-    return this.gates.run('docling', async () => {
-      const taskId = await this.submit(form);
-      await this.awaitTask(taskId, this.describePictures ? BUDGET_WITH_CAPTIONS_MS : BUDGET_MS);
-
-      const result = conversionSchema.safeParse(
-        await this.get(`${RESULT}/${taskId}`, RESULT_TIMEOUT_MS, MAX_RESULT_BYTES),
-      );
-      if (!result.success)
-        throw new Error('Docling answered in a shape this version does not know');
-
-      return stripImagePlaceholders(result.data.document.md_content ?? '');
-    });
+    return form;
   }
 
   // The whole exchange — request, status check, body read — with transport failures and 502/503/504
@@ -219,6 +275,22 @@ export class DoclingParser extends DocumentParser {
       return readBoundedJson(response, maxBytes);
     });
   }
+}
+
+// A window of pages, 1-based and inclusive; null is the whole document in one request, with no
+// `page_range` field at all.
+type PageWindow = readonly [number, number] | null;
+
+// The ranges a document is fetched in (docs/05 §5.5 step 3), clamped to the page count because a
+// range past the last page is a request Docling rejects outright. A page count of zero is a
+// document nothing counted — one window, whole, exactly as before windows existed.
+function pageWindows(pageCount: number): PageWindow[] {
+  if (pageCount <= DOCLING_PAGE_WINDOW) return [null];
+  const windows: PageWindow[] = [];
+  for (let from = 1; from <= pageCount; from += DOCLING_PAGE_WINDOW) {
+    windows.push([from, Math.min(from + DOCLING_PAGE_WINDOW - 1, pageCount)]);
+  }
+  return windows;
 }
 
 // Docling marks every picture it did not describe with an HTML comment. It is a note about the file,

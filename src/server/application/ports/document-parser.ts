@@ -4,6 +4,10 @@ export type ParseOptions = {
   // Tesseract language codes, in priority order, for the OCR pass. Empty means "no OCR": a PDF that
   // carries its own text is read, not recognised.
   ocrLanguages: readonly string[];
+  // How many pages the document has, `0` where nothing counted them. What lets the parser ask for
+  // a long document a window at a time instead of holding the whole parse in memory at once
+  // (docs/05 §5.5 step 3).
+  pageCount: number;
 };
 
 // Turning a document into Markdown — the one place in the product that reads layout (docs/05 §5.5).

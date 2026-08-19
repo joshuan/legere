@@ -490,8 +490,10 @@ export class HandleDocumentProcess extends JobHandler {
     document: Document,
     canonical: { pageCount: number },
   ): Promise<{ markdown: string; ocrUsed: boolean }> {
-    const extracted = await this.parseMarkdown(await this.openCanonical(document), []);
+    // From the canonical that was just built, falling back to the row: what the parser windows a
+    // long document by (docs/05 §5.5 step 3), and what the text-layer threshold is measured over.
     const pageCount = canonical.pageCount > 0 ? canonical.pageCount : (document.pageCount ?? 1);
+    const extracted = await this.parseMarkdown(await this.openCanonical(document), [], pageCount);
     if (hasUsableTextLayer(extracted, pageCount, this.settings.pdfTextMinCharsPerPage)) {
       return { markdown: extracted, ocrUsed: false };
     }
@@ -502,6 +504,7 @@ export class HandleDocumentProcess extends JobHandler {
       markdown: await this.parseMarkdown(
         await this.openCanonical(document),
         ocrLanguagesOf(document.languages, this.settings.ocrLanguages),
+        pageCount,
       ),
       ocrUsed: true,
     };
@@ -513,10 +516,11 @@ export class HandleDocumentProcess extends JobHandler {
   private async parseMarkdown(
     source: BinarySource,
     ocrLanguages: readonly string[],
+    pageCount: number,
   ): Promise<string> {
     if (this.parser.isConfigured) {
       // Docling recognises and parses in one pass, with the languages it was given.
-      return tidyMarkdown(await this.parser.toMarkdown(source, { ocrLanguages }));
+      return tidyMarkdown(await this.parser.toMarkdown(source, { ocrLanguages, pageCount }));
     }
 
     // The fallback needs two steps: Stirling OCRs into a searchable PDF, then converts it. Skipping

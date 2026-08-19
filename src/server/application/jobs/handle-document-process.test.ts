@@ -924,7 +924,19 @@ describe('HandleDocumentProcess', () => {
       // 🔒 And the document now knows what it is written in, which is what a later OCR pass is given.
       expect(document.languages).toEqual(['ru']);
       // A PDF with its own text is read, never recognised: no OCR languages were asked for.
-      expect(parser.calls).toEqual([{ ocrLanguages: [] }]);
+      expect(parser.calls).toEqual([{ ocrLanguages: [], pageCount: 1 }]);
+    });
+
+    it('hands the parser the page count of the canonical it just built', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      parser.configured = true;
+      parser.markdown = 'A'.repeat(MIN_CHARS_PER_PAGE * 40);
+      pdfs.pageCount = 40;
+
+      await run();
+
+      // What the parser windows a long document by (docs/05 §5.5 step 3).
+      expect(parser.calls[0]?.pageCount).toBe(40);
     });
 
     it("gives the parser the document's own languages when it has to recognise", async () => {
@@ -936,7 +948,10 @@ describe('HandleDocumentProcess', () => {
 
       await run();
 
-      expect(parser.calls).toEqual([{ ocrLanguages: [] }, { ocrLanguages: ['rus', 'srp_latn'] }]);
+      expect(parser.calls).toEqual([
+        { ocrLanguages: [], pageCount: 1 },
+        { ocrLanguages: ['rus', 'srp_latn'], pageCount: 1 },
+      ]);
     });
 
     it('falls back to the instance languages when the document has none yet', async () => {
@@ -947,7 +962,10 @@ describe('HandleDocumentProcess', () => {
       await run();
 
       // The instance default from ProcessingSettings, exactly as configured.
-      expect(parser.calls).toEqual([{ ocrLanguages: [] }, { ocrLanguages: ['rus', 'eng'] }]);
+      expect(parser.calls).toEqual([
+        { ocrLanguages: [], pageCount: 1 },
+        { ocrLanguages: ['rus', 'eng'], pageCount: 1 },
+      ]);
     });
   });
 

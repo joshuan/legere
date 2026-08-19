@@ -977,7 +977,7 @@ export class FakeDocumentParser extends DocumentParser {
   configured = false;
   markdown = '';
   failing = false;
-  readonly calls: Array<{ ocrLanguages: readonly string[] }> = [];
+  readonly calls: Array<{ ocrLanguages: readonly string[]; pageCount: number }> = [];
 
   get isConfigured(): boolean {
     return this.configured;
@@ -987,7 +987,7 @@ export class FakeDocumentParser extends DocumentParser {
   unavailable = false;
 
   toMarkdown(_source: BinarySource, options: ParseOptions): Promise<string> {
-    this.calls.push({ ocrLanguages: options.ocrLanguages });
+    this.calls.push({ ocrLanguages: options.ocrLanguages, pageCount: options.pageCount });
     if (this.unavailable) {
       return Promise.reject(new ServiceUnavailableError('docling', 'fetch failed'));
     }
