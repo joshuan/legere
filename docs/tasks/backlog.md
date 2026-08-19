@@ -1119,3 +1119,19 @@ somebody thinking in Russian.
   **Goal:** the rule covers the whole script it claims to, not the alphabet of one country's number plates.
   **Docs:** [`04 §4.3`](../04-database-schema.md#43-raw-sql-in-migrations-required-steps), [`14 §14.8`](../14-coding-standards.md#148-testing)
   **Acceptance:** `Ј` (U+0408), `Ѕ` (U+0405) and `І` (U+0406) join the mapping and the test inside `homoglyph_twins`, making fifteen pairs — `Ј` is an everyday letter of the Serbian alphabet drawn exactly like a Latin `J`, and an OCR pass set to Cyrillic emits `Ѕ` or `І` where a paper says `S` or `I`; 🔒 the migration rebuilds `documents.search_vector` and all four indexes rather than only replacing the functions, because a stored generated column is not recomputed and an expression index is not rebuilt when a function they call changes — both would answer by the old mapping silently and for ever, and that rebuild is the rule for every future change to these functions; a test covers a Serbian paper found through `Ј`.
+
+---
+
+## M42 — The same street, spelled both ways
+
+This archive holds one address written twice: `STANISLAVA SREMCEVICA 020A` on an invoice from a
+Belgrade parts shop, and `Stanislava Sremčevića 20/1` on the utility bill for the same flat. A person
+searching either spelling finds one of the two documents and has no way to learn the other exists.
+It is not the homoglyph case: `č` and `c` are different letters that look different, and whether a
+paper carries the mark depends on who typed it — a Serbian registry, a Turkish rental desk, a German
+hotel, or a system that could not.
+
+- [x] **M42.1 — A mark is not a spelling**
+  **Goal:** the same word finds the same papers whether or not anybody typed its diacritics.
+  **Docs:** [`04 §4.3`](../04-database-schema.md#43-raw-sql-in-migrations-required-steps), [`07 §7.3`](../07-api-specification.md), [`14 §14.8`](../14-coding-standards.md#148-testing)
+  **Acceptance:** a hand-written forward-only migration enables `unaccent` and adds `fold_diacritics` — the two-argument, IMMUTABLE form, because the one-argument `unaccent(text)` is STABLE and may appear in neither a generated column nor an index — and `unaccented_twins`, a second reading of every word that carries a mark and nothing for the words that do not, the whole text folded once first so a document with no marks costs one comparison; `search_tokens` gains that third reading and the column and all four indexes are rebuilt per the rule of `04 §4.3`; 🔒 **this fold reaches words, so both sides fold**: a mark cannot be put back — `c` could have been `c`, `č` or `ć` — so the query (`07 §7.3`) gains a **second branch** with its own marks removed, OR-ed onto the first rather than replacing it, each branch being the whole query so that what a person joined with a space stays joined, and the first branch still matching the text as written, which is where the highlight comes from; the dictionary is `unaccent` rather than a hand-written table, so Serbian `đ`, Turkish `ı` and `ğ` and every Latin mark the archive has yet to meet are already known, and Cyrillic is left exactly as it is; tests cover the marked paper found by a plain query and the plain paper found by a marked one, and the highlight still landing on the spelling the paper carries.

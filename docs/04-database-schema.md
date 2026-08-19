@@ -694,6 +694,53 @@ indefinitely. Every migration that changes one of these functions therefore rebu
 `documents.search_vector` and all four indexes exactly as they were created, and that is the rule for
 any future change to them.
 
+**Amended by M42.1 (the same street, spelled both ways):** this archive holds one address written
+twice — `STANISLAVA SREMCEVICA 020A` on an invoice from a Belgrade parts shop and
+`Stanislava Sremčevića 20/1` on the utility bill for the same flat. A person searching either
+spelling found one of the two and had no way to learn the other existed. This is not the homoglyph
+case: `č` and `c` are different letters that look different, and whether a paper carries the mark
+depends on who typed it — a Serbian registry, a Turkish rental desk, or a system that could not.
+
+```sql
+CREATE EXTENSION IF NOT EXISTS unaccent;
+
+-- One-argument `unaccent(text)` is STABLE — it resolves its dictionary through `search_path` — so it
+-- may appear in neither a generated column nor an index. The two-argument form is IMMUTABLE.
+CREATE FUNCTION fold_diacritics(source text) RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+    SELECT unaccent('unaccent'::regdictionary, $1) $$;
+
+-- A second reading of every word that carries a mark, and nothing for the words that do not.
+CREATE FUNCTION unaccented_twins(source text) RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+    SELECT CASE WHEN fold_diacritics($1) = $1 THEN '' ELSE (
+      SELECT coalesce(string_agg(folded, ' '), '')
+      FROM (
+        SELECT fold_diacritics(match[1]) AS folded, match[1] AS run
+        FROM regexp_matches($1, '[[:alnum:]]+', 'g') AS match
+      ) AS runs
+      WHERE folded <> run
+    ) END $$;
+
+CREATE OR REPLACE FUNCTION search_tokens(source text) RETURNS tsvector
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$
+    SELECT to_tsvector('simple', translate($1, '_-.', '   ')) ||
+           to_tsvector('simple', homoglyph_twins($1)) ||
+           to_tsvector('simple', unaccented_twins($1)) $$;
+```
+
+🔒 **This one folds words, so both sides fold.** The homoglyph rule could leave the query untouched
+because it stored both readings of every identifier; a mark cannot be put back — `c` could have been
+`c`, `č` or `ć` — so the stored side folds the words it holds and the query (`07 §7.3`) gets a second
+branch with its own marks removed. Each branch is the whole query, so what a person joined with a
+space stays joined; the branches are OR-ed rather than the query replaced, which is what keeps the
+first branch matching the text as written and the highlight landing on the word the paper spells.
+
+The dictionary is `unaccent` rather than a hand-written table: it already knows Serbian `đ`, Turkish
+`ı` and `ğ` and every Latin mark this archive has yet to meet, and it leaves Cyrillic exactly as it
+is. The whole text is folded once before any word is looked at, so a document with no marks in it —
+most of them — costs one comparison.
+
 ```sql
 -- 3) vector index (cosine)
 CREATE INDEX document_chunks_embedding_idx ON document_chunks

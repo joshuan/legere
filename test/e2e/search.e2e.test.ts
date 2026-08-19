@@ -210,6 +210,53 @@ describe('Search (e2e)', () => {
       ]);
     });
 
+    // A mark is not a look-alike: `č` and `c` are different letters that look different, and whether
+    // a paper carries the mark depends on who typed it (docs/04 §4.3). One archive holds the same
+    // Belgrade street both ways — a parts-shop invoice without the marks, a utility bill with them.
+    it('finds a word whether or not the paper kept its diacritics, both ways round', async () => {
+      const libraryId = await givenLibrary();
+      const marked = await givenDocument(
+        libraryId,
+        'Racun za komunalije',
+        'Stanislava Sremčevića 20/1, Beograd.',
+      );
+      const plain = await givenDocument(
+        libraryId,
+        'Otpremnica',
+        'STANISLAVA SREMCEVICA 020A, 11000 BEOGRAD',
+      );
+
+      const plainQuery = await search(adminCookie, '?q=Sremcevica&mode=text');
+      const markedQuery = await search(
+        adminCookie,
+        `?q=${encodeURIComponent('Sremčevića')}&mode=text`,
+      );
+
+      expect(
+        expectData(plainQuery, searchResponseSchema)
+          .items.map((hit) => hit.document.id)
+          .sort(),
+      ).toEqual([marked, plain].sort());
+      expect(
+        expectData(markedQuery, searchResponseSchema)
+          .items.map((hit) => hit.document.id)
+          .sort(),
+      ).toEqual([marked, plain].sort());
+    });
+
+    it('keeps the highlight on the words as the paper spells them', async () => {
+      const libraryId = await givenLibrary();
+      await givenDocument(libraryId, 'Racun', 'Ulica Sremčevića broj 20.');
+
+      const res = await search(adminCookie, `?q=${encodeURIComponent('Sremčevića')}&mode=text`);
+
+      // The first branch of the query is the words as typed, so what is marked is the word the
+      // document actually carries — folding the query outright would have cost this (docs/04 §4.3).
+      expect(expectData(res, searchResponseSchema).items[0]?.snippet).toContain(
+        '<mark>Sremčevića</mark>',
+      );
+    });
+
     it('leaves words alone, so a Latin one can never match a Russian one', async () => {
       const libraryId = await givenLibrary();
       // Every letter of Москва has a Latin look-alike; a fold applied to words would make this

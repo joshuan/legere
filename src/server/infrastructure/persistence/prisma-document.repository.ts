@@ -556,7 +556,16 @@ export function searchByTextSql(
       -- in both (docs/04 §4.3), so a VIN read off a Russian scan as ХТА210700М0596136 answers to
       -- XTA210700M0596136 without this query ever rewriting anybody's keystrokes — which is what
       -- leaves the highlight below able to mark them.
-      SELECT websearch_to_tsquery('simple', translate(${query}, '_-.', '   ')) AS tsq
+      --
+      -- 🔒 The second branch is the same words with their diacritics removed, OR-ed onto the first
+      -- rather than replacing it (docs/04 §4.3). A mark is not a look-alike: whether a paper carries
+      -- one depends on who typed it, so Sremcevica must reach Sremčevića and Sremčevića must reach
+      -- SREMCEVICA. The stored side folds the words it holds and this folds the words it is asked
+      -- for; each branch is the whole query, so what a person joined with a space stays joined, and
+      -- the first branch still matches the text as written.
+      SELECT websearch_to_tsquery('simple', translate(${query}, '_-.', '   ')) ||
+             websearch_to_tsquery('simple', translate(fold_diacritics(${query}), '_-.', '   '))
+               AS tsq
     ), named AS MATERIALIZED (
       SELECT df.document_id AS id, 'fileName'::text AS kind, f.name AS name
       FROM document_files df
