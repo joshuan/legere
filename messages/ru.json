@@ -856,7 +856,7 @@
       "related": "Связанные",
       "details": "Детали",
       "files": "Файлы",
-      "log": "Лог"
+      "log": "Журнал"
     },
     "steps": {
       "canonical": "Канонический PDF",
@@ -875,11 +875,22 @@
       "TOO_MANY_PAGES": "Слишком длинный для автоматического анализа — запросите ниже",
       "NO_SCHEMA": "У этого типа документа нет схемы полей"
     },
+    "stepStatus": {
+      "PENDING": "Ожидает",
+      "QUEUED": "В очереди",
+      "RUNNING": "Выполняется",
+      "DONE": "Готово",
+      "FAILED": "Ошибка",
+      "SKIPPED": "Пропущено",
+      "INTERRUPTED": "Прервано"
+    },
     "processing": {
       "title": "Обработка",
       "queued": "Обработка поставлена в очередь",
       "reprocessAll": "Обработать заново",
-      "reprocessSelected": "Обработать шагов: {count}",
+      "reprocessSelected": "Обработать {count, plural, one {# шаг} few {# шага} many {# шагов} other {# шага}}",
+      "chooseSteps": "Выбрать шаги…",
+      "retryStep": "Повторить шаг",
       "analyseInFull": "Проанализировать документ целиком",
       "pausedTag": "На паузе",
       "pausedHint": "Шаг поставлен на паузу на всём экземпляре: он ждёт намеренно, и ничего не произойдёт, пока администратор не снимет паузу."
@@ -1032,8 +1043,6 @@
     "addedToCollection": "Добавлено в коллекцию",
     "log": {
       "empty": "С этим документом пока ничего не происходило",
-      "stepStarted": "{step} — начало",
-      "stepFinished": "{step} — {status}",
       "queued": "Поставлен в очередь на обработку",
       "queuedSteps": "В очередь: {steps}",
       "created": "Добавлен в Legere — {path}",
@@ -1044,10 +1053,10 @@
       "fileMissingBare": "Файл пропал из библиотеки",
       "metaChanged": "Изменены свойства",
       "change": "{field}: {from} → {to}",
-      "when": "Когда",
-      "what": "Что произошло",
       "history": "История",
-      "who": "Кто",
+      "today": "Сегодня",
+      "yesterday": "Вчера",
+      "showMore": "Показать ещё",
       "cost": {
         "ms": "{value} мс",
         "seconds": "{value} с",

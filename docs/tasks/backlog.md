@@ -1187,3 +1187,20 @@ being long but for being dense, and only when it was short enough to arrive whol
   **Goal:** a document that is dense rather than long parses to Markdown instead of timing out on a healthy host.
   **Docs:** [`05 §5.4a`](../05-library-and-processing.md#54a-what-one-document-may-cost), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process)
   **Acceptance:** one window's conversion budget is **30 s per page of the window, floored at 2 minutes** — set by measuring rather than reasoning: dense-table scans parse at 23–25 s/page, so the flat 5 minutes starved a 13-page statement sent as a single window while longer siblings passed, windowed; a window-less request is budgeted by the page count it knows, and by a full window's worth where nothing counted anything; the captions budget stays flat — a vision model runs once per picture, and pages say nothing about pictures — and the whole parse keeps its one 55-minute deadline under the job's hour; `DOCLING_PAGE_WINDOW` drops from 24 to 12, halving the memory ceiling a window puts on Docling along with the wait a slow window can cost, and doubling the headroom the per-page budget buys; 🔒 the request timeouts of `05 §5.4a` are untouched, being bounds on the HTTP exchanges that carry a window rather than on the conversion between them; tests cover the scaled budget cutting a 12-page window at 6 minutes, the floor cutting a one-page window at 2, an unknown page count budgeted as a full window, and the window arithmetic at 12.
+
+---
+
+## M46 — The log reads as one story
+
+The Log tab told the truth in the wrong shape. The processing panel was a form first — a checkbox
+column at rest, six identical grey `QUEUED` pills, the enum untranslated in a localized UI — when
+almost every visit is a glance at six states. The history under it spent two rows on every step and
+a mostly-empty Who column, and silently ended at the server's default page: the client never sent a
+cursor and never read `nextCursor`, so a document a few re-runs deep had already lost its own
+creation off the end of what presented itself as the whole history. And the two sections, which
+answer one question at two depths, shared no visual language at all.
+
+- [x] **M46.1 — The panel as an instrument, the history as a journal**
+  **Goal:** the Log tab reads as one story — the current state above, its journal below, in one row grammar — and the history is complete rather than silently cut.
+  **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
+  **Acceptance:** the processing panel draws each step as glyph · name · dotted leader · state in the reader's words, with the newest settled duration read off the events query the tab already fetches; skip reasons, pause hints and failures stay under their own step, and the remedy stands beside the complaint it answers — **Retry this step** under a failure, **Analyse the whole document** beside the length skip — admin-only; reprocess lives in the section head (**Reprocess everything**, with **Choose steps…** beside it — only then do checkboxes appear, with a count-named button and a Cancel), a paused step still not selectable; the history groups each run under its `QUEUED` entry with one line per step folding the started/settled pair — *running*/*interrupted* told honestly for a pair an outage severed — under day headings, short times with ISO on hover, authors beside human entries, a copy control on the monospace ids, and **Show more** paging through `nextCursor`, fixing the silent cut at the server's default page; step statuses are written out translated everywhere they appear (the Details pending badges included), `reprocessSelected` takes an ICU plural, and the Russian tab name becomes «Журнал»; the peek modal keeps the journal and loses the controls, as before.

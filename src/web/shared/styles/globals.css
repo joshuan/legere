@@ -273,31 +273,110 @@ pre,
   line-height: 18px;
 }
 
-/* The processing panel (docs/11 §11.5). Three columns — pick, state, name — so that labels start at
-   one x whatever the tag says, and a note about a step sits under that step's own name rather than
-   at the bottom of the card where it belongs to nothing in particular. */
+/* The processing panel, and the run lines of the journal under it, in one row grammar
+   (docs/11 §11.5): glyph, name, dotted leader, verdict. The glyphs share one width, so every name
+   starts at the same x, and a note about a step sits under that step's own name rather than at the
+   bottom of the card where it belongs to nothing in particular. */
 .legere-steps {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  align-items: center;
-  column-gap: 8px;
-  row-gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.legere-steps.has-select {
-  grid-template-columns: max-content max-content 1fr;
+.legere-step {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.legere-steps .ant-tag {
+.legere-step-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.legere-step-glyph {
+  flex: 0 0 auto;
+  inline-size: 18px;
+  text-align: center;
+}
+
+.legere-step-leader {
+  flex: 1 1 auto;
+  align-self: baseline;
+  min-width: 16px;
+  border-bottom: 1px dotted var(--ant-color-border);
+}
+
+/* The verdict and its numbers, at the end of the leader: values people compare, so the figures
+   line up (docs/11 §11.15). */
+.legere-step-state {
+  text-align: end;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+.legere-step-line .ant-tag {
   margin-inline-end: 0;
 }
 
-/* The last column, whether or not there is a checkbox column before it. */
+/* What a step has to say about itself, under its own name (docs/11 §11.5): a skip reason, a pause
+   hint, a failure — and, for an admin, the remedy beside the complaint it answers. */
 .legere-step-note {
-  grid-column: -2 / -1;
-  margin-top: -4px;
+  margin-inline-start: 26px;
   font-size: 12px;
   white-space: pre-wrap;
+}
+
+/* The remedy inherits the note's size and quiet, exactly like the definition list's own note
+   action: it is an answer to the line above it, not a second control fighting the panel's head. */
+.legere-step-note .ant-btn {
+  height: auto;
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* The journal (docs/11 §11.5): day headings, then entries — a short time in a gutter the eye can
+   run down, and what happened beside it. */
+.legere-journal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.legere-journal-day {
+  margin-top: 4px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.legere-journal-day:first-child {
+  margin-top: 0;
+}
+
+.legere-journal-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.legere-journal-time {
+  flex: 0 0 auto;
+  min-inline-size: 64px;
+  font-size: 12px;
+  font-variant-numeric: lining-nums tabular-nums;
+  white-space: nowrap;
+}
+
+.legere-journal-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The steps of one run, folded under its head (docs/11 §11.5). */
+.legere-journal-lines {
+  margin-top: 6px;
 }
 
 /* Editable fields are one width, whatever they hold: a column of inputs that agree looks like a

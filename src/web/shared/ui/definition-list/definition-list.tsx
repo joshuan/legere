@@ -1,4 +1,5 @@
 import { Tag } from 'antd';
+import { useTranslations } from 'next-intl';
 import type { ReactNode } from 'react';
 
 export type Definition = {
@@ -18,6 +19,7 @@ export type Definition = {
 // stay legible at any width, nothing has to agree on a column, and the eye is carried across a long
 // gap instead of having to jump it.
 export function DefinitionList({ items }: { items: Definition[] }) {
+  const t = useTranslations();
   return (
     <dl className="legere-definitions">
       {items.map((item, index) => (
@@ -30,12 +32,13 @@ export function DefinitionList({ items }: { items: Definition[] }) {
           <dd className={`legere-definition-value${item.emphasis === true ? ' is-emphasis' : ''}`}>
             {item.pending !== undefined && (
               // The same words the processing panel uses, deliberately: one vocabulary for one
-              // fact, so nobody has to learn that "computing…" here means RUNNING there.
+              // fact, so nobody has to learn that "waiting" here means something else there
+              // (docs/11 §11.5).
               <Tag
                 className="legere-definition-pending"
                 color={item.pending === 'RUNNING' ? 'processing' : 'default'}
               >
-                {item.pending}
+                {t(`viewer.stepStatus.${item.pending}`)}
               </Tag>
             )}
             {isEmpty(item.value) ? (item.pending === undefined ? '—' : null) : item.value}

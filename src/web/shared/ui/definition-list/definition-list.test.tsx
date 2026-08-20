@@ -1,11 +1,24 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, type RenderResult } from '@testing-library/react';
+import { NextIntlClientProvider } from 'next-intl';
+import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
+import messages from '../../../../../messages/en.json';
 import { DefinitionList } from './definition-list';
+
+// The list speaks the reader's language for its pending badges (docs/11 §11.5), so it renders
+// inside the same intl provider the app gives it.
+function renderList(ui: ReactElement): RenderResult {
+  return render(
+    <NextIntlClientProvider locale="en" messages={messages}>
+      {ui}
+    </NextIntlClientProvider>,
+  );
+}
 
 // Label · · · value (docs/11 §11.15).
 describe('DefinitionList', () => {
   it('pairs every label with its value', () => {
-    render(
+    renderList(
       <DefinitionList
         items={[
           { label: 'Size', value: '1.8 GB' },
@@ -21,14 +34,22 @@ describe('DefinitionList', () => {
   });
 
   it('says nothing out loud with an em dash rather than leaving a blank', () => {
-    render(<DefinitionList items={[{ label: 'Pages', value: null }]} />);
+    renderList(<DefinitionList items={[{ label: 'Pages', value: null }]} />);
 
     // A blank cell reads as a rendering bug; an em dash reads as "there is none".
     expect(screen.getByText('—')).toBeInTheDocument();
   });
 
+  it("speaks the reader's language on a pending badge, the processing panel's own words", () => {
+    renderList(<DefinitionList items={[{ label: 'Place', value: null, pending: 'RUNNING' }]} />);
+
+    // One vocabulary for one fact (docs/11 §11.5): never the raw enum.
+    expect(screen.getByText(messages.viewer.stepStatus.RUNNING)).toBeInTheDocument();
+    expect(screen.queryByText('RUNNING')).not.toBeInTheDocument();
+  });
+
   it('weights the values worth reading first', () => {
-    render(
+    renderList(
       <DefinitionList
         items={[
           { label: 'Size', value: '2 KB', emphasis: true },
@@ -42,7 +63,7 @@ describe('DefinitionList', () => {
   });
 
   it('hides the leader from the accessibility tree, since it is decoration', () => {
-    const { container } = render(<DefinitionList items={[{ label: 'Size', value: '2 KB' }]} />);
+    const { container } = renderList(<DefinitionList items={[{ label: 'Size', value: '2 KB' }]} />);
 
     const row = container.querySelector('.legere-definition');
     if (!(row instanceof HTMLElement)) throw new Error('expected a row');

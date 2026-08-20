@@ -563,49 +563,81 @@ document pinned to the height of a phone would be a worse read, not a better one
   is answered by the first, "what happened" by the second, and the first used to stand in the
   sidebar of every document while the second was a tab away. Each carries its own heading —
   **Processing** and **History** — and neither repeats the word on the tab.
-  **Processing** is the panel of `05 §5.5`: six steps, one row each
-  (`RUNNING` means the pipeline is on that step right now — the viewer polls every 5 s
-  while the document is processing, so a long step shows its progress by moving on, not by a bar),
-  laid out as a grid — select, state, name — so every name starts at the same x whatever width the
-  status tag happens to have. What a step has to say about itself goes **under its own name**, in
-  that same column: a `SKIPPED` step **always shows why** ("not needed for this file type", "no AI
-  provider configured", and the rest of docs/03 §3.3.10), because the label alone reads as a failure
-  to everyone who has not read the pipeline; a `FAILED` step shows its `processingError` there too,
-  attached to the step that produced it rather than pooled at the bottom where it names
-  nothing. An error the server could not attribute to any step still renders under the list. A step
-  the instance has **paused** (`05 §5.4d`) says so on its own row — a tag beside the status and, under
-  the name, the line that a step held by a pause is `PENDING` on purpose and nothing is coming for it
-  until somebody lifts it. Every reader sees it, not only an admin: "this document has been half
-  processed for two days" is asked by whoever opened the document, and the honest answer is that a
-  step was switched off rather than that the queue is slow. ADMIN
-  gets a checkbox at the start of each row and one **Reprocess** button below — the step names are
-  already on screen, so a second list of them to tick would be the same five words twice — with a
-  paused step **not selectable**, since a re-run of it is refused (`07 §7.3`) and a checkbox that
-  buys a `409` is a checkbox that lies — and,
-  where the analysis was skipped for length alone, **Analyse the whole document** beside the reason
-  it names: the answer to a limit belongs where the limit is visible, and it is a different request
-  from "run this again" (`05 §5.5` step 4).
-  **History** is the document's history as a table — when, what happened, who — newest first
-  (03 §3.3.18): added, queued, each
-  step started and settled, what a person changed and from what. A failed step carries its message,
-  because the log is where somebody goes when something went wrong; a skipped one carries its
-  reason. Entries the pipeline wrote have no author — an em dash in the Who column, which is how
-  "the machine did this" is said. A table rather than a timeline: a log is scanned for the one row
-  that matters, and columns that line up are what makes scanning possible.
-  **A settled step also says what it cost:** how long it took, and — where the step answers them —
-  how many pages it worked over, how many characters came out, whether recognition ran, what a
-  model reported spending, and what it made of its own reading, beside the step they belong to
-  (`03 §3.3.18`). Only the numbers that step actually reported: a missing one is not a zero. The
-  marks are drawn here exactly as they are in **What it cost** above, because here they belong to
-  *that* run of the step and there to the newest one, and the difference between two runs is a
-  thing only the log can show.
+  **Processing** is the panel of `05 §5.5`: six steps, one row each, and each row reads the way
+  every label-and-value pair in Legere already reads (§11.15) — a status glyph, the step's name, a
+  dotted leader, and at the end of the line the state **in the reader's own words**, with the
+  duration of the newest settled run beside it. A glyph and a word rather than the enum in a tag:
+  `QUEUED` is schema vocabulary, and six identical grey pills of it were six repetitions of
+  nothing. Each verdict keeps one shape and one colour — done, failed, running, queued, waiting,
+  skipped — so the row that matters is found by shape before it is read, and the glyphs share one
+  width, so every name starts at the same x. `RUNNING` is the only thing on the panel that moves
+  (the viewer polls every 5 s while the document is processing, so a long step shows its progress
+  by moving on, not by a bar). The duration is read off the newest `STEP_FINISHED` in the history
+  this tab fetches anyway — one query serves both sections — and a step whose newest run reported
+  no duration simply states its state. The same six words appear wherever a step status is written
+  out, the pending badges of the Details pane included: one vocabulary for one fact.
+  What a step has to say about itself goes **under its own name**: a `SKIPPED` step **always shows
+  why** ("not needed for this file type", "no AI provider configured", and the rest of docs/03
+  §3.3.10), because the glyph alone reads as a failure to everyone who has not read the pipeline;
+  a `FAILED` step shows its `processingError` there too, attached to the step that produced it
+  rather than pooled at the bottom where it names nothing. An error the server could not attribute
+  to any step still renders under the list. A step the instance has **paused** (`05 §5.4d`) says so
+  on its own row — a tag beside the name and, under it, the line that a step held by a pause is
+  waiting on purpose and nothing is coming for it until somebody lifts it. Every reader sees all of
+  this, not only an admin: "this document has been half processed for two days" is asked by
+  whoever opened the document, and the honest answer is that a step was switched off rather than
+  that the queue is slow.
+  **The remedy stands beside the complaint it answers**, and only an admin is offered one, because
+  each is a request to spend the pipeline: a `FAILED` step carries **Retry this step** under its
+  own error; an analysis skipped for length alone carries **Analyse the whole document** beside
+  the reason it names — the answer to a limit belongs where the limit is visible, and it is a
+  different request from "run this again" (`05 §5.5` step 4).
+  ADMIN's whole-panel controls stand in the section's head row, beside the heading: **Reprocess
+  everything** — which is what the visit is for nearly every time — and a quiet **Choose steps…**
+  next to it, which — and not before — is when a checkbox appears at the start of each row, the
+  button starts naming the count it will send, and a Cancel stands beside it. Checkboxes at rest
+  made the panel read as a form, when almost every visit is a
+  glance at six states; a control drawn only while it is being used costs nothing the rest of the
+  time. The step names are already on screen, so choosing ticks the rows themselves rather than a
+  second list of the same six words — with a paused step **not selectable**, since a re-run of it
+  is refused (`07 §7.3`) and a checkbox that buys a `409` is a checkbox that lies.
+  **History** is the document's journal, newest first (03 §3.3.18), under **day headings** — today
+  and yesterday by name, any other day by its date — each entry keeping a short time of its own in
+  a gutter the eye can run down, and the full ISO timestamp on hover (§11.14): added, queued, what
+  a person changed and from what, and what the pipeline made of each run. A journal rather than
+  the flat table it used to be: two rows per step and a mostly-empty Who column made thirteen rows
+  of what one entry can say, and what the reader scans for is the run that broke — grouping is
+  what makes that scanning possible. **A run is one entry, not thirteen rows:** its `QUEUED` event
+  opens it — who asked, and for which steps — and each step that ran folds its started and its
+  settled event into **one line inside that entry**, in the order they ran, drawn in the same
+  grammar as the panel above: glyph, name, leader, then the verdict and what the step cost — how
+  long it took and, where the step answers them, how many pages it worked over, how many
+  characters came out, whether recognition ran, what a model reported spending, and what it made
+  of its own reading (`03 §3.3.18`). Only the numbers that step actually reported: a missing one
+  is not a zero. The marks are drawn here exactly as they are in **What it cost** on the Details
+  pane, because here they belong to *that* run of the step and there to the newest one, and the
+  difference between two runs is a thing only the journal can show. A failed line carries its
+  message under itself, because the log is where somebody goes when something went wrong — and a
+  `FAILED` that arrived without one (a cascade downstream of the real failure writes no message)
+  simply states its verdict. A started event whose settled half never came is told honestly:
+  **running** while the pipeline is on that step now, **interrupted** otherwise — an outage severs
+  pairs (`05 §5.4e`), and a line that pretended otherwise would lie about the one case the journal
+  exists for. A step whose opening `QUEUED` lies beyond the loaded page stands on a line of its
+  own until the rest of its run is fetched. An entry a person wrote carries its author beside the
+  sentence; a line inside a run needs none — the run's own head already said who asked, and a run
+  the pipeline started on its own says so by naming nobody.
   **A step also says who did the work:** the service it went to, and the id it was asked under, in
-  monospace under the sentence — values to be copied into a `grep`, not read (03 §3.3.18). The same
-  id is on the started and the finished entry, and on the request the service itself logged, so
-  "analysis failed" stops being a dead end. An admin additionally sees the host, which nobody else
-  can act on and nobody else is shown.
-  The history is fetched only when the tab is open — most visits never ask. The steps above it cost
-  nothing extra: they are read off the document the screen already holds and already polls.
+  monospace under its line with a copy control (§11.14) — values to be copied into a `grep`, not
+  read (03 §3.3.18). The same id is on both halves of the pair, and on the request the service
+  itself logged, so "analysis failed" stops being a dead end. An admin additionally sees the host,
+  which nobody else can act on and nobody else is shown.
+  The journal arrives a page at a time, and its foot offers **Show more** while the server holds
+  more (`07 §7.3`): a history that silently ends at the page boundary reads as "nothing older
+  happened", which is false as soon as a document has been re-run a few times — one full run
+  already writes more than a third of a page. It is fetched only when the tab is open — most
+  visits never ask. The panel above it costs nothing extra: its states are read off the document
+  the screen already holds and already polls, and its durations off the page the journal fetched
+  anyway.
 - **Right (sidebar), opening with what the document is called:** the **title** — inline-editable when
   permitted, and wrapping rather than truncating, because a document's name is the one string on this
   screen nobody may be shown half of — and directly under it the **description**, in secondary text,

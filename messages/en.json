@@ -875,11 +875,22 @@
       "TOO_MANY_PAGES": "Too long to analyse automatically — ask for it below",
       "NO_SCHEMA": "No field schema for this document type"
     },
+    "stepStatus": {
+      "PENDING": "Waiting",
+      "QUEUED": "Queued",
+      "RUNNING": "Running",
+      "DONE": "Done",
+      "FAILED": "Failed",
+      "SKIPPED": "Skipped",
+      "INTERRUPTED": "Interrupted"
+    },
     "processing": {
       "title": "Processing",
       "queued": "Reprocessing queued",
       "reprocessAll": "Reprocess everything",
-      "reprocessSelected": "Reprocess {count} steps",
+      "reprocessSelected": "Reprocess {count, plural, one {# step} other {# steps}}",
+      "chooseSteps": "Choose steps…",
+      "retryStep": "Retry this step",
       "analyseInFull": "Analyse the whole document",
       "pausedTag": "Paused",
       "pausedHint": "This step is paused for the whole instance: it is waiting on purpose, and nothing is coming for it until an administrator resumes it."
@@ -1032,8 +1043,6 @@
     "addedToCollection": "Added to the collection",
     "log": {
       "empty": "Nothing has happened to this document yet",
-      "stepStarted": "{step} started",
-      "stepFinished": "{step} — {status}",
       "queued": "Queued for processing",
       "queuedSteps": "Queued: {steps}",
       "created": "Added to Legere — {path}",
@@ -1044,10 +1053,10 @@
       "fileMissingBare": "The file is gone from the library",
       "metaChanged": "Metadata changed",
       "change": "{field}: {from} → {to}",
-      "when": "When",
-      "what": "What happened",
       "history": "History",
-      "who": "Who",
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "showMore": "Show more",
       "cost": {
         "ms": "{value} ms",
         "seconds": "{value} s",

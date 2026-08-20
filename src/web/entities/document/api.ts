@@ -110,8 +110,13 @@ export const documentApi = {
       },
     }),
 
-  events: (id: string): Promise<DocumentEventPage> =>
-    apiClient.get(`/api/documents/${id}/events`, { schema: documentEventPageSchema }),
+  // One page of the journal, the cursor naming where the last one ended (docs/07 §7.3): the log
+  // tab pages through them with Show more rather than silently ending at the server's default.
+  events: (id: string, cursor?: string): Promise<DocumentEventPage> =>
+    apiClient.get(`/api/documents/${id}/events`, {
+      schema: documentEventPageSchema,
+      ...(cursor === undefined ? {} : { query: { cursor } }),
+    }),
 
   // The edges of one document (docs/03 §3.3.23, docs/07 §7.3): undirected, person-made, and the
   // suggestions computed on request rather than remembered (docs/05 §5.6b).

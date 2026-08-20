@@ -1,12 +1,20 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  CloseCircleOutlined,
   DisconnectOutlined,
   DownOutlined,
+  ExclamationCircleOutlined,
   FileTextOutlined,
+  HourglassOutlined,
+  MinusCircleOutlined,
+  PauseCircleOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import {
   Alert,
@@ -52,6 +60,7 @@ import {
   QUALITY_MARKS,
   type DocumentDetailDto,
   type DocumentEventDto,
+  type DocumentEventPage,
   type DocumentFileDto,
   type DocumentFileVersionDto,
   type DocumentLinkSuggestion,
@@ -88,6 +97,26 @@ import { isViewerTab, type ViewerTab } from './viewer-tab';
 
 // The viewer refreshes while the pipeline is still working on this document (docs/10 §10.5).
 const LIVE_REFRESH_MS = 5000;
+
+// The first page of the journal is asked for without a cursor; Show more names where the last one
+// ended (docs/07 §7.3).
+const FIRST_EVENTS_PAGE: string | undefined = undefined;
+
+// The journal of one document, shared by everything that reads it (docs/10 §10.4): the history of
+// the Log tab, the durations of the panel above it, and What it cost on the Details pane — one
+// query, one request, however many of them are open.
+function useDocumentEvents(
+  id: string,
+  options: { enabled?: boolean; refetchInterval?: number | false } = {},
+) {
+  return useInfiniteQuery({
+    queryKey: documentKeys.events(id),
+    queryFn: ({ pageParam }) => documentApi.events(id, pageParam),
+    initialPageParam: FIRST_EVENTS_PAGE,
+    getNextPageParam: (page: DocumentEventPage) => page.nextCursor ?? undefined,
+    ...options,
+  });
+}
 
 // /documents/:id (docs/11 §11.5): read the document, and manage the little that belongs to it.
 export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?: ViewerTab }) {
@@ -402,18 +431,26 @@ export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?
 // What is being done to the document right now, at the head of the tab that also says what has been
 // done to it (docs/11 §11.5): "is it finished, and did anything break" and "what happened" are one
 // question asked twice, and the first used to stand in the sidebar of every document while the
-// second was a tab away.
+// second was a tab away. Each row is drawn in the same grammar the history below draws — glyph,
+// name, dotted leader, the state in the reader's own words — with the duration of the newest
+// settled run beside it, read off the events the tab has already fetched.
 function ProcessingSection({
   document,
+  events,
   isAdmin,
 }: {
   document: DocumentDetailDto;
+  events: DocumentEventDto[];
   isAdmin: boolean;
 }) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();
+  // Choosing steps is a mode entered on purpose (docs/11 §11.5): at rest the panel is a status
+  // instrument, and checkboxes standing by made it read as a form when almost every visit is a
+  // glance at six states.
+  const [choosing, setChoosing] = useState(false);
   const [steps, setSteps] = useState<DocumentStep[]>([]);
 
   // Which steps the instance is holding (docs/05 §5.4d). Read by every reader, not only an admin:
@@ -428,14 +465,26 @@ function ProcessingSection({
   const paused = (step: DocumentStep): boolean =>
     (pausedSteps.data?.pausedSteps ?? []).includes(step);
 
+  // The newest settled duration of each step (docs/11 §11.5). The list arrives newest first, so
+  // the first STEP_FINISHED seen for a step is its latest run — and one that reported no duration
+  // leaves none, since a missing number is not a zero.
+  const durations = new Map<string, number>();
+  const settled = new Set<string>();
+  for (const event of events) {
+    const step = event.payload.step;
+    if (event.type !== 'STEP_FINISHED' || step === undefined || settled.has(step)) continue;
+    settled.add(step);
+    if (event.payload.durationMs !== undefined) durations.set(step, event.payload.durationMs);
+  }
+
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.detail(document.id) });
     void queryClient.invalidateQueries({ queryKey: documentKeys.events(document.id) });
   };
 
-  // Asking for this one document to be analysed however long it is. Separate from the reprocess
-  // button beside it, because it is a different request: not "run this again" but "the limit does
-  // not apply to this one" (docs/05 §5.5 step 4).
+  // Asking for this one document to be analysed however long it is. A different request from "run
+  // this again" — not "again" but "the limit does not apply to this one" — offered beside the
+  // reason that names the limit (docs/05 §5.5 step 4).
   const analyseInFull = useMutation({
     mutationFn: () =>
       documentApi.reprocess(document.id, { steps: ['analysis'], analyseInFull: true }),
@@ -447,9 +496,11 @@ function ProcessingSection({
   });
 
   const reprocess = useMutation({
-    mutationFn: () => documentApi.reprocess(document.id, steps.length === 0 ? {} : { steps }),
+    mutationFn: (chosen: DocumentStep[]) =>
+      documentApi.reprocess(document.id, chosen.length === 0 ? {} : { steps: chosen }),
     onSuccess: () => {
       void message.success(t('viewer.processing.queued'), 2);
+      setChoosing(false);
       setSteps([]);
       refresh();
     },
@@ -459,67 +510,150 @@ function ProcessingSection({
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       {/* A heading rather than a card: the main column draws the document on the page itself, and
-          a box inside a tab would be a frame around one half of it (docs/11 §11.5). */}
-      <Typography.Title level={5} style={{ margin: 0 }}>
-        {t('viewer.processing.title')}
-      </Typography.Title>
+          a box inside a tab would be a frame around one half of it (docs/11 §11.5). The panel's own
+          controls sit at the end of its head row: Reprocess everything is what the visit is for
+          nearly every time, and Choose steps… is when — and not before — the checkboxes appear. */}
+      <div className="legere-section-head">
+        <Typography.Title level={5} style={{ margin: 0 }}>
+          {t('viewer.processing.title')}
+        </Typography.Title>
+        {isAdmin && !choosing && (
+          <Space wrap>
+            <Button size="small" type="text" onClick={() => setChoosing(true)}>
+              {t('viewer.processing.chooseSteps')}
+            </Button>
+            <Button size="small" onClick={() => reprocess.mutate([])} loading={reprocess.isPending}>
+              {t('viewer.processing.reprocessAll')}
+            </Button>
+          </Space>
+        )}
+        {isAdmin && choosing && (
+          <Space wrap>
+            <Button
+              size="small"
+              type="text"
+              onClick={() => {
+                setChoosing(false);
+                setSteps([]);
+              }}
+            >
+              {t('common.actions.cancel')}
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              disabled={steps.length === 0}
+              loading={reprocess.isPending}
+              onClick={() => reprocess.mutate(steps)}
+            >
+              {t('viewer.processing.reprocessSelected', { count: steps.length })}
+            </Button>
+          </Space>
+        )}
+      </div>
 
-      {/* One row per step: pick it, see its state, read what happened to it. A grid rather than
-          stacked rows because the status tags have different widths — laid out independently, every
-          label would start at a different place (docs/11 §11.5). */}
-      <div className={`legere-steps${isAdmin ? ' has-select' : ''}`}>
+      {/* One row per step, in the pipeline's own order. What a step has to say about itself goes
+          under its own name, and the remedy stands beside the complaint it answers
+          (docs/11 §11.5). */}
+      <div className="legere-steps">
         {DOCUMENT_STEPS.map((step) => {
-          const reason = document.skipReasons[step];
+          const status = document.steps[step];
           const label = t(`viewer.steps.${step}`);
+          const isPaused = paused(step);
+          const reason = document.skipReasons[step];
           const failure = document.failedStep === step ? document.processingError : null;
+          const duration =
+            status === 'DONE' || status === 'FAILED' || status === 'SKIPPED'
+              ? durations.get(step)
+              : undefined;
           return (
-            <Fragment key={step}>
-              {isAdmin && (
-                <Checkbox
-                  aria-label={label}
-                  checked={steps.includes(step)}
-                  // 🔒 A held step is not selectable: the server refuses to run it (docs/07 §7.3),
-                  // and a checkbox that buys a 409 is a checkbox that lies.
-                  disabled={paused(step)}
-                  onChange={(event) =>
-                    setSteps((chosen) =>
-                      event.target.checked
-                        ? [...chosen, step]
-                        : chosen.filter((other) => other !== step),
-                    )
-                  }
-                />
-              )}
-              <Tag color={statusColor(document.steps[step])}>{document.steps[step]}</Tag>
-              <Typography.Text>
-                {label}
-                {paused(step) && (
-                  <>
-                    {' '}
-                    <Tag color="orange">{t('viewer.processing.pausedTag')}</Tag>
-                  </>
+            <div className="legere-step" key={step}>
+              <div className="legere-step-line">
+                {isAdmin && choosing && (
+                  <Checkbox
+                    aria-label={label}
+                    checked={steps.includes(step)}
+                    // 🔒 A held step is not selectable: the server refuses to run it (docs/07
+                    // §7.3), and a checkbox that buys a 409 is a checkbox that lies.
+                    disabled={isPaused}
+                    onChange={(event) =>
+                      setSteps((chosen) =>
+                        event.target.checked
+                          ? [...chosen, step]
+                          : chosen.filter((other) => other !== step),
+                      )
+                    }
+                  />
                 )}
-              </Typography.Text>
+                <span className="legere-step-glyph" aria-hidden>
+                  {stepGlyph(isPaused ? 'PAUSED' : status)}
+                </span>
+                <Typography.Text>
+                  {label}
+                  {isPaused && (
+                    <>
+                      {' '}
+                      <Tag color="orange">{t('viewer.processing.pausedTag')}</Tag>
+                    </>
+                  )}
+                </Typography.Text>
+                <span className="legere-step-leader" aria-hidden />
+                <Typography.Text type="secondary" className="legere-step-state">
+                  {t(`viewer.stepStatus.${status}`)}
+                  {duration !== undefined && ` · ${formatDuration(duration, t)}`}
+                </Typography.Text>
+              </div>
               {/* Waiting on purpose, which is a different thing from waiting for a worker: without
-                  this line the row says PENDING and leaves the reader to wonder (docs/05 §5.4d). */}
-              {paused(step) && (
+                  this line the row says Waiting and leaves the reader to wonder (docs/05 §5.4d). */}
+              {isPaused && (
                 <Typography.Text type="secondary" className="legere-step-note">
                   {t('viewer.processing.pausedHint')}
                 </Typography.Text>
               )}
-              {/* SKIPPED alone reads like a failure; the reason says which harmless one it was, and
-                  whether it is something an admin can change (docs/03 §3.3.10). */}
+              {/* SKIPPED alone reads like a failure; the reason says which harmless one it was —
+                  and the way past the length limit stands beside the reason that names it
+                  (docs/03 §3.3.10, docs/05 §5.5 step 4). */}
               {reason !== undefined && (
-                <Typography.Text type="secondary" className="legere-step-note">
-                  {t(`viewer.skipReasons.${reason}`)}
-                </Typography.Text>
+                <div className="legere-step-note">
+                  <Typography.Text type="secondary">
+                    {t(`viewer.skipReasons.${reason}`)}
+                  </Typography.Text>
+                  {isAdmin && step === 'analysis' && reason === 'TOO_MANY_PAGES' && (
+                    <>
+                      {' '}
+                      <Button
+                        size="small"
+                        type="link"
+                        onClick={() => analyseInFull.mutate()}
+                        loading={analyseInFull.isPending}
+                      >
+                        {t('viewer.processing.analyseInFull')}
+                      </Button>
+                    </>
+                  )}
+                </div>
               )}
-              {failure !== null && (
-                <Typography.Text type="danger" className="legere-step-note">
-                  {failure}
-                </Typography.Text>
+              {/* The message under the step that produced it rather than pooled at the bottom
+                  where it names nothing — and the retry under the message (docs/11 §11.5). */}
+              {(failure !== null || (isAdmin && status === 'FAILED')) && (
+                <div className="legere-step-note">
+                  {failure !== null && <Typography.Text type="danger">{failure}</Typography.Text>}
+                  {isAdmin && status === 'FAILED' && (
+                    <>
+                      {failure !== null && ' '}
+                      <Button
+                        size="small"
+                        type="link"
+                        onClick={() => reprocess.mutate([step])}
+                        loading={reprocess.isPending}
+                      >
+                        {t('viewer.processing.retryStep')}
+                      </Button>
+                    </>
+                  )}
+                </div>
               )}
-            </Fragment>
+            </div>
           );
         })}
       </div>
@@ -530,31 +664,39 @@ function ProcessingSection({
           {document.processingError}
         </Typography.Text>
       )}
-
-      {isAdmin && (
-        <Space wrap>
-          <Button onClick={() => reprocess.mutate()} loading={reprocess.isPending}>
-            {steps.length === 0
-              ? t('viewer.processing.reprocessAll')
-              : t('viewer.processing.reprocessSelected', { count: steps.length })}
-          </Button>
-
-          {/* The way past the automatic limit, offered exactly where the limit is visible: the
-              analysis row says it was skipped for being long, and this is the answer to that
-              (docs/11 §11.5). */}
-          {document.skipReasons.analysis === 'TOO_MANY_PAGES' && (
-            <Button
-              onClick={() => analyseInFull.mutate()}
-              loading={analyseInFull.isPending}
-              type="primary"
-            >
-              {t('viewer.processing.analyseInFull')}
-            </Button>
-          )}
-        </Space>
-      )}
     </Space>
   );
+}
+
+// One shape and one colour per verdict (docs/11 §11.5), so the row that matters is found before it
+// is read. The glyphs share one width — the CSS gives them a column of their own — and say nothing
+// to a screen reader: the state is written out in words at the end of the same line.
+function stepGlyph(kind: StepStatus | 'INTERRUPTED' | 'PAUSED'): ReactNode {
+  switch (kind) {
+    case 'DONE':
+      return <CheckCircleOutlined style={{ color: 'var(--ant-color-success)' }} />;
+    case 'FAILED':
+      return <CloseCircleOutlined style={{ color: 'var(--ant-color-error)' }} />;
+    case 'RUNNING':
+      return <SyncOutlined spin style={{ color: 'var(--ant-color-primary)' }} />;
+    case 'QUEUED':
+      return <ClockCircleOutlined style={{ color: 'var(--ant-color-text-tertiary)' }} />;
+    case 'PENDING':
+      return <HourglassOutlined style={{ color: 'var(--ant-color-text-tertiary)' }} />;
+    case 'SKIPPED':
+      return <MinusCircleOutlined style={{ color: 'var(--ant-color-text-quaternary)' }} />;
+    case 'PAUSED':
+      return <PauseCircleOutlined style={{ color: 'var(--ant-color-warning)' }} />;
+    case 'INTERRUPTED':
+      return <ExclamationCircleOutlined style={{ color: 'var(--ant-color-warning)' }} />;
+  }
+}
+
+// "How long" in the reader's own units: milliseconds under a second, one-decimal seconds above.
+function formatDuration(ms: number, t: ReturnType<typeof useTranslations>): string {
+  return ms < 1000
+    ? t('viewer.log.cost.ms', { value: ms })
+    : t('viewer.log.cost.seconds', { value: Math.round(ms / 100) / 10 });
 }
 
 // 🔒 The one control in Legere that destroys anything (docs/03 §3.3.10, docs/11 §11.5d). At the foot
@@ -2816,124 +2958,361 @@ function LogPane({
   isAdmin: boolean;
 }) {
   const t = useTranslations();
+  // Fetched only when the tab is open — most visits never ask (docs/11 §11.5). While the pipeline
+  // is working there is more to come, and not every entry follows a step change — somebody else
+  // may be editing the same document (docs/10 §10.5).
+  const events = useDocumentEvents(document.id, {
+    enabled: active,
+    refetchInterval: document.processing ? LIVE_REFRESH_MS : false,
+  });
+  const items = events.data?.pages.flatMap((page) => page.items) ?? [];
+
+  let history: ReactNode = <Spin />;
+  if (!events.isPending) {
+    history =
+      items.length === 0 ? (
+        <Empty description={t('viewer.log.empty')} />
+      ) : (
+        <HistoryJournal
+          items={items}
+          steps={document.steps}
+          hasMore={events.hasNextPage}
+          more={() => void events.fetchNextPage()}
+          loadingMore={events.isFetchingNextPage}
+        />
+      );
+  }
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <ProcessingSection document={document} isAdmin={isAdmin} />
+      <ProcessingSection document={document} events={items} isAdmin={isAdmin} />
 
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <Typography.Title level={5} style={{ margin: 0 }}>
           {t('viewer.log.history')}
         </Typography.Title>
-        <HistoryTable id={document.id} active={active} processing={document.processing} />
+        {history}
       </Space>
     </Space>
   );
 }
 
-// The history of the document (docs/03 §3.3.18): who did what to it, and what the pipeline made of
-// it, newest first. Fetched only when the tab is open — most visits never ask.
-function HistoryTable({
-  id,
-  active,
-  processing,
+// One line of a run: a step's started and settled events folded together (docs/11 §11.5). Either
+// half may be missing — a skip writes no start, an outage severs the pair (docs/05 §5.4e), and a
+// page boundary can withhold one — so the line renders from whichever halves it has.
+type RunLine = {
+  key: string;
+  step: string;
+  started: DocumentEventDto | null;
+  finished: DocumentEventDto | null;
+};
+
+type JournalRun = {
+  kind: 'run';
+  key: string;
+  at: string;
+  queued: DocumentEventDto;
+  lines: RunLine[];
+};
+
+type JournalEntry =
+  | JournalRun
+  | { kind: 'line'; key: string; at: string; line: RunLine }
+  | { kind: 'moment'; key: string; at: string; event: DocumentEventDto };
+
+// The flat page of events folded into journal entries (docs/11 §11.5): a QUEUED opens a run, and
+// the step events after it belong to the nearest earlier run that asked for that step — not merely
+// the nearest, because the queue collapses two waiting requests into one job (05 §5.3), and the
+// run that actually named the step would otherwise stand empty over work it asked for.
+function buildJournal(items: DocumentEventDto[]): JournalEntry[] {
+  const entries: JournalEntry[] = [];
+  const runs: Array<{ run: JournalRun; steps: Set<string> | null }> = [];
+  // Oldest first, so a run exists by the time its steps report; reversed again at the end.
+  for (const event of [...items].reverse()) {
+    if (event.type === 'QUEUED') {
+      const run: JournalRun = {
+        kind: 'run',
+        key: event.id,
+        at: event.at,
+        queued: event,
+        lines: [],
+      };
+      entries.push(run);
+      runs.push({
+        run,
+        steps: event.payload.steps === undefined ? null : new Set(event.payload.steps),
+      });
+      continue;
+    }
+    if (event.type === 'STEP_STARTED' || event.type === 'STEP_FINISHED') {
+      const step = event.payload.step ?? '';
+      const claiming = [...runs].reverse().find(({ steps }) => steps === null || steps.has(step));
+      if (claiming !== undefined) {
+        attachToRun(claiming.run.lines, event, step);
+      } else {
+        // A step whose opening QUEUED lies beyond the loaded page stands on a line of its own
+        // until the rest of its run is fetched (docs/11 §11.5).
+        entries.push({ kind: 'line', key: event.id, at: event.at, line: lineOf(event, step) });
+      }
+      continue;
+    }
+    entries.push({ kind: 'moment', key: event.id, at: event.at, event });
+  }
+  return entries.reverse();
+}
+
+function lineOf(event: DocumentEventDto, step: string): RunLine {
+  return event.type === 'STEP_STARTED'
+    ? { key: event.id, step, started: event, finished: null }
+    : { key: event.id, step, started: null, finished: event };
+}
+
+// A settled event closes the newest open line of its step — the same requestId when both halves
+// carry one (docs/03 §3.3.18) — or opens a lone line of its own: a skip writes no start.
+function attachToRun(lines: RunLine[], event: DocumentEventDto, step: string): void {
+  if (event.type === 'STEP_STARTED') {
+    lines.push(lineOf(event, step));
+    return;
+  }
+  const open = [...lines]
+    .reverse()
+    .find(
+      (line) =>
+        line.step === step &&
+        line.finished === null &&
+        line.started !== null &&
+        (line.started.payload.requestId === undefined ||
+          event.payload.requestId === undefined ||
+          line.started.payload.requestId === event.payload.requestId),
+    );
+  if (open === undefined) {
+    lines.push(lineOf(event, step));
+    return;
+  }
+  open.finished = event;
+}
+
+// What each line gets to say for itself. A settled line says its verdict; an open one is "running"
+// only while the pipeline is actually on that step — and only the newest open line of it: every
+// older one was severed by an outage, and is told so rather than left pretending (docs/05 §5.4e).
+function lineVerdicts(
+  entries: JournalEntry[],
+  steps: DocumentDetailDto['steps'],
+): Map<string, StepStatus | 'INTERRUPTED'> {
+  const lines: RunLine[] = [];
+  for (const entry of entries) {
+    if (entry.kind === 'run') lines.push(...entry.lines);
+    if (entry.kind === 'line') lines.push(entry.line);
+  }
+  const newestOpen = new Map<string, RunLine>();
+  for (const line of lines) {
+    if (line.finished !== null || line.started === null) continue;
+    const held = newestOpen.get(line.step);
+    if (held?.started === undefined || held.started === null || held.started.at < line.started.at) {
+      newestOpen.set(line.step, line);
+    }
+  }
+  const verdicts = new Map<string, StepStatus | 'INTERRUPTED'>();
+  for (const line of lines) {
+    const status = line.finished?.payload.status;
+    if (status === 'DONE' || status === 'FAILED' || status === 'SKIPPED') {
+      verdicts.set(line.key, status);
+      continue;
+    }
+    if (line.finished !== null) {
+      // The writer knows three verdicts (docs/03 §3.3.18); an odd one is at least settled.
+      verdicts.set(line.key, 'DONE');
+      continue;
+    }
+    const known = DOCUMENT_STEPS.find((step) => step === line.step);
+    const running = known !== undefined && steps[known] === 'RUNNING';
+    verdicts.set(
+      line.key,
+      running && newestOpen.get(line.step) === line ? 'RUNNING' : 'INTERRUPTED',
+    );
+  }
+  return verdicts;
+}
+
+// The document's journal (docs/03 §3.3.18, docs/11 §11.5): newest first, under day headings, each
+// run folded into one entry with a line per step. A table gave every event a row of its own — two
+// per step and a mostly-empty Who column — which buried the run that broke, the one thing this
+// section is scanned for.
+function HistoryJournal({
+  items,
+  steps,
+  hasMore,
+  more,
+  loadingMore,
 }: {
-  id: string;
-  active: boolean;
-  processing: boolean;
+  items: DocumentEventDto[];
+  steps: DocumentDetailDto['steps'];
+  hasMore: boolean;
+  more: () => void;
+  loadingMore: boolean;
 }) {
   const t = useTranslations();
-  const events = useQuery({
-    queryKey: documentKeys.events(id),
-    queryFn: () => documentApi.events(id),
-    enabled: active,
-    // While the pipeline is working there is more to come, and not every entry follows a step
-    // change — somebody else may be editing the same document (docs/10 §10.5).
-    refetchInterval: processing ? LIVE_REFRESH_MS : false,
-  });
+  const entries = buildJournal(items);
+  const verdicts = lineVerdicts(entries, steps);
 
-  if (events.isPending) return <Spin />;
-  const items = events.data?.items ?? [];
-  if (items.length === 0) return <Empty description={t('viewer.log.empty')} />;
+  // Consecutive entries of one calendar day share a heading; each entry keeps a short time of its
+  // own in the gutter, with the full ISO timestamp on hover (docs/11 §11.14).
+  const days: Array<{ key: string; at: string; entries: JournalEntry[] }> = [];
+  for (const entry of entries) {
+    const key = new Date(entry.at).toDateString();
+    const day = days[days.length - 1];
+    if (day !== undefined && day.key === key) day.entries.push(entry);
+    else days.push({ key, at: entry.at, entries: [entry] });
+  }
 
   return (
-    <Table
-      dataSource={items}
-      rowKey="id"
-      size="small"
-      // The whole page at once: a log is scanned, not paged through, and the server already caps it.
-      pagination={false}
-      columns={[
-        {
-          title: t('viewer.log.when'),
-          dataIndex: 'at',
-          width: 180,
-          render: (_: unknown, event: DocumentEventDto) => (
-            <Typography.Text type="secondary">
-              {new Date(event.at).toLocaleString()}
-            </Typography.Text>
-          ),
-        },
-        {
-          title: t('viewer.log.what'),
-          dataIndex: 'type',
-          render: (_: unknown, event: DocumentEventDto) => (
-            <Space direction="vertical" size={0}>
-              <Typography.Text>{describeEvent(event, t)}</Typography.Text>
-              {/* The message travels with the row that failed: the log is where somebody goes when
-                  something went wrong (docs/11 §11.5). */}
-              {event.payload.error !== undefined && (
-                <Typography.Text type="danger" style={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>
-                  {event.payload.error}
+    <div className="legere-journal">
+      {days.map((day) => (
+        <Fragment key={day.key}>
+          <Typography.Text type="secondary" className="legere-journal-day">
+            {dayLabel(day.at, t)}
+          </Typography.Text>
+          {day.entries.map((entry) => (
+            <div className="legere-journal-row" key={entry.key}>
+              <Tooltip title={entry.at}>
+                <Typography.Text type="secondary" className="legere-journal-time">
+                  {new Date(entry.at).toLocaleTimeString()}
                 </Typography.Text>
-              )}
-              {/* Who did the work and under what id — the thread from this line into the log of the
-                  container that produced it. Monospace, because these are values to be compared and
-                  copied rather than read (docs/11 §11.15). The host is only ever sent to an admin. */}
-              {event.payload.service !== undefined && (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }} code>
-                  {[event.payload.service, event.payload.endpoint, event.payload.requestId]
-                    .filter((part) => part !== undefined && part !== '')
-                    .join(' · ')}
-                </Typography.Text>
-              )}
-              {/* What the step cost and what came out of it, beside the step it belongs to: "it
-                  took four minutes" and "it returned nothing" are the two halves of one question
-                  (docs/03 §3.3.18). */}
-              {stepCost(event, t).length > 0 && (
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {stepCost(event, t).join(' · ')}
-                </Typography.Text>
-              )}
-            </Space>
-          ),
-        },
-        {
-          title: t('viewer.log.who'),
-          dataIndex: 'actor',
-          width: 160,
-          // Empty is the pipeline acting on its own, and an em dash says that out loud.
-          render: (actor: string | null) =>
-            actor === null ? <Typography.Text type="secondary">—</Typography.Text> : actor,
-        },
-      ]}
-    />
+              </Tooltip>
+              <div className="legere-journal-body">
+                {entry.kind === 'moment' && <JournalMoment event={entry.event} />}
+                {entry.kind === 'line' && (
+                  <div className="legere-steps">
+                    <JournalLine
+                      line={entry.line}
+                      verdict={verdicts.get(entry.line.key) ?? 'INTERRUPTED'}
+                    />
+                  </div>
+                )}
+                {entry.kind === 'run' && (
+                  <>
+                    <Typography.Text>{describeEvent(entry.queued, t)}</Typography.Text>
+                    {/* The run's head says who asked, once; its lines need no author of their
+                        own — and a run the pipeline started on its own names nobody. */}
+                    {entry.queued.actor !== null && (
+                      <Typography.Text type="secondary"> — {entry.queued.actor}</Typography.Text>
+                    )}
+                    {entry.lines.length > 0 && (
+                      <div className="legere-journal-lines legere-steps">
+                        {entry.lines.map((line) => (
+                          <JournalLine
+                            key={line.key}
+                            line={line}
+                            verdict={verdicts.get(line.key) ?? 'INTERRUPTED'}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </Fragment>
+      ))}
+      {/* A history that silently ends at the page boundary reads as "nothing older happened",
+          which is false as soon as a document has been re-run a few times (docs/11 §11.5). */}
+      {hasMore && (
+        <div>
+          <Button size="small" onClick={more} loading={loadingMore}>
+            {t('viewer.log.showMore')}
+          </Button>
+        </div>
+      )}
+    </div>
   );
+}
+
+// One sentence and, where a person wrote it, their name (docs/11 §11.5).
+function JournalMoment({ event }: { event: DocumentEventDto }) {
+  const t = useTranslations();
+  return (
+    <>
+      <Typography.Text>{describeEvent(event, t)}</Typography.Text>
+      {event.actor !== null && <Typography.Text type="secondary"> — {event.actor}</Typography.Text>}
+    </>
+  );
+}
+
+// One step of one run: glyph, name, leader, then the verdict and what the step cost — the panel's
+// own grammar (docs/11 §11.5). The message travels under its line, because the log is where
+// somebody goes when something went wrong; the monospace ids under that, with a copy control —
+// values to be copied into a grep, not read (docs/11 §11.14). The host among them is only ever
+// sent to an admin (docs/03 §3.3.18).
+function JournalLine({ line, verdict }: { line: RunLine; verdict: StepStatus | 'INTERRUPTED' }) {
+  const t = useTranslations();
+  const finished = line.finished;
+  const source = finished ?? line.started;
+  const cost = finished === null ? [] : stepCost(finished, t);
+  const reason = finished?.payload.reason;
+  const error = finished?.payload.error;
+  return (
+    <div className="legere-step">
+      <div className="legere-step-line">
+        <span className="legere-step-glyph" aria-hidden>
+          {stepGlyph(verdict)}
+        </span>
+        <Typography.Text>{t(`viewer.steps.${line.step}`)}</Typography.Text>
+        <span className="legere-step-leader" aria-hidden />
+        <Typography.Text type="secondary" className="legere-step-state">
+          {[t(`viewer.stepStatus.${verdict}`), ...cost].join(' · ')}
+        </Typography.Text>
+      </div>
+      {reason !== undefined && (
+        <Typography.Text type="secondary" className="legere-step-note">
+          {t(`viewer.skipReasons.${reason}`)}
+        </Typography.Text>
+      )}
+      {error !== undefined && (
+        <Typography.Text type="danger" className="legere-step-note">
+          {error}
+        </Typography.Text>
+      )}
+      {source !== null && source.payload.service !== undefined && (
+        <div className="legere-step-note">
+          <Typography.Text
+            type="secondary"
+            code
+            copyable={{ text: source.payload.requestId ?? source.payload.service }}
+          >
+            {[source.payload.service, source.payload.endpoint, source.payload.requestId]
+              .filter((part) => part !== undefined && part !== '')
+              .join(' · ')}
+          </Typography.Text>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Today and yesterday by name, any other day by its date (docs/11 §11.5).
+function dayLabel(at: string, t: ReturnType<typeof useTranslations>): string {
+  const day = new Date(at);
+  const now = new Date();
+  const startOf = (date: Date): number =>
+    new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const daysAgo = Math.round((startOf(now) - startOf(day)) / 86_400_000);
+  if (daysAgo === 0) return t('viewer.log.today');
+  if (daysAgo === 1) return t('viewer.log.yesterday');
+  return day.toLocaleDateString(navigator.language, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
 }
 
 // One sentence per entry, built from the payload each type happens to carry. Written here rather
 // than on the server: it is the reader's language, and the server does not know it (docs/10 §10.3).
+// Step events never reach it — they are folded into the lines of their run, not sentences
+// (docs/11 §11.5).
 function describeEvent(event: DocumentEventDto, t: ReturnType<typeof useTranslations>): string {
   const { payload } = event;
-  const step = payload.step === undefined ? '' : t(`viewer.steps.${payload.step}`);
 
-  if (event.type === 'STEP_STARTED') return t('viewer.log.stepStarted', { step });
-  if (event.type === 'STEP_FINISHED') {
-    const status = payload.status ?? '';
-    const reason =
-      payload.reason === undefined ? '' : ` — ${t(`viewer.skipReasons.${payload.reason}`)}`;
-    return `${t('viewer.log.stepFinished', { step, status })}${reason}`;
-  }
   if (event.type === 'QUEUED') {
     const steps = (payload.steps ?? []).map((one) => t(`viewer.steps.${one}`)).join(', ');
     return steps === '' ? t('viewer.log.queued') : t('viewer.log.queuedSteps', { steps });
@@ -3167,14 +3546,6 @@ function languageOptions(
   return [...carried, ...LANGUAGE_OPTIONS];
 }
 
-function statusColor(status: StepStatus): string {
-  if (status === 'RUNNING') return 'processing';
-  if (status === 'DONE') return 'green';
-  if (status === 'FAILED') return 'red';
-  if (status === 'PENDING') return 'blue';
-  return 'default';
-}
-
 // Every two-letter code Intl can put a name to, sorted by that name. Built by asking about all 676
 // combinations and keeping the ones it answers: a list of countries or of languages is data that
 // goes out of date, and one asked of Intl cannot.
@@ -3239,13 +3610,7 @@ function displayLanguage(tag: string): string {
 function stepCost(event: DocumentEventDto, t: ReturnType<typeof useTranslations>): string[] {
   const { payload } = event;
   const parts: string[] = [];
-  if (payload.durationMs !== undefined) {
-    parts.push(
-      payload.durationMs < 1000
-        ? t('viewer.log.cost.ms', { value: payload.durationMs })
-        : t('viewer.log.cost.seconds', { value: Math.round(payload.durationMs / 100) / 10 }),
-    );
-  }
+  if (payload.durationMs !== undefined) parts.push(formatDuration(payload.durationMs, t));
   if (payload.pages !== undefined) parts.push(t('viewer.log.cost.pages', { value: payload.pages }));
   if (payload.chars !== undefined) parts.push(t('viewer.log.cost.chars', { value: payload.chars }));
   if (payload.ocrUsed === true) parts.push(t('viewer.log.cost.ocr'));
@@ -3280,13 +3645,10 @@ function stepCost(event: DocumentEventDto, t: ReturnType<typeof useTranslations>
 const StepCostSection = memo(function StepCostSection({ documentId }: { documentId: string }) {
   const t = useTranslations();
   // The same query the Log tab uses, so opening both costs one request (docs/10 §10.4).
-  const events = useQuery({
-    queryKey: documentKeys.events(documentId),
-    queryFn: () => documentApi.events(documentId),
-  });
+  const events = useDocumentEvents(documentId);
 
   const latest = new Map<string, DocumentEventDto>();
-  for (const event of events.data?.items ?? []) {
+  for (const event of events.data?.pages.flatMap((page) => page.items) ?? []) {
     const step = event.payload.step;
     // The list arrives newest first, so the first entry seen for a step is its latest run.
     if (event.type === 'STEP_FINISHED' && step !== undefined && !latest.has(step)) {

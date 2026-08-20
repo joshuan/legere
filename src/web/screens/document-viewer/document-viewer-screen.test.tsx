@@ -1036,6 +1036,161 @@ describe('DocumentViewerScreen', () => {
     expect(await screen.findByText('Another copy of this document appeared')).toBeInTheDocument();
   });
 
+  it('folds a run under its queue entry, one line per step', async () => {
+    server.use(
+      http.get(`/api/documents/${ID}/events`, () =>
+        HttpResponse.json(
+          envelope({
+            items: [
+              {
+                id: 'eeeeeeee-5555-4555-8555-555555555555',
+                type: 'STEP_FINISHED',
+                at: '2026-08-03T11:00:10.000Z',
+                actor: null,
+                payload: {
+                  step: 'markdown',
+                  status: 'DONE',
+                  durationMs: 4200,
+                  chars: 1200,
+                  service: 'docling',
+                  requestId: 'aaaaaaaa-9999-4999-8999-999999999999',
+                },
+              },
+              {
+                id: 'eeeeeeee-6666-4666-8666-666666666666',
+                type: 'STEP_STARTED',
+                at: '2026-08-03T11:00:00.000Z',
+                actor: null,
+                payload: {
+                  step: 'markdown',
+                  service: 'docling',
+                  requestId: 'aaaaaaaa-9999-4999-8999-999999999999',
+                },
+              },
+              {
+                id: 'eeeeeeee-7777-4777-8777-777777777777',
+                type: 'QUEUED',
+                at: '2026-08-03T10:59:00.000Z',
+                actor: 'Admin',
+                payload: { steps: ['markdown'] },
+              },
+            ],
+            nextCursor: null,
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
+
+    // The run's head says who asked and for what…
+    expect(await screen.findByText(/Queued: Text/)).toBeInTheDocument();
+    expect(screen.getByText(/Admin/)).toBeInTheDocument();
+    // …and the started and the settled event are one line wearing the verdict and the cost
+    // together, not two rows (docs/11 §11.5).
+    expect(screen.getByText('Done · 4.2 s · 1200 characters')).toBeInTheDocument();
+    // The pair's one requestId is written once, with the service that did the work.
+    expect(screen.getAllByText(/docling/)).toHaveLength(1);
+  });
+
+  it('tells a severed pair from a live one honestly', async () => {
+    // A started event whose settled half never came, on a document the pipeline has moved past:
+    // an outage severed the pair (docs/05 §5.4e), and the line says so instead of pretending.
+    const orphan = [
+      {
+        id: 'eeeeeeee-6666-4666-8666-666666666666',
+        type: 'STEP_STARTED',
+        at: '2026-08-03T11:00:00.000Z',
+        actor: null,
+        payload: { step: 'markdown', service: 'docling' },
+      },
+      {
+        id: 'eeeeeeee-7777-4777-8777-777777777777',
+        type: 'QUEUED',
+        at: '2026-08-03T10:59:00.000Z',
+        actor: null,
+        payload: { steps: ['markdown'] },
+      },
+    ];
+    server.use(
+      http.get(`/api/documents/${ID}/events`, () =>
+        HttpResponse.json(envelope({ items: orphan, nextCursor: null })),
+      ),
+    );
+
+    const severed = renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
+    expect(
+      await screen.findByText(new RegExp(enMessages.viewer.stepStatus.INTERRUPTED)),
+    ).toBeInTheDocument();
+    severed.unmount();
+
+    // The same orphan while the pipeline is on that very step is not severed — it is running now.
+    serve({ ...detail, processing: true, steps: { ...detail.steps, markdown: 'RUNNING' } });
+    server.use(
+      http.get(`/api/documents/${ID}/events`, () =>
+        HttpResponse.json(envelope({ items: orphan, nextCursor: null })),
+      ),
+    );
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
+    await screen.findByText(/Queued: Text/);
+    const journal = window.document.querySelector('.legere-journal');
+    if (!(journal instanceof HTMLElement)) throw new Error('expected the journal');
+    expect(within(journal).getByText(enMessages.viewer.stepStatus.RUNNING)).toBeInTheDocument();
+  });
+
+  it('offers more history while the server holds more', async () => {
+    server.use(
+      http.get(`/api/documents/${ID}/events`, ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor');
+        if (cursor === 'older') {
+          return HttpResponse.json(
+            envelope({
+              items: [
+                {
+                  id: 'eeeeeeee-8888-4888-8888-888888888888',
+                  type: 'CREATED',
+                  at: '2026-08-01T10:00:00.000Z',
+                  actor: null,
+                  payload: {},
+                },
+              ],
+              nextCursor: null,
+            }),
+          );
+        }
+        return HttpResponse.json(
+          envelope({
+            items: [
+              {
+                id: 'eeeeeeee-3333-4333-8333-333333333333',
+                type: 'META_CHANGED',
+                at: '2026-08-03T12:00:00.000Z',
+                actor: 'Admin',
+                payload: { changes: { city: { from: 'Podgorica', to: 'Bar' } } },
+              },
+            ],
+            nextCursor: 'older',
+          }),
+        );
+      }),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
+
+    // 🔒 The first page arrived with more held back, and the foot says so instead of passing the
+    // page boundary off as the beginning of time (docs/11 §11.5).
+    expect(await screen.findByText(/City: Podgorica → Bar/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.log.showMore }));
+
+    // The older page joins under the newer one — and nothing older is left, so the button goes.
+    expect(await screen.findByText(enMessages.viewer.log.createdBare)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: enMessages.viewer.log.showMore }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
   it('picks up the text as soon as the step that produces it finishes', async () => {
     let extracted = false;
     server.use(
@@ -1188,11 +1343,12 @@ describe('DocumentViewerScreen', () => {
     renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
 
     expect(await screen.findByText(enMessages.viewer.processing.title)).toBeInTheDocument();
-    expect(screen.getByText('FAILED')).toBeInTheDocument();
+    // In the reader's own words, not the schema's (docs/11 §11.5).
+    expect(screen.getByText(enMessages.viewer.stepStatus.FAILED)).toBeInTheDocument();
     // 🔒 Under the step that failed, not at the bottom of the card: an error that names no step is
     // an error nobody can act on (docs/11 §11.5).
     const failed = screen.getByText('Stirling failed with 500');
-    expect(failed.previousElementSibling?.textContent).toBe(enMessages.viewer.steps.preview);
+    expect(failed.closest('.legere-step')?.textContent).toContain(enMessages.viewer.steps.preview);
   });
 
   it('says why a step was skipped, instead of leaving SKIPPED to look like a failure', async () => {
@@ -1228,19 +1384,20 @@ describe('DocumentViewerScreen', () => {
     renderWithProviders(<DocumentViewerScreen id={ID} />);
     await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
 
-    // Place comes from the AI step, which is running now.
+    // Place comes from the AI step, which is running now. The badge speaks the reader's language,
+    // the same words the processing panel uses (docs/11 §11.5).
     const place = screen.getByText(enMessages.viewer.details.place).closest('.legere-definition');
-    expect(place?.textContent).toContain('RUNNING');
+    expect(place?.textContent).toContain(enMessages.viewer.stepStatus.RUNNING);
     // Languages are written by the parse first and the AI step after it; the parse is queued, so
     // the field is not empty-and-final, it is not-yet.
     const languages = screen
       .getByText(enMessages.viewer.details.languages)
       .closest('.legere-definition');
-    expect(languages?.textContent).toContain('RUNNING');
+    expect(languages?.textContent).toContain(enMessages.viewer.stepStatus.RUNNING);
     // 🔒 And a value nothing is going to touch says nothing: the badge is about work, not decoration.
     const size = screen.getByText(enMessages.viewer.details.size).closest('.legere-definition');
-    expect(size?.textContent).not.toContain('PENDING');
-    expect(size?.textContent).not.toContain('RUNNING');
+    expect(size?.textContent).not.toContain(enMessages.viewer.stepStatus.PENDING);
+    expect(size?.textContent).not.toContain(enMessages.viewer.stepStatus.RUNNING);
   });
 
   it('offers reprocessing to an admin only, with the chosen steps', async () => {
@@ -1264,8 +1421,14 @@ describe('DocumentViewerScreen', () => {
     // Scoped to the tab, which now holds the panel and the history both (docs/11 §11.5).
     const panel = within(screen.getByRole('tabpanel'));
 
+    // At rest the panel is a status instrument: the checkboxes appear when steps are being chosen
+    // and not before (docs/11 §11.5).
+    expect(panel.queryByRole('checkbox')).not.toBeInTheDocument();
+    await userEvent.click(
+      panel.getByRole('button', { name: enMessages.viewer.processing.chooseSteps }),
+    );
     await userEvent.click(panel.getByRole('checkbox', { name: enMessages.viewer.steps.preview }));
-    await userEvent.click(panel.getByRole('button', { name: /Reprocess 1 steps/ }));
+    await userEvent.click(panel.getByRole('button', { name: 'Reprocess 1 step' }));
 
     await waitFor(() => expect(body).toEqual({ steps: ['preview'] }));
   });
@@ -1288,6 +1451,9 @@ describe('DocumentViewerScreen', () => {
 
     // 🔒 The server refuses to run a held step, so the checkbox that would ask for it is not
     // offered — the one beside a step that runs still is.
+    await userEvent.click(
+      panel.getByRole('button', { name: enMessages.viewer.processing.chooseSteps }),
+    );
     await waitFor(() =>
       expect(
         panel.getByRole('checkbox', { name: enMessages.viewer.steps.analysis }),
