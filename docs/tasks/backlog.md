@@ -1204,3 +1204,91 @@ answer one question at two depths, shared no visual language at all.
   **Goal:** the Log tab reads as one story — the current state above, its journal below, in one row grammar — and the history is complete rather than silently cut.
   **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab)
   **Acceptance:** the processing panel draws each step as glyph · name · dotted leader · state in the reader's words, with the newest settled duration read off the events query the tab already fetches; skip reasons, pause hints and failures stay under their own step, and the remedy stands beside the complaint it answers — **Retry this step** under a failure, **Analyse the whole document** beside the length skip — admin-only; reprocess lives in the section head (**Reprocess everything**, with **Choose steps…** beside it — only then do checkboxes appear, with a count-named button and a Cancel), a paused step still not selectable; the history groups each run under its `QUEUED` entry with one line per step folding the started/settled pair — *running*/*interrupted* told honestly for a pair an outage severed — under day headings, short times with ISO on hover, authors beside human entries, a copy control on the monospace ids, and **Show more** paging through `nextCursor`, fixing the silent cut at the server's default page; step statuses are written out translated everywhere they appear (the Details pending badges included), `reprocessSelected` takes an ICU plural, and the Russian tab name becomes «Журнал»; the peek modal keeps the journal and loses the controls, as before.
+
+---
+
+## M47 — Closing what the second audit found
+
+The findings of [`security-audit-2026-08-second-pass.md`](./security-audit-2026-08-second-pass.md),
+fixed and tested. Thirty confirmed findings against `v0.22.0`, none of them Critical and three of
+them High — the shape of a codebase that was audited once and kept its habits, with the new surface
+of the last eleven months as the part nobody had read.
+
+Ordered, like M15, by what an attacker reaches first rather than by where the code lives. Tasks that
+need a documentation decision before any code say so and are **blocked**: take the first unchecked
+task that is not blocked, and raise the blocked ones with the owner instead (golden rule 3).
+
+One task is not a fix. **M47.14** finishes the audit itself: twenty-seven findings from the gap
+probes were never independently refuted, because the run hit a session token limit. They are leads,
+not findings, and the register says so — but leaving them unverified is how [SEC-45](./security-audit-2026-08.md#sec-45)
+happened the first time.
+
+- [ ] **M47.1 — Composing a document is not the same right as naming it** — **blocked on a documentation decision**
+  **Goal:** an ordinary user can no longer destroy or forge a library document they did not create.
+  **Docs:** [`03 §3.4`](../03-domain-model.md), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model), [`07 §7.3`](../07-api-specification.md)
+  **Acceptance:** closes [SEC-47](./security-audit-2026-08-second-pass.md#sec-47). `canEditDocumentMeta`'s "anyone may tidy up a library document" branch is what `PATCH /documents/:id` keeps; `assertMayCompose` gets a rule of its own, and the seven composition operations stop inheriting the metadata rule. **The decision to take first:** whether composition on a library document is creator-and-admin, or whether only the destructive members of the set (combine's treatment of its sources, file replacement) are lifted to `ADMIN` while crop, reorder and split stay open to readers — the first is a simpler rule, the second keeps the "a library nobody may tidy up" argument the current comment rests on. `docs/03 §3.4` moves first either way. Tests: a `USER` who did not create a library document is refused combine, replace and split on it; an ADMIN is not; the metadata path keeps its current behaviour and its current test.
+
+- [ ] **M47.2 — One document still cannot take down the server**
+  **Goal:** no single upload, crop or scan makes the one process stop answering.
+  **Docs:** [`05 §5.4a`](../05-library-and-processing.md#54a-what-one-document-may-cost), [`09 §9.1`](../09-file-storage.md)
+  **Acceptance:** closes [SEC-48](./security-audit-2026-08-second-pass.md#sec-48), [SEC-49](./security-audit-2026-08-second-pass.md#sec-49), [SEC-51](./security-audit-2026-08-second-pass.md#sec-51), [SEC-58](./security-audit-2026-08-second-pass.md#sec-58), [SEC-67](./security-audit-2026-08-second-pass.md#sec-67). The 80 Mpx budget binds the **crop** path as well as the decode path, so a small PNG with a large requested region is refused rather than allocated; the canonical build streams or bounds the number of converted parts it holds at once, and a document's file count is bounded explicitly rather than by whatever the disk allows; `tidyMarkdown`'s backtracking regex gets an input bound or a linear rewrite; the request-path routes that buffer a whole file take a concurrency bound like the pipeline's gates; and the `excludeGlobs` complexity cap counts extglob constructs, not only `*`. Tests: each bound refuses its own bomb, and each refusal is a 422 rather than a timeout.
+
+- [ ] **M47.3 — The queue does one thing per document at a time**
+  **Goal:** a document is processed once per change, and a neighbour's failure is not a document's problem.
+  **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`06 §6.6`](../06-backend-architecture.md)
+  **Acceptance:** closes [SEC-50](./security-audit-2026-08-second-pass.md#sec-50), [SEC-52](./security-audit-2026-08-second-pass.md#sec-52), [SEC-57](./security-audit-2026-08-second-pass.md#sec-57), [SEC-72](./security-audit-2026-08-second-pass.md#sec-72). `document-process` is singleton-keyed per document, so a burst of cheap PATCHes coalesces instead of queueing a full run each; the job's expiry is longer than the run it carries, or the run renews it, so a slow document is not re-delivered beside itself; a batch handler fails only the job that failed; and a stored queue concurrency is bounded on read like the service gates beside it. Tests: N rapid PATCHes produce one run; a run outliving the old expiry is not duplicated; one poisoned job in a batch leaves its neighbours completed.
+
+- [ ] **M47.4 — A log is still not a place to keep credentials**
+  **Goal:** a support bundle does not hand over the archive.
+  **Docs:** [`06 §6.7`](../06-backend-architecture.md#67-logging), [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist)
+  **Acceptance:** closes [SEC-56](./security-audit-2026-08-second-pass.md#sec-56). The request log stops writing response headers wholesale: `Location` on a presigned redirect and `Content-Disposition` are the two that carry a credential and a filename, and an allow-list of headers replaces the current shape — the deny-list lesson of [SEC-23](./security-audit-2026-08.md#sec-23) applies to headers as much as to config. Tests: a download's log line contains neither the signature query nor the filename, asserted on both the redirect and the streamed branch.
+
+- [ ] **M47.5 — The catalogue is not a channel into the analyst**
+  **Goal:** what one user types cannot steer the analysis of documents they cannot read.
+  **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`03 §3.3.19`](../03-domain-model.md)
+  **Acceptance:** closes [SEC-54](./security-audit-2026-08-second-pass.md#sec-54). Subject notes and catalogue names reach the model as **data**, not as part of the system message — the two-channel design [SEC-11](./security-audit-2026-08.md#sec-11)'s fix rests on is restored for the catalogue as it already is for the document — and the kind list is capped like the subject list beside it. Tests: a subject note containing an instruction does not change the analysis of an unrelated document; the system message is bounded whatever the catalogue holds.
+
+- [ ] **M47.6 — An address cannot be denied its own recovery**
+  **Goal:** a stranger cannot spend somebody else's verification attempts.
+  **Docs:** [`08 §8.1.3`](../08-auth-and-authorization.md#813-the-three-account-setup-steps-shared-by-onboarding-invites-and-password-resets), [`08 §8.4.1a`](../08-auth-and-authorization.md#841a-the-login-backoff-and-what-it-may-never-do)
+  **Acceptance:** closes [SEC-55](./security-audit-2026-08-second-pass.md#sec-55). §8.4.1a's principle — a backoff may slow an attacker down and may never stand between an account and its own password — gets its verification-code twin: an attempt is charged only to a caller who proves they hold the link the series was created from, or the cap is per-(series, IP) with a larger per-series ceiling, or exhaustion re-issues rather than deletes. Tests: five wrong codes from a stranger do not stop the holder's correct code; the brute-force cap the attempts exist to enforce still holds.
+
+- [ ] **M47.7 — The login queue is not a user's to fill**
+  **Goal:** one signed-in account cannot deny login to everybody.
+  **Docs:** [`08 §8.4`](../08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)
+  **Acceptance:** closes [SEC-53](./security-audit-2026-08-second-pass.md#sec-53). `POST /api/me/password` is throttled before it reaches the Argon2 concurrency gate, so the gate serves logins rather than a user's replay. Tests: sustained password-change requests from one account leave login latency unchanged.
+
+- [ ] **M47.8 — The walls hold on every read path** — **partly blocked on a documentation decision**
+  **Goal:** a list never shows what its detail refuses.
+  **Docs:** [`03 §3.4`](../03-domain-model.md), [`08 §8.5`](../08-auth-and-authorization.md#85-content-access-model), [`05 §5.3`](../05-library-and-processing.md)
+  **Acceptance:** closes [SEC-60](./security-audit-2026-08-second-pass.md#sec-60), [SEC-61](./security-audit-2026-08-second-pass.md#sec-61), [SEC-65](./security-audit-2026-08-second-pass.md#sec-65), [SEC-71](./security-audit-2026-08-second-pass.md#sec-71). The document journal stops publishing the title and id of a link the reader may not read; `processingError` redacts absolute volume paths for non-admins as the journal already does; a shared collection reports the count the grantee may actually list. **The decision to take first**, for SEC-65: `docs/05 §5.3` ("the same content on three volumes and in one upload is one file with four homes") and `docs/03 §3.3.16` ("a `MANAGED` file has a `storageKey` and no `FileRef`s") state opposite invariants, and `listInFolder` follows the first while the access rule follows the second. One of the two documents is wrong; which one decides whether the fix is a predicate in `listInFolder` or a change to ingest. Tests: browse and detail agree for every viewer.
+
+- [ ] **M47.9 — What the client is told, and what it keeps**
+  **Goal:** the browser stops leaking a reader's attention and a signed-out user's data.
+  **Docs:** [`10 §10.x`](../10-frontend-architecture.md), [`12 §12.8`](../12-build-config-run.md#128-production-notes)
+  **Acceptance:** closes [SEC-63](./security-audit-2026-08-second-pass.md#sec-63), [SEC-64](./security-audit-2026-08-second-pass.md#sec-64), [SEC-68](./security-audit-2026-08-second-pass.md#sec-68), [SEC-76](./security-audit-2026-08-second-pass.md#sec-76). The CSP gains the directives a one-directive policy is missing — `img-src` at minimum, so a document's Markdown cannot beacon to the uploader's host; ending your own last session clears the query cache exactly as Sign out does; and the Turnstile widget either mints a token on the client or the CAPTCHA claim leaves §8.4 and §8.6 — an empty div is the worst of both, since enabling the secret key today locks everyone out. The follow-up task `docs/12 §12.8a` says is tracked gets written or the sentence goes.
+
+- [ ] **M47.10 — A revocation revokes everything**
+  **Goal:** the product's one remediation actually remediates.
+  **Docs:** [`08 §8.2a`](../08-auth-and-authorization.md#82a-api-tokens-read-only), [`08 §8.1.6`](../08-auth-and-authorization.md#816-password-reset-admin-initiated)
+  **Acceptance:** closes [SEC-62](./security-audit-2026-08-second-pass.md#sec-62). An admin-issued password reset revokes the account's API tokens along with its sessions, or the admin screen says plainly that it does not and offers the second button. Tests: a token minted before a reset does not answer after it.
+
+- [ ] **M47.11 — The deployment hardens what parses**
+  **Goal:** the containers that open attacker-supplied bytes are not the unhardened ones.
+  **Docs:** [`12 §12.7`](../12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository), [`13`](../13-ci-cd.md)
+  **Acceptance:** closes [SEC-59](./security-audit-2026-08-second-pass.md#sec-59), [SEC-69](./security-audit-2026-08-second-pass.md#sec-69), [SEC-70](./security-audit-2026-08-second-pass.md#sec-70). Stirling and Docling get the hardening the app container already has (non-root, `no-new-privileges`, dropped capabilities, a read-only rootfs where the image allows); SMTP requires TLS rather than accepting a stripped STARTTLS; and the two unpinned, unscanned images are pinned by digest and scanned by the same job that scans the rest.
+
+- [ ] **M47.12 — The MCP surface says what it is**
+  **Goal:** the agent-facing API is as exact about its own rules as the register is.
+  **Docs:** [`07 §7.3a`](../07-api-specification.md), [`08 §8.2a`](../08-auth-and-authorization.md#82a-api-tokens-read-only)
+  **Acceptance:** closes [SEC-66](./security-audit-2026-08-second-pass.md#sec-66), [SEC-74](./security-audit-2026-08-second-pass.md#sec-74), [SEC-75](./security-audit-2026-08-second-pass.md#sec-75). The read-only-POST exemption matches paths the way the router resolves them rather than by exact string, so `/api/MCP` is the same route as `/api/mcp` to both; the CSRF exemption covers the API path and not Next's; and document text handed to a calling agent is marked as untrusted data, since the same repository already fences that identical text for its own model.
+
+- [ ] **M47.13 — An unreadable cursor is not an error**
+  **Goal:** `docs/07 §7.1`'s promise holds for a forged cursor.
+  **Docs:** [`07 §7.1`](../07-api-specification.md)
+  **Acceptance:** closes [SEC-73](./security-audit-2026-08-second-pass.md#sec-73), the residue of [SEC-44](./security-audit-2026-08.md#sec-44). A cursor whose id is not a UUID starts the list over rather than reaching the driver and answering 500. Tests: a forged cursor answers 200 with the first page.
+
+- [ ] **M47.14 — The leads become findings or stop being leads**
+  **Goal:** the twenty-seven unverified probe findings are each confirmed with a test or refuted with a reason.
+  **Docs:** [`security-audit-2026-08-second-pass.md`](./security-audit-2026-08-second-pass.md#findings-awaiting-independent-verification)
+  **Acceptance:** every row of "Findings awaiting independent verification" is read against HEAD by somebody who did not write it and moved into the register proper or into "Candidates that did not survive review", with the reason either way. The four subsystems the completeness critic named as unread by anybody — the people/subject/type catalogues, the rate limiter's actual controller coverage, request-path mutation racing an in-flight worker, and `prisma/schema.prisma` against its migrations and `docs/04` — are covered whatever the individual rows turn out to be.
