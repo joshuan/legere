@@ -21,16 +21,15 @@ and named what fell between them; five targeted probes were sent after those gap
 
 **Every finding was then handed to an independent reviewer instructed to refute it against the
 source**, with orders to default to "refuted" where it could not be confirmed. That pass did real
-work: 8 candidates did not survive it and are listed at the end with the reason,
+work: 20 candidates did not survive it and are listed at the end with the reason,
 and severities were corrected — almost always downward — on a third of what did survive. Where a
 severity was changed, the body says so.
 
-**One caveat, stated because it is the kind of thing this repository does not paper over.** The
-audit ran out of session tokens twice. The nine reviews and their verification completed. The five gap
-probes completed, but **their 27 findings were never independently refuted** — they are recorded in
-[a separate section](#findings-awaiting-independent-verification) and are *not* counted as confirmed.
-The single exception is [SEC-47](#sec-47), which came from a probe and was
-verified by hand instead, because it is the most serious thing here.
+The refutation pass ran in two sittings — the first hit a session token limit with the gap probes'
+27 findings still unchecked, and they were put through the same pass afterwards rather than published
+as leads. SEC-47 is the one finding verified by hand rather than by an independent reviewer:
+it is the most serious thing here, and it was read line by line at HEAD instead of being taken on
+trust.
 
 `npm audit` against the committed lockfile reports **0 vulnerabilities** in production dependencies.
 Every package resolves to `registry.npmjs.org`, there are no git-URL dependencies, and the ten
@@ -67,32 +66,46 @@ Unchanged from the first register, plus one position that did not exist then:
 | [SEC-48](#sec-48) | High | The 80 Mpx pixel budget does not bound the crop path: one small PNG plus one PATCH allocates ~1 GB and blocks the event loop for minutes |
 | [SEC-49](#sec-49) | High | The canonical build holds every file's converted part in memory at once, so a document's file count — which nothing bounds — decides the process's peak memory |
 | [SEC-50](#sec-50) | Medium | `document-process` is not deduplicated per document, so one cheap PATCH per full pipeline run lets a user flood the queue ahead of all background work |
-| [SEC-51](#sec-51) | Medium | `tidyMarkdown` runs a polynomially backtracking regex over unbounded parser output, so one uploaded document stops the process |
-| [SEC-52](#sec-52) | Medium | A pipeline run longer than the job's 60-minute expiry is re-delivered while it is still running, producing up to six concurrent full runs of the same document |
-| [SEC-53](#sec-53) | Medium | An authenticated user can wedge every login on the instance by queueing Argon2 work through the unthrottled password-change route |
-| [SEC-54](#sec-54) | Medium | Any signed-in user can write into the analyst's system message through the subject catalogue, defeating the two-channel design the prompt-injection fix rests on |
-| [SEC-55](#sec-55) | Medium | Anyone who knows an address can burn its email-verification series, denying registration and the only password-recovery path |
-| [SEC-56](#sec-56) | Medium | Every download response writes its presigned S3 URL and the document's file name into the application log |
-| [SEC-57](#sec-57) | Medium | One job's failure fails every other job in the same pg-boss batch, so a neighbour's outage costs a healthy document a full re-run of the pipeline |
-| [SEC-58](#sec-58) | Medium | Request-path routes buffer whole files in memory with no concurrency bound, so one USER can OOM the single process |
-| [SEC-59](#sec-59) | Medium | SMTP does not require TLS, so a stripped STARTTLS hands over the relay password and every verification code |
-| [SEC-60](#sec-60) | Medium | The document journal publishes the title and id of a linked document the reader may not read, defeating the link-visibility rule |
-| [SEC-61](#sec-61) | Low | `processingError` returns absolute volume paths to every reader, defeating the deliberate admin-only redaction of library paths in the journal |
-| [SEC-62](#sec-62) | Low | An admin-issued password reset revokes sessions but not API tokens, so a credential minted during a compromise survives the only remediation the product offers |
-| [SEC-63](#sec-63) | Low | Document Markdown renders attacker-chosen remote images and links, and the page CSP sets no img-src, so every reader silently beacons to a host the uploader controls |
-| [SEC-64](#sec-64) | Low | Ending your own session from /settings leaves the whole TanStack Query cache in the browser, unlike Sign out which clears it |
-| [SEC-65](#sec-65) | Low | Library browse lists documents the access rule refuses: `listInFolder` omits the `origin = 'LIBRARY'` predicate that both dialects of the access rule require |
-| [SEC-66](#sec-66) | Low | MCP hands attacker-authored document text to a calling agent with no untrusted-data marking, while the same repository fences that identical text for its own model |
-| [SEC-67](#sec-67) | Low | The `excludeGlobs` wildcard cap does not bound picomatch backtracking: an 8-wildcard glob inside the allowance stalls the whole process |
-| [SEC-68](#sec-68) | Low | The Turnstile CAPTCHA on login and registration is an empty div: the client never mints a token, so the control is either absent or, once enabled, locks every account out |
-| [SEC-69](#sec-69) | Low | The two containers that parse attacker-supplied documents get none of the hardening the app container got |
-| [SEC-70](#sec-70) | Low | Two of the four images the shipped stack runs are built by no pipeline, scanned by nothing, and pinned to nothing |
-| [SEC-71](#sec-71) | Info | A shared collection reports its unfiltered item count, disclosing the size of a set the grantee is not allowed to list |
-| [SEC-72](#sec-72) | Info | A stored queue concurrency is read back without an upper bound, unlike the service gates beside it |
-| [SEC-73](#sec-73) | Info | An opaque cursor's id is never checked as a UUID and reaches a `@db.Uuid` filter, so a forged cursor answers 500 instead of starting over |
-| [SEC-74](#sec-74) | Info | POST /api/MCP serves the whole MCP tool set to a session cookie: the "this route accepts no cookie" invariant is exact-string matching in front of a case-insensitive router |
-| [SEC-75](#sec-75) | Info | The MCP exemption removes the CSRF origin check from POST /mcp, a path that belongs to Next, not to the API |
-| [SEC-76](#sec-76) | Info | The page CSP is one directive, and the follow-up task docs/12 §12.8a says is tracked in the backlog does not exist there |
+| [SEC-51](#sec-51) | Medium | `POST /api/subject-kinds` grows the analysis system message without bound: `subjectKindList` prints every active kind with no cap and no throttle |
+| [SEC-52](#sec-52) | Medium | `tidyMarkdown` runs a polynomially backtracking regex over unbounded parser output, so one uploaded document stops the process |
+| [SEC-53](#sec-53) | Medium | A pipeline run longer than the job's 60-minute expiry is re-delivered while it is still running, producing up to six concurrent full runs of the same document |
+| [SEC-54](#sec-54) | Medium | An authenticated user can wedge every login on the instance by queueing Argon2 work through the unthrottled password-change route |
+| [SEC-55](#sec-55) | Medium | Any signed-in user can write into the analyst's system message through the subject catalogue, defeating the two-channel design the prompt-injection fix rests on |
+| [SEC-56](#sec-56) | Medium | Any USER can write unlimited permanent rows into the instance-wide catalogues, whose read endpoints are unpaginated and loaded by the document viewer |
+| [SEC-57](#sec-57) | Medium | Anyone who knows an address can burn its email-verification series, denying registration and the only password-recovery path |
+| [SEC-58](#sec-58) | Medium | Every download response writes its presigned S3 URL and the document's file name into the application log |
+| [SEC-59](#sec-59) | Medium | One job's failure fails every other job in the same pg-boss batch, so a neighbour's outage costs a healthy document a full re-run of the pipeline |
+| [SEC-60](#sec-60) | Medium | Replacing the only library file of a library document makes it permanently invisible to every non-ADMIN, and the route answers 404 after it has already committed |
+| [SEC-61](#sec-61) | Medium | Request-path routes buffer whole files in memory with no concurrency bound, so one USER can OOM the single process |
+| [SEC-62](#sec-62) | Medium | SMTP does not require TLS, so a stripped STARTTLS hands over the relay password and every verification code |
+| [SEC-63](#sec-63) | Medium | The document journal publishes the title and id of a linked document the reader may not read, defeating the link-visibility rule |
+| [SEC-64](#sec-64) | Low | `processingError` returns absolute volume paths to every reader, defeating the deliberate admin-only redaction of library paths in the journal |
+| [SEC-65](#sec-65) | Low | An admin-issued password reset revokes sessions but not API tokens, so a credential minted during a compromise survives the only remediation the product offers |
+| [SEC-66](#sec-66) | Low | Document Markdown renders attacker-chosen remote images and links, and the page CSP sets no img-src, so every reader silently beacons to a host the uploader controls |
+| [SEC-67](#sec-67) | Low | Documents absorbed by combine are unreachable by every API including the admin's hard delete, yet keep their S3 artifacts for ever, giving a USER unbounded attacker-driven storage growth |
+| [SEC-68](#sec-68) | Low | Ending your own session from /settings leaves the whole TanStack Query cache in the browser, unlike Sign out which clears it |
+| [SEC-69](#sec-69) | Low | Every catalogue read is a full unpaginated table read done in the process that serves HTTP, and the pipeline repeats all three of them per document before throwing the result away |
+| [SEC-70](#sec-70) | Low | InMemoryLoginAttempts.streaks grows forever, keyed by attacker-chosen 254-character addresses, with no sweep and no cap |
+| [SEC-71](#sec-71) | Low | Library browse lists documents the access rule refuses: `listInFolder` omits the `origin = 'LIBRARY'` predicate that both dialects of the access rule require |
+| [SEC-72](#sec-72) | Low | MCP hands attacker-authored document text to a calling agent with no untrusted-data marking, while the same repository fences that identical text for its own model |
+| [SEC-73](#sec-73) | Low | One throttled IP cancels every other client's decay timers, so the documented 20-per-60s sliding window stops sliding for everybody |
+| [SEC-74](#sec-74) | Low | Semantic search and the MCP search_documents tool spend one outbound embeddings call per request with no rate limit, and share the pipeline's embeddings gate |
+| [SEC-75](#sec-75) | Low | The `excludeGlobs` wildcard cap does not bound picomatch backtracking: an 8-wildcard glob inside the allowance stalls the whole process |
+| [SEC-76](#sec-76) | Low | The catalogue uniqueness checks compile to an unescaped `ILIKE`, so `%`, `_` and `\` in a submitted name are wildcards and an escape character, not letters |
+| [SEC-77](#sec-77) | Low | The Turnstile CAPTCHA on login and registration is an empty div: the client never mints a token, so the control is either absent or, once enabled, locks every account out |
+| [SEC-78](#sec-78) | Low | The two containers that parse attacker-supplied documents get none of the hardening the app container got |
+| [SEC-79](#sec-79) | Low | Two of the four images the shipped stack runs are built by no pipeline, scanned by nothing, and pinned to nothing |
+| [SEC-80](#sec-80) | Info | `DELETE /api/admin/document-types/:id` resets every document that carried the type inside one 5-second transaction over rows whose `search_vector` is recomputed on rewrite |
+| [SEC-81](#sec-81) | Info | `docs/04 §4.1`, the schema the repository treats as the source of truth, is missing six models and one enum and contains three lines that are not valid Prisma |
+| [SEC-82](#sec-82) | Info | `prisma migrate diff` against the migrated database is not empty: a foreign key still carries its pre-rename name and six columns have defaults `schema.prisma` does not declare |
+| [SEC-83](#sec-83) | Info | A hard-deleted user silently widens every share they held to the whole instance, because `collection_shares.grantee_user_id` is `ON DELETE SET NULL` and NULL means everyone |
+| [SEC-84](#sec-84) | Info | A shared collection reports its unfiltered item count, disclosing the size of a set the grantee is not allowed to list |
+| [SEC-85](#sec-85) | Info | A stored queue concurrency is read back without an upper bound, unlike the service gates beside it |
+| [SEC-86](#sec-86) | Info | An opaque cursor's id is never checked as a UUID and reaches a `@db.Uuid` filter, so a forged cursor answers 500 instead of starting over |
+| [SEC-87](#sec-87) | Info | POST /api/MCP serves the whole MCP tool set to a session cookie: the "this route accepts no cookie" invariant is exact-string matching in front of a case-insensitive router |
+| [SEC-88](#sec-88) | Info | The MCP exemption removes the CSRF origin check from POST /mcp, a path that belongs to Next, not to the API |
+| [SEC-89](#sec-89) | Info | The page CSP is one directive, and the follow-up task docs/12 §12.8a says is tracked in the backlog does not exist there |
+| [SEC-90](#sec-90) | Info | The pipeline outruns the object write of the request that enqueued it, contrary to the comment saying it cannot, and the resulting canonical failure is permanent |
 
 ---
 
@@ -191,6 +204,24 @@ The same predicate makes three further things reachable from the same position: 
 
 
 ### SEC-51
+**`POST /api/subject-kinds` grows the analysis system message without bound: `subjectKindList` prints every active kind with no cap and no throttle**
+
+`src/server/infrastructure/ai/openai-compat-analyst.ts:420`, `src/server/infrastructure/ai/openai-compat-analyst.ts:429`, `src/server/presentation/subject-kinds/subject-kinds.controller.ts:40`, `src/server/app.module.ts:43`, `src/server/application/jobs/handle-document-process.ts:655`, `src/server/infrastructure/ai/openai-compat-analyst.ts:409`, `src/shared/contracts/subject-kinds.ts:23` — reachable by **USER**.
+
+`function subjectKindList(subjectKinds) { … return subjectKinds.map((kind) => `- ${kind}`).join('\n'); }` (:420-423) — every element, joined. Seven lines below, the sibling list is capped, and the file names the danger itself: `.slice(0, MAX_KNOWN_SUBJECTS)` (:429-430) under the comment “How much of the catalogue the model is shown. Past this the prompt starts crowding out the document itself, which is the one thing it cannot do without” (:157-158). `documentTypeList` (:409-418) likewise prints every type's slug, name and **untruncated** description. The source is unfiltered: `const kinds = await this.subjectKinds.listActive();` … `kinds.map((kind) => kind.name)` (handle-document-process.ts:655, :662). Creation is open — `@Post()` on the non-admin `SubjectKindsController` (subject-kinds.controller.ts:40-45), `name: z.string().trim().min(1).max(40)` (subject-kinds.ts:23) — and unthrottled: `ThrottlerModule.forRoot([{ name: 'auth', ttl: 60_000, limit: 20 }])` (app.module.ts:43) with `ThrottlerGuard` mounted on exactly three controllers (`auth.controller.ts:48`, `invites.controller.ts:11`, `password-resets.controller.ts:10`), none of them the catalogue.
+
+**Attack.** As any invited USER, loop `POST /api/subject-kinds {"name":"<40 random chars>"}`. Each 201 adds one permanent `- <40 chars>\n` to the system message of every future `analyze()`. Nothing counts the rows: no per-user cap, no instance ceiling, no rate limit, and `DELETE` is admin-only. At 100 req/s that is ~360 000 rows an hour; 100 000 rows is ~4.2 MB of system message, over a million tokens, sent on every document.
+
+**Impact.** Three costs, all instance-wide and all borne by other users. Money: at a modest 5 000 kinds the system message is ~210 KB (~60k tokens) added to every document's analysis — a 10–100× multiplier on input tokens per document, recorded in `metrics.promptTokens` but budgeted nowhere. Latency: prompt processing of that size on the local runtime the product is built around blows the step's own `TIMEOUT_MS = 5 * 60_000` (:171), so the step fails, retries, and pays the full prompt again while holding one of the two `document-process` workers. Denial: past the provider's context window every analysis fails permanently, and recovery is one `DELETE /api/admin/subject-kinds/:id` per row (no bulk endpoint), each refusing with `SUBJECT_KIND_IN_USE` while a living subject files under it (manage-subject-kinds.ts:94-100).
+
+**Fix.** Cap `subjectKindList` the way `knownSubjectList` is already capped, and truncate the descriptions in `documentTypeList`; better, bound the whole catalogue block by characters rather than by rows, since that is the quantity the context window actually charges for. Independently, give the three open catalogue POSTs a throttle and an instance ceiling — the analyst is not the only thing that reads these tables.
+
+**On review.** Citation fixes for the register: `kinds.map((kind) => kind.name)` is handle-document-process.ts:664, not :662; `TIMEOUT_MS = 5 * 60_000` is openai-compat-analyst.ts:170, not :171; the MAX_KNOWN_SUBJECTS comment is :156-158; `@Post()` is subject-kinds.controller.ts:40 with the SessionGuard-only class decorators at :27-28; `SUBJECT_KIND_IN_USE` is manage-subject-kinds.ts:94-98.
+
+Mechanism corrections. (1) Drop `documentTypeList` (:409-418) from the attack surface: its untruncated descriptions are real, but `POST/PATCH /api/document-types` live on `AdminDocumentTypesController` (`@Roles('ADMIN')`, document-types.controller.ts:37-47), so that list is admin-authored — a hygiene item, not a USER-reachable channel. […]
+
+
+### SEC-52
 **`tidyMarkdown` runs a polynomially backtracking regex over unbounded parser output, so one uploaded document stops the process**
 
 `src/server/domain/entities/document-text.ts:44`, `src/server/application/jobs/handle-document-process.ts:523`, `src/server/application/jobs/handle-document-process.ts:530`, `src/server/infrastructure/pdf/stirling-pdf-toolbox.ts:319`, `src/server/infrastructure/pdf/stirling-pdf-toolbox.ts:122` — reachable by **USER**. Regresses or extends [SEC-33](./security-audit-2026-08.md#sec-33).
@@ -229,7 +260,7 @@ The same file carries a second instance on the Stirling path — `stripImagePlac
 3. […]
 
 
-### SEC-52
+### SEC-53
 **A pipeline run longer than the job's 60-minute expiry is re-delivered while it is still running, producing up to six concurrent full runs of the same document**
 
 `src/server/infrastructure/queue/pg-boss.provider.ts:25`, `src/server/infrastructure/pdf/docling-parser.ts:43`, `src/server/infrastructure/pdf/stirling-pdf-toolbox.ts:57`, `src/server/application/jobs/handle-document-process.ts:139`, `docs/05-library-and-processing.md:184` — reachable by **USER**.
@@ -251,7 +282,7 @@ The same file carries a second instance on the Stirling path — `stripImagePlac
 3. The claim understates step 3. […]
 
 
-### SEC-53
+### SEC-54
 **An authenticated user can wedge every login on the instance by queueing Argon2 work through the unthrottled password-change route**
 
 `src/server/presentation/users/me.controller.ts:54`, `src/server/application/auth/change-password.ts:45`, `src/server/infrastructure/auth/argon2-password-hasher.ts:20`, `src/server/infrastructure/auth/concurrency-gate.ts:19`, `src/server/app.module.ts:43`, `docs/08-auth-and-authorization.md:264` — reachable by **USER**.
@@ -273,7 +304,7 @@ The same file carries a second instance on the Stirling path — `stripImagePlac
 3. An aggravator the reporter missed, which makes the attack cheaper than described: a client disconnect does not cancel the queued work — Node runs the handler to completion regardless — so the attacker does not need thousands of held sockets. […]
 
 
-### SEC-54
+### SEC-55
 **Any signed-in user can write into the analyst's system message through the subject catalogue, defeating the two-channel design the prompt-injection fix rests on**
 
 `src/server/infrastructure/ai/openai-compat-analyst.ts:427`, `src/server/infrastructure/ai/openai-compat-analyst.ts:385`, `src/server/infrastructure/ai/openai-compat-analyst.ts:601`, `src/server/application/jobs/handle-document-process.ts:667`, `src/server/presentation/subjects/subjects.controller.ts:42`, `src/shared/contracts/subjects.ts:19`, `src/server/infrastructure/ai/openai-compat-analyst.ts:397`, `src/server/presentation/subjects/subjects.controller.ts:43`, `src/server/application/subjects/manage-subjects.ts:57`, `src/shared/contracts/subjects.ts:27`, `src/server/infrastructure/persistence/prisma-subject.repository.ts:44` — reachable by **USER**. Regresses or extends [SEC-11](./security-audit-2026-08.md#sec-11).
@@ -291,7 +322,29 @@ The same file carries a second instance on the Stirling path — `stripImagePlac
 **On review.** Severity: downgrade High → Medium. What is deterministic is the write primitive (unescaped user text in the `system` role); everything past it depends on an LLM choosing to obey, which the register already treats as best-effort (SEC-11's poisoning half is accepted as open). Mitigating facts the report must carry: registration is closed (`docs/08`), so the attacker is an invited insider, not an anonymous one; the step only runs when `CLASSIFIER_API_BASE_URL` + `CLASSIFIER_MODEL` are set; the payload is loud — the row shows in every user's catalogue screen and at `/admin/subjects`, and an admin can delete or merge it; and `dataChannelNotice` (`:525-538`) already tells the model "never copy them, or any part of them, into the title, the description, the people, or anywhere else in your answer" and "Answer with the JSON described above and nothing else", which is a partial counter to the exf […]
 
 
-### SEC-55
+### SEC-56
+**Any USER can write unlimited permanent rows into the instance-wide catalogues, whose read endpoints are unpaginated and loaded by the document viewer**
+
+`src/server/presentation/people/people.controller.ts:43`, `src/server/presentation/subjects/subjects.controller.ts:43`, `src/server/presentation/subject-kinds/subject-kinds.controller.ts:40`, `src/server/application/people/manage-people.ts:20`, `src/server/infrastructure/persistence/prisma-person.repository.ts:36`, `src/web/screens/document-viewer/document-viewer-screen.tsx:167` — reachable by **USER**.
+
+All three write routes are `@UseGuards(SessionGuard)` with no throttler and no `@Roles`: people.controller.ts:30-31 with `@Post()` at :43, subjects.controller.ts:30-31 with `@Post()` at :43, subject-kinds.controller.ts:27-28 with `@Post()` at :40. The contracts cap only a single row's size — `name: z.string().trim().min(1).max(200)`, `note: …max(500)` for people (contracts/people.ts:18-19) and `note: …max(2000)` for subjects (contracts/subjects.ts:27) — never the number of rows, and `CreatePerson` refuses only an exact name clash (manage-people.ts:38-42). The read side has no pagination at all: `ListPeople.execute` is `const rows = await this.people.listActive()` and maps every one (manage-people.ts:20-30), and the repository is `findMany({ where: { deletedAt: null }, orderBy: { name: 'asc' }, include: { _count: { select: { documents: true } } } })` with no `take` (prisma-person.repository.ts:36-41); `ListSubjects` is identical (manage-subjects.ts:20-32). The document viewer loads both catalogues in full every time a document is opened: `const people = useQuery({ queryKey: personKeys.all, queryFn: personApi.list }); const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });` (document-viewer-screen.tsx:167-168). And docs/12 §12.8 records that no `statement_timeout` is set anywhere, so nothing cuts the resulting query short.
+
+**Attack.** 1. Sign in as an ordinary USER. 2. `POST /api/subject-kinds` once to create a kind. 3. Loop `POST /api/subjects` with that `kindId`, a distinct 200-character `name` and a 2000-character `note` — roughly 2.2 KB per row, unthrottled, limited only by how fast the process answers. A few hours of a single connection is millions of rows and gigabytes in `subjects`. 4. Every subsequent `GET /api/subjects` — issued by every user who opens any document — now runs an unbounded `findMany` with a correlated count per row, materializes all of it in Prisma, maps it in JS and serializes it to JSON in the same 2 GB process. The response never completes; the heap does not survive it. 5. The rows are soft-deleted at best (`DeletePerson` sets `deletedAt`, manage-people.ts:85), and only an ADMIN can remove them, one id at a time.
+
+**Impact.** Permanent, restart-surviving denial of the document viewer and the catalogue screens for every user of the instance, plus unbounded database growth, from an ordinary invited account. This is a different axis from SEC-40, which accepted that catalogue *names* are visible instance-wide: what is unaccepted here is that any USER may write unlimited rows into a shared table whose read side has no limit clause. The same shape reaches `POST /api/people`.
+
+**Fix.** Paginate `GET /api/people` and `GET /api/subjects` the way every other list is paginated (docs/07 §7.1 already specifies cursor pagination with a max limit of 100) and have the viewer look up only the rows it needs; independently, throttle the three catalogue `POST`s per session and add a per-instance row ceiling — a family archive has hundreds of people, not millions, so a cap costs nothing legitimate.
+
+**On review.** Corrections for the register:
+
+1. WRONG LINE. `manage-people.ts:85` is the `NotFoundError` throw; the soft delete is `manage-people.ts:88` (`await this.people.softDelete(id, this.clock.now())`). Every other cited line is exact.
+
+2. ADD THE THIRD CATALOGUE TO THE VIEWER CITE. It is `document-viewer-screen.tsx:167-169` — `subjectKinds` is loaded too, so opening one document is three unpaginated table reads, not two. Add `document-viewer-screen.tsx:158-162`: the screen invalidates `personKeys.all` and `subjectKeys.all` on every pipeline step change, so the refetch repeats while a document processes (`staleTime` is only 30 s, `query-provider.tsx:13`).
+
+3. THROUGHPUT: SPLIT PEOPLE FROM SUBJECTS. "Millions of rows from a single connection" is optimistic for `people` and about right for `subjects`. […]
+
+
+### SEC-57
 **Anyone who knows an address can burn its email-verification series, denying registration and the only password-recovery path**
 
 `src/server/application/auth/verify-email-code.ts:40`, `src/server/application/auth/verify-email-code.ts:85`, `src/server/presentation/auth/auth.controller.ts:74`, `src/server/infrastructure/auth/in-memory-email-send-throttle.ts:7`, `src/server/presentation/auth/route-guards.test.ts:44` — reachable by **Anonymous**. Regresses or extends [SEC-19](./security-audit-2026-08.md#sec-19).
@@ -311,7 +364,7 @@ The same file carries a second instance on the Stirling path — `stripImagePlac
 2. AGGRAVATOR THE REPORTER MISSED (strengthens the finding). `isCodeUsable` (`src/server/domain/entities/email-verification.ts:25-27`) checks only `consumedAt` and expiry — despite its comment saying "has not been verified or consumed" — so `findUsableSeries` still returns a series that has already been verified. […]
 
 
-### SEC-56
+### SEC-58
 **Every download response writes its presigned S3 URL and the document's file name into the application log**
 
 `src/server/infrastructure/logging/logger.options.ts:74`, `server/main.ts:73`, `src/server/presentation/http/send-download.ts:13`, `src/server/infrastructure/storage/s3-file-storage.ts:76`, `test/e2e/request-logging.e2e.test.ts:120`, `src/server/infrastructure/logging/logger.options.ts:73`, `src/server/presentation/http/send-download.ts:17`, `src/server/application/documents/download-document.ts:70`, `src/server/application/ports/file-storage.ts:52`, `docs/08-auth-and-authorization.md:373`, `test/e2e/request-logging.e2e.test.ts:122` — reachable by **Log reader**. Regresses or extends [SEC-10](./security-audit-2026-08.md#sec-10).
@@ -335,7 +388,7 @@ The same file carries a second instance on the Stirling path — `stripImagePlac
 - *File name in `content-disposition`*: only where `delivery.disposition === 'attachment'`. […]
 
 
-### SEC-57
+### SEC-59
 **One job's failure fails every other job in the same pg-boss batch, so a neighbour's outage costs a healthy document a full re-run of the pipeline**
 
 `src/server/infrastructure/queue/worker-registry.ts:71`, `src/server/application/jobs/handle-document-process.ts:989`, `docs/05-library-and-processing.md:453`, `src/server/infrastructure/queue/pg-boss.provider.ts:7` — reachable by **USER**.
@@ -355,7 +408,29 @@ The worker callback is `async (jobs) => { await Promise.all(jobs.map((job) => th
 (b) The mechanism is worse than reported, and the report should say so instead of the "five paid re-runs" framing. […]
 
 
-### SEC-58
+### SEC-60
+**Replacing the only library file of a library document makes it permanently invisible to every non-ADMIN, and the route answers 404 after it has already committed**
+
+`src/server/application/documents/compose-document.ts:397`, `src/server/application/documents/compose-document.ts:422`, `src/server/infrastructure/persistence/prisma-document.repository.ts:223`, `src/server/application/documents/compose-document.ts:660`, `src/server/infrastructure/persistence/prisma-file.repository.ts:443`, `docs/08-auth-and-authorization.md:304` — reachable by **USER**.
+
+`ReplaceDocumentFile` stores the uploaded bytes as `origin: 'MANAGED'` (compose-document.ts:397), then `await this.files.detach(documentId, fileId, tx);` (compose-document.ts:422) — and `detach` is a hard delete of the `document_files` row (`documentFile.deleteMany({ where: { documentId, fileId } })`, prisma-file.repository.ts:443). A document whose only library file has been detached therefore satisfies neither branch of `readableBy` for a non-admin: branch one demands `files: { some: { file: { origin: 'LIBRARY', refs: … } } }` (prisma-document.repository.ts:212-221), branch two demands `{ createdById: viewer.id }` (prisma-document.repository.ts:223) and a library-ingested document has `createdById = null`, and the collection-share branch is explicitly restricted to documents with no library file *and* `createdById: ownerId` (prisma-document.repository.ts:236-242). The code proves this itself: the very last thing the use case does is `reload`, which is `findReadableById(documentId, viewer)` followed by `if (detail === null) throw new NotFoundError('DOCUMENT_NOT_FOUND', …)` (compose-document.ts:660-661) — so the caller receives a 404 for a mutation that has already been committed and whose S3 object has already been written. This contradicts docs/08 §8.5:304 ("A document from a library is visible to whoever the library is visible to") and the note at docs/03 §3.4:975 that a document mixing an upload with a library file "stays readable to whoever the library is readable to".
+
+**Attack.** 1. As any USER with read access to a library, pick a single-file library document D (the normal shape of a scanned archive — one PDF or JPG per document). 2. `POST /api/documents/D/files/<fileId>/replacement` with any accepted body (one small JPEG suffices) and `X-File-Name: x.jpg`. 3. The guard admits you (you can read D), `assertMayCompose` admits you (origin is LIBRARY), the transaction commits, the library file goes to the trash with reason REPLACED, and the response is `404 DOCUMENT_NOT_FOUND`. 4. D now holds one MANAGED file and `createdById = null`: it is absent from `GET /api/documents`, from search, from the MCP endpoint, from the folder browse and from every other user's viewer, for ever. Repeat per document. The same flip is reachable via `DELETE /api/documents/:id/files/:fileId` on a two-file document whose other file is MANAGED.
+
+**Impact.** One request per document permanently removes any single-file library document from every non-ADMIN's archive — the whole user population loses it at once, including its owner-less metadata, and nobody but an ADMIN can even see that it still exists. Recovery is manual admin surgery: restore the file from /admin/trash, which by design creates a *new* document (docs/05 §5.7a) with none of the original's title, type, people, fields or collections. It also fires on legitimate use — a user re-photographing the one page of a library document gets "Document not found" and loses the document.
+
+**Fix.** Make the origin flip impossible rather than merely surprising: refuse a replacement (and a split) that would leave a document holding no LIBRARY file when the document is not the caller's own, the same way `SplitDocumentFile` already refuses to empty a document (compose-document.ts:291-298). Alternatively give the replacement's new file the origin of the file it replaces, or extend `readableBy` with a branch that keeps a document readable to the libraries its *trashed* refs still name. Whichever is chosen, `reload` throwing 404 on a committed write should be treated as the assertion it accidentally is.
+
+**Severity.** Reported as High; corrected to Medium by the reviewer who checked it.
+
+**On review.** Citations: all exact (compose-document.ts:397/:422/:660-661; prisma-document.repository.ts:212-221/:223/:236-243; prisma-file.repository.ts:443; docs/08:304-306). Nothing needs relocating.
+
+CORRECT THE DOC CONTRADICTION. docs/08 §8.5:304 and docs/03 §3.4:975-976 are quoted accurately but neither is really contradicted: both speak of a document that still *holds* a library file, and origin is derived from the files it holds (`originOfDetail`, manage-documents.ts:604), so after the swap the document is no longer "from a library" under the model's own definition. The line the code does contradict is docs/05 §5.6:864-866: Replace means the new bytes "take **the old file's position**, so the page order does not move and **nothing else about the document changes**" — the derived origin changes, and with it who may read the document. Cite that instead.
+
+ […]
+
+
+### SEC-61
 **Request-path routes buffer whole files in memory with no concurrency bound, so one USER can OOM the single process**
 
 `src/server/application/documents/download-document.ts:196`, `src/server/application/documents/compose-document.ts:570`, `src/server/presentation/documents/read-upload-body.ts:37`, `src/server/application/ports/binary-source.ts:19`, `deploy/docker-compose.yaml:47` — reachable by **USER**. Regresses or extends [SEC-20](./security-audit-2026-08.md#sec-20).
@@ -375,7 +450,7 @@ The worker callback is `async (jobs) => { await Promise.all(jobs.map((job) => th
 2. Only ONE of the two "new" routes is new. `SuggestDocumentFileCrop` with the identical `toBuffer(await this.bytes.open(file))` shipped in `7300c97` (2026-08-05) and IS an ancestor of the audited snapshot `a56af49` (v0.6.0) — it was in the tree the audit read. The page-thumb route (`8272d80`, 2026-08-16) is the only post-audit addition. Likewise, the "25 concurrent `POST /api/documents`" variant is verbatim the half of SEC-20 the register named ("no per-user or global concurrent-upload cap") and then marked closed under M15.9 — it should be reported as the unfixed remainder of SEC-20, not as a new discovery. […]
 
 
-### SEC-59
+### SEC-62
 **SMTP does not require TLS, so a stripped STARTTLS hands over the relay password and every verification code**
 
 `src/server/infrastructure/email/smtp-email-sender.ts:18`, `deploy/.env.example:64`, `deploy/init.sh:143`, `docs/12-build-config-run.md:515` — reachable by **Network**.
@@ -395,7 +470,7 @@ LOCATIONS: `deploy/.env.example:64` is the explanatory comment; the defaults tha
 ATTACK — step 5 as written is impossible. Legere has no self-service password reset: `src/server/application/users/manage-password-resets.ts:17` and `docs/08 §8.1.7` say recovery is admin-issued only, and `start-registration.ts:109-123` opens a `PASSWORD_RESET` series only against a valid admin-generated `resetToken`. […]
 
 
-### SEC-60
+### SEC-63
 **The document journal publishes the title and id of a linked document the reader may not read, defeating the link-visibility rule**
 
 `src/server/application/documents/document-links.ts:107`, `src/server/application/documents/document-links.ts:113`, `src/server/application/documents/manage-documents.ts:111`, `src/server/presentation/documents/documents.controller.ts:279`, `docs/03-domain-model.md:937` — reachable by **USER**.
@@ -432,7 +507,7 @@ This contradicts docs/03 §3.3.23 line 937 verbatim: "🔒 **A link is visible o
 
 ## Low
 
-### SEC-61
+### SEC-64
 **`processingError` returns absolute volume paths to every reader, defeating the deliberate admin-only redaction of library paths in the journal**
 
 `src/server/application/documents/manage-documents.ts:624`, `src/server/application/jobs/handle-document-process.ts:972`, `src/server/application/jobs/handle-document-process.ts:256`, `src/server/infrastructure/library/fs-library-reader.ts:57`, `docs/03-domain-model.md:751` — reachable by **USER**. Regresses or extends [SEC-13](./security-audit-2026-08.md#sec-13).
@@ -456,7 +531,7 @@ The canonical build reads library originals without a viewer — `return this.re
 1) The named trigger is wrong. The "ordinary FILE_MISSING case" does NOT leak: when no live ref remains, build-canonical.ts:255-256 throws a curated message — `The file "X" is not on any volume we can read` — and a test pins it (src/server/application/jobs/handle-document-process.test.ts:652-664, "fails the step when a file it needs is no longer on any volume", expecting `processingError` to contain 'not on any volume'). The ENOENT leak needs a STALE live ref: the file gone from disk while its ref is still `HASHED`, i.e. the window between the deletion/rename on the volume and the next scan, which is the only thing that flips a ref to `MISSING` (src/server/application/jobs/handle-library-scan.ts:154-166). […]
 
 
-### SEC-62
+### SEC-65
 **An admin-issued password reset revokes sessions but not API tokens, so a credential minted during a compromise survives the only remediation the product offers**
 
 `src/server/application/auth/complete-registration.ts:199`, `src/server/application/users/manage-users.ts:131`, `src/server/application/users/manage-users.ts:80`, `src/server/presentation/users/me-api-tokens.controller.ts:24`, `docs/08-auth-and-authorization.md:67` — reachable by **USER**.
@@ -476,7 +551,7 @@ The canonical build reads library originals without a viewer — `return this.re
 1. "the only remediation the product offers" is false. Two working remediations exist at HEAD. (a) The owner can see and kill the token themselves: `GET /api/me/api-tokens` returns every token ever issued with name, `createdAt`, `lastUsedAt` and status, and `docs/11 §11.9` specifies an API-tokens card on `/settings` with a Revoke button per living row, sitting deliberately next to the sessions card because "both answer one question — what is currently able to act as me — and both are the user's own to revoke without an admin". A rogue token named 'sync' with a `lastUsedAt` the victim does not recognise is visible to them the moment they sign in with the new password. […]
 
 
-### SEC-63
+### SEC-66
 **Document Markdown renders attacker-chosen remote images and links, and the page CSP sets no img-src, so every reader silently beacons to a host the uploader controls**
 
 `src/web/screens/document-viewer/document-viewer-screen.tsx:1470`, `src/server/presentation/http/security-headers.middleware.ts:22`, `src/server/infrastructure/pdf/docling-parser.ts:319`, `src/server/presentation/documents/documents.controller.ts:229` — reachable by **USER**.
@@ -496,7 +571,27 @@ The canonical build reads library originals without a viewer — `return this.re
 2. "Nothing strips markup server-side" is too absolute. `src/server/infrastructure/ai/openai-compat-transcriber.ts:215-220` (`sanitise`) drops every line containing markdown image syntax, with a comment recording that the model emitted `![ЛОТОС](file:///var/folders/…)` in four runs of seven. It applies only where the AI transcriber ran and won (`handle-document-process.ts:424-426`, i.e. […]
 
 
-### SEC-64
+### SEC-67
+**Documents absorbed by combine are unreachable by every API including the admin's hard delete, yet keep their S3 artifacts for ever, giving a USER unbounded attacker-driven storage growth**
+
+`src/server/application/jobs/handle-maintenance.ts:126`, `src/server/application/documents/manage-documents.ts:442`, `src/server/infrastructure/persistence/prisma-document.repository.ts:1477`, `docs/09-file-storage.md:118` — reachable by **USER**.
+
+The orphan sweep deliberately keeps a soft-deleted document's objects: "A soft-deleted document keeps its artifacts, so it counts as existing" (handle-maintenance.ts:126-127), and `findOrphans` only removes objects whose owner row does not exist at all (:141). `filterExistingIds` has "No `deletedAt` filter on purpose" (prisma-document.repository.ts:1632). But nothing can ever reach an absorbed document again: `findReadableById` ANDs `deletedAt: null` even for an ADMIN (prisma-document.repository.ts:1477), and `DeleteDocument` — the only code that removes artifacts — refuses it outright: `if (document === null || document.deletedAt !== null) throw new NotFoundError(…)` (manage-documents.ts:442). So `documents/{id}/canonical.pdf`, `preview.jpg` and `thumb.jpg` of every combined-away document are retained indefinitely with no route, job or sweep able to reap them. The retention is justified in docs/09-file-storage.md:118 by "that delete is reversible" — a reversal no code in the tree implements (no write of `deletedAt: null` exists anywhere under src/).
+
+**Attack.** 1. As any USER with library read access, loop `POST /api/documents/T/combine` over every readable document, 50 ids per call (no throttle covers document routes — src/server/app.module.ts:43 registers the throttler for the auth/invite routes only). 2. Every absorbed document leaves three objects behind in the private bucket. 3. Repeat with fresh uploads: upload a document, combine it away, upload again — each cycle adds a canonical PDF, a preview and a thumbnail that nothing will ever delete, and the storage-usage metric on the admin instance page counts them as live.
+
+**Impact.** Monotonic, unreclaimable growth of the S3 bucket driven by an ordinary user, with no admin control able to clear it short of hand-written SQL; and an admin panel whose storage figure attributes the growth to documents that no longer appear anywhere. Combined with finding 1, the destroyed documents' artifacts are the last surviving copy of their rendering and are simultaneously unreachable and undeletable.
+
+**Fix.** Pick one and make code and docs agree: either implement the reversal docs/09:118 assumes (an admin-visible list of absorbed documents and a restore that clears `deletedAt`), or stop retaining their artifacts — have `CombineDocuments` drop the source's `canonicalPdf`/`preview`/`thumbnail` keys after the transaction commits, exactly as `DeleteDocument` does at manage-documents.ts:476-489, and correct docs/09 §9.2 accordingly.
+
+**On review.** Keep Low (do not upgrade): the exploit is real and fully attacker-controlled, but each cycle strands only one canonical PDF plus two small JPEGs and costs a full pipeline run, so exhausting a disk is slower and louder than the resource findings already recorded.
+
+Corrections the register should carry:
+
+1. THE ATTACK AS WRITTEN IS THE WRONG ONE. "Loop combine over every readable document, 50 ids per call" is SEC-47's destructive attack; for storage it grows nothing — it only strands artifacts that already existed. The genuinely unbounded loop needs no re-upload: split mints a brand-new document from an existing file with no new bytes (DELETE /api/documents/:id/files/:fileId -> SplitDocumentFile, compose-document.ts:273-348: `this.documents.create(...)` at :305 then `attach` at :309), and combine absorbs it back. […]
+
+
+### SEC-68
 **Ending your own session from /settings leaves the whole TanStack Query cache in the browser, unlike Sign out which clears it**
 
 `src/web/screens/settings/sessions-card.tsx:28`, `src/web/widgets/app-shell/app-shell.tsx:66`, `src/web/shared/providers/query-provider.tsx:24`, `src/app/layout.tsx:39` — reachable by **USER**.
@@ -518,7 +613,53 @@ IMPACT OVERSTATED — three items to drop or soften:
 2. "Admin queue keys" effectively require B to be an admin as well. […]
 
 
-### SEC-65
+### SEC-69
+**Every catalogue read is a full unpaginated table read done in the process that serves HTTP, and the pipeline repeats all three of them per document before throwing the result away**
+
+`src/server/infrastructure/persistence/prisma-subject-kind.repository.ts:35`, `src/server/application/subject-kinds/manage-subject-kinds.ts:18`, `src/server/application/jobs/handle-document-process.ts:654`, `src/server/infrastructure/persistence/prisma-subject.repository.ts:39`, `src/server/application/people/manage-people.ts:63`, `src/server/application/subjects/manage-subjects.ts:98`, `docs/12-build-config-run.md:529` — reachable by **USER**.
+
+`SubjectKindRepository.listActive` pulls every living subject of every kind just to count them, then counts in JavaScript: `include: { subjects: { where: { deletedAt: null }, select: { _count: { select: { documents: true } } } } }` … `subjectCount: row.subjects.length, documentCount: row.subjects.reduce(...)` (prisma-subject-kind.repository.ts:39-52). That is what `GET /api/subject-kinds` serves (`ListSubjectKinds.execute` → `this.kinds.listActive()`, manage-subject-kinds.ts:18) — no `take`, no cursor, no throttle, `SessionGuard` only. `SubjectRepository.listActive` (prisma-subject.repository.ts:39-48) is the same shape with a `kind` join and a per-row document count. The pipeline runs all three per document — `documentTypes.listActive()`, `subjectKinds.listActive()`, `subjects.listActive()` (handle-document-process.ts:654-667) — and the only truncation happens afterwards, in the adapter's `.slice(0, MAX_KNOWN_SUBJECTS)`, so the whole table is read and mapped before 60 rows are kept. Admin edits pay it too: `UpdatePerson` re-reads the entire catalogue to recover one count (`(await this.people.listActive()).find((row) => row.id === id)`, manage-people.ts:63; same at manage-subjects.ts:98 and manage-subject-kinds.ts:71). There is still no `statement_timeout` on the application role (docs/12 §12.8, the remaining half of SEC-43), so none of these queries can be cut off.
+
+**Attack.** As any invited USER: seed the catalogue through the unthrottled `POST /api/subjects` (one row per request, `name` ≤ 200 + `note` ≤ 2000), then issue `GET /api/subject-kinds` and `GET /api/subjects` concurrently. Each free request forces the single Node process to materialise every living subject row with a correlated `document_subjects` count and to build one JS object per row — an amplification that grows linearly with what the attacker seeded, in the same process that serves Next SSR and runs the pg-boss workers (`02` ADR: one process, one port).
+
+**Impact.** Denial of the whole instance — API, pages and pipeline share the process and the connection pool — from an authenticated position with no rate limit anywhere in front of it. Even without an attacker, a legitimately large archive pays these three reads on every document processed and on every admin rename, which is a silent scaling cliff for the pipeline.
+
+**Fix.** Paginate `GET /api/people`, `/api/subjects`, `/api/subject-kinds` (or bound them the way `07 §7.3` bounds `GET /api/documents`), compute `subjectCount`/`documentCount` in SQL with `_count`/`groupBy` instead of loading child rows, bound what the analysis reads at the query (`take: MAX_KNOWN_SUBJECTS + 1`) rather than in the adapter, replace the `listActive().find(...)` count lookups with a single-row query, and set the `statement_timeout` on the application role that `12 §12.8` already specifies.
+
+**Severity.** Reported as Medium; corrected to Low by the reviewer who checked it.
+
+**On review.** Corrections the register should take:
+
+1. WRONG LINE. `src/server/application/people/manage-people.ts:63` is `const updated = await this.people.update(id, {`. The quoted `(await this.people.listActive()).find((row) => row.id === id)` is at **:67**. manage-subjects.ts:98 and manage-subject-kinds.ts:71 are exact. The reporter also missed two more of the same pattern: `MergePeople` (manage-people.ts:137) and `MergeSubjects` (manage-subjects.ts:175).
+
+2. "ALL THREE" IS ONLY TWO. Of the pipeline's three reads, `documentTypes.listActive()` (handle-document-process.ts:654) is a plain `findMany` with no counts and no children (prisma-document-type.repository.ts:29-35), and `POST /api/document-types` is ADMIN-only (document-types.controller.ts:37-47), so it is neither expensive nor attacker-growable. The attacker-controlled cost is `subjectKinds.listActive()` + `subjects.listActive()`.
+
+3. […]
+
+
+### SEC-70
+**InMemoryLoginAttempts.streaks grows forever, keyed by attacker-chosen 254-character addresses, with no sweep and no cap**
+
+`src/server/infrastructure/auth/in-memory-login-attempts.ts:19`, `src/server/infrastructure/auth/in-memory-login-attempts.ts:35`, `src/server/application/auth/login.ts:74`, `src/server/application/auth/login.ts:97`, `src/shared/contracts/auth.ts:8`, `src/server/app.module.ts:43` — reachable by **Anonymous**.
+
+`private readonly streaks = new Map<string, Streak>()` (in-memory-login-attempts.ts:19). The only insert is `recordFailure(email)`, which unconditionally does `this.streaks.set(email, {...})` (:35-41); the only delete is `clear(email)` (:43-45). There is no TTL sweep, no size cap and no eviction anywhere in the class or its module (auth-infrastructure.module.ts:33 binds it as the production `LoginAttempts`). `Login.execute` calls `this.attempts.recordFailure(input.email)` on the failure branch (login.ts:74), which docs/08 §8.4.1a deliberately includes unknown addresses in — "Failures are recorded for unknown addresses too" — and calls `this.attempts.clear(input.email)` only after a correct password (login.ts:97). So an entry created by a failed login against an address nobody owns can never be removed for the life of the process. The key is entirely attacker-chosen: `emailSchema = z.string().trim().toLowerCase().min(3).max(254).email()` (contracts/auth.ts:8); I verified against the repo's own zod that a 254-character address parses successfully. Measured cost per entry on Node with a 254-char key: 485 bytes (V8 heap delta over 100k inserts, --expose-gc, three GCs either side); 354 bytes at 64 chars. The only limit in front of the route is `ThrottlerModule.forRoot([{ name: 'auth', ttl: 60_000, limit: 20 }])` (app.module.ts:43). The sibling map behaves the same in practice: `InMemoryEmailSendThrottle.sends` (in-memory-email-send-throttle.ts:15) only deletes a key inside `recent()`, which runs only when that same key is touched again (:32-38), so a key written once and never revisited is retained for the life of the process — but reaching `record()` needs an unspent hint-less invite, which makes it much narrower.
+
+**Attack.** 1. Anonymously POST `/api/auth/login` with `Origin: <APP_BASE_URL>` (the CSRF check is the only other gate) and a fresh 254-character address each time — `aaa…001@e.com`, `aaa…002@e.com`. 2. Respect the documented budget exactly: 20 requests per 60 s per source IP is 28,800 attempts a day, each adding one permanent 485-byte entry — 14.0 MB/day from one IP, ~420 MB/month, and it is never reclaimed by anything short of a restart. (The throttler's own block window can halve the sustained rate to ~20 per 120 s, i.e. ~7 MB/day, which changes the timescale and not the shape.) 3. From a handful of source addresses the ceiling stops being the throttler and becomes the Argon2 gate of two: at ~30-40 ms per verify that is 50-65 attempts/s, ~4.3M/day, ~2 GB/day of permanently retained map — past the shipped `mem_limit: 2g` (deploy/docker-compose.yaml:47) inside a day. 4. Nothing in the product ever shrinks the map; even after the attacker stops, the memory stays gone until the operator restarts.
+
+**Impact.** A monotonically growing, attacker-keyed structure in the single process that is the whole product. One well-behaved source IP costs the operator ~400 MB a month of memory that is never returned; a small set of source IPs turns the shipped 2 GB container into a daily OOM-kill loop. docs/08 §8.4.1b documents that these maps are process-local and lost on restart, but says nothing about their being unbounded — it argues the restart is cheap, not that the growth is.
+
+**Fix.** Give the map an eviction rule that matches its own semantics: a streak is meaningless once `MAX_DELAY_MS` has elapsed since `lastFailureAt`, so sweep entries older than that (a periodic pass, or opportunistic eviction on insert), and cap the map size with LRU eviction as a backstop. Applying the same lazy prune to `InMemoryEmailSendThrottle.sends` on a timer rather than only on key touch closes the sibling.
+
+**Severity.** Reported as Medium; corrected to Low by the reviewer who checked it.
+
+**On review.** Citations: all accurate, including auth-infrastructure.module.ts:33, in-memory-email-send-throttle.ts:15 and deploy/docker-compose.yaml:47 (`mem_limit: ${APP_MEMORY_LIMIT:-2g}`). One wording fix: the gate in front of the route is `@UseGuards(ThrottlerGuard)` at auth.controller.ts:48; app.module.ts:43 is only its configuration. The CSRF origin check is a second gate, but trivially satisfied by a non-browser caller.
+
+Impact is overstated on three counts, which is why this is Low and not Medium.
+(1) Single-IP timescale. `blockDuration` defaults to `ttl` (throttler.guard.js:85), so a paced attacker gets 20/60 s = 28,800/day = ~13.5 MB/day at the measured 470 B. Reaching the shipped 2 GB needs ~4.3M entries — roughly 150 days of unbroken attack from one IP, not "~420 MB/month turning into a daily OOM loop".
+ […]
+
+
+### SEC-71
 **Library browse lists documents the access rule refuses: `listInFolder` omits the `origin = 'LIBRARY'` predicate that both dialects of the access rule require**
 
 `src/server/infrastructure/persistence/prisma-document.repository.ts:1244`, `src/server/application/libraries/browse-library.ts:40`, `src/server/infrastructure/persistence/prisma-file.repository.ts:118`, `src/server/application/jobs/handle-file-ingest.ts:129`, `src/server/infrastructure/persistence/prisma-document.repository.ts:212` — reachable by **USER**.
@@ -560,7 +701,7 @@ It does not, because dedup returns the existing row untouched: `findOrCreateByCo
 2) A second sink the reporter missed. […]
 
 
-### SEC-66
+### SEC-72
 **MCP hands attacker-authored document text to a calling agent with no untrusted-data marking, while the same repository fences that identical text for its own model**
 
 `src/server/application/mcp/archive-tools.ts:189`, `src/server/application/mcp/archive-tools.ts:130`, `src/server/presentation/mcp/mcp.controller.ts:79`, `src/server/infrastructure/ai/openai-compat-analyst.ts:601` — reachable by **USER**.
@@ -582,7 +723,50 @@ It does not, because dedup returns the existing row untouched: `findOrCreateByCo
 2. The "the same repository already solved this" contrast is a false equivalence as argued. […]
 
 
-### SEC-67
+### SEC-73
+**One throttled IP cancels every other client's decay timers, so the documented 20-per-60s sliding window stops sliding for everybody**
+
+`node_modules/@nestjs/throttler/dist/throttler.service.js:34`, `node_modules/@nestjs/throttler/dist/throttler.service.js:25`, `node_modules/@nestjs/throttler/dist/throttler.service.js:38`, `src/server/app.module.ts:43` — reachable by **Anonymous**.
+
+`ThrottlerStorageService.timeoutIds` is keyed by *throttler name*, not by storage key: `this.timeoutIds.get(throttlerName).push(timeoutId)` (throttler.service.js:32), and `clearExpirationTimes(throttlerName) { this.timeoutIds.get(throttlerName).forEach(clearTimeout); this.timeoutIds.set(throttlerName, []); }` (:34-37). That is called from `resetBlockdRequest` (:38-42), which `increment` invokes whenever a *blocked* key's block has expired and that key requests again (:76-79). This instance registers exactly one named throttler — `ThrottlerModule.forRoot([{ name: 'auth', ttl: 60_000, limit: 20 }])` (src/server/app.module.ts:43) — so every IP and every handler share the single `timeoutIds` bucket `'auth'`. Separately, `_storage` (:13) is never deleted from at all: entries accumulate one per `sha256(ClassName-handlerName-auth-<ip>)` forever (measured ~284 bytes plus an ~80-byte key string per entry), bounded only by the number of distinct source IPs that ever touch a throttled route.
+
+**Attack.** 1. Anonymously send 21 `POST /api/auth/login` requests in under 60 s to get the attacker's own key blocked. 2. Wait ~61 s and send one more. That request takes the `timeToBlockExpire <= 0 && isBlocked` branch and calls `resetBlockdRequest`, which cancels the pending `-1` decrement timers of *every other* client's auth counters as a side effect. 3. Repeat the 21-then-wait cycle indefinitely at ~21 requests per minute. With clears ~61 s apart and decrements scheduled 60 s after each hit, essentially every honest client's decrement is cancelled, so their `totalHits` ratchets upward and never decays. 4. A legitimate user therefore reaches 21 lifetime auth requests — not 21 within a minute — and is answered `429 RATE_LIMITED` on login; the block clears after 60 s and their counter resets, then the ratchet starts again.
+
+**Impact.** The per-IP budget docs/08 §8.4 specifies (20 per 60 s) silently degrades into "20 auth requests total, then a 60-second lockout" for every other client on the instance, triggered by one anonymous caller at a rate that looks entirely ordinary. Real, but narrow: a normal user meets it as a one-minute login hiccup every ~21 sign-ins rather than as a sustained outage.
+
+**Fix.** Key the timer bookkeeping by storage key, not by throttler name — either by supplying a small custom `ThrottlerStorage` implementation (the module accepts one) that tracks a hit list per key, or by pinning and patching upstream. The same implementation should evict `_storage` entries once their window and block have both elapsed, which also removes the per-source-IP growth.
+
+**On review.** Six corrections for the register.
+
+1. CHEAPER ATTACK PATH THAN THE ONE WRITTEN. Step 1 does not need `POST /api/auth/login`. `GET /api/auth/onboarding` is on the same throttled controller (auth.controller.ts:47-63) and is what the repo's own throttler e2e test uses. It is a read, so `csrfOriginCheck` (server/main.ts:61) does not apply and no `Origin` header is needed; it costs no Argon2 verification, no CAPTCHA, and never touches the per-address login backoff. 21 GETs to self-block, wait >60 s, one GET to fire `resetBlockdRequest`. The clear is global across the whole `'auth'` bucket, so blocking a cheap handler cancels the login handler's timers too.
+
+2. THE CYCLE MUST RE-BLOCK, AND THE CLAIM IS RIGHT ABOUT THAT. […]
+
+
+### SEC-74
+**Semantic search and the MCP search_documents tool spend one outbound embeddings call per request with no rate limit, and share the pipeline's embeddings gate**
+
+`src/server/presentation/search/search.controller.ts:17`, `src/server/application/search/search-documents.ts:66`, `src/server/infrastructure/ai/openai-compat-embeddings.ts:80`, `src/server/application/mcp/archive-tools.ts:113`, `src/server/application/queue/service-gate.ts:50`, `docs/12-build-config-run.md:142` — reachable by **USER**.
+
+`@Controller('search') @UseGuards(SessionGuard)` (search.controller.ts:17-18) — no throttler. `SearchDocuments.execute` runs the semantic half whenever `query.mode !== 'text'` and a provider is configured (search-documents.ts:40), and hybrid is the schema default (`mode: searchModeSchema.default('hybrid')`, contracts/search.ts:13), so an ordinary `GET /api/search?q=x` already fires `const [embedding] = await this.embeddings.embed([q])` (search-documents.ts:66). That reaches `OpenAiCompatEmbeddings.embed` → `this.gates.run('embeddings', () => reachService('embeddings', () => this.ask(texts)))` (openai-compat-embeddings.ts:80) → `fetch(`${this.baseUrl}/embeddings`, …)` (:84). `docs/12 §12.4` documents `EMBEDDINGS_API_BASE_URL=` as "OpenAI-compatible, e.g. https://api.openai.com/v1 or http://ollama:11434/v1" (docs/12-build-config-run.md:142), so a paid third-party provider is a first-class supported deployment. The same route is reachable with a read-only API token, because `GET` is in `SAFE_METHODS` (read-only-bearer.middleware.ts:7), and so is the MCP tool: `POST /api/mcp` is whitelisted for bearers (`READ_ONLY_POST_PATHS = new Set(['/mcp', '/api/mcp'])`, read-only-post-routes.ts:12), and `ArchiveTools.searchDocuments` defaults to `mode: input.data.mode ?? 'hybrid'` (archive-tools.ts:115). The gate that is supposed to meter external work is a concurrency semaphore with an unbounded FIFO (`private readonly waiting: Array<{ admit: () => void; since: number }> = []`, service-gate.ts:50) and defaults to `concurrency: 0`, which docs/05 §5.4b states is "no gate at all".
+
+**Attack.** Spend: 1. Sign in (or mint a read-only API token at `POST /api/me/api-tokens`, itself unthrottled). 2. Loop `GET /api/search?q=<500 chars>&mode=semantic` from N connections. Nothing throttles it, so the only ceiling is the provider's own quota — every request is one billable embeddings call against the operator's `EMBEDDINGS_API_KEY`, with no per-user or per-instance counter anywhere in the codebase to notice.
+Starvation: 3. On an instance whose operator followed docs/05 §5.4b and set `SERVICE_CONCURRENCY_EMBEDDINGS=1` with `SERVICE_COOLDOWN_EMBEDDINGS=5` to protect a small local Ollama, each search now occupies the gate for latency+5 s. 4. Issue searches faster than 1 per 5 s. `ServiceGate.acquire` pushes each into `waiting` in arrival order with no cap and no abort, so the array grows without bound and the pipeline's own vectorization batches — which call the identical `gates.run('embeddings', …)` — queue behind the attacker's searches forever. Documents stop being vectorized while the queue dashboard shows the steps as RUNNING (service-gate.ts:101-104 says a step waiting at a gate reads as RUNNING).
+
+**Impact.** Unmetered spend against the operator's AI provider from any signed-in account or read-only token, and — on any instance that actually configured the embeddings gate — indefinite starvation of the document pipeline's vectorization step by a single user issuing ordinary-looking searches. docs/12 §12.8 acknowledges "Search is the one a signed-in caller can repeat at will; it is bounded from the application side (05 §5.4a)", but §5.4a's bounds are a 2-minute per-batch timeout and SQL limits — neither is a bound on how often a caller may repeat the call or on what it costs off-instance.
+
+**Fix.** Throttle `GET /api/search` and `POST /api/mcp` per principal (session userId or API-token id, not IP — a token is used from servers), and give the semantic half its own budget separate from the text half. Independently, either give search its own embeddings gate or cap `ServiceGate.waiting` and refuse past it, so an interactive request can never be in front of the pipeline's queue indefinitely.
+
+**Severity.** Reported as Medium; corrected to Low by the reviewer who checked it.
+
+**On review.** Corrections the register must carry.
+
+1. "Queue behind the attacker's searches forever" is false. `acquire` is strict FIFO with an explicit no-overtaking rule — `if (this.waiting.length === 0 && this.inFlight < this.concurrency)` (service-gate.ts:118), commented "Nobody may overtake a queue that has already formed". A pipeline unit that has entered `waiting` is served after exactly the units ahead of it; its wait is (queue depth at arrival) x (latency + cooldown), which the attacker inflates by pre-filling, not unbounded starvation. The real failure mode is a vectorization step outliving its job's 60-minute pg-boss expiry (already recorded as SEC-52), not permanent starvation.
+
+2. "The pipeline's own vectorization batches" (plural) is wrong. […]
+
+
+### SEC-75
 **The `excludeGlobs` wildcard cap does not bound picomatch backtracking: an 8-wildcard glob inside the allowance stalls the whole process**
 
 `src/shared/contracts/libraries.ts:34`, `src/shared/contracts/libraries.ts:26`, `src/server/infrastructure/library/fs-library-reader.ts:127`, `src/server/infrastructure/library/fs-library-reader.ts:111`, `node_modules/picomatch/lib/picomatch.js:194`, `src/shared/contracts/libraries.test.ts:29`, `src/shared/contracts/libraries.ts:33`, `src/server/infrastructure/library/fs-library-reader.ts:124`, `src/shared/contracts/libraries.ts:20` — reachable by **ADMIN**. Regresses or extends [SEC-16](./security-audit-2026-08.md#sec-16).
@@ -622,7 +806,31 @@ Separately, `picomatch.isMatch = (str, patterns, options) => picomatch(patterns,
 2. Mechanism: the blowup is bounded by the length of the FIRST path segment, not the whole path. […]
 
 
-### SEC-68
+### SEC-76
+**The catalogue uniqueness checks compile to an unescaped `ILIKE`, so `%`, `_` and `\` in a submitted name are wildcards and an escape character, not letters**
+
+`src/server/infrastructure/persistence/prisma-person.repository.ts:62`, `src/server/infrastructure/persistence/prisma-subject.repository.ts:76`, `src/server/infrastructure/persistence/prisma-subject-kind.repository.ts:64`, `prisma/migrations/20260804100000_people/migration.sql:24`, `src/server/presentation/http/domain-exception.filter.ts:41`, `src/server/application/jobs/handle-document-process.ts:749`, `src/server/infrastructure/persistence/like.ts:19`, `docs/07-api-specification.md:275`, `src/server/application/people/manage-people.ts:37`, `src/server/presentation/people/people.controller.ts:30`, `src/server/application/jobs/handle-document-process.ts:748` — reachable by **USER**. Regresses or extends [SEC-29](./security-audit-2026-08.md#sec-29).
+
+`where: { name: { equals: name.trim(), mode: 'insensitive' }, deletedAt: null }` (prisma-person.repository.ts:62; identically at prisma-subject.repository.ts:74-77 and prisma-subject-kind.repository.ts:64). I captured what Prisma 6.19.3 emits for exactly that call: `… WHERE ("public"."people"."name" ILIKE $1 AND "public"."people"."deleted_at" IS NULL) LIMIT $2 OFFSET $3 | params: ["100%",1,0]` — `ILIKE`, the raw submitted string as the pattern, no `ESCAPE` clause. Against the dev PostgreSQL: `'Ivan Petrov' ILIKE '%'` → t, `'axb' ILIKE 'a_b'` → t, `'ab' ILIKE 'a\b'` → t, and `'a\b' ILIKE 'a\b'` → **f**; `SELECT 'x' ILIKE '\'` → `ERROR: LIKE pattern must not end with escape character`. The index the check is supposed to stand for is a plain fold: `CREATE UNIQUE INDEX "people_name_active_uq" ON "people" (lower("name")) WHERE "deleted_at" IS NULL` (migration.sql:24). A Prisma error is neither a `DomainError` nor an `HttpException`, so it lands in the filter's fallback: `this.logger.error({ err: exception }, 'Unhandled exception'); response.status(500).json(errorEnvelope('INTERNAL', …))` (domain-exception.filter.ts:41-44). The repository that needed LIKE escaping for SEC-29 already has the helper — `escapeLike` (like.ts:19) — and it is not used here.
+
+**Attack.** As any invited USER, against the catalogue that has at least one living row. (a) `POST /api/people {"name":"\\"}` — Zod trims to a single backslash, `findByName` runs `name ILIKE '\'`, PostgreSQL raises 22025 and the request answers `500 INTERNAL` with a Prisma stack in the log; repeat freely. (b) `POST /api/people {"name":"a\\b"}` twice — the pattern `a\b` means the literal string `ab`, so the second call does not see the row the first created, passes the `PERSON_EXISTS` check, and the INSERT hits `people_name_active_uq`; the raw `P2002` reaches the same fallback and answers `500` where `docs/07 §7.3:275` promises `409 PERSON_EXISTS`. (c) Through the pipeline: `linkPeople` calls the same `findByName` on the model's answer (handle-document-process.ts:749) and `pickPeople` only trims and length-caps, so an answered name of `%` matches the first living person in the instance and the uploaded document is linked to somebody nobody wrote on it, while a name ending in `\` throws and the analysis step is recorded FAILED. The same three characters break `findByKindAndName` for subjects and `findByName` for kinds.
+
+**Impact.** USER-triggerable unhandled 500s on demand, each writing a Prisma stack trace to the log a support bundle carries; the documented `409` conflict replaced by `INTERNAL` on a routine input; the “one row per living name” invariant of `04 §4.3` left to be enforced only by an index whose violation escapes as a crash; and silent mis-attribution of documents to catalogue rows an admin then has to unpick by hand through the merge screen.
+
+**Fix.** Compare on the value the index is built on rather than through a pattern operator: `$queryRaw` on `lower("name") = lower($1) AND deleted_at IS NULL`, or store and match a normalised lowercase column. If `mode: 'insensitive'` stays, run the argument through the existing `escapeLike` (like.ts:19) and add `ESCAPE '\'`. Either way, catch `P2002` on `people_name_active_uq`, `subjects_kind_name_active_uq` and `subject_kinds_name_active_uq` in the repositories — as `prisma-user.repository.ts:69-71` and `prisma-file.repository.ts:77-81` already do — and re-throw the documented `ConflictError`.
+
+**Severity.** Reported as Medium; corrected to Low by the reviewer who checked it.
+
+**On review.** Mechanism and all file:line citations are correct; the impact and severity are inflated. Corrections for the register:
+
+1) Severity Medium → Low, on the register's own calibration. SEC-29 is the same class (unescaped LIKE metacharacters from user input, explicitly "not an access-control bypass ... a correctness bug") and was graded Low; SEC-73 (user input reaching a DB type error → 500 instead of a clean answer) is graded Info. This sits between them: "yields only correctness/fingerprinting".
+
+2) No confidentiality gain, and it is not an oracle. The conflict path returns a fixed message and never echoes the matched row, and GET /api/people, /api/subjects, /api/subject-kinds are already open to every USER — so a `%` probe reveals nothing a plain list does not.
+
+3) No integrity loss. […]
+
+
+### SEC-77
 **The Turnstile CAPTCHA on login and registration is an empty div: the client never mints a token, so the control is either absent or, once enabled, locks every account out**
 
 `src/web/features/login-form/login-form.tsx:67`, `src/web/features/auth-wizard/auth-wizard.tsx:203`, `src/server/infrastructure/auth/turnstile-captcha-verifier.ts:39`, `src/web/entities/session/api.ts:48`, `docs/08-auth-and-authorization.md:370`, `docs/08-auth-and-authorization.md:242`, `docs/11-ui-ux-spec.md:116`, `Dockerfile:10`, `src/web/features/login-form/login-form.tsx:68`, `src/web/features/auth-wizard/auth-wizard.tsx:204`, `src/server/infrastructure/auth/turnstile-captcha-verifier.ts:41`, `src/server/infrastructure/config/instance-view.ts:147` — reachable by **Operator**. Regresses or extends [SEC-45](./security-audit-2026-08.md#sec-45).
@@ -642,7 +850,7 @@ Both auth surfaces render a placeholder and nothing else. `login-form.tsx:67-68`
 (1) "No error anywhere that names the missing widget" is false. `src/server/infrastructure/config/instance-view.ts:147` attaches `CAPTCHA_WIDGET_ABSENT` to the `NEXT_PUBLIC_TURNSTILE_SITE_KEY` row, and `messages/en.json:249` renders it as: "No CAPTCHA widget is rendered. This value is baked into the client bundle at build time, so setting it at runtime has no effect." `instance-view.test.ts:233-234` asserts both that row and `CAPTCHA_DISABLED`. Because the site key is a Dockerfile build-arg (`Dockerfile:10-11`) that cannot be set at runtime, every operator running the published image who sets only the runtime secret lands in exactly the state where that warning is shown. Only an operator who also puts the site key into their runtime env — where it does nothing — loses the signal. […]
 
 
-### SEC-69
+### SEC-78
 **The two containers that parse attacker-supplied documents get none of the hardening the app container got**
 
 `deploy/docker-compose.yaml:147`, `deploy/docker-compose.yaml:161`, `deploy/docker-compose.yaml:36`, `deploy/stirling/Dockerfile:9`, `src/server/infrastructure/config/config.schema.ts:164`, `docs/tasks/backlog.md:1080` — reachable by **USER**. Regresses or extends [SEC-09](./security-audit-2026-08.md#sec-09).
@@ -664,7 +872,7 @@ The `app` service carries every control SEC-09 asked for — `user: '1000:1000'`
 2. THE NAMED AMPLIFICATION VECTOR IS BLOCKED. A "20000x20000 scan per page" uploaded as an image never becomes a page: `MAX_INPUT_PIXELS = 80_000_000` (src/server/infrastructure/pdf/sharp-image-tool.ts:23), applied through `INPUT` to every sharp read in that file (:27), refuses 400 Mpx. The undefended variant is a *PDF* whose pages carry huge embedded images — that path skips sharp entirely — but I could not measure what a 12-page window of such a PDF actually costs Docling, so the host-OOM claim is plausible, not demonstrated. […]
 
 
-### SEC-70
+### SEC-79
 **Two of the four images the shipped stack runs are built by no pipeline, scanned by nothing, and pinned to nothing**
 
 `deploy/docker-compose.yaml:148`, `deploy/docker-compose.yaml:162`, `.github/workflows/release.yml:18`, `.github/workflows/release.yml:154`, `deploy/stirling/Dockerfile:9`, `deploy/docling/Dockerfile:6`, `docs/13-ci-cd.md:3`, `docs/13-ci-cd.md:33` — reachable by **Operator**. Regresses or extends [SEC-21](./security-audit-2026-08.md#sec-21).
@@ -689,7 +897,91 @@ WHAT IS TRUE (keep):
 
 ## Informational
 
-### SEC-71
+### SEC-80
+**`DELETE /api/admin/document-types/:id` resets every document that carried the type inside one 5-second transaction over rows whose `search_vector` is recomputed on rewrite**
+
+`src/server/application/document-types/manage-document-types.ts:84`, `src/server/infrastructure/persistence/prisma-document-type.repository.ts:92`, `src/server/infrastructure/persistence/prisma-unit-of-work.ts:16`, `src/server/infrastructure/persistence/prisma.service.ts:9`, `prisma/migrations/20260818120000_search_over_every_field/migration.sql:12`, `docs/07-api-specification.md:303` — reachable by **ADMIN**.
+
+The route itself is sound and the assignment's suspicion is refuted: `AdminDocumentTypesController` carries `@UseGuards(SessionGuard, RolesGuard) @Roles('ADMIN')` (document-types.controller.ts:37-39), the `@Post()`/`@Patch()`/`@Delete()` on it are the only writers of the type list (the non-admin `DocumentTypesController` at :25-34 has `@Get()` alone, unlike people/subjects/subject-kinds), `RolesGuard` resolves even though `document-types.module.ts` omits it from `providers` because Nest's scanner auto-registers guards read off `GUARDS_METADATA` (`node_modules/@nestjs/core/scanner.js:145`), and `route-guards.test.ts` asserts the whole `/api/admin` surface mechanically. What is left is the cascade: `await this.unitOfWork.run(async (tx) => { const reset = await this.documentTypes.clearCategoryFromDocuments(id, tx); … })` (manage-document-types.ts:84-88) → `document.updateMany({ where: { typeId }, data: { typeId: null, typeSource: 'NONE' } })` (prisma-document-type.repository.ts:92-95). `run` is `this.prisma.$transaction((tx) => fn(tx))` with no options (prisma-unit-of-work.ts:16) and `PrismaService` sets no `transactionOptions` (prisma.service.ts:9-13), so Prisma's defaults apply: `maxWait` 2 s, `timeout` 5 s. Every row rewritten also rewrites the STORED generated column `search_vector … GENERATED ALWAYS AS (… setweight(to_tsvector('simple', coalesce("markdown", '')), 'B') …) STORED` (migration.sql:12-19) and its GIN entry.
+
+**Attack.** Not an escalation but a reachable failure whose *size* a USER controls: any invited user uploads documents, the analysis files them under a popular type, and the count under that type grows without limit. When an admin later removes the type, the single `updateMany` re-tsvectors the whole Markdown of every one of those documents inside the 5-second ceiling; past a few thousand documents the transaction times out with `P2028`, which is neither a `DomainError` nor an `HttpException` and so answers `500 INTERNAL` (domain-exception.filter.ts:41-44). The transaction rolls back, so there is no half-reset state — but the type cannot be deleted at all, and `docs/07 §7.3:303` says it can.
+
+**Impact.** An admin action the API specification documents becomes permanently impossible on a large archive, answering an untyped 500 rather than a reason, with the failure size steerable by ordinary users' uploads.
+
+**Fix.** Do the reset in bounded batches outside one interactive transaction — soft-delete the type first (a type nobody can pick is already the state that matters), then clear `typeId` in chunks with the count accumulated — or pass an explicit `timeout` to `$transaction` sized to the archive. Either way, map `P2028` to a typed envelope instead of letting it reach the filter's fallback.
+
+**Severity.** Reported as Low; corrected to Info by the reviewer who checked it.
+
+**On review.** Corrections for the register entry:
+
+1. WRONG MECHANISM — rewrite it. Not "search_vector is recomputed on rewrite". PostgreSQL skips recomputing a STORED generated column when no base column is in the UPDATE's target list; measured, 5000 rows with the generated column and no GIN index cost 20.8 ms versus 18.1 ms without the column at all. The real cost is index maintenance: `type_id` carries a btree (`prisma/schema.prisma:353`), so the row update cannot be HOT, and a non-HOT update writes a new tuple into *every* index — including `documents_search_vector_idx`, the GIN over the document's whole lexeme set (`prisma/migrations/20260818120000_search_over_every_field/migration.sql:20`, default `fastupdate=on`). Same conclusion, different sentence: the title should read "…over rows that each carry a GIN entry for the whole of their Markdown".
+
+2. […]
+
+
+### SEC-81
+**`docs/04 §4.1`, the schema the repository treats as the source of truth, is missing six models and one enum and contains three lines that are not valid Prisma**
+
+`docs/04-database-schema.md:310`, `docs/04-database-schema.md:324`, `docs/04-database-schema.md:383`, `prisma/schema.prisma:1`, `CLAUDE.md:39` — reachable by **Operator**.
+
+Normalising both sides (comments and whitespace stripped) and diffing the fenced `prisma` block of §4.1 against `prisma/schema.prisma`: `model` missing from docs/04 §4.1: **DocumentPerson, DocumentSubject, DocumentType, Person, Subject, SubjectKind**; `enum` missing: **DocumentEventType**. Three lines in the doc are syntactically invalid Prisma, all consistent with a naive `Category` → `Document type` text substitution during the M-rename: line 383 `model Document type {`, line 324 `document type        Document type?        @relation(fields: [typeId], references: [id])`, and line 310 `autoValues           Json           @default("{}") @map("auto_values")       @map("languages")` — a duplicated `@map` attribute, with the `@map("languages")` that belongs on line 309's `languages String[]` stolen onto the row below. The doc's `Document` model also has no `documentDate` and no `lastEventAt`, though `documentDate` is the default sort key of `GET /api/documents` and `lastEventAt` is a sort option (§4.4 lines 898-899 discuss indexes on both columns the same document's §4.1 does not declare).
+
+**Attack.** Not an exploit; a control failure. CLAUDE.md states migrations are hand-written and `schema.prisma` hand-edited to match, and golden rule 2 makes `docs/` the thing code is checked against. A reviewer asking the questions this audit dimension exists to ask — is a `Person` row scoped to a user? does `DocumentPerson` cascade? does a `DocumentType` slug have to be unique? — opens §4.1 and finds those tables absent, so the answer has to come from the very artefact being reviewed. The block cannot be pasted into `prisma validate` to check the claim mechanically, because it does not parse.
+
+**Impact.** The one reference that could catch silent drift in a hand-edited schema cannot be used for that: the shared catalogues (`people`, `subjects`, `subject_kinds` and their two link tables) and `document_types` — precisely the tables SEC-40 (instance-wide catalogues, accepted) and the open poisoning half of SEC-11 turn on — are undocumented, and the surviving text is corrupt in three places.
+
+**Fix.** Regenerate the §4.1 block from `prisma/schema.prisma` (they are already meant to be identical), and add a check that fails when they diverge — extracting the fenced block and running `prisma validate` on it, or a plain normalised diff, is a few lines in the existing lint step and would have caught all three corrupt lines the day they were written.
+
+**On review.** Four corrections for the register.
+
+1. WRONG CITATION - CLAUDE.md:39. Line 39 is the release paragraph ("A release is `npm run release` and nothing else..."). The statement the finding leans on is CLAUDE.md:32-37: "**Migrations are written by hand, not generated.** ... Write `prisma/migrations/<timestamp>_<slug>/migration.sql` yourself in the style of its neighbours, edit `schema.prisma` to match". Cite CLAUDE.md:32 (or :35 for the `schema.prisma` half). The other four locations are exact.
+
+2. ADD the two anchors that actually establish the "they are meant to be identical" premise, which the finding asserts without citing: docs/04-database-schema.md:4-5 and prisma/schema.prisma:1.
+
+3. OVERSTATED IMPACT - "the shared catalogues ... and `document_types` ... […]
+
+
+### SEC-82
+**`prisma migrate diff` against the migrated database is not empty: a foreign key still carries its pre-rename name and six columns have defaults `schema.prisma` does not declare**
+
+`prisma/migrations/20260804090000_category_becomes_type/migration.sql:16`, `prisma/migrations/20260729162253_init/migration.sql:370`, `prisma/schema.prisma:317`, `prisma/schema.prisma:584`, `docs/04-database-schema.md:872` — reachable by **Operator**.
+
+`npx prisma migrate diff --from-url <dev> --to-schema-datamodel prisma/schema.prisma --script` (read-only introspection of the database the full committed chain built) emits: `ALTER TABLE "documents" RENAME CONSTRAINT "documents_category_id_fkey" TO "documents_type_id_fkey"`; `ALTER TABLE "documents" ALTER COLUMN "languages" DROP DEFAULT, ALTER COLUMN "search_vector" DROP DEFAULT`; `ALTER COLUMN "updated_at" DROP DEFAULT` on `files`, `people`, `settings`, `subject_kinds` and `subjects`; and `DROP INDEX` for `document_chunks_embedding_idx`, `documents_document_date_idx`, `documents_document_date_nulls_first_idx`, `documents_search_vector_idx`. The four `DROP INDEX` lines are the cost §4.3 line 872 already documents and accepts. The rest is not documented anywhere: `20260804090000_category_becomes_type/migration.sql:16` renames the column (`ALTER TABLE "documents" RENAME COLUMN "category_id" TO "type_id"`) and lines 13-14 rename two indexes, but nothing renames the constraint created at init:370, so the live FK on `type_id` is still called `documents_category_id_fkey`. `documents.languages` carries `'{}'::text[]` in the database while `prisma/schema.prisma:317` declares no default, and the five `updated_at` columns carry `now()`/`CURRENT_TIMESTAMP` against a bare `@updatedAt` (e.g. prisma/schema.prisma:584).
+
+**Attack.** Not an exploit; a trap for the next schema change. CLAUDE.md already records that `db:migrate:dev` cannot be used here, so the next migration is written by hand from this diff — and the diff mixes four statements that must never be run (they would drop the FTS GIN index, the HNSW vector index and both document-date orders, silently turning search and the default document list into sequential scans of the archive on a request any signed-in user can repeat, §4.4 line 889) with seven that are harmless. Nothing in the tree distinguishes them, and no CI step runs this diff, so drift is discovered by whoever next reads the output under time pressure.
+
+**Impact.** The mechanical check that would prove `schema.prisma`, the migration chain and the database agree cannot be used as a pass/fail gate, because it is permanently non-empty and its noise is indistinguishable from real drift. Every FK action, every `@default` and all eleven partial unique indexes are in fact correct today — I verified each by hand — but that was established by hand, and it will have to be again next time.
+
+**Fix.** Ship a no-op migration that closes the avoidable part: `ALTER TABLE documents RENAME CONSTRAINT documents_category_id_fkey TO documents_type_id_fkey`, and either add the six defaults to `schema.prisma` (`languages String[] @default([])`, `updatedAt … @default(now())`) or drop them in SQL. Then record the four expected `DROP INDEX` lines in §4.3 as the known residue and add a CI step that runs the diff and fails on anything outside that allow-list — which is the only thing that makes a hand-written migration chain auditable.
+
+**On review.** Register this as a process/correctness defect, not a vulnerability.
+
+ATTACKER POSITION IS WRONG. "Operator" should be "n/a": the reporter concedes there is no exploit, no attacker reaches anything, and the drift is functionally harmless at runtime today. Prisma writes `updatedAt` client-side, so a DB `DEFAULT now()` beside `@updatedAt` never changes a value; a `String[]` create already sends `[]`; and the FK enforces the same ON DELETE SET NULL rule whichever name it carries (Postgres retargets the constraint automatically when `categories` was renamed to `document_types`). Severity Info as claimed is correct — there is no attacker benefit at all.
+
+ONE MATERIAL MECHANISM CORRECTION, which strengthens the finding and breaks its arithmetic. […]
+
+
+### SEC-83
+**A hard-deleted user silently widens every share they held to the whole instance, because `collection_shares.grantee_user_id` is `ON DELETE SET NULL` and NULL means everyone**
+
+`prisma/migrations/20260729162253_init/migration.sql:391`, `prisma/schema.prisma:548`, `prisma/schema.prisma:543`, `docs/04-database-schema.md:498`, `src/server/infrastructure/persistence/prisma-collection.repository.ts:68` — reachable by **Operator**.
+
+`CollectionShare.grantee` is declared as an optional relation with no `onDelete`, so Prisma's default applies and the migration wrote it out: `ALTER TABLE "collection_shares" ADD CONSTRAINT "collection_shares_grantee_user_id_fkey" FOREIGN KEY ("grantee_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE` (init:391); `pg_get_constraintdef` on the live dev database confirms `ON DELETE SET NULL`. In this product `grantee_user_id IS NULL` is not 'unknown grantee' — it is the instance-wide share: `prisma-collection.repository.ts:68` says `// An instance-wide share (granteeUserId null) reaches everyone but the owner's own list`, and `collection_shares_instance_active_uq ON collection_shares (collection_id) WHERE revoked_at IS NULL AND grantee_user_id IS NULL` exists precisely to keep one of those per collection. `document_events.actor_id` carries the same shape (`ON DELETE SET NULL`) against `prisma/schema.prisma:365`'s `// Who did it; null is the pipeline acting on its own`. And `docs/04 §4.2` line 498 states 'Everything else has no DB-level cascades, because everything else is deleted softly and in application code' — which is not what the database says for these two FKs and four others.
+
+**Attack.** No product code path hard-deletes a `users` row (users are soft-deleted; `grep -rn 'user\.delete' src/server prisma` is empty), and the RESTRICT edges from `sessions`, `api_tokens`, `collections`, `library_access`, `password_resets` and `user_invites.created_by_id` would refuse one. It becomes live the moment somebody clears those out of the way — an operator running a GDPR-style erasure by hand, or a future 'purge deactivated accounts' feature written against a doc line that says the database will not do anything on delete. At that moment every unrevoked personal share held by the erased user becomes `(collection_id, NULL, revoked_at IS NULL)`: an instance-wide grant on somebody else's collection, indistinguishable from one its owner made, and the audit journal simultaneously reattributes every action that user took to 'the pipeline acting on its own'.
+
+**Impact.** A DELETE that reads as clean-up is a silent authorization widening plus a silent audit-log rewrite. Nothing surfaces it: the second unique index makes the resulting row look canonical, and `docs/04 §4.2` tells the next reader the database will not touch anything.
+
+**Fix.** Make the semantics explicit rather than defaulted: give `CollectionShare.grantee` and `DocumentEvent.actor` `onDelete: Restrict` (or add a `scope` discriminator so 'everyone' is not spelled NULL) and ship the matching `ALTER TABLE … DROP CONSTRAINT / ADD CONSTRAINT` migration. Correct `docs/04 §4.2` to say which six FKs carry `ON DELETE SET NULL` and what NULL then means in each — the sentence at line 498 is false today.
+
+**On review.** Corrections for the register:
+
+1. ATTACKER POSITION should be "n/a", not "Operator". Anyone who can `DELETE FROM users` (after manually clearing seven RESTRICT-protected row sets) can equally `UPDATE collection_shares SET grantee_user_id = NULL` or INSERT the share directly — no privilege boundary is crossed and nothing is gained. The real defect is a latent one aimed at a *future* maintainer: a "purge deactivated accounts" feature or a hand-run GDPR erasure would silently widen shares, and docs/04:498 tells that maintainer the database will not act.
+
+2. IMPACT is accurate but should be stated precisely: an instance-wide share reaches only DERIVED documents whose creator is also the collection owner (prisma-document.repository.ts:495-511 requires `NOT EXISTS (LIBRARY file)` and `c.owner_id = d.created_by_id`), plus the collection's name and its unfiltered item count (already SEC-71). […]
+
+
+### SEC-84
 **A shared collection reports its unfiltered item count, disclosing the size of a set the grantee is not allowed to list**
 
 `src/server/infrastructure/persistence/prisma-collection.repository.ts:80`, `src/server/infrastructure/persistence/prisma-collection.repository.ts:87`, `src/server/application/collections/manage-collections.ts:270`, `src/server/application/collections/manage-collections.ts:86`, `docs/03-domain-model.md:827` — reachable by **USER**.
@@ -716,7 +1008,7 @@ The items themselves are filtered per viewer, deliberately and with a comment sa
 2. OVERSTATED — "returns zero items" is only true for an all-library collection. Per `docs/03 §3.3.14` and the share branch of `readableBy` (`src/server/infrastructure/persistence/prisma-document.repository.ts:236-244`), documents the collection owner created that have no LIBRARY file ARE readable through the share. […]
 
 
-### SEC-72
+### SEC-85
 **A stored queue concurrency is read back without an upper bound, unlike the service gates beside it**
 
 `src/server/application/queue/queue-settings.ts:181`, `src/server/application/queue/queue-settings.ts:52`, `src/server/infrastructure/queue/worker-registry.ts:61`, `docs/05-library-and-processing.md:288` — reachable by **Operator**.
@@ -736,7 +1028,7 @@ The items themselves are filtered per viewer, deliberately and with a comment sa
 2. The reporter missed the sibling gap, which is the more memory-relevant one. […]
 
 
-### SEC-73
+### SEC-86
 **An opaque cursor's id is never checked as a UUID and reaches a `@db.Uuid` filter, so a forged cursor answers 500 instead of starting over**
 
 `src/server/infrastructure/persistence/cursor.ts:91`, `src/server/infrastructure/persistence/cursor.ts:35`, `src/server/infrastructure/persistence/prisma-document.repository.ts:286`, `src/server/infrastructure/persistence/prisma-document-event.repository.ts:100`, `src/server/infrastructure/persistence/prisma-user.repository.ts:95`, `src/server/infrastructure/persistence/prisma-scan-run.repository.ts:91`, `src/server/infrastructure/persistence/cursor.ts:31`, `src/server/infrastructure/persistence/cursor.ts:84`, `src/shared/contracts/common.ts:95`, `docs/07-api-specification.md:34` — reachable by **USER**. Regresses or extends [SEC-44](./security-audit-2026-08.md#sec-44).
@@ -776,7 +1068,7 @@ Three corrections to the attack narrative, which the report must not repeat as w
 - Step 4's `GET /api/collections/:id` example is wrong as spelled. […]
 
 
-### SEC-74
+### SEC-87
 **POST /api/MCP serves the whole MCP tool set to a session cookie: the "this route accepts no cookie" invariant is exact-string matching in front of a case-insensitive router**
 
 `src/server/presentation/http/read-only-post-routes.ts:12`, `src/server/presentation/auth/session.guard.ts:30`, `src/server/presentation/http/csrf.middleware.ts:26`, `docs/08-auth-and-authorization.md:197` — reachable by **USER**. Regresses or extends [SEC-42](./security-audit-2026-08.md#sec-42).
@@ -802,7 +1094,7 @@ Corrections to the write-up:
 3. **Doc citations.** `docs/07 §7.3a:405` is in `docs/07-api-specification.md`. […]
 
 
-### SEC-75
+### SEC-88
 **The MCP exemption removes the CSRF origin check from POST /mcp, a path that belongs to Next, not to the API**
 
 `src/server/presentation/http/read-only-post-routes.ts:12`, `src/server/presentation/http/csrf.middleware.ts:26`, `server/main.ts:61`, `server/main.ts:63` — reachable by **Anonymous**.
@@ -824,7 +1116,7 @@ Corrections to the write-up:
 2. SEVERITY Low → Info, on the register's own calibration. […]
 
 
-### SEC-76
+### SEC-89
 **The page CSP is one directive, and the follow-up task docs/12 §12.8a says is tracked in the backlog does not exist there**
 
 `src/server/presentation/http/security-headers.middleware.ts:22`, `docs/12-build-config-run.md:579`, `docs/tasks/backlog.md:508`, `docs/tasks/backlog.md:503` — reachable by **USER**. Regresses or extends [SEC-06](./security-audit-2026-08.md#sec-06).
@@ -844,52 +1136,42 @@ Corrections to the claim's mechanism and impact:
 2. Impact is overstated. […]
 
 
+### SEC-90
+**The pipeline outruns the object write of the request that enqueued it, contrary to the comment saying it cannot, and the resulting canonical failure is permanent**
+
+`src/server/application/documents/upload-document.ts:111`, `src/server/application/documents/compose-document.ts:124`, `src/server/application/documents/build-canonical.ts:250`, `src/server/infrastructure/storage/s3-file-storage.ts:65`, `src/server/application/jobs/handle-document-process.ts:989` — reachable by **USER**.
+
+The enqueue happens inside the transaction and the object is written after it commits, under an explicit 🔒 claim that this is safe: "After the commit ... The pipeline is enqueued but cannot outrun this — its first act is to read the rows it was given" (upload-document.ts:110-112, with the enqueue at :85 and the put at :116-120). The same shape is at compose-document.ts:124 versus :128-139 (`POST /:id/files`) and :449 versus :453-461 (`POST /:id/files/:fileId/replacement`). The claim is false: the job's *second* act is `BuildCanonical.open` → `if (file.origin === 'MANAGED') return this.storage.getStream(originalKeyOf(file));` (build-canonical.ts:249-250), and `S3FileStorage.getStream` re-throws the SDK's `NoSuchKey` unchanged (s3-file-storage.ts:65-73). No S3 error is ever mapped to `ServiceUnavailableError`, so `failOrInterrupt` takes the `recordFailure` branch (handle-document-process.ts:988-993) and the step is `FAILED` with no retry (docs/05 §5.4e). pg-boss polls every 2 s by default (node_modules/pg-boss/src/attorney.js:289-291) and `UPLOAD_MAX_BYTES` defaults to 100 MiB (config.schema.ts:64-69).
+
+**Attack.** A USER calls `POST /api/documents/:id/files` on any LIBRARY-origin document — open to anyone who can read it, since `canEditDocumentMeta` returns true for LIBRARY origin (document.ts:147) — with a file large enough that `Upload.done()` to the configured S3 takes longer than the worker's next poll. The rebuild starts, `BuildCanonical.partOf` opens the just-attached file, gets `NoSuchKey`, and `buildCanonical`'s catch records the canonical as FAILED. The window widens with the size of the upload and with any latency to a non-local S3 endpoint.
+
+**Impact.** `DownloadDocumentCanonical` then throws `409 CANONICAL_NOT_READY` for every reader of that document (download-document.ts:58-61) even though the previous canonical object is untouched in the bucket, and the preview and Markdown steps fail behind it — until an admin runs `POST /api/documents/:id/reprocess`. On a shared library document that is a denial for everyone, caused by one upload. The raw `NoSuchKey ... files/<uuid>/original.<ext>` message is also surfaced to every reader through `processingError` (manage-documents.ts:624, contracts/documents.ts:301).
+
+**Fix.** Close the window rather than assert it away: write the object before opening the transaction and let the existing orphan sweep collect it if the transaction rolls back (that is exactly what handle-maintenance.ts:128-145 is for), or move the enqueue out of the transaction to after the put. Failing that, make `BuildCanonical.open` translate a 404 on a MANAGED original into `ServiceUnavailableError` so the retry backoff of docs/05 §5.4e covers it instead of condemning the document.
+
+**Severity.** Reported as Low; corrected to Info by the reviewer who checked it.
+
+**On review.** Corrections the register should carry.
+
+1. "The job's *second* act" is wrong. `open()` is reached after ~6 round trips: `findById` (`handle-document-process.ts:145`), `queueSettings.heldSteps()` (`:152`), the clean-slate `write` with its event inserts (`:160-186`), `running()`'s RUNNING write (`:305-319`), `files.listForDocument` (`build-canonical.ts:63`), `queueSettings.read()` (`:69`). Then `inBatches(ordered, unitConcurrency, partOf)` (`:71`) — and `QUEUE_UNIT_CONCURRENCY` defaults to **1** (`config.schema.ts:151`), so files are prepared strictly in position order. Since `attach` appends last (`prisma-file.repository.ts:429-432`), the `POST /:id/files` variant the reporter builds the impact on is the *hardest* case to win. […]
+
+
 ---
 
-## Findings awaiting independent verification
+## What the gap probes were sent after
 
-The five gap probes returned these. **None has been through the refutation pass**, and on the evidence
-of the pass that did run — which refuted 8 of 43
-candidates and cut the severity of a third of the rest — a meaningful fraction of this list will not
-survive contact with the source. It is recorded rather than dropped because the probes were sent at
-gaps the nine reviews admitted leaving, and several of these describe subsystems nobody else read:
-the people/subject/type catalogues, the rate-limiter's actual coverage, request-path mutation racing
-an in-flight worker, and the schema against its migrations.
+The nine reviews ran vertically down the same spine — auth, document access, pipeline, storage,
+deploy — and a completeness critic read their coverage claims against the real route table to find
+what fell between them. It named four things nobody had read: the people/subject/type catalogues,
+which any `USER` may write to and which feed the analyst's system message; the rate limiter's actual
+controller coverage; request-path mutation racing an in-flight worker; and `prisma/schema.prisma`
+against its migrations and `docs/04`.
 
-Treat every row as a lead, not a finding.
-
-| Claimed severity | Claim | First location |
-|---|---|---|
-| High | Any USER can permanently destroy other people's LIBRARY documents through POST /api/documents/:id/combine, which is the deletion the ADMIN-only DELETE /api/documents/:id exists to gate | `src/server/application/documents/compose-document.ts:534` |
-| High | Replacing the only library file of a library document makes it permanently invisible to every non-ADMIN, and the route answers 404 after it has already committed | `src/server/application/documents/compose-document.ts:397` |
-| High | Any reader of a library document can substitute their own bytes for one of its pages, and everything the product derives from that document is rebuilt from the forgery with no rescan able to undo it | `src/server/application/documents/compose-document.ts:379` |
-| Medium | Combine converts a revocable library grant into a permanent, revocation-proof holding, because the ownership branch of readableBy ignores libraries entirely | `src/server/infrastructure/persistence/prisma-document.repository.ts:223` |
-| Low | Documents absorbed by combine are unreachable by every API including the admin's hard delete, yet keep their S3 artifacts for ever, giving a USER unbounded attacker-driven storage growth | `src/server/application/jobs/handle-maintenance.ts:126` |
-| High | POST /api/me/password reaches the Argon2 concurrency gate with no throttler, letting one ordinary USER deny login to the whole instance | `src/server/presentation/users/me.controller.ts:54` |
-| High | The three upload routes are unthrottled and buffer up to UPLOAD_MAX_BYTES each in the 2 GB process that also runs the workers | `src/server/presentation/documents/documents.controller.ts:166` |
-| Medium | Semantic search and the MCP search_documents tool spend one outbound embeddings call per request with no rate limit, and share the pipeline's embeddings gate | `src/server/presentation/search/search.controller.ts:17` |
-| Medium | InMemoryLoginAttempts.streaks grows forever, keyed by attacker-chosen 254-character addresses, with no sweep and no cap | `src/server/infrastructure/auth/in-memory-login-attempts.ts:19` |
-| Medium | Any USER can write unlimited permanent rows into the instance-wide catalogues, whose read endpoints are unpaginated and loaded by the document viewer | `src/server/presentation/people/people.controller.ts:43` |
-| Low | One throttled IP cancels every other client's decay timers, so the documented 20-per-60s sliding window stops sliding for everybody | `node_modules/@nestjs/throttler/dist/throttler.service.js:34` |
-| Info | docs/08 claims per-IP rate limiting for mutations, but the guard is mounted on 3 of 28 controllers and its own coverage test only exercises /api/auth | `docs/08-auth-and-authorization.md:369` |
-| High | A catalogue note written by any signed-in user is rendered verbatim into the analyst's system message, turning the instance-wide catalogue into a prompt-injection channel and a read-back channel for other users' documents | `src/server/infrastructure/ai/openai-compat-analyst.ts:427` |
-| Medium | `POST /api/subject-kinds` grows the analysis system message without bound: `subjectKindList` prints every active kind with no cap and no throttle | `src/server/infrastructure/ai/openai-compat-analyst.ts:420` |
-| Medium | Every catalogue read is a full unpaginated table read done in the process that serves HTTP, and the pipeline repeats all three of them per document before throwing the result away | `src/server/infrastructure/persistence/prisma-subject-kind.repository.ts:35` |
-| Medium | The catalogue uniqueness checks compile to an unescaped `ILIKE`, so `%`, `_` and `\` in a submitted name are wildcards and an escape character, not letters | `src/server/infrastructure/persistence/prisma-person.repository.ts:62` |
-| Low | `DELETE /api/admin/document-types/:id` resets every document that carried the type inside one 5-second transaction over rows whose `search_vector` is recomputed on rewrite | `src/server/application/document-types/manage-document-types.ts:84` |
-| Medium | Nothing serialises `document-process` per document, so a stale run's canonical PDF overwrites the fresh one and keeps a removed page in the served document for ever | `src/server/infrastructure/queue/pg-boss.provider.ts:37` |
-| Medium | `deletedAt` is checked once and `updateProcessing` carries no `deleted_at IS NULL`, so a document deleted mid-run keeps receiving analysis, typed fields, chunks and S3 objects | `src/server/application/jobs/handle-document-process.ts:148` |
-| Low | An admin hard-delete landing inside the analyst call leaves person and subject rows mined from the destroyed document in the instance-wide catalogue | `src/server/application/jobs/handle-document-process.ts:742` |
-| Low | `purge()` deletes the file row before its objects, so a page thumbnail rendered concurrently is written back after the file was destroyed for good | `src/server/application/trash/manage-trash.ts:216` |
-| Low | The pipeline outruns the object write of the request that enqueued it, contrary to the comment saying it cannot, and the resulting canonical failure is permanent | `src/server/application/documents/upload-document.ts:111` |
-| Medium | Catalogue uniqueness is checked with an unescaped ILIKE pattern, so it is a different predicate from the `lower(name)` unique index the database enforces | `src/server/infrastructure/persistence/prisma-person.repository.ts:62` |
-| Info | `docs/04 §4.1`, the schema the repository treats as the source of truth, is missing six models and one enum and contains three lines that are not valid Prisma | `docs/04-database-schema.md:310` |
-| Info | Three partial unique indexes exist in the database that no document records, while `docs/04 §4.3` is cited in code as the place they are recorded | `docs/04-database-schema.md:845` |
-| Info | A hard-deleted user silently widens every share they held to the whole instance, because `collection_shares.grantee_user_id` is `ON DELETE SET NULL` and NULL means everyone | `prisma/migrations/20260729162253_init/migration.sql:391` |
-| Info | `prisma migrate diff` against the migrated database is not empty: a foreign key still carries its pre-rename name and six columns have defaults `schema.prisma` does not declare | `prisma/migrations/20260804090000_category_becomes_type/migration.sql:16` |
-
-To finish the verification, resume the audit workflow — the completed agents replay from cache and
-only these refutations re-run.
+Five probes went after them and returned 27 candidates. Those went through the same refutation pass as
+everything else: **15 survived** and are in the register above,
+**12 did not** and are in the table below. The survivors are why this section
+exists — more than half of what the probes found in unread subsystems held up, which is the argument
+for sending a critic after an audit rather than trusting its own account of its coverage.
 
 ---
 
@@ -908,6 +1190,18 @@ know these were examined rather than missed.
 | read_document re-loads the whole document detail and the entire unbounded markdown column on every slice, on an unthrottled route | Medium | Every quoted line is really there (archive-tools.ts:141/162/171-177, findReadableById at prisma-document.repository.ts:1470-1524 with its six round trips, the unbounded-markdown comment at :746-750, the throttler comment at app.module.ts:41-43, McpController's lone SessionGuard at mcp.controller.ts:31), so the mechanism is described accurately. The security conclusion does not follow, for three independent reasons. (1) No new capability, and a cheaper equivalent already exists. DocumentAccessGuard (src/server/presentation/documents/document-access.guard.ts:38) calls the *same* findReadableById on every /api/documents/:id* route, and GET /api/documents/:id/markdown (documents.controller.ts:22 |
 | A malformed or oversized MCP body never becomes the -32700 docs/07 §7.3a promises: it escapes to Express's final handler before authentication, as HTML, with the stack trace outside a production deployment | Low | The central mechanism is false at HEAD. The reporter's premise is that "wireServer registers no error-handling middleware", but `await nestApp.init()` (server/main.ts:92) does register one on the same shared Express instance: @nestjs/core@11.1.28 `router/routes-resolver.js:84-93` (`registerExceptionHandler`) builds a proxy from `RouterProxy.createExceptionLayerProxy`, whose returned function is `(err, req, res, next) => …` — a 4-argument Express error middleware — and installs it via `ExpressAdapter.setErrorHandler` (`adapters/express-adapter.js:82-84`, `return this.use(handler)`). Because `nestApp.init()` runs after the parsers are mounted (main.ts:83-90) and before `listen`, that layer sit |
 | The §8.6 box claiming "the S3 bucket is private" is ticked on an integration suite CI never runs, against the checklist's own standard for operator-side properties | Info | The factual half of the claim checks out, but the normative half — "against the checklist's own standard" — is contradicted by the checklist's own text, so the finding does not hold. Verified as cited: docs/08-auth-and-authorization.md:343 says "🔒 **A box here is ticked because a test proves it, and for no other reason.**"; :378-380 ticks the route/guard + "the S3 bucket is private, signed URLs with a short TTL only" line; docs/tasks/scenario-coverage.md:181 names test/integration/s3-file-storage.integration.test.ts for the bucket half; .github/workflows/ci.yml:20-27 declares `services:` with `postgres` alone (no MinIO), and env only sets `S3_ENDPOINT: http://localhost:9000` with nothing li |
+| Any USER can permanently destroy other people's LIBRARY documents through POST /api/documents/:id/combine, which is the deletion the ADMIN-only DELETE /api/documents/:id exists to gate | High | DUPLICATE of SEC-47, already confirmed at HEAD in docs/tasks/security-audit-2026-08-second-pass.md (line 66 index, body at lines 101-124), and already carried into the backlog as the fix task M47.1 (docs/tasks/backlog.md:1226-1229, "closes SEC-47"). The technical substance is real — I verified every citation and it holds: - src/server/domain/entities/document.ts:147 is exactly `if (origin === 'LIBRARY') return true;` inside `canEditDocumentMeta` (:139-150). - src/server/application/documents/compose-document.ts:583-587 `assertMayCompose` is a thin wrapper over that predicate; it is called on the target at :484 and on each source at :508, and :534 is `await this.documents.softDelete(source.do |
+| Any reader of a library document can substitute their own bytes for one of its pages, and everything the product derives from that document is rebuilt from the forgery with no rescan able to undo it | High | Duplicate of SEC-47, already confirmed in docs/tasks/security-audit-2026-08-second-pass.md (High, the one gap-probe finding verified by hand), and a restatement of first-pass SEC-41's accepted root cause. SEC-47's body names the identical predicate (`canEditDocumentMeta`, domain/entities/document.ts:139-151), the identical call site (`compose-document.ts:379`, listed as "replace a file's bytes"), the identical consequence ("everything the pipeline derives — canonical PDF, preview, Markdown, analysis, embeddings — is rebuilt from the substituted content" / "can silently forge the content of any library document") and the identical fix ("the destructive members of the set (combine's treatment  |
+| Combine converts a revocable library grant into a permanent, revocation-proof holding, because the ownership branch of readableBy ignores libraries entirely | Medium | The code property is real, but it is not a finding: it is (a) the rule as documented, (b) a re-argument of SEC-41, which the register already recorded at Info and accepted, and (c) reachable only through SEC-47's predicate, which is already confirmed High. WHAT IS TRUE (I read all of it). `readableBy`'s second branch really is `{ createdById: viewer.id }` with no library predicate (src/server/infrastructure/persistence/prisma-document.repository.ts:223), and the SQL dialect says the same — `OR d.created_by_id = ${viewer.id}::uuid` (:493) — which is what actually makes the "search over T still answers" half of the claim true; the reporter never cited it. `UploadDocument` sets `createdById: vi |
+| POST /api/me/password reaches the Argon2 concurrency gate with no throttler, letting one ordinary USER deny login to the whole instance | High | Duplicate of SEC-53, already confirmed in docs/tasks/security-audit-2026-08-second-pass.md:254-268 ("An authenticated user can wedge every login on the instance by queueing Argon2 work through the unthrottled password-change route", Medium), with the identical location set (me.controller.ts:54, change-password.ts:45, argon2-password-hasher.ts:20, concurrency-gate.ts:19, app.module.ts:43), the identical mechanism (one @Global singleton Argon2PasswordHasher holding one ConcurrencyGate(2); MeController carries only SessionGuard; ThrottlerGuard is on AuthController/InvitesController/PasswordResetsController only) and the identical fix (throttle the non-AuthController Argon2 route + bound the gat |
+| The three upload routes are unthrottled and buffer up to UPLOAD_MAX_BYTES each in the 2 GB process that also runs the workers | High | Duplicate of SEC-58, already CONFIRMED in docs/tasks/security-audit-2026-08-second-pass.md:358-375 ("Request-path routes buffer whole files in memory with no concurrency bound, so one USER can OOM the single process", graded Medium at :77). SEC-58's own location list contains two of this claim's six locations verbatim — `src/server/presentation/documents/read-upload-body.ts:37` and `deploy/docker-compose.yaml:47` — its evidence says "`readUploadBody` (read-upload-body.ts:37-58) holds up to `UPLOAD_MAX_BYTES` (100 MiB default) per request. Neither route is throttled: `ThrottlerModule.forRoot([...])` (app.module.ts:43) is applied per route... and `app.module.ts:70` registers only `APP_FILTER`" |
+| docs/08 claims per-IP rate limiting for mutations, but the guard is mounted on 3 of 28 controllers and its own coverage test only exercises /api/auth | Info | REFUTED on two independent grounds; the code facts are true but they do not make a register-worthy finding. (1) DUPLICATE of a CONFIRMED second-pass finding at HEAD. Every code fact is accurate — `ThrottlerGuard` is imported/applied only at /Users/joshuan/projects/legere/src/server/presentation/auth/auth.controller.ts:12,48, .../users/invites.controller.ts:2,11 and .../users/password-resets.controller.ts:2,10; app.module.ts:41-43 carries exactly the quoted comment and `ThrottlerModule.forRoot([{ name: 'auth', ttl: 60_000, limit: 20 }])`; app.module.ts:70 `providers` holds only `{ provide: APP_FILTER, useClass: DomainExceptionFilter }`; grep for `APP_GUARD`/`useGlobalGuards` returns nothing i |
+| A catalogue note written by any signed-in user is rendered verbatim into the analyst's system message, turning the instance-wide catalogue into a prompt-injection channel and a read-back channel for other users' documents | High | Refuted as a duplicate of SEC-54, already CONFIRMED in docs/tasks/security-audit-2026-08-second-pass.md (summary table line 73, write-up lines 277-291), and already scheduled for a fix by backlog M47.5 whose acceptance names it explicitly. The mechanism itself is real — I checked every cited line and they all match: - src/server/infrastructure/ai/openai-compat-analyst.ts:427-437 — `knownSubjectList` renders `- ${subject.kind}: ${subject.name} — ${truncate(subject.note, MAX_KNOWN_NOTE_CHARS)}` with `.slice(0, MAX_KNOWN_SUBJECTS)` (60) and `MAX_KNOWN_NOTE_CHARS = 300` (:158-159), with no scrub, no fence, no whitespace collapse. - :383-405 `systemMessage()` joins it into the **system** role, un |
+| Nothing serialises `document-process` per document, so a stale run's canonical PDF overwrites the fresh one and keeps a removed page in the served document for ever | Medium | REFUTED on two independent grounds: it is a duplicate of two already-confirmed second-pass findings, and its one distinctive claim ("the stale canonical stays for ever") does not hold from the request path. (1) DUPLICATE. The mechanism is verbatim SEC-50 (docs/tasks/security-audit-2026-08-second-pass.md:173-190), confirmed, with the identical first location (`src/server/infrastructure/queue/pg-boss.provider.ts:37`), the identical evidence chain (`SINGLETON_QUEUES = new Set(['library-scan'])` → `policy: 'standard'` at :78; keyless `enqueueRebuild` at compose-document.ts:649; inert keys at reprocess-document.ts:64, manage-documents.ts:377, handle-maintenance.ts:90; docs/06:262-263 claiming a d |
+| `deletedAt` is checked once and `updateProcessing` carries no `deleted_at IS NULL`, so a document deleted mid-run keeps receiving analysis, typed fields, chunks and S3 objects | Medium | The code property is real, but the security finding built on it is not. Every citation checks out at HEAD (9bcb5f1): `handle-document-process.ts:148` is exactly `if (document === null || document.deletedAt !== null) return;`; the re-reads at :211 and :221 fall back with `?? document` / `?? extracted` and never look at `deletedAt`; the three raw statements in `updateProcessing` (prisma-document.repository.ts:851, 866, 877) and the typed `client.document.update({ where: { id } })` (:883) carry only `WHERE id`; `softDelete` is at compose-document.ts:534 under `@Post(':id/combine')` + `@UseGuards(DocumentAccessGuard)` (documents.controller.ts:405-407); `DeleteDocument` refuses `deletedAt !== nul |
+| An admin hard-delete landing inside the analyst call leaves person and subject rows mined from the destroyed document in the instance-wide catalogue | Low | The citations are mechanically accurate (handle-document-process.ts:742-753 / :758-780, manage-documents.ts:470, prisma-person.repository.ts:127-147, docs/03:997), but the finding does not hold, for four independent reasons. (1) THE DOCUMENTED PROMISE IS MISREAD. docs/03 §3.3.10:376-380 and the §3.5 table at :997 both say the delete takes "the links to people and subjects" / "people/subject **links**" — not the catalogue rows. §3.3.19:546-595 says the opposite of what the reporter infers: "The catalogue is instance-wide, and that is a decision rather than an oversight… a shared catalogue rather than names written on each document, so the same person on forty documents is one row", and a Pers |
+| `purge()` deletes the file row before its objects, so a page thumbnail rendered concurrently is written back after the file was destroyed for good | Low | The code property is real but it is a documented, tested, self-healing design choice, not a vulnerability — and the attacker position named is unattainable. 1. CITATIONS CHECK OUT (mostly). `manage-trash.ts:216-219` really is `await unitOfWork.run(async (tx) => { await fileRefs.markExcluded(ids, tx); await files.hardDelete(ids, tx); })` followed by the per-file `storage.list(artifactKeys.filePrefix(file.id))` / `storage.delete(object.key)` loop at :221-235. `download-document.ts:195-205` really is `exists(key)` → `pdfs.pdfPageJpg(...)` → `images.toJpegPreview(...)` → `storage.put(key, thumb, 'image/jpeg')`. `handle-maintenance.ts:109-111` really is `list('')` → `findOrphans` → delete. So a T |
+| Three partial unique indexes exist in the database that no document records, while `docs/04 §4.3` is cited in code as the place they are recorded | Info | REFUTED. The mechanical half checks out but the finding's central assertion is false, its stated rationale is impossible, and the residue duplicates a sibling lead in the same table. WHAT IS TRUE (verified at HEAD 9bcb5f1). docs/04-database-schema.md's raw-SQL block does enumerate eight partial unique indexes (lines 850-862: users_email / libraries_root_path / files_content_hash / document_types_slug / collections_owner_name / collection_shares_grantee / collection_shares_instance + scan_runs_running_uq) and does not list the three catalogue ones. The three exist in migrations exactly as cited: prisma/migrations/20260804100000_people/migration.sql:24 `CREATE UNIQUE INDEX "people_name_active_ |
 
 ---
 
