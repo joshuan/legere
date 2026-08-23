@@ -1,16 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { InMemorySubjectKindRepository } from '../../../../test/helpers/processing-fakes';
 import { NotFoundError } from '../../domain/errors/domain-error';
-import type {
-  CatalogueRow,
-  CatalogueSuggestions,
-  MergePreview,
-} from '../ports/catalogue-analyst';
+import type { CatalogueRow, CatalogueSuggestions, MergePreview } from '../ports/catalogue-analyst';
 import { CatalogueAnalyst } from '../ports/catalogue-analyst';
-import {
-  PreviewSubjectKindMerge,
-  SuggestSubjectKindMerges,
-} from './suggest-subject-kind-merges';
+import { PreviewSubjectKindMerge, SuggestSubjectKindMerges } from './suggest-subject-kind-merges';
 
 class ScriptedAnalyst extends CatalogueAnalyst {
   calls = 0;
@@ -82,9 +75,10 @@ describe('SuggestSubjectKindMerges', () => {
     const analyst = new ScriptedAnalyst();
     analyst.configured = false;
 
-    await expect(
-      new SuggestSubjectKindMerges(await seeded(), analyst).execute(),
-    ).resolves.toEqual({ configured: false, groups: [] });
+    await expect(new SuggestSubjectKindMerges(await seeded(), analyst).execute()).resolves.toEqual({
+      configured: false,
+      groups: [],
+    });
     expect(analyst.calls).toBe(0);
   });
 });
