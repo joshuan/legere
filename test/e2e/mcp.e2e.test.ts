@@ -320,6 +320,26 @@ describe('MCP (e2e)', () => {
         .expect(401);
     });
 
+    it('refuses the cookie at every spelling the router resolves to this route', async () => {
+      // 🔒 SEC-87: Express routes case-insensitively, so `/api/MCP` is this same controller — and
+      // the no-cookie rule must hold there too, not only at the exact lowercase string.
+      await request(app.baseUrl)
+        .post('/api/MCP')
+        .set('Cookie', adminCookie)
+        .set('Origin', 'http://localhost:3000')
+        .send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+        .expect(401);
+    });
+
+    it('keeps the origin check on the bare /mcp, which is not this route', async () => {
+      // 🔒 SEC-88: the CSRF exemption covers the API path alone; the root-level `/mcp` belongs to
+      // Next and a mutation there proves its origin like any other.
+      await request(app.baseUrl)
+        .post('/mcp')
+        .send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+        .expect(403);
+    });
+
     // 🔒 And the hole is exactly this route: everything else a bearer might post is still refused
     // before it is looked up (docs/08 §8.2a).
     it('leaves every other POST closed to a token', async () => {

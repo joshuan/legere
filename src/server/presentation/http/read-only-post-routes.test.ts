@@ -13,6 +13,15 @@ describe('isReadOnlyPostRoute', () => {
     expect(isReadOnlyPostRoute('POST', '/mcp/')).toBe(true);
   });
 
+  it('matches the way the router resolves, not the way the string was typed', () => {
+    // 🔒 Express routes case-insensitively by default, so `/api/MCP` is the same controller as
+    // `/api/mcp` — a matcher stricter than its router put the guard on the cookie branch there
+    // (SEC-87).
+    expect(isReadOnlyPostRoute('POST', '/api/MCP')).toBe(true);
+    expect(isReadOnlyPostRoute('POST', '/API/mcp/')).toBe(true);
+    expect(isReadOnlyPostRoute('POST', '/Mcp')).toBe(true);
+  });
+
   it('is nothing else in this API', () => {
     for (const path of [
       '/api/documents',

@@ -21,6 +21,11 @@ export function isReadOnlyPostRoute(method: string, path: string): boolean {
 
 // A trailing slash is the same route, and a query string never reaches `req.path` — but a router
 // that changes shape should not be able to turn `/mcp/` into an unguarded address either.
+// 🔒 Lower-cased, because Express routes case-insensitively by default: `/api/MCP` reaches the same
+// controller as `/api/mcp`, and a matcher stricter than its router is a rule with a spelling that
+// escapes it (SEC-87) — at `/api/MCP` the guard took the cookie branch the exemption exists to
+// forbid.
 function normalize(path: string): string {
-  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+  const trimmed = path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
+  return trimmed.toLowerCase();
 }

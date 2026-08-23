@@ -22,8 +22,10 @@ export function csrfOriginCheck(appBaseUrl: string) {
 
     // 🔒 MCP is JSON-RPC over a POST, and that route authenticates by bearer token alone
     // (docs/08 §8.2a): it holds no credential a browser sends by itself, so there is no cross-site
-    // request to forge. The check is not weakened here — it has nothing to act on.
-    if (isReadOnlyPostRoute(req.method, req.path)) {
+    // request to forge. The check is not weakened here — it has nothing to act on. Only for the API
+    // spelling, though: this middleware runs at the Express root, where the bare `/mcp` is Next's
+    // namespace and not the route the exemption was written for (SEC-88).
+    if (req.path.toLowerCase().startsWith('/api/') && isReadOnlyPostRoute(req.method, req.path)) {
       next();
       return;
     }

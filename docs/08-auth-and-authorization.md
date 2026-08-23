@@ -193,7 +193,11 @@ credential which leaks costs its owner nothing but a revocation and can never ch
   `POST /api/mcp`, so the rule above — a bearer on anything but `GET`/`HEAD`/`OPTIONS` is refused
   before routing — would refuse the whole protocol. The exception is **one path, declared once**
   (`isReadOnlyPostRoute`) and consulted by all three of the places that would otherwise refuse it:
-  the origin check, the read-only middleware and `SessionGuard`. What makes it safe is not the
+  the origin check, the read-only middleware and `SessionGuard`. 🔒 The exemption matches paths the
+  way the router resolves them — lower-cased, trailing slash trimmed — because Express routes
+  case-insensitively and a matcher stricter than its router is a rule with a spelling that escapes
+  it (SEC-87); and it covers the API path alone, never the bare `/mcp` that belongs to Next
+  (SEC-88). What makes it safe is not the
   narrowness but what is on the other side: **the route accepts no cookie**, so it has no
   credential a browser sends by itself and CSRF has nothing to act on — the check of §8.4 is not
   weakened, it is inapplicable. And the tools it dispatches to are a closed list over read use

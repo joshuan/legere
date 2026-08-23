@@ -1279,7 +1279,7 @@ probes survived refutation, which is a better yield than the reviews themselves 
   **Docs:** [`12 §12.7`](../12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository), [`13`](../13-ci-cd.md)
   **Acceptance:** closes [SEC-62](./security-audit-2026-08-second-pass.md#sec-62), [SEC-78](./security-audit-2026-08-second-pass.md#sec-78), [SEC-79](./security-audit-2026-08-second-pass.md#sec-79). Stirling and Docling get the hardening the app container already has (non-root, `no-new-privileges`, dropped capabilities, a read-only rootfs where the image allows); SMTP requires TLS rather than accepting a stripped STARTTLS; and the two unpinned, unscanned images are pinned by digest and scanned by the same job that scans the rest.
 
-- [ ] **M47.12 — The MCP surface says what it is**
+- [x] **M47.12 — The MCP surface says what it is**
   **Goal:** the agent-facing API is as exact about its own rules as the register is.
   **Docs:** [`07 §7.3a`](../07-api-specification.md), [`08 §8.2a`](../08-auth-and-authorization.md#82a-api-tokens-read-only)
   **Acceptance:** closes [SEC-72](./security-audit-2026-08-second-pass.md#sec-72), [SEC-87](./security-audit-2026-08-second-pass.md#sec-87), [SEC-88](./security-audit-2026-08-second-pass.md#sec-88). The read-only-POST exemption matches paths the way the router resolves them rather than by exact string, so `/api/MCP` is the same route as `/api/mcp` to both; the CSRF exemption covers the API path and not Next's; and document text handed to a calling agent is marked as untrusted data, since the same repository already fences that identical text for its own model.
