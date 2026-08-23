@@ -951,6 +951,44 @@ Dismissing is client-side and lasts the session — the server proposes, it neve
 refused. Best-effort by design: papers that cite each other's numbers are found, papers related only
 in somebody's head are what the manual link picker is for (`11 §11.5e`).
 
+## 5.6c. Noticing that one person arrived many times
+
+The analysis reads a name as each document spells it (`03 §3.3.19`), and documents spell one person
+many ways: a boarding pass writes `SHERSHNEV/EVGENII MR`, a Serbian contract loses the soft sign a
+Russian one keeps, an OCR pass swaps two letters of a patronymic. The sameness is **linguistic** —
+case, diacritics, two scripts, transliteration, typos, initials, honorifics glued onto the name — so
+unlike §5.6a and §5.6b, whose candidates are found deterministically, here the finder is the
+**analyst itself**: the same provider and model that read the names in the first place, under the
+same `classifier` gate (§5.4b), asked one JSON question — *which of these living rows are one
+person?*
+
+Two calls exist, both on the `CatalogueAnalyst` port and both computed on request:
+
+- **Suggesting** reads the living people catalogue — id, name and note of every row — and answers
+  with groups: the ids that are one person, the spelling worth keeping (the fullest, correctly
+  spelled form, in the person's own script), and the distinct other spellings, case-only and
+  punctuation-only variants collapsed. The note rides along because it is what tells two people of
+  the same name apart (`03 §3.3.19`): a shared name with distinct notes is a reason to keep quiet.
+- **Previewing** does the same for a handful of rows an admin selected by hand, so the merge dialog
+  can open with a tidy name and a tidy "also known as" line instead of a raw dump of everything the
+  rows carried (`11 §11.12a`).
+
+**The answer is checked, not trusted.** The model's groups pass through the same discipline as an
+analysis answer (§5.5 step 4): parsed against a schema, a group naming an id that is not a living
+row is dropped, a group of fewer than two rows is dropped, a row claimed by two groups belongs to
+the first, names and spellings are length-capped, and the group count is capped at twenty — a
+suggester that proposes merging the whole catalogue is answering a different question. A parse
+failure is an empty answer, not an error. 🔒 The catalogue travels to the model **inside the
+nonce-fenced data channel**, never in the system message: every signed-in user writes these rows,
+and a note must no more steer the suggester than a document may steer the analysis.
+
+**Nothing is stored, and a refusal is not remembered** — the doctrine of §5.6a verbatim. The one
+concession to cost is an in-process cache keyed by the catalogue's current content, with concurrent
+requests deduplicated: the same question is not asked twice while nothing changed, and a changed
+catalogue is a new question. A restart forgets the cache, and recomputing is the price of honesty.
+Without a configured analyst the suggester reports itself unconfigured and proposes nothing — the
+screen simply has no banner, the way search quietly loses its semantic half (§5.5).
+
 ## 5.7. Files disappearing and returning
 
 - A file vanished from disk → `FileRef.status = MISSING` (+`missingSince`). Document data is **not

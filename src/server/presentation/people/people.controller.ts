@@ -1,11 +1,24 @@
-import { Controller, Delete, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import {
   createPersonRequestSchema,
   mergePeopleRequestSchema,
+  peopleMergePreviewRequestSchema,
   updatePersonRequestSchema,
   type CreatePersonRequest,
   type MergePeopleRequest,
   type ListPeopleResponse,
+  type PeopleMergePreviewRequest,
+  type PeopleMergePreviewResponse,
+  type PeopleMergeSuggestionsResponse,
   type PersonDto,
   type UpdatePersonRequest,
 } from '../../../shared/contracts/people';
@@ -18,6 +31,10 @@ import {
   MergePeople,
   UpdatePerson,
 } from '../../application/people/manage-people';
+import {
+  PreviewPeopleMerge,
+  SuggestPeopleMerges,
+} from '../../application/people/suggest-people-merges';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
@@ -58,6 +75,8 @@ export class AdminPeopleController {
     private readonly updatePerson: UpdatePerson,
     private readonly deletePerson: DeletePerson,
     private readonly mergePeople: MergePeople,
+    private readonly suggestMerges: SuggestPeopleMerges,
+    private readonly previewMerge: PreviewPeopleMerge,
   ) {}
 
   // Declared before `:id`, or the router reads "merge" as a person id.
@@ -66,6 +85,23 @@ export class AdminPeopleController {
     @ZodBody(mergePeopleRequestSchema) body: MergePeopleRequest,
   ): Promise<Envelope<PersonDto>> {
     return successEnvelope(await this.mergePeople.execute(body));
+  }
+
+  // The analyst's reading of the living catalogue (docs/05 §5.6c): which rows are one person.
+  // Computed on request and cached in-process; nothing stored, a refusal never remembered.
+  @Get('merge-suggestions')
+  async mergeSuggestions(): Promise<Envelope<PeopleMergeSuggestionsResponse>> {
+    return successEnvelope(await this.suggestMerges.execute());
+  }
+
+  // The same reading for rows an admin selected by hand, so the merge dialog opens tidy
+  // (docs/11 §11.12a). A POST for the ids in its body, but a question — nothing is created.
+  @Post('merge-preview')
+  @HttpCode(HttpStatus.OK)
+  async mergePreview(
+    @ZodBody(peopleMergePreviewRequestSchema) body: PeopleMergePreviewRequest,
+  ): Promise<Envelope<PeopleMergePreviewResponse>> {
+    return successEnvelope(await this.previewMerge.execute(body));
   }
 
   @Patch(':id')

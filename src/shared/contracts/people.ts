@@ -35,3 +35,37 @@ export const updatePersonRequestSchema = createPersonRequestSchema
     message: 'At least one field must be provided',
   });
 export type UpdatePersonRequest = z.infer<typeof updatePersonRequestSchema>;
+
+// One person the analyst recognised across several rows (docs/05 §5.6c): the rows it would fold,
+// the spelling it would keep, the distinct other spellings for the survivor's note. The bounds are
+// the merge contract's own — a group the merge endpoint would refuse is not a suggestion.
+export const mergeSuggestionGroupSchema = z.object({
+  ids: z.array(z.string().uuid()).min(2).max(50),
+  name: z.string().min(1).max(200),
+  aka: z.array(z.string().min(1).max(200)).max(20),
+});
+export type MergeSuggestionGroup = z.infer<typeof mergeSuggestionGroupSchema>;
+
+// `configured: false` is an answer, not an error (docs/07 §7.3): without an analyst the screen
+// simply has no banner.
+export const peopleMergeSuggestionsResponseSchema = z.object({
+  configured: z.boolean(),
+  groups: z.array(mergeSuggestionGroupSchema).max(20),
+});
+export type PeopleMergeSuggestionsResponse = z.infer<typeof peopleMergeSuggestionsResponseSchema>;
+
+// The same reading for rows an admin selected by hand, so the merge dialog opens tidy
+// (docs/11 §11.12a).
+export const peopleMergePreviewRequestSchema = z.object({
+  ids: z.array(z.string().uuid()).min(2).max(50),
+});
+export type PeopleMergePreviewRequest = z.infer<typeof peopleMergePreviewRequestSchema>;
+
+// `available: false` sends the dialog back to its raw prefill — an unconfigured analyst and an
+// unreadable answer degrade the same way.
+export const peopleMergePreviewResponseSchema = z.object({
+  available: z.boolean(),
+  name: z.string().min(1).max(200).nullable(),
+  aka: z.array(z.string().min(1).max(200)).max(20).nullable(),
+});
+export type PeopleMergePreviewResponse = z.infer<typeof peopleMergePreviewResponseSchema>;

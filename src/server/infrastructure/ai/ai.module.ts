@@ -1,8 +1,10 @@
 import { Global, Module } from '@nestjs/common';
+import { CatalogueAnalyst } from '../../application/ports/catalogue-analyst';
 import { DocumentAnalyst } from '../../application/ports/document-analyst';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
 import { PageTranscriber } from '../../application/ports/page-transcriber';
 import { OpenAiCompatAnalyst } from './openai-compat-analyst';
+import { OpenAiCompatCatalogueAnalyst } from './openai-compat-catalogue-analyst';
 import { OpenAiCompatEmbeddings } from './openai-compat-embeddings';
 import { OpenAiCompatTranscriber } from './openai-compat-transcriber';
 
@@ -14,8 +16,9 @@ import { OpenAiCompatTranscriber } from './openai-compat-transcriber';
   providers: [
     { provide: EmbeddingProvider, useClass: OpenAiCompatEmbeddings },
     { provide: DocumentAnalyst, useClass: OpenAiCompatAnalyst },
+    { provide: CatalogueAnalyst, useClass: OpenAiCompatCatalogueAnalyst },
     { provide: PageTranscriber, useClass: OpenAiCompatTranscriber },
   ],
-  exports: [EmbeddingProvider, DocumentAnalyst, PageTranscriber],
+  exports: [EmbeddingProvider, DocumentAnalyst, CatalogueAnalyst, PageTranscriber],
 })
 export class AiModule {}

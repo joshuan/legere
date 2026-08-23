@@ -1059,11 +1059,31 @@ one flat arrives four times and one person three. Rows carry checkboxes; with tw
 selected names and taking anything typed over them. For subjects it asks for the kind too, since the
 selected rows may disagree. Everything then folds into one row and no document loses what it named.
 
+**On `/people`, the screen notices the duplicates first.** An admin arriving at a catalogue of a
+hundred and thirty names should not have to read it like a proofreader. When the analyst has
+proposals (`05 §5.6c`), a banner above the table says so — *these look like the same person* — one
+row per group, each showing the names it would fold together and a **Merge** button that opens the
+ordinary merge dialog with exactly those rows selected and the analyst's answer prefilled: its
+spelling as the name, its tidy "also known as" line in the note. The dialog is the same dialog —
+everything editable, nothing merged until confirmed — because the suggestion is a question, not an
+act. The banner closes like any banner and is proposed afresh next visit (the server never remembers
+being refused, `05 §5.6a`); while suggestions are being computed the table simply has no banner yet,
+and without a configured analyst there is none at all — the screen works as it always did.
+
 **Nothing written on the merged rows is thrown away.** The dialog's note field arrives prefilled with
 what the rows carried: the names that are about to disappear ("Also known as: …") and every note any
 of them had, one per line. It is an ordinary editable field — a person deletes what is noise and
 keeps what is not — but the default is "keep everything", because the alternative is a merge that
 quietly destroys the one line somebody wrote a year ago to explain which flat this is.
+
+**The "also known as" line is tidied when the analyst can read it.** A raw dump of every selected
+spelling repeats the survivor in three cases and keeps the airline's `/MR`; the analyst's line keeps
+each *distinct* spelling once (`05 §5.6c`). On `/people` a hand-selected merge asks for that reading
+when the dialog opens — the raw prefill appears at once and is replaced by the tidy one when it
+arrives, unless the person has already started editing, because a form must never fight its user. A
+suggested merge opens tidy from the start, the answer having come with the suggestion. Either way the
+prefill respects the note's own limit: what does not fit is cut from the end, and the field validates
+the limit like any other — a prefill the server would refuse is a bug, not a default (M48.1).
 
 **The documents count is a link**, to that person's or that thing's browse page: "40" is the question
 "which forty?", and the answer is one click away. A count of zero is plain text — there is nothing to

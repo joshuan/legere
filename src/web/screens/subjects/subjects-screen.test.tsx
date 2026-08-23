@@ -127,6 +127,47 @@ describe('SubjectsScreen', () => {
     );
   });
 
+  it('clamps a prefilled note longer than the contract to what the contract accepts', async () => {
+    // Notes whose raw composition exceeds the 2000 the subjects contract allows — the same
+    // prefill-overflow the people dialog had (M48.1), on the other catalogue that merges.
+    const chatty = { ...subject, note: 'a'.repeat(1500) };
+    const chattyTwin = {
+      ...subject,
+      id: 'dddddddd-4444-4444-8444-444444444444',
+      name: 'the flat',
+      note: 'b'.repeat(600),
+    };
+    const raw = `Also known as: the flat\n${chatty.note}\n${chattyTwin.note}`;
+
+    let merged: unknown = null;
+    server.use(
+      http.post('/api/admin/subjects/merge', async ({ request }) => {
+        merged = await request.json();
+        return HttpResponse.json(envelope(subject), { status: 201 });
+      }),
+      http.get('/api/subjects', () => HttpResponse.json(envelope({ items: [chatty, chattyTwin] }))),
+    );
+
+    renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
+    await screen.findByText('the flat');
+    const [selectAll] = screen.getAllByRole('checkbox');
+    if (selectAll === undefined) throw new Error('expected a selection checkbox');
+    await userEvent.click(selectAll);
+    await userEvent.click(await screen.findByRole('button', { name: /Merge 2/ }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText(enMessages.admin.catalogues.fields.note)).toHaveValue(
+      raw.slice(0, 2000),
+    );
+
+    await userEvent.click(
+      within(dialog).getByRole('button', {
+        name: enMessages.admin.catalogues.actions.mergeConfirm,
+      }),
+    );
+    await waitFor(() => expect(merged).toMatchObject({ note: raw.slice(0, 2000) }));
+  });
+
   it('says a delete leaves the documents alone rather than implying they change', async () => {
     renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
     await userEvent.click(

@@ -2,11 +2,17 @@ import {
   createPersonRequestSchema,
   listPeopleResponseSchema,
   mergePeopleRequestSchema,
+  peopleMergePreviewRequestSchema,
+  peopleMergePreviewResponseSchema,
+  peopleMergeSuggestionsResponseSchema,
   personDtoSchema,
   updatePersonRequestSchema,
   type CreatePersonRequest,
   type ListPeopleResponse,
   type MergePeopleRequest,
+  type PeopleMergePreviewRequest,
+  type PeopleMergePreviewResponse,
+  type PeopleMergeSuggestionsResponse,
   type PersonDto,
   type UpdatePersonRequest,
 } from '../../../shared/contracts/people';
@@ -42,8 +48,23 @@ export const personApi = {
 
   remove: (id: string): Promise<OkResponse> =>
     apiClient.delete(`/api/admin/people/${id}`, { schema: okResponseSchema }),
+
+  // The analyst's reading of the catalogue: which rows are one person (docs/05 §5.6c). Nothing is
+  // stored server-side; the answer is computed on request and cached against the catalogue's state.
+  mergeSuggestions: (): Promise<PeopleMergeSuggestionsResponse> =>
+    apiClient.get('/api/admin/people/merge-suggestions', {
+      schema: peopleMergeSuggestionsResponseSchema,
+    }),
+
+  // The same reading for a hand-picked selection, so the merge dialog opens tidy (docs/11 §11.12a).
+  mergePreview: (body: PeopleMergePreviewRequest): Promise<PeopleMergePreviewResponse> =>
+    apiClient.post('/api/admin/people/merge-preview', {
+      schema: peopleMergePreviewResponseSchema,
+      body: peopleMergePreviewRequestSchema.parse(body),
+    }),
 };
 
 export const personKeys = {
   all: ['people'] as const,
+  mergeSuggestions: ['people', 'merge-suggestions'] as const,
 };

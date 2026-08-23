@@ -6,6 +6,11 @@ import {
   MergePeople,
   UpdatePerson,
 } from '../../application/people/manage-people';
+import {
+  PreviewPeopleMerge,
+  SuggestPeopleMerges,
+} from '../../application/people/suggest-people-merges';
+import { CatalogueAnalyst } from '../../application/ports/catalogue-analyst';
 import { Clock } from '../../application/ports/clock';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { PersonRepository } from '../../domain/repositories/person.repository';
@@ -47,6 +52,20 @@ import { AdminPeopleController, PeopleController } from './people.controller';
       useFactory: (people: PersonRepository, clock: Clock): DeletePerson =>
         new DeletePerson(people, clock),
       inject: [PersonRepository, Clock],
+    },
+    // A singleton on purpose: its in-process cache is the one concession the suggester makes to
+    // cost (docs/05 §5.6c).
+    {
+      provide: SuggestPeopleMerges,
+      useFactory: (people: PersonRepository, analyst: CatalogueAnalyst): SuggestPeopleMerges =>
+        new SuggestPeopleMerges(people, analyst),
+      inject: [PersonRepository, CatalogueAnalyst],
+    },
+    {
+      provide: PreviewPeopleMerge,
+      useFactory: (people: PersonRepository, analyst: CatalogueAnalyst): PreviewPeopleMerge =>
+        new PreviewPeopleMerge(people, analyst),
+      inject: [PersonRepository, CatalogueAnalyst],
     },
   ],
 })

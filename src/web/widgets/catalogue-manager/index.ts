@@ -1,1 +1,1 @@
-export { CatalogueManager, type CatalogueColumn } from './catalogue-manager';
+export { CatalogueManager, type CatalogueColumn, type MergeValues } from './catalogue-manager';

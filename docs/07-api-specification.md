@@ -275,6 +275,8 @@ paginated — an edge set a person curates by hand is bounded the way collection
 | `POST /api/people` | 🔒 | `{ name, note? }` → `PersonDto`; `409 PERSON_EXISTS` on a name that already lives. Open to any signed-in caller (03 §3.3.19) |
 | `PATCH /api/admin/people/:id` | 🔒ᴬ | `{ name?, note? }` |
 | `POST /api/admin/people/merge` | 🔒ᴬ | `{ ids[≥2], name, note? }` → the surviving `PersonDto`. The oldest of the rows survives, takes the name, and receives every document link the others had (duplicates collapsed); the rest are soft-deleted, all in one transaction. `409 PERSON_EXISTS` when the chosen name belongs to somebody outside the merge (03 §3.3.19) |
+| `GET /api/admin/people/merge-suggestions` | 🔒ᴬ | → `{ configured, groups: [{ ids[≥2], name, aka[] }] }` — the analyst's reading of the living catalogue (05 §5.6c): rows it takes for one person, the spelling it would keep, the distinct other spellings. Computed on request and cached in-process against the catalogue's content; **nothing stored, a refusal never remembered**. At most 20 groups. No analyst configured → `{ configured: false, groups: [] }`, never an error |
+| `POST /api/admin/people/merge-preview` | 🔒ᴬ | `{ ids[≥2] }` → `{ available, name?, aka? }` — the same reading for rows an admin selected by hand, so the merge dialog opens tidy (11 §11.12a). `404 PERSON_NOT_FOUND` for an id that is not a living person; `available: false` when the analyst is unconfigured or its answer did not parse — the dialog then falls back to the raw prefill |
 | `DELETE /api/admin/people/:id` | 🔒ᴬ | soft delete; the links on existing documents stay |
 
 ### Subjects

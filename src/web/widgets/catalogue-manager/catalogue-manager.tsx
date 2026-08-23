@@ -15,7 +15,7 @@ import {
   type TableColumnType,
 } from 'antd';
 import { useTranslations } from 'next-intl';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { useErrorMessage } from '../../shared/lib';
 
 export type CatalogueColumn<Row> = {
@@ -91,12 +91,21 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     // What this row already carries in its note, so a merge can keep it (docs/11 §11.12a).
     note?: (row: Row) => string | null;
     // How much note the surviving row may hold, as its contract says — shown as a count rather
-    // than discovered when the server refuses the merge.
+    // than discovered when the server refuses the merge, and the bound every prefill is cut to:
+    // a default the server would refuse is a bug, not a default (docs/11 §11.12a).
     noteMaxLength?: number;
     // Whatever else the merged row needs decided — the kind, for subjects.
     fields?: (rows: Row[]) => ReactNode;
     initialValues?: (rows: Row[]) => MergeValues;
     onMerge: (rows: Row[], values: MergeValues) => Promise<unknown>;
+    // A tidier reading of what the dialog should open with, fetched while the raw prefill is
+    // already on screen; it lands only while the person has not started editing, because a form
+    // must never fight its user (docs/11 §11.12a). `null` means "keep the raw prefill".
+    prefill?: (rows: Row[]) => Promise<MergeValues | null>;
+    // The screen's own banner above the table — duplicate suggestions, on the catalogues that have
+    // them (docs/11 §11.12a). It is handed the same door the Merge button uses, so a suggested
+    // merge and a hand-picked one are one dialog.
+    banner?: (openMerge: (rows: Row[], values: MergeValues) => void) => ReactNode;
   };
 }) {
   const t = useTranslations();
@@ -109,6 +118,9 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   const [selected, setSelected] = useState<string[]>([]);
   const [merging, setMerging] = useState(false);
   const [mergeForm] = Form.useForm<MergeValues>();
+  // Which opening of the merge dialog is current, so a tidy prefill that arrives after the dialog
+  // was closed or reopened lands nowhere.
+  const mergeSession = useRef(0);
 
   const chosen = rows.filter((row) => selected.includes(row.id));
 
@@ -162,12 +174,48 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
       .map((note) => note.trim())
       .filter((note) => note !== '');
 
-    return [
-      ...(vanishing.length === 0
-        ? []
-        : [t('admin.catalogues.fields.alsoKnownAs', { names: vanishing.join(', ') })]),
-      ...notes,
-    ].join('\n');
+    return clampNote(
+      [
+        ...(vanishing.length === 0
+          ? []
+          : [t('admin.catalogues.fields.alsoKnownAs', { names: vanishing.join(', ') })]),
+        ...notes,
+      ].join('\n'),
+    );
+  };
+
+  // Cut to the contract's limit from the end: `maxLength` on the field stops typing, not a value
+  // set by code, and a prefill past the limit used to throw a client-side parse before any request
+  // was made (M48.1).
+  const clampNote = (note: string): string =>
+    merge?.noteMaxLength === undefined ? note : note.slice(0, merge.noteMaxLength);
+
+  // One door for every way the dialog opens — the Merge button over a hand-picked selection, and a
+  // suggestion's own button (docs/11 §11.12a).
+  const openMerge = (rows: Row[], values: MergeValues): void => {
+    mergeSession.current += 1;
+    setSelected(rows.map((row) => row.id));
+    mergeForm.resetFields();
+    mergeForm.setFieldsValue({ ...values, note: clampNote(values.note ?? '') });
+    setMerging(true);
+  };
+
+  const openManualMerge = (): void => {
+    if (merge === undefined) return;
+    const first = chosen[0];
+    const values =
+      merge.initialValues?.(chosen) ?? (first === undefined ? {} : { name: merge.label(first) });
+    const rows = chosen;
+    openMerge(rows, { ...values, note: values.note ?? keptNote(rows, values.name ?? '') });
+
+    // The raw prefill is already on screen; the tidy reading replaces it only if this is still the
+    // same dialog and the person has not touched it (docs/11 §11.12a).
+    const session = mergeSession.current;
+    void merge.prefill?.(rows).then((tidied) => {
+      if (tidied === null || tidied === undefined) return;
+      if (session !== mergeSession.current || mergeForm.isFieldsTouched()) return;
+      mergeForm.setFieldsValue({ ...tidied, note: clampNote(tidied.note ?? '') });
+    });
   };
 
   const actionsColumn = {
@@ -206,20 +254,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
         <Space>
           {/* Only once there is something to fold together: a merge of one row is not a merge. */}
           {canManage && merge !== undefined && selected.length > 1 && (
-            <Button
-              onClick={() => {
-                mergeForm.resetFields();
-                const first = chosen[0];
-                const values =
-                  merge.initialValues?.(chosen) ??
-                  (first === undefined ? {} : { name: merge.label(first) });
-                mergeForm.setFieldsValue({
-                  ...values,
-                  note: values.note ?? keptNote(chosen, values.name ?? ''),
-                });
-                setMerging(true);
-              }}
-            >
+            <Button onClick={openManualMerge}>
               {t('admin.catalogues.actions.merge', { count: selected.length })}
             </Button>
           )}
@@ -238,6 +273,9 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
         </Space>
       }
     >
+      {/* The screen notices first, where the screen has something to notice (docs/11 §11.12a). */}
+      {canManage && merge?.banner !== undefined && merge.banner(openMerge)}
+
       <Table
         rowKey="id"
         loading={loading}
@@ -304,6 +342,21 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
               name="note"
               label={t('admin.catalogues.fields.note')}
               extra={t('admin.catalogues.fields.mergedNoteHint')}
+              // The contract's limit as a field rule too: `maxLength` only stops typing, and a
+              // value past the limit must fail here, in front of the person, rather than as a
+              // parse error behind the form (M48.1).
+              rules={
+                merge.noteMaxLength === undefined
+                  ? []
+                  : [
+                      {
+                        max: merge.noteMaxLength,
+                        message: t('admin.catalogues.fields.noteTooLong', {
+                          max: merge.noteMaxLength,
+                        }),
+                      },
+                    ]
+              }
             >
               <Input.TextArea
                 rows={4}

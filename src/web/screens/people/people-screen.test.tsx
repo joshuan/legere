@@ -27,6 +27,16 @@ const server = createApiMock();
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
   server.use(http.get('/api/people', () => HttpResponse.json(envelope({ items: [person] }))));
+  // The analyst is absent unless a test says otherwise: no banner, and a hand-picked merge keeps
+  // its raw prefill (docs/11 §11.12a) — which is exactly what the older merge tests assert.
+  server.use(
+    http.get('/api/admin/people/merge-suggestions', () =>
+      HttpResponse.json(envelope({ configured: false, groups: [] })),
+    ),
+    http.post('/api/admin/people/merge-preview', () =>
+      HttpResponse.json(envelope({ available: false, name: null, aka: null })),
+    ),
+  );
 });
 afterEach(() => {
   server.resetHandlers();
@@ -149,6 +159,125 @@ describe('PeopleScreen', () => {
       expect(within(dialog).getByLabelText(enMessages.admin.catalogues.fields.note)).toHaveValue(
         '',
       );
+    });
+
+    it('clamps a prefilled note longer than the contract to what the contract accepts', async () => {
+      // Two long notes whose raw composition exceeds the 500 the contract allows — the shape that
+      // used to throw a client-side parse before any request was made (M48.1).
+      const chatty = { ...person, note: 'a'.repeat(394) };
+      const chattyTwin = { ...twin, note: 'b'.repeat(141) };
+      const raw = `Also known as: ${twin.name}\n${chatty.note}\n${chattyTwin.note}`;
+
+      let merged: unknown = null;
+      server.use(
+        http.post('/api/admin/people/merge', async ({ request }) => {
+          merged = await request.json();
+          return HttpResponse.json(envelope(person), { status: 201 });
+        }),
+      );
+
+      const dialog = await openTheMergeDialog([chatty, chattyTwin]);
+      const note = within(dialog).getByLabelText(enMessages.admin.catalogues.fields.note);
+      expect(note).toHaveValue(raw.slice(0, 500));
+
+      await userEvent.click(
+        within(dialog).getByRole('button', {
+          name: enMessages.admin.catalogues.actions.mergeConfirm,
+        }),
+      );
+
+      // The merge reaches the server and succeeds, rather than dying in the client's own schema.
+      await waitFor(() => expect(merged).toMatchObject({ note: raw.slice(0, 500) }));
+    });
+
+    it('replaces an untouched prefill with the analyst tidier reading, when there is one', async () => {
+      server.use(
+        http.post('/api/admin/people/merge-preview', () =>
+          HttpResponse.json(
+            envelope({
+              available: true,
+              name: 'Marija Petrović',
+              aka: ['Marija Petrovic', 'PETROVIC/MARIJA'],
+            }),
+          ),
+        ),
+      );
+
+      const dialog = await openTheMergeDialog([person, twin]);
+      const note = within(dialog).getByLabelText(enMessages.admin.catalogues.fields.note);
+
+      // The tidy line lands over the raw one: each distinct spelling once, as the analyst read it.
+      await waitFor(() =>
+        expect(note).toHaveValue(
+          'Also known as: Marija Petrovic, PETROVIC/MARIJA\nThe landlady\nSigns the lease',
+        ),
+      );
+    });
+  });
+
+  describe('duplicate suggestions (docs/11 §11.12a, docs/05 §5.6c)', () => {
+    const group = {
+      ids: [person.id, twin.id],
+      name: 'Marija Petrović',
+      aka: ['Marija Petrovic'],
+    };
+
+    beforeEach(() => {
+      server.use(
+        http.get('/api/people', () => HttpResponse.json(envelope({ items: [person, twin] }))),
+        http.get('/api/admin/people/merge-suggestions', () =>
+          HttpResponse.json(envelope({ configured: true, groups: [group] })),
+        ),
+      );
+    });
+
+    it('shows an admin the banner, and opens the ordinary dialog prefilled from the answer', async () => {
+      let merged: unknown = null;
+      server.use(
+        http.post('/api/admin/people/merge', async ({ request }) => {
+          merged = await request.json();
+          return HttpResponse.json(envelope(person), { status: 201 });
+        }),
+      );
+
+      renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
+
+      // The screen notices first: the group's names, and a Merge of its own.
+      expect(
+        await screen.findByText(enMessages.admin.people.suggestions.title),
+      ).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /Merge 2/ }));
+
+      const dialog = await screen.findByRole('dialog');
+      // The analyst's answer, prefilled: its spelling as the name, its tidy line in the note.
+      expect(
+        within(dialog).getByLabelText(enMessages.admin.catalogues.fields.mergedName),
+      ).toHaveValue('Marija Petrović');
+      expect(within(dialog).getByLabelText(enMessages.admin.catalogues.fields.note)).toHaveValue(
+        'Also known as: Marija Petrovic\nThe landlady\nSigns the lease',
+      );
+
+      await userEvent.click(
+        within(dialog).getByRole('button', {
+          name: enMessages.admin.catalogues.actions.mergeConfirm,
+        }),
+      );
+      await waitFor(() =>
+        expect(merged).toMatchObject({
+          ids: [person.id, twin.id],
+          name: 'Marija Petrović',
+        }),
+      );
+    });
+
+    it('shows no banner to a reader, and asks the server no admin question', async () => {
+      renderWithProviders(<PeopleScreen />);
+
+      expect(await screen.findByText('Marija Petrović')).toBeInTheDocument();
+      // No admin, no suggestions query: the msw handler would have answered, but with
+      // `onUnhandledRequest: 'error'` an unexpected call would fail loudly anyway — what is
+      // asserted here is simply that no banner exists for somebody who cannot merge.
+      expect(screen.queryByText(enMessages.admin.people.suggestions.title)).toBeNull();
     });
   });
 

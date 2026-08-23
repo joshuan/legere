@@ -594,6 +594,18 @@ somebody already typed would need somebody to type everything first. Fill-blanks
 of the analysis: a document that already names people is one where somebody has decided, so the
 answer is recorded in `autoValues.people` and not applied.
 
+**The catalogue notices its own duplicates.** What arrives as three rows is *recognisably* three
+rows — a case change, a missing diacritic, a transliteration, a typo in a patronymic, an airline's
+`SHERSHNEV/EVGENII MR` — and a person should not have to read a hundred and thirty names to find the
+twenty that are seven. The analyst (`05 §5.6c`) is therefore asked to read the living catalogue and
+propose merge groups, each carrying the spelling it would keep and the spellings it read as the same
+person. A proposal is a question, like every suggestion in Legere (`05 §5.6a`): nothing merges until
+an admin confirms it through the same merge that has always existed, the groups are stored nowhere,
+and a refusal is not remembered. Suggesting is an admin's, exactly because merging is. The note on a
+row is part of what the analyst reads — it is what tells two people of the same name apart, so a
+shared name with distinct notes is a reason *not* to propose — and 🔒 names and notes reach the model
+as fenced data, never as instructions, because the catalogue is writable by every signed-in user.
+
 ### 3.3.20. Subject
 
 What a document is *about*: a flat, a car, a country, a company. The **kind** says what sort of thing

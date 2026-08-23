@@ -626,7 +626,8 @@
         "mergedName": "The name to keep",
         "mergedNameHint": "Pick one of the selected names, or write the right one.",
         "alsoKnownAs": "Also known as: {names}",
-        "mergedNoteHint": "What the merged rows carried, kept on the surviving one. Delete what is noise — nothing here is written back to the rows that go away."
+        "mergedNoteHint": "What the merged rows carried, kept on the surviving one. Delete what is noise — nothing here is written back to the rows that go away.",
+        "noteTooLong": "The note must fit {max} characters."
       },
       "merged": "Merged",
       "mergeTitle": "Merge {count} rows into one",
@@ -647,6 +648,9 @@
       },
       "fields": {
         "noteHint": "Whatever tells two people of the same name apart."
+      },
+      "suggestions": {
+        "title": "These look like the same person"
       }
     },
     "subjects": {

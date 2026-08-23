@@ -131,6 +131,17 @@ standard lists them.
 | suggestions are deterministic, cite their identifiers, and store nothing | `test/e2e/document-links.e2e.test.ts` — proposes the documents that cite this one, saying which identifiers matched; excludes what is already linked, and stores nothing about a refusal; `src/server/domain/entities/document-link.test.ts` — reads number-bearing tokens off the title and the opening of the text |
 | suggestions exclude self and the already-linked | `test/e2e/document-links.e2e.test.ts` — proposes the documents that cite this one (asserts self is absent); excludes what is already linked |
 
+## Catalogue merge suggestions
+
+| Scenario | Test |
+|---|---|
+| admin-only on both endpoints | `test/e2e/people-merge-suggestions.e2e.test.ts` — refuses both endpoints to a non-admin |
+| the analyst's groups are validated, not trusted | `src/server/application/people/suggest-people-merges.test.ts` — drops what the model made up: unknown ids, groups of one, a row claimed twice; caps the groups at twenty |
+| computed on request, stored nowhere; the cache answers the same catalogue, a changed catalogue asks anew | `src/server/application/people/suggest-people-merges.test.ts` — asks once for one catalogue, and again when it changes |
+| no configured analyst → `configured: false`, never an error | `test/e2e/people-merge-suggestions.e2e.test.ts` — answers configured: false with no analyst, never an error |
+| 🔒 names and notes reach the model inside the fenced data channel | `src/server/infrastructure/ai/openai-compat-catalogue-analyst.test.ts` — sends the catalogue inside the fenced data channel, never the system message |
+| the merge dialog's prefill never exceeds what the contract accepts | `src/web/screens/people/people-screen.test.tsx` — clamps a prefilled note longer than the contract to what the contract accepts |
+
 ## Files and documents
 
 | Scenario | Test |

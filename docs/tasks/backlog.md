@@ -1313,3 +1313,43 @@ probes survived refutation, which is a better yield than the reviews themselves 
   **Goal:** the pipeline and the request path stop disagreeing about what exists.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`09 §9.2`](../09-file-storage.md)
   **Acceptance:** closes [SEC-80](./security-audit-2026-08-second-pass.md#sec-80), [SEC-90](./security-audit-2026-08-second-pass.md#sec-90). The pipeline no longer outruns the object write of the request that enqueued it — the comment saying it cannot is wrong, and the resulting canonical failure is permanent — and `DELETE /api/admin/document-types/:id` stops resetting every document that carried the type inside one 5-second transaction over rows whose `search_vector` is recomputed on rewrite.
+
+---
+
+## M48 — The catalogue reads itself
+
+One person is twenty-two rows. The people catalogue holds every spelling the documents ever used —
+`ШЕРШНЕВ ЕВГЕНИЙ КОНСТАНТИНОВИЧ`, `SHERSHNEV/EVGENII MR`, a patronymic with its letters swapped —
+and the screen that exists to fold them together makes the admin find them by reading a hundred and
+thirty names like a proofreader. The machinery that could recognise them is already in the house:
+the analyst read every one of those names off the documents, search already knows the two scripts
+are one name (M43), and the merge dialog has asked the right question since M10.10. Nobody ever asks
+it, because nobody sees the twenty-two rows as one person until they already know.
+
+And when the dialog does open, its prefill is a raw dump — every spelling, every note, one per line
+— which on real rows exceeds the note's own contract: the client-side schema then throws before any
+request is made, and the screen answers the admin's merge with "an unexpected error" and an empty
+network tab. A prefill the server would refuse is a bug twice over: once for breaking, once for
+burying the one feature the screen is for.
+
+---
+
+- [x] **M48.1 — The prefill keeps the contract it was written under**
+  **Goal:** the merge dialog never composes a default its own API refuses.
+  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
+  **Acceptance:** the prefilled note is cut to the contract's limit from the end, the note field validates that limit like any other field instead of letting a Zod parse throw past the form, and a merge of rows whose combined notes exceed the limit reaches the server and succeeds. Tests: a prefill longer than the limit is clamped and submitted; the people and subjects dialogs both.
+
+- [x] **M48.2 — An analyst for the catalogue itself**
+  **Goal:** the model that read the names can be asked which of them are one person — from a request, not only from the pipeline.
+  **Docs:** [`05 §5.6c`](../05-library-and-processing.md#56c-noticing-that-one-person-arrived-many-times), [`06 §6.3.3`](../06-backend-architecture.md#633-application-ports-non-repository)
+  **Acceptance:** a `CatalogueAnalyst` port with `suggestMerges` and `previewMerge` beside the pipeline's ports, implemented against the same `classifier` endpoint and gate; 🔒 the rows travel inside the nonce-fenced data channel and never the system message; the adapter owns the answer's shape — schema-parsed, lengths capped, a parse failure an empty answer rather than an error — and unconfigured reports itself unconfigured. Tests: the adapter against a recorded answer, the fencing, the capping, the failure shapes.
+
+- [x] **M48.3 — The suggestions, asked for and answered**
+  **Goal:** an admin request can ask "which rows are one person" and get yesterday's answer free when nothing changed.
+  **Docs:** [`03 §3.3.19`](../03-domain-model.md#3319-person), [`05 §5.6c`](../05-library-and-processing.md#56c-noticing-that-one-person-arrived-many-times), [`07 §7.3`](../07-api-specification.md)
+  **Acceptance:** `GET /api/admin/people/merge-suggestions` answers the analyst's groups, validated against the living catalogue, computed on request and cached in-process by the catalogue's content with concurrent requests deduplicated; `POST /api/admin/people/merge-preview` answers a tidy name and spellings for hand-picked ids, `404` for a dead one; both admin-only; no analyst → `configured: false` / `available: false`, never an error; nothing stored, a refusal never remembered. Tests: the scenarios of [`scenario-coverage.md`](./scenario-coverage.md#catalogue-merge-suggestions).
+
+- [x] **M48.4 — The screen notices first**
+  **Goal:** the duplicates announce themselves, and the dialog opens already tidy.
+  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
+  **Acceptance:** `/people` shows an admin a banner of the analyst's groups — the names each would fold, a Merge per group — opening the ordinary dialog preselected and prefilled with the analyst's name and its "also known as" line; a hand-selected merge asks for the same reading when the dialog opens, showing the raw prefill at once and replacing it only while the person has not edited; a merged or dismissed group leaves the banner without a new question to the server; no analyst, no banner, and the screen otherwise unchanged. Tests: the banner from a mocked answer, the preselected dialog, the untouched-fields replacement, the fallback when the preview is unavailable.
