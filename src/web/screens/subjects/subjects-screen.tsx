@@ -1,17 +1,29 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Form, Input, Select, Tag, Typography } from 'antd';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Alert, App, Button, Form, Input, Popconfirm, Select, Space, Tag, Typography } from 'antd';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { useCallback } from 'react';
-import type { SubjectDto } from '../../../shared/contracts/subjects';
+import { useCallback, useState } from 'react';
+import type { SubjectDto, SubjectMergeSuggestionGroup } from '../../../shared/contracts/subjects';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { useIsAdmin } from '../../entities/user';
-import { CatalogueManager } from '../../widgets/catalogue-manager';
+import { useErrorMessage } from '../../shared/lib';
+import { CatalogueManager, type MergeValues } from '../../widgets/catalogue-manager';
 
 type FormValues = { kindId: string; name: string; note: string };
+
+// As much as `mergeSubjectsRequestSchema` accepts.
+const NOTE_MAX = 2000;
+
+// The survivor's note, composed the way the raw prefill composes it (docs/11 §11.12a) — the "also
+// known as" line first, then every note the rows carried — with the analyst's tidy spellings in
+// place of the raw dump. Clamped where it is composed rather than where it is displayed.
+function composedNote(akaLine: string | null, rows: readonly SubjectDto[]): string {
+  const notes = rows.map((subject) => (subject.note ?? '').trim()).filter((note) => note !== '');
+  return [...(akaLine === null ? [] : [akaLine]), ...notes].join('\n').slice(0, NOTE_MAX);
+}
 
 // /subjects (docs/11 §11.12a): the things documents are about. Both halves are editable — a
 // boat filed as a country is corrected by moving it, not by deleting and retyping it
@@ -20,6 +32,8 @@ export function SubjectsScreen() {
   const t = useTranslations();
   // The role comes from the layout's own answer, through context (docs/10 §10.2).
   const isAdmin = useIsAdmin();
+  const describeError = useErrorMessage();
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });
   const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: subjectKindApi.list });
@@ -33,6 +47,53 @@ export function SubjectsScreen() {
     value: kind.id,
     label: kind.name,
   }));
+
+  // The analyst's proposals (docs/05 §5.6c). Asked once per visit and kept: a merged group leaves
+  // the banner because its rows leave the catalogue, not because the server is asked again.
+  const suggestions = useQuery({
+    queryKey: subjectKeys.mergeSuggestions,
+    queryFn: subjectApi.mergeSuggestions,
+    enabled: isAdmin,
+    staleTime: Infinity,
+  });
+  const [bannerClosed, setBannerClosed] = useState(false);
+
+  const alive = new Map((subjects.data?.items ?? []).map((subject) => [subject.id, subject]));
+  const groups = (suggestions.data?.configured === true ? suggestions.data.groups : []).filter(
+    (group) => group.ids.every((id) => alive.has(id)),
+  );
+  const placeholders = (
+    suggestions.data?.configured === true ? suggestions.data.placeholders : []
+  ).flatMap((id) => {
+    const subject = alive.get(id);
+    return subject === undefined ? [] : [subject];
+  });
+
+  const groupRows = (group: SubjectMergeSuggestionGroup): SubjectDto[] =>
+    group.ids.flatMap((id) => {
+      const subject = alive.get(id);
+      return subject === undefined ? [] : [subject];
+    });
+
+  const akaLine = (aka: readonly string[]): string | null =>
+    aka.length === 0 ? null : t('admin.catalogues.fields.alsoKnownAs', { names: aka.join(', ') });
+
+  const suggestedValues = (group: SubjectMergeSuggestionGroup): MergeValues => ({
+    name: group.name,
+    kindId: group.kindId,
+    note: composedNote(akaLine(group.aka), groupRows(group)),
+  });
+
+  // Deleting a placeholder is the ordinary delete, from the banner (docs/11 §11.12a): analysis
+  // noise goes one confirmed row at a time.
+  const removePlaceholder = useMutation({
+    mutationFn: (subject: SubjectDto) => subjectApi.remove(subject.id),
+    onSuccess: () => {
+      void message.success(t('admin.subjects.deleted'), 2);
+      refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
 
   return (
     <CatalogueManager<SubjectDto, FormValues>
@@ -133,6 +194,76 @@ export function SubjectsScreen() {
             note: note === '' ? null : note,
           });
         },
+        // A hand-picked merge asks the analyst for the tidy reading — name, kind and spellings —
+        // while the raw prefill is already on screen (docs/11 §11.12a).
+        prefill: async (rows) => {
+          const preview = await subjectApi
+            .mergePreview({ ids: rows.map((subject) => subject.id) })
+            .catch(() => null);
+          if (preview === null || !preview.available || preview.name === null) return null;
+          return {
+            name: preview.name,
+            ...(preview.kindId === null ? {} : { kindId: preview.kindId }),
+            note: composedNote(akaLine(preview.aka ?? []), rows),
+          };
+        },
+        // The screen notices first (docs/11 §11.12a): the groups, and beside them the rows that
+        // name a kind rather than a thing.
+        banner: (openMerge) =>
+          bannerClosed || (groups.length === 0 && placeholders.length === 0) ? null : (
+            <Alert
+              type="info"
+              showIcon
+              closable
+              style={{ marginBottom: 16 }}
+              onClose={() => setBannerClosed(true)}
+              message={t('admin.subjects.suggestions.title')}
+              description={
+                <Space direction="vertical" size="small">
+                  {groups.map((group) => (
+                    <Space key={group.ids.join(':')} wrap>
+                      <Typography.Text>
+                        {groupRows(group)
+                          .map((subject) => `${subject.kind}: ${subject.name}`)
+                          .join(', ')}
+                      </Typography.Text>
+                      <Button
+                        size="small"
+                        onClick={() => openMerge(groupRows(group), suggestedValues(group))}
+                      >
+                        {t('admin.catalogues.actions.merge', { count: group.ids.length })}
+                      </Button>
+                    </Space>
+                  ))}
+                  {placeholders.length > 0 && (
+                    <Typography.Text strong>
+                      {t('admin.subjects.suggestions.placeholdersTitle')}
+                    </Typography.Text>
+                  )}
+                  {placeholders.map((subject) => (
+                    <Space key={subject.id} wrap>
+                      <Typography.Text>
+                        {subject.kind}: {subject.name}
+                      </Typography.Text>
+                      <Popconfirm
+                        title={t('admin.subjects.confirmDelete', {
+                          name: subject.name,
+                          count: subject.documentCount,
+                        })}
+                        okText={t('common.yes')}
+                        cancelText={t('common.actions.cancel')}
+                        onConfirm={() => removePlaceholder.mutate(subject)}
+                      >
+                        <Button size="small" danger>
+                          {t('common.actions.delete')}
+                        </Button>
+                      </Popconfirm>
+                    </Space>
+                  ))}
+                </Space>
+              }
+            />
+          ),
       }}
       fields={() => (
         <>

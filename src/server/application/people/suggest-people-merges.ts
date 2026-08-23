@@ -6,23 +6,15 @@ import type {
 } from '../../../shared/contracts/people';
 import { NotFoundError } from '../../domain/errors/domain-error';
 import type { PersonRepository } from '../../domain/repositories/person.repository';
-import type { CatalogueAnalyst, CatalogueRow, MergeSuggestion } from '../ports/catalogue-analyst';
+import { SuggestionCache, sanitizeGroups } from '../catalogues/catalogue-suggestions';
+import type { CatalogueAnalyst, CatalogueRow } from '../ports/catalogue-analyst';
 
-// The merge contract's own bounds (docs/07 §7.3): a group the merge endpoint would refuse is not a
-// suggestion, and a suggester that proposes merging the whole catalogue is answering a different
-// question (docs/05 §5.6c).
-const MAX_GROUPS = 20;
-const MAX_GROUP_IDS = 50;
+const MAX_NAME = 200;
 
 // Which rows of the people catalogue are one person, asked of the analyst and answered from cache
-// while nothing changed (docs/05 §5.6c). Nothing is stored and a refusal is not remembered — the
-// one concession to cost is this in-process cache, keyed by the catalogue's content, gone with the
-// process.
+// while nothing changed (docs/05 §5.6c).
 export class SuggestPeopleMerges {
-  private cached: { key: string; groups: MergeSuggestionGroup[] } | null = null;
-  // 🔒 Concurrent requests are deduplicated: two admins arriving together are one question to the
-  // provider, not two (the same discipline as `CheckExternalServices`).
-  private pending: { key: string; answer: Promise<MergeSuggestionGroup[]> } | null = null;
+  private readonly cache = new SuggestionCache<MergeSuggestionGroup[]>();
 
   constructor(
     private readonly people: PersonRepository,
@@ -40,53 +32,16 @@ export class SuggestPeopleMerges {
     }));
     // The catalogue's content is the cache key: the same catalogue is the same question, and a
     // changed one asks anew (docs/05 §5.6c).
-    const key = JSON.stringify(rows);
-
-    if (this.cached?.key === key) return { configured: true, groups: this.cached.groups };
-    if (this.pending?.key === key) return { configured: true, groups: await this.pending.answer };
-
-    const answer = this.ask(rows, key);
-    this.pending = { key, answer };
-    return { configured: true, groups: await answer };
+    const groups = await this.cache.answer(
+      JSON.stringify(rows),
+      async () =>
+        sanitizeGroups((await this.analyst.suggestMerges(rows)).groups, rows, MAX_NAME).map(
+          (group) => ({ ids: group.ids, name: group.name, aka: group.aka }),
+        ),
+      [],
+    );
+    return { configured: true, groups };
   }
-
-  private async ask(rows: CatalogueRow[], key: string): Promise<MergeSuggestionGroup[]> {
-    try {
-      const groups = sanitizeSuggestions(await this.analyst.suggestMerges(rows), rows);
-      this.cached = { key, groups };
-      return groups;
-    } catch {
-      // An outage is not a verdict (docs/05 §5.4e): the banner is simply absent this visit, and the
-      // next request asks again rather than remembering a failure as an answer.
-      return [];
-    } finally {
-      if (this.pending?.key === key) this.pending = null;
-    }
-  }
-}
-
-// The sense half of the checking (docs/06 §6.3.3): the adapter bounded the shape, this judges the
-// answer against the living catalogue. An id the model made up, a group of one, a row claimed by
-// two groups — dropped, without costing the groups beside them.
-export function sanitizeSuggestions(
-  suggestions: readonly MergeSuggestion[],
-  rows: readonly CatalogueRow[],
-): MergeSuggestionGroup[] {
-  const living = new Set(rows.map((row) => row.id));
-  const claimed = new Set<string>();
-  const groups: MergeSuggestionGroup[] = [];
-
-  for (const suggestion of suggestions) {
-    const ids = [...new Set(suggestion.ids)]
-      .filter((id) => living.has(id) && !claimed.has(id))
-      .slice(0, MAX_GROUP_IDS);
-    if (ids.length < 2) continue;
-
-    for (const id of ids) claimed.add(id);
-    groups.push({ ids, name: suggestion.name, aka: suggestion.aka });
-    if (groups.length === MAX_GROUPS) break;
-  }
-  return groups;
 }
 
 // The same reading for rows an admin picked by hand, so the merge dialog opens tidy

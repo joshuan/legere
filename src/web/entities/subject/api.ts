@@ -3,11 +3,17 @@ import {
   listSubjectsResponseSchema,
   mergeSubjectsRequestSchema,
   subjectDtoSchema,
+  subjectMergePreviewRequestSchema,
+  subjectMergePreviewResponseSchema,
+  subjectMergeSuggestionsResponseSchema,
   updateSubjectRequestSchema,
   type CreateSubjectRequest,
   type ListSubjectsResponse,
   type MergeSubjectsRequest,
   type SubjectDto,
+  type SubjectMergePreviewRequest,
+  type SubjectMergePreviewResponse,
+  type SubjectMergeSuggestionsResponse,
   type UpdateSubjectRequest,
 } from '../../../shared/contracts/subjects';
 import { okResponseSchema, type OkResponse } from '../../../shared/contracts/users';
@@ -41,8 +47,23 @@ export const subjectApi = {
 
   remove: (id: string): Promise<OkResponse> =>
     apiClient.delete(`/api/admin/subjects/${id}`, { schema: okResponseSchema }),
+
+  // The analyst's reading of the things catalogue, kind-aware (docs/05 §5.6c): nothing stored,
+  // computed on request and cached against the catalogue's state.
+  mergeSuggestions: (): Promise<SubjectMergeSuggestionsResponse> =>
+    apiClient.get('/api/admin/subjects/merge-suggestions', {
+      schema: subjectMergeSuggestionsResponseSchema,
+    }),
+
+  // The same reading for a hand-picked selection, the kind included (docs/11 §11.12a).
+  mergePreview: (body: SubjectMergePreviewRequest): Promise<SubjectMergePreviewResponse> =>
+    apiClient.post('/api/admin/subjects/merge-preview', {
+      schema: subjectMergePreviewResponseSchema,
+      body: subjectMergePreviewRequestSchema.parse(body),
+    }),
 };
 
 export const subjectKeys = {
   all: ['subjects'] as const,
+  mergeSuggestions: ['subjects', 'merge-suggestions'] as const,
 };

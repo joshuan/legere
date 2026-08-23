@@ -13,6 +13,10 @@ export abstract class SubjectKindRepository {
 
   abstract findById(id: string, tx?: TransactionHandle): Promise<SubjectKind | null>;
 
+  // Living rows only, the way people answer it (docs/03 §3.3.19): what comes back is what may
+  // still be merged.
+  abstract findByIds(ids: string[], tx?: TransactionHandle): Promise<SubjectKind[]>;
+
   // Case-insensitively: "Apartment" and "apartment" are one kind, and the analysis does not know
   // which spelling the catalogue already has (docs/05 §5.5 step 4).
   abstract findByName(name: string, tx?: TransactionHandle): Promise<SubjectKind | null>;

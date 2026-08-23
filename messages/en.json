@@ -672,6 +672,10 @@
         "kindHint": "Kinds are managed on their own screen.",
         "noteHint": "The address, the plate, the account number, the other party — whatever a document about it would mention. The analysis reads this to tell one thing from another.",
         "note": "How to recognise it"
+      },
+      "suggestions": {
+        "title": "These look like the same thing",
+        "placeholdersTitle": "These name a kind, not a thing"
       }
     },
     "subjectKinds": {
@@ -690,6 +694,9 @@
       },
       "fields": {
         "nameHint": "One lower-case word: apartment, car, country."
+      },
+      "suggestions": {
+        "title": "These look like the same kind"
       }
     },
     "trash": {

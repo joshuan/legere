@@ -286,6 +286,8 @@ paginated — an edge set a person curates by hand is bounded the way collection
 | `POST /api/subjects` | 🔒 | `{ kindId, name, note? }` → `SubjectDto`; `409 SUBJECT_EXISTS` on a living `(kindId, name)`, `404 SUBJECT_KIND_NOT_FOUND` for a kind that is not in the catalogue. Open to any signed-in caller (03 §3.3.20) |
 | `PATCH /api/admin/subjects/:id` | 🔒ᴬ | `{ kindId?, name?, note? }` — moving a thing to another kind is an ordinary correction |
 | `POST /api/admin/subjects/merge` | 🔒ᴬ | `{ ids[≥2], kindId, name, note? }` → the surviving `SubjectDto`; same rules as the people merge, plus the kind the survivor is filed under, since the merged rows may disagree about it (03 §3.3.20) |
+| `GET /api/admin/subjects/merge-suggestions` | 🔒ᴬ | → `{ configured, groups: [{ ids[≥2], name, kindId, aka[] }], placeholders: [id] }` — the analyst's reading of the things catalogue (05 §5.6c), kind-aware: a group may fold rows across duplicate kinds, and `kindId` is the kind the survivor keeps, always one the merged rows already have. `placeholders` are rows whose name is a kind rather than a thing, offered for deletion. Same terms as the people endpoint: computed on request, cached in-process, nothing stored, `configured: false` without an analyst |
+| `POST /api/admin/subjects/merge-preview` | 🔒ᴬ | `{ ids[≥2] }` → `{ available, name?, kindId?, aka? }` — the tidy reading for a hand-picked selection, the kind included (11 §11.12a). `404 SUBJECT_NOT_FOUND` for an id that is not a living thing; `available: false` degrades to the raw prefill |
 | `DELETE /api/admin/subjects/:id` | 🔒ᴬ | soft delete; the links on existing documents stay |
 
 ### Subject kinds
@@ -294,6 +296,9 @@ paginated — an edge set a person curates by hand is bounded the way collection
 | `GET /api/subject-kinds` | 🔒 | the catalogue by name, each with how many things it holds and how many documents they are on |
 | `POST /api/subject-kinds` | 🔒 | `{ name, note? }` → `SubjectKindDto`; stored as typed, in any language and any case, unique case-insensitively; `409 SUBJECT_KIND_EXISTS`. Open to any signed-in caller, like people and subjects (03 §3.3.20a) |
 | `PATCH /api/admin/subject-kinds/:id` | 🔒ᴬ | `{ name?, note? }` — one edit renames every thing filed under it |
+| `POST /api/admin/subject-kinds/merge` | 🔒ᴬ | `{ ids[≥2], name, note? }` → the surviving `SubjectKindDto`. The oldest kind survives, takes the name, and receives every subject the others held; things two merged kinds both held under one folded name are folded too — links moved, duplicates collapsed, latecomers soft-deleted — all in one transaction (03 §3.3.20a). `409 SUBJECT_KIND_EXISTS` when the chosen name belongs to a kind outside the merge |
+| `GET /api/admin/subject-kinds/merge-suggestions` | 🔒ᴬ | → `{ configured, groups: [{ ids[≥2], name, aka[] }] }` — the analyst's reading of the kinds catalogue (05 §5.6c), on the people endpoint's terms |
+| `POST /api/admin/subject-kinds/merge-preview` | 🔒ᴬ | `{ ids[≥2] }` → `{ available, name?, aka? }`; `404 SUBJECT_KIND_NOT_FOUND` for an id that is not a living kind |
 | `DELETE /api/admin/subject-kinds/:id` | 🔒ᴬ | soft delete; 🔒 `409 SUBJECT_KIND_IN_USE` while a living subject still files under it |
 
 ### Document types

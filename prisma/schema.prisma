@@ -419,13 +419,16 @@ model DocumentChunk {
 // a report (docs/03 §3.3.19). A shared catalogue, so the same person on forty documents is one row
 // and renaming them fixes all forty.
 model Person {
-  id        String    @id @default(uuid()) @db.Uuid
-  name      String
+  id         String    @id @default(uuid()) @db.Uuid
+  name       String
+  // The identity fold (docs/03 §3.3.19): written by the application on every create and
+  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  nameFolded String    @default("") @map("name_folded")
   // Anything that tells two people with the same name apart, in whatever words the owner likes.
-  note      String?
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  note       String?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   documents DocumentPerson[]
 
@@ -451,12 +454,15 @@ model DocumentPerson {
 // What sort of thing a subject is: "apartment", "car", "country" (docs/03 §3.3.20a). A catalogue
 // rather than a string on every row — renaming a kind is then one edit rather than forty.
 model SubjectKind {
-  id        String    @id @default(uuid()) @db.Uuid
-  name      String
-  note      String?
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  id         String    @id @default(uuid()) @db.Uuid
+  name       String
+  // The identity fold (docs/03 §3.3.19): written by the application on every create and
+  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  nameFolded String    @default("") @map("name_folded")
+  note       String?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   subjects Subject[]
 
@@ -464,13 +470,16 @@ model SubjectKind {
 }
 
 model Subject {
-  id        String    @id @default(uuid()) @db.Uuid
-  kindId    String    @map("kind_id") @db.Uuid
-  name      String
-  note      String?
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  id         String    @id @default(uuid()) @db.Uuid
+  kindId     String    @map("kind_id") @db.Uuid
+  name       String
+  // The identity fold (docs/03 §3.3.19): written by the application on every create and
+  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  nameFolded String    @default("") @map("name_folded")
+  note       String?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   // Restricted rather than cascading: a kind still used by a living subject cannot be removed, and
   // a subject with no kind is not a thing anybody can file by (docs/03 §3.3.20a).
@@ -552,23 +561,23 @@ model CollectionShare {
 
 // The bytes themselves, once, however many places they turn up in (docs/03 §3.3.16, ADR-021).
 model File {
-  id          String      @id @default(uuid()) @db.Uuid
-  contentHash String      @map("content_hash")
-  origin      FileOrigin
-  storageKey  String?     @map("storage_key")
-  mimeType    String      @map("mime_type")
-  ext         String
-  sizeBytes   BigInt      @map("size_bytes")
-  name        String
-  crop        Json?
-  cropSource  ValueSource @default(NONE) @map("crop_source")
+  id            String       @id @default(uuid()) @db.Uuid
+  contentHash   String       @map("content_hash")
+  origin        FileOrigin
+  storageKey    String?      @map("storage_key")
+  mimeType      String       @map("mime_type")
+  ext           String
+  sizeBytes     BigInt       @map("size_bytes")
+  name          String
+  crop          Json?
+  cropSource    ValueSource  @default(NONE) @map("crop_source")
   // The order this file's own pages are read in, and how many of them there are (docs/03 §3.3.16).
   // `pageOrder` is a permutation of the 0-based page indices, null for the order they arrived in,
   // and meaningful only for a PDF exactly as `crop` is meaningful only for an image — the canonical
   // build obeys it and the file itself is never rewritten. `pageCount` is what the last build
   // counted, and what a stored order is checked against.
-  pageOrder   Json?       @map("page_order")
-  pageCount   Int?        @map("page_count")
+  pageOrder     Json?        @map("page_order")
+  pageCount     Int?         @map("page_count")
   // In the trash since, and how it got there (docs/05 §5.7a): a file is in exactly one document or
   // in the trash, and the trash is where every file that leaves a document waits to be deleted or
   // restored. `trashedFrom` is the title the document had when it left — a record and not a link,
@@ -580,9 +589,9 @@ model File {
   // file in the document *now*, so "the versions of this page" stays one query however many times
   // the page is replaced (docs/03 §3.3.16).
   replacedById  String?      @map("replaced_by_id") @db.Uuid
-  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt   DateTime?   @map("deleted_at") @db.Timestamptz(6)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime?    @map("deleted_at") @db.Timestamptz(6)
 
   refs            FileRef[]
   document        DocumentFile?

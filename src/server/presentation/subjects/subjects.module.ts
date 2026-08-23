@@ -6,6 +6,11 @@ import {
   MergeSubjects,
   UpdateSubject,
 } from '../../application/subjects/manage-subjects';
+import {
+  PreviewSubjectMerge,
+  SuggestSubjectMerges,
+} from '../../application/subjects/suggest-subject-merges';
+import { CatalogueAnalyst } from '../../application/ports/catalogue-analyst';
 import { Clock } from '../../application/ports/clock';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
@@ -48,6 +53,20 @@ import { AdminSubjectsController, SubjectsController } from './subjects.controll
         clock: Clock,
       ): MergeSubjects => new MergeSubjects(subjects, kinds, unitOfWork, clock),
       inject: [SubjectRepository, SubjectKindRepository, UnitOfWork, Clock],
+    },
+    // A singleton on purpose: its in-process cache is the one concession the suggester makes to
+    // cost (docs/05 §5.6c).
+    {
+      provide: SuggestSubjectMerges,
+      useFactory: (subjects: SubjectRepository, analyst: CatalogueAnalyst): SuggestSubjectMerges =>
+        new SuggestSubjectMerges(subjects, analyst),
+      inject: [SubjectRepository, CatalogueAnalyst],
+    },
+    {
+      provide: PreviewSubjectMerge,
+      useFactory: (subjects: SubjectRepository, analyst: CatalogueAnalyst): PreviewSubjectMerge =>
+        new PreviewSubjectMerge(subjects, analyst),
+      inject: [SubjectRepository, CatalogueAnalyst],
     },
     {
       provide: DeleteSubject,

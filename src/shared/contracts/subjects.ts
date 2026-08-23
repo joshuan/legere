@@ -44,3 +44,38 @@ export const updateSubjectRequestSchema = createSubjectRequestSchema
     message: 'At least one field must be provided',
   });
 export type UpdateSubjectRequest = z.infer<typeof updateSubjectRequestSchema>;
+
+// One thing the analyst recognised across several rows (docs/05 §5.6c), kind-aware: the group may
+// fold rows across duplicate kinds, and `kindId` is the kind the survivor keeps — always one the
+// merged rows already have, because the merge endpoint will not invent a shelf.
+export const subjectMergeSuggestionGroupSchema = z.object({
+  ids: z.array(z.string().uuid()).min(2).max(50),
+  name: z.string().min(1).max(200),
+  kindId: z.string().uuid(),
+  aka: z.array(z.string().min(1).max(200)).max(20),
+});
+export type SubjectMergeSuggestionGroup = z.infer<typeof subjectMergeSuggestionGroupSchema>;
+
+// `placeholders` are living rows whose name is a kind rather than a thing — analysis noise offered
+// for deletion, one confirmed row at a time (docs/03 §3.3.20).
+export const subjectMergeSuggestionsResponseSchema = z.object({
+  configured: z.boolean(),
+  groups: z.array(subjectMergeSuggestionGroupSchema).max(20),
+  placeholders: z.array(z.string().uuid()).max(20),
+});
+export type SubjectMergeSuggestionsResponse = z.infer<typeof subjectMergeSuggestionsResponseSchema>;
+
+export const subjectMergePreviewRequestSchema = z.object({
+  ids: z.array(z.string().uuid()).min(2).max(50),
+});
+export type SubjectMergePreviewRequest = z.infer<typeof subjectMergePreviewRequestSchema>;
+
+// `kindId` may be null while the name is not: a tidy spelling with an unresolvable kind still
+// beats a raw dump, and the dialog then keeps the kind it opened with.
+export const subjectMergePreviewResponseSchema = z.object({
+  available: z.boolean(),
+  name: z.string().min(1).max(200).nullable(),
+  kindId: z.string().uuid().nullable(),
+  aka: z.array(z.string().min(1).max(200)).max(20).nullable(),
+});
+export type SubjectMergePreviewResponse = z.infer<typeof subjectMergePreviewResponseSchema>;

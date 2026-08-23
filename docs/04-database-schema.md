@@ -883,6 +883,26 @@ the `NULLS FIRST` index does **not** replace `documents(document_date DESC NULLS
 scanned backwards yields `ASC NULLS FIRST`, which is the wrong order among the dated rows, so the
 two orders need two indexes and both stay.
 
+**The catalogue identity fold** (`03 §3.3.19`). The database is created with collation `C`, whose
+`lower()` folds ASCII alone — so the `lower(name)` partial unique indexes on `people`,
+`subjects` and `subject_kinds` never held for Cyrillic, and case-twins of one name lived beside
+each other. Identity therefore moves onto stored `name_folded` columns, written by the application
+(Unicode lowercase, whitespace collapsed) and backfilled once in the migration with the ICU
+collation, which folds what `lower()` under `C` cannot:
+
+```sql
+ALTER TABLE people ADD COLUMN name_folded text NOT NULL DEFAULT '';
+UPDATE people SET name_folded = btrim(regexp_replace(lower(name COLLATE "und-x-icu"), '\s+', ' ', 'g'));
+CREATE INDEX people_name_folded_idx ON people (name_folded) WHERE deleted_at IS NULL;
+-- likewise subjects (kind_id, name_folded) and subject_kinds (name_folded)
+```
+
+The indexes are **plain, not unique, on purpose**: the old ASCII-blind indexes admitted duplicates
+that live in real instances, and a unique index cannot be built over rows that already violate it.
+Uniqueness on the fold is enforced by the application on every write path meanwhile, and the unique
+indexes land in a later migration once the duplicates are merged away (backlog M49) — at which
+point the old `lower(name)` indexes retire with them.
+
 ## 4.4. Query patterns the schema must support (index rationale)
 
 Every filter `GET /api/documents` takes (`07 §7.3`) is in this table, because a filter nothing serves

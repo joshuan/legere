@@ -566,13 +566,26 @@ documents is one row — and correcting a spelling corrects all forty.
 | Field | Type | Notes |
 |---|---|---|
 | id | uuid | |
-| name | string | unique among living rows, case-insensitively |
+| name | string | unique among living rows, case-insensitively — enforced on `nameFolded`, see below |
+| nameFolded | string | the name folded for identity: Unicode-lowercased, whitespace collapsed. Written by the application on every create and rename, never by hand |
 | note | string? | whatever tells two people of the same name apart, in the owner's own words |
 | createdAt / updatedAt / deletedAt | | soft delete (ADR-015): the links stay, only new documents stop being able to name them. 🔒 Enforced, not merely offered: `PATCH /api/documents/:id` refuses a deleted id with `PERSON_NOT_FOUND` rather than re-linking it. A document that already names one says so — the detail carries `deleted: true` for that entry, and the viewer strikes it through, because a link that survives a deletion is a record and has to read as one |
 
 `DocumentPerson` links the two, many-to-many, **without a role**. A role — buyer, seller, payer — is
 real and wanted, but what the roles *are* is not knowable yet, and a half-guessed vocabulary is worse
 than none. Open question in §3.5.
+
+**One row per living name, in any alphabet.** "Case-insensitively" was the promise from the start,
+and for a Cyrillic archive it was silently broken: the database is created with collation `C`, whose
+`lower()` folds ASCII alone, so `ШЕРШНЕВ` and `Шершнев` passed the unique index as two people — and
+did, twenty-two rows of one man. The fold is therefore the application's, not the database's:
+`nameFolded` is the name Unicode-lowercased with its whitespace collapsed, written by the same code
+on every path that writes a name, and **every lookup that asks "is this name already here" asks it
+of the fold** — the analysis matching what it read, the uniqueness check ahead of a create or a
+rename, the merge checking the survivor's name. The same rule holds for subjects and their kinds
+(§3.3.20, §3.3.20a). The database's own unique index moves onto the fold once the duplicates the
+old index admitted have been merged away — deliberately after the cleanup, because an index cannot
+be built over rows that already violate it (backlog M49).
 
 **Who may do what.** Reading the catalogue and adding to it are open to anyone signed in, because the
 analysis step adds names on its own and whoever corrects it must be able to add the one it missed
@@ -587,12 +600,16 @@ the rest are soft-deleted. All of it in one transaction: a half-moved merge woul
 pointing at somebody nobody can see. The surviving name may not collide with a person who was not
 part of the merge — that would be two people becoming one by accident.
 
-**The analysis step fills it in.** The model is asked for the people a document is about, named as
-the document names them; each name is matched against the catalogue case-insensitively and created
-when it is missing. Creating is the point — an archive where the machine may only pick from what
-somebody already typed would need somebody to type everything first. Fill-blanks-only, like the rest
-of the analysis: a document that already names people is one where somebody has decided, so the
-answer is recorded in `autoValues.people` and not applied.
+**The analysis step fills it in — and recognises before it creates.** The model is shown the people
+already in the catalogue, each with its note and the spellings merges folded into it, and told to
+answer with the catalogue's own spelling when the document is genuinely about one of them —
+`SHERSHNEV/EVGENII MR` on a boarding pass is the person the catalogue already calls by his full
+Cyrillic name — and to write the document's spelling only for somebody new (`05 §5.5` step 4).
+Each answered name is then matched against the catalogue on the fold and created when it is
+missing. Creating is still the point — an archive where the machine may only pick from what
+somebody already typed would need somebody to type everything first. Fill-blanks-only, like the
+rest of the analysis: a document that already names people is one where somebody has decided, so
+the answer is recorded in `autoValues.people` and not applied.
 
 **The catalogue notices its own duplicates.** What arrives as three rows is *recognisably* three
 rows — a case change, a missing diacritic, a transliteration, a typo in a patronymic, an airline's
@@ -617,12 +634,17 @@ and "the papers for the car" is how anybody actually looks for them.
 | id | uuid | |
 | kindId | uuid | which `SubjectKind` this is one of |
 | name | string | which one, as the document writes it |
+| nameFolded | string | the identity fold, written by the application (§3.3.19) |
 | note | string? | **how to recognise this one**: the address, the plate, the account number, the other party — whatever a document about it would mention. Written by hand, read by the analysis |
 | createdAt / updatedAt / deletedAt | | soft delete (ADR-015): the links stay, and behave exactly as a deleted person's do (§3.3.19): refused on a new document, marked on an old one |
 
-Unique on `(kindId, lower(name))` among living rows: the same flat entered twice is the failure this
-table exists to prevent, and the kind is part of the identity because "Montenegro" the country and
-"Montenegro" the boat are two things.
+Unique on `(kindId, nameFolded)` among living rows — the fold of §3.3.19, because the database's
+`lower()` never folded Cyrillic and "the same flat entered twice" is exactly the failure this table
+exists to prevent. The kind is part of the identity because "Montenegro" the country and
+"Montenegro" the boat are two things. The suggester of `05 §5.6c` reads this catalogue too,
+kind-aware — a duplicate may sit across two spellings of one kind — and points beside its groups at
+**placeholders**: rows whose name is a kind rather than a thing, offered for deletion one confirmed
+row at a time.
 
 ### 3.3.20a. SubjectKind
 
@@ -633,7 +655,8 @@ screen has something to list, and the same kind cannot exist twice under two spe
 | Field | Type | Notes |
 |---|---|---|
 | id | uuid | |
-| name | string | stored exactly as typed, in any language and any case; unique among living rows, case-insensitively |
+| name | string | stored exactly as typed, in any language and any case; unique among living rows, case-insensitively — on the fold of §3.3.19 |
+| nameFolded | string | the identity fold, written by the application (§3.3.19) |
 | note | string? | what this kind is for, in the owner's own words |
 | createdAt / updatedAt / deletedAt | | soft delete (ADR-015) |
 
@@ -654,6 +677,18 @@ removing are an admin's. 🔒 **A kind still used by a living subject cannot be 
 (`SUBJECT_KIND_IN_USE`): a subject with no kind is not a thing anybody can file by, so the subjects
 go first.
 
+**Merging**, because kinds duplicate like everything else the analysis writes — `жильё` and `Жильё`
+by case, `car` beside `автомобиль` by language, `жилё` by typo — and a shelf split in half files
+nothing well. The rule is the people's rule (§3.3.19) with one addition for what a kind *holds*:
+the **oldest kind survives**, takes the name that was chosen, and receives every subject the merged
+kinds held. Where two of those kinds held the same thing — one folded name (§3.3.19) on both sides,
+`CHEVROLET LACETTI` under `car` and under `автомобиль` — the things are folded too: the oldest
+subject survives, receives the document links of its twins with duplicates collapsed, and the
+twins are soft-deleted, because a merge whose result violates the `(kindId, nameFolded)` identity
+would be a merge that undid the table's own rule. All of it in one transaction; the surviving name
+may not collide with a kind outside the merge; and the suggester of `05 §5.6c` proposes these
+groups the way it proposes people.
+
 **Recognising one again.** After the first months an archive stops meeting new things: almost every
 document arriving is about a flat, a car or a company that is already in the catalogue. So the
 analysis is given the catalogue — each thing with its kind, its name and its note — and told to
@@ -666,7 +701,7 @@ insurance policy are all recognised as being about one flat, none of which spell
 together may disagree about their kind, so the merge is told which kind the survivor is filed under.
 
 Same access and the same fill-blanks-only rule as people (§3.3.19): the analysis names things and
-creates the ones the catalogue has never seen, matching on `(kind, name)` case-insensitively; a
+creates the ones the catalogue has never seen, matching on `(kind, name)` on the fold (§3.3.19); a
 document that already says what it is about is left alone and the answer recorded in
 `autoValues.subjects`.
 

@@ -133,20 +133,66 @@ describe('OpenAiCompatCatalogueAnalyst', () => {
       ),
     );
 
-    const groups = await analyst().suggestMerges(ROWS);
+    const answer = await analyst().suggestMerges(ROWS);
 
     // The malformed entries cost themselves, not the group beside them; the spellings arrive once
     // each, never repeating the chosen name, whitespace collapsed.
-    expect(groups).toEqual([
-      { ids: [ROWS[0]?.id, ROWS[1]?.id], name: 'Марија Петровић', aka: ['PETROVIC MARIJA'] },
-    ]);
+    expect(answer).toEqual({
+      groups: [
+        { ids: [ROWS[0]?.id, ROWS[1]?.id], name: 'Марија Петровић', aka: ['PETROVIC MARIJA'] },
+      ],
+      placeholders: [],
+    });
+  });
+
+  it('carries the kinds into the fence and reads the kind and the placeholders back out', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      answers(
+        JSON.stringify({
+          groups: [
+            {
+              ids: ['id-1', 'id-2'],
+              name: 'Chevrolet Lacetti',
+              kind: 'автомобиль',
+              aka: ['CHEVROLET LACETTI'],
+            },
+          ],
+          placeholders: ['id-3'],
+        }),
+      ),
+    );
+
+    const withKinds = [
+      { id: 'id-1', name: 'CHEVROLET LACETTI', note: null, kind: 'car' },
+      { id: 'id-2', name: 'Chevrolet Lacetti', note: null, kind: 'автомобиль' },
+      { id: 'id-3', name: 'автомобиль', note: null, kind: 'автомобиль' },
+    ];
+    const answer = await analyst().suggestMerges(withKinds);
+
+    expect(answer).toEqual({
+      groups: [
+        {
+          ids: ['id-1', 'id-2'],
+          name: 'Chevrolet Lacetti',
+          kind: 'автомобиль',
+          aka: ['CHEVROLET LACETTI'],
+        },
+      ],
+      placeholders: ['id-3'],
+    });
+    const { system, user } = messagesOf(spy);
+    // The kind rides with each row as data, and the rules say what to do with it — but no row's
+    // kind is quoted in the instructions.
+    expect(user).toContain('"kind":"car"');
+    expect(system).toContain('placeholders');
+    expect(system).toContain('Judge sameness by the thing, not the shelf.');
   });
 
   it('answers nothing for prose, and no error', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
       Promise.resolve(answers('I could not find any duplicates.')),
     );
-    await expect(analyst().suggestMerges(ROWS)).resolves.toEqual([]);
+    await expect(analyst().suggestMerges(ROWS)).resolves.toEqual({ groups: [], placeholders: [] });
     await expect(analyst().previewMerge(ROWS)).resolves.toBeNull();
   });
 
@@ -188,7 +234,10 @@ describe('OpenAiCompatCatalogueAnalyst', () => {
   it('does not bother the provider about a catalogue of one', async () => {
     const spy = vi.spyOn(globalThis, 'fetch');
     const row = ROWS[0];
-    await expect(analyst().suggestMerges(row === undefined ? [] : [row])).resolves.toEqual([]);
+    await expect(analyst().suggestMerges(row === undefined ? [] : [row])).resolves.toEqual({
+      groups: [],
+      placeholders: [],
+    });
     expect(spy).not.toHaveBeenCalled();
   });
 });

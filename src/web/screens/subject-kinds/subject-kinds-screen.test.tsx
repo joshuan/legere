@@ -19,7 +19,16 @@ const server = createApiMock();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
-  server.use(http.get('/api/subject-kinds', () => HttpResponse.json(envelope({ items: [kind] }))));
+  // The analyst is absent unless a test says otherwise (docs/11 §11.12a).
+  server.use(
+    http.get('/api/subject-kinds', () => HttpResponse.json(envelope({ items: [kind] }))),
+    http.get('/api/admin/subject-kinds/merge-suggestions', () =>
+      HttpResponse.json(envelope({ configured: false, groups: [] })),
+    ),
+    http.post('/api/admin/subject-kinds/merge-preview', () =>
+      HttpResponse.json(envelope({ available: false, name: null, aka: null })),
+    ),
+  );
 });
 afterEach(() => {
   server.resetHandlers();
@@ -70,5 +79,90 @@ describe('SubjectKindsScreen', () => {
     // 🔒 The server refuses this one (SUBJECT_KIND_IN_USE), so the confirmation says why rather than
     // offering a button that cannot work (docs/03 §3.3.20a).
     expect(await screen.findByText(/still holds 3 things/)).toBeInTheDocument();
+  });
+
+  describe('merging (docs/03 §3.3.20a, docs/11 §11.12a)', () => {
+    const twin = {
+      id: 'bbbbbbbb-2222-4222-8222-222222222222',
+      name: 'Apartment',
+      note: null,
+      subjectCount: 1,
+      documentCount: 2,
+    };
+
+    it('folds the selected kinds into one, asking which name is the right one', async () => {
+      let merged: unknown = null;
+      server.use(
+        http.get('/api/subject-kinds', () => HttpResponse.json(envelope({ items: [kind, twin] }))),
+        http.post('/api/admin/subject-kinds/merge', async ({ request }) => {
+          merged = await request.json();
+          return HttpResponse.json(envelope(kind), { status: 201 });
+        }),
+      );
+
+      renderWithProviders(<SubjectKindsScreen />, { user: TEST_ADMIN });
+      await screen.findByText('Apartment');
+      const [selectAll] = screen.getAllByRole('checkbox');
+      if (selectAll === undefined) throw new Error('expected a selection checkbox');
+      await userEvent.click(selectAll);
+      await userEvent.click(await screen.findByRole('button', { name: /Merge 2/ }));
+
+      const dialog = await screen.findByRole('dialog');
+      // The vanishing spelling is kept as the survivor's note rather than lost.
+      expect(within(dialog).getByLabelText(enMessages.admin.catalogues.fields.note)).toHaveValue(
+        'Also known as: Apartment',
+      );
+      await userEvent.click(
+        within(dialog).getByRole('button', {
+          name: enMessages.admin.catalogues.actions.mergeConfirm,
+        }),
+      );
+
+      await waitFor(() =>
+        expect(merged).toMatchObject({
+          ids: [kind.id, twin.id],
+          name: 'apartment',
+          note: 'Also known as: Apartment',
+        }),
+      );
+    });
+
+    it('shows the analyst groups and opens the same dialog prefilled from the answer', async () => {
+      let merged: unknown = null;
+      server.use(
+        http.get('/api/subject-kinds', () => HttpResponse.json(envelope({ items: [kind, twin] }))),
+        http.get('/api/admin/subject-kinds/merge-suggestions', () =>
+          HttpResponse.json(
+            envelope({
+              configured: true,
+              groups: [{ ids: [kind.id, twin.id], name: 'apartment', aka: ['Apartment'] }],
+            }),
+          ),
+        ),
+        http.post('/api/admin/subject-kinds/merge', async ({ request }) => {
+          merged = await request.json();
+          return HttpResponse.json(envelope(kind), { status: 201 });
+        }),
+      );
+
+      renderWithProviders(<SubjectKindsScreen />, { user: TEST_ADMIN });
+      expect(
+        await screen.findByText(enMessages.admin.subjectKinds.suggestions.title),
+      ).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /Merge 2/ }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(
+        within(dialog).getByLabelText(enMessages.admin.catalogues.fields.mergedName),
+      ).toHaveValue('apartment');
+      await userEvent.click(
+        within(dialog).getByRole('button', {
+          name: enMessages.admin.catalogues.actions.mergeConfirm,
+        }),
+      );
+      await waitFor(() =>
+        expect(merged).toMatchObject({ ids: [kind.id, twin.id], name: 'apartment' }),
+      );
+    });
   });
 });

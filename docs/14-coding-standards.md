@@ -138,13 +138,24 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
   self → `LINK_SELF`; an edge whose other side the caller cannot read is absent from the list;
   hard-deleting a document takes its edges; suggestions are deterministic (a document citing
   another's number proposes it), exclude self and the already-linked, and store nothing.
-- Catalogue merge suggestions (03 §3.3.19, 05 §5.6c): admin-only on both endpoints; the analyst's
-  groups are validated, not trusted (an id outside the living catalogue, a group of one, a row
-  claimed twice → dropped; counts and lengths capped); computed on request, stored nowhere, and the
-  cache answers the same catalogue without a second model call while a changed catalogue asks anew;
-  no configured analyst → `configured: false` and an empty answer, never an error; 🔒 names and
-  notes reach the model inside the fenced data channel, never the system message; the merge dialog's
-  prefill never exceeds what the merge contract accepts, normalized or raw.
+- Catalogue merge suggestions (03 §3.3.19–20a, 05 §5.6c): admin-only on every endpoint; the
+  analyst's groups are validated, not trusted (an id outside the living catalogue, a group of one, a
+  row claimed twice → dropped; counts and lengths capped; a subject group's kind resolves to a kind
+  the merged rows already have); computed on request, stored nowhere, and the cache answers the same
+  catalogue without a second model call while a changed catalogue asks anew; no configured analyst →
+  `configured: false` and an empty answer, never an error; 🔒 names and notes reach the model inside
+  the fenced data channel, never the system message; the merge dialog's prefill never exceeds what
+  the merge contract accepts, normalized or raw.
+- Catalogue identity (03 §3.3.19): the fold is the application's — a Cyrillic case-twin of a living
+  name is the same name (create → the existing row, the analysis links rather than spawns);
+  a kinds merge moves every subject onto the survivor and folds the things two merged kinds held
+  under one folded name, links deduplicated, in one transaction; the surviving kind name may not
+  collide outside the merge (`SUBJECT_KIND_EXISTS`).
+- Analysis reuses the catalogue (03 §3.3.19–20a, 05 §5.5 step 4): the model is shown known people
+  and known things ordered by document count under their caps, and told to answer with the
+  catalogue's spelling; 🔒 the user-written catalogue lists travel inside the nonce-fenced data
+  channel, never the system message (SEC-55), with the nonce scrubbed from every name and note; a
+  catalogue answer in another case links the existing row rather than creating a twin.
 - Files and documents: a canonical PDF is built for every document whatever it is made of; adding,
   reordering, cropping and splitting each rebuild it; splitting off a file yields a document of its
   own and refuses to empty the last one (`DOCUMENT_LAST_FILE`); combining moves files in the chosen

@@ -138,9 +138,30 @@ standard lists them.
 | admin-only on both endpoints | `test/e2e/people-merge-suggestions.e2e.test.ts` — refuses both endpoints to a non-admin |
 | the analyst's groups are validated, not trusted | `src/server/application/people/suggest-people-merges.test.ts` — drops what the model made up: unknown ids, groups of one, a row claimed twice; caps the groups at twenty |
 | computed on request, stored nowhere; the cache answers the same catalogue, a changed catalogue asks anew | `src/server/application/people/suggest-people-merges.test.ts` — asks once for one catalogue, and again when it changes |
-| no configured analyst → `configured: false`, never an error | `test/e2e/people-merge-suggestions.e2e.test.ts` — answers configured: false with no analyst, never an error |
+| no configured analyst → `configured: false`, never an error | `test/e2e/people-merge-suggestions.e2e.test.ts` — answers configured: false with no analyst, never an error; `test/e2e/catalogue-suggestions.e2e.test.ts` — answers configured: false on subjects and kinds alike, never an error |
+| admin-only on the subjects and kinds endpoints too | `test/e2e/catalogue-suggestions.e2e.test.ts` — refuses every suggestion endpoint to a non-admin |
+| a subject group's kind resolves to a kind the merged rows already have | `src/server/application/subjects/suggest-subject-merges.test.ts` — resolves the survivor kind to one the merged rows already have, and drops a group that cannot |
+| placeholders are validated like groups | `src/server/application/subjects/suggest-subject-merges.test.ts` — passes the placeholder rows that are living things, and drops the made-up ones |
 | 🔒 names and notes reach the model inside the fenced data channel | `src/server/infrastructure/ai/openai-compat-catalogue-analyst.test.ts` — sends the catalogue inside the fenced data channel, never the system message |
 | the merge dialog's prefill never exceeds what the contract accepts | `src/web/screens/people/people-screen.test.tsx` — clamps a prefilled note longer than the contract to what the contract accepts |
+
+## Catalogue identity
+
+| Scenario | Test |
+|---|---|
+| the fold lowercases every alphabet and collapses whitespace | `src/server/domain/value-objects/name-fold.test.ts` — folds case across alphabets and collapses whitespace |
+| a Cyrillic case-twin of a living name is the same name | `test/integration/catalogue-fold.integration.test.ts` — finds the living row under a Cyrillic case-twin in all three catalogues |
+| the analysis links rather than spawns on a case-twin answer | `test/integration/catalogue-fold.integration.test.ts` — links the existing row when a name arrives in another case |
+| a kinds merge moves the subjects and folds the twins | `src/server/application/subject-kinds/merge-subject-kinds.test.ts` — moves every subject onto the survivor and folds the things both kinds held, links deduplicated; `test/e2e/subject-kind-merge.e2e.test.ts` — folds two kinds into one, and the things they both held with them |
+| the surviving kind name may not collide outside the merge | `test/e2e/subject-kind-merge.e2e.test.ts` — refuses a survivor name that belongs to a kind outside the merge |
+
+## Analysis reuses the catalogue
+
+| Scenario | Test |
+|---|---|
+| known people and things are shown most-filed first, under their caps | `src/server/infrastructure/ai/openai-compat-analyst.test.ts` — shows the people already known and says to answer with the catalogue's spelling; caps the known lists on their most-filed head |
+| 🔒 the user-written catalogues travel inside the fence, never the system message | `src/server/infrastructure/ai/openai-compat-analyst.test.ts` — keeps every user-written catalogue inside the fence, and the system message clean of it |
+| a catalogue answer in another case links the existing row | `test/integration/catalogue-fold.integration.test.ts` — links the existing row when a name arrives in another case |
 
 ## Files and documents
 

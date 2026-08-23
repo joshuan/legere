@@ -23,7 +23,15 @@ const server = createApiMock();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
+  // The analyst is absent unless a test says otherwise: no banner, and a hand-picked merge keeps
+  // its raw prefill (docs/11 §11.12a).
   server.use(
+    http.get('/api/admin/subjects/merge-suggestions', () =>
+      HttpResponse.json(envelope({ configured: false, groups: [], placeholders: [] })),
+    ),
+    http.post('/api/admin/subjects/merge-preview', () =>
+      HttpResponse.json(envelope({ available: false, name: null, kindId: null, aka: null })),
+    ),
     http.get('/api/subjects', () => HttpResponse.json(envelope({ items: [subject] }))),
     http.get('/api/subject-kinds', () =>
       HttpResponse.json(
@@ -177,5 +185,107 @@ describe('SubjectsScreen', () => {
     // The confirmation carries the count, because "delete this" and "delete this from four
     // documents" are different questions (docs/11 §11.12a).
     expect(await screen.findByText(/stays on the 4 documents/)).toBeInTheDocument();
+  });
+
+  describe('duplicate suggestions (docs/11 §11.12a, docs/05 §5.6c)', () => {
+    const twin = {
+      ...subject,
+      id: 'dddddddd-4444-4444-8444-444444444444',
+      kindId: BOAT,
+      kind: 'boat',
+      name: 'NJEGOSEVA 5',
+    };
+    const placeholder = {
+      ...subject,
+      id: 'eeeeeeee-5555-4555-8555-555555555555',
+      name: 'apartment',
+      documentCount: 0,
+    };
+
+    beforeEach(() => {
+      server.use(
+        http.get('/api/subjects', () =>
+          HttpResponse.json(envelope({ items: [subject, twin, placeholder] })),
+        ),
+        http.get('/api/admin/subjects/merge-suggestions', () =>
+          HttpResponse.json(
+            envelope({
+              configured: true,
+              groups: [
+                {
+                  ids: [subject.id, twin.id],
+                  name: 'Njegoševa 5',
+                  kindId: APARTMENT,
+                  aka: ['NJEGOSEVA 5'],
+                },
+              ],
+              placeholders: [placeholder.id],
+            }),
+          ),
+        ),
+      );
+    });
+
+    it('opens the dialog with the analyst name and kind, across two kinds', async () => {
+      let merged: unknown = null;
+      server.use(
+        http.post('/api/admin/subjects/merge', async ({ request }) => {
+          merged = await request.json();
+          return HttpResponse.json(envelope(subject), { status: 201 });
+        }),
+      );
+
+      renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
+      expect(
+        await screen.findByText(enMessages.admin.subjects.suggestions.title),
+      ).toBeInTheDocument();
+      // The group names both halves, because the duplicate sits across two kinds.
+      expect(screen.getByText('apartment: Njegoševa 5, boat: NJEGOSEVA 5')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /Merge 2/ }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(
+        within(dialog).getByLabelText(enMessages.admin.catalogues.fields.mergedName),
+      ).toHaveValue('Njegoševa 5');
+      await userEvent.click(
+        within(dialog).getByRole('button', {
+          name: enMessages.admin.catalogues.actions.mergeConfirm,
+        }),
+      );
+      await waitFor(() =>
+        expect(merged).toMatchObject({
+          ids: [subject.id, twin.id],
+          name: 'Njegoševa 5',
+          kindId: APARTMENT,
+          note: 'Also known as: NJEGOSEVA 5',
+        }),
+      );
+    });
+
+    it('offers the placeholder rows for deletion, one confirmed row at a time', async () => {
+      let deleted: string | null = null;
+      server.use(
+        http.delete(`/api/admin/subjects/${placeholder.id}`, () => {
+          deleted = placeholder.id;
+          return HttpResponse.json(envelope({ ok: true }));
+        }),
+      );
+
+      renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
+      expect(
+        await screen.findByText(enMessages.admin.subjects.suggestions.placeholdersTitle),
+      ).toBeInTheDocument();
+      expect(screen.getByText('apartment: apartment')).toBeInTheDocument();
+
+      // The banner's delete, behind the same confirmation as the table's.
+      const [bannerDelete] = screen.getAllByRole('button', {
+        name: enMessages.common.actions.delete,
+      });
+      if (bannerDelete === undefined) throw new Error('expected a delete button in the banner');
+      await userEvent.click(bannerDelete);
+      await userEvent.click(await screen.findByRole('button', { name: enMessages.common.yes }));
+
+      await waitFor(() => expect(deleted).toBe(placeholder.id));
+    });
   });
 });

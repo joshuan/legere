@@ -1,10 +1,25 @@
-import { Controller, Delete, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import {
   createSubjectKindRequestSchema,
+  mergeSubjectKindsRequestSchema,
   updateSubjectKindRequestSchema,
   type CreateSubjectKindRequest,
   type ListSubjectKindsResponse,
+  subjectKindMergePreviewRequestSchema,
+  type MergeSubjectKindsRequest,
   type SubjectKindDto,
+  type SubjectKindMergePreviewRequest,
+  type SubjectKindMergePreviewResponse,
+  type SubjectKindMergeSuggestionsResponse,
   type UpdateSubjectKindRequest,
 } from '../../../shared/contracts/subject-kinds';
 import type { Envelope } from '../../../shared/contracts/common';
@@ -15,6 +30,11 @@ import {
   ListSubjectKinds,
   UpdateSubjectKind,
 } from '../../application/subject-kinds/manage-subject-kinds';
+import { MergeSubjectKinds } from '../../application/subject-kinds/merge-subject-kinds';
+import {
+  PreviewSubjectKindMerge,
+  SuggestSubjectKindMerges,
+} from '../../application/subject-kinds/suggest-subject-kind-merges';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
@@ -54,7 +74,33 @@ export class AdminSubjectKindsController {
   constructor(
     private readonly updateKind: UpdateSubjectKind,
     private readonly deleteKind: DeleteSubjectKind,
+    private readonly mergeKinds: MergeSubjectKinds,
+    private readonly suggestMerges: SuggestSubjectKindMerges,
+    private readonly previewMerge: PreviewSubjectKindMerge,
   ) {}
+
+  // Declared before `:id`, or the router reads "merge" as a kind id.
+  @Post('merge')
+  async merge(
+    @ZodBody(mergeSubjectKindsRequestSchema) body: MergeSubjectKindsRequest,
+  ): Promise<Envelope<SubjectKindDto>> {
+    return successEnvelope(await this.mergeKinds.execute(body));
+  }
+
+  // The analyst's reading of the kinds catalogue (docs/05 §5.6c).
+  @Get('merge-suggestions')
+  async mergeSuggestions(): Promise<Envelope<SubjectKindMergeSuggestionsResponse>> {
+    return successEnvelope(await this.suggestMerges.execute());
+  }
+
+  // A POST for the ids in its body, but a question — nothing is created (docs/11 §11.12a).
+  @Post('merge-preview')
+  @HttpCode(HttpStatus.OK)
+  async mergePreview(
+    @ZodBody(subjectKindMergePreviewRequestSchema) body: SubjectKindMergePreviewRequest,
+  ): Promise<Envelope<SubjectKindMergePreviewResponse>> {
+    return successEnvelope(await this.previewMerge.execute(body));
+  }
 
   @Patch(':id')
   async update(

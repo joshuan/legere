@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { SubjectKind } from '../../domain/entities/subject-kind';
+import { foldName } from '../../domain/value-objects/name-fold';
 import {
   SubjectKindRepository,
   type SubjectKindWithCounts,
@@ -59,9 +60,19 @@ export class PrismaSubjectKindRepository extends SubjectKindRepository {
     return row === null ? null : toSubjectKind(row);
   }
 
+  async findByIds(ids: string[], tx?: TransactionHandle): Promise<SubjectKind[]> {
+    if (ids.length === 0) return [];
+    const rows = await clientOf(this.prisma, tx).subjectKind.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      orderBy: { name: 'asc' },
+    });
+    return rows.map(toSubjectKind);
+  }
+
   async findByName(name: string, tx?: TransactionHandle): Promise<SubjectKind | null> {
     const row = await clientOf(this.prisma, tx).subjectKind.findFirst({
-      where: { name: { equals: name.trim(), mode: 'insensitive' }, deletedAt: null },
+      // 🔒 The fold, not ILIKE: Жильё must find жильё (docs/03 §3.3.19).
+      where: { nameFolded: foldName(name), deletedAt: null },
     });
     return row === null ? null : toSubjectKind(row);
   }
@@ -73,7 +84,7 @@ export class PrismaSubjectKindRepository extends SubjectKindRepository {
     const row = await clientOf(this.prisma, tx).subjectKind.create({
       // As typed: the case is the owner's, and only the uniqueness check ignores it
       // (docs/03 §3.3.20a).
-      data: { name: input.name.trim(), note: input.note ?? null },
+      data: { name: input.name.trim(), nameFolded: foldName(input.name), note: input.note ?? null },
     });
     return toSubjectKind(row);
   }
@@ -86,7 +97,9 @@ export class PrismaSubjectKindRepository extends SubjectKindRepository {
     const row = await clientOf(this.prisma, tx).subjectKind.update({
       where: { id },
       data: {
-        ...(input.name === undefined ? {} : { name: input.name.trim() }),
+        ...(input.name === undefined
+          ? {}
+          : { name: input.name.trim(), nameFolded: foldName(input.name) }),
         ...(input.note === undefined ? {} : { note: input.note }),
       },
     });

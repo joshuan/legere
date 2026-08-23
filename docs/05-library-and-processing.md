@@ -746,11 +746,32 @@ because a run that told us nothing new happened to it.
    answers "partial" twice is not a reason to spend twice, and a model that answers 41 twice is
    not one either. It is written where somebody reading the document meets it (`11 §11.5`), and
    into the journal beside what the step cost (`03 §3.3.18`), and nowhere that acts.
-   **It is shown the catalogue it is filing into**: the kinds already in use, and the things
-   themselves with their notes (03 §3.3.20). After the first months an archive stops meeting new
-   things — almost every document is about a flat, a car or a company already known — so the job
-   stops being "read a name" and becomes "recognise which one of these". A new row is what the step
-   creates when nothing matches, not what it creates by default.
+   **It is shown the catalogues it is filing into**: the kinds already in use, the things themselves
+   with their notes (03 §3.3.20) — and the **people**, each with the note that tells two of a name
+   apart and with the spellings a merge folded into it (03 §3.3.19). After the first months an
+   archive stops meeting new entries — almost every document is about a flat, a company or a person
+   already known — so the job stops being "read a name" and becomes "recognise which one of these".
+   The rule is said outright, for all three: **answer with the catalogue's own spelling when the
+   document is genuinely about an entry already there, and write the document's spelling only for
+   somebody or something new.** A boarding pass reading `SHERSHNEV/EVGENII MR` is about the person
+   the catalogue calls `Шершнев Евгений Константинович`, and the answer that creates a twenty-third
+   spelling of him is the answer this list exists to prevent. A new row is what the step creates
+   when nothing matches, not what it creates by default — and being unsure is allowed: a name copied
+   off the page is a row the merge suggester (§5.6c) can fold later, a wrong recognition is a link
+   somebody has to notice and unpick.
+   **Each list is the most-used head of its catalogue, not an alphabetical slice**: entries ordered
+   by how many documents name them, capped (60 things, 200 people) so an archive of a thousand rows
+   does not push the document out of the context window — the cap falls on the tail nobody files by,
+   not on the rows that recur.
+   🔒 **The catalogues travel inside the same nonce-fenced data channel as the document text**, in a
+   fenced section of their own, never in the system message (SEC-55). Every signed-in user writes
+   these rows and the analysis itself writes them back — a note on a flat is text somebody typed,
+   and text somebody typed does not get to stand where the instructions stand. The system message
+   describes the sections and the rules; the entries themselves arrive as data, between lines
+   carrying this call's own nonce, which is scrubbed out of every name and note exactly as it is
+   scrubbed out of the excerpt. Only the document-type list stays in the system message: its slugs,
+   names and descriptions are an admin's writing (03 §3.3.13), and the answer is validated against
+   the list either way.
    **And it is shown what a person has already settled** — one block of *confirmed values*, carried
    by this call and by the fields call of step 5 alike. Two kinds of value are in it and they mean
    one thing. The ones whose column says who decided: the title where `titleSource` is `MANUAL`, the
@@ -962,16 +983,33 @@ unlike §5.6a and §5.6b, whose candidates are found deterministically, here the
 same `classifier` gate (§5.4b), asked one JSON question — *which of these living rows are one
 person?*
 
-Two calls exist, both on the `CatalogueAnalyst` port and both computed on request:
+**And one person is only where it started.** The same sameness afflicts the other two catalogues the
+analysis writes into: one kind arrives as `жильё`, `Жильё` and `car`-beside-`автомобиль`
+(`03 §3.3.20a`), and one flat arrives as eight spellings of one address — some of them filed under
+two of those duplicate kinds at once. So the suggester reads all three catalogues, each in its own
+call and each on the same terms:
 
-- **Suggesting** reads the living people catalogue — id, name and note of every row — and answers
-  with groups: the ids that are one person, the spelling worth keeping (the fullest, correctly
-  spelled form, in the person's own script), and the distinct other spellings, case-only and
-  punctuation-only variants collapsed. The note rides along because it is what tells two people of
-  the same name apart (`03 §3.3.19`): a shared name with distinct notes is a reason to keep quiet.
+- **People** — id, name and note of every living row. The note rides along because it is what tells
+  two people of the same name apart (`03 §3.3.19`): a shared name with distinct notes is a reason
+  to keep quiet.
+- **Kinds** — the same question over the kinds catalogue, which is small and duplicates by case,
+  language and typo.
+- **Things** — id, name, note *and kind*, because the duplicates worth finding sit across duplicate
+  kinds as often as inside one: `CHEVROLET LACETTI` under `car` and under `автомобиль` is one car.
+  A group's answer therefore also names **which kind the survivor is filed under** — resolved
+  against the kinds the merged rows already have, since the merge endpoint will not invent one —
+  and the subjects call answers one more list: **placeholders**, rows whose name is a kind rather
+  than a thing (`жильё` filed under `жильё`, `автомобиль` the car) — analysis noise offered for
+  deletion, each row a person confirms one by one.
+
+For each catalogue two calls exist on the `CatalogueAnalyst` port, both computed on request:
+
+- **Suggesting** answers with groups: the ids that are one entry, the spelling worth keeping (the
+  fullest, correctly spelled form, in the entry's own script), and the distinct other spellings,
+  case-only and punctuation-only variants collapsed.
 - **Previewing** does the same for a handful of rows an admin selected by hand, so the merge dialog
-  can open with a tidy name and a tidy "also known as" line instead of a raw dump of everything the
-  rows carried (`11 §11.12a`).
+  can open with a tidy name — and, for things, a tidy kind — instead of a raw dump of everything
+  the rows carried (`11 §11.12a`).
 
 **The answer is checked, not trusted.** The model's groups pass through the same discipline as an
 analysis answer (§5.5 step 4): parsed against a schema, a group naming an id that is not a living

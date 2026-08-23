@@ -35,6 +35,14 @@ export abstract class SubjectRepository {
 
   abstract listForDocument(documentId: string, tx?: TransactionHandle): Promise<Subject[]>;
 
+  // The living things filed under these kinds — what a kinds merge has to carry over
+  // (docs/03 §3.3.20a).
+  abstract listByKinds(kindIds: string[], tx?: TransactionHandle): Promise<Subject[]>;
+
+  // Re-files these things under another kind, name and note untouched: a kinds merge moves shelves,
+  // not labels (docs/03 §3.3.20a).
+  abstract moveToKind(ids: string[], kindId: string, tx?: TransactionHandle): Promise<void>;
+
   // Moves every document link from these rows onto one survivor, collapsing the duplicates a
   // document that named two of them would otherwise end up with (docs/03 §3.3.20).
   abstract moveDocumentLinks(

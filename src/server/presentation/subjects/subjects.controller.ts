@@ -1,12 +1,25 @@
-import { Controller, Delete, Get, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import {
   createSubjectRequestSchema,
   mergeSubjectsRequestSchema,
+  subjectMergePreviewRequestSchema,
   updateSubjectRequestSchema,
   type CreateSubjectRequest,
   type MergeSubjectsRequest,
   type ListSubjectsResponse,
   type SubjectDto,
+  type SubjectMergePreviewRequest,
+  type SubjectMergePreviewResponse,
+  type SubjectMergeSuggestionsResponse,
   type UpdateSubjectRequest,
 } from '../../../shared/contracts/subjects';
 import type { Envelope } from '../../../shared/contracts/common';
@@ -18,6 +31,10 @@ import {
   MergeSubjects,
   UpdateSubject,
 } from '../../application/subjects/manage-subjects';
+import {
+  PreviewSubjectMerge,
+  SuggestSubjectMerges,
+} from '../../application/subjects/suggest-subject-merges';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
@@ -58,6 +75,8 @@ export class AdminSubjectsController {
     private readonly updateSubject: UpdateSubject,
     private readonly deleteSubject: DeleteSubject,
     private readonly mergeSubjects: MergeSubjects,
+    private readonly suggestMerges: SuggestSubjectMerges,
+    private readonly previewMerge: PreviewSubjectMerge,
   ) {}
 
   // Declared before `:id`, or the router reads "merge" as a subject id.
@@ -66,6 +85,22 @@ export class AdminSubjectsController {
     @ZodBody(mergeSubjectsRequestSchema) body: MergeSubjectsRequest,
   ): Promise<Envelope<SubjectDto>> {
     return successEnvelope(await this.mergeSubjects.execute(body));
+  }
+
+  // The analyst's reading of the things catalogue (docs/05 §5.6c), kind-aware, with the
+  // placeholder rows beside the groups.
+  @Get('merge-suggestions')
+  async mergeSuggestions(): Promise<Envelope<SubjectMergeSuggestionsResponse>> {
+    return successEnvelope(await this.suggestMerges.execute());
+  }
+
+  // A POST for the ids in its body, but a question — nothing is created (docs/11 §11.12a).
+  @Post('merge-preview')
+  @HttpCode(HttpStatus.OK)
+  async mergePreview(
+    @ZodBody(subjectMergePreviewRequestSchema) body: SubjectMergePreviewRequest,
+  ): Promise<Envelope<SubjectMergePreviewResponse>> {
+    return successEnvelope(await this.previewMerge.execute(body));
   }
 
   @Patch(':id')

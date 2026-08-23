@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Subject } from '../../domain/entities/subject';
+import { foldName } from '../../domain/value-objects/name-fold';
 import {
   SubjectRepository,
   type SubjectWithCount,
@@ -71,9 +72,11 @@ export class PrismaSubjectRepository extends SubjectRepository {
     tx?: TransactionHandle,
   ): Promise<Subject | null> {
     const row = await clientOf(this.prisma, tx).subject.findFirst({
+      // 🔒 The fold, not ILIKE: the same flat in another case is the same flat
+      // (docs/03 §3.3.20).
       where: {
         kindId,
-        name: { equals: name.trim(), mode: 'insensitive' },
+        nameFolded: foldName(name),
         deletedAt: null,
       },
       include: { kind: true },
@@ -89,6 +92,7 @@ export class PrismaSubjectRepository extends SubjectRepository {
       data: {
         kindId: input.kindId,
         name: input.name.trim(),
+        nameFolded: foldName(input.name),
         note: input.note ?? null,
       },
       include: { kind: true },
@@ -105,7 +109,9 @@ export class PrismaSubjectRepository extends SubjectRepository {
       where: { id },
       data: {
         ...(input.kindId === undefined ? {} : { kindId: input.kindId }),
-        ...(input.name === undefined ? {} : { name: input.name.trim() }),
+        ...(input.name === undefined
+          ? {}
+          : { name: input.name.trim(), nameFolded: foldName(input.name) }),
         ...(input.note === undefined ? {} : { note: input.note }),
       },
       include: { kind: true },
@@ -115,6 +121,24 @@ export class PrismaSubjectRepository extends SubjectRepository {
 
   async softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void> {
     await clientOf(this.prisma, tx).subject.update({ where: { id }, data: { deletedAt } });
+  }
+
+  async listByKinds(kindIds: string[], tx?: TransactionHandle): Promise<Subject[]> {
+    if (kindIds.length === 0) return [];
+    const rows = await clientOf(this.prisma, tx).subject.findMany({
+      where: { kindId: { in: kindIds }, deletedAt: null },
+      include: { kind: true },
+      orderBy: { name: 'asc' },
+    });
+    return rows.map(toSubject);
+  }
+
+  async moveToKind(ids: string[], kindId: string, tx?: TransactionHandle): Promise<void> {
+    if (ids.length === 0) return;
+    await clientOf(this.prisma, tx).subject.updateMany({
+      where: { id: { in: ids } },
+      data: { kindId },
+    });
   }
 
   async listForDocument(documentId: string, tx?: TransactionHandle): Promise<Subject[]> {

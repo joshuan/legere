@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { InMemoryPersonRepository } from '../../../../test/helpers/processing-fakes';
 import { NotFoundError } from '../../domain/errors/domain-error';
-import type { CatalogueRow, MergePreview, MergeSuggestion } from '../ports/catalogue-analyst';
+import type {
+  CatalogueRow,
+  CatalogueSuggestions,
+  MergePreview,
+  MergeSuggestion,
+} from '../ports/catalogue-analyst';
 import { CatalogueAnalyst } from '../ports/catalogue-analyst';
 import { PreviewPeopleMerge, SuggestPeopleMerges } from './suggest-people-merges';
 
@@ -19,11 +24,11 @@ class ScriptedAnalyst extends CatalogueAnalyst {
     return this.configured;
   }
 
-  suggestMerges(rows: readonly CatalogueRow[]): Promise<MergeSuggestion[]> {
+  suggestMerges(rows: readonly CatalogueRow[]): Promise<CatalogueSuggestions> {
     void rows;
     this.calls += 1;
     if (this.failure !== null) return Promise.reject(this.failure);
-    return Promise.resolve(this.answer);
+    return Promise.resolve({ groups: this.answer, placeholders: [] });
   }
 
   previewMerge(rows: readonly CatalogueRow[]): Promise<MergePreview | null> {

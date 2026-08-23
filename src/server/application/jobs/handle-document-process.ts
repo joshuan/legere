@@ -663,12 +663,20 @@ export class HandleDocumentProcess extends JobHandler {
         })),
         kinds.map((kind) => kind.name),
         // Most documents are about something already here; the model can only know that if it is
-        // shown the catalogue (docs/03 §3.3.20).
-        (await this.subjects.listActive()).map((subject) => ({
-          kind: subject.kind,
-          name: subject.name,
-          note: subject.note,
-        })),
+        // shown the catalogue (docs/03 §3.3.20). Most-filed first, because the adapter caps the
+        // list and the cap must fall on the tail nobody files by (docs/05 §5.5 step 4).
+        (await this.subjects.listActive())
+          .sort((a, b) => b.documentCount - a.documentCount)
+          .map((subject) => ({
+            kind: subject.kind,
+            name: subject.name,
+            note: subject.note,
+          })),
+        // And the people likewise (docs/03 §3.3.19): a boarding pass files under the person the
+        // archive already knows, not under a twenty-third spelling of him.
+        (await this.people.listActive())
+          .sort((a, b) => b.documentCount - a.documentCount)
+          .map((person) => ({ name: person.name, note: person.note })),
         // Read per run rather than at start-up: changing it takes effect on the next document
         // (docs/05 §5.5).
         (await this.analysisSettings.read()).language,

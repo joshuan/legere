@@ -31,3 +31,42 @@ export const updateSubjectKindRequestSchema = createSubjectKindRequestSchema
     message: 'At least one field must be provided',
   });
 export type UpdateSubjectKindRequest = z.infer<typeof updateSubjectKindRequestSchema>;
+
+// Three spellings of one shelf become one (docs/03 §3.3.20a). The name is chosen rather than
+// derived, exactly as in the people merge: which spelling is right is the thing the machine got
+// wrong.
+export const mergeSubjectKindsRequestSchema = z.object({
+  ids: z.array(z.string().uuid()).min(2).max(50),
+  name: z.string().trim().min(1).max(40),
+  note: z.string().trim().max(500).nullable().optional(),
+});
+export type MergeSubjectKindsRequest = z.infer<typeof mergeSubjectKindsRequestSchema>;
+
+// One shelf the analyst recognised across several rows (docs/05 §5.6c), on the people contract's
+// terms: bounds are the merge contract's own.
+export const subjectKindMergeSuggestionGroupSchema = z.object({
+  ids: z.array(z.string().uuid()).min(2).max(50),
+  name: z.string().min(1).max(40),
+  aka: z.array(z.string().min(1).max(200)).max(20),
+});
+export type SubjectKindMergeSuggestionGroup = z.infer<typeof subjectKindMergeSuggestionGroupSchema>;
+
+export const subjectKindMergeSuggestionsResponseSchema = z.object({
+  configured: z.boolean(),
+  groups: z.array(subjectKindMergeSuggestionGroupSchema).max(20),
+});
+export type SubjectKindMergeSuggestionsResponse = z.infer<
+  typeof subjectKindMergeSuggestionsResponseSchema
+>;
+
+export const subjectKindMergePreviewRequestSchema = z.object({
+  ids: z.array(z.string().uuid()).min(2).max(50),
+});
+export type SubjectKindMergePreviewRequest = z.infer<typeof subjectKindMergePreviewRequestSchema>;
+
+export const subjectKindMergePreviewResponseSchema = z.object({
+  available: z.boolean(),
+  name: z.string().min(1).max(40).nullable(),
+  aka: z.array(z.string().min(1).max(200)).max(20).nullable(),
+});
+export type SubjectKindMergePreviewResponse = z.infer<typeof subjectKindMergePreviewResponseSchema>;

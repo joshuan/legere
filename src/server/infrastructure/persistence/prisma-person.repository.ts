@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Person } from '../../domain/entities/person';
+import { foldName } from '../../domain/value-objects/name-fold';
 import {
   PersonRepository,
   type PersonWithCount,
@@ -58,8 +59,10 @@ export class PrismaPersonRepository extends PersonRepository {
   }
 
   async findByName(name: string, tx?: TransactionHandle): Promise<Person | null> {
+    // 🔒 Matched on the fold, not on ILIKE: the C-collation database folds ASCII alone, and
+    // ШЕРШНЕВ has to find Шершнев (docs/03 §3.3.19).
     const row = await clientOf(this.prisma, tx).person.findFirst({
-      where: { name: { equals: name.trim(), mode: 'insensitive' }, deletedAt: null },
+      where: { nameFolded: foldName(name), deletedAt: null },
     });
     return row === null ? null : toPerson(row);
   }
@@ -69,7 +72,7 @@ export class PrismaPersonRepository extends PersonRepository {
     tx?: TransactionHandle,
   ): Promise<Person> {
     const row = await clientOf(this.prisma, tx).person.create({
-      data: { name: input.name.trim(), note: input.note ?? null },
+      data: { name: input.name.trim(), nameFolded: foldName(input.name), note: input.note ?? null },
     });
     return toPerson(row);
   }
@@ -82,7 +85,9 @@ export class PrismaPersonRepository extends PersonRepository {
     const row = await clientOf(this.prisma, tx).person.update({
       where: { id },
       data: {
-        ...(input.name === undefined ? {} : { name: input.name.trim() }),
+        ...(input.name === undefined
+          ? {}
+          : { name: input.name.trim(), nameFolded: foldName(input.name) }),
         ...(input.note === undefined ? {} : { note: input.note }),
       },
     });

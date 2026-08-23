@@ -74,6 +74,7 @@ import {
   type ConfirmedValues,
   type DocumentTypeOption,
   type FieldExtraction,
+  type KnownPerson,
   type KnownSubject,
   type PageImage,
   type DocumentAnalysis,
@@ -1284,10 +1285,21 @@ export class InMemorySubjectKindRepository extends SubjectKindRepository {
     return Promise.resolve(this.kinds.get(id) ?? null);
   }
 
+  findByIds(ids: string[]): Promise<SubjectKind[]> {
+    return Promise.resolve(
+      ids.flatMap((id) => {
+        const kind = this.kinds.get(id);
+        return kind === undefined || kind.deletedAt !== null ? [] : [kind];
+      }),
+    );
+  }
+
   findByName(name: string): Promise<SubjectKind | null> {
     const wanted = name.trim().toLowerCase();
     return Promise.resolve(
-      [...this.kinds.values()].find((kind) => kind.name.toLowerCase() === wanted) ?? null,
+      [...this.kinds.values()].find(
+        (kind) => kind.deletedAt === null && kind.name.toLowerCase() === wanted,
+      ) ?? null,
     );
   }
 
@@ -1324,8 +1336,13 @@ export class InMemorySubjectKindRepository extends SubjectKindRepository {
 
 // The subjects catalogue in memory (docs/03 §3.3.20).
 export class InMemorySubjectRepository extends SubjectRepository {
-  moveDocumentLinks(): Promise<void> {
-    return unused('moveDocumentLinks');
+  moveDocumentLinks(fromIds: string[], toId: string): Promise<void> {
+    for (const [documentId, ids] of this.links) {
+      if (!ids.some((id) => fromIds.includes(id))) continue;
+      // The collapse the real repository gets from `skipDuplicates` (docs/03 §3.3.20).
+      this.links.set(documentId, [...new Set(ids.map((id) => (fromIds.includes(id) ? toId : id)))]);
+    }
+    return Promise.resolve();
   }
 
   readonly subjects = new Map<string, Subject>();
@@ -1405,6 +1422,27 @@ export class InMemorySubjectRepository extends SubjectRepository {
     this.links.set(documentId, subjectIds);
     return Promise.resolve();
   }
+
+  listByKinds(kindIds: string[]): Promise<Subject[]> {
+    return Promise.resolve(
+      [...this.subjects.values()].filter(
+        (subject) => subject.deletedAt === null && kindIds.includes(subject.kindId),
+      ),
+    );
+  }
+
+  moveToKind(ids: string[], kindId: string): Promise<void> {
+    for (const id of ids) {
+      const subject = this.subjects.get(id);
+      if (subject === undefined) continue;
+      this.subjects.set(id, {
+        ...subject,
+        kindId,
+        kind: this.kinds.kinds.get(kindId)?.name ?? kindId,
+      });
+    }
+    return Promise.resolve();
+  }
 }
 
 export class FakeAnalyst extends DocumentAnalyst {
@@ -1453,6 +1491,7 @@ export class FakeAnalyst extends DocumentAnalyst {
     documentTypes: readonly DocumentTypeOption[],
     _subjectKinds?: readonly string[],
     _knownSubjects?: readonly KnownSubject[],
+    _knownPeople?: readonly KnownPerson[],
     _language?: string,
     pages: readonly PageImage[] = [],
     confirmed: ConfirmedValues = {},

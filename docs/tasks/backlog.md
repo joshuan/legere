@@ -1244,7 +1244,7 @@ probes survived refutation, which is a better yield than the reviews themselves 
   **Docs:** [`06 §6.7`](../06-backend-architecture.md#67-logging), [`08 §8.6`](../08-auth-and-authorization.md#86-security-checklist)
   **Acceptance:** closes [SEC-58](./security-audit-2026-08-second-pass.md#sec-58). The request log stops writing response headers wholesale: `Location` on a presigned redirect and `Content-Disposition` are the two that carry a credential and a filename, and an allow-list of headers replaces the current shape — the deny-list lesson of [SEC-23](./security-audit-2026-08.md#sec-23) applies to headers as much as to config. Tests: a download's log line contains neither the signature query nor the filename, asserted on both the redirect and the streamed branch.
 
-- [ ] **M47.5 — The catalogue is not a channel into the analyst**
+- [x] **M47.5 — The catalogue is not a channel into the analyst**
   **Goal:** what one user types cannot steer the analysis of documents they cannot read.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`03 §3.3.19`](../03-domain-model.md)
   **Acceptance:** closes [SEC-55](./security-audit-2026-08-second-pass.md#sec-55). Subject notes and catalogue names reach the model as **data**, not as part of the system message — the two-channel design [SEC-11](./security-audit-2026-08.md#sec-11)'s fix rests on is restored for the catalogue as it already is for the document — and the kind list is capped like the subject list beside it. Tests: a subject note containing an instruction does not change the analysis of an unrelated document; the system message is bounded whatever the catalogue holds.
@@ -1353,3 +1353,71 @@ burying the one feature the screen is for.
   **Goal:** the duplicates announce themselves, and the dialog opens already tidy.
   **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
   **Acceptance:** `/people` shows an admin a banner of the analyst's groups — the names each would fold, a Merge per group — opening the ordinary dialog preselected and prefilled with the analyst's name and its "also known as" line; a hand-selected merge asks for the same reading when the dialog opens, showing the raw prefill at once and replacing it only while the person has not edited; a merged or dismissed group leaves the banner without a new question to the server; no analyst, no banner, and the screen otherwise unchanged. Tests: the banner from a mocked answer, the preselected dialog, the untouched-fields replacement, the fallback when the preview is unavailable.
+
+---
+
+## M49 — The shelves hold their shape
+
+The people catalogue was the visible half of the disease. The other two catalogues the analysis
+writes into are worse: eleven kinds of which six are real — `жильё`, `Жильё` and the typo `жилё`
+side by side, `car` beside `автомобиль` — and two hundred things among which one flat is eight
+spellings of one address, some filed under two of the duplicate kinds at once, with placeholder
+rows ("жильё" the thing, of kind жильё) the analysis left as noise. Kinds cannot merge at all: the
+one catalogue whose duplicates split every shelf under them is the one without the tool.
+
+And under all of it, a broken promise: "unique case-insensitively" has never been true in any
+alphabet but Latin. The database's collation is `C`, its `lower()` folds ASCII alone, and the
+unique indexes built on it admitted `ШЕРШНЕВ` beside `Шершнев` — which is where a good part of
+every catalogue's twins came from. Until the namespace holds, every cleanup is a cleanup that
+comes back.
+
+---
+
+- [x] **M49.1 — The namespace holds its promise**
+  **Goal:** one living name is one row in any alphabet, on every path that writes one.
+  **Docs:** [`03 §3.3.19`](../03-domain-model.md#3319-person), [`04 §4.3`](../04-database-schema.md#43-raw-sql-in-migrations-required-steps)
+  **Acceptance:** a `name_folded` column on people, subjects and subject kinds — Unicode-lowercased, whitespace-collapsed, written by the application and backfilled once with the ICU collation — with every "is this name here" lookup asking the fold: the analysis matching what it read, the uniqueness checks, the merges checking the survivor; 🔒 a Cyrillic case-twin of a living name reaches the existing row rather than creating a second one; the indexes ship plain, and uniqueness is the application's until M49.4. Tests: the fold unit-tested in domain; the three catalogues integration-tested against the real collation.
+
+- [x] **M49.2 — Kinds merge like everything else**
+  **Goal:** the catalogue whose duplicates split shelves gets the same fold-things-together the other two have.
+  **Docs:** [`03 §3.3.20a`](../03-domain-model.md#3320a-subjectkind), [`07 §7.3`](../07-api-specification.md), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
+  **Acceptance:** `POST /api/admin/subject-kinds/merge` folds kinds the way people fold — oldest survives, takes the chosen name, receives every subject the others held — and the things two merged kinds both held under one folded name are folded along the way, links moved and deduplicated, latecomers soft-deleted, all in one transaction; `409 SUBJECT_KIND_EXISTS` outside the merge; `/subject-kinds` gets the checkboxes and the same dialog. Tests: the unit scenarios of the merge, an e2e fold of two kinds and their shared things, the web dialog.
+
+- [x] **M49.3 — The suggester reads all three catalogues**
+  **Goal:** every catalogue notices its own duplicates, and the things catalogue names its noise.
+  **Docs:** [`05 §5.6c`](../05-library-and-processing.md#56c-noticing-that-one-person-arrived-many-times), [`03 §3.3.20`](../03-domain-model.md#3320-subject), [`07 §7.3`](../07-api-specification.md), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
+  **Acceptance:** merge-suggestions and merge-preview on subjects and subject kinds, on the people endpoints' terms; the subjects call is kind-aware — a group may fold rows across duplicate kinds, its answer names the kind the survivor keeps, resolved against the kinds the merged rows already have — and answers placeholders beside its groups: rows naming a kind rather than a thing, each offered for deletion behind the ordinary confirmation; banners on both screens open the ordinary dialogs preselected and prefilled, and a hand-picked merge on either screen gets the async tidy prefill of M48.4. Tests: the scenarios of [`scenario-coverage.md`](./scenario-coverage.md#catalogue-merge-suggestions).
+
+- [ ] **M49.4 — The index lands after the cleanup**
+  **Goal:** the fold's uniqueness moves from the application into the database, where a race cannot slip past it.
+  **Docs:** [`04 §4.3`](../04-database-schema.md#43-raw-sql-in-migrations-required-steps)
+  **Acceptance:** blocked on the operator merging the duplicates the old indexes admitted (the banners of M48–M49 are the tool); then one forward-only migration replaces the `lower(name)` partial unique indexes with unique indexes over `name_folded` (people; subjects `(kind_id, name_folded)`; subject kinds), and the create paths keep answering `409` rather than `500` on the race the application check cannot close. Tests: the migration applies on an instance whose duplicates are merged; a case-twin create still answers `PERSON_EXISTS` / `SUBJECT_EXISTS` / `SUBJECT_KIND_EXISTS`.
+
+---
+
+## M50 — The analysis asks the catalogue first
+
+The archive stopped meeting new people months ago, and the analysis never noticed: it reads
+`SHERSHNEV/EVGENII MR` off a boarding pass and writes a twenty-third spelling of the one man the
+archive is mostly about, because nobody ever showed it the list. The things fare better — the
+catalogue is in the prompt — but as an alphabetical first sixty of two hundred rows, which is a
+list of whatever sorts early, and the rule "prefer what is already here" is implied rather than
+said. And the whole of what users type — kinds, things, notes — stands in the system message,
+where instructions stand, which is the surface SEC-55 named.
+
+---
+
+- [x] **M50.1 — The analysis knows who it already knows**
+  **Goal:** a document about a known person files under the row the archive already has, whatever the paper's spelling.
+  **Docs:** [`03 §3.3.19`](../03-domain-model.md#3319-person), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process)
+  **Acceptance:** `analyze` is shown the known people — name and note, the merges' "also known as" lines doing the recognising — and the prompt says the rule outright for people, kinds and things alike: answer with the catalogue's own spelling when the document is genuinely about an entry already there, create only when nothing matches; the answered names still pass the fold match of M49.1, so a near-miss links rather than spawns. Tests: the adapter shows the list and the rule; the pipeline passes the catalogue in.
+
+- [x] **M50.2 — The lists it is shown are the lists that matter**
+  **Goal:** the caps fall on the tail nobody files by, not on the alphabet.
+  **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process)
+  **Acceptance:** known things and known people arrive ordered by how many documents name them, capped at sixty and two hundred; the caps are the adapter's own and documented. Tests: the ordering and the caps, at the adapter.
+
+- [x] **M50.3 — The catalogue is data even when it is the prompt's**
+  **Goal:** closes M47.5 / [SEC-55](./security-audit-2026-08-second-pass.md#sec-55) — what one user types cannot steer the analysis of documents they cannot read.
+  **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`06 §6.3.3`](../06-backend-architecture.md#633-application-ports-non-repository)
+  **Acceptance:** 🔒 the user-written catalogue lists — kinds, known subjects, known people — travel inside the nonce-fenced data channel in a nonce-marked section of their own, never in the system message, the nonce scrubbed from every name and note; the system message keeps only the rules and the admin-written document-type list; both analyst calls and the fields call hold the line. Tests: the fence read back out of the request, the system message asserted clean.

@@ -5,6 +5,7 @@ import { readBoundedJson, readBoundedText } from '../../application/ports/binary
 import {
   CatalogueAnalyst,
   type CatalogueRow,
+  type CatalogueSuggestions,
   type MergePreview,
   type MergeSuggestion,
 } from '../../application/ports/catalogue-analyst';
@@ -25,23 +26,30 @@ const completionResponseSchema = z.object({
 
 // The answers we ask for. Both tolerant the way `answerSchema` is for the analysis: a group that is
 // not even an object is skipped on its own, without costing the groups beside it.
-const suggestionsAnswerSchema = z.object({ groups: z.array(z.unknown()).nullish() });
+const suggestionsAnswerSchema = z.object({
+  groups: z.array(z.unknown()).nullish(),
+  placeholders: z.array(z.string()).nullish(),
+});
 const groupSchema = z.object({
   ids: z.array(z.string()),
   name: z.string(),
   aka: z.array(z.string()).nullish(),
+  kind: z.string().nullish(),
 });
 const previewAnswerSchema = z.object({
   name: z.string().nullish(),
   aka: z.array(z.string()).nullish(),
+  kind: z.string().nullish(),
 });
 
 const TEMPERATURE = 0;
 
 // The shape of the answer is bounded here; what it means against the living catalogue is the use
-// case's judgement (docs/06 §6.3.3). The name cap is the merge contract's own.
+// case's judgement (docs/06 §6.3.3). The name cap is the widest merge contract's own; a catalogue
+// with a narrower one (kinds) narrows it in its own use case.
 const MAX_NAME_CHARS = 200;
 const MAX_AKA = 20;
+const MAX_PLACEHOLDERS = 20;
 
 // 🔒 The bytes behind the delimiter the catalogue is fenced with, drawn fresh for every call — the
 // same discipline as the document fence (docs/05 §5.5 step 4): every signed-in user writes these
@@ -84,16 +92,16 @@ export class OpenAiCompatCatalogueAnalyst extends CatalogueAnalyst {
     return this.baseUrl !== '' && this.model !== '';
   }
 
-  async suggestMerges(rows: readonly CatalogueRow[]): Promise<MergeSuggestion[]> {
+  async suggestMerges(rows: readonly CatalogueRow[]): Promise<CatalogueSuggestions> {
     if (!this.isConfigured) throw new Error('No catalogue analyst is configured');
-    if (rows.length < 2) return [];
+    if (rows.length < 2) return { groups: [], placeholders: [] };
 
     // One reading of the catalogue is one unit of the `classifier` gate (docs/05 §5.4b): an admin
     // request waits its turn behind the pipeline rather than hammering the provider beside it.
     return this.gates.run('classifier', async () => {
       const nonce = newNonce();
       const content = await this.completion([
-        { role: 'system', content: suggestionsSystemMessage(nonce) },
+        { role: 'system', content: suggestionsSystemMessage(nonce, kindAware(rows)) },
         { role: 'user', content: fenceCatalogue(rows, nonce) },
       ]);
       return readSuggestions(content);
@@ -106,7 +114,7 @@ export class OpenAiCompatCatalogueAnalyst extends CatalogueAnalyst {
     return this.gates.run('classifier', async () => {
       const nonce = newNonce();
       const content = await this.completion([
-        { role: 'system', content: previewSystemMessage(nonce) },
+        { role: 'system', content: previewSystemMessage(nonce, kindAware(rows)) },
         { role: 'user', content: fenceCatalogue(rows, nonce) },
       ]);
       return readPreview(content);
@@ -163,16 +171,29 @@ export class OpenAiCompatCatalogueAnalyst extends CatalogueAnalyst {
   }
 }
 
+// The subjects call is the one whose rows carry kinds; the prompts change with it.
+function kindAware(rows: readonly CatalogueRow[]): boolean {
+  return rows.some((row) => row.kind !== undefined);
+}
+
 // What both questions share: who is asking, and what kind of thing a catalogue row is.
 const CLERK_PREAMBLE = [
   'You are the catalogue clerk of a private document archive. The archive files documents by the',
-  'people they are about, and its analysis creates one catalogue row per spelling it reads off a',
-  'document — so one real person often exists as several rows: letter-case variants, missing',
+  'entries of its catalogues, and its analysis creates one catalogue row per spelling it reads off',
+  'a document — so one real entry often exists as several rows: letter-case variants, missing',
   'diacritics, the same name in Cyrillic and in Latin transliteration, OCR typos, initials for a',
   'given name, airline formats like "SHERSHNEV/EVGENII MR", and several spellings glued into one.',
   'Each row arrives as one JSON object with an "id", a "name", and a "note" — the note is what the',
-  'archive uses to tell two people of the same name apart, so rows whose notes describe different',
-  'people are different people even when their names agree.',
+  'archive uses to tell two entries of the same name apart, so rows whose notes describe different',
+  'entries are different entries even when their names agree.',
+].join(' ');
+
+// What changes when the rows are things filed under kinds (docs/03 §3.3.20).
+const KIND_PREAMBLE = [
+  'These rows are the *things* documents are about, and each carries a "kind" — what sort of thing',
+  'it is. The kinds themselves duplicate (one shelf spelled two ways, or in two languages), so two',
+  'rows may be the same thing under different kinds: the same car under "car" and under',
+  '"автомобиль". Judge sameness by the thing, not the shelf.',
 ].join(' ');
 
 // The rules of a good survivor, shared by both answers.
@@ -184,29 +205,56 @@ const SPELLING_RULES = [
   'name you chose.',
 ].join(' ');
 
-function suggestionsSystemMessage(nonce: string): string {
+const KIND_ANSWER_RULE = [
+  'For each group also answer "kind": which of the kinds the grouped rows already carry the',
+  'surviving thing should be filed under — the best-spelled one, in the language the archive',
+  'mostly uses. Never invent a kind that no grouped row carries.',
+].join(' ');
+
+// The second list only the kind-aware call answers (docs/05 §5.6c): analysis noise, offered for
+// deletion.
+const PLACEHOLDER_RULE = [
+  'Beside the groups, answer "placeholders": the ids of rows whose name is not a thing at all but',
+  'a kind written as one — the row named "жильё" of kind "жильё", a row named "автомобиль", "the',
+  'flat", "квартира" with nothing saying which. Only clear cases; a short name that could be a real',
+  'thing stays off this list.',
+].join(' ');
+
+function suggestionsSystemMessage(nonce: string, withKinds: boolean): string {
   return [
     CLERK_PREAMBLE,
-    'Your task: read the catalogue and answer which rows are the same real person. Group only rows',
+    ...(withKinds ? [KIND_PREAMBLE] : []),
+    'Your task: read the catalogue and answer which rows are the same real entry. Group only rows',
     'you are confident about — a wrong merge is worse than a missed one, and rows that might be two',
-    'people stay apart. Rows that belong to no group are simply absent from your answer.',
+    'entries stay apart. Rows that belong to no group are simply absent from your answer.',
     SPELLING_RULES,
+    ...(withKinds ? [KIND_ANSWER_RULE, PLACEHOLDER_RULE] : []),
     'Answer with JSON of exactly this shape and nothing else:',
-    '{"groups": [{"ids": ["<id of every row in the group>"], "name": "<the spelling to keep>",',
-    '"aka": ["<each distinct other spelling>"]}]}. No duplicates found means {"groups": []}.',
+    withKinds
+      ? '{"groups": [{"ids": ["<id of every row in the group>"], "name": "<the spelling to keep>",' +
+        ' "kind": "<the kind to keep>", "aka": ["<each distinct other spelling>"]}],' +
+        ' "placeholders": ["<id of each row that names a kind rather than a thing>"]}.'
+      : '{"groups": [{"ids": ["<id of every row in the group>"], "name": "<the spelling to keep>",' +
+        ' "aka": ["<each distinct other spelling>"]}]}.',
+    'No duplicates found means an empty "groups".',
     dataChannelNotice(nonce),
   ].join(' ');
 }
 
-function previewSystemMessage(nonce: string): string {
+function previewSystemMessage(nonce: string, withKinds: boolean): string {
   return [
     CLERK_PREAMBLE,
+    ...(withKinds ? [KIND_PREAMBLE] : []),
     'An administrator has already decided that every row in the next message is one and the same',
-    'person, and is about to merge them. Do not second-guess that decision. Your task is only to',
+    'entry, and is about to merge them. Do not second-guess that decision. Your task is only to',
     'tidy the result.',
     SPELLING_RULES,
+    ...(withKinds ? [KIND_ANSWER_RULE.replace('For each group also answer', 'Also answer')] : []),
     'Answer with JSON of exactly this shape and nothing else:',
-    '{"name": "<the spelling to keep>", "aka": ["<each distinct other spelling>"]}.',
+    withKinds
+      ? '{"name": "<the spelling to keep>", "kind": "<the kind to keep>",' +
+        ' "aka": ["<each distinct other spelling>"]}.'
+      : '{"name": "<the spelling to keep>", "aka": ["<each distinct other spelling>"]}.',
     dataChannelNotice(nonce),
   ].join(' ');
 }
@@ -232,7 +280,15 @@ function dataChannelNotice(nonce: string): string {
 // for the same reason (docs/05 §5.6c). Exported because the boundary is worth testing directly.
 export function fenceCatalogue(rows: readonly CatalogueRow[], nonce: string): string {
   const lines = rows.map((row) =>
-    scrub(JSON.stringify({ id: row.id, name: row.name, note: row.note }), nonce),
+    scrub(
+      JSON.stringify({
+        id: row.id,
+        name: row.name,
+        note: row.note,
+        ...(row.kind === undefined ? {} : { kind: row.kind }),
+      }),
+      nonce,
+    ),
   );
   return `${fenceLine(nonce)}\n${lines.join('\n')}\n${fenceLine(nonce)}`;
 }
@@ -255,23 +311,29 @@ function newNonce(): string {
 
 // A parse failure is an empty answer, not an error (docs/05 §5.6c): a model that answered prose
 // proposed nothing.
-function readSuggestions(content: string): MergeSuggestion[] {
+function readSuggestions(content: string): CatalogueSuggestions {
   const parsed = suggestionsAnswerSchema.safeParse(safeJson(extractJson(content)));
-  if (!parsed.success) return [];
+  if (!parsed.success) return { groups: [], placeholders: [] };
 
-  const suggestions: MergeSuggestion[] = [];
+  const groups: MergeSuggestion[] = [];
   for (const candidate of parsed.data.groups ?? []) {
     const group = groupSchema.safeParse(candidate);
     if (!group.success) continue;
     const name = tidy(group.data.name);
     if (name === '') continue;
-    suggestions.push({
+    const kind = tidy(group.data.kind ?? '');
+    groups.push({
       ids: group.data.ids,
       name,
       aka: tidyAka(group.data.aka ?? [], name),
+      ...(kind === '' ? {} : { kind }),
     });
   }
-  return suggestions;
+
+  return {
+    groups,
+    placeholders: (parsed.data.placeholders ?? []).slice(0, MAX_PLACEHOLDERS),
+  };
 }
 
 function readPreview(content: string): MergePreview | null {
@@ -279,7 +341,12 @@ function readPreview(content: string): MergePreview | null {
   if (!parsed.success) return null;
   const name = tidy(parsed.data.name ?? '');
   if (name === '') return null;
-  return { name, aka: tidyAka(parsed.data.aka ?? [], name) };
+  const kind = tidy(parsed.data.kind ?? '');
+  return {
+    name,
+    aka: tidyAka(parsed.data.aka ?? [], name),
+    ...(kind === '' ? {} : { kind }),
+  };
 }
 
 // One line, trimmed, no longer than a name may be — the shape half of the checking (docs/06 §6.3.3).
