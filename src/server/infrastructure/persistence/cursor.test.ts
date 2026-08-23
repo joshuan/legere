@@ -90,6 +90,13 @@ describe('cursor', () => {
       [Buffer.from(`1|whenever|2019-07-04|${ID}`).toString('base64url'), 'documentDate'],
       // No row to continue from.
       [Buffer.from('1|documentDate|2019-07-04|').toString('base64url'), 'documentDate'],
+      // 🔒 An id that is not a UUID would reach the driver as a filter on a uuid column and come
+      // back as a 500 (SEC-86); a forged cursor starts the list over instead.
+      [Buffer.from('1|documentDate|2019-07-04|not-a-uuid').toString('base64url'), 'documentDate'],
+      [
+        Buffer.from("1|createdAt|2026-03-01T00:00:00.000Z|' OR 1=1").toString('base64url'),
+        'createdAt',
+      ],
     ];
 
     for (const [value, sort] of unreadable) {
@@ -99,6 +106,13 @@ describe('cursor', () => {
       decodeCursor(Buffer.from(`2026-03-01T00:00:00.000Z|${ID}`).toString('base64url')),
     ).toBeNull();
     expect(decodeTextCursor(Buffer.from(`A title\u0000${ID}`).toString('base64url'))).toBeNull();
+    // The same guard on the other two decoders (SEC-86).
+    expect(
+      decodeCursor(Buffer.from('1|2026-03-01T00:00:00.000Z|not-a-uuid').toString('base64url')),
+    ).toBeNull();
+    expect(
+      decodeTextCursor(Buffer.from('1\u0000A title\u0000not-a-uuid').toString('base64url')),
+    ).toBeNull();
   });
 });
 

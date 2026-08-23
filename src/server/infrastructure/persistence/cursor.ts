@@ -20,6 +20,11 @@ import { UnprocessableError } from '../../domain/errors/domain-error';
 //      here there *is* a right answer and quietly giving the wrong one is worse than saying no.
 const CURSOR_VERSION = '1';
 
+// 🔒 The id is compared against a `@db.Uuid` column, and Prisma answers a non-UUID there with a
+// P2023 nothing maps — a 500 where rule 2 promises a fresh first page (SEC-86, the shape SEC-44's
+// fix already gave the queue cursor). The literal is `uuid-param.pipe.ts`'s.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export type Cursor = { at: Date; id: string };
 
 export function encodeCursor(cursor: Cursor): string {
@@ -32,7 +37,7 @@ export function decodeCursor(value: string | undefined): Cursor | null {
   const fields = decode(value, 3);
   if (fields === null) return null;
   const [, timestamp, id] = fields;
-  if (timestamp === undefined || id === undefined || id === '') return null;
+  if (timestamp === undefined || id === undefined || !UUID.test(id)) return null;
 
   const at = new Date(timestamp);
   return Number.isNaN(at.getTime()) ? null : { at, id };
@@ -62,7 +67,7 @@ export function decodeTextCursor(value: string | undefined): TextCursor | null {
   if (beforeId <= afterVersion) return null;
 
   const id = decoded.slice(beforeId + 1);
-  return id === '' ? null : { key: decoded.slice(afterVersion + 1, beforeId), id };
+  return UUID.test(id) ? { key: decoded.slice(afterVersion + 1, beforeId), id } : null;
 }
 
 // The cursor of a document list (docs/07 §7.3). Beyond the version it carries the order it was cut
@@ -88,7 +93,7 @@ export function decodeDocumentCursor(
   const fields = decode(value, 4);
   if (fields === null) return null;
   const [, name, key, id] = fields;
-  if (name === undefined || key === undefined || id === undefined || id === '') return null;
+  if (name === undefined || key === undefined || id === undefined || !UUID.test(id)) return null;
 
   const parsed = documentSortSchema.safeParse(name);
   if (!parsed.success) return null;
