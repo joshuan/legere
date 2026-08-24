@@ -22,8 +22,8 @@ export class SuggestPeopleMerges {
   ) {}
 
   async execute(): Promise<PeopleMergeSuggestionsResponse> {
-    // Unconfigured is an answer, not an error (docs/07 §7.3): the screen simply has no banner.
-    if (!this.analyst.isConfigured) return { configured: false, groups: [] };
+    // Unconfigured is a state, not an error (docs/07 §7.3): the screen simply has no banner.
+    if (!this.analyst.isConfigured) return { state: 'UNCONFIGURED', groups: [] };
 
     const rows = (await this.people.listActive()).map((person): CatalogueRow => ({
       id: person.id,
@@ -32,15 +32,15 @@ export class SuggestPeopleMerges {
     }));
     // The catalogue's content is the cache key: the same catalogue is the same question, and a
     // changed one asks anew (docs/05 §5.6c).
-    const groups = await this.cache.answer(
-      JSON.stringify(rows),
-      async () =>
-        sanitizeGroups((await this.analyst.suggestMerges(rows)).groups, rows, MAX_NAME).map(
-          (group) => ({ ids: group.ids, name: group.name, aka: group.aka }),
-        ),
-      [],
+    const reading = await this.cache.answer(JSON.stringify(rows), async () =>
+      sanitizeGroups((await this.analyst.suggestMerges('people', rows)).groups, rows, MAX_NAME).map(
+        (group) => ({ ids: group.ids, name: group.name, aka: group.aka }),
+      ),
     );
-    return { configured: true, groups };
+    // A reading that failed says so rather than passing itself off as a catalogue with no
+    // duplicates in it (docs/05 §5.6c).
+    if (!reading.answered) return { state: 'UNAVAILABLE', groups: [] };
+    return { state: 'ANSWERED', groups: reading.value };
   }
 }
 
@@ -63,6 +63,7 @@ export class PreviewPeopleMerge {
 
     try {
       const preview = await this.analyst.previewMerge(
+        'people',
         rows.map((person) => ({ id: person.id, name: person.name, note: person.note })),
       );
       if (preview === null) return { available: false, name: null, aka: null };

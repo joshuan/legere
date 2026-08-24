@@ -23,22 +23,22 @@ export class SuggestSubjectKindMerges {
   ) {}
 
   async execute(): Promise<SubjectKindMergeSuggestionsResponse> {
-    if (!this.analyst.isConfigured) return { configured: false, groups: [] };
+    if (!this.analyst.isConfigured) return { state: 'UNCONFIGURED', groups: [] };
 
     const rows = (await this.kinds.listActive()).map((kind): CatalogueRow => ({
       id: kind.id,
       name: kind.name,
       note: kind.note,
     }));
-    const groups = await this.cache.answer(
-      JSON.stringify(rows),
-      async () =>
-        sanitizeGroups((await this.analyst.suggestMerges(rows)).groups, rows, MAX_NAME).map(
-          (group) => ({ ids: group.ids, name: group.name, aka: group.aka }),
-        ),
-      [],
+    const reading = await this.cache.answer(JSON.stringify(rows), async () =>
+      sanitizeGroups(
+        (await this.analyst.suggestMerges('subject-kinds', rows)).groups,
+        rows,
+        MAX_NAME,
+      ).map((group) => ({ ids: group.ids, name: group.name, aka: group.aka })),
     );
-    return { configured: true, groups };
+    if (!reading.answered) return { state: 'UNAVAILABLE', groups: [] };
+    return { state: 'ANSWERED', groups: reading.value };
   }
 }
 
@@ -58,6 +58,7 @@ export class PreviewSubjectKindMerge {
 
     try {
       const preview = await this.analyst.previewMerge(
+        'subject-kinds',
         rows.map((kind) => ({ id: kind.id, name: kind.name, note: kind.note })),
       );
       // A name the merge contract would refuse is no preview at all (docs/07 §7.3).

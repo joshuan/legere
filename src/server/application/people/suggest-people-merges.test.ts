@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { InMemoryPersonRepository } from '../../../../test/helpers/processing-fakes';
 import { NotFoundError } from '../../domain/errors/domain-error';
 import type {
+  CatalogueName,
   CatalogueRow,
   CatalogueSuggestions,
   MergePreview,
@@ -19,19 +20,28 @@ class ScriptedAnalyst extends CatalogueAnalyst {
   answer: MergeSuggestion[] = [];
   preview: MergePreview | null = null;
   failure: Error | null = null;
+  asked: CatalogueName[] = [];
 
   get isConfigured(): boolean {
     return this.configured;
   }
 
-  suggestMerges(rows: readonly CatalogueRow[]): Promise<CatalogueSuggestions> {
+  suggestMerges(
+    catalogue: CatalogueName,
+    rows: readonly CatalogueRow[],
+  ): Promise<CatalogueSuggestions> {
     void rows;
     this.calls += 1;
+    this.asked.push(catalogue);
     if (this.failure !== null) return Promise.reject(this.failure);
     return Promise.resolve({ groups: this.answer, placeholders: [] });
   }
 
-  previewMerge(rows: readonly CatalogueRow[]): Promise<MergePreview | null> {
+  previewMerge(
+    catalogue: CatalogueName,
+    rows: readonly CatalogueRow[],
+  ): Promise<MergePreview | null> {
+    void catalogue;
     void rows;
     this.previews += 1;
     if (this.failure !== null) return Promise.reject(this.failure);
@@ -46,13 +56,20 @@ async function seeded(names: string[]): Promise<InMemoryPersonRepository> {
 }
 
 describe('SuggestPeopleMerges', () => {
-  it('answers configured: false without asking anything of an unconfigured analyst', async () => {
+  it('answers UNCONFIGURED without asking anything of an unconfigured analyst', async () => {
     const analyst = new ScriptedAnalyst();
     analyst.configured = false;
     const suggest = new SuggestPeopleMerges(await seeded(['A', 'B']), analyst);
 
-    await expect(suggest.execute()).resolves.toEqual({ configured: false, groups: [] });
+    await expect(suggest.execute()).resolves.toEqual({ state: 'UNCONFIGURED', groups: [] });
     expect(analyst.calls).toBe(0);
+  });
+
+  it('names the catalogue it is reading, so a failure can say which one broke', async () => {
+    const analyst = new ScriptedAnalyst();
+    await new SuggestPeopleMerges(await seeded(['A', 'B']), analyst).execute();
+
+    expect(analyst.asked).toEqual(['people']);
   });
 
   it('drops what the model made up: unknown ids, groups of one, a row claimed twice; caps the groups at twenty', async () => {
@@ -80,7 +97,7 @@ describe('SuggestPeopleMerges', () => {
 
     const response = await suggest.execute();
 
-    expect(response.configured).toBe(true);
+    expect(response.state).toBe('ANSWERED');
     expect(response.groups[0]).toEqual({
       ids: ['person-3', 'person-4'],
       name: 'Person 3',
@@ -121,20 +138,32 @@ describe('SuggestPeopleMerges', () => {
     expect(first).toEqual(second);
   });
 
-  it('treats an outage as no answer, not as an answer of none', async () => {
+  it('reports an outage as UNAVAILABLE, never as an answer of none', async () => {
     const people = await seeded(['A', 'B']);
     const analyst = new ScriptedAnalyst();
     analyst.failure = new Error('provider is away');
     const suggest = new SuggestPeopleMerges(people, analyst);
 
-    await expect(suggest.execute()).resolves.toEqual({ configured: true, groups: [] });
+    // 🔒 The whole of M52: this is not `ANSWERED` with an empty list, which is what a dead provider
+    // and a clean catalogue used to look like alike (docs/05 §5.6c).
+    await expect(suggest.execute()).resolves.toEqual({ state: 'UNAVAILABLE', groups: [] });
 
     // Nothing was cached: the next request asks again rather than remembering the failure.
     analyst.failure = null;
     analyst.answer = [{ ids: ['person-1', 'person-2'], name: 'A', aka: ['B'] }];
     const recovered = await suggest.execute();
     expect(analyst.calls).toBe(2);
-    expect(recovered.groups).toHaveLength(1);
+    expect(recovered).toEqual({
+      state: 'ANSWERED',
+      groups: [{ ids: ['person-1', 'person-2'], name: 'A', aka: ['B'] }],
+    });
+  });
+
+  it('tells a catalogue with no duplicates from an analyst that could not be asked', async () => {
+    const analyst = new ScriptedAnalyst();
+    const clean = new SuggestPeopleMerges(await seeded(['A', 'B']), analyst);
+
+    await expect(clean.execute()).resolves.toEqual({ state: 'ANSWERED', groups: [] });
   });
 });
 

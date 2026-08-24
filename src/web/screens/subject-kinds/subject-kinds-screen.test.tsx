@@ -25,7 +25,7 @@ beforeEach(() => {
       HttpResponse.json(envelope({ nextCursor: null, items: [kind] })),
     ),
     http.get('/api/admin/subject-kinds/merge-suggestions', () =>
-      HttpResponse.json(envelope({ configured: false, groups: [] })),
+      HttpResponse.json(envelope({ state: 'UNCONFIGURED', groups: [] })),
     ),
     http.post('/api/admin/subject-kinds/merge-preview', () =>
       HttpResponse.json(envelope({ available: false, name: null, aka: null })),
@@ -140,7 +140,7 @@ describe('SubjectKindsScreen', () => {
         http.get('/api/admin/subject-kinds/merge-suggestions', () =>
           HttpResponse.json(
             envelope({
-              configured: true,
+              state: 'ANSWERED',
               groups: [{ ids: [kind.id, twin.id], name: 'apartment', aka: ['Apartment'] }],
             }),
           ),
@@ -169,6 +169,21 @@ describe('SubjectKindsScreen', () => {
       await waitFor(() =>
         expect(merged).toMatchObject({ ids: [kind.id, twin.id], name: 'apartment' }),
       );
+    });
+
+    it('says the analyst could not be asked, instead of showing nothing', async () => {
+      server.use(
+        http.get('/api/admin/subject-kinds/merge-suggestions', () =>
+          HttpResponse.json(envelope({ state: 'UNAVAILABLE', groups: [] })),
+        ),
+      );
+
+      renderWithProviders(<SubjectKindsScreen />, { user: TEST_ADMIN });
+
+      expect(
+        await screen.findByText(enMessages.admin.catalogues.suggestions.unavailable),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(enMessages.admin.subjectKinds.suggestions.title)).toBeNull();
     });
   });
 });

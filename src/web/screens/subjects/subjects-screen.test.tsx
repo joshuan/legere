@@ -27,7 +27,7 @@ beforeEach(() => {
   // its raw prefill (docs/11 §11.12a).
   server.use(
     http.get('/api/admin/subjects/merge-suggestions', () =>
-      HttpResponse.json(envelope({ configured: false, groups: [], placeholders: [] })),
+      HttpResponse.json(envelope({ state: 'UNCONFIGURED', groups: [], placeholders: [] })),
     ),
     http.post('/api/admin/subjects/merge-preview', () =>
       HttpResponse.json(envelope({ available: false, name: null, kindId: null, aka: null })),
@@ -216,7 +216,7 @@ describe('SubjectsScreen', () => {
         http.get('/api/admin/subjects/merge-suggestions', () =>
           HttpResponse.json(
             envelope({
-              configured: true,
+              state: 'ANSWERED',
               groups: [
                 {
                   ids: [subject.id, twin.id],
@@ -292,6 +292,25 @@ describe('SubjectsScreen', () => {
       await userEvent.click(await screen.findByRole('button', { name: enMessages.common.yes }));
 
       await waitFor(() => expect(deleted).toBe(placeholder.id));
+    });
+
+    it('says the analyst could not be asked, instead of showing nothing', async () => {
+      server.use(
+        http.get('/api/admin/subjects/merge-suggestions', () =>
+          HttpResponse.json(envelope({ state: 'UNAVAILABLE', groups: [], placeholders: [] })),
+        ),
+      );
+
+      renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
+
+      expect(
+        await screen.findByText(enMessages.admin.catalogues.suggestions.unavailable),
+      ).toBeInTheDocument();
+      // Neither half of the ordinary banner: no groups, and no placeholder list either.
+      expect(screen.queryByText(enMessages.admin.subjects.suggestions.title)).toBeNull();
+      expect(
+        screen.queryByText(enMessages.admin.subjects.suggestions.placeholdersTitle),
+      ).toBeNull();
     });
   });
 });

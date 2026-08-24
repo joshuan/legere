@@ -3,7 +3,12 @@ import {
   InMemorySubjectKindRepository,
   InMemorySubjectRepository,
 } from '../../../../test/helpers/processing-fakes';
-import type { CatalogueRow, CatalogueSuggestions, MergePreview } from '../ports/catalogue-analyst';
+import type {
+  CatalogueName,
+  CatalogueRow,
+  CatalogueSuggestions,
+  MergePreview,
+} from '../ports/catalogue-analyst';
 import { CatalogueAnalyst } from '../ports/catalogue-analyst';
 import { PreviewSubjectMerge, SuggestSubjectMerges } from './suggest-subject-merges';
 
@@ -11,17 +16,29 @@ class ScriptedAnalyst extends CatalogueAnalyst {
   answer: CatalogueSuggestions = { groups: [], placeholders: [] };
   preview: MergePreview | null = null;
   lastRows: CatalogueRow[] = [];
+  asked: CatalogueName[] = [];
+  failure: Error | null = null;
+  configured = true;
 
   get isConfigured(): boolean {
-    return true;
+    return this.configured;
   }
 
-  suggestMerges(rows: readonly CatalogueRow[]): Promise<CatalogueSuggestions> {
+  suggestMerges(
+    catalogue: CatalogueName,
+    rows: readonly CatalogueRow[],
+  ): Promise<CatalogueSuggestions> {
     this.lastRows = [...rows];
+    this.asked.push(catalogue);
+    if (this.failure !== null) return Promise.reject(this.failure);
     return Promise.resolve(this.answer);
   }
 
-  previewMerge(rows: readonly CatalogueRow[]): Promise<MergePreview | null> {
+  previewMerge(
+    catalogue: CatalogueName,
+    rows: readonly CatalogueRow[],
+  ): Promise<MergePreview | null> {
+    void catalogue;
     this.lastRows = [...rows];
     return Promise.resolve(this.preview);
   }
@@ -85,6 +102,41 @@ describe('SuggestSubjectMerges', () => {
     const response = await new SuggestSubjectMerges(subjects, analyst).execute();
 
     expect(response.placeholders).toEqual([placeholder.id]);
+  });
+
+  it('answers each of the three states, an outage never as an answer of none', async () => {
+    const { subjects } = await seeded();
+    const analyst = new ScriptedAnalyst();
+
+    // Asked, and had nothing to propose.
+    await expect(new SuggestSubjectMerges(subjects, analyst).execute()).resolves.toEqual({
+      state: 'ANSWERED',
+      groups: [],
+      placeholders: [],
+    });
+    expect(analyst.asked).toEqual(['subjects']);
+
+    // Asked, and could not answer — a state of its own, and nothing cached (docs/05 §5.6c).
+    const away = new ScriptedAnalyst();
+    away.failure = new Error('provider is away');
+    const suggest = new SuggestSubjectMerges(subjects, away);
+    await expect(suggest.execute()).resolves.toEqual({
+      state: 'UNAVAILABLE',
+      groups: [],
+      placeholders: [],
+    });
+    await suggest.execute();
+    expect(away.asked).toEqual(['subjects', 'subjects']);
+
+    // Nobody to ask.
+    const unconfigured = new ScriptedAnalyst();
+    unconfigured.configured = false;
+    await expect(new SuggestSubjectMerges(subjects, unconfigured).execute()).resolves.toEqual({
+      state: 'UNCONFIGURED',
+      groups: [],
+      placeholders: [],
+    });
+    expect(unconfigured.asked).toEqual([]);
   });
 });
 

@@ -105,7 +105,7 @@ describe('Catalogue suggestions (e2e)', () => {
     }
   });
 
-  it('answers configured: false on subjects and kinds alike, never an error', async () => {
+  it('answers UNCONFIGURED on subjects and kinds alike, never an error', async () => {
     const kind = await givenKind('жильё');
     await api(app)
       .post('/api/subjects', { kindId: kind, name: 'Красноармейская 11а' })
@@ -116,7 +116,7 @@ describe('Catalogue suggestions (e2e)', () => {
       .set('Cookie', adminCookie);
     expect(subjects.status).toBe(200);
     expect(expectData(subjects, subjectMergeSuggestionsResponseSchema)).toEqual({
-      configured: false,
+      state: 'UNCONFIGURED',
       groups: [],
       placeholders: [],
     });
@@ -126,7 +126,7 @@ describe('Catalogue suggestions (e2e)', () => {
       .set('Cookie', adminCookie);
     expect(kinds.status).toBe(200);
     expect(expectData(kinds, subjectKindMergeSuggestionsResponseSchema)).toEqual({
-      configured: false,
+      state: 'UNCONFIGURED',
       groups: [],
     });
   });

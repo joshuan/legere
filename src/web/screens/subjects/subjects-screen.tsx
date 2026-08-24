@@ -10,7 +10,11 @@ import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { useIsAdmin } from '../../entities/user';
 import { useErrorMessage } from '../../shared/lib';
-import { CatalogueManager, type MergeValues } from '../../widgets/catalogue-manager';
+import {
+  AnalystUnavailableNotice,
+  CatalogueManager,
+  type MergeValues,
+} from '../../widgets/catalogue-manager';
 
 type FormValues = { kindId: string; name: string; note: string };
 
@@ -59,15 +63,18 @@ export function SubjectsScreen() {
   const [bannerClosed, setBannerClosed] = useState(false);
 
   const alive = new Map((subjects.data?.items ?? []).map((subject) => [subject.id, subject]));
-  const groups = (suggestions.data?.configured === true ? suggestions.data.groups : []).filter(
+  const groups = (suggestions.data?.state === 'ANSWERED' ? suggestions.data.groups : []).filter(
     (group) => group.ids.every((id) => alive.has(id)),
   );
   const placeholders = (
-    suggestions.data?.configured === true ? suggestions.data.placeholders : []
+    suggestions.data?.state === 'ANSWERED' ? suggestions.data.placeholders : []
   ).flatMap((id) => {
     const subject = alive.get(id);
     return subject === undefined ? [] : [subject];
   });
+  // Asked, and could not answer (docs/05 §5.6c) — said rather than drawn as a catalogue with
+  // nothing wrong in it.
+  const unavailable = suggestions.data?.state === 'UNAVAILABLE';
 
   const groupRows = (group: SubjectMergeSuggestionGroup): SubjectDto[] =>
     group.ids.flatMap((id) => {
@@ -209,8 +216,12 @@ export function SubjectsScreen() {
         },
         // The screen notices first (docs/11 §11.12a): the groups, and beside them the rows that
         // name a kind rather than a thing.
-        banner: (openMerge) =>
-          bannerClosed || (groups.length === 0 && placeholders.length === 0) ? null : (
+        banner: (openMerge) => {
+          if (bannerClosed) return null;
+          if (unavailable)
+            return <AnalystUnavailableNotice onClose={() => setBannerClosed(true)} />;
+          if (groups.length === 0 && placeholders.length === 0) return null;
+          return (
             <Alert
               type="info"
               showIcon
@@ -263,7 +274,8 @@ export function SubjectsScreen() {
                 </Space>
               }
             />
-          ),
+          );
+        },
       }}
       fields={() => (
         <>

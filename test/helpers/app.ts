@@ -7,6 +7,7 @@ import express, { type Express } from 'express';
 import request, { type Test as SupertestRequest } from 'supertest';
 import { wireServer } from '../../server/main';
 import { AppModule } from '../../src/server/app.module';
+import { CatalogueAnalyst } from '../../src/server/application/ports/catalogue-analyst';
 import { EmailSender, type EmailMessage } from '../../src/server/application/ports/email-sender';
 import { FileStorage } from '../../src/server/application/ports/file-storage';
 import { AppConfig, loadConfig } from '../../src/server/infrastructure/config/app-config';
@@ -63,6 +64,11 @@ export type TestAppOptions = {
   throttle?: { ttl: number; limit: number };
   // The same, for the open catalogue creates (SEC-56).
   catalogueThrottle?: { ttl: number; limit: number };
+  // The catalogue suggester's analyst (docs/05 §5.6c). Left alone, the real adapter is bound and
+  // reports itself unconfigured, since no suite may reach a provider; a suite that wants to see
+  // what a *configured* analyst does — above all, what happens when it cannot answer — puts its
+  // own here.
+  analyst?: CatalogueAnalyst;
 };
 
 // Boots the real application over the shared Express instance, exactly as bootstrap does, with a
@@ -78,13 +84,17 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
       ? {}
       : { UPLOAD_MAX_BYTES: String(options.uploadMaxBytes) }),
   });
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  const builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(EmailSender)
     .useValue(emails)
     .overrideProvider(FileStorage)
     .useValue(files)
     .overrideProvider(AppConfig)
-    .useValue(config)
+    .useValue(config);
+  if (options.analyst !== undefined) {
+    builder.overrideProvider(CatalogueAnalyst).useValue(options.analyst);
+  }
+  const moduleRef = await builder
     .overrideProvider(getOptionsToken())
     // The catalogue throttle rides along effectively unlimited unless a test asks for it: the e2e
     // suites create catalogue rows far faster than any person would (SEC-56).

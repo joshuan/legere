@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { paginatedSchema } from './common';
+import { catalogueReadingStateSchema, paginatedSchema } from './common';
 
 // What sort of thing a subject is (docs/03 §3.3.20a): a catalogue, so that renaming "flat" to
 // "apartment" is one edit rather than forty.
@@ -54,7 +54,7 @@ export const subjectKindMergeSuggestionGroupSchema = z.object({
 export type SubjectKindMergeSuggestionGroup = z.infer<typeof subjectKindMergeSuggestionGroupSchema>;
 
 export const subjectKindMergeSuggestionsResponseSchema = z.object({
-  configured: z.boolean(),
+  state: catalogueReadingStateSchema,
   groups: z.array(subjectKindMergeSuggestionGroupSchema).max(20),
 });
 export type SubjectKindMergeSuggestionsResponse = z.infer<

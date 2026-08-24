@@ -1078,6 +1078,19 @@ closes like any banner and is proposed afresh next visit (the server never remem
 `05 §5.6a`); while suggestions are being computed the table simply has no banner yet, and without a
 configured analyst there is none at all — the screens work as they always did.
 
+**And when the analyst could not be asked, the screen says so instead of showing nothing.** An empty
+banner area used to mean two different things — a catalogue with no duplicates, and a provider that
+answered `500` — and an admin had no way to tell them apart, which is how the feature stayed dead
+for months (`05 §5.6c`). So the `UNAVAILABLE` reading draws a notice of its own in the banner's
+place and in the banner's language: the same one-line, closable strip above the table, in the
+warning tone rather than the informational one, saying that the analyst could not be asked, that
+nothing is wrong with the catalogue, and that the next visit asks again. It carries no group, no
+button and no provider error text — an admin cannot act on a stack trace, and the operator who can
+has the log line (`06 §6.7`). It closes like the suggestions banner and is proposed afresh next
+visit, for the same reason. The two other readings are unchanged: `UNCONFIGURED` draws nothing at
+all, and an analyst that was asked and proposed nothing draws nothing either — that silence is now
+the only silence that means "there is nothing here".
+
 **Nothing written on the merged rows is thrown away.** The dialog's note field arrives prefilled with
 what the rows carried: the names that are about to disappear ("Also known as: …") and every note any
 of them had, one per line. It is an ordinary editable field — a person deletes what is noise and

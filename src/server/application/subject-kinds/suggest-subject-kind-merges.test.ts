@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { InMemorySubjectKindRepository } from '../../../../test/helpers/processing-fakes';
 import { NotFoundError } from '../../domain/errors/domain-error';
-import type { CatalogueRow, CatalogueSuggestions, MergePreview } from '../ports/catalogue-analyst';
+import type {
+  CatalogueName,
+  CatalogueRow,
+  CatalogueSuggestions,
+  MergePreview,
+} from '../ports/catalogue-analyst';
 import { CatalogueAnalyst } from '../ports/catalogue-analyst';
 import { PreviewSubjectKindMerge, SuggestSubjectKindMerges } from './suggest-subject-kind-merges';
 
@@ -10,18 +15,29 @@ class ScriptedAnalyst extends CatalogueAnalyst {
   configured = true;
   answer: CatalogueSuggestions = { groups: [], placeholders: [] };
   preview: MergePreview | null = null;
+  asked: CatalogueName[] = [];
+  failure: Error | null = null;
 
   get isConfigured(): boolean {
     return this.configured;
   }
 
-  suggestMerges(rows: readonly CatalogueRow[]): Promise<CatalogueSuggestions> {
+  suggestMerges(
+    catalogue: CatalogueName,
+    rows: readonly CatalogueRow[],
+  ): Promise<CatalogueSuggestions> {
     void rows;
     this.calls += 1;
+    this.asked.push(catalogue);
+    if (this.failure !== null) return Promise.reject(this.failure);
     return Promise.resolve(this.answer);
   }
 
-  previewMerge(rows: readonly CatalogueRow[]): Promise<MergePreview | null> {
+  previewMerge(
+    catalogue: CatalogueName,
+    rows: readonly CatalogueRow[],
+  ): Promise<MergePreview | null> {
+    void catalogue;
     void rows;
     return Promise.resolve(this.preview);
   }
@@ -46,9 +62,10 @@ describe('SuggestSubjectKindMerges', () => {
 
     const first = await suggest.execute();
     expect(first).toEqual({
-      configured: true,
+      state: 'ANSWERED',
       groups: [{ ids: ['kind-1', 'kind-2'], name: 'жильё', aka: ['Жильё'] }],
     });
+    expect(analyst.asked).toEqual(['subject-kinds']);
     await suggest.execute();
     expect(analyst.calls).toBe(1);
 
@@ -66,20 +83,32 @@ describe('SuggestSubjectKindMerges', () => {
     };
 
     await expect(new SuggestSubjectKindMerges(kinds, analyst).execute()).resolves.toEqual({
-      configured: true,
+      state: 'ANSWERED',
       groups: [],
     });
   });
 
-  it('answers configured: false without asking an unconfigured analyst', async () => {
+  it('answers UNCONFIGURED without asking an unconfigured analyst', async () => {
     const analyst = new ScriptedAnalyst();
     analyst.configured = false;
 
     await expect(new SuggestSubjectKindMerges(await seeded(), analyst).execute()).resolves.toEqual({
-      configured: false,
+      state: 'UNCONFIGURED',
       groups: [],
     });
     expect(analyst.calls).toBe(0);
+  });
+
+  it('answers UNAVAILABLE when the analyst could not be asked, and asks again next time', async () => {
+    const kinds = await seeded();
+    const analyst = new ScriptedAnalyst();
+    analyst.failure = new Error('provider is away');
+    const suggest = new SuggestSubjectKindMerges(kinds, analyst);
+
+    await expect(suggest.execute()).resolves.toEqual({ state: 'UNAVAILABLE', groups: [] });
+    await expect(suggest.execute()).resolves.toEqual({ state: 'UNAVAILABLE', groups: [] });
+    // A failure is not cached (docs/05 §5.4e): the same catalogue was asked about twice.
+    expect(analyst.calls).toBe(2);
   });
 });
 

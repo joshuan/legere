@@ -1438,3 +1438,38 @@ cut a conversion that will never finish, not one that is merely slower than a ba
   **Goal:** a dense call-detail table parses to Markdown instead of outliving a budget measured on lighter documents.
   **Docs:** [`05 §5.4a`](../05-library-and-processing.md#54a-what-one-document-may-cost)
   **Acceptance:** the per-page conversion budget is 60 s (`BUDGET_PER_PAGE_MS`), the floor and the captions budget unchanged; the worst window — a dozen pages, twelve minutes — stays far under the parse's own 55-minute deadline and the job's hour; §5.4a records the second measurement beside the first. Tests: the window-budget cases follow the constant.
+
+---
+
+## M52 — A silence that says which silence it is
+
+The merge suggester has been dead on the live instance for as long as anyone has looked, and nothing
+anywhere said so. `GET /api/admin/people/merge-suggestions` asked the analyst with the whole people
+catalogue — 167 rows, a 20.6 KB prompt — and the provider answered `500` after 13.4 seconds; the
+cache caught the exception, returned the empty value, and wrote nothing to the log. The endpoint
+answered `200 {"configured":true,"groups":[]}`, the screen drew no banner, and *the analyst found no
+duplicates* became indistinguishable from *the analyst cannot be asked* — from the screen, from the
+log, and from the response. The same code serves the subjects and the kinds banners, so all three
+were lying in the same voice.
+
+Two faults, one incident. A failure that reads as an answer is the first. The second is what
+produced it: one call carrying an entire catalogue, which scales with the archive and tips a
+provider over at the size a real archive reaches — and some OpenAI-compatible endpoints are agents
+rather than completions, which reach for a tool when they should be reading a list.
+
+---
+
+- [x] **M52.1 — An outage is not an answer**
+  **Goal:** "nothing to merge" and "nobody to ask" stop being the same answer, on the wire and in the log.
+  **Docs:** [`05 §5.6c`](../05-library-and-processing.md#56c-noticing-that-one-person-arrived-many-times), [`06 §6.7`](../06-backend-architecture.md#67-logging), [`07 §7.3`](../07-api-specification.md)
+  **Acceptance:** all three suggestion endpoints answer a `state` of `ANSWERED`, `UNCONFIGURED` or `UNAVAILABLE` in place of the boolean that could only say two of the three — an analyst that was asked and proposed nothing is not an analyst that could not be asked; the failure writes one line naming the catalogue, the service, the model and how many rows the failed call carried, and 🔒 never the fenced rows themselves; a failure is still not cached, so the next request asks again (`05 §5.4e`). Tests: the cache reports an unavailable reading and remembers nothing of it; the three use cases answer each of the three states; e2e — all three endpoints answer `200` with `UNAVAILABLE` against a failing analyst and ask again on the next request.
+
+- [x] **M52.2 — The screens say it instead of showing nothing**
+  **Goal:** an admin looking at a catalogue with no banner knows which of the two silences it is.
+  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
+  **Acceptance:** `/people`, `/subjects` and `/subject-kinds` draw a quiet, dismissible notice in the banner's own place and visual language when the reading is `UNAVAILABLE` — the analyst could not be asked, nothing is wrong with the catalogue, the next visit asks again — localized in `en` and `ru`; `UNCONFIGURED` still draws nothing at all, and a catalogue with no duplicates still draws nothing. Tests: the notice on all three screens from a mocked answer, and its absence when the analyst simply proposed nothing.
+
+- [x] **M52.3 — The catalogue is asked in portions**
+  **Goal:** the question stops growing with the archive, and the rows that need comparing are compared.
+  **Docs:** [`05 §5.6c`](../05-library-and-processing.md#56c-noticing-that-one-person-arrived-many-times), [`06 §6.3.3`](../06-backend-architecture.md#633-application-ports-non-repository)
+  **Acceptance:** one reading of a catalogue is asked in deterministic chunks of at most sixty rows, each its own unit of the `classifier` gate, the groups and placeholders unioned and judged against the living catalogue exactly as one answer was — `MAX_GROUPS` and `MAX_GROUP_IDS` holding for the union; the order rows are cut in is a **blocking key** that reads a name out of Cyrillic into Latin the way search already does (M43) and down to a skeleton both scripts share, so `ШЕРШНЕВ ЕВГЕНИЙ` and `SHERSHNEV/EVGENII MR` are neighbours and land in one chunk; a catalogue that fits in one chunk is still exactly one call, with the rows in the order they arrived; the system message tells the analyst to answer from the message rather than reach for a tool, because an OpenAI-compatible endpoint is not always a completion; §5.6c states plainly what chunking cannot catch — a pair the key separates is a pair nobody is asked about. Tests: the blocking key across the two scripts and the airline format; one call under the cap and the rows unchanged; several calls over it, each within the cap, their groups unioned; the same catalogue chunked the same way twice.

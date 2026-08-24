@@ -4,6 +4,12 @@
 // two scripts, transliteration, typos, initials, honorifics glued onto a name. One port serves all
 // three catalogues; the subjects call is the one whose rows carry kinds.
 
+// Which of the three catalogues is being read. One port and one provider serve all of them, so a
+// failure that does not name its question is not something an operator can act on (docs/06 §6.7) —
+// this is what puts the catalogue in the log line beside the service and the model.
+export const CATALOGUE_NAMES = ['people', 'subjects', 'subject-kinds'] as const;
+export type CatalogueName = (typeof CATALOGUE_NAMES)[number];
+
 // A row as the suggester reads it: what documents call the entry, and the note that tells two of a
 // name apart (docs/03 §3.3.19). `kind` travels on the catalogue that has kinds — present on every
 // row or on none — because a duplicate thing may sit across two spellings of one kind
@@ -49,11 +55,19 @@ export type MergePreview = {
 export abstract class CatalogueAnalyst {
   abstract readonly isConfigured: boolean;
 
-  // Which of these rows are one entry, in one call. An empty answer is a valid answer: a catalogue
-  // with no recognisable duplicates, or a model whose answer did not parse.
-  abstract suggestMerges(rows: readonly CatalogueRow[]): Promise<CatalogueSuggestions>;
+  // Which of these rows are one entry. One reading, but not necessarily one call: the adapter cuts
+  // the catalogue into chunks it can carry and unions their answers (docs/05 §5.6c). An empty
+  // answer is a valid answer: a catalogue with no recognisable duplicates, or a model whose answer
+  // did not parse. A throw is the reading failing — never an answer of none.
+  abstract suggestMerges(
+    catalogue: CatalogueName,
+    rows: readonly CatalogueRow[],
+  ): Promise<CatalogueSuggestions>;
 
   // The tidy name and spellings for rows somebody already selected. `null` when the answer did not
   // parse — the dialog then falls back to its raw prefill (docs/11 §11.12a).
-  abstract previewMerge(rows: readonly CatalogueRow[]): Promise<MergePreview | null>;
+  abstract previewMerge(
+    catalogue: CatalogueName,
+    rows: readonly CatalogueRow[],
+  ): Promise<MergePreview | null>;
 }

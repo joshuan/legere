@@ -8,7 +8,11 @@ import { useCallback, useState } from 'react';
 import type { MergeSuggestionGroup, PersonDto } from '../../../shared/contracts/people';
 import { personApi, personKeys } from '../../entities/person';
 import { useIsAdmin } from '../../entities/user';
-import { CatalogueManager, type MergeValues } from '../../widgets/catalogue-manager';
+import {
+  AnalystUnavailableNotice,
+  CatalogueManager,
+  type MergeValues,
+} from '../../widgets/catalogue-manager';
 
 type FormValues = { name: string; note: string };
 
@@ -50,9 +54,12 @@ export function PeopleScreen() {
 
   const alive = new Map((people.data?.items ?? []).map((person) => [person.id, person]));
   // A group survives only whole: a row merged or deleted since the answer takes its group with it.
-  const groups = (suggestions.data?.configured === true ? suggestions.data.groups : []).filter(
+  const groups = (suggestions.data?.state === 'ANSWERED' ? suggestions.data.groups : []).filter(
     (group) => group.ids.every((id) => alive.has(id)),
   );
+  // The third state (docs/05 §5.6c): the analyst was asked and could not answer. Said out loud,
+  // because an empty banner area used to mean this and "no duplicates" alike (docs/11 §11.12a).
+  const unavailable = suggestions.data?.state === 'UNAVAILABLE';
 
   const groupRows = (group: MergeSuggestionGroup): PersonDto[] =>
     group.ids.flatMap((id) => {
@@ -149,9 +156,14 @@ export function PeopleScreen() {
             note: composedNote(akaLine(preview.aka ?? []), rows),
           };
         },
-        // The screen notices first (docs/11 §11.12a): one row per group, and the same dialog.
-        banner: (openMerge) =>
-          bannerClosed || groups.length === 0 ? null : (
+        // The screen notices first (docs/11 §11.12a): one row per group, and the same dialog — or,
+        // when the analyst could not be asked at all, says that instead of showing nothing.
+        banner: (openMerge) => {
+          if (bannerClosed) return null;
+          if (unavailable)
+            return <AnalystUnavailableNotice onClose={() => setBannerClosed(true)} />;
+          if (groups.length === 0) return null;
+          return (
             <Alert
               type="info"
               showIcon
@@ -179,7 +191,8 @@ export function PeopleScreen() {
                 </Space>
               }
             />
-          ),
+          );
+        },
       }}
       fields={() => (
         <>

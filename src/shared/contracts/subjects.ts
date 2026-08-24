@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { paginatedSchema } from './common';
+import { catalogueReadingStateSchema, paginatedSchema } from './common';
 
 // What a document is about (docs/03 §3.3.20): the kind of thing, and which one. The kind is a row of
 // its own (§3.3.20a); it travels by id, and by name too, because every screen that shows a subject
@@ -61,7 +61,7 @@ export type SubjectMergeSuggestionGroup = z.infer<typeof subjectMergeSuggestionG
 // `placeholders` are living rows whose name is a kind rather than a thing — analysis noise offered
 // for deletion, one confirmed row at a time (docs/03 §3.3.20).
 export const subjectMergeSuggestionsResponseSchema = z.object({
-  configured: z.boolean(),
+  state: catalogueReadingStateSchema,
   groups: z.array(subjectMergeSuggestionGroupSchema).max(20),
   placeholders: z.array(z.string().uuid()).max(20),
 });

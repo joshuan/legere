@@ -634,6 +634,9 @@
       "actions": {
         "merge": "Merge {count}",
         "mergeConfirm": "Merge"
+      },
+      "suggestions": {
+        "unavailable": "The analyst could not be asked just now, so there are no duplicate suggestions on this visit. Nothing is wrong with the catalogue — the next visit asks again."
       }
     },
     "people": {

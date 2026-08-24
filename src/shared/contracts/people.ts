@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { paginatedSchema } from './common';
+import { catalogueReadingStateSchema, paginatedSchema } from './common';
 
 // People a document is about (docs/03 §3.3.19). A shared catalogue: one row per person, however many
 // documents name them.
@@ -49,10 +49,10 @@ export const mergeSuggestionGroupSchema = z.object({
 });
 export type MergeSuggestionGroup = z.infer<typeof mergeSuggestionGroupSchema>;
 
-// `configured: false` is an answer, not an error (docs/07 §7.3): without an analyst the screen
-// simply has no banner.
+// A state, not an error (docs/07 §7.3): without an analyst the screen simply has no banner, and an
+// analyst that could not be asked says so rather than passing an outage off as an empty catalogue.
 export const peopleMergeSuggestionsResponseSchema = z.object({
-  configured: z.boolean(),
+  state: catalogueReadingStateSchema,
   groups: z.array(mergeSuggestionGroupSchema).max(20),
 });
 export type PeopleMergeSuggestionsResponse = z.infer<typeof peopleMergeSuggestionsResponseSchema>;

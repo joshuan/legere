@@ -980,7 +980,7 @@ Russian one keeps, an OCR pass swaps two letters of a patronymic. The sameness i
 case, diacritics, two scripts, transliteration, typos, initials, honorifics glued onto the name — so
 unlike §5.6a and §5.6b, whose candidates are found deterministically, here the finder is the
 **analyst itself**: the same provider and model that read the names in the first place, under the
-same `classifier` gate (§5.4b), asked one JSON question — *which of these living rows are one
+same `classifier` gate (§5.4b), asked a JSON question — *which of these living rows are one
 person?*
 
 **And one person is only where it started.** The same sameness afflicts the other two catalogues the
@@ -1002,7 +1002,7 @@ call and each on the same terms:
   than a thing (`жильё` filed under `жильё`, `автомобиль` the car) — analysis noise offered for
   deletion, each row a person confirms one by one.
 
-For each catalogue two calls exist on the `CatalogueAnalyst` port, both computed on request:
+For each catalogue two questions exist on the `CatalogueAnalyst` port, both computed on request:
 
 - **Suggesting** answers with groups: the ids that are one entry, the spelling worth keeping (the
   fullest, correctly spelled form, in the entry's own script), and the distinct other spellings,
@@ -1011,6 +1011,33 @@ For each catalogue two calls exist on the `CatalogueAnalyst` port, both computed
   can open with a tidy name — and, for things, a tidy kind — instead of a raw dump of everything
   the rows carried (`11 §11.12a`).
 
+**A reading is asked in portions, not in one lump.** One call carrying the whole catalogue is a
+prompt that grows with the archive: at 167 people it is 20 KB and it is what tipped a provider into
+answering `500`. So a reading is cut into **chunks of at most sixty rows** — the same sixty the
+analysis is shown of the things catalogue (§5.5 step 4) — each chunk one completion and one unit of
+the `classifier` gate, and the groups and placeholders of all of them unioned into one answer that
+is then checked as a single answer would be. A catalogue that fits in one chunk is exactly one call
+with the rows in the order they arrived, so the common instance is unchanged.
+
+**What decides the cut is a blocking key, because alphabetical order separates exactly the rows
+worth comparing.** `ШЕРШНЕВ ЕВГЕНИЙ` and `SHERSHNEV/EVGENII MR` are one person in two scripts and
+sit at opposite ends of any list sorted by name. The key is therefore the name read out of Cyrillic
+into Latin the way search already reads it (`04 §4.3`, the ICAO passport rules this archive's own
+papers are printed under), then down to a skeleton the two romanizations share — diacritics folded,
+`sh`/`ch`/`zh`/`kh`/`ts` reduced to one letter, doubled letters collapsed, tokens shorter than three
+characters dropped along with the punctuation and the airline's `MR`, and what is left sorted. Both
+spellings above reduce to `evgeni sersnev`. Rows are ordered by that key and cut into chunks of
+equal size, so identical keys stay together and near keys stay neighbours; the order is a pure
+function of the catalogue, so the same catalogue is chunked the same way and the content-keyed cache
+below still answers.
+
+**And what it cannot catch is worth saying rather than implying.** Two rows that are one entry but
+whose keys fall on either side of a cut are never compared, because no call ever sees both: a
+misspelling in the first three characters of every token, a name and its initials, a company written
+once as its acronym. The suggester is best-effort by design — it proposes and never decides — and a
+missed pair is what the hand-picked merge of `11 §11.12a` is for. The alternative, comparing every
+row with every other, is a call the provider already refuses.
+
 **The answer is checked, not trusted.** The model's groups pass through the same discipline as an
 analysis answer (§5.5 step 4): parsed against a schema, a group naming an id that is not a living
 row is dropped, a group of fewer than two rows is dropped, a row claimed by two groups belongs to
@@ -1018,14 +1045,27 @@ the first, names and spellings are length-capped, and the group count is capped 
 suggester that proposes merging the whole catalogue is answering a different question. A parse
 failure is an empty answer, not an error. 🔒 The catalogue travels to the model **inside the
 nonce-fenced data channel**, never in the system message: every signed-in user writes these rows,
-and a note must no more steer the suggester than a document may steer the analysis.
+and a note must no more steer the suggester than a document may steer the analysis. The system
+message also says, in as many words, to **answer from that message rather than reach for a tool**:
+`CLASSIFIER_API_BASE_URL` may point at an agentic runtime as easily as at a completions endpoint,
+and the one this archive ran against tried to execute a script and failed the request when it was
+refused. A model that has no tools loses nothing by being told it has none.
 
 **Nothing is stored, and a refusal is not remembered** — the doctrine of §5.6a verbatim. The one
 concession to cost is an in-process cache keyed by the catalogue's current content, with concurrent
 requests deduplicated: the same question is not asked twice while nothing changed, and a changed
 catalogue is a new question. A restart forgets the cache, and recomputing is the price of honesty.
-Without a configured analyst the suggester reports itself unconfigured and proposes nothing — the
-screen simply has no banner, the way search quietly loses its semantic half (§5.5).
+
+**An outage is not a verdict, and it is not an answer either.** A reading therefore ends in one of
+three states rather than two (`07 §7.3`): the analyst answered, there is no analyst to ask
+(`UNCONFIGURED` — the screen has no banner, the way search quietly loses its semantic half, §5.5),
+or the analyst was asked and could not answer (`UNAVAILABLE` — a refusal, an outage, a chunk that
+never came back). The third used to be reported as the empty groups of the first, which made a dead
+provider and a clean catalogue the same picture from every angle an operator has; it is now said
+out loud on the wire and drawn on the screen (`11 §11.12a`). Nothing about it is cached — the next
+request asks again (§5.4e) — and one line is written to the log naming the catalogue, the service,
+the model and how many rows the failed call carried (`06 §6.7`); 🔒 never the rows themselves, which
+are a user-written catalogue and not log material.
 
 ## 5.7. Files disappearing and returning
 

@@ -1,9 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
+import { InjectPinoLogger, type PinoLogger } from 'nestjs-pino';
 import { z } from 'zod';
+import { chunkCatalogue } from '../../application/catalogues/catalogue-chunks';
 import { readBoundedJson, readBoundedText } from '../../application/ports/binary-source';
 import {
   CatalogueAnalyst,
+  type CatalogueName,
   type CatalogueRow,
   type CatalogueSuggestions,
   type MergePreview,
@@ -68,6 +71,13 @@ const TIMEOUT_MS = 2 * 60_000;
 const MAX_ANSWER_BYTES = 1024 * 1024;
 const MAX_ERROR_BYTES = 64 * 1024;
 
+// 🔒 How many rows one completion may carry (docs/05 §5.6c). The whole catalogue in one call is a
+// prompt that grows with the archive: at 167 people it was 20.6 KB and the provider answered 500
+// after thirteen seconds. Sixty is the number the analysis is already shown of the things catalogue
+// (§5.5 step 4) — enough for a chunk to hold a family of spellings, small enough that no instance
+// grows its way out of the feature. The blocking key of `catalogue-chunks.ts` decides which sixty.
+const MAX_ROWS_PER_CALL = 60;
+
 @Injectable()
 export class OpenAiCompatCatalogueAnalyst extends CatalogueAnalyst {
   private readonly baseUrl: string;
@@ -77,6 +87,7 @@ export class OpenAiCompatCatalogueAnalyst extends CatalogueAnalyst {
   constructor(
     config: AppConfig,
     private readonly gates: ServiceGates,
+    @InjectPinoLogger(OpenAiCompatCatalogueAnalyst.name) private readonly logger: PinoLogger,
   ) {
     super();
     // The analyst's own address (docs/05 §5.6c): the same resolution as the pipeline's, including
@@ -92,28 +103,52 @@ export class OpenAiCompatCatalogueAnalyst extends CatalogueAnalyst {
     return this.baseUrl !== '' && this.model !== '';
   }
 
-  async suggestMerges(rows: readonly CatalogueRow[]): Promise<CatalogueSuggestions> {
+  async suggestMerges(
+    catalogue: CatalogueName,
+    rows: readonly CatalogueRow[],
+  ): Promise<CatalogueSuggestions> {
     if (!this.isConfigured) throw new Error('No catalogue analyst is configured');
     if (rows.length < 2) return { groups: [], placeholders: [] };
 
-    // One reading of the catalogue is one unit of the `classifier` gate (docs/05 §5.4b): an admin
-    // request waits its turn behind the pipeline rather than hammering the provider beside it.
-    return this.gates.run('classifier', async () => {
-      const nonce = newNonce();
-      const content = await this.completion([
-        { role: 'system', content: suggestionsSystemMessage(nonce, kindAware(rows)) },
-        { role: 'user', content: fenceCatalogue(rows, nonce) },
-      ]);
-      return readSuggestions(content);
-    });
+    // The whole catalogue is one reading and several calls (docs/05 §5.6c) — sequential, because
+    // the gate would serialize them anyway and a chunk that fails should stop the ones behind it
+    // rather than spend the provider's patience on an answer nobody will get. What the model asked
+    // about is a chunk; what the caller judges is the union.
+    const groups: MergeSuggestion[] = [];
+    const placeholders: string[] = [];
+    // The prompt is the whole catalogue's, not the chunk's: a chunk that happens to hold no kinds
+    // is still part of a kind-aware reading, and every chunk must be asked the same question.
+    const withKinds = kindAware(rows);
+
+    for (const chunk of chunkCatalogue(rows, MAX_ROWS_PER_CALL)) {
+      // One call is one unit of the `classifier` gate (docs/05 §5.4b): an admin request waits its
+      // turn behind the pipeline rather than hammering the provider beside it.
+      const answer = await this.gates.run('classifier', async () => {
+        const nonce = newNonce();
+        const content = await this.completion(catalogue, chunk.length, [
+          { role: 'system', content: suggestionsSystemMessage(nonce, withKinds) },
+          { role: 'user', content: fenceCatalogue(chunk, nonce) },
+        ]);
+        return readSuggestions(content);
+      });
+      groups.push(...answer.groups);
+      placeholders.push(...answer.placeholders);
+    }
+
+    return { groups, placeholders };
   }
 
-  async previewMerge(rows: readonly CatalogueRow[]): Promise<MergePreview | null> {
+  async previewMerge(
+    catalogue: CatalogueName,
+    rows: readonly CatalogueRow[],
+  ): Promise<MergePreview | null> {
     if (!this.isConfigured) throw new Error('No catalogue analyst is configured');
 
+    // Not chunked: a preview is the handful of rows somebody ticked, bounded by the merge contract
+    // itself at fifty (docs/07 §7.3), and a tidy name cannot be composed from half of them.
     return this.gates.run('classifier', async () => {
       const nonce = newNonce();
-      const content = await this.completion([
+      const content = await this.completion(catalogue, rows.length, [
         { role: 'system', content: previewSystemMessage(nonce, kindAware(rows)) },
         { role: 'user', content: fenceCatalogue(rows, nonce) },
       ]);
@@ -124,8 +159,31 @@ export class OpenAiCompatCatalogueAnalyst extends CatalogueAnalyst {
   // One chat completion, bounded in time and in size, classified the way every provider exchange is
   // (docs/05 §5.4e): the transport failing or a proxy answering 502/503/504 is the provider being
   // away, while a 500 is the provider answering.
-  private async completion(messages: readonly unknown[]): Promise<string> {
-    return reachService('classifier', () => this.exchange(messages));
+  private async completion(
+    catalogue: CatalogueName,
+    rows: number,
+    messages: readonly unknown[],
+  ): Promise<string> {
+    try {
+      return await reachService('classifier', () => this.exchange(messages));
+    } catch (error) {
+      // The caller turns this into a lesser answer rather than an error (docs/05 §5.6c), so if it
+      // is not said here it is not said anywhere — which is exactly how this feature stayed dead on
+      // a live instance for months, behind a clean 200 (docs/06 §6.7). What an operator can act on:
+      // which reading broke, what was asked, how big the call was, and the provider's own sentence.
+      // 🔒 Never the rows: they are a catalogue every signed-in user writes into.
+      this.logger.warn(
+        {
+          catalogue,
+          service: 'classifier',
+          model: this.model,
+          rows,
+          detail: truncate(error instanceof Error ? error.message : String(error)),
+        },
+        'The catalogue analyst could not be asked',
+      );
+      throw error;
+    }
   }
 
   private async exchange(messages: readonly unknown[]): Promise<string> {
@@ -220,6 +278,16 @@ const PLACEHOLDER_RULE = [
   'thing stays off this list.',
 ].join(' ');
 
+// Said because `CLASSIFIER_API_BASE_URL` may point at an agentic runtime as easily as at a
+// completions endpoint, and one of them answered 500 after trying to run a script it was then
+// refused permission for (docs/05 §5.6c). Everything needed to answer is in the two messages; a
+// model with no tools loses nothing by being told it has none.
+const DIRECT_ANSWER_RULE = [
+  'Answer from this conversation alone. There is nothing to look up and there are no tools here:',
+  'do not call a function, do not run code, do not open a file, do not search the web — read the',
+  'rows in the next message and reply with the JSON described above.',
+].join(' ');
+
 function suggestionsSystemMessage(nonce: string, withKinds: boolean): string {
   return [
     CLERK_PREAMBLE,
@@ -237,6 +305,7 @@ function suggestionsSystemMessage(nonce: string, withKinds: boolean): string {
       : '{"groups": [{"ids": ["<id of every row in the group>"], "name": "<the spelling to keep>",' +
         ' "aka": ["<each distinct other spelling>"]}]}.',
     'No duplicates found means an empty "groups".',
+    DIRECT_ANSWER_RULE,
     dataChannelNotice(nonce),
   ].join(' ');
 }
@@ -255,6 +324,7 @@ function previewSystemMessage(nonce: string, withKinds: boolean): string {
       ? '{"name": "<the spelling to keep>", "kind": "<the kind to keep>",' +
         ' "aka": ["<each distinct other spelling>"]}.'
       : '{"name": "<the spelling to keep>", "aka": ["<each distinct other spelling>"]}.',
+    DIRECT_ANSWER_RULE,
     dataChannelNotice(nonce),
   ].join(' ');
 }

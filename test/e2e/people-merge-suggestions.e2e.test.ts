@@ -102,7 +102,7 @@ describe('People merge suggestions (e2e)', () => {
     expect(expectError(preview).code).toBe('FORBIDDEN');
   });
 
-  it('answers configured: false with no analyst, never an error', async () => {
+  it('answers UNCONFIGURED with no analyst, never an error', async () => {
     await givenPerson('Marija Petrović');
     await givenPerson('Marija Petrovic');
 
@@ -111,7 +111,7 @@ describe('People merge suggestions (e2e)', () => {
       .set('Cookie', adminCookie);
     expect(response.status).toBe(200);
     expect(expectData(response, peopleMergeSuggestionsResponseSchema)).toEqual({
-      configured: false,
+      state: 'UNCONFIGURED',
       groups: [],
     });
   });

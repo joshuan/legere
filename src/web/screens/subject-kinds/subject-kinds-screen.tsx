@@ -11,7 +11,11 @@ import type {
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { subjectKeys } from '../../entities/subject';
 import { useIsAdmin } from '../../entities/user';
-import { CatalogueManager, type MergeValues } from '../../widgets/catalogue-manager';
+import {
+  AnalystUnavailableNotice,
+  CatalogueManager,
+  type MergeValues,
+} from '../../widgets/catalogue-manager';
 
 type FormValues = { name: string; note: string };
 
@@ -49,9 +53,11 @@ export function SubjectKindsScreen() {
   const [bannerClosed, setBannerClosed] = useState(false);
 
   const alive = new Map((kinds.data?.items ?? []).map((kind) => [kind.id, kind]));
-  const groups = (suggestions.data?.configured === true ? suggestions.data.groups : []).filter(
+  const groups = (suggestions.data?.state === 'ANSWERED' ? suggestions.data.groups : []).filter(
     (group) => group.ids.every((id) => alive.has(id)),
   );
+  // Asked, and could not answer (docs/05 §5.6c) — said rather than drawn as an empty table.
+  const unavailable = suggestions.data?.state === 'UNAVAILABLE';
 
   const groupRows = (group: SubjectKindMergeSuggestionGroup): SubjectKindDto[] =>
     group.ids.flatMap((id) => {
@@ -144,8 +150,12 @@ export function SubjectKindsScreen() {
             note: composedNote(akaLine(preview.aka ?? []), rows),
           };
         },
-        banner: (openMerge) =>
-          bannerClosed || groups.length === 0 ? null : (
+        banner: (openMerge) => {
+          if (bannerClosed) return null;
+          if (unavailable)
+            return <AnalystUnavailableNotice onClose={() => setBannerClosed(true)} />;
+          if (groups.length === 0) return null;
+          return (
             <Alert
               type="info"
               showIcon
@@ -173,7 +183,8 @@ export function SubjectKindsScreen() {
                 </Space>
               }
             />
-          ),
+          );
+        },
       }}
       fields={() => (
         <>

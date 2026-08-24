@@ -36,7 +36,7 @@ export class SuggestSubjectMerges {
   ) {}
 
   async execute(): Promise<SubjectMergeSuggestionsResponse> {
-    if (!this.analyst.isConfigured) return { configured: false, groups: [], placeholders: [] };
+    if (!this.analyst.isConfigured) return { state: 'UNCONFIGURED', groups: [], placeholders: [] };
 
     const living = await this.subjects.listActive();
     const byId = new Map(living.map((subject) => [subject.id, subject]));
@@ -47,31 +47,28 @@ export class SuggestSubjectMerges {
       kind: subject.kind,
     }));
 
-    const answer = await this.cache.answer(
-      JSON.stringify(rows),
-      async () => {
-        const suggested = await this.analyst.suggestMerges(rows);
-        const groups = sanitizeGroups(suggested.groups, rows, MAX_NAME).flatMap((group) => {
-          const members = group.ids.flatMap((id) => {
-            const member = byId.get(id);
-            return member === undefined ? [] : [member];
-          });
-          // A group whose kind the merged rows do not carry is dropped whole: a suggestion the
-          // merge endpoint would refuse is not a suggestion (docs/03 §3.3.20).
-          const kindId = resolveKindId(group.kind, members);
-          if (kindId === null) return [];
-          return [{ ids: group.ids, name: group.name, kindId, aka: group.aka }];
+    const reading = await this.cache.answer(JSON.stringify(rows), async () => {
+      const suggested = await this.analyst.suggestMerges('subjects', rows);
+      const groups = sanitizeGroups(suggested.groups, rows, MAX_NAME).flatMap((group) => {
+        const members = group.ids.flatMap((id) => {
+          const member = byId.get(id);
+          return member === undefined ? [] : [member];
         });
-        // The placeholders pass the same living check as the groups: an id the model made up names
-        // nothing (docs/05 §5.6c).
-        const placeholders = [...new Set(suggested.placeholders)]
-          .filter((id) => byId.has(id))
-          .slice(0, MAX_PLACEHOLDERS);
-        return { groups, placeholders };
-      },
-      { groups: [], placeholders: [] },
-    );
-    return { configured: true, ...answer };
+        // A group whose kind the merged rows do not carry is dropped whole: a suggestion the
+        // merge endpoint would refuse is not a suggestion (docs/03 §3.3.20).
+        const kindId = resolveKindId(group.kind, members);
+        if (kindId === null) return [];
+        return [{ ids: group.ids, name: group.name, kindId, aka: group.aka }];
+      });
+      // The placeholders pass the same living check as the groups: an id the model made up names
+      // nothing (docs/05 §5.6c).
+      const placeholders = [...new Set(suggested.placeholders)]
+        .filter((id) => byId.has(id))
+        .slice(0, MAX_PLACEHOLDERS);
+      return { groups, placeholders };
+    });
+    if (!reading.answered) return { state: 'UNAVAILABLE', groups: [], placeholders: [] };
+    return { state: 'ANSWERED', ...reading.value };
   }
 }
 
@@ -94,6 +91,7 @@ export class PreviewSubjectMerge {
 
     try {
       const preview = await this.analyst.previewMerge(
+        'subjects',
         rows.map((subject) => ({
           id: subject.id,
           name: subject.name,

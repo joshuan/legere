@@ -35,7 +35,7 @@ beforeEach(() => {
   // its raw prefill (docs/11 §11.12a) — which is exactly what the older merge tests assert.
   server.use(
     http.get('/api/admin/people/merge-suggestions', () =>
-      HttpResponse.json(envelope({ configured: false, groups: [] })),
+      HttpResponse.json(envelope({ state: 'UNCONFIGURED', groups: [] })),
     ),
     http.post('/api/admin/people/merge-preview', () =>
       HttpResponse.json(envelope({ available: false, name: null, aka: null })),
@@ -236,7 +236,7 @@ describe('PeopleScreen', () => {
           HttpResponse.json(envelope({ nextCursor: null, items: [person, twin] })),
         ),
         http.get('/api/admin/people/merge-suggestions', () =>
-          HttpResponse.json(envelope({ configured: true, groups: [group] })),
+          HttpResponse.json(envelope({ state: 'ANSWERED', groups: [group] })),
         ),
       );
     });
@@ -287,6 +287,42 @@ describe('PeopleScreen', () => {
       // No admin, no suggestions query: the msw handler would have answered, but with
       // `onUnhandledRequest: 'error'` an unexpected call would fail loudly anyway — what is
       // asserted here is simply that no banner exists for somebody who cannot merge.
+      expect(screen.queryByText(enMessages.admin.people.suggestions.title)).toBeNull();
+    });
+
+    it('says the analyst could not be asked, instead of showing nothing', async () => {
+      server.use(
+        http.get('/api/admin/people/merge-suggestions', () =>
+          HttpResponse.json(envelope({ state: 'UNAVAILABLE', groups: [] })),
+        ),
+      );
+
+      renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
+
+      // 🔒 M52.2: an empty banner area used to mean this and "no duplicates" alike, which is how
+      // the feature stayed dead for months (docs/11 §11.12a).
+      const notice = await screen.findByText(enMessages.admin.catalogues.suggestions.unavailable);
+      expect(notice).toBeInTheDocument();
+      expect(screen.queryByText(enMessages.admin.people.suggestions.title)).toBeNull();
+
+      // Quiet and dismissible, like the banner it stands in for.
+      await userEvent.click(screen.getByRole('button', { name: /close/i }));
+      await waitFor(() =>
+        expect(screen.queryByText(enMessages.admin.catalogues.suggestions.unavailable)).toBeNull(),
+      );
+    });
+
+    it('says nothing at all when the analyst was asked and proposed nothing', async () => {
+      server.use(
+        http.get('/api/admin/people/merge-suggestions', () =>
+          HttpResponse.json(envelope({ state: 'ANSWERED', groups: [] })),
+        ),
+      );
+
+      renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
+
+      expect(await screen.findByText('Marija Petrović')).toBeInTheDocument();
+      expect(screen.queryByText(enMessages.admin.catalogues.suggestions.unavailable)).toBeNull();
       expect(screen.queryByText(enMessages.admin.people.suggestions.title)).toBeNull();
     });
   });

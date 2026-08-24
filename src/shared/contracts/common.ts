@@ -102,6 +102,15 @@ export function paginatedSchema<T extends z.ZodTypeAny>(
   return z.object({ items: z.array(item), nextCursor: z.string().nullable() });
 }
 
+// How a reading of a catalogue ended (docs/07 §7.3, docs/05 §5.6c). Three states and not a boolean,
+// because two of the silences are not the same silence: an analyst that was asked and proposed
+// nothing is a clean catalogue, while an analyst that could not be asked is a fact about the
+// instance — and reporting the second as the first is what kept the suggester dead on a live
+// instance for months, with a 200 in the log and no banner on the screen. `groups` (and the
+// subjects' `placeholders`) are empty unless the state is `ANSWERED`.
+export const catalogueReadingStateSchema = z.enum(['ANSWERED', 'UNCONFIGURED', 'UNAVAILABLE']);
+export type CatalogueReadingState = z.infer<typeof catalogueReadingStateSchema>;
+
 // GET /api/health (docs/07 §7.3, docs/06 §6.10).
 export const healthDataSchema = z.object({
   status: z.enum(['ok', 'error']),
