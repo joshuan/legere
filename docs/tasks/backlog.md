@@ -1421,3 +1421,20 @@ where instructions stand, which is the surface SEC-55 named.
   **Goal:** closes M47.5 / [SEC-55](./security-audit-2026-08-second-pass.md#sec-55) — what one user types cannot steer the analysis of documents they cannot read.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`06 §6.3.3`](../06-backend-architecture.md#633-application-ports-non-repository)
   **Acceptance:** 🔒 the user-written catalogue lists — kinds, known subjects, known people — travel inside the nonce-fenced data channel in a nonce-marked section of their own, never in the system message, the nonce scrubbed from every name and note; the system message keeps only the rules and the admin-written document-type list; both analyst calls and the fields call hold the line. Tests: the fence read back out of the request, the system message asserted clean.
+
+---
+
+## M51 — The budget learns what a phone bill costs
+
+The per-page conversion budget was measured on bank statements and set at 30 s a page, and then a
+phone bill's call detail arrived and measured ~46: Docling finished the 12-page window in 549
+seconds, the app stopped polling at 360, and a parse that succeeded was thrown away — twice, once
+per attempt, the three steps behind markdown failing in its shadow each time. The budget exists to
+cut a conversion that will never finish, not one that is merely slower than a bank statement.
+
+---
+
+- [x] **M51.1 — Sixty seconds a page**
+  **Goal:** a dense call-detail table parses to Markdown instead of outliving a budget measured on lighter documents.
+  **Docs:** [`05 §5.4a`](../05-library-and-processing.md#54a-what-one-document-may-cost)
+  **Acceptance:** the per-page conversion budget is 60 s (`BUDGET_PER_PAGE_MS`), the floor and the captions budget unchanged; the worst window — a dozen pages, twelve minutes — stays far under the parse's own 55-minute deadline and the job's hour; §5.4a records the second measurement beside the first. Tests: the window-budget cases follow the constant.

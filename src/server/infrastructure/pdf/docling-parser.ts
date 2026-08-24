@@ -26,14 +26,15 @@ const RESULT = '/v1/result';
 const POLL_WAIT_SEC = 5;
 
 // How long one window's conversion may take: the layout parse works page by page, so the budget
-// does too. The flat five minutes this used to be was a per-page allowance in disguise — 12.5 s a
-// page over a full window — and a dense-table scan (a bank statement, a credit-bureau report)
-// measures 23–25 s/page on the host this is meant for, so a 13-page statement sent as a single
-// window burned the whole budget and failed while a 40-page sibling passed, split into windows
-// that fit. The floor pays for Docling's own queue and warm-up, which a one-page window meets like
-// any other. Captioning pictures stays flat: a vision model runs once per picture on the CPU, and
-// pages say nothing about pictures.
-const BUDGET_PER_PAGE_MS = 30 * 1000;
+// does too. Measured twice on the host this is meant for: a dense-table scan (a bank statement,
+// a credit-bureau report) parses at 23–25 s/page, which retired the flat five minutes — 12.5 s a
+// page over a full window — that starved a 13-page statement sent whole while a 40-page sibling
+// passed, split into windows that fit; then a phone bill's call detail measured ~46 s/page, and
+// the 30 s a page that followed stopped polling a 12-page window at 360 s that Docling finished,
+// successfully, at 549. The floor pays for Docling's own queue and warm-up, which a one-page
+// window meets like any other. Captioning pictures stays flat: a vision model runs once per
+// picture on the CPU, and pages say nothing about pictures.
+const BUDGET_PER_PAGE_MS = 60 * 1000;
 const BUDGET_FLOOR_MS = 2 * 60 * 1000;
 const BUDGET_WITH_CAPTIONS_MS = 55 * 60 * 1000;
 

@@ -411,12 +411,12 @@ describe('DoclingParser', () => {
       });
     }
 
-    it('gives a dozen dense pages six minutes, not five flat', async () => {
+    it('gives a dozen dense pages twelve minutes, not five flat', async () => {
       vi.useFakeTimers();
       try {
-        pollOutlivesBudget(7);
+        pollOutlivesBudget(13);
         await expect(parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 12 })).rejects.toThrow(
-          /did not finish within 6 minutes/,
+          /did not finish within 12 minutes/,
         );
       } finally {
         vi.useRealTimers();
@@ -438,9 +438,9 @@ describe('DoclingParser', () => {
     it('budgets a document nothing counted as a full window', async () => {
       vi.useFakeTimers();
       try {
-        pollOutlivesBudget(7);
+        pollOutlivesBudget(13);
         await expect(parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 0 })).rejects.toThrow(
-          /did not finish within 6 minutes/,
+          /did not finish within 12 minutes/,
         );
       } finally {
         vi.useRealTimers();
