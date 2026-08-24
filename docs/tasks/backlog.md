@@ -1473,3 +1473,52 @@ rather than completions, which reach for a tool when they should be reading a li
   **Goal:** the question stops growing with the archive, and the rows that need comparing are compared.
   **Docs:** [`05 §5.6c`](../05-library-and-processing.md#56c-noticing-that-one-person-arrived-many-times), [`06 §6.3.3`](../06-backend-architecture.md#633-application-ports-non-repository)
   **Acceptance:** one reading of a catalogue is asked in deterministic chunks of at most sixty rows, each its own unit of the `classifier` gate, the groups and placeholders unioned and judged against the living catalogue exactly as one answer was — `MAX_GROUPS` and `MAX_GROUP_IDS` holding for the union; the order rows are cut in is a **blocking key** that reads a name out of Cyrillic into Latin the way search already does (M43) and down to a skeleton both scripts share, so `ШЕРШНЕВ ЕВГЕНИЙ` and `SHERSHNEV/EVGENII MR` are neighbours and land in one chunk; a catalogue that fits in one chunk is still exactly one call, with the rows in the order they arrived; the system message tells the analyst to answer from the message rather than reach for a tool, because an OpenAI-compatible endpoint is not always a completion; §5.6c states plainly what chunking cannot catch — a pair the key separates is a pair nobody is asked about. Tests: the blocking key across the two scripts and the airline format; one call under the cap and the rows unchanged; several calls over it, each within the cap, their groups unioned; the same catalogue chunked the same way twice.
+
+---
+
+## M53 — Which way up the paper was
+
+The crop editor taught the archive that a photograph carries the desk it was lying on (`05 §5.6`).
+It never taught it which way up the paper was. A page photographed sideways is built sideways into
+the canonical PDF and stays sideways through the preview, the Markdown and the text layer — and text
+read at ninety degrees is read worse than text read straight. A quarter-turn is the correction a
+reader makes in a second and cannot make at all today: the crop editor has no rotate, the file rows
+have no rotate, and the only way to stand a page upright is to edit the file in a library the
+archive is forbidden to write to (ADR-007).
+
+A turn belongs beside the crop and the page order, and for the same reason: it is a number written
+beside a file, never a change to it.
+
+---
+
+- [ ] **M53.1 — A file remembers which way up it lies**
+  **Goal:** a page that arrived sideways is built upright, without a byte of the original being touched.
+  **Docs:** [`03 §3.3.16`](../03-domain-model.md#3316-file), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`05 §5.6`](../05-library-and-processing.md#56-composing-a-document-out-of-files), [`07 §7.3`](../07-api-specification.md#73-endpoints)
+  **Acceptance:** `File.rotation` — a quarter turn and a mirror — is meaningful for images exactly as `crop` is, and `File.pageRotations` — one quarter turn per page, `null` for none — for PDFs exactly as `pageOrder` is, because a forty-page scan has three pages lying sideways and not forty; `PATCH /api/documents/:id/files/:fileId` takes both beside `crop` and `pageOrder`, refuses a page rotation on an image the way it already refuses `pageOrder` on one, validates the list against the file's recorded page count, and takes `null` as "the way it arrived"; saving enqueues the same rebuild every composition change does (`05 §5.6`); the canonical build applies an image's turn **after its crop**, so the stored quadrilateral keeps meaning what it meant in the pixels that arrived, and a PDF's page turns **before the merge**, through a new `PdfToolbox` operation over Stirling's rotate endpoint; sharp's EXIF auto-orientation stays what it is and a person's turn is a turn on top of it; 🔒 the original bytes are never rewritten — a LIBRARY file is read-only and a MANAGED original stays the original, the turn living beside it as an instruction the build reads, which is why clearing it restores what arrived; the page thumb of `GET …/files/:fileId/pages/:page/thumb` keeps answering the **original** page, since its cache key is bytes that cannot change and a turn would otherwise purge an artifact on every click — the editor turns what it draws; `DocumentFileDto` carries both. Tests: the validation refusals, a canonical rebuilt with one page standing upright, an image whose crop and turn compose in that order, a cleared turn rebuilding to what arrived, and the turn surviving a reprocess of every step.
+
+- [ ] **M53.2 — The turn is made where the crop is made**
+  **Goal:** one editor answers "which part of this" and "which way up", because they are one question about one page.
+  **Docs:** [`11 §11.5a`](../11-ui-ux-spec.md#115a-the-files-tab), [`11 §11.5c`](../11-ui-ux-spec.md#115c-the-crop-editor)
+  **Acceptance:** the crop editor gains **rotate left**, **rotate right** and **mirror**, keyboard-reachable like everything else in it; what it draws turns with them, the crop outline and the loupe of `11 §11.5c` following the turn rather than staying behind on a page that moved; a PDF is turned per page on the page strip, one page at a time; **Reset** clears the turn the way **Clear crop** clears a crop — it sends `null` and the file goes back to reading as it arrived; a file row carries **Turned** beside **Cropped** on the same terms, present while the stored value differs from what arrived; localized in `en` and `ru`. Tests: the buttons compose a turn and send it, the outline follows, Reset clears, the badge appears and disappears on the stored value.
+
+---
+
+## M54 — The shelf opens the way somebody left it
+
+Two things the home screen gets wrong for the person who opens it every day. It arranges the archive
+by the date written on the paper — the right answer for reading a shelf, the wrong one for the
+question actually asked on arrival, which is *what came in since I was last here*. And a grouped grid
+draws every section open at once, so grouping by person turns the screen into a scroll nobody can see
+the shape of: the headings cannot be folded, and folding is what headings are for.
+
+---
+
+- [ ] **M54.1 — Newest first means newest here**
+  **Goal:** the home screen opens on what arrived last.
+  **Docs:** [`07 §7.3`](../07-api-specification.md#73-endpoints), [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen)
+  **Acceptance:** `createdAt` becomes the default named order of `GET /api/documents?sort=` and the order `/documents` opens in, the other two unchanged and the tiebreak with them; the default is by definition the order that leaves no trace in the query string, so `documentDate` now travels in the URL and `createdAt` does not, and an unknown `?sort=` still falls back to the default rather than being sent on; **`11 §11.3` loses the argument it made for the old default** — that a document whose date nobody has read yet is the one still wanting attention — instead of keeping a reason under a sentence that now says something else, and `07 §7.3` names the default in one place only, so the two documents cannot drift; the four other screens that render this grid keep the orders they have, because an order belongs to a screen and not to a person. Tests: the API's default order; the screen opening on it; a link carrying `sort=documentDate` still honoured; the query string empty on the default and not on the others.
+
+- [ ] **M54.2 — A group folds**
+  **Goal:** a grouped grid reads as an index and opens where it matters.
+  **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen)
+  **Acceptance:** a section's heading folds and unfolds it, **the real count from the server staying visible while it is folded** — a folded section is an index line, not a hidden one — with **Collapse all** / **Expand all** over the grid and the section for what the dimension cannot place folding like any other; a folded section asks the server for nothing until it is opened, which is the one thing a grid that pages per section gets in return for paging per section; 🔒 folding is not a filter — it narrows nothing, and **Clear filters** leaves it alone; the state is client-side and lasts the **tab**, in `window.sessionStorage` the way the dismissed suggestions of `11 §11.5e` already are, keyed by the grouping dimension and the group's own value, so walking into a document and pressing Back finds the grid as it was left, and a group folded under `groupBy=person` is still folded after the filters change, because what was folded is the group and not the page; deliberately **not** in the URL, where a dozen folded groups make a link nobody can read. Tests: folding and unfolding, the count on a folded heading, no request fired for a folded section, the state surviving a remount, collapse-all, and the URL untouched by any of it.
