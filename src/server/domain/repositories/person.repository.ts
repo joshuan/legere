@@ -3,8 +3,18 @@ import type { Person } from '../entities/person';
 
 export type PersonWithCount = Person & { documentCount: number };
 
+export type CataloguePage<T> = { items: T[]; nextCursor: string | null };
+
 export abstract class PersonRepository {
+  // The whole living catalogue, for the callers that genuinely need all of it — the analysis, the
+  // merge suggesters. The API reads pages (docs/07 §7.1, SEC-56).
   abstract listActive(tx?: TransactionHandle): Promise<PersonWithCount[]>;
+
+  // One page by name then id, keyset-cursored like every other list (docs/07 §7.1).
+  abstract listPage(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<CataloguePage<PersonWithCount>>;
 
   abstract findById(id: string, tx?: TransactionHandle): Promise<Person | null>;
 

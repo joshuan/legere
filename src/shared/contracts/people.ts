@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paginatedSchema } from './common';
 
 // People a document is about (docs/03 §3.3.19). A shared catalogue: one row per person, however many
 // documents name them.
@@ -11,7 +12,9 @@ export const personDtoSchema = z.object({
 });
 export type PersonDto = z.infer<typeof personDtoSchema>;
 
-export const listPeopleResponseSchema = z.object({ items: z.array(personDtoSchema) });
+// Paginated like every other list (docs/07 §7.1, SEC-56): the catalogue is instance-wide and
+// user-written, so no single response may be asked to carry the whole of it.
+export const listPeopleResponseSchema = paginatedSchema(personDtoSchema);
 export type ListPeopleResponse = z.infer<typeof listPeopleResponseSchema>;
 
 export const createPersonRequestSchema = z.object({

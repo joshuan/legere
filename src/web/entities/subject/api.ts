@@ -8,7 +8,6 @@ import {
   subjectMergeSuggestionsResponseSchema,
   updateSubjectRequestSchema,
   type CreateSubjectRequest,
-  type ListSubjectsResponse,
   type MergeSubjectsRequest,
   type SubjectDto,
   type SubjectMergePreviewRequest,
@@ -17,11 +16,12 @@ import {
   type UpdateSubjectRequest,
 } from '../../../shared/contracts/subjects';
 import { okResponseSchema, type OkResponse } from '../../../shared/contracts/users';
+import type { ZodType } from 'zod';
 import { apiClient } from '../../shared/api';
 
 export const subjectApi = {
-  list: (): Promise<ListSubjectsResponse> =>
-    apiClient.get('/api/subjects', { schema: listSubjectsResponseSchema }),
+  list: (): Promise<{ items: SubjectDto[] }> =>
+    listAll('/api/subjects', listSubjectsResponseSchema),
 
   // Open to anyone signed in, like people: the analysis adds things on its own (docs/03 §3.3.20).
   create: (body: CreateSubjectRequest): Promise<SubjectDto> =>
@@ -67,3 +67,23 @@ export const subjectKeys = {
   all: ['subjects'] as const,
   mergeSuggestions: ['subjects', 'merge-suggestions'] as const,
 };
+
+// The endpoint answers bounded pages (docs/07 §7.1, SEC-56); the screens want the whole catalogue,
+// so the client walks the pages. A hundred rows per ask keeps it to one round trip for years.
+async function listAll<T>(
+  path: string,
+  schema: ZodType<{ items: T[]; nextCursor: string | null }>,
+): Promise<{ items: T[] }> {
+  const items: T[] = [];
+  let cursor: string | null = null;
+  do {
+    const query: string =
+      cursor === null ? '?limit=100' : `?limit=100&cursor=${encodeURIComponent(cursor)}`;
+    const page: { items: T[]; nextCursor: string | null } = await apiClient.get(`${path}${query}`, {
+      schema,
+    });
+    items.push(...page.items);
+    cursor = page.nextCursor;
+  } while (cursor !== null);
+  return { items };
+}

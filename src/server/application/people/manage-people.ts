@@ -17,15 +17,21 @@ import type { Clock } from '../ports/clock';
 export class ListPeople {
   constructor(private readonly people: PersonRepository) {}
 
-  async execute(): Promise<ListPeopleResponse> {
-    const rows = await this.people.listActive();
+  // One page at a time (docs/07 §7.1, SEC-56): the catalogue is instance-wide and user-written, so
+  // no single response is asked to carry the whole of it.
+  async execute(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<ListPeopleResponse> {
+    const page = await this.people.listPage(query);
     return {
-      items: rows.map((person) => ({
+      items: page.items.map((person) => ({
         id: person.id,
         name: person.name,
         note: person.note,
         documentCount: person.documentCount,
       })),
+      nextCursor: page.nextCursor,
     };
   }
 }

@@ -22,6 +22,7 @@ import {
   type PersonDto,
   type UpdatePersonRequest,
 } from '../../../shared/contracts/people';
+import { paginationQuerySchema, type PaginationQuery } from '../../../shared/contracts/common';
 import type { Envelope } from '../../../shared/contracts/common';
 import type { OkResponse } from '../../../shared/contracts/users';
 import {
@@ -35,11 +36,12 @@ import {
   PreviewPeopleMerge,
   SuggestPeopleMerges,
 } from '../../application/people/suggest-people-merges';
+import { SkipThrottle, ThrottlerGuard } from '@nestjs/throttler';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { UuidParam } from '../http/uuid-param.pipe';
-import { ZodBody } from '../http/zod-validation.pipe';
+import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
 
 // Reading the catalogue and adding to it are open to anyone signed in: the analyst adds names on its
 // own, and whoever corrects it must be able to add the one it missed without waiting for an admin
@@ -53,11 +55,18 @@ export class PeopleController {
   ) {}
 
   @Get()
-  async listPeople(): Promise<Envelope<ListPeopleResponse>> {
-    return successEnvelope(await this.list.execute());
+  async listPeople(
+    @ZodQuery(paginationQuerySchema) query: PaginationQuery,
+  ): Promise<Envelope<ListPeopleResponse>> {
+    return successEnvelope(await this.list.execute(query));
   }
 
+  // 🔒 Rate-limited (SEC-56): every row lands in a namespace every other user reads, so one
+  // account does not get to fill it at machine speed.
   @Post()
+  @UseGuards(ThrottlerGuard)
+  // The catalogue budget of the module config alone: the auth budget belongs to the auth routes.
+  @SkipThrottle({ auth: true })
   async create(
     @ZodBody(createPersonRequestSchema) body: CreatePersonRequest,
   ): Promise<Envelope<PersonDto>> {

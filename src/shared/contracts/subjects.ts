@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paginatedSchema } from './common';
 
 // What a document is about (docs/03 §3.3.20): the kind of thing, and which one. The kind is a row of
 // its own (§3.3.20a); it travels by id, and by name too, because every screen that shows a subject
@@ -13,7 +14,8 @@ export const subjectDtoSchema = z.object({
 });
 export type SubjectDto = z.infer<typeof subjectDtoSchema>;
 
-export const listSubjectsResponseSchema = z.object({ items: z.array(subjectDtoSchema) });
+// Paginated like every other list (docs/07 §7.1, SEC-56).
+export const listSubjectsResponseSchema = paginatedSchema(subjectDtoSchema);
 export type ListSubjectsResponse = z.infer<typeof listSubjectsResponseSchema>;
 
 export const createSubjectRequestSchema = z.object({

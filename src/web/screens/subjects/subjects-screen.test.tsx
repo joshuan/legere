@@ -32,10 +32,13 @@ beforeEach(() => {
     http.post('/api/admin/subjects/merge-preview', () =>
       HttpResponse.json(envelope({ available: false, name: null, kindId: null, aka: null })),
     ),
-    http.get('/api/subjects', () => HttpResponse.json(envelope({ items: [subject] }))),
+    http.get('/api/subjects', () =>
+      HttpResponse.json(envelope({ nextCursor: null, items: [subject] })),
+    ),
     http.get('/api/subject-kinds', () =>
       HttpResponse.json(
         envelope({
+          nextCursor: null,
           items: [
             { id: APARTMENT, name: 'apartment', note: null, subjectCount: 1, documentCount: 4 },
             { id: BOAT, name: 'boat', note: null, subjectCount: 0, documentCount: 0 },
@@ -96,6 +99,7 @@ describe('SubjectsScreen', () => {
       http.get('/api/subjects', () =>
         HttpResponse.json(
           envelope({
+            nextCursor: null,
             items: [
               subject,
               { ...subject, id: 'dddddddd-4444-4444-8444-444444444444', name: 'the flat' },
@@ -153,7 +157,9 @@ describe('SubjectsScreen', () => {
         merged = await request.json();
         return HttpResponse.json(envelope(subject), { status: 201 });
       }),
-      http.get('/api/subjects', () => HttpResponse.json(envelope({ items: [chatty, chattyTwin] }))),
+      http.get('/api/subjects', () =>
+        HttpResponse.json(envelope({ nextCursor: null, items: [chatty, chattyTwin] })),
+      ),
     );
 
     renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
@@ -205,7 +211,7 @@ describe('SubjectsScreen', () => {
     beforeEach(() => {
       server.use(
         http.get('/api/subjects', () =>
-          HttpResponse.json(envelope({ items: [subject, twin, placeholder] })),
+          HttpResponse.json(envelope({ nextCursor: null, items: [subject, twin, placeholder] })),
         ),
         http.get('/api/admin/subjects/merge-suggestions', () =>
           HttpResponse.json(

@@ -590,7 +590,9 @@ be built over rows that already violate it (backlog M49).
 **Who may do what.** Reading the catalogue and adding to it are open to anyone signed in, because the
 analysis step adds names on its own and whoever corrects it must be able to add the one it missed
 without waiting for an admin. Renaming and removing are an admin's: both reach across every document
-that names the person.
+that names the person. 🔒 Open is not unbounded (SEC-56): the creates are rate-limited — a person
+corrects a few rows a minute, and a namespace every user reads is not one account's to fill by
+script — and the list endpoints answer pages like every other list (`07 §7.1`).
 
 **Merging.** The analysis reads a name as each document spells it, so one person arrives as three
 rows. Merging folds them together: the **oldest row survives** — the one the archive has been calling

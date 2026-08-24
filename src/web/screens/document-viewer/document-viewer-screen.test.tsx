@@ -177,6 +177,7 @@ function serve(
     http.get('/api/people', () =>
       HttpResponse.json(
         envelope({
+          nextCursor: null,
           items: [{ id: PERSON_ID, name: 'Marija Petrović', note: null, documentCount: 1 }],
         }),
       ),
@@ -184,6 +185,7 @@ function serve(
     http.get('/api/subjects', () =>
       HttpResponse.json(
         envelope({
+          nextCursor: null,
           items: [
             {
               id: SUBJECT_ID,
@@ -200,6 +202,7 @@ function serve(
     http.get('/api/subject-kinds', () =>
       HttpResponse.json(
         envelope({
+          nextCursor: null,
           items: [
             { id: KIND_ID, name: 'apartment', note: null, subjectCount: 1, documentCount: 1 },
           ],

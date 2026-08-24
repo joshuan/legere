@@ -6,6 +6,7 @@ import {
   SubjectKindRepository,
   type SubjectKindWithCounts,
 } from '../../domain/repositories/subject-kind.repository';
+import { decodeTextCursor, encodeTextCursor } from './cursor';
 import { clientOf } from './prisma-client';
 import { PrismaService } from './prisma.service';
 
@@ -51,6 +52,45 @@ export class PrismaSubjectKindRepository extends SubjectKindRepository {
       subjectCount: row.subjects.length,
       documentCount: row.subjects.reduce((total, subject) => total + subject._count.documents, 0),
     }));
+  }
+
+  async listPage(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<{ items: SubjectKindWithCounts[]; nextCursor: string | null }> {
+    // Keyset over (name, id), the shape every other list uses (docs/07 §7.1).
+    const cursor = decodeTextCursor(query.cursor);
+    const rows = await this.prisma.subjectKind.findMany({
+      where: {
+        deletedAt: null,
+        ...(cursor === null
+          ? {}
+          : {
+              OR: [{ name: { gt: cursor.key } }, { name: cursor.key, id: { gt: cursor.id } }],
+            }),
+      },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      take: query.limit + 1,
+      include: {
+        subjects: {
+          where: { deletedAt: null },
+          include: { _count: { select: { documents: true } } },
+        },
+      },
+    });
+    const page = rows.slice(0, query.limit);
+    const last = page[page.length - 1];
+    return {
+      items: page.map((row) => ({
+        ...toSubjectKind(row),
+        subjectCount: row.subjects.length,
+        documentCount: row.subjects.reduce((total, subject) => total + subject._count.documents, 0),
+      })),
+      nextCursor:
+        rows.length > page.length && last !== undefined
+          ? encodeTextCursor({ key: last.name, id: last.id })
+          : null,
+    };
   }
 
   async findById(id: string, tx?: TransactionHandle): Promise<SubjectKind | null> {

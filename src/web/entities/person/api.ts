@@ -8,7 +8,6 @@ import {
   personDtoSchema,
   updatePersonRequestSchema,
   type CreatePersonRequest,
-  type ListPeopleResponse,
   type MergePeopleRequest,
   type PeopleMergePreviewRequest,
   type PeopleMergePreviewResponse,
@@ -17,11 +16,11 @@ import {
   type UpdatePersonRequest,
 } from '../../../shared/contracts/people';
 import { okResponseSchema, type OkResponse } from '../../../shared/contracts/users';
+import type { ZodType } from 'zod';
 import { apiClient } from '../../shared/api';
 
 export const personApi = {
-  list: (): Promise<ListPeopleResponse> =>
-    apiClient.get('/api/people', { schema: listPeopleResponseSchema }),
+  list: (): Promise<{ items: PersonDto[] }> => listAll('/api/people', listPeopleResponseSchema),
 
   // Open to anyone signed in: the analyst adds names on its own, and whoever corrects it must be
   // able to add the one it missed (docs/03 §3.3.19).
@@ -68,3 +67,23 @@ export const personKeys = {
   all: ['people'] as const,
   mergeSuggestions: ['people', 'merge-suggestions'] as const,
 };
+
+// The endpoint answers bounded pages (docs/07 §7.1, SEC-56); the screens want the whole catalogue,
+// so the client walks the pages. A hundred rows per ask keeps it to one round trip for years.
+async function listAll<T>(
+  path: string,
+  schema: ZodType<{ items: T[]; nextCursor: string | null }>,
+): Promise<{ items: T[] }> {
+  const items: T[] = [];
+  let cursor: string | null = null;
+  do {
+    const query: string =
+      cursor === null ? '?limit=100' : `?limit=100&cursor=${encodeURIComponent(cursor)}`;
+    const page: { items: T[]; nextCursor: string | null } = await apiClient.get(`${path}${query}`, {
+      schema,
+    });
+    items.push(...page.items);
+    cursor = page.nextCursor;
+  } while (cursor !== null);
+  return { items };
+}

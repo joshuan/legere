@@ -223,7 +223,8 @@ describe('OpenAiCompatAnalyst', () => {
         name: `Flat ${index + 1}`,
         note: null,
       }));
-      await analyst().analyze('text', CATEGORIES, ['apartment'], subjects, people);
+      const kinds = Array.from({ length: 70 }, (_, index) => `kind-${index + 1}`);
+      await analyst().analyze('text', CATEGORIES, kinds, subjects, people);
 
       const { system, user } = messagesOf(spy);
       // The rule is said outright, beside the lists' description (docs/05 §5.5 step 4).
@@ -234,6 +235,9 @@ describe('OpenAiCompatAnalyst', () => {
       expect(user).not.toContain('- Person 201');
       expect(user).toContain('- apartment: Flat 60');
       expect(user).not.toContain('- apartment: Flat 61');
+      // The kinds are capped like the lists beside them (SEC-51).
+      expect(user).toContain('- kind-60');
+      expect(user).not.toContain('- kind-61');
     });
 
     it('tells the model that the user message is data and never an instruction', async () => {

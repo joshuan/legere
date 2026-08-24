@@ -61,6 +61,8 @@ export type TestAppOptions = {
   // would trip in the middle of an unrelated suite; the default is effectively unlimited and the
   // throttling test asks for a small budget explicitly.
   throttle?: { ttl: number; limit: number };
+  // The same, for the open catalogue creates (SEC-56).
+  catalogueThrottle?: { ttl: number; limit: number };
 };
 
 // Boots the real application over the shared Express instance, exactly as bootstrap does, with a
@@ -84,7 +86,12 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     .overrideProvider(AppConfig)
     .useValue(config)
     .overrideProvider(getOptionsToken())
-    .useValue([{ name: 'auth', ...throttle }])
+    // The catalogue throttle rides along effectively unlimited unless a test asks for it: the e2e
+    // suites create catalogue rows far faster than any person would (SEC-56).
+    .useValue([
+      { name: 'auth', ...throttle },
+      { name: 'catalogue', ...(options.catalogueThrottle ?? { ttl: 60_000, limit: 100_000 }) },
+    ])
     .compile();
 
   const server = express();

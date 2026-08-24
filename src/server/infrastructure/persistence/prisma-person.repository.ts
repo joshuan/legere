@@ -4,8 +4,10 @@ import type { Person } from '../../domain/entities/person';
 import { foldName } from '../../domain/value-objects/name-fold';
 import {
   PersonRepository,
+  type CataloguePage,
   type PersonWithCount,
 } from '../../domain/repositories/person.repository';
+import { decodeTextCursor, encodeTextCursor } from './cursor';
 import { clientOf } from './prisma-client';
 import { PrismaService } from './prisma.service';
 
@@ -40,6 +42,37 @@ export class PrismaPersonRepository extends PersonRepository {
       include: { _count: { select: { documents: true } } },
     });
     return rows.map((row) => ({ ...toPerson(row), documentCount: row._count.documents }));
+  }
+
+  async listPage(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<CataloguePage<PersonWithCount>> {
+    // Keyset over (name, id), the shape every other list uses (docs/07 §7.1): a forged cursor
+    // decodes to null and the page starts over.
+    const cursor = decodeTextCursor(query.cursor);
+    const rows = await this.prisma.person.findMany({
+      where: {
+        deletedAt: null,
+        ...(cursor === null
+          ? {}
+          : {
+              OR: [{ name: { gt: cursor.key } }, { name: cursor.key, id: { gt: cursor.id } }],
+            }),
+      },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      take: query.limit + 1,
+      include: { _count: { select: { documents: true } } },
+    });
+    const page = rows.slice(0, query.limit);
+    const last = page[page.length - 1];
+    return {
+      items: page.map((row) => ({ ...toPerson(row), documentCount: row._count.documents })),
+      nextCursor:
+        rows.length > page.length && last !== undefined
+          ? encodeTextCursor({ key: last.name, id: last.id })
+          : null,
+    };
   }
 
   async findById(id: string, tx?: TransactionHandle): Promise<Person | null> {

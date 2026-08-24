@@ -6,6 +6,7 @@ import {
   SubjectRepository,
   type SubjectWithCount,
 } from '../../domain/repositories/subject.repository';
+import { decodeTextCursor, encodeTextCursor } from './cursor';
 import { clientOf } from './prisma-client';
 import { PrismaService } from './prisma.service';
 
@@ -46,6 +47,36 @@ export class PrismaSubjectRepository extends SubjectRepository {
       include: { kind: true, _count: { select: { documents: true } } },
     });
     return rows.map((row) => ({ ...toSubject(row), documentCount: row._count.documents }));
+  }
+
+  async listPage(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<{ items: SubjectWithCount[]; nextCursor: string | null }> {
+    // Keyset over (name, id), the shape every other list uses (docs/07 §7.1).
+    const cursor = decodeTextCursor(query.cursor);
+    const rows = await this.prisma.subject.findMany({
+      where: {
+        deletedAt: null,
+        ...(cursor === null
+          ? {}
+          : {
+              OR: [{ name: { gt: cursor.key } }, { name: cursor.key, id: { gt: cursor.id } }],
+            }),
+      },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      take: query.limit + 1,
+      include: { kind: true, _count: { select: { documents: true } } },
+    });
+    const page = rows.slice(0, query.limit);
+    const last = page[page.length - 1];
+    return {
+      items: page.map((row) => ({ ...toSubject(row), documentCount: row._count.documents })),
+      nextCursor:
+        rows.length > page.length && last !== undefined
+          ? encodeTextCursor({ key: last.name, id: last.id })
+          : null,
+    };
   }
 
   async findById(id: string, tx?: TransactionHandle): Promise<Subject | null> {

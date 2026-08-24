@@ -1219,6 +1219,15 @@ export class InMemoryPersonRepository extends PersonRepository {
     );
   }
 
+  async listPage(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<{ items: PersonWithCount[]; nextCursor: string | null }> {
+    // The fakes serve unit tests that never page: one page holds everything.
+    void query;
+    return { items: await this.listActive(), nextCursor: null };
+  }
+
   findById(id: string): Promise<Person | null> {
     return Promise.resolve(this.people.get(id) ?? null);
   }
@@ -1279,6 +1288,14 @@ export class InMemorySubjectKindRepository extends SubjectKindRepository {
     return Promise.resolve(
       [...this.kinds.values()].map((kind) => ({ ...kind, subjectCount: 0, documentCount: 0 })),
     );
+  }
+
+  async listPage(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<{ items: SubjectKindWithCounts[]; nextCursor: string | null }> {
+    void query;
+    return { items: await this.listActive(), nextCursor: null };
   }
 
   findById(id: string): Promise<SubjectKind | null> {
@@ -1361,6 +1378,14 @@ export class InMemorySubjectRepository extends SubjectRepository {
         documentCount: [...this.links.values()].filter((ids) => ids.includes(subject.id)).length,
       })),
     );
+  }
+
+  async listPage(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<{ items: SubjectWithCount[]; nextCursor: string | null }> {
+    void query;
+    return { items: await this.listActive(), nextCursor: null };
   }
 
   findById(id: string): Promise<Subject | null> {

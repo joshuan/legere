@@ -163,6 +163,9 @@ const MAX_KIND_CHARS = 40;
 // document itself, which is the one thing it cannot do without.
 const MAX_KNOWN_SUBJECTS = 60;
 const MAX_KNOWN_PEOPLE = 200;
+// The kinds are the smallest catalogue, but their creation is as open as the rest (SEC-51): the
+// cap is what keeps an unbounded namespace out of the prompt.
+const MAX_KNOWN_KINDS = 60;
 const MAX_KNOWN_NOTE_CHARS = 300;
 // 🔒 The bytes behind the delimiter the document is fenced with. Drawn fresh for every call, so the
 // text inside the fence — which is the document's own, written by whoever uploaded it — cannot
@@ -281,7 +284,7 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     // and declared to be data (docs/05 §5.5 step 4). Before this the catalogues travelled with the
     // instructions, so a note on a flat stood where the rules stand.
     const catalogue: CatalogueBlock = {
-      kinds: subjectKinds,
+      kinds: subjectKinds.slice(0, MAX_KNOWN_KINDS),
       subjects: knownSubjects.slice(0, MAX_KNOWN_SUBJECTS),
       people: knownPeople.slice(0, MAX_KNOWN_PEOPLE),
     };

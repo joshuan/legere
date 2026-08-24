@@ -239,7 +239,10 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   the attempt counter is the only gate, and a comparison in front of it would be a guess that was
   tested without being counted.
 - **Rate limiting:** layer 1 — per-IP in-memory (`@nestjs/throttler`) on `/api/auth/*` and
-  `/api/invites/*` (incl. protection against Argon2 flooding); layer 2 — per-email: `register/start`
+  `/api/invites/*` (incl. protection against Argon2 flooding), and on the open catalogue creates —
+  `POST /api/people`, `/api/subjects`, `/api/subject-kinds` — under a budget of their own (SEC-56):
+  fast enough for a person correcting an archive, far too slow to fill a namespace every other user
+  reads by script; layer 2 — per-email: `register/start`
   ≤1 code/60 s and ≤5/day; `register/verify` ≤5 wrong attempts → the record is burned; `login` — an
   exponential backoff on **failures**, specified below. Exceeding → `429 RATE_LIMITED`; all errors
   are generic.

@@ -40,7 +40,12 @@ import { UsersModule } from './presentation/users/users.module';
     }),
     // Per-IP rate limiting (docs/06 §6.4, docs/08 §8.4). The guard is applied per route rather than
     // globally, so it covers /api/auth/* and /api/invites/* without throttling the health probe.
-    ThrottlerModule.forRoot([{ name: 'auth', ttl: 60_000, limit: 20 }]),
+    ThrottlerModule.forRoot([
+      { name: 'auth', ttl: 60_000, limit: 20 },
+      // 🔒 The open catalogue creates (SEC-56): fast enough for a person correcting an archive,
+      // far too slow to fill a shared namespace by script.
+      { name: 'catalogue', ttl: 60_000, limit: 30 },
+    ]),
     LoggingModule,
     PersistenceModule,
     AuthInfrastructureModule,

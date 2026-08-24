@@ -17,10 +17,14 @@ import type { UnitOfWork } from '../ports/unit-of-work';
 export class ListSubjects {
   constructor(private readonly subjects: SubjectRepository) {}
 
-  async execute(): Promise<ListSubjectsResponse> {
-    const rows = await this.subjects.listActive();
+  // One page at a time (docs/07 §7.1, SEC-56).
+  async execute(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<ListSubjectsResponse> {
+    const page = await this.subjects.listPage(query);
     return {
-      items: rows.map((subject) => ({
+      items: page.items.map((subject) => ({
         id: subject.id,
         kindId: subject.kindId,
         kind: subject.kind,
@@ -28,6 +32,7 @@ export class ListSubjects {
         note: subject.note,
         documentCount: subject.documentCount,
       })),
+      nextCursor: page.nextCursor,
     };
   }
 }

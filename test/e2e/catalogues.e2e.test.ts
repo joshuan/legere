@@ -42,12 +42,16 @@ describe('Catalogues (e2e)', () => {
   });
 
   async function onboard(email: string): Promise<string> {
-    await api(app).post('/api/auth/register/start', { email });
-    const verified = await api(app).post('/api/auth/register/verify', {
+    return onboardOn(app, email);
+  }
+
+  async function onboardOn(target: TestApp, email: string): Promise<string> {
+    await api(target).post('/api/auth/register/start', { email });
+    const verified = await api(target).post('/api/auth/register/verify', {
       email,
-      code: app.emails.lastCodeFor(email),
+      code: target.emails.lastCodeFor(email),
     });
-    const completed = await api(app).post('/api/auth/register/complete', {
+    const completed = await api(target).post('/api/auth/register/complete', {
       ticket: expectData(verified, registerVerifyResponseSchema).ticket,
       password: PASSWORD,
     });
@@ -457,6 +461,49 @@ describe('Catalogues (e2e)', () => {
           listPeopleResponseSchema,
         ).items,
       ).toEqual([]);
+    });
+  });
+
+  describe('a namespace, not a scratchpad (SEC-56)', () => {
+    it('answers the catalogue in pages, each cursor continuing the last', async () => {
+      for (const name of ['Anna', 'Boris', 'Vera']) {
+        await api(app).post('/api/people', { name }).set('Cookie', adminCookie);
+      }
+
+      const first = await api(app).get('/api/people?limit=2').set('Cookie', adminCookie);
+      expect(first.status).toBe(200);
+      const firstPage = expectData(first, listPeopleResponseSchema);
+      expect(firstPage.items.map((person) => person.name)).toEqual(['Anna', 'Boris']);
+      expect(firstPage.nextCursor).not.toBeNull();
+
+      const second = await api(app)
+        .get(`/api/people?limit=2&cursor=${encodeURIComponent(firstPage.nextCursor ?? '')}`)
+        .set('Cookie', adminCookie);
+      const secondPage = expectData(second, listPeopleResponseSchema);
+      expect(secondPage.items.map((person) => person.name)).toEqual(['Vera']);
+      expect(secondPage.nextCursor).toBeNull();
+    });
+
+    it('refuses a burst of creates before the namespace fills', async () => {
+      // A tight budget on an app of this test's own, so no other suite feels it.
+      const throttled = await createTestApp({ catalogueThrottle: { ttl: 60_000, limit: 2 } });
+      try {
+        // The same database, so the admin of this test's beforeEach signs in on the tight app.
+        const signedIn = await api(throttled).post('/api/auth/login', {
+          email: `catalogueadmin${seq}@legere.local`,
+          password: PASSWORD,
+        });
+        const cookie = cookieNamed(signedIn, 'sid');
+        if (cookie === undefined) throw new Error('no session on the throttled app');
+        await api(throttled).post('/api/people', { name: 'One' }).set('Cookie', cookie).expect(201);
+        await api(throttled).post('/api/people', { name: 'Two' }).set('Cookie', cookie).expect(201);
+        const refused = await api(throttled)
+          .post('/api/people', { name: 'Three' })
+          .set('Cookie', cookie);
+        expect(refused.status).toBe(429);
+      } finally {
+        await throttled.close();
+      }
     });
   });
 });

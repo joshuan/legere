@@ -14,16 +14,21 @@ import type { Clock } from '../ports/clock';
 export class ListSubjectKinds {
   constructor(private readonly kinds: SubjectKindRepository) {}
 
-  async execute(): Promise<ListSubjectKindsResponse> {
-    const rows = await this.kinds.listActive();
+  // One page at a time (docs/07 §7.1, SEC-56).
+  async execute(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<ListSubjectKindsResponse> {
+    const page = await this.kinds.listPage(query);
     return {
-      items: rows.map((kind) => ({
+      items: page.items.map((kind) => ({
         id: kind.id,
         name: kind.name,
         note: kind.note,
         subjectCount: kind.subjectCount,
         documentCount: kind.documentCount,
       })),
+      nextCursor: page.nextCursor,
     };
   }
 }

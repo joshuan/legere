@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paginatedSchema } from './common';
 
 // What sort of thing a subject is (docs/03 §3.3.20a): a catalogue, so that renaming "flat" to
 // "apartment" is one edit rather than forty.
@@ -13,7 +14,8 @@ export const subjectKindDtoSchema = z.object({
 });
 export type SubjectKindDto = z.infer<typeof subjectKindDtoSchema>;
 
-export const listSubjectKindsResponseSchema = z.object({ items: z.array(subjectKindDtoSchema) });
+// Paginated like every other list (docs/07 §7.1, SEC-56).
+export const listSubjectKindsResponseSchema = paginatedSchema(subjectKindDtoSchema);
 export type ListSubjectKindsResponse = z.infer<typeof listSubjectKindsResponseSchema>;
 
 export const createSubjectKindRequestSchema = z.object({

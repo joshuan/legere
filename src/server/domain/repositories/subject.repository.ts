@@ -6,6 +6,12 @@ export type SubjectWithCount = Subject & { documentCount: number };
 export abstract class SubjectRepository {
   abstract listActive(tx?: TransactionHandle): Promise<SubjectWithCount[]>;
 
+  // One page by name then id (docs/07 §7.1, SEC-56); the whole catalogue stays `listActive`'s.
+  abstract listPage(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<{ items: SubjectWithCount[]; nextCursor: string | null }>;
+
   abstract findById(id: string, tx?: TransactionHandle): Promise<Subject | null>;
 
   // Living rows only, as for people: what comes back is what may still be chosen, so a caller can

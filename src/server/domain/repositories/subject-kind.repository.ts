@@ -11,6 +11,12 @@ export type SubjectKindWithCounts = SubjectKind & {
 export abstract class SubjectKindRepository {
   abstract listActive(tx?: TransactionHandle): Promise<SubjectKindWithCounts[]>;
 
+  // One page by name then id (docs/07 §7.1, SEC-56); the whole catalogue stays `listActive`'s.
+  abstract listPage(query: {
+    limit: number;
+    cursor?: string | undefined;
+  }): Promise<{ items: SubjectKindWithCounts[]; nextCursor: string | null }>;
+
   abstract findById(id: string, tx?: TransactionHandle): Promise<SubjectKind | null>;
 
   // Living rows only, the way people answer it (docs/03 §3.3.19): what comes back is what may

@@ -26,7 +26,11 @@ const server = createApiMock();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
-  server.use(http.get('/api/people', () => HttpResponse.json(envelope({ items: [person] }))));
+  server.use(
+    http.get('/api/people', () =>
+      HttpResponse.json(envelope({ nextCursor: null, items: [person] })),
+    ),
+  );
   // The analyst is absent unless a test says otherwise: no banner, and a hand-picked merge keeps
   // its raw prefill (docs/11 §11.12a) — which is exactly what the older merge tests assert.
   server.use(
@@ -81,7 +85,11 @@ describe('PeopleScreen', () => {
 
   describe('merging (docs/11 §11.12a)', () => {
     async function openTheMergeDialog(rows: unknown[]): Promise<HTMLElement> {
-      server.use(http.get('/api/people', () => HttpResponse.json(envelope({ items: rows }))));
+      server.use(
+        http.get('/api/people', () =>
+          HttpResponse.json(envelope({ nextCursor: null, items: rows })),
+        ),
+      );
 
       renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
       // All of them, because two rows may well be spelled the same.
@@ -224,7 +232,9 @@ describe('PeopleScreen', () => {
 
     beforeEach(() => {
       server.use(
-        http.get('/api/people', () => HttpResponse.json(envelope({ items: [person, twin] }))),
+        http.get('/api/people', () =>
+          HttpResponse.json(envelope({ nextCursor: null, items: [person, twin] })),
+        ),
         http.get('/api/admin/people/merge-suggestions', () =>
           HttpResponse.json(envelope({ configured: true, groups: [group] })),
         ),

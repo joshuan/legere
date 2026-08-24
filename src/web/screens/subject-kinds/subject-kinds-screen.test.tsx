@@ -21,7 +21,9 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
   // The analyst is absent unless a test says otherwise (docs/11 §11.12a).
   server.use(
-    http.get('/api/subject-kinds', () => HttpResponse.json(envelope({ items: [kind] }))),
+    http.get('/api/subject-kinds', () =>
+      HttpResponse.json(envelope({ nextCursor: null, items: [kind] })),
+    ),
     http.get('/api/admin/subject-kinds/merge-suggestions', () =>
       HttpResponse.json(envelope({ configured: false, groups: [] })),
     ),
@@ -93,7 +95,9 @@ describe('SubjectKindsScreen', () => {
     it('folds the selected kinds into one, asking which name is the right one', async () => {
       let merged: unknown = null;
       server.use(
-        http.get('/api/subject-kinds', () => HttpResponse.json(envelope({ items: [kind, twin] }))),
+        http.get('/api/subject-kinds', () =>
+          HttpResponse.json(envelope({ nextCursor: null, items: [kind, twin] })),
+        ),
         http.post('/api/admin/subject-kinds/merge', async ({ request }) => {
           merged = await request.json();
           return HttpResponse.json(envelope(kind), { status: 201 });
@@ -130,7 +134,9 @@ describe('SubjectKindsScreen', () => {
     it('shows the analyst groups and opens the same dialog prefilled from the answer', async () => {
       let merged: unknown = null;
       server.use(
-        http.get('/api/subject-kinds', () => HttpResponse.json(envelope({ items: [kind, twin] }))),
+        http.get('/api/subject-kinds', () =>
+          HttpResponse.json(envelope({ nextCursor: null, items: [kind, twin] })),
+        ),
         http.get('/api/admin/subject-kinds/merge-suggestions', () =>
           HttpResponse.json(
             envelope({

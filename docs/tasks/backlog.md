@@ -1289,7 +1289,7 @@ probes survived refutation, which is a better yield than the reviews themselves 
   **Docs:** [`07 §7.1`](../07-api-specification.md)
   **Acceptance:** closes [SEC-86](./security-audit-2026-08-second-pass.md#sec-86), the residue of [SEC-44](./security-audit-2026-08.md#sec-44). A cursor whose id is not a UUID starts the list over rather than reaching the driver and answering 500. Tests: a forged cursor answers 200 with the first page.
 
-- [ ] **M47.14 — The catalogue is a namespace, not a scratchpad**
+- [x] **M47.14 — The catalogue is a namespace, not a scratchpad**
   **Goal:** the instance-wide catalogues stop being an unbounded, unpaginated, wildcard-matched write surface open to every user.
   **Docs:** [`03 §3.3.19`](../03-domain-model.md), [`07 §7.3`](../07-api-specification.md)
   **Acceptance:** closes [SEC-51](./security-audit-2026-08-second-pass.md#sec-51), [SEC-56](./security-audit-2026-08-second-pass.md#sec-56), [SEC-69](./security-audit-2026-08-second-pass.md#sec-69), [SEC-76](./security-audit-2026-08-second-pass.md#sec-76). `POST /api/people`, `/api/subjects` and `/api/subject-kinds` are rate-limited and bounded, so one account cannot fill a namespace every other user reads; the catalogue read endpoints paginate like every other list; `subjectKindList` is capped the way the subject list beside it already is; and the uniqueness check stops compiling a user's `%`, `_` and `\` into an `ILIKE` pattern — it is a different predicate from the `lower(name)` unique index the database actually enforces, which is its own bug. Tests: a name containing a wildcard is matched as letters; the check and the index agree.
