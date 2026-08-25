@@ -173,20 +173,26 @@ Onboarding when already onboarded → 404 page.
   the URL, and one with no control is carried through when another filter changes rather than being
   dropped by the first switch anybody touches — a link that only half works is worse than no link.
   **Clear filters** takes them off, because it clears what is in force rather than what is drawn.
-- **Order** (a select beside the filter bar, not inside it): **Date on the document** (the default),
-  **Date added**, **Last changed** — the three named orders of `GET /api/documents?sort=`
-  (`07 §7.1`). The default arranges the shelf the way somebody keeps it rather than the way a machine
-  filled it, and puts the documents **whose date nobody has read yet first**, because those are the
-  ones still wanting attention. "Last changed" means the newest entry in the document's journal, of
-  any kind (`03 §3.3.18`).
+- **Order** (a select beside the filter bar, not inside it): **Date on the document**, **Date added**,
+  **Last changed** — the three named orders of `GET /api/documents?sort=` (`07 §7.1`).
+  **This screen opens in the contract's default and keeps none of its own**, so which order that is
+  is written down once, in `07 §7.3`, and the two documents cannot drift apart over it. The
+  reasoning is the screen's, though: what somebody arriving at their own archive asks is *what came
+  in since I was last here*, and the date written on the paper cannot answer it — a receipt from
+  2019 scanned this morning is the newest thing here and the oldest thing on the shelf. Arranging by
+  the date on the paper is the right answer for *reading* a shelf, and it is one select away.
+  "Last changed" means the newest entry in the document's journal, of any kind (`03 §3.3.18`).
   **The choice lives in the URL**, beside the filters and under the same rule: a view can be linked,
   bookmarked and reloaded. It is deliberately *not* a filter — **Clear filters** leaves it alone,
   the empty state does not count it, and the suggestion cards above the grid still appear on an
   unfiltered shelf however it is arranged. The default leaves no trace in the query string, the way
-  an unset filter does not, and a `?sort=` the contract does not know falls back to the default
-  rather than being sent on. It does not follow the person to another screen — the four other
-  screens that render this grid keep the order they have — and that is the accepted cost of putting
-  it in the URL rather than in a profile.
+  an unset filter does not — so it is the date on the document that travels there now, and the date
+  added that does not — and a `?sort=` the contract does not know falls back to the default rather
+  than being sent on. It does not follow the person to another screen — the four other screens that
+  render this grid keep the order they have, which each of them therefore asks for **by name**
+  instead of inheriting the list's default: an order belongs to a screen, not to a person, and a
+  screen that inherits one changes under it the day the default moves. That is the accepted cost of
+  putting the choice in the URL rather than in a profile.
 - **Grouping** (a select beside the order): **none** (the default), by **document type**, **person**,
   **subject**, **year**, **country** or **city** — the dimensions of `GET /api/documents/groups`
   (`07 §7.3`). Choosing one draws the grid **as sections**: a heading with the group's label and
@@ -207,6 +213,18 @@ Onboarding when already onboarded → 404 page.
   Like the order, this is not a filter: it lives in the URL (`groupBy=person`), **Clear filters**
   leaves it alone, and a `groupBy` the contract does not know means no grouping rather than a request
   the API would refuse.
+  **A heading folds its section**, which is what a heading is for: grouped by person, a grid drawn
+  with every section open at once is a scroll nobody can see the shape of. **Collapse all** and
+  **Expand all** stand over the grid, and the section for what the dimension cannot place folds like
+  any other. **The real count from the server stays on a folded heading** — a folded section is an
+  index line, not a hidden one — and a folded section **asks the server for nothing** until it is
+  opened, which is the one thing a grid that pages per section gets in return for paging per section.
+  🔒 **Folding is not a filter either.** It narrows nothing, **Clear filters** leaves it alone, and
+  it is deliberately **not** in the URL, where a dozen folded groups make a link nobody can read. It
+  is client-side and lasts the **tab**: `window.sessionStorage`, the way the dismissed suggestions of
+  §11.5e already are, keyed by the grouping dimension and the group's own value. So walking into a
+  document and pressing Back finds the grid as it was left, and a group folded under `groupBy=person`
+  is still folded once the filters change — what was folded is the group, not the page.
 - **Selection → Combine.** The multi-select that used to build a scan set now says what it means:
   tick documents in page order and press **Combine into one document**. While the grid is picking,
   **the card is the target** — the whole of it, not the tick in its corner — and it stops being a
@@ -353,6 +371,12 @@ documents screen uses, because a document should look the same wherever it is fo
 Folders are a list, not cards: a folder is a word, and a word does not need a picture. The heading of
 a contents page is resolved on the server, so it is right in the first paint rather than after a
 fetch; a folder that does not exist answers 404, because a wrong address is not an empty shelf.
+
+A contents page is arranged **by the date on the document**, and asks for that order by name rather
+than taking whatever `GET /api/documents` defaults to (`07 §7.3`): everything about one person is
+read the way a shelf is read, and a screen that inherits its order changes under its readers the day
+another screen's default moves (`§11.3`). There is no control for it here — one order, chosen for
+the screen.
 
 Counts are per facet value and come from the catalogue endpoints; the years come from
 `GET /api/documents/years`, which is scoped by what the viewer may read — a year holding one document

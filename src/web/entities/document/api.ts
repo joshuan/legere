@@ -45,8 +45,9 @@ import { apiClient, uploadFile, type UploadProgress } from '../../shared/api';
 // the grouping, nor which fields a card shows.
 export type { DocumentFilters };
 
-// How the grid is arranged, as one of the named orders of docs/07 §7.1. Absent is the default —
-// the date on the document — and leaves no trace in the URL, the way an unset filter does not.
+// How the grid is arranged, as one of the named orders of docs/07 §7.1. Absent is the contract's
+// default, which leaves no trace in the URL the way an unset filter does not; which order that is is
+// written down once, in the contract, and a screen that wants another one asks for it by name.
 export type DocumentListOptions = { sort?: DocumentSort | undefined; cursor?: string | undefined };
 
 // Document endpoints (docs/07 §7.3).

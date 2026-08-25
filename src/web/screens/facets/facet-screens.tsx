@@ -41,12 +41,18 @@ function FolderList({
   );
 }
 
+// A shelf of one facet is read the way a shelf is read: by the date written on the paper
+// (docs/11 §11.4). Asked for by name rather than inherited from the list's default, because an order
+// belongs to a screen and not to a person — a screen that inherits one changes under its readers the
+// day the home screen's default moves (docs/07 §7.3, docs/11 §11.3).
+const FACET_SORT = 'documentDate';
+
 // What is in one folder. The filter is whatever picked it — a type, a person, a thing, a year.
 function FacetDocuments({ title, filters }: { title: string; filters: DocumentFilters }) {
   const t = useTranslations();
   const documents = useQuery({
-    queryKey: documentKeys.list(filters),
-    queryFn: () => documentApi.list(filters),
+    queryKey: documentKeys.list(filters, FACET_SORT),
+    queryFn: () => documentApi.list(filters, { sort: FACET_SORT }),
   });
 
   return (

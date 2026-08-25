@@ -1513,12 +1513,12 @@ the shape of: the headings cannot be folded, and folding is what headings are fo
 
 ---
 
-- [ ] **M54.1 — Newest first means newest here**
+- [x] **M54.1 — Newest first means newest here**
   **Goal:** the home screen opens on what arrived last.
   **Docs:** [`07 §7.3`](../07-api-specification.md#73-endpoints), [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen)
   **Acceptance:** `createdAt` becomes the default named order of `GET /api/documents?sort=` and the order `/documents` opens in, the other two unchanged and the tiebreak with them; the default is by definition the order that leaves no trace in the query string, so `documentDate` now travels in the URL and `createdAt` does not, and an unknown `?sort=` still falls back to the default rather than being sent on; **`11 §11.3` loses the argument it made for the old default** — that a document whose date nobody has read yet is the one still wanting attention — instead of keeping a reason under a sentence that now says something else, and `07 §7.3` names the default in one place only, so the two documents cannot drift; the four other screens that render this grid keep the orders they have, because an order belongs to a screen and not to a person. Tests: the API's default order; the screen opening on it; a link carrying `sort=documentDate` still honoured; the query string empty on the default and not on the others.
 
-- [ ] **M54.2 — A group folds**
+- [x] **M54.2 — A group folds**
   **Goal:** a grouped grid reads as an index and opens where it matters.
   **Docs:** [`11 §11.3`](../11-ui-ux-spec.md#113-documents-documents--the-home-screen)
   **Acceptance:** a section's heading folds and unfolds it, **the real count from the server staying visible while it is folded** — a folded section is an index line, not a hidden one — with **Collapse all** / **Expand all** over the grid and the section for what the dimension cannot place folding like any other; a folded section asks the server for nothing until it is opened, which is the one thing a grid that pages per section gets in return for paging per section; 🔒 folding is not a filter — it narrows nothing, and **Clear filters** leaves it alone; the state is client-side and lasts the **tab**, in `window.sessionStorage` the way the dismissed suggestions of `11 §11.5e` already are, keyed by the grouping dimension and the group's own value, so walking into a document and pressing Back finds the grid as it was left, and a group folded under `groupBy=person` is still folded after the filters change, because what was folded is the group and not the page; deliberately **not** in the URL, where a dozen folded groups make a link nobody can read. Tests: folding and unfolding, the count on a folded heading, no request fired for a folded section, the state surviving a remount, collapse-all, and the URL untouched by any of it.

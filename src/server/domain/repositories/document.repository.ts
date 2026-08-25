@@ -185,9 +185,9 @@ export type DocumentFilterInput = {
 export type ListDocumentsInput = DocumentFilterInput & {
   limit: number;
   cursor?: string | undefined;
-  // Which of the named orders of docs/07 §7.1 to read the shelf in. Absent means the default — the
-  // date on the document — because a repository is asked the same question by callers that never
-  // saw a query string.
+  // Which of the named orders of docs/07 §7.1 to read the shelf in. Absent means the contract's
+  // default, which is named there and only there, because a repository is asked the same question
+  // by callers that never saw a query string.
   sort?: DocumentSort | undefined;
 };
 

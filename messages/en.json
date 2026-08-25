@@ -802,7 +802,9 @@
         "city": "City"
       },
       "unassigned": "Not filed ({count})",
-      "more": "Show more"
+      "more": "Show more",
+      "collapseAll": "Collapse all",
+      "expandAll": "Expand all"
     },
     "empty": {
       "instance": "No documents yet. Ask your administrator to add a library.",

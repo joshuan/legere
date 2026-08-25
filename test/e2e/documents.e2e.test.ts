@@ -135,7 +135,8 @@ describe('Documents (e2e)', () => {
       const user = await inviteUser(`reader${seq}@legere.local`);
 
       // Neither carries a date of its own, so this asks for the order that has one to compare
-      // (docs/07 §7.1); what the default does with the undated is its own test below.
+      // (docs/07 §7.1) — by name, even though it is also the default, so the assertion is about the
+      // order rather than about which order is the default.
       const page = expectData(
         await listAs(user.cookie, '?sort=createdAt'),
         listDocumentsResponseSchema,
@@ -267,15 +268,61 @@ describe('Documents (e2e)', () => {
           document: { title: 'Recent', documentDate: new Date('2024-05-05T00:00:00.000Z') },
           libraryId: open,
         });
-        // No date read off it yet: the one still wanting attention, and the default puts it first
-        // rather than burying it behind a century of dated ones (docs/07 §7.1).
+        // No date read off it yet: inside this order the one still wanting attention, put first
+        // rather than buried behind a century of dated ones (docs/07 §7.1).
         const undated = await seedDocument({ document: { title: 'Undated' }, libraryId: open });
+
+        // Asked for by name, because this is no longer what the list answers when nobody says
+        // (docs/07 §7.3).
+        const page = expectData(
+          await listAs(adminCookie, '?sort=documentDate'),
+          listDocumentsResponseSchema,
+        );
+
+        expect(page.items.map((item) => item.id)).toEqual([undated.id, recent.id, old.id]);
+        expect(await walk(adminCookie, 'documentDate')).toEqual([undated.id, recent.id, old.id]);
+      });
+
+      it('opens on what arrived last when nobody names an order', async () => {
+        const open = await givenLibrary('ALL_USERS');
+        // The date on the paper and the date it arrived disagree on purpose: a receipt from 2019
+        // scanned this morning is the newest thing in the archive and the oldest thing on the shelf,
+        // and what somebody arriving asks is what came in since they were last here (docs/07 §7.3).
+        const filedFirst = await seedDocument({
+          document: {
+            title: 'Filed first',
+            documentDate: new Date('2024-05-05T00:00:00.000Z'),
+            createdAt: new Date('2026-01-01T00:00:00.000Z'),
+          },
+          libraryId: open,
+        });
+        const filedSecond = await seedDocument({
+          document: { title: 'Filed second', createdAt: new Date('2026-02-01T00:00:00.000Z') },
+          libraryId: open,
+        });
+        const filedLast = await seedDocument({
+          document: {
+            title: 'Filed last',
+            documentDate: new Date('2019-01-01T00:00:00.000Z'),
+            createdAt: new Date('2026-03-01T00:00:00.000Z'),
+          },
+          libraryId: open,
+        });
 
         const page = expectData(await listAs(adminCookie), listDocumentsResponseSchema);
 
-        expect(page.items.map((item) => item.id)).toEqual([undated.id, recent.id, old.id]);
-        // And it is the default, so asking for it by name is the same answer.
-        expect(await walk(adminCookie, 'documentDate')).toEqual([undated.id, recent.id, old.id]);
+        expect(page.items.map((item) => item.id)).toEqual([
+          filedLast.id,
+          filedSecond.id,
+          filedFirst.id,
+        ]);
+        // The default is a named order like any other, so asking for it by name is the same answer —
+        // and the cursor walks it the same way.
+        expect(await walk(adminCookie, 'createdAt')).toEqual([
+          filedLast.id,
+          filedSecond.id,
+          filedFirst.id,
+        ]);
       });
 
       it('walks the undated block and the dated one as a single order, one page at a time', async () => {

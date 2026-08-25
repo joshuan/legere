@@ -1,11 +1,20 @@
 'use client';
 
+import { DownOutlined, RightOutlined } from '@ant-design/icons';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Col, Empty, Row, Select, Space, Spin, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import {
   DEFAULT_DOCUMENT_SORT,
   DOCUMENT_GROUP_BY,
@@ -267,6 +276,9 @@ export function DocumentsScreen() {
             archive where it was. */}
         {groupBy !== null ? (
           <DocumentGroupSections
+            // Keyed by the dimension: what is folded belongs to it, so another dimension is another
+            // grid rather than this one with its sections renamed (docs/11 §11.3).
+            key={groupBy}
             by={groupBy}
             filters={filters}
             sort={sort}
@@ -451,6 +463,48 @@ type SectionSelection = {
   setSelected: (update: (current: string[]) => string[]) => void;
 };
 
+// The section for what the dimension cannot place has no key of its own (docs/11 §11.3), and both
+// React and the fold store need one to tell it apart from a group whose key happens to be a word. A
+// NUL byte is the one thing no uuid, year, country code or city name can be.
+const UNASSIGNED_GROUP = '\u0000unassigned';
+
+function groupValue(group: DocumentGroup): string {
+  return group.key ?? UNASSIGNED_GROUP;
+}
+
+// Folding lasts the **tab** and nothing longer (docs/11 §11.3): it is the position somebody left the
+// grid in, not a filter and not something a link should carry — a dozen folded groups in the URL
+// make a link nobody can read. One entry per folded group, keyed by the grouping dimension and the
+// group's own value, so walking into a document and pressing Back finds the grid as it was left, and
+// a group folded under `groupBy=person` is still folded once the filters change: what was folded is
+// the group, not the page. `window.sessionStorage`, the way the dismissed link suggestions of
+// docs/11 §11.5e already are.
+const foldedPrefix = (by: DocumentGroupBy): string => `legere:folded-group:${by}:`;
+
+function readFolded(by: DocumentGroupBy): ReadonlySet<string> {
+  const folded = new Set<string>();
+  if (typeof window === 'undefined') return folded;
+  try {
+    const prefix = foldedPrefix(by);
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (key !== null && key.startsWith(prefix)) folded.add(key.slice(prefix.length));
+    }
+  } catch {
+    // A store that cannot be read is a grid that opens — the harmless way to be wrong about this.
+  }
+  return folded;
+}
+
+function writeFolded(by: DocumentGroupBy, value: string, folded: boolean): void {
+  try {
+    if (folded) window.sessionStorage.setItem(`${foldedPrefix(by)}${value}`, '1');
+    else window.sessionStorage.removeItem(`${foldedPrefix(by)}${value}`);
+  } catch {
+    // A full store is not a reason folding should break.
+  }
+}
+
 // The grid, arranged into the groups of one dimension (docs/11 §11.3). The headings and their counts
 // come from the server, under the filters in force, so a heading says how much the archive holds
 // rather than how much has been scrolled to.
@@ -473,6 +527,27 @@ function DocumentGroupSections({
     queryFn: () => documentApi.groups(by, filters),
   });
 
+  // What is folded is read out of the store on mount and kept here, so a heading pressed in one
+  // section and "Collapse all" pressed above them all move the same state. What is folded belongs to
+  // the dimension, and this component is keyed by it — so choosing another dimension mounts it
+  // afresh and reads that dimension's folds rather than carrying the last one's over.
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => readFolded(by));
+
+  const fold = useCallback(
+    (values: readonly string[], next: boolean) => {
+      for (const value of values) writeFolded(by, value, next);
+      setFolded((current) => {
+        const updated = new Set(current);
+        for (const value of values) {
+          if (next) updated.add(value);
+          else updated.delete(value);
+        }
+        return updated;
+      });
+    },
+    [by],
+  );
+
   if (groups.isPending) return <Spin />;
 
   const items = groups.data?.items ?? [];
@@ -480,16 +555,30 @@ function DocumentGroupSections({
     return <Typography.Text type="secondary">{t('documents.groupBy.empty')}</Typography.Text>;
   }
 
+  const values = items.map(groupValue);
+
   return (
     <Space direction="vertical" size={24} style={{ width: '100%' }}>
+      {/* Over the grid rather than in the filter bar: folding is not a filter, it narrows nothing,
+          and "Clear filters" leaves it alone (docs/11 §11.3). */}
+      <Space size="small">
+        <Button size="small" onClick={() => fold(values, true)}>
+          {t('documents.groupBy.collapseAll')}
+        </Button>
+        <Button size="small" onClick={() => fold(values, false)}>
+          {t('documents.groupBy.expandAll')}
+        </Button>
+      </Space>
       {items.map((group) => (
         <DocumentGroupSection
-          key={group.key ?? '\u0000unassigned'}
+          key={groupValue(group)}
           by={by}
           group={group}
           filters={filters}
           sort={sort}
           fields={fields}
+          folded={folded.has(groupValue(group))}
+          onToggle={() => fold([groupValue(group)], !folded.has(groupValue(group)))}
           {...(selection === undefined ? {} : { selection })}
         />
       ))}
@@ -505,6 +594,8 @@ function DocumentGroupSection({
   filters,
   sort,
   fields,
+  folded,
+  onToggle,
   selection,
 }: {
   by: DocumentGroupBy;
@@ -512,10 +603,14 @@ function DocumentGroupSection({
   filters: DocumentFilters;
   sort: DocumentSort;
   fields: readonly DocumentCardField[];
+  folded: boolean;
+  onToggle: () => void;
   selection?: SectionSelection;
 }) {
   const t = useTranslations();
   const justUploaded = useJustUploaded();
+  // What the heading unfolds, named so the heading can say which region it controls.
+  const bodyId = useId();
   // A named group is the ordinary list filtered by its key; the group that has no key is the
   // ordinary list asked for what this dimension cannot place.
   const scope: DocumentFilters =
@@ -527,59 +622,82 @@ function DocumentGroupSection({
       documentApi.list(scope, { sort, ...(pageParam === '' ? {} : { cursor: pageParam }) }),
     initialPageParam: '',
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // A folded section asks the server for nothing until it is opened — which is the one thing a
+    // grid that pages per section gets in return for paging per section (docs/11 §11.3).
+    enabled: !folded,
   });
 
   const items = (documents.data?.pages ?? []).flatMap((page) => page.items);
 
   return (
     <section>
-      <Typography.Title level={5} style={{ marginTop: 0 }}>
-        {/* The count is the archive's, the cards are as many as have been fetched — so the heading
-            is a fact about the group rather than about the scrolling (docs/11 §11.3). */}
-        {group.key === null
-          ? t('documents.groupBy.unassigned', { count: group.count })
-          : t('documents.groupBy.shelf', { label: group.label, count: group.count })}
-      </Typography.Title>
-      {documents.isPending ? (
-        <Spin size="small" />
-      ) : (
-        <div className="legere-card-grid">
-          {items.map((document) => (
-            <div
-              key={document.id}
-              className={justUploaded.has(document.id) ? 'legere-just-uploaded' : undefined}
-            >
-              <DocumentCard
-                document={document}
-                fields={fields}
-                {...(selection === undefined
-                  ? {}
-                  : {
-                      selection: {
-                        picked: selection.selected.includes(document.id),
-                        onToggle: () =>
-                          selection.setSelected((current) =>
-                            current.includes(document.id)
-                              ? current.filter((id) => id !== document.id)
-                              : [...current, document.id],
-                          ),
-                      },
-                    })}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-      {documents.hasNextPage === true && (
+      <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
+        {/* The heading folds its section, which is what a heading is for — and it is a button, so
+            the keyboard reaches it the way the mouse does. The count stays on it while it is
+            folded: a folded section is an index line, not a hidden one (docs/11 §11.3). The caret
+            is decorative, because the state is what `aria-expanded` says and a reader announcing
+            "right" before the group's name says nothing anybody needs to hear. */}
         <Button
-          type="link"
-          loading={documents.isFetchingNextPage}
-          onClick={() => void documents.fetchNextPage()}
-          style={{ paddingLeft: 0 }}
+          type="text"
+          onClick={onToggle}
+          aria-expanded={!folded}
+          aria-controls={bodyId}
+          icon={folded ? <RightOutlined aria-hidden /> : <DownOutlined aria-hidden />}
+          style={{ paddingLeft: 0, height: 'auto', fontSize: 'inherit', fontWeight: 'inherit' }}
         >
-          {t('documents.groupBy.more')}
+          {/* The count is the archive's, the cards are as many as have been fetched — so the heading
+              is a fact about the group rather than about the scrolling (docs/11 §11.3). */}
+          {group.key === null
+            ? t('documents.groupBy.unassigned', { count: group.count })
+            : t('documents.groupBy.shelf', { label: group.label, count: group.count })}
         </Button>
-      )}
+      </Typography.Title>
+      <div id={bodyId}>
+        {folded ? null : (
+          <>
+            {documents.isPending ? (
+              <Spin size="small" />
+            ) : (
+              <div className="legere-card-grid">
+                {items.map((document) => (
+                  <div
+                    key={document.id}
+                    className={justUploaded.has(document.id) ? 'legere-just-uploaded' : undefined}
+                  >
+                    <DocumentCard
+                      document={document}
+                      fields={fields}
+                      {...(selection === undefined
+                        ? {}
+                        : {
+                            selection: {
+                              picked: selection.selected.includes(document.id),
+                              onToggle: () =>
+                                selection.setSelected((current) =>
+                                  current.includes(document.id)
+                                    ? current.filter((id) => id !== document.id)
+                                    : [...current, document.id],
+                                ),
+                            },
+                          })}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+            {documents.hasNextPage === true && (
+              <Button
+                type="link"
+                loading={documents.isFetchingNextPage}
+                onClick={() => void documents.fetchNextPage()}
+                style={{ paddingLeft: 0 }}
+              >
+                {t('documents.groupBy.more')}
+              </Button>
+            )}
+          </>
+        )}
+      </div>
     </section>
   );
 }

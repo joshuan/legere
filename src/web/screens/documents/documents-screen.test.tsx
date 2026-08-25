@@ -337,6 +337,85 @@ describe('DocumentsScreen', () => {
     });
   });
 
+  // How the shelf is arranged, and which of the three arrangements needs saying (docs/11 §11.3).
+  describe('order', () => {
+    function watchList(): string[] {
+      const seen: string[] = [];
+      server.use(
+        http.get('/api/documents', ({ request }) => {
+          seen.push(new URL(request.url).search);
+          return HttpResponse.json(envelope({ items: [documentAt(1)], nextCursor: null }));
+        }),
+      );
+      return seen;
+    }
+
+    it('opens on what arrived last, and says nothing about it in the URL', async () => {
+      const seen = watchList();
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      // The archive as it filled, not as it is kept: what somebody arriving asks is what came in
+      // since they were last here (docs/07 §7.3).
+      expect(seen[0]).toContain('sort=createdAt');
+      expect(screen.getByTitle(enMessages.documents.sort.options.createdAt)).toBeInTheDocument();
+      // The default leaves no trace in the query string, the way an unset filter does not.
+      expect(replace).not.toHaveBeenCalled();
+    });
+
+    it('honours a link that names the date on the document', async () => {
+      currentSearch = 'sort=documentDate';
+      const seen = watchList();
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      expect(seen[0]).toContain('sort=documentDate');
+      expect(screen.getByTitle(enMessages.documents.sort.options.documentDate)).toBeInTheDocument();
+    });
+
+    it('carries an order that is not the default in the URL, and drops it again at the default', async () => {
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      await userEvent.click(
+        screen.getByRole('combobox', { name: enMessages.documents.sort.label }),
+      );
+      await userEvent.click(
+        await screen.findByTitle(enMessages.documents.sort.options.documentDate),
+      );
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents?sort=documentDate'));
+    });
+
+    it('says nothing in the URL once the order is the default one again', async () => {
+      currentSearch = 'sort=documentDate';
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      await userEvent.click(
+        screen.getByRole('combobox', { name: enMessages.documents.sort.label }),
+      );
+      await userEvent.click(await screen.findByTitle(enMessages.documents.sort.options.createdAt));
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents'));
+    });
+
+    it('falls back to the default rather than sending on an order the contract does not know', async () => {
+      currentSearch = 'sort=title';
+      const seen = watchList();
+
+      renderWithProviders(<DocumentsScreen />);
+      await screen.findByText('Document 1');
+
+      // A hand-edited URL earns the shelf it would have had, not a 422 (docs/11 §11.3).
+      expect(seen[0]).toContain('sort=createdAt');
+      expect(seen[0]).not.toContain('sort=title');
+    });
+  });
+
   // Real shelves with real counts, from the server (docs/11 §11.3).
   describe('grouping', () => {
     const GROUPS = [
@@ -371,7 +450,8 @@ describe('DocumentsScreen', () => {
 
       renderWithProviders(<DocumentsScreen />);
 
-      // Headings, not buttons: pressing a group is not how a grouped grid is read (docs/11 §11.3).
+      // A heading says what the archive holds under it, not what has been scrolled to; pressing it
+      // folds the section and nothing else (docs/11 §11.3).
       expect(await screen.findByText('Ana Petrović · 12')).toBeInTheDocument();
       expect(screen.getByText('Marko Marković · 3')).toBeInTheDocument();
       expect(seen[0]).toContain('by=person');
@@ -457,6 +537,139 @@ describe('DocumentsScreen', () => {
 
       // A hand-edited URL falls back to no grouping rather than earning a 422 (docs/11 §11.3).
       expect(asked).toBe(0);
+    });
+
+    // A grouped grid reads as an index and opens where it matters: a heading folds its section, and
+    // the fold lasts the tab (docs/11 §11.3).
+    describe('folding', () => {
+      const UNPLACED = { key: null, label: '', count: 7 };
+
+      // The sections and what each of them asked the list for, so a fold can be shown to cost the
+      // server nothing.
+      function watchSections(): string[] {
+        const asked: string[] = [];
+        server.use(
+          http.get('/api/documents/groups', () =>
+            HttpResponse.json(envelope({ items: [...GROUPS, UNPLACED] })),
+          ),
+          http.get('/api/documents', ({ request }) => {
+            asked.push(new URL(request.url).search);
+            return HttpResponse.json(envelope({ items: [documentAt(1)], nextCursor: null }));
+          }),
+        );
+        return asked;
+      }
+
+      const heading = (name: string): HTMLElement => screen.getByRole('button', { name });
+
+      // Only what a section asked for. The screen keeps the ungrouped list beside the sections, and
+      // that one request is nobody's group.
+      const bySection = (asked: readonly string[]): string[] =>
+        asked.filter(
+          (search) => search.includes('personId=') || search.includes('unassigned=person'),
+        );
+
+      beforeEach(() => window.sessionStorage.clear());
+      afterEach(() => window.sessionStorage.clear());
+
+      it('folds a section from its heading and unfolds it again, asking for nothing in between', async () => {
+        currentSearch = 'groupBy=person';
+        const asked = watchSections();
+
+        renderWithProviders(<DocumentsScreen />);
+        await screen.findByRole('button', { name: 'Ana Petrović · 12' });
+        await waitFor(() => expect(bySection(asked)).toHaveLength(3));
+
+        await userEvent.click(heading('Ana Petrović · 12'));
+
+        // 🔒 A folded section asks the server for nothing until it is opened — which is what a grid
+        // that pages per section gets in return for paging per section (docs/11 §11.3).
+        await waitFor(() =>
+          expect(heading('Ana Petrović · 12')).toHaveAttribute('aria-expanded', 'false'),
+        );
+        // An index line, not a hidden one: the real count from the server stays on the heading.
+        expect(heading('Ana Petrović · 12')).toBeInTheDocument();
+        expect(bySection(asked)).toHaveLength(3);
+
+        await userEvent.click(heading('Ana Petrović · 12'));
+
+        await waitFor(() =>
+          expect(heading('Ana Petrović · 12')).toHaveAttribute('aria-expanded', 'true'),
+        );
+        // Opening it is what asks: the section that was folded fetches now and not before.
+        await waitFor(() => expect(bySection(asked)).toHaveLength(4));
+      });
+
+      it('folds the section for what the dimension cannot place like any other', async () => {
+        currentSearch = 'groupBy=person';
+        const asked = watchSections();
+
+        renderWithProviders(<DocumentsScreen />);
+        await screen.findByRole('button', { name: 'Not filed (7)' });
+        await waitFor(() => expect(bySection(asked)).toHaveLength(3));
+
+        await userEvent.click(heading('Not filed (7)'));
+
+        await waitFor(() =>
+          expect(heading('Not filed (7)')).toHaveAttribute('aria-expanded', 'false'),
+        );
+        expect(asked.some((search) => search.includes('unassigned=person'))).toBe(true);
+        expect(bySection(asked)).toHaveLength(3);
+      });
+
+      it('finds the grid as it was left after walking into a document and back', async () => {
+        currentSearch = 'groupBy=person';
+        watchSections();
+
+        const first = renderWithProviders(<DocumentsScreen />);
+        await screen.findByRole('button', { name: 'Ana Petrović · 12' });
+        await userEvent.click(heading('Ana Petrović · 12'));
+        await waitFor(() =>
+          expect(heading('Ana Petrović · 12')).toHaveAttribute('aria-expanded', 'false'),
+        );
+        first.unmount();
+
+        // Back, and with the filters changed on the way: what was folded is the group, not the page
+        // (docs/11 §11.3).
+        currentSearch = 'groupBy=person&processing=true';
+        const asked = watchSections();
+        renderWithProviders(<DocumentsScreen />);
+        await screen.findByRole('button', { name: 'Ana Petrović · 12' });
+
+        await waitFor(() => expect(bySection(asked)).toHaveLength(2));
+        expect(heading('Ana Petrović · 12')).toHaveAttribute('aria-expanded', 'false');
+        expect(asked.every((search) => !search.includes(`personId=${PERSON_ID}`))).toBe(true);
+      });
+
+      it('folds every section at once, and opens them all again', async () => {
+        currentSearch = 'groupBy=person';
+        const asked = watchSections();
+
+        renderWithProviders(<DocumentsScreen />);
+        await screen.findByRole('button', { name: 'Ana Petrović · 12' });
+        await waitFor(() => expect(bySection(asked)).toHaveLength(3));
+
+        await userEvent.click(
+          screen.getByRole('button', { name: enMessages.documents.groupBy.collapseAll }),
+        );
+
+        await waitFor(() =>
+          expect(heading('Marko Marković · 3')).toHaveAttribute('aria-expanded', 'false'),
+        );
+        expect(heading('Ana Petrović · 12')).toHaveAttribute('aria-expanded', 'false');
+        expect(heading('Not filed (7)')).toHaveAttribute('aria-expanded', 'false');
+
+        await userEvent.click(
+          screen.getByRole('button', { name: enMessages.documents.groupBy.expandAll }),
+        );
+
+        await waitFor(() =>
+          expect(heading('Marko Marković · 3')).toHaveAttribute('aria-expanded', 'true'),
+        );
+        // 🔒 Folding is not a filter: it narrows nothing, and it is deliberately not in the URL,
+        // where a dozen folded groups make a link nobody can read (docs/11 §11.3).
+        expect(replace).not.toHaveBeenCalled();
+      });
     });
   });
 

@@ -925,7 +925,7 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 | the files of one document, in order | `document_files` PK `(document_id, position)` |
 | the document a file belongs to | `document_files.file_id` unique |
 | document list ordered by when Legere first saw it (`?sort=createdAt`) | `documents(created_at DESC)` |
-| document list ordered by the date on the paper, undated first (`?sort=documentDate`, the default) | `documents(document_date DESC NULLS FIRST, id DESC)` (raw SQL, §4.3) — a separate index from the `NULLS LAST` one below, which cannot be scanned backwards to produce it; `id` is in the index because a DATE ties constantly and the cursor needs the tiebreak to continue a page inside one day |
+| document list ordered by the date on the paper, undated first (`?sort=documentDate`) | `documents(document_date DESC NULLS FIRST, id DESC)` (raw SQL, §4.3) — a separate index from the `NULLS LAST` one below, which cannot be scanned backwards to produce it; `id` is in the index because a DATE ties constantly and the cursor needs the tiebreak to continue a page inside one day |
 | document list ordered by when it last changed (`?sort=lastEventAt`) | `documents(last_event_at DESC)` — the denormalised newest journal entry (`03 §3.3.18`); `max(document_events.at)` is a correlated aggregate no index serves |
 | filter by document type | `documents(type_id)` |
 | filter by library | `file_refs(library_id, status)` + join through `document_files` |

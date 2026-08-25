@@ -489,8 +489,8 @@ const queryBoolean = z
 // enum does not hold is a validation failure rather than a slow query.
 //
 // - `documentDate` — the date written on the paper (docs/03 §3.3.10), newest first, and the undated
-//   *before* everything: a document whose date nobody has read yet is the one still wanting
-//   attention, and burying it under a century of dated ones is how it stays unread.
+//   *before* everything: inside this order a document whose date nobody has read yet is the one
+//   still wanting attention, and burying it under a century of dated ones is how it stays unread.
 // - `createdAt` — when Legere first saw it. The order every list had before this existed.
 // - `lastEventAt` — the newest entry in the document's journal, whatever kind (docs/03 §3.3.18).
 //   Deliberately *not* `updatedAt`, which the pipeline bumps whenever it rewrites a step status and
@@ -500,8 +500,11 @@ export type DocumentSort = z.infer<typeof documentSortSchema>;
 
 export const DOCUMENT_SORTS: readonly DocumentSort[] = documentSortSchema.options;
 
-// The shelf as somebody keeps it, not as a machine filled it: the date on the paper.
-export const DEFAULT_DOCUMENT_SORT: DocumentSort = 'documentDate';
+// The archive as it filled, not as it is kept (docs/07 §7.3): what somebody opening their own
+// archive asks is what arrived since they were last here, and the date on the paper cannot answer
+// it — a receipt from 2019 scanned this morning is the newest thing here and the oldest thing on the
+// shelf. Named here and nowhere else, so no screen and no document has a second opinion about it.
+export const DEFAULT_DOCUMENT_SORT: DocumentSort = 'createdAt';
 
 // What narrows a shelf, written once (docs/07 §7.3). The list takes them beside its pagination and
 // its order; the grouping endpoint takes exactly the same set beside the dimension it counts by, so
