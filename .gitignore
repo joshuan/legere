@@ -23,6 +23,10 @@
 *.log
 npm-debug.log*
 
+# Scratch worktrees an agent checks the repository out into; the settings and skills beside them
+# are tracked on purpose.
+.claude/worktrees/
+
 # OS / editor
 .DS_Store
 Thumbs.db
