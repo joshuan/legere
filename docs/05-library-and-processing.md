@@ -107,19 +107,21 @@ The `file-ingest` job computes SHA-256 of the file stream and then asks two ques
 
 1. **Are these bytes already a file?** Yes → attach the `FileRef` to it (**dedup**: nothing is
    processed twice, and the file keeps the document it already belongs to). No → create the file.
-2. **Does that file have a document?** No — it is new — → create a document holding exactly it and
+2. **Is that file read by any document?** No — it is new — → create a document holding exactly it and
    enqueue `document-process`. Yes → nothing else happens; the bytes turned up in one more place,
    which is a fact about paths and not about documents.
-   🔒 **A file in the trash counts as having one.** It has no `document_files` row (§5.7a), so the
+   🔒 **A file in the trash counts as having one.** It has no `document_pages` row (§5.7a), so the
    question above would answer "no" and hand a thrown-away scan a fresh document — every time
    somebody touched the file on the volume and the ref was re-hashed. Being in the trash is an answer
    about where a file belongs, and it is not "nowhere".
 
 **Invariants:**
 - One live `File` per `contentHash`.
-- A file belongs to exactly one live document; a live document holds ≥1 file.
+- Every file a scan ingests is read by a live document or is in the trash (ADR-025); a live document
+  holds ≥1 page. Ingest is unchanged by pages: deduplication by hash never implied one document, only
+  one row.
 - Renaming or moving a file without changing its content is a `path` change on a `FileRef`: the file,
-  its document and its processing are untouched.
+  its documents and their processing are untouched.
 - The scan never guesses. Every file it finds already has a home or gets one; nothing on a volume is
   left dangling, and nothing that already belongs somewhere is quietly moved.
 
@@ -479,11 +481,12 @@ Steps run sequentially for a document; each step records its status
 not block steps independent of it (no preview — text is still extracted, and vice versa).
 
 ```
-files ──► (1) canonical PDF ──► (2) JPG preview ──► (3) Markdown ──► (4) analysis ──► (5) fields ──► (6) vectorization
+pages ──► (1) canonical PDF ──► (2) JPG preview ──► (3) Markdown ──► (4) analysis ──► (5) fields ──► (6) vectorization
             │
-            └─ per file: crop (images) → turn (images) → correct (images) → to PDF → merge in order
-               → text layer → page format → metadata; and step 3 re-reads a recognised document with
-               a vision model
+            └─ per file: open once, count its pages, expand what stood for it whole
+               per page: crop → turn → correct (a picture) | take the page, turned (a PDF)
+               then: merge in order → text layer → page format → metadata; and step 3 re-reads a
+               recognised document with a vision model
 ```
 
 All derived artifacts (the canonical PDF, previews, Markdown files) are saved to the private S3 bucket
@@ -491,11 +494,24 @@ through the `FileStorage` port
 ([ADR-010](./02-architecture-overview.md#adr-010-derived-artifacts--s3-private-bucket-filestorage-port));
 they are served to the client via short-lived signed URLs after an access check.
 
-1. **Canonical PDF — for every document, always** (ADR-021). One artifact, `canonical.pdf`, built
-   from the document's files in their order, rebuildable from them at any time. Five passes:
-   1. **Each file becomes a PDF part**, `unitConcurrency` of them at a time (§5.4):
-      - an image → its crop applied when it has one (a perspective transform of the stored
-        quadrilateral, §5.6), then **turned** when it has a turn, then **corrected**
+1. **Canonical PDF — for every document, always** (ADR-021, ADR-025). One artifact, `canonical.pdf`,
+   built from the document's **pages** in their order (`03 §3.3.17`), rebuildable from them at any
+   time. Six passes:
+   1. **Each file is opened once and its pages are counted**, `unitConcurrency` of them at a time
+      (§5.4). An image is one page; a PDF is what its page tree says; an office format, plain text or
+      Markdown is converted through Stirling `file → pdf` first and the conversion's pages are what
+      it holds; a format nothing can render holds none, contributes nothing, and the step records
+      `UNSUPPORTED_FORMAT` as the reason it is incomplete rather than failing the whole document. The
+      number is written onto the file (`03 §3.3.16`) — this is the one moment anything in Legere
+      opens it, and knowing how many pages it holds is what lets an edit refuse a page index later
+      without a round trip of its own.
+      🔒 **And an entry that stood for the file whole is expanded here**, into one entry per page, in
+      the file's own order (ADR-025): a file nobody had counted could not be enumerated, and now it
+      can. The expansion is written down, so it happens once; a file with no page at all keeps the
+      entry it has, since a document is not made smaller by a format we cannot read.
+   2. **Each page becomes a PDF part**, `unitConcurrency` of them at a time:
+      - a page of an image → its crop applied when the page has one (a perspective transform of the
+        stored quadrilateral, §5.6), then **turned** when it has a turn, then **corrected**
         (`IMAGE_PAGE_CORRECTION`, on by default), then one
         page via Stirling `img → pdf` — **on a page the shape of the image**, not on a fixed sheet,
         and the image's shape is measured after all three, because that is what the page will be.
@@ -506,7 +522,7 @@ they are served to the client via short-lived signed URLs after an access check.
         page — it shears the ink through ±8° and takes the angle whose row profile has the sharpest
         steps — and on a page still lying sideways those rows run down the sheet instead of across
         it, so the search would be looking for lines of text where there are none. The turn is a
-        quarter turn and a mirror (`03 §3.3.16`), applied on top of EXIF rather than instead of it:
+        quarter turn and a mirror (`03 §3.3.17`), applied on top of EXIF rather than instead of it:
         `sharp` still stands a photograph up the way every viewer stands it up, and a person's turn
         is a turn on top of that.
         The correction is the two things a camera does to a page and a scanner does not. **The
@@ -535,40 +551,44 @@ they are served to the client via short-lived signed URLs after an access check.
         Measured on the photographed lab report this work exists for: 643 characters recognised
         before and 768 after, with three of the nine rows of its results table arriving with their
         labels where none did before; on the same page under a harsher side light, 465 against 751;
-      - a PDF → itself, as is; its pages are the part. Its pages are also **counted** here, every
-        time, and the number is written onto the file (`03 §3.3.16`) — this is the one moment
-        anything in Legere opens that file, and knowing how many pages it holds is what lets an edit
-        refuse a wrong page order later without a round trip of its own. Where the file carries
-        `pageRotations`, the pages that have a turn are **turned first**, through Stirling's rotate
-        endpoint; where it carries a `pageOrder`, the pages are then put into it — both **before the
-        merge**, and 🔒 **the file itself is untouched** either way: a `LIBRARY` original lies on a
-        read-only volume (ADR-007) and a `MANAGED` original stays the original, so both are
-        instructions this pass obeys and never a rewrite (`03 §3.3.16`). Turning before reordering is
-        what lets one index mean one thing: a stored turn and a stored order both name the pages by
-        the index they arrived under, which is also the index the page strip shows and the page-thumb
-        route serves (`07 §7.3`). Stirling's rotate takes one angle for a whole document, so a file
-        whose pages disagree is turned by making one copy per angle asked for — at most three — and
-        picking each page out of the copy that holds it upright: a bounded number of calls whatever
-        the page count, all of them page-tree rewrites rather than renders. A file where every turned
-        page shares one angle and none is left straight is a single call. Nothing is paid for in
-        size: the pages nobody picked are dropped with the copies they came from, and a 3.17 MB scan
-        of photographs measured 3.17 MB after the round trip. The angle is *added* to the page's own
+      - an **uncropped** page of a PDF, or of something converted into one → that page, taken out of
+        the file and **turned** where the entry says so. 🔒 **The file itself is untouched**: a
+        `LIBRARY` original lies on a read-only volume (ADR-007) and a `MANAGED` original stays the
+        original, so a turn is an instruction this pass obeys and never a rewrite (`03 §3.3.17`).
+        **Consecutive pages of one file are taken together**, in one selection and one turn, so a
+        forty-page scan read straight through costs the calls of a run rather than of forty pages;
+        pages picked apart, interleaved with another file's or repeated cost a run each, which is
+        what asking for them apart means. The selection names the pages by the index they arrived
+        under — the index the page strip shows and the page-thumb route serves (`07 §7.3`) — and it
+        is done before the turns, so what is turned is exactly the pages that were picked, however
+        they were picked. Stirling's rotate takes one angle for a whole document, so a run whose
+        pages disagree is turned by making one copy per angle asked for — at most three — and picking
+        each page out of the copy that holds it upright: a bounded number of calls whatever the page
+        count, all of them page-tree rewrites rather than renders. A run where every turned page
+        shares one angle and none is left straight is a single call. Nothing is paid for in size: the
+        pages nobody picked are dropped with the copies they came from, and a 3.17 MB scan of
+        photographs measured 3.17 MB after the round trip. The angle is *added* to the page's own
         `/Rotate` rather than replacing it, so a scanner that already said which way up a page lies
-        keeps saying it. A turn list or an order that does not describe the pages just
-        counted — a file replaced by different bytes under a stored one, a row written by another
-        version — is ignored and the pages stand as they arrived, on the same reasoning as an
-        unreadable crop: the document is worth more than the correction;
-      - an office format, plain text or Markdown → Stirling `file → pdf`;
-      - a format nothing can render → the file contributes no page, and the step records
-        `UNSUPPORTED_FORMAT` as the reason it is incomplete rather than failing the whole document.
-   2. **The parts are merged in position order** into one PDF. A single-part document skips the
+        keeps saying it. An entry naming a page the file does not hold — a count that has moved under
+        it, a row written by another version — contributes nothing and the rest of the document
+        stands, on the same reasoning as an unreadable crop: the document is worth more than the
+        correction;
+      - a **cropped** page of a PDF → rendered to a picture at 300 dpi, warped by the stored
+        quadrilateral, turned, and laid down as one page the shape of the result — the image path
+        above, from the crop onwards. 🔒 **This is what somebody who dragged the corners asked for**
+        (`03 §3.3.17`): a scanned page is already raster and loses nothing by being rendered, and a
+        vector page cropped becomes raster, because there is no other honest answer to "keep this
+        quadrilateral of it". 300 dpi is the resolution the recognizer reads best at, and this page
+        is about to be recognised. The page correction is **not** applied here: it undoes what a
+        camera does to a sheet, and a page of a PDF was laid out by whoever produced it.
+   3. **The parts are merged in position order** into one PDF. A single-part document skips the
       merge and keeps its part.
-   3. **A text layer is ensured.** The merged PDF is measured against the same threshold step 3 uses
+   4. **A text layer is ensured.** The merged PDF is measured against the same threshold step 3 uses
       (`PDF_TEXT_MIN_CHARS_PER_PAGE` over its page count); below it, Stirling OCRs the whole thing in
       the document's own languages and the **searchable** PDF becomes the canonical. This is where
       `ocrUsed` is decided, and it is why a scan is a text-selectable PDF rather than a picture of
       one. Until this release that OCR pass was run and thrown away.
-   4. **The format is applied** — and only here, after the text layer exists. Which format is the
+   5. **The format is applied** — and only here, after the text layer exists. Which format is the
       document's own `pageFormat`: `A4`, `MATCH_SOURCE`, or `AUTO`, which reads it off the pictures
       the pages were made from. A document whose pages are all *sheet-shaped* — a ratio within 8% of
       √2, which holds the A series, a scan with a little skew and the 3:2 and 4:3 a camera produces —
@@ -589,7 +609,7 @@ they are served to the client via short-lived signed URLs after an access check.
       text layer is vector and scales with the page, which is what lets one archive be strictly A4
       *and* searchable rather than a choice between the two. Best-effort, like the stamping below: a
       document whose pages could not be resized is still the document.
-   5. **Metadata is stamped**: the document's title and its creation date, best-effort — a failure
+   6. **Metadata is stamped**: the document's title and its creation date, best-effort — a failure
       here is logged and does not fail the step, because a PDF with the wrong `/Title` is still the
       document.
    The result is written to `documents/{id}/canonical.pdf` and its page count onto the document.
@@ -888,27 +908,36 @@ Scenario: a passport photographed into forty images with a phone, at an angle, o
 Forty files, one document — and the person who took them should be able to say so, put them in
 order, straighten each one, and end up with a PDF they would print.
 
-Every operation below changes only the **composition**: which files, in what order, cropped how and
-which way up.
+Every operation below changes only the **composition**: which **pages** a document is a list of, in
+what order, cropped how and which way up (`03 §3.3.17`, ADR-025).
 Nothing rewrites a file, and every one of them ends by enqueueing a canonical rebuild (§5.5 step 1)
 followed by the rest of the pipeline — because a document whose pages changed is a different
 document to read, search and categorize.
 
-- **Add by upload.** Files sent to an existing document are stored, deduplicated and appended in the
-  order they arrive. A file that already belongs to another document is refused
-  (`FILE_ALREADY_IN_DOCUMENT`) — it has a home, and moving it is `combine`, below.
-- **Combine.** Several documents become one: the files of the others are appended to the target in
+- **Add by upload.** Files sent to an existing document are stored, deduplicated and their pages
+  appended after the last page the document has, in the order the files arrive. A file nothing has
+  counted the pages of yet arrives as **one entry standing for it whole**, which the next build
+  expands (§5.5 step 1). A file that already belongs to another document is refused
+  (`FILE_ALREADY_IN_DOCUMENT`) — moving it is `combine`, below.
+- **Combine.** Several documents become one: the pages of the others are appended to the target in
   the order the user chose, and the emptied documents are soft-deleted. Their titles, types, people
   and collections stay with the rows that are going away — the target keeps what it had, and the
   analysis is re-run over the whole. This is what "these two scans are one document" means, and it
   replaces the scan sets of earlier releases.
-- **Split.** A file removed from a document becomes a document of its own — never nothing. The new
+- **Split.** A file removed from a document takes its pages with it into a document of its own —
+  never nothing. The new
   document is titled after the file, inherits nothing else, and is processed from scratch. Removing
   the only file of a document is refused (`DOCUMENT_LAST_FILE`): a document is emptied by deleting
   it, not by taking its parts away one at a time.
 - **Replace.** A bad scan is re-taken and sent in place of the file it is a better copy of: the new
-  bytes are stored and deduplicated like any upload, and take **the old file's position**, so the
-  page order does not move and nothing else about the document changes. It is neither an add nor a
+  bytes are stored and deduplicated like any upload, and **take the old file's place in the order** —
+  its pages stand where the old file's pages stood, so the rest of the document does not move. They
+  are its own pages, not the old one's: different bytes are a different paper, and what the last
+  build counted of one says nothing about the other. By ADR-025 a replacement is a replacement for
+  **every page that reads those bytes**, in every document that reads them — a better scan is better
+  wherever the page is read, and whoever asks for it is told how many documents that is before it
+  happens; today it is always one, because the composition endpoints still speak of files
+  (`07 §7.3`). It is neither an add nor a
   split — a page 3 that has been re-photographed is still page 3, and the alternative today is
   "split off, upload, reorder", three operations and three rebuilds to say one thing.
   **The file that was there is not destroyed — it goes to the trash** (§5.7a), marked as replaced by
@@ -921,32 +950,36 @@ document to read, search and categorize.
   takes that version back out of the trash, which is what deduplication means when the file it finds
   is one of ours.
 - **Reorder.** Positions are rewritten wholesale from the order the client sends; the order is the
-  page order of the canonical PDF and nothing else depends on it.
-- **Order the pages inside a file.** The unit above is the file; this one is finer. A PDF file
-  carries a `pageOrder` (03 §3.3.16) — a permutation of its own 0-based page indices — and the
-  canonical build applies it to that part before the parts are merged (§5.5 step 1.1). It is sent
+  page order of the canonical PDF and nothing else depends on it. The order is still sent as a list
+  of files, and the pages of each file move as a block — until the composition endpoints speak pages
+  outright (`07 §7.3`), which is what a document being a list of pages is for.
+- **Order the pages inside a file.** The unit above is the file; this one is finer. The pages of one
+  file are put into an order of the caller's choosing — a permutation of the file's own 0-based page
+  indices — and what it rewrites is the order those pages sit in **in this document** (`03 §3.3.17`),
+  so the same file read by another document is not disturbed. It is sent
   whole, like a reorder, and checked against the page count the last build recorded: a list that is
   not a permutation of exactly that many pages is refused, and so is one sent for a file no build has
   opened yet (`07 §7.3`). `null` puts the pages back the way they arrived, which costs nothing to
-  say because nothing was ever changed — a shuffled scan is corrected by writing the order beside the
-  file, never by rewriting it. Only a PDF has pages to order: an image is one page, and a format
+  say because nothing was ever changed — a shuffled scan is corrected by writing an order beside the
+  bytes, never by rewriting them. Only a PDF has pages to order: an image is one page, and a format
   nothing can render is none.
-- **Crop.** An image file carries a quadrilateral in normalized coordinates (03 §3.3.16) — four
+- **Crop.** A page carries a quadrilateral in normalized coordinates (03 §3.3.17) — four
   points, not a rectangle, because a photograph taken at an angle has none. Building the canonical
   applies it as a **perspective transform**: the quad is mapped onto a rectangle whose size is
   derived from the quad's own edge lengths, so a page shot from the side comes out flat and
   rectangular. `cropSource` records who chose it, and a crop somebody dragged is never replaced by a
-  machine.
-- **Turn.** Which way up the paper lay — the correction a reader makes in a second and could not
-  make at all before this release. An image file carries a `rotation` (03 §3.3.16): a quarter turn
-  and a mirror, which between them name all eight ways a rectangle can lie. A PDF file carries
-  `pageRotations`, one quarter turn per page, because a forty-page scan has three pages lying
-  sideways and not forty. Both are sent whole, like a page order, and a list of turns is checked
-  against the page count the last build recorded — a file no build has opened yet takes none
-  (`07 §7.3`). `null` puts the file back the way it arrived, which costs nothing to say because
-  nothing was ever changed. The build applies an image's turn **after its crop**, so the stored
-  quadrilateral keeps meaning what it meant in the pixels that arrived, and a PDF's page turns
-  **before the merge**, beside the page order (§5.5 step 1.1). Only an image takes a mirror: a page
+  machine. A crop asked for a file is a crop of the pages that file is read as here — one page, for
+  an image — and two documents may crop one photograph differently, because the quadrilateral is a
+  statement about a page and not about the bytes.
+- **Turn.** Which way up the paper lay — the correction a reader makes in a second. A page carries a
+  turn (03 §3.3.17): a quarter turn and a mirror, which between them name all eight ways a rectangle
+  can lie. It is asked for one page at a time, because a forty-page scan has three pages lying
+  sideways and not forty; an image is one page and takes one turn, and a list of turns for a PDF is
+  checked against the page count the last build recorded — a file no build has opened yet takes none
+  (`07 §7.3`). `null` puts a page back the way it arrived, which costs nothing to say because
+  nothing was ever changed. The build applies a turn **after the crop**, so the stored
+  quadrilateral keeps meaning what it meant in the pixels that arrived, and turns a page of a PDF as
+  it is taken out of the file (§5.5 step 1). Only a page of an image takes a mirror: a page
   out of a scanner is the right way round, and what goes wrong there is which edge went in first.
 - **Auto-detect corners.** On request the server finds the page in the photograph: the image is
   downscaled, converted to grayscale, differentiated (Sobel), and the dominant near-horizontal and
@@ -1119,15 +1152,17 @@ are a user-written catalogue and not log material.
 
 ## 5.7a. The trash
 
-**Every file that stops being part of a document goes to the trash; no file is destroyed by the act
-that removed it.** Replacing a page (§5.6) puts the old scan there, and deleting a document
-(`03 §3.3.10`) puts all of its files there. The document itself does not go to the trash — it is
+**Every file left with no live page goes to the trash; no file is destroyed by the act that removed
+it.** Replacing a page (§5.6) puts the old scan there, and deleting a document
+(`03 §3.3.10`) puts the files nothing else reads there. A file another document still reads a page
+of stays exactly where it is — the rule is the one it always was, one join further out
+(ADR-025). The document itself does not go to the trash — it is
 deleted at once, with its journal, its chunks and its artifacts, because a document is a record about
 files and the files are what is worth keeping. What the trash protects is the one thing that cannot
 be rebuilt: bytes.
 
-A file in the trash has left the composition entirely. It is in no document, out of every listing and
-every search, contributes to no document's size or availability, and is not given a document of its
+A file in the trash has left every composition entirely. No page of any document names it, it is out
+of every listing and every search, contributes to no document's size or availability, and is not given a document of its
 own the way a split file is — but it still exists, with its bytes, its name and where it came from.
 
 **How an item leaves the trash decides itself, by where its bytes live** — and only one of the two

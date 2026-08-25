@@ -47,8 +47,8 @@ export class PrismaGroupingCandidateReader extends GroupingCandidateReader {
           fr.mtime        AS "mtime",
           fi.name         AS "name"
         FROM documents d
-        JOIN document_files df ON df.document_id = d.id
-        JOIN files fi ON fi.id = df.file_id
+        JOIN document_pages dp ON dp.document_id = d.id
+        JOIN files fi ON fi.id = dp.file_id
         JOIN file_refs fr ON fr.file_id = fi.id AND fr.status = 'HASHED'
         JOIN libraries l ON l.id = fr.library_id AND l.deleted_at IS NULL
         WHERE d.deleted_at IS NULL
@@ -58,7 +58,8 @@ export class PrismaGroupingCandidateReader extends GroupingCandidateReader {
           AND fi.mime_type LIKE 'image/%'
           AND fi.mime_type <> 'image/svg+xml'
           -- Single-file documents only: a document already made of several is not looking for more.
-          AND (SELECT count(*) FROM document_files df2 WHERE df2.document_id = d.id) = 1
+          AND (SELECT count(DISTINCT dp2.file_id) FROM document_pages dp2
+                WHERE dp2.document_id = d.id) = 1
           -- 🔒 Never a document somebody has already worked on: a suggestion that undoes somebody's
           -- work is worse than no suggestion (docs/05 §5.6a).
           AND d.title_source <> 'MANUAL'

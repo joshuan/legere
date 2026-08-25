@@ -26,7 +26,7 @@ import {
   queueSettingsFixture,
   StubLibraryReader,
 } from '../../../../test/helpers/processing-fakes';
-import type { DocumentStep } from '../../../shared/contracts/documents';
+import type { Crop, DocumentStep, Rotation } from '../../../shared/contracts/documents';
 import type { Document } from '../../domain/entities/document';
 import { QUEUE_SETTINGS_KEY } from '../queue/queue-settings';
 import type { File } from '../../domain/entities/file';
@@ -47,7 +47,9 @@ const TEXT_LAYER = 'Invoice 2026-01 for services rendered in January, payable wi
 const GONE_ID = '44444444-4444-4444-8444-444444444444';
 
 // One page of a document: the file row, and the bytes behind it.
-type PageSpec = { file?: Partial<File>; bytes?: string };
+// One page of a document under test: which file it is read from, what the bytes say, and — since
+// ADR-025 — what the page itself says about how it is read (docs/03 §3.3.17).
+type PageSpec = { file?: Partial<File>; bytes?: string; crop?: Crop; turn?: Rotation };
 
 // The whole pipeline of docs/05 §5.5 with the containers and the bucket replaced by in-memory
 // doubles: what is asserted here is the assembly, the artifacts and the statuses — the ports
@@ -182,6 +184,22 @@ describe('HandleDocumentProcess', () => {
         { id: `file-${index + 1}`, name: `page-${index + 1}.pdf`, ...page.file },
         document.id,
       );
+      // A crop and a turn are written on the entry this document holds, never on the file.
+      if (page.crop !== undefined || page.turn !== undefined) {
+        const held = await fileRepo.listPagesForDocument(document.id);
+        await fileRepo.replacePages(
+          document.id,
+          held.map((entry) =>
+            entry.fileId === file.id
+              ? {
+                  ...entry,
+                  ...(page.crop === undefined ? {} : { crop: page.crop, cropSource: 'MANUAL' }),
+                  ...(page.turn === undefined ? {} : { turn: page.turn }),
+                }
+              : entry,
+          ),
+        );
+      }
       const bytes = page.bytes ?? `bytes-${index + 1}`;
       if (file.origin === 'MANAGED') {
         await storage.put(originalKeyOf(file), Buffer.from(bytes), file.mimeType);
@@ -411,15 +429,14 @@ describe('HandleDocumentProcess', () => {
             mimeType: 'image/jpeg',
             ext: 'jpg',
             name: 'passport.jpg',
-            crop: {
-              points: [
-                [0.1, 0.2],
-                [0.9, 0.2],
-                [0.9, 0.8],
-                [0.1, 0.8],
-              ],
-            },
-            cropSource: 'MANUAL',
+          },
+          crop: {
+            points: [
+              [0.1, 0.2],
+              [0.9, 0.2],
+              [0.9, 0.8],
+              [0.1, 0.8],
+            ],
           },
           bytes: 'photo',
         },
@@ -428,7 +445,7 @@ describe('HandleDocumentProcess', () => {
       await run();
 
       // The perspective transform runs over the original and its result becomes the page; the file
-      // itself is never rewritten (docs/03 §3.3.16).
+      // itself is never rewritten (docs/03 §3.3.17).
       expect(images.crops).toEqual([
         {
           input: 'photo',

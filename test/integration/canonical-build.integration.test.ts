@@ -1,5 +1,4 @@
 import { Test } from '@nestjs/testing';
-import { Prisma } from '@prisma/client';
 import sharp from 'sharp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, type TestContext } from 'vitest';
 import type { Crop } from '../../src/shared/contracts/documents';
@@ -8,6 +7,12 @@ import { QueueSettings, ungatedServices } from '../../src/server/application/que
 import { ServiceGates } from '../../src/server/application/queue/service-gate';
 import { FixedClock } from '../helpers/fakes';
 import { originalKeyOf } from '../../src/server/application/storage/artifact-keys';
+import {
+  withFileCrop,
+  withFilePageOrder,
+  withFilePageTurns,
+  type PageEntry,
+} from '../../src/server/domain/entities/document-page';
 import { FileRepository } from '../../src/server/domain/repositories/file.repository';
 import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../src/server/domain/repositories/library.repository';
@@ -52,6 +57,7 @@ const OFFICE_TEXT =
 // Stirling container, the real sharp, the real repositories — the only double here is the bucket.
 describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
   let prisma: PrismaService;
+  let files: FileRepository;
   let storage: InMemoryFileStorage;
   let build: BuildCanonical;
   let close: () => Promise<void>;
@@ -64,6 +70,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
     }).compile();
 
     prisma = moduleRef.get(PrismaService);
+    files = moduleRef.get(FileRepository);
     close = () => moduleRef.close();
     storage = new InMemoryFileStorage();
 
@@ -118,13 +125,22 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
     await disconnectTestPrisma();
   });
 
-  // One managed file at the given position, with its bytes in the bucket.
+  // One managed file whose pages are appended to the document, with its bytes in the bucket. A file
+  // `pages` says the count of is held as its own pages, exactly as a file a build has already
+  // counted; anything else is one entry standing for it whole, which the first build expands
+  // (docs/03 §3.3.17).
   async function givenFile(
     documentId: string,
     position: number,
-    input: { name: string; ext: string; mimeType: string; bytes: Buffer; crop?: Crop },
-  ): Promise<void> {
-    const crop = input.crop;
+    input: {
+      name: string;
+      ext: string;
+      mimeType: string;
+      bytes: Buffer;
+      crop?: Crop;
+      pages?: number;
+    },
+  ): Promise<string> {
     const file = await prisma.file.create({
       data: {
         contentHash: `${position}`.repeat(64).slice(0, 64),
@@ -133,24 +149,34 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
         ext: input.ext,
         sizeBytes: BigInt(input.bytes.byteLength),
         name: input.name,
-        ...(crop === undefined
-          ? {}
-          : {
-              crop: { points: crop.points.map(([x, y]) => [x, y]) },
-              cropSource: 'MANUAL' as const,
-            }),
+        ...(input.pages === undefined ? {} : { pageCount: input.pages }),
       },
     });
     await prisma.file.update({
       where: { id: file.id },
       data: { storageKey: `files/${file.id}/original.${input.ext}` },
     });
-    await prisma.documentFile.create({ data: { documentId, position, fileId: file.id } });
+    await files.attach(documentId, file.id);
+    const crop = input.crop;
+    if (crop !== undefined) {
+      await rewrite(documentId, (pages) => withFileCrop(pages, file.id, crop, 'MANUAL'));
+    }
     await storage.put(
       originalKeyOf({ id: file.id, ext: input.ext, storageKey: null }),
       input.bytes,
       input.mimeType,
     );
+    return file.id;
+  }
+
+  // What every composition edit does: read the list, answer with the list it should be, write it
+  // back (docs/03 §3.3.17).
+  async function rewrite(
+    documentId: string,
+    edit: (pages: PageEntry[]) => PageEntry[],
+  ): Promise<void> {
+    const held = await files.listPagesForDocument(documentId);
+    await files.replacePages(documentId, edit(held));
   }
 
   itWithStirling(
@@ -211,10 +237,10 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
     },
   );
 
-  // The pages inside one file (docs/05 §5.5 step 1.1). A three-page PDF scanned in the wrong order
+  // The pages of one file (docs/05 §5.5 step 1). A three-page PDF scanned in the wrong order
   // becomes a canonical whose pages read first to last — and the file it was built from is byte for
   // byte what it was.
-  itWithStirling('reads a shuffled PDF in the order the file records', async () => {
+  itWithStirling('reads a shuffled PDF in the order the document holds its pages', async () => {
     const document = await prisma.document.create({ data: { title: 'Out of order' } });
     // As the scanner left it: the pages of the paper are 1, 2, 3 and they arrived 3, 1, 2.
     const scan = pdfWithText([
@@ -222,15 +248,15 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
       'FIRST page of the paper',
       'SECOND page of the paper',
     ]);
-    await givenFile(document.id, 0, {
+    const fileId = await givenFile(document.id, 0, {
       name: 'scan.pdf',
       ext: 'pdf',
       mimeType: 'application/pdf',
       bytes: scan,
+      pages: 3,
     });
-    const file = await prisma.file.findFirstOrThrow({ where: { name: 'scan.pdf' } });
     // What a person dragged into place: page 2 of the file first, then 3, then 1.
-    await prisma.file.update({ where: { id: file.id }, data: { pageOrder: [1, 2, 0] } });
+    await rewrite(document.id, (pages) => withFilePageOrder(pages, fileId, [1, 2, 0]));
 
     const built = await build.execute({ ...documentRow(document.id), title: 'Out of order' });
 
@@ -244,33 +270,33 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
     expect(text.indexOf('FIRST page')).toBeLessThan(text.indexOf('SECOND page'));
     expect(text.indexOf('SECOND page')).toBeLessThan(text.indexOf('THIRD page'));
 
-    // 🔒 Not a byte of the original was rewritten: a page order is an instruction the build reads,
-    // never an edit to the file (docs/03 §3.3.16, ADR-007).
-    expect(storage.get(originalKeyOf({ id: file.id, ext: 'pdf', storageKey: null })).body).toEqual(
+    // 🔒 Not a byte of the original was rewritten: the order of the pages is the document's own
+    // list, never an edit to the file (docs/03 §3.3.17, ADR-007).
+    expect(storage.get(originalKeyOf({ id: fileId, ext: 'pdf', storageKey: null })).body).toEqual(
       scan,
     );
-    // And the build counted the file's pages on its way past, which is what an edit checks an order
-    // against (docs/03 §3.3.16).
-    const counted = await prisma.file.findUniqueOrThrow({ where: { id: file.id } });
+    // And the build counted the file's pages on its way past, which is what an edit checks a page
+    // index against (docs/03 §3.3.16).
+    const counted = await prisma.file.findUniqueOrThrow({ where: { id: fileId } });
     expect(counted.pageCount).toBe(3);
   });
 
-  // Which way up the paper lay (docs/05 §5.5 step 1.1). One page of a scan lying sideways is stood
+  // Which way up the paper lay (docs/05 §5.5 step 1). One page of a scan lying sideways is stood
   // up in the canonical while the other two are left exactly as they are — and the file the build
   // read is byte for byte what it was.
   itWithStirling('stands one page of a scan upright without touching the file', async () => {
     const document = await prisma.document.create({ data: { title: 'Sideways' } });
     const scan = pdfWithText(['UPRIGHT one', 'SIDEWAYS two', 'UPRIGHT three']);
-    await givenFile(document.id, 0, {
+    const fileId = await givenFile(document.id, 0, {
       name: 'sideways.pdf',
       ext: 'pdf',
       mimeType: 'application/pdf',
       bytes: scan,
+      pages: 3,
     });
-    const file = await prisma.file.findFirstOrThrow({ where: { name: 'sideways.pdf' } });
-    // A build has to have counted the pages before an edit could store this; here the first build
-    // does it and the turn is written straight onto the row, which is the same state it lands in.
-    await prisma.file.update({ where: { id: file.id }, data: { pageRotations: [0, 1, 0] } });
+    // A build has to have counted the pages before an edit could store this; here the file arrives
+    // counted and the turn is written on the page it belongs to, which is the same state it lands in.
+    await rewrite(document.id, (pages) => withFilePageTurns(pages, fileId, [0, 1, 0]));
 
     const built = await build.execute({ ...documentRow(document.id), title: 'Sideways' });
 
@@ -291,26 +317,26 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
     expect(shapes[2]?.height).toBeGreaterThan(shapes[2]?.width ?? 0);
 
     // 🔒 Not a byte of the original was rewritten: a turn is an instruction the build reads, never
-    // an edit to the file (docs/03 §3.3.16, ADR-007).
-    expect(storage.get(originalKeyOf({ id: file.id, ext: 'pdf', storageKey: null })).body).toEqual(
+    // an edit to the file (docs/03 §3.3.17, ADR-007).
+    expect(storage.get(originalKeyOf({ id: fileId, ext: 'pdf', storageKey: null })).body).toEqual(
       scan,
     );
   });
 
   itWithStirling('rebuilds to the pages as they arrived once the turn is cleared', async () => {
     const document = await prisma.document.create({ data: { title: 'Stood back down' } });
-    await givenFile(document.id, 0, {
+    const fileId = await givenFile(document.id, 0, {
       name: 'turned.pdf',
       ext: 'pdf',
       mimeType: 'application/pdf',
       bytes: pdfWithText(['One', 'Two']),
+      pages: 2,
     });
-    const file = await prisma.file.findFirstOrThrow({ where: { name: 'turned.pdf' } });
-    await prisma.file.update({ where: { id: file.id }, data: { pageRotations: [1, 1] } });
+    await rewrite(document.id, (pages) => withFilePageTurns(pages, fileId, [1, 1]));
     await build.execute({ ...documentRow(document.id), title: 'Stood back down' });
 
     // Clearing costs nothing to say, because nothing was ever changed (docs/05 §5.6).
-    await prisma.file.update({ where: { id: file.id }, data: { pageRotations: Prisma.DbNull } });
+    await rewrite(document.id, (pages) => withFilePageTurns(pages, fileId, null));
     const built = await build.execute({ ...documentRow(document.id), title: 'Stood back down' });
 
     if (built.kind !== 'built') throw new Error('the canonical was not built');
@@ -332,12 +358,13 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
         'SECOND page of the paper',
       ]),
     });
-    const file = await prisma.file.findFirstOrThrow({ where: { name: 'restored.pdf' } });
-    await prisma.file.update({ where: { id: file.id }, data: { pageOrder: [1, 2, 0] } });
+    await build.execute({ ...documentRow(document.id), title: 'Put back' });
+    const restored = await prisma.file.findFirstOrThrow({ where: { name: 'restored.pdf' } });
+    await rewrite(document.id, (pages) => withFilePageOrder(pages, restored.id, [1, 2, 0]));
     await build.execute({ ...documentRow(document.id), title: 'Put back' });
 
     // Clearing costs nothing to say, because nothing was ever changed (docs/05 §5.6).
-    await prisma.file.update({ where: { id: file.id }, data: { pageOrder: Prisma.DbNull } });
+    await rewrite(document.id, (pages) => withFilePageOrder(pages, restored.id, null));
     const built = await build.execute({ ...documentRow(document.id), title: 'Put back' });
 
     if (built.kind !== 'built') throw new Error('the canonical was not built');

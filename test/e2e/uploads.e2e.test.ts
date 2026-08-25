@@ -116,9 +116,10 @@ describe('Uploads (e2e)', () => {
 
     const row = await testPrisma().document.findUniqueOrThrow({ where: { id: document.id } });
     expect(row.createdById).not.toBeNull();
-    // The document holds exactly that one file (docs/03 §3.3.17).
-    const held = await testPrisma().documentFile.findMany({ where: { documentId: document.id } });
-    expect(held).toMatchObject([{ position: 0, fileId: file.id }]);
+    // The document holds exactly one entry, standing for that file whole until a build counts its
+    // pages (docs/03 §3.3.17).
+    const held = await testPrisma().documentPage.findMany({ where: { documentId: document.id } });
+    expect(held).toMatchObject([{ position: 0, fileId: file.id, pageIndex: null }]);
   });
 
   it('detects the format from the content, not from the name it was given', async () => {

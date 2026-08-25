@@ -1,14 +1,9 @@
-import {
-  isIdentityRotation,
-  type Crop,
-  type PageOrder,
-  type PageRotations,
-  type Rotation,
-} from '../../../shared/contracts/documents';
-import type { FileOrigin, TrashReason, ValueSource } from '../../../shared/contracts/enums';
+import type { FileOrigin, TrashReason } from '../../../shared/contracts/enums';
 
 // A file: the bytes themselves, once, however many places they turn up in (docs/03 §3.3.16).
-// What a person reads is a Document, which is an ordered list of these plus a canonical PDF.
+// What a person reads is a Document, which is an ordered list of **pages** read out of files, plus a
+// canonical PDF built from them (ADR-025). Since that decision a file says nothing about any
+// document — no crop, no turn, no page order — and carries only what describes its bytes.
 export type File = {
   id: string;
   contentHash: string;
@@ -20,22 +15,13 @@ export type File = {
   ext: string;
   sizeBytes: bigint;
   name: string;
-  crop: Crop | null;
-  cropSource: ValueSource;
-  // Which way up this file lies (docs/03 §3.3.16): a quarter turn and a mirror, null for the way it
-  // arrived. Meaningful only for an image, exactly as a crop is, and never a change to the bytes —
-  // the build applies it after the crop and the original stays the original.
-  rotation: Rotation | null;
-  // The pages inside this one file (docs/03 §3.3.16). `pageOrder` is a permutation of its 0-based
-  // page indices, null for the order they arrived in; `pageRotations` is one quarter turn per page,
-  // null for the way they arrived; `pageCount` is how many the last canonical build counted, null
-  // until one has. All three are meaningful only for a PDF, exactly as a crop is meaningful only for
-  // an image, and none of them is ever a change to the bytes.
-  pageOrder: PageOrder | null;
-  pageRotations: PageRotations | null;
+  // How many pages are inside these bytes (docs/03 §3.3.16): an image is one, a PDF is what its page
+  // tree says, an office document is what the converter laid it out as. Null until a canonical build
+  // has counted — and while it is null a document cannot name this file's pages one by one, so it
+  // holds it as a single entry standing for it whole (docs/03 §3.3.17).
   pageCount: number | null;
-  // In the trash since, and how it got there (docs/05 §5.7a). A file is part of exactly one document
-  // or it is in here; nothing else is a place for a file to be.
+  // In the trash since, and how it got there (docs/05 §5.7a). A file with no live page in any
+  // document is in here; nothing else is a place for a file to be.
   trashedAt: Date | null;
   trashedReason: TrashReason | null;
   // The title the document had when the file left it — a record and not a link, because that
@@ -71,11 +57,6 @@ export function isImageFile(file: Pick<File, 'mimeType'>): boolean {
   return file.mimeType.startsWith('image/') && file.mimeType !== 'image/svg+xml';
 }
 
-// A crop a person dragged is never replaced by a machine (docs/03 §3.3.16).
-export function canOverwriteCrop(file: Pick<File, 'cropSource'>): boolean {
-  return file.cropSource !== 'MANUAL';
-}
-
 // Only a PDF has pages to put in order: an image is one page, a format nothing renders is none
 // (docs/03 §3.3.16). Asked of the detected type on the row, like every other question about what a
 // file is.
@@ -98,46 +79,10 @@ export function isPagePermutation(order: readonly number[], pageCount: number): 
   return true;
 }
 
-// The order a build should read this file's pages in, or `null` for "as they arrived". A stored
-// order that does not describe the pages just counted — a row written by another version, a count
-// that has moved — is no order at all: the pages stand as they are and the document is still the
-// document, exactly as an unreadable crop leaves the whole image in place (docs/05 §5.5 step 1.1).
-export function effectivePageOrder(
-  file: Pick<File, 'pageOrder'>,
-  pageCount: number,
-): readonly number[] | null {
-  if (file.pageOrder === null) return null;
-  if (!isPagePermutation(file.pageOrder, pageCount)) return null;
-  // The natural order is not worth a call to Stirling.
-  if (file.pageOrder.every((index, position) => index === position)) return null;
-  return file.pageOrder;
-}
-
 // Whether a list of turns describes the pages of a file of `pageCount` pages: one quarter turn each,
 // in the file's own page order (docs/07 §7.3). The values themselves are 0…3 by the contract, so
 // what is left to check is that there are exactly as many of them as there are pages.
 export function isPageRotationList(rotations: readonly number[], pageCount: number): boolean {
   if (rotations.length !== pageCount) return false;
   return rotations.every((turn) => Number.isInteger(turn) && turn >= 0 && turn <= 3);
-}
-
-// The turn a build should apply to this image, or `null` for "the way it arrived" — which covers
-// both a file that carries none and one whose turns were pressed round in a circle, because a
-// quarter turn of nothing is not worth re-encoding a page for (docs/05 §5.5 step 1).
-export function effectiveRotation(file: Pick<File, 'rotation'>): Rotation | null {
-  return isIdentityRotation(file.rotation) ? null : file.rotation;
-}
-
-// The page turns a build should apply, or `null` for "as they arrived". A list that does not
-// describe the pages just counted — a file replaced by different bytes under a stored one, a row
-// written by another version — is no list at all, exactly as an order that does not fit is no order
-// (docs/05 §5.5 step 1.1). Nor is a list in which nothing is turned.
-export function effectivePageRotations(
-  file: Pick<File, 'pageRotations'>,
-  pageCount: number,
-): readonly number[] | null {
-  if (file.pageRotations === null) return null;
-  if (!isPageRotationList(file.pageRotations, pageCount)) return null;
-  if (file.pageRotations.every((turn) => turn === 0)) return null;
-  return file.pageRotations;
 }

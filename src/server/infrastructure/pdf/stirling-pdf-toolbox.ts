@@ -187,7 +187,7 @@ export class StirlingPdfToolbox extends PdfToolbox {
   }
 
   // 🔒 Stirling's rotate takes one angle for a whole document, and a scan whose pages disagree is
-  // exactly the case this exists for (docs/05 §5.5 step 1.1). So one copy is made per angle actually
+  // exactly the case this exists for (docs/05 §5.5 step 1). So one copy is made per angle actually
   // asked for — three at the very most — and each page is picked out of the copy that holds it
   // upright, which is a merge and a rearrange. Five calls in the worst case and one in the common
   // one, whatever the page count, and every one of them a page-tree rewrite rather than a render;

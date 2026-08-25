@@ -1,4 +1,4 @@
-import type { Crop, PageOrder, PageRotations, Rotation } from '../../../shared/contracts/documents';
+import type { Crop, Rotation } from '../../../shared/contracts/documents';
 import type {
   FileOrigin,
   FileRefStatus,
@@ -6,6 +6,7 @@ import type {
   ValueSource,
 } from '../../../shared/contracts/enums';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
+import type { DocumentPage } from '../entities/document-page';
 import type { File } from '../entities/file';
 
 export type CreateFileInput = {
@@ -18,8 +19,25 @@ export type CreateFileInput = {
   name: string;
 };
 
-// A file with the place it holds in a document, which is the only thing a document orders by.
-export type DocumentFile = File & { position: number };
+// A file as one document reads it: where it stands among that document's files — the place of its
+// first page — and the pages of it this document holds, in the order it holds them (docs/03
+// §3.3.17). What a file says about a document is read off those pages and nothing else (ADR-025).
+export type DocumentFile = File & { position: number; pages: DocumentPage[] };
+
+// One page of a document with the file its bytes come from, which is what the canonical build reads:
+// a list of these, in order, is the document (docs/05 §5.5 step 1).
+export type DocumentPageWithFile = DocumentPage & { file: File };
+
+// A page as it is written down: the entries of a document are rewritten wholesale, and an entry that
+// was already there keeps its id so that nothing addressing it is invalidated by a rebuild.
+export type DocumentPageInput = {
+  id?: string | undefined;
+  fileId: string;
+  pageIndex: number | null;
+  turn: Rotation | null;
+  crop: Crop | null;
+  cropSource: ValueSource;
+};
 
 // Where a file's bytes were seen on a volume — the same answer whether the file is part of a
 // document or in the trash, so it is one type (docs/07 §7.3).
@@ -54,47 +72,15 @@ export abstract class FileRepository {
     tx?: TransactionHandle,
   ): Promise<{ file: File; created: boolean }>;
 
-  abstract setCrop(
-    id: string,
-    crop: Crop | null,
-    cropSource: ValueSource,
-    tx?: TransactionHandle,
-  ): Promise<File>;
-
-  // Which way up this image lies, or `null` for the way it arrived (docs/03 §3.3.16). Like a crop:
-  // a number written beside the file, never a change to it.
-  abstract setRotation(
-    id: string,
-    rotation: Rotation | null,
-    tx?: TransactionHandle,
-  ): Promise<File>;
-
-  // The order this file's pages are read in, or `null` for the order they arrived in
-  // (docs/03 §3.3.16). The caller has already checked that it is a permutation of the pages the
-  // file is recorded as having; nothing here rewrites a byte of the file itself.
-  abstract setPageOrder(
-    id: string,
-    pageOrder: PageOrder | null,
-    tx?: TransactionHandle,
-  ): Promise<File>;
-
-  // Which way up each of this file's pages lies, or `null` for the way they arrived. The caller has
-  // already checked that there is one turn per page of the count the file is recorded as having.
-  abstract setPageRotations(
-    id: string,
-    pageRotations: PageRotations | null,
-    tx?: TransactionHandle,
-  ): Promise<File>;
-
-  // How many pages the canonical build just counted in this file (docs/05 §5.5 step 1.1). Written on
+  // How many pages the canonical build just counted in this file (docs/05 §5.5 step 1). Written on
   // every build that opens it, because that is the only moment anything knows, and it is what an
-  // edit checks a page order against without asking Stirling itself.
+  // edit checks a page index against without asking Stirling itself.
   abstract recordPageCount(id: string, pageCount: number, tx?: TransactionHandle): Promise<void>;
 
   abstract softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void>;
 
   // Deleted outright, bytes and all: emptying the trash, and nothing else (docs/05 §5.7a). Called
-  // after the document that held them is gone — `document_files` is cascaded away with it, and until
+  // after the document that held them is gone — `document_pages` is cascaded away with it, and until
   // it is these rows are still referenced.
   abstract hardDelete(ids: readonly string[], tx?: TransactionHandle): Promise<void>;
 
@@ -143,7 +129,23 @@ export abstract class FileRepository {
 
   // --- the composition of a document -------------------------------------------------------
 
-  // The files of a document, by position.
+  // The pages of a document, in order, each with the file it is read from — what the canonical build
+  // reads and what every derivation about a file in this document is computed from (ADR-025).
+  abstract listPagesForDocument(
+    documentId: string,
+    tx?: TransactionHandle,
+  ): Promise<DocumentPageWithFile[]>;
+
+  // The whole list, rewritten. Position is unique per document, so shifting rows one at a time
+  // collides with itself halfway through; this is the only rewrite that cannot (docs/03 §3.3.17).
+  abstract replacePages(
+    documentId: string,
+    pages: readonly DocumentPageInput[],
+    tx?: TransactionHandle,
+  ): Promise<void>;
+
+  // The files of a document, in the order its pages first name them, each carrying the pages it is
+  // read as here.
   abstract listForDocument(documentId: string, tx?: TransactionHandle): Promise<DocumentFile[]>;
 
   // The same, for many documents at once — the list screen needs a count and a first extension per
@@ -153,17 +155,27 @@ export abstract class FileRepository {
     tx?: TransactionHandle,
   ): Promise<Map<string, DocumentFile[]>>;
 
-  // The document a file belongs to, or null when it belongs to none (a ref whose document was
-  // deleted, a file mid-move).
+  // A document this file has a live page in, or null when no document reads it (a ref whose document
+  // was deleted, a file in the trash). Since ADR-025 there may be several; the answer is one of them,
+  // because every caller is asking "does anything read this at all" (docs/05 §5.3).
   abstract findDocumentIdForFile(fileId: string, tx?: TransactionHandle): Promise<string | null>;
 
-  // Appends at the end, keeping positions contiguous. 🔒 Fails when the file already has a home
-  // (`document_files.file_id` is unique) — that is `FILE_ALREADY_IN_DOCUMENT` (docs/07 §7.2).
+  // Which of these files no live page names any more — the files that go to the trash (docs/05
+  // §5.7a). Asked after the pages are gone, because that is when the question has an answer.
+  abstract filterFilesWithoutLivePages(
+    fileIds: readonly string[],
+    tx?: TransactionHandle,
+  ): Promise<string[]>;
+
+  // Appends a file's pages after the last page the document holds: its own pages where a build has
+  // counted them, and one entry standing for it whole where none has (docs/03 §3.3.17).
   abstract attach(documentId: string, fileId: string, tx?: TransactionHandle): Promise<void>;
 
+  // Every page of that file leaves this document; other documents reading it are untouched.
   abstract detach(documentId: string, fileId: string, tx?: TransactionHandle): Promise<void>;
 
-  // Rewrites positions wholesale from the given order; the caller has already checked that it is a
+  // Rewrites positions wholesale from the given order of **files**, each file's pages moving as a
+  // block and keeping the order they are read in; the caller has already checked that it is a
   // permutation of the document's own files.
   abstract reorder(
     documentId: string,

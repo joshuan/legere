@@ -177,13 +177,16 @@ standard lists them.
 | adding, reordering, cropping and splitting each rebuild the document | `test/e2e/document-files.e2e.test.ts` — every composition change enqueues a rebuild |
 | splitting off a file yields a document of its own | `test/e2e/document-files.e2e.test.ts` — the file leaves and becomes its own document |
 | the last file cannot be taken away (`DOCUMENT_LAST_FILE`) | `test/e2e/document-files.e2e.test.ts` — refuses to empty a document |
-| combining moves files in the chosen order and soft-deletes the emptied documents | `test/e2e/document-files.e2e.test.ts` — combines two documents in the order asked for |
-| a file belongs to exactly one document (`FILE_ALREADY_IN_DOCUMENT`) | `test/e2e/document-files.e2e.test.ts` — refuses bytes that already have a home |
+| combining moves pages in the chosen order and soft-deletes the emptied documents | `test/e2e/document-files.e2e.test.ts` — combines two documents in the order asked for |
+| uploading bytes a document already holds is refused (`FILE_ALREADY_IN_DOCUMENT`) | `test/e2e/document-files.e2e.test.ts` — refuses bytes that already have a home |
+| a file whose pages nobody has counted is one entry standing for it whole, which the first build expands | `src/server/application/documents/build-canonical.test.ts` — expands the entry standing for a file whole once it has counted its pages |
+| the migration turns every existing row into pages, over each of the three shapes | `test/integration/document-pages-migration.integration.test.ts` — replays the migration's own data step over a stored order, a counted file and one nobody has counted |
+| a document is a list of pages, and they may come from anywhere | `src/server/application/documents/build-canonical.test.ts` — merges the pages of two files in the order the document holds them; lets two documents crop one photograph apart |
 | the crop is a quadrilateral applied as a perspective transform | `src/server/domain/entities/crop-geometry.test.ts` — maps a skewed quad onto a rectangle |
 | corners are detected, and fall back to the content box | `src/server/domain/entities/page-detection.test.ts` — finds a rotated page; answers nothing for a frame with no page in it |
 | a MANUAL crop survives a rebuild | `test/e2e/document-files.e2e.test.ts` — a rebuild does not overwrite a crop somebody dragged |
-| a turn is an instruction beside a file, never a rewrite of it | `test/integration/canonical-build.integration.test.ts` — stands one page of a scan upright without touching the file; rebuilds to the pages as they arrived once the turn is cleared |
-| an image's turn is applied after its crop, a PDF's page turns before the merge | `src/server/application/documents/build-canonical.test.ts` — turns the page after cropping it, so the stored quadrilateral still means what it meant; turns the pages before it puts them in order, so one index means one thing |
+| a turn is an instruction beside a page, never a rewrite of the file | `test/integration/canonical-build.integration.test.ts` — stands one page of a scan upright without touching the file; rebuilds to the pages as they arrived once the turn is cleared |
+| a turn is applied after the crop, and follows its own page out of the file | `src/server/application/documents/build-canonical.test.ts` — turns the page after cropping it, so the stored quadrilateral still means what it meant; picks the pages first and turns what it picked |
 | a document with a missing original still serves its canonical | `test/e2e/document-files.e2e.test.ts` — the canonical downloads while the volume is gone |
 
 ## API

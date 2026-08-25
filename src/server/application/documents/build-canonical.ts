@@ -1,16 +1,20 @@
 import type { PageFormat } from '../../../shared/contracts/enums';
 import type { Document } from '../../domain/entities/document';
-import { classifyFormat } from '../../domain/entities/document-format';
+import {
+  effectiveTurn,
+  samePages,
+  withExpandedPages,
+  type DocumentPage,
+} from '../../domain/entities/document-page';
+import { classifyFormat, type DocumentFormat } from '../../domain/entities/document-format';
 import { pageGeometryOf, type SourceShape } from '../../domain/entities/document-page-geometry';
 import { hasUsableTextLayer } from '../../domain/entities/document-text';
 import { ocrLanguagesOf } from '../../domain/entities/document-language';
-import {
-  effectivePageOrder,
-  effectivePageRotations,
-  effectiveRotation,
-  type File,
-} from '../../domain/entities/file';
-import type { DocumentFile, FileRepository } from '../../domain/repositories/file.repository';
+import type { File } from '../../domain/entities/file';
+import type {
+  DocumentPageWithFile,
+  FileRepository,
+} from '../../domain/repositories/file.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
 import { toBuffer, type BinarySource } from '../ports/binary-source';
@@ -22,9 +26,10 @@ import type { ProcessingSettings } from '../jobs/processing-settings';
 import type { QueueSettings } from '../queue/queue-settings';
 import { originalKeyOf } from '../storage/artifact-keys';
 
-// Step 1 of the pipeline, on its own (docs/05 §5.5): the files of a document, in their order, become
-// one PDF. Four passes — each file to a PDF part, the parts merged, a text layer ensured, the
-// metadata stamped — and the result is the canonical, which every later step reads and nothing else.
+// Step 1 of the pipeline, on its own (docs/05 §5.5): the pages of a document, in their order, become
+// one PDF. Six passes — every file opened once and its pages counted, every page turned into a part,
+// the parts merged, a text layer ensured, the format applied, the metadata stamped — and the result
+// is the canonical, which every later step reads and nothing else.
 //
 // Written as a service rather than as a method of the job handler because it is the one part of the
 // pipeline that knows what a document is *made of*; the handler knows what a document has *been
@@ -43,13 +48,28 @@ export type CanonicalBuild =
       unsupported: number;
     }
   // Nothing in this document can be rendered — every file is a format nothing opens, or there are
-  // no files at all. The canonical is not built, and it is nobody's failure.
+  // no pages at all. The canonical is not built, and it is nobody's failure.
   | { kind: 'nothingToBuild'; unsupported: number };
 
-// One file, converted. `shape` is the picture it came from, when it came from one — the pages of a
-// PDF or of an office document were laid out by whoever produced them, and this pipeline does not
-// second-guess that (docs/05 §5.5 step 1).
+// One part of the canonical. `shape` is the picture it came from, when it came from one — the pages
+// of a PDF or of an office document were laid out by whoever produced them, and this pipeline does
+// not second-guess that (docs/05 §5.5 step 1).
 type Part = { pdf: Buffer; shape: SourceShape | null };
+
+// One file, opened once: what it is, and how many pages are inside it. A file nothing can render
+// holds none and contributes nothing.
+type OpenedFile =
+  | { kind: 'image'; bytes: Buffer; pageCount: 1 }
+  | { kind: 'pdf'; pdf: Buffer; pageCount: number }
+  | { kind: 'unsupported' };
+
+// A run of consecutive entries that can be taken out of one file in one go: same file, no crop, and
+// therefore nothing that has to be rendered. A forty-page scan read straight through is one run.
+type Run = { file: File; opened: OpenedFile; pages: DocumentPage[] };
+
+// What a cropped page of a PDF is rendered at before its quadrilateral is applied. 300 dpi is what
+// the recognizer reads best at, and a page arriving here is about to be recognised (docs/05 §5.5).
+const CROPPED_PAGE_DPI = 300;
 
 export class BuildCanonical {
   constructor(
@@ -65,24 +85,30 @@ export class BuildCanonical {
   ) {}
 
   async execute(document: Document): Promise<CanonicalBuild> {
-    const files = await this.files.listForDocument(document.id);
-    if (files.length === 0) return { kind: 'nothingToBuild', unsupported: 0 };
+    const held = await this.files.listPagesForDocument(document.id);
+    if (held.length === 0) return { kind: 'nothingToBuild', unsupported: 0 };
 
-    // The files are independent work — read one, crop one, convert one — so they are prepared
+    // The files are independent work — read one, convert one, count one — so they are opened
     // `unitConcurrency` at a time (docs/05 §5.4). Read per run rather than at start-up: the knob
     // takes effect on the next document, with no worker to re-register (docs/11 §11.13).
     const { unitConcurrency } = await this.queueSettings.read();
-    const ordered = [...files].sort((a, b) => a.position - b.position);
-    const parts = await inBatches(ordered, unitConcurrency, (file) => this.partOf(file));
+    const distinct = distinctFilesOf(held);
+    const openedList = await inBatches(distinct, unitConcurrency, (file) => this.open(file));
+    const opened = new Map(distinct.map((file, index) => [file.id, openedList[index]]));
 
+    const unsupported = openedList.filter((one) => one?.kind === 'unsupported').length;
+    await this.recordCounts(distinct, opened);
+    const pages = await this.expand(document.id, held, opened);
+
+    const runs = runsOf(pages, opened);
+    const parts = await inBatches(runs, unitConcurrency, (run) => this.partOf(run));
     const built = parts.filter((part): part is Part => part !== null);
-    const unsupported = parts.length - built.length;
     if (built.length === 0) return { kind: 'nothingToBuild', unsupported };
 
-    const pages = built.map((part) => part.pdf);
-    // A single-part document skips the merge and keeps its part (docs/05 §5.5 step 1).
     const merged =
-      pages.length === 1 ? (pages[0] ?? Buffer.alloc(0)) : await this.pdfs.mergePdfs(pages);
+      built.length === 1
+        ? (built[0]?.pdf ?? Buffer.alloc(0))
+        : await this.pdfs.mergePdfs(built.map((part) => part.pdf));
     const pageCount = await this.pdfs.pdfPageCount(merged);
     const readable = await this.ensureTextLayer(document, merged, pageCount);
 
@@ -106,88 +132,143 @@ export class BuildCanonical {
     };
   }
 
-  // One file, one part. An image becomes a page; a PDF is already pages; anything with a printed
-  // form is converted; and a format nothing can render contributes nothing at all rather than
-  // failing the document (docs/05 §5.5 step 1).
-  //
-  // An image part also says what shape it was: the format of the finished canonical is read off the
-  // pictures it was made from, and by the time the parts are merged that is no longer visible.
-  private async partOf(file: DocumentFile): Promise<Part | null> {
-    const format = classifyFormat(file.mimeType);
-
-    if (format === 'PDF') return { pdf: await this.pdfPartOf(file), shape: null };
+  // Pass 1: one file, opened once. An image is one page; a PDF is what its page tree says; anything
+  // with a printed form is converted and the conversion's pages are what it holds; a format nothing
+  // can render holds none (docs/05 §5.5 step 1).
+  private async open(file: File): Promise<OpenedFile> {
+    const format: DocumentFormat = classifyFormat(file.mimeType);
 
     if (format === 'IMAGE') {
-      // The crop is applied here and nowhere else: the original file is never rewritten, and the
-      // straightened page exists only inside the canonical (docs/03 §3.3.16).
-      const framed =
-        file.crop === null
-          ? await toBuffer(await this.open(file))
-          : await this.images.applyCrop(await this.open(file), file.crop);
-      // 🔒 The turn after the crop, never before it: the stored quadrilateral is in the pixels that
-      // arrived, so turning first would leave every corner somebody dragged pointing at a different
-      // part of the page (docs/05 §5.6).
-      const turn = effectiveRotation(file);
-      const stood = turn === null ? framed : await this.images.applyRotation(framed, turn);
-      // 🔒 And the correction after both. The crop decides what the page *is*: a photograph carries
-      // the desk it was lying on, and lighting levelled over the desk levels the desk — the paper's
-      // own shading is then read as part of a much wider range and barely touched. The crop also
-      // straightens the sheet, so what skew is left after it is the skew of the page rather than of
-      // the snapshot. And the deskew reads the *rows* of a page, which on a sheet still lying
-      // sideways run down it instead of across it (docs/05 §5.5 step 1, §5.6).
-      const corrected = this.settings.correctImagePages ? await this.correct(stood) : null;
-      const page = corrected ?? stood;
-      // Measured after all three, because that is what the page will be: a photograph taken at an
-      // angle, straightened to the paper's own corners and stood upright is a sheet, whatever the
-      // snapshot was.
-      const shape = await this.images.dimensions(page);
-      return {
-        pdf: await this.pdfs.imagesToPdf([
-          {
-            body: page,
-            fileName: pageNameOf(file, file.crop !== null || turn !== null || corrected !== null),
-          },
-        ]),
-        shape,
-      };
+      return { kind: 'image', bytes: await toBuffer(await this.read(file)), pageCount: 1 };
+    }
+
+    if (format === 'PDF') {
+      const pdf = await toBuffer(await this.read(file));
+      return { kind: 'pdf', pdf, pageCount: await this.pdfs.pdfPageCount(pdf) };
     }
 
     if (format === 'OFFICE' || format === 'TEXT') {
       // The converter picks its input filter from the extension, so the file keeps its own name.
-      return {
-        pdf: await this.pdfs.toPdf({ body: await this.open(file), fileName: file.name }),
-        shape: null,
-      };
+      const pdf = await this.pdfs.toPdf({ body: await this.read(file), fileName: file.name });
+      return { kind: 'pdf', pdf, pageCount: await this.pdfs.pdfPageCount(pdf) };
     }
 
-    return null;
+    return { kind: 'unsupported' };
   }
 
-  // A PDF is already pages, so the part is the file — stood the way up and read in the order the
-  // file records, where it records either (docs/05 §5.5 step 1.1).
-  //
-  // Its pages are counted here, every build, and the number written onto the row: this is the one
-  // moment anything opens the file, and knowing how many pages it holds is what lets an edit refuse
-  // a wrong order later without a round trip of its own (docs/03 §3.3.16). A stored order that does
-  // not describe the pages just counted is ignored rather than fatal — the same treatment an
-  // unreadable crop gets, and for the same reason: the document outranks the correction.
-  //
-  // 🔒 The rearranged bytes are the part and nothing else. The file is not rewritten, cannot be for
-  // a LIBRARY original (ADR-007), and is not for a MANAGED one either.
-  private async pdfPartOf(file: DocumentFile): Promise<Buffer> {
-    const bytes = await toBuffer(await this.open(file));
-    const pageCount = await this.pdfs.pdfPageCount(bytes);
-    if (pageCount !== file.pageCount) await this.files.recordPageCount(file.id, pageCount);
+  // What every build that opens a file writes down: how many pages are inside it (docs/03 §3.3.16).
+  // This is the only moment anything knows, and it is what lets an edit refuse a page index later
+  // without a round trip of its own.
+  private async recordCounts(
+    files: readonly File[],
+    opened: ReadonlyMap<string, OpenedFile | undefined>,
+  ): Promise<void> {
+    for (const file of files) {
+      const one = opened.get(file.id);
+      if (one === undefined || one.kind === 'unsupported') continue;
+      if (one.pageCount === file.pageCount) continue;
+      await this.files.recordPageCount(file.id, one.pageCount);
+    }
+  }
 
-    // Turned first, then reordered: both name the pages by the index they arrived under, and doing
-    // the turn while that is still the sequence is what keeps one index meaning one thing
-    // (docs/05 §5.5 step 1.1).
-    const turns = effectivePageRotations(file, pageCount);
-    const stood = turns === null ? bytes : await this.pdfs.rotatePages(bytes, turns);
+  // 🔒 The end of the one two-level state (ADR-025): an entry standing for a file whole becomes one
+  // entry per page, now that the pages have been counted. Written down, so it happens once; a file
+  // nothing could count keeps the entry it has, because a document is not made smaller by a format
+  // we cannot read.
+  private async expand(
+    documentId: string,
+    pages: readonly DocumentPageWithFile[],
+    opened: ReadonlyMap<string, OpenedFile | undefined>,
+  ): Promise<DocumentPageWithFile[]> {
+    const counts = new Map<string, number>();
+    for (const [fileId, one] of opened) {
+      if (one === undefined || one.kind === 'unsupported') continue;
+      counts.set(fileId, one.pageCount);
+    }
 
-    const order = effectivePageOrder(file, pageCount);
-    if (order === null) return stood;
-    return this.pdfs.rearrangePages(stood, order);
+    const expanded = withExpandedPages(pages, counts);
+    if (samePages(pages, expanded)) return [...pages];
+
+    await this.files.replacePages(documentId, expanded);
+    return this.files.listPagesForDocument(documentId);
+  }
+
+  // Pass 2: one run of pages, one part. A page of an image is cropped, turned and corrected; a run
+  // of uncropped pages of a PDF is taken out of the file in one selection and turned; a cropped page
+  // of a PDF is rendered and then follows the image path (docs/05 §5.5 step 1).
+  private async partOf(run: Run): Promise<Part | null> {
+    const opened = run.opened;
+    if (opened.kind === 'unsupported') return null;
+
+    const first = run.pages[0];
+    if (first === undefined) return null;
+
+    if (opened.kind === 'image') return this.picturePart(opened.bytes, first, run.file.ext);
+
+    if (first.crop !== null) {
+      if (first.pageIndex === null || first.pageIndex >= opened.pageCount) return null;
+      // 🔒 A crop on a page of a PDF is honoured exactly as a crop on an image is: the page is
+      // rendered and warped, because a scanned page is already raster and loses nothing by it and a
+      // vector page cropped becomes raster, which is what somebody who dragged its corners asked for
+      // (docs/03 §3.3.17). The correction is not applied — it undoes what a camera does to a sheet,
+      // and a page of a PDF was laid out by whoever produced it (docs/05 §5.5 step 1).
+      const rendered = await this.pdfs.pdfPageJpg(opened.pdf, {
+        page: first.pageIndex + 1,
+        dpi: CROPPED_PAGE_DPI,
+      });
+      return this.picturePart(rendered, first, 'jpg', { correct: false });
+    }
+
+    // An entry naming a page the file does not hold — a count that has moved under it, a row written
+    // by another version — contributes nothing, and the rest of the document stands (docs/05 §5.5).
+    const wanted = run.pages.flatMap((page) =>
+      page.pageIndex === null || page.pageIndex >= opened.pageCount ? [] : [page],
+    );
+    if (wanted.length === 0) return null;
+
+    // The whole file in its own order is already the part: nothing there is worth a call for.
+    const indices = wanted.map((page) => page.pageIndex ?? 0);
+    const whole = indices.length === opened.pageCount && indices.every((index, at) => index === at);
+    const selected = whole ? opened.pdf : await this.pdfs.rearrangePages(opened.pdf, indices);
+
+    // The selection first, then the turns: each entry names its own page and its own turn, so what
+    // is turned is exactly what was picked, however it was picked (docs/05 §5.5 step 1).
+    const turns = wanted.map((page) => effectiveTurn(page)?.quarterTurns ?? 0);
+    if (turns.every((turn) => turn === 0)) return { pdf: selected, shape: null };
+    return { pdf: await this.pdfs.rotatePages(selected, turns), shape: null };
+  }
+
+  // A picture becomes one page: cropped, turned, corrected, laid on a page its own shape.
+  //
+  // 🔒 The turn comes after the crop and before the correction, and both halves of that are
+  // deliberate. After the crop, because the stored quadrilateral is in the pixels that arrived
+  // (docs/03 §3.3.17): turning first would leave every corner somebody dragged pointing at a
+  // different part of the page. Before the correction, because the deskew reads the *rows* of a
+  // page, which on a sheet still lying sideways run down it instead of across it (docs/05 §5.5).
+  private async picturePart(
+    bytes: Buffer,
+    page: DocumentPage,
+    ext: string,
+    options: { correct?: boolean } = {},
+  ): Promise<Part> {
+    const framed = page.crop === null ? bytes : await this.images.applyCrop(bytes, page.crop);
+    const turn = effectiveTurn(page);
+    const stood = turn === null ? framed : await this.images.applyRotation(framed, turn);
+    const mayCorrect = options.correct ?? true;
+    const corrected =
+      mayCorrect && this.settings.correctImagePages ? await this.correct(stood) : null;
+    const rendered = corrected ?? stood;
+    // Measured after all three, because that is what the page will be: a photograph taken at an
+    // angle, straightened to the paper's own corners and stood upright is a sheet, whatever the
+    // snapshot was.
+    const shape = await this.images.dimensions(rendered);
+    const rewritten = page.crop !== null || turn !== null || corrected !== null;
+    return {
+      pdf: await this.pdfs.imagesToPdf([
+        { body: rendered, fileName: pageNameOf(page.position, rewritten, ext) },
+      ]),
+      shape,
+    };
   }
 
   // Levelling the lighting and taking out the skew, best-effort like the format and the stamping
@@ -267,7 +348,7 @@ export class BuildCanonical {
   // Unlike the download route, the pipeline reads without a viewer: it is not answering anybody's
   // request, and a canonical built out of the files one person may see would be a different document
   // for each reader.
-  private async open(file: File): Promise<BinarySource> {
+  private async read(file: File): Promise<BinarySource> {
     if (file.origin === 'MANAGED') return this.storage.getStream(originalKeyOf(file));
 
     const ref = await this.fileRefs.findLiveRefForFile(file.id);
@@ -289,6 +370,45 @@ export class BuildCanonical {
   }
 }
 
+// The files a document's pages are read from, each once, in the order the pages first name them.
+function distinctFilesOf(pages: readonly DocumentPageWithFile[]): File[] {
+  const files: File[] = [];
+  const seen = new Set<string>();
+  for (const page of pages) {
+    if (seen.has(page.fileId)) continue;
+    seen.add(page.fileId);
+    files.push(page.file);
+  }
+  return files;
+}
+
+// The pages cut into runs: consecutive entries of one file that can be taken out of it together.
+// A cropped page is a run of its own, because it is rendered rather than selected, and so is a page
+// of an image, which is one page and one picture.
+function runsOf(
+  pages: readonly DocumentPageWithFile[],
+  opened: ReadonlyMap<string, OpenedFile | undefined>,
+): Run[] {
+  const runs: Run[] = [];
+  for (const page of pages) {
+    const one: OpenedFile = opened.get(page.fileId) ?? { kind: 'unsupported' };
+    const last = runs[runs.length - 1];
+    const joinable =
+      last !== undefined &&
+      last.file.id === page.fileId &&
+      last.opened.kind === 'pdf' &&
+      one.kind === 'pdf' &&
+      page.crop === null &&
+      last.pages.every((held) => held.crop === null);
+    if (joinable && last !== undefined) {
+      last.pages.push(page);
+      continue;
+    }
+    runs.push({ file: page.file, opened: one, pages: [page] });
+  }
+  return runs;
+}
+
 // The date on the paper, or failing that the day Legere first saw it: a `/CreationDate` is better
 // wrong by a filing date than absent (docs/03 §3.3.10).
 function documentDateOf(document: Document): Date | null {
@@ -297,13 +417,13 @@ function documentDateOf(document: Document): Date | null {
   return Number.isNaN(parsed.getTime()) ? document.createdAt : parsed;
 }
 
-// What the image is called on its way into the converter. A page that was cropped or corrected is
-// JPEG now, whatever it arrived as, and Stirling reads the format from the name; one that came
-// through untouched keeps its own bytes and therefore its own extension.
-function pageNameOf(file: DocumentFile, rewritten: boolean): string {
-  const position = String(file.position).padStart(4, '0');
-  if (rewritten) return `page-${position}.jpg`;
-  return `page-${position}.${file.ext === '' ? 'jpg' : file.ext}`;
+// What the picture is called on its way into the converter. A page that was cropped, turned or
+// corrected is JPEG now, whatever it arrived as, and Stirling reads the format from the name; one
+// that came through untouched keeps its own bytes and therefore its own extension.
+function pageNameOf(position: number, rewritten: boolean, ext: string): string {
+  const at = String(position).padStart(4, '0');
+  if (rewritten) return `page-${at}.jpg`;
+  return `page-${at}.${ext === '' ? 'jpg' : ext}`;
 }
 
 // `size` at a time, in order, results in the order they went in. Written here rather than reached

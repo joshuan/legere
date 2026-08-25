@@ -1496,7 +1496,7 @@ describe('Documents (e2e)', () => {
       // its place in it. What is not destroyed is the bytes — nothing rebuilds those, so the files
       // wait in the trash (docs/05 §5.7a).
       expect(await testPrisma().document.findUnique({ where: { id: seeded.id } })).toBeNull();
-      expect(await testPrisma().documentFile.count({ where: { documentId: seeded.id } })).toBe(0);
+      expect(await testPrisma().documentPage.count({ where: { documentId: seeded.id } })).toBe(0);
       const kept = await testPrisma().file.findMany({ where: { id: { in: seeded.fileIds } } });
       expect(kept).toHaveLength(2);
       expect(kept.every((file) => file.trashedReason === 'DOCUMENT_DELETED')).toBe(true);

@@ -134,8 +134,8 @@ describe('Trash (e2e)', () => {
         name,
       },
     });
-    await testPrisma().documentFile.create({
-      data: { documentId: document.id, position: 0, fileId: file.id },
+    await testPrisma().documentPage.create({
+      data: { documentId: document.id, position: 0, fileId: file.id, pageIndex: null },
     });
     await testPrisma().fileRef.create({
       data: {

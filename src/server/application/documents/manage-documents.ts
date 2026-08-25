@@ -29,6 +29,13 @@ import {
   originOf,
   type Document,
 } from '../../domain/entities/document';
+import {
+  fileCropOf,
+  fileCropSourceOf,
+  filePageOrderOf,
+  filePageRotationsOf,
+  fileTurnOf,
+} from '../../domain/entities/document-page';
 import { isImageFile } from '../../domain/entities/file';
 import type { DocumentEventPayload } from '../../domain/entities/document-event';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
@@ -450,22 +457,30 @@ export class DeleteDocument {
       // Off every collection first: `collection_items` has no cascade on purpose (docs/04 §4.2), so
       // the foreign key would refuse the delete below and be right to.
       await this.collections.removeItemEverywhere(documentId, tx);
+      // The pages go before the row does, so the question below — which of these files is nothing
+      // reading any more — has an answer (ADR-025).
+      await this.files.replacePages(documentId, [], tx);
+      // 🔒 Only the files this document was the last to read. One another document still reads a
+      // page of stays exactly where it is, refs and all: it is not going anywhere, and excluding its
+      // refs would stop a scan finding bytes the archive is still using (docs/05 §5.7a).
+      const orphaned = await this.files.filterFilesWithoutLivePages(fileIds, tx);
       // 🔒 The mark that keeps the next scan from ingesting these bytes into a brand-new document,
       // the volume being read-only and the original still lying on it (docs/03 §3.3.9). A file that
       // is later restored from the trash gets its refs back then.
-      await this.fileRefs.markExcluded(fileIds, tx);
+      await this.fileRefs.markExcluded(orphaned, tx);
       // Into the trash under the title they were part of, which is the only thing that will still
-      // say what they were once the document row is gone.
+      // say what they were once the document row is gone — and it is the document they left **last**
+      // (docs/03 §3.3.16).
       await this.files.trash(
         {
-          fileIds,
+          fileIds: orphaned,
           reason: 'DOCUMENT_DELETED',
           trashedFrom: document.title,
           at: this.clock.now(),
         },
         tx,
       );
-      // The document, and with it — by cascade — its journal, chunks, links and `document_files`.
+      // The document, and with it — by cascade — its journal, chunks, links and `document_pages`.
       // The files survive it; only their place in it does not.
       await this.documents.hardDelete(documentId, tx);
     });
@@ -549,16 +564,18 @@ export function toFileDto(file: DocumentFileView): DocumentFileDto {
     origin: file.origin,
     available: file.available,
     isImage: isImageFile(file),
-    crop: file.crop,
-    cropSource: file.cropSource,
-    // Which way up the picture lies (docs/03 §3.3.16); null for everything that is not an image
-    // somebody has turned.
-    rotation: file.rotation,
-    // The pages inside this file: the order they are read in, which way up each of them lies, and
-    // how many of them the last build counted (docs/03 §3.3.16). All null for everything that is not
-    // a PDF anybody has built from.
-    pageOrder: file.pageOrder,
-    pageRotations: file.pageRotations,
+    // 🔒 Everything a file says about this document is read off the **pages** it is read as here
+    // (docs/03 §3.3.17, ADR-025), never off the file: a crop and a turn belong to a page of one
+    // document, which is why two documents may crop one photograph differently.
+    crop: fileCropOf(file.pages),
+    cropSource: fileCropSourceOf(file.pages),
+    // Which way up the picture lies; null for everything that is not an image somebody has turned.
+    rotation: fileTurnOf(file.pages),
+    // The pages of this file: the order this document reads them in, which way up each of them lies
+    // by the file's own index, and how many of them the last build counted (docs/03 §3.3.16). All
+    // null for everything that is not a PDF anybody has built from.
+    pageOrder: filePageOrderOf(file.pages, file.pageCount),
+    pageRotations: filePageRotationsOf(file.pages, file.pageCount),
     pageCount: file.pageCount,
     refs: file.refs,
     // A LIBRARY file has no object at all — its bytes stay on the volume (docs/09 §9.2) — so it has

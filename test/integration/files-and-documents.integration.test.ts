@@ -6,6 +6,7 @@ import {
   DocumentRepository,
   type Viewer,
 } from '../../src/server/domain/repositories/document.repository';
+import { withFileCrop } from '../../src/server/domain/entities/document-page';
 import { FileRepository } from '../../src/server/domain/repositories/file.repository';
 import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
 import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
@@ -282,9 +283,11 @@ describe('Files and documents (integration)', () => {
       expect(byDocument.get(empty.id)).toEqual([]);
     });
 
-    it('stores a crop as a value beside the file, and clears it back to nothing', async () => {
+    it('stores a crop on the page the file is read as, and clears it back to nothing', async () => {
+      const document = await documents.create({ title: 'Photographed' });
       const fileId = await createFile({ ext: 'jpg' });
-      // Clockwise from the top-left, normalized to 0…1 of the image (docs/03 §3.3.16).
+      await files.attach(document.id, fileId);
+      // Clockwise from the top-left, normalized to 0…1 of the page (docs/03 §3.3.17).
       const crop: Crop = {
         points: [
           [0.1, 0.1],
@@ -294,13 +297,39 @@ describe('Files and documents (integration)', () => {
         ],
       };
 
-      const cropped = await files.setCrop(fileId, crop, 'MANUAL');
-      expect(cropped.crop?.points[2]).toEqual([0.88, 0.95]);
-      expect(cropped.cropSource).toBe('MANUAL');
+      const held = await files.listPagesForDocument(document.id);
+      await files.replacePages(document.id, withFileCrop(held, fileId, crop, 'MANUAL'));
 
-      const cleared = await files.setCrop(fileId, null, 'NONE');
-      expect(cleared.crop).toBeNull();
-      expect(cleared.cropSource).toBe('NONE');
+      const cropped = await files.listPagesForDocument(document.id);
+      expect(cropped[0]?.crop?.points[2]).toEqual([0.88, 0.95]);
+      expect(cropped[0]?.cropSource).toBe('MANUAL');
+      // 🔒 And nothing of it is on the file: a crop is a statement about a page (ADR-025).
+      expect(cropped[0]?.file.pageCount).toBeNull();
+
+      await files.replacePages(document.id, withFileCrop(cropped, fileId, null, 'NONE'));
+      const cleared = await files.listPagesForDocument(document.id);
+      expect(cleared[0]?.crop).toBeNull();
+      expect(cleared[0]?.cropSource).toBe('NONE');
+    });
+
+    it('holds a file every document reading it names, and only trashes what nothing reads', async () => {
+      // 🔒 The invariant ADR-025 retired: a file may be read by pages of two documents at once, and
+      // the trash is for the file no live page names any more (docs/05 §5.7a).
+      const first = await documents.create({ title: 'One half' });
+      const second = await documents.create({ title: 'The other' });
+      const fileId = await createFile({ ext: 'jpg' });
+      await files.attach(first.id, fileId);
+      await files.replacePages(second.id, [
+        { fileId, pageIndex: null, turn: null, crop: null, cropSource: 'NONE' },
+      ]);
+
+      expect(await files.filterFilesWithoutLivePages([fileId])).toEqual([]);
+
+      await files.replacePages(first.id, []);
+      expect(await files.filterFilesWithoutLivePages([fileId])).toEqual([]);
+
+      await files.replacePages(second.id, []);
+      expect(await files.filterFilesWithoutLivePages([fileId])).toEqual([fileId]);
     });
   });
 

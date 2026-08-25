@@ -323,7 +323,7 @@ model Document {
 
   document type        Document type?        @relation(fields: [typeId], references: [id])
   createdBy       User?            @relation(fields: [createdById], references: [id])
-  files           DocumentFile[]
+  pages           DocumentPage[]
   chunks          DocumentChunk[]
   collectionItems CollectionItem[]
 
@@ -445,19 +445,11 @@ model File {
   ext         String
   sizeBytes   BigInt     @map("size_bytes")
   name        String
-  crop        Json?
-  cropSource  ValueSource @default(NONE) @map("crop_source")
-  // What one file says about itself besides its bytes (03 §3.3.16), none of it ever a change to
-  // them: the quadrilateral above, which way up it lies, the order its own pages are read in and
-  // which way up each of those lies. `rotation` is `{ quarterTurns, mirrored }` and belongs to an
-  // image; `pageOrder` is a permutation of the 0-based page indices and `pageRotations` one quarter
-  // turn per page, and both belong to a PDF. `pageCount` is what the last canonical build counted,
-  // and what the two lists are checked against. Null everywhere means "the way it arrived".
-  rotation      Json?
-  pageOrder     Json?        @map("page_order")
-  pageRotations Json?        @map("page_rotations")
+  // How many pages are inside these bytes (03 §3.3.16): what the last canonical build counted, and
+  // what a page index is checked against. Null until a build has opened the file, which is the one
+  // state in which a document cannot name its pages one by one (ADR-025).
   pageCount     Int?         @map("page_count")
-  // In the trash since, and how it got there (05 §5.7a). A file is in exactly one document or in
+  // In the trash since, and how it got there (05 §5.7a). A file with no live page anywhere is in
   // the trash; `replaced_by_id` is the file that took its place, for the versions of a page.
   trashedAt     DateTime?    @map("trashed_at") @db.Timestamptz(6)
   trashedReason TrashReason? @map("trashed_reason")
@@ -468,7 +460,7 @@ model File {
   deletedAt   DateTime?  @map("deleted_at") @db.Timestamptz(6)
 
   refs     FileRef[]
-  document DocumentFile?
+  pages    DocumentPage[]
   // The versions of one page: every earlier copy points at the file now in the document (03 §3.3.16).
   replacedBy      File?  @relation("FileVersions", fields: [replacedById], references: [id])
   earlierVersions File[] @relation("FileVersions")
@@ -479,16 +471,28 @@ model File {
   @@map("files")
 }
 
-model DocumentFile {
-  documentId String @map("document_id") @db.Uuid
+// One page of one document (03 §3.3.17, ADR-025): which file it is read from, which page of that
+// file, which way up it lies and how much of it is paper. The turn and the crop live here rather
+// than on the file because they are answers about this page in this document, and the same file may
+// be read by pages of two documents at once.
+model DocumentPage {
+  id         String      @id @default(uuid()) @db.Uuid
+  documentId String      @map("document_id") @db.Uuid
   position   Int
-  fileId     String @unique @map("file_id") @db.Uuid
+  fileId     String      @map("file_id") @db.Uuid
+  // Null is "this file, whole, in the order it arrived" — the entry a file takes while nobody has
+  // counted its pages; the first canonical build expands it into one entry per page.
+  pageIndex  Int?        @map("page_index")
+  turn       Json?
+  crop       Json?
+  cropSource ValueSource @default(NONE) @map("crop_source")
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   file     File     @relation(fields: [fileId], references: [id])
 
-  @@id([documentId, position])
-  @@map("document_files")
+  @@unique([documentId, position])
+  @@index([fileId])
+  @@map("document_pages")
 }
 ```
 
@@ -500,7 +504,7 @@ model DocumentFile {
 - BigInt columns (`size`, `sizeBytes`) are serialized to JSON as strings in DTOs (contract rule,
   [`07 §7.4`](./07-api-specification.md#74-dto-serialization)).
 - `onDelete: Cascade` is used on what belongs to a document and cannot outlive it: `DocumentChunk`,
-  `DocumentEvent`, `DocumentPerson`, `DocumentSubject` and `DocumentFile`. Deleting a document for
+  `DocumentEvent`, `DocumentPerson`, `DocumentSubject` and `DocumentPage`. Deleting a document for
   real (`03 §3.3.10`) is then one `DELETE` and not five, and — more to the point — no future
   statement can leave a chunk or a journal entry behind pointing at a row that is gone.
   **`CollectionItem` deliberately has none:** a collection is somebody else's list, and a document is
@@ -922,14 +926,14 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 |-------|-----------|
 | scan: lookup by `(libraryId, path)` | `file_refs` unique index |
 | dedup: `File` by `contentHash` | partial unique index |
-| the files of one document, in order | `document_files` PK `(document_id, position)` |
-| the document a file belongs to | `document_files.file_id` unique |
+| the pages of one document, in order | `document_pages` unique `(document_id, position)` |
+| the documents a file is read by | `document_pages(file_id)` — an index and no longer a unique one: a file may be read by pages of any number of documents (ADR-025) |
 | document list ordered by when Legere first saw it (`?sort=createdAt`) | `documents(created_at DESC)` |
 | document list ordered by the date on the paper, undated first (`?sort=documentDate`) | `documents(document_date DESC NULLS FIRST, id DESC)` (raw SQL, §4.3) — a separate index from the `NULLS LAST` one below, which cannot be scanned backwards to produce it; `id` is in the index because a DATE ties constantly and the cursor needs the tiebreak to continue a page inside one day |
 | document list ordered by when it last changed (`?sort=lastEventAt`) | `documents(last_event_at DESC)` — the denormalised newest journal entry (`03 §3.3.18`); `max(document_events.at)` is a correlated aggregate no index serves |
 | filter by document type | `documents(type_id)` |
-| filter by library | `file_refs(library_id, status)` + join through `document_files` |
-| availability and origin for a document | derived from its files: `document_files` PK + `file_refs(file_id)` |
+| filter by library | `file_refs(library_id, status)` + join through `document_pages` |
+| availability and origin for a document | derived from the files its pages name: `document_pages(file_id)` + `file_refs(file_id)` |
 | filter by person | `document_people(person_id)` index; the PK `(document_id, person_id)` closes the join |
 | filter by subject | `document_subjects(subject_id)` index, PK `(document_id, subject_id)` |
 | the people and subjects of a **page** of documents (`07 §7.3`, the card fields) | the same two PKs, read from the left: `document_id IN (…)` once per link table per page, never once per row |
@@ -939,7 +943,7 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 | filter by place | `documents(country) WHERE country IS NOT NULL`, `documents(city) WHERE city IS NOT NULL` — partial, because the analysis finds a place for only some documents and an index over the rest would be NULL entries nothing looks up (raw SQL, §4.3) |
 | filter by pipeline step + status | none: five low-cardinality enum columns, and the queue screen's counters bound the answer |
 | FTS: the document's own words | GIN on `search_vector`, query via `websearch_to_tsquery('simple', $1)` — title, extracted field values (via `extracted_search_text`), description, Markdown and place, all in the generated column (§4.3) |
-| FTS: the names of what a document is made of and about | GIN on `to_tsvector('simple', name)` over `files`, `people` and `subjects` (§4.3) — one index scan per table, joined to the document through `document_files` / `document_people` / `document_subjects`, whose own primary keys close the join. Deliberately not denormalised onto the document: a name is matched where it lives (§4.3) |
+| FTS: the names of what a document is made of and about | GIN on `to_tsvector('simple', name)` over `files`, `people` and `subjects` (§4.3) — one index scan per table, joined to the document through `document_pages` / `document_people` / `document_subjects` — the first of the three **distinct**, since one file may be read by several pages of one document. Deliberately not denormalised onto the document: a name is matched where it lives (§4.3) |
 | semantic search | HNSW cosine on `document_chunks.embedding`, `ORDER BY embedding <=> $1 LIMIT k` |
 | the links of one document, from either end | `document_links` unique `(a_id, b_id)` read from the left + the `(b_id)` index — one edge, findable from both sides |
 | link suggestions: probing the archive for a document's identifiers (`05 §5.6b`) | the same GIN on `search_vector` — a probe is an ordinary FTS query |

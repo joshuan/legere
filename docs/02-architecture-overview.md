@@ -319,6 +319,11 @@ viewer shows the canonical, Download hands over the canonical, every pipeline st
 canonical; the originals stay untouched and downloadable one at a time. Composition is editable —
 add, combine, split, reorder, crop — and every change rebuilds the canonical.
 
+**Half of this is superseded by [ADR-025](#adr-025-a-document-is-an-ordered-list-of-pages):** what a
+document orders is the **page**, not the file, and a file no longer has one home. The rest of the
+decision is exactly as it stands — the canonical PDF for every document always, deduplication by
+content hash one level down, the originals untouched.
+
 **Consequences.** Deduplication moves from documents to files (ADR-009 still holds, one level down).
 Scan sets disappear: "these are one document" is now a property of a document rather than a machine
 for making a new one. Every document gains a text layer and a uniform preview, including images and
@@ -404,6 +409,72 @@ old artifacts keep serving until the new ones land.
   nothing**, which is what makes the exception to the CSRF rule safe rather than trusted: a browser
   cannot be tricked into a call it has no credential for. The tools are a closed list over read use
   cases, so "read-only" is a property of the registry and not a promise about future routes.
+
+### ADR-025. A document is an ordered list of pages
+
+**Context.** [ADR-021](#adr-021-a-file-is-not-a-document) made a document an ordered list of
+**files**, each of them handing over its pages in a block. Three things people ask of an archive on
+one ordinary day are impossible under that sentence, and all three for the same reason. Turn page
+eight of a scan: a turn is written on the file (`03 §3.3.16`), so it is a turn of every document that
+file is read in, and the smallest thing that could be turned separately was the file. Cut a
+twenty-page scan where the eighth page begins another contract: two documents cannot read the same
+bytes, because a file belongs to exactly one live document. Put a photograph **between pages two and
+three** of a five-page PDF: there is no position between them to put it at, the PDF being one item of
+the list. None of the three is missing by oversight. They are one missing sentence.
+
+**Decision.** The unit is the **page**. A document is an **ordered list of pages**, and a page names
+the file it is read from, **which page of that file** it is, **which way up** it lies and **how much
+of it is paper**. `DocumentPage` (`03 §3.3.17`) replaces `DocumentFile` as the thing that is ordered.
+A **file** goes back to being what ADR-021 called it and no more: bytes with a hash, a name, a size,
+a type and a count of the pages inside them. It carries no crop, no turn and no page order — nothing
+about documents it has never heard of.
+
+The other half of ADR-021 stands exactly as it is. **The canonical PDF is still built for every
+document, always** — out of the pages now, each turned and cropped as its entry says, merged in the
+order the list gives. Deduplication is still by content hash, one level down from the document
+(ADR-009). And 🔒 **the originals are still never modified** (ADR-007): a turn and a crop are numbers
+written beside a page, read while the canonical is built, which is why clearing either restores what
+arrived — nothing was ever done to it.
+
+One transitional state is left, and it has a written end. A file whose pages nobody has counted
+cannot be enumerated, so it is held as **one entry whose page index is `NULL`** — "this file, whole,
+in the order it arrived". The first canonical build counts the pages of everything it opens
+(`05 §5.5` step 1) and expands that entry into one per page. Nothing else in the model is two-level.
+
+**Why not extract the pages into files of their own.** It would answer all three questions and cost
+too much. Splitting a PDF into twenty single-page PDFs mints twenty derived originals in an archive
+that has none — a `LIBRARY` file is bytes somebody else owns and we may not write beside (ADR-007),
+and a `MANAGED` one is what its owner uploaded. It puts one paper under two hashes, so deduplication
+starts finding a page and its parent as different files. And the document that was cut still has to
+say which pages it kept, which is the very list this decision is about — so the extraction buys
+nothing and pays for itself twice. The bytes were never the problem; the unit was.
+
+🔒 **The invariant that goes.** "A file belongs to exactly one live document" (`03 §3.3.16`) is
+**retired in the same breath**, because pages of one file living in two documents is the whole point.
+It was load-bearing, so what leaned on it is re-stated rather than quietly dropped:
+
+- **The trash** (`05 §5.7a`) takes a file with **no live page left anywhere** — the same rule one
+  join further out. A page removed from a document does not put its file in the trash while another
+  document still reads a page of it.
+- **`trashedFrom`** still names the document the file left **last**, since leaving the last one is
+  when it enters the trash. It was a record and not a link before this, and it stays one.
+- **A replacement replaces the bytes for every page that reads them.** A better scan is better
+  wherever the page is read, so the pages of the replaced file become pages of the new one in every
+  document holding them — and the person asking for it is told how many documents that is before it
+  happens, because a page they cannot see is still a page they are changing (`05 §5.6`).
+- **Ingest is unchanged.** Deduplication by hash never implied one document, only one row: the same
+  bytes arriving from a scan and from a browser are one file, and that is as true now as it was.
+
+**Consequences.** `document_pages` replaces `document_files`, and with it goes the unique index that
+made a file's home unique; a hand-written migration turns every existing row into pages (`04 §4.5`).
+Everything that joined a document to its files joins one table further along and has to say
+**distinct** where it counts. A crop is honoured on a page of a PDF exactly as on an image — the page
+is rendered and warped, because a scanned page is already raster and loses nothing by it, and a
+vector page cropped becomes raster, which is what somebody who dragged its corners asked for. The
+composition endpoints (`07 §7.3`) grow to speak pages: insert at a position, move, remove, split at a
+boundary, move pages into another document. And the price ADR-021 named is unchanged: a composition
+change re-runs the pipeline for that document, in the background, with the old artifacts serving
+until the new ones land.
 
 ### ADR-013. CI — a single Docker image to GHCR; deployment outside the repository
 - **Decision:** GitHub Actions: on every PR — `typecheck` + `lint` + `test` + `build` (with a

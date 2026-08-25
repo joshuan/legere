@@ -3,9 +3,10 @@ import type { Prisma } from '@prisma/client';
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
 import { testPrisma } from './db';
 
-// A document, the way it looks in the database since ADR-021: a row in `documents` that carries no
-// bytes, one row per file in `files` that carries all of them, a `document_files` row joining them at
-// a position, and — for a file on a volume — a `file_ref` pointing at the file (docs/03 §3.3.16–17).
+// A document, the way it looks in the database since ADR-025: a row in `documents` that carries no
+// bytes, one row per file in `files` that carries all of them, `document_pages` rows saying which
+// pages of which file the document is a list of, and — for a file on a volume — a `file_ref`
+// pointing at the file (docs/03 §3.3.16–17).
 // Written straight to the database on purpose: the suites that use this are about the read model,
 // and how documents get there is the scan and ingest suites' business.
 
@@ -65,7 +66,8 @@ export async function seedDocument(options: SeedDocumentOptions = {}): Promise<S
     paths: [],
   };
 
-  for (const [position, spec] of (options.files ?? [{}]).entries()) {
+  let nextPosition = 0;
+  for (const spec of options.files ?? [{}]) {
     const index = next();
     // Where the bytes were seen belongs to the ref; everything else is a column of the file itself.
     const {
@@ -106,9 +108,20 @@ export async function seedDocument(options: SeedDocumentOptions = {}): Promise<S
       });
     }
 
-    await testPrisma().documentFile.create({
-      data: { documentId: document.id, position, fileId: file.id },
+    // Its own pages where the fixture says how many there are, and one entry standing for the file
+    // whole where it does not — the two states of docs/03 §3.3.17.
+    const pageCount = file.pageCount === null || file.pageCount < 1 ? null : file.pageCount;
+    const indices: (number | null)[] =
+      pageCount === null ? [null] : Array.from({ length: pageCount }, (unused, at) => at);
+    await testPrisma().documentPage.createMany({
+      data: indices.map((pageIndex, offset) => ({
+        documentId: document.id,
+        position: nextPosition + offset,
+        fileId: file.id,
+        pageIndex,
+      })),
     });
+    nextPosition += indices.length;
 
     const path = refPath ?? `folder/${name}`;
     if (libraryId !== undefined) {

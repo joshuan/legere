@@ -88,16 +88,32 @@ export class PrismaLibraryRepository implements LibraryRepository {
     const rows = await clientOf(this.prisma, tx).$queryRaw<
       { library_id: string; files: bigint; documents: bigint; missing: bigint }[]
     >`
-      SELECT fr.library_id,
-             count(*) FILTER (WHERE fr.status <> 'MISSING')              AS files,
-             -- A ref points at a file, and the file is what a document holds (docs/03 §3.3.9), so
-             -- "documents in this library" is one join further out than it used to be.
-             count(DISTINCT df.document_id) FILTER (WHERE df.document_id IS NOT NULL) AS documents,
-             count(*) FILTER (WHERE fr.status = 'MISSING')               AS missing
-      FROM file_refs fr
-      LEFT JOIN document_files df ON df.file_id = fr.file_id
-      WHERE fr.library_id = ANY(${libraryIds}::uuid[])
-      GROUP BY fr.library_id
+      -- 🔒 Counted in two passes rather than over one join. A ref points at a file and a page of a
+      -- document at the file (docs/03 §3.3.17), and since ADR-025 one file may be read by many
+      -- pages — so joining the pages here would count every ref once per page of it and report a
+      -- library as holding ten times the files it holds.
+      WITH scoped AS (
+        SELECT fr.library_id, fr.status, fr.file_id
+        FROM file_refs fr
+        WHERE fr.library_id = ANY(${libraryIds}::uuid[])
+      ), counted AS (
+        SELECT library_id,
+               count(*) FILTER (WHERE status <> 'MISSING') AS files,
+               count(*) FILTER (WHERE status = 'MISSING')  AS missing
+        FROM scoped
+        GROUP BY library_id
+      ), read_by AS (
+        SELECT s.library_id, count(DISTINCT dp.document_id) AS documents
+        FROM scoped s
+        JOIN document_pages dp ON dp.file_id = s.file_id
+        GROUP BY s.library_id
+      )
+      SELECT c.library_id,
+             c.files,
+             c.missing,
+             COALESCE(r.documents, 0) AS documents
+      FROM counted c
+      LEFT JOIN read_by r ON r.library_id = c.library_id
     `;
 
     return rows.map((row) => ({

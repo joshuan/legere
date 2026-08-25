@@ -446,10 +446,14 @@ describe('Scan and ingest (integration)', () => {
       expect(file.contentHash).toBe(
         'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9',
       );
-      // And the document holds exactly it, at position 0 (docs/03 §3.3.17).
-      expect(await prisma.documentFile.findMany({ where: { documentId: document.id } })).toEqual([
-        { documentId: document.id, position: 0, fileId: file.id },
-      ]);
+      // And the document holds exactly it, at position 0, as one entry standing for the file whole
+      // until a build counts its pages (docs/03 §3.3.17).
+      expect(
+        await prisma.documentPage.findMany({
+          where: { documentId: document.id },
+          select: { position: true, fileId: true, pageIndex: true },
+        }),
+      ).toEqual([{ position: 0, fileId: file.id, pageIndex: null }]);
       expect(await countProcessJobs()).toBe(1);
     });
 
@@ -485,7 +489,7 @@ describe('Scan and ingest (integration)', () => {
       const document = await prisma.document.findFirstOrThrow();
       // What an admin deleting the document leaves behind: the file in the trash, its paths
       // excluded, the document row gone.
-      await prisma.documentFile.deleteMany({ where: { documentId: document.id } });
+      await prisma.documentPage.deleteMany({ where: { documentId: document.id } });
       await prisma.document.delete({ where: { id: document.id } });
       await prisma.fileRef.updateMany({
         where: { fileId: file.id },
@@ -519,7 +523,7 @@ describe('Scan and ingest (integration)', () => {
 
       const file = await prisma.file.findFirstOrThrow();
       const document = await prisma.document.findFirstOrThrow();
-      await prisma.documentFile.deleteMany({ where: { documentId: document.id } });
+      await prisma.documentPage.deleteMany({ where: { documentId: document.id } });
       await prisma.document.delete({ where: { id: document.id } });
       await prisma.file.update({
         where: { id: file.id },
@@ -654,7 +658,7 @@ describe('Scan and ingest (integration)', () => {
       expect(await prisma.document.count()).toBe(1);
       const file = await prisma.file.findFirstOrThrow();
       expect(after?.fileId).toBe(file.id);
-      expect(await prisma.documentFile.count({ where: { documentId: document.id } })).toBe(1);
+      expect(await prisma.documentPage.count({ where: { documentId: document.id } })).toBe(1);
       expect(await countProcessJobs()).toBe(1);
     });
 

@@ -12,6 +12,7 @@ import {
 import type { Crop } from '../../../shared/contracts/documents';
 import type { ProcessingSettings } from '../jobs/processing-settings';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
+import { withFileCrop } from '../../domain/entities/document-page';
 import { QueueSettings, ungatedServices } from '../queue/queue-settings';
 import { BuildCanonical } from './build-canonical';
 
@@ -96,10 +97,14 @@ describe('BuildCanonical: correcting a page before it is one', () => {
       sizeBytes: 1n,
       name: `page.${ext}`,
     });
-    if (options.crop !== undefined) {
-      await files.setCrop(file.id, options.crop, 'MANUAL');
-    }
     await files.attach(documentId, file.id);
+    // A crop belongs to the page the file is read as here (docs/03 §3.3.17), so it is said by
+    // rewriting the list exactly as a composition edit does.
+    const crop = options.crop;
+    if (crop !== undefined) {
+      const held = await files.listPagesForDocument(documentId);
+      await files.replacePages(documentId, withFileCrop(held, file.id, crop, 'MANUAL'));
+    }
     await storage.put(
       `documents/${documentId}/source.${ext}`,
       Buffer.from('photograph'),

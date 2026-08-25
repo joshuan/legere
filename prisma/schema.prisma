@@ -341,7 +341,7 @@ model Document {
 
   documentType    DocumentType?     @relation(fields: [typeId], references: [id])
   createdBy       User?             @relation(fields: [createdById], references: [id])
-  files           DocumentFile[]
+  pages           DocumentPage[]
   chunks          DocumentChunk[]
   events          DocumentEvent[]
   people          DocumentPerson[]
@@ -569,26 +569,16 @@ model File {
   ext           String
   sizeBytes     BigInt       @map("size_bytes")
   name          String
-  crop          Json?
-  cropSource    ValueSource  @default(NONE) @map("crop_source")
-  // Which way up this file lies (docs/03 §3.3.16): `{ quarterTurns: 0…3, mirrored: bool }`, the
-  // mirror first and the quarter turns clockwise after it, null for the way it arrived. Meaningful
-  // only for an image, exactly as `crop` is, and never a change to the bytes — the canonical build
-  // applies it after the crop and the original stays the original.
-  rotation      Json?
-  // The order this file's own pages are read in, which way up each of them lies, and how many of
-  // them there are (docs/03 §3.3.16). `pageOrder` is a permutation of the 0-based page indices and
-  // `pageRotations` one quarter turn per page, both null for the way they arrived, and both
-  // meaningful only for a PDF exactly as `crop` is meaningful only for an image — the canonical
-  // build obeys them and the file itself is never rewritten. `pageCount` is what the last build
-  // counted, and what a stored order and a stored list of turns are checked against.
-  pageOrder     Json?        @map("page_order")
-  pageRotations Json?        @map("page_rotations")
+  // How many pages are inside these bytes (docs/03 §3.3.16): an image is one, a PDF is what its page
+  // tree says, an office document is what the converter laid it out as. Counted afresh by every
+  // canonical build that opens the file, null until one has — and while it is null a document cannot
+  // name the file's pages one by one, so it holds it as a single entry standing for it whole
+  // (ADR-025). It is also what a page index is checked against, without a round trip to Stirling.
   pageCount     Int?         @map("page_count")
-  // In the trash since, and how it got there (docs/05 §5.7a): a file is in exactly one document or
-  // in the trash, and the trash is where every file that leaves a document waits to be deleted or
-  // restored. `trashedFrom` is the title the document had when it left — a record and not a link,
-  // because that document is usually gone by the time anybody reads this.
+  // In the trash since, and how it got there (docs/05 §5.7a): a file with no live page anywhere is
+  // in the trash, and the trash is where every file that leaves the last document reading it waits
+  // to be deleted or restored. `trashedFrom` is the title the document had when it left — a record
+  // and not a link, because that document is usually gone by the time anybody reads this.
   trashedAt     DateTime?    @map("trashed_at") @db.Timestamptz(6)
   trashedReason TrashReason? @map("trashed_reason")
   trashedFrom   String?      @map("trashed_from")
@@ -601,9 +591,9 @@ model File {
   deletedAt     DateTime?    @map("deleted_at") @db.Timestamptz(6)
 
   refs            FileRef[]
-  document        DocumentFile?
-  replacedBy      File?         @relation("FileVersions", fields: [replacedById], references: [id])
-  earlierVersions File[]        @relation("FileVersions")
+  pages           DocumentPage[]
+  replacedBy      File?          @relation("FileVersions", fields: [replacedById], references: [id])
+  earlierVersions File[]         @relation("FileVersions")
 
   // The trash is read newest first and swept by age; both are this index.
   @@index([trashedAt(sort: Desc)])
@@ -611,17 +601,35 @@ model File {
   @@map("files")
 }
 
-// A document is an ordered list of files (docs/03 §3.3.17); a file has exactly one home.
-model DocumentFile {
-  documentId String @map("document_id") @db.Uuid
+// A document is an ordered list of pages (docs/03 §3.3.17, ADR-025): one page, read out of one file,
+// standing a particular way up and showing a particular part of itself. The turn and the crop live
+// here rather than on the file because they are answers about this page in this document — the same
+// file may be read by pages of two documents, and a twenty-page scan has three pages lying sideways
+// and not twenty.
+model DocumentPage {
+  id         String      @id @default(uuid()) @db.Uuid
+  documentId String      @map("document_id") @db.Uuid
   position   Int
-  fileId     String @unique @map("file_id") @db.Uuid
+  fileId     String      @map("file_id") @db.Uuid
+  // Which page of the file, by the file's own 0-based index. Null is "this file, whole, in the order
+  // it arrived" — the entry a file takes while nobody has counted its pages, which the first
+  // canonical build expands into one entry per page (docs/05 §5.5 step 1).
+  pageIndex  Int?        @map("page_index")
+  // Which way up this page lies: `{ quarterTurns: 0…3, mirrored: bool }`, the mirror first and the
+  // quarter turns clockwise after it, null for the way it arrived. A mirror is offered only for a
+  // page of an image. Never a change to the bytes — the build applies it after the crop.
+  turn       Json?
+  // The quadrilateral of what is worth keeping, normalized to 0…1 of the page, and who chose it. A
+  // crop somebody dragged is MANUAL and no rebuild replaces it (docs/03 §3.3.17).
+  crop       Json?
+  cropSource ValueSource @default(NONE) @map("crop_source")
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   file     File     @relation(fields: [fileId], references: [id])
 
-  @@id([documentId, position])
-  @@map("document_files")
+  @@unique([documentId, position])
+  @@index([fileId])
+  @@map("document_pages")
 }
 
 // Instance settings an admin changes at runtime (docs/03 §3.3.21): a key-value store, because these

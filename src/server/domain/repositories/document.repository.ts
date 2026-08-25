@@ -201,7 +201,9 @@ export type DocumentGroupCount = {
   count: number;
 };
 
-export type DocumentPage = {
+// One page of a list of documents — a page of results, not a page of paper: since ADR-025 the second
+// is `DocumentPage` (docs/03 §3.3.17), so this one says which it is in its name.
+export type DocumentListPage = {
   items: DocumentListItem[];
   nextCursor: string | null;
 };
@@ -353,7 +355,7 @@ export abstract class DocumentRepository {
     viewer: Viewer,
     query: ListDocumentsInput,
     tx?: TransactionHandle,
-  ): Promise<DocumentPage>;
+  ): Promise<DocumentListPage>;
 
   // The named documents this viewer may read, hydrated like a page, answered in the asked order —
   // ids the access rule refuses are simply absent (docs/03 §3.3.23: an edge whose other side the
@@ -373,7 +375,7 @@ export abstract class DocumentRepository {
     folder: string,
     query: { limit: number; cursor?: string | undefined },
     tx?: TransactionHandle,
-  ): Promise<DocumentPage>;
+  ): Promise<DocumentListPage>;
 
   // Full-text search over title + markdown (docs/04 §4.3): the generated tsvector, queried with
   // websearch_to_tsquery and snippeted with ts_headline. 🔒 The access rule is part of the query.
@@ -403,7 +405,7 @@ export abstract class DocumentRepository {
     viewer: Viewer,
     query: { limit: number; cursor?: string | undefined },
     tx?: TransactionHandle,
-  ): Promise<DocumentPage>;
+  ): Promise<DocumentListPage>;
 
   abstract findReadableById(
     id: string,
@@ -423,7 +425,7 @@ export abstract class DocumentRepository {
   abstract softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void>;
 
   // 🔒 The real one, and the one exception ADR-015 makes (docs/03 §3.3.10): the row goes, and the
-  // journal, chunks, links and `document_files` go with it through the cascades of docs/04 §4.2.
+  // journal, chunks, links and `document_pages` go with it through the cascades of docs/04 §4.2.
   // What is *not* here is deliberate — the collection items, the file rows and the objects in the
   // bucket are deleted by the caller, in that order, because each is somebody else's table and the
   // order is what keeps the foreign keys satisfied.

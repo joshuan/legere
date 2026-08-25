@@ -62,7 +62,7 @@ describe('GetDocumentFilePageThumb', () => {
       documentType: null,
       people: [],
       subjects: [],
-      files: [{ ...file, position: 0, available: true, refs: [], earlierVersions: [] }],
+      files: [{ ...file, position: 0, pages: [], available: true, refs: [], earlierVersions: [] }],
       createdBy: null,
     };
   }

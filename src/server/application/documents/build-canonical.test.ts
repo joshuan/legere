@@ -10,7 +10,14 @@ import {
   documentFixture,
 } from '../../../../test/helpers/processing-fakes';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
-import type { File as FileEntity } from '../../domain/entities/file';
+import {
+  withFileCrop,
+  withFilePageOrder,
+  withFilePageTurns,
+  withFileTurn,
+  type PageEntry,
+} from '../../domain/entities/document-page';
+import type { Crop, Rotation } from '../../../shared/contracts/documents';
 import { QueueSettings, ungatedServices } from '../queue/queue-settings';
 import { BuildCanonical } from './build-canonical';
 
@@ -76,10 +83,20 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
     );
   });
 
+  // What a page of a document says about itself lives on the entry, not on the file (ADR-025), so a
+  // test says it by rewriting the list the way every composition edit does.
+  const editPages = async (
+    documentId: string,
+    edit: (pages: PageEntry[]) => PageEntry[],
+  ): Promise<void> => {
+    const held = await files.listPagesForDocument(documentId);
+    await files.replacePages(documentId, edit(held));
+  };
+
   const givenPhotograph = async (
     documentId: string,
-    overrides: Partial<Pick<FileEntity, 'crop' | 'rotation'>> = {},
-  ): Promise<void> => {
+    overrides: { crop?: Crop; turn?: Rotation } = {},
+  ): Promise<string> => {
     const { file } = await files.findOrCreateByContentHash({
       contentHash: `hash-${documentId}`,
       origin: 'MANAGED',
@@ -89,9 +106,15 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
       sizeBytes: 1n,
       name: 'page.jpg',
     });
-    const stored = files.files.get(file.id);
-    if (stored !== undefined) files.files.set(file.id, { ...stored, ...overrides });
     await files.attach(documentId, file.id);
+    if (overrides.crop !== undefined) {
+      await editPages(documentId, (pages) =>
+        withFileCrop(pages, file.id, overrides.crop ?? null, 'MANUAL'),
+      );
+    }
+    if (overrides.turn !== undefined) {
+      await editPages(documentId, (pages) => withFileTurn(pages, file.id, overrides.turn ?? null));
+    }
     // The bytes a managed file points at. Their content does not matter here — the fakes describe
     // rather than decode — but the object has to be there for the page to be opened at all.
     await storage.put(
@@ -99,6 +122,7 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
       Buffer.from('photograph'),
       'image/jpeg',
     );
+    return file.id;
   };
 
   const methods = (): string[] => pdfs.calls.map((call) => call.method);
@@ -160,13 +184,14 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
     expect(pdfs.calls).toContainEqual({ method: 'scalePages', fileName: 'A4:PORTRAIT' });
   });
 
-  // The pages inside one file (docs/05 §5.5 step 1.1). A PDF part is counted every build and read in
+  // The pages of one file (docs/05 §5.5 step 1). A PDF part is counted every build and read in
   // the order the file records — and the file itself is never opened for writing, here or anywhere.
   describe('the pages of one file', () => {
+    // A scan somebody has already built once: its pages are counted, so the document names them one
+    // by one and an order or a turn is a statement about those entries (docs/03 §3.3.17).
     const givenPdf = async (
       documentId: string,
-      pageOrder: number[] | null = null,
-      pageRotations: FileEntity['pageRotations'] = null,
+      options: { pageCount?: number | null; order?: number[] | null; turns?: number[] | null } = {},
     ): Promise<string> => {
       const key = `files/pdf-${documentId}/original.pdf`;
       const file = files.add(
@@ -178,11 +203,18 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
           mimeType: 'application/pdf',
           ext: 'pdf',
           name: 'scan.pdf',
-          pageOrder,
-          pageRotations,
+          pageCount: options.pageCount === undefined ? pdfs.pageCount : options.pageCount,
         },
         documentId,
       );
+      const turns = options.turns;
+      if (turns !== undefined) {
+        await editPages(documentId, (pages) => withFilePageTurns(pages, file.id, turns));
+      }
+      const order = options.order;
+      if (order !== undefined) {
+        await editPages(documentId, (pages) => withFilePageOrder(pages, file.id, order));
+      }
       await storage.put(key, Buffer.from('scan'), 'application/pdf');
       return file.id;
     };
@@ -190,7 +222,7 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
     it('counts the pages of the PDF it reads and writes the number on the file', async () => {
       pdfs.pageCount = 7;
       const document = documentFixture();
-      const fileId = await givenPdf(document.id);
+      const fileId = await givenPdf(document.id, { pageCount: null });
 
       await build.execute(document);
 
@@ -199,49 +231,51 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
       expect(files.files.get(fileId)?.pageCount).toBe(7);
     });
 
-    it('puts the pages into the stored order before the merge, without touching the file', async () => {
+    it('takes the pages in the order the document holds them, without touching the file', async () => {
       pdfs.pageCount = 3;
       const document = documentFixture();
-      const fileId = await givenPdf(document.id, [2, 0, 1]);
+      const fileId = await givenPdf(document.id, { order: [2, 0, 1] });
 
       await build.execute(document);
 
       expect(pdfs.calls).toContainEqual({ method: 'rearrangePages', fileName: '2,0,1' });
       // 🔒 The object the file's bytes live in is exactly what was put there: the rearranged PDF is
-      // the part, and the original stays the original (docs/03 §3.3.16, ADR-007).
+      // the part, and the original stays the original (docs/03 §3.3.17, ADR-007).
       expect(storage.get(`files/pdf-${document.id}/original.pdf`).body.toString()).toBe('scan');
-      expect(files.files.get(fileId)?.pageOrder).toEqual([2, 0, 1]);
+      const held = await files.listPagesForDocument(document.id);
+      expect(held.map((page) => page.pageIndex)).toEqual([2, 0, 1]);
+      expect(held.every((page) => page.fileId === fileId)).toBe(true);
     });
 
     it('asks for nothing when the pages already stand as they should', async () => {
       pdfs.pageCount = 3;
       const document = documentFixture();
-      await givenPdf(document.id, [0, 1, 2]);
+      await givenPdf(document.id, { order: [0, 1, 2] });
 
       await build.execute(document);
 
-      // The natural order spelled out is still the natural order, and not worth a call.
+      // The whole file in its own order is already the part, and not worth a call.
       expect(methods()).not.toContain('rearrangePages');
     });
 
-    it('ignores an order that does not describe the pages it just counted', async () => {
+    it('drops an entry naming a page the file does not hold', async () => {
+      // Three entries written when the file was counted at three, and a file that now opens at two:
+      // the document outranks the correction, and what is left of it still builds (docs/05 §5.5).
       pdfs.pageCount = 2;
       const document = documentFixture();
-      const fileId = await givenPdf(document.id, [2, 0, 1]);
+      const fileId = await givenPdf(document.id, { pageCount: 3, order: [2, 0, 1] });
 
       const built = await build.execute(document);
 
-      // The document outranks the correction: the pages stand as they arrived, exactly as an
-      // unreadable crop leaves the whole image in place (docs/05 §5.5 step 1.1).
       expect(built.kind).toBe('built');
       expect(methods()).not.toContain('rearrangePages');
       expect(files.files.get(fileId)?.pageCount).toBe(2);
     });
 
-    it('stands the pages that lie sideways up, before the merge and without touching the file', async () => {
+    it('stands the pages that lie sideways up, without touching the file', async () => {
       pdfs.pageCount = 3;
       const document = documentFixture();
-      await givenPdf(document.id, null, [0, 1, 0]);
+      await givenPdf(document.id, { turns: [0, 1, 0] });
 
       await build.execute(document);
 
@@ -250,40 +284,81 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
       expect(storage.get(`files/pdf-${document.id}/original.pdf`).body.toString()).toBe('scan');
     });
 
-    it('turns the pages before it puts them in order, so one index means one thing', async () => {
+    it('picks the pages first and turns what it picked, so a turn follows its own page', async () => {
       pdfs.pageCount = 3;
       const document = documentFixture();
-      await givenPdf(document.id, [2, 0, 1], [0, 1, 0]);
+      await givenPdf(document.id, { order: [2, 0, 1], turns: [0, 1, 0] });
 
       await build.execute(document);
 
       const order = methods();
-      // Both name the pages by the index they arrived under (docs/05 §5.5 step 1.1), and the turn
-      // is what the rearrange is then handed: the second call carries the first one's answer.
-      expect(order.indexOf('rotatePages')).toBeLessThan(order.indexOf('rearrangePages'));
-      expect(pdfs.calls).toContainEqual({ method: 'rotatePages', fileName: '0,1,0' });
+      // Each entry names its own page and its own turn (docs/03 §3.3.17), so the selection comes
+      // first and the turns are given in the order the pages were picked: page 1, the one lying
+      // sideways, is read last here and its turn is the last of the three.
+      expect(order.indexOf('rearrangePages')).toBeLessThan(order.indexOf('rotatePages'));
       expect(pdfs.calls).toContainEqual({ method: 'rearrangePages', fileName: '2,0,1' });
+      expect(pdfs.calls).toContainEqual({ method: 'rotatePages', fileName: '0,0,1' });
     });
 
     it('asks for nothing when every page already stands the way it should', async () => {
       pdfs.pageCount = 3;
       const document = documentFixture();
-      await givenPdf(document.id, null, [0, 0, 0]);
+      await givenPdf(document.id, { turns: [0, 0, 0] });
 
       await build.execute(document);
 
       expect(methods()).not.toContain('rotatePages');
     });
 
-    it('ignores a list of turns that does not describe the pages it just counted', async () => {
-      pdfs.pageCount = 2;
+    it('expands the entry standing for a file whole once it has counted its pages', async () => {
+      pdfs.pageCount = 4;
       const document = documentFixture();
-      await givenPdf(document.id, null, [0, 1, 0]);
+      const fileId = await givenPdf(document.id, { pageCount: null });
 
-      const built = await build.execute(document);
+      // Before the build the document holds one entry: this file, whole, in the order it arrived.
+      expect((await files.listPagesForDocument(document.id)).map((page) => page.pageIndex)).toEqual(
+        [null],
+      );
 
-      expect(built.kind).toBe('built');
-      expect(methods()).not.toContain('rotatePages');
+      await build.execute(document);
+
+      // 🔒 The end of the one two-level state (ADR-025): one entry per page, written down, so it
+      // happens once.
+      const held = await files.listPagesForDocument(document.id);
+      expect(held.map((page) => page.pageIndex)).toEqual([0, 1, 2, 3]);
+      expect(held.every((page) => page.fileId === fileId)).toBe(true);
+      expect(held.map((page) => page.position)).toEqual([0, 1, 2, 3]);
+    });
+
+    it('renders and warps a page of a PDF somebody cropped', async () => {
+      pdfs.pageCount = 3;
+      const document = documentFixture();
+      const fileId = await givenPdf(document.id);
+      const crop: Crop = {
+        points: [
+          [0.1, 0.1],
+          [0.9, 0.1],
+          [0.9, 0.9],
+          [0.1, 0.9],
+        ],
+      };
+      await editPages(document.id, (pages) =>
+        pages.map((page) =>
+          page.pageIndex === 1 ? { ...page, crop, cropSource: 'MANUAL' } : page,
+        ),
+      );
+
+      await build.execute(document);
+
+      // 🔒 A scanned page is already raster and loses nothing by being rendered, and a vector page
+      // cropped becomes raster — which is what somebody who dragged its corners asked for
+      // (docs/03 §3.3.17). The page is asked for by its 1-based number, at the resolution the
+      // recognizer reads best at.
+      expect(pdfs.calls).toContainEqual({ method: 'pdfPageJpg', fileName: 'page:2@300' });
+      expect(images.crops.map((one) => one.crop)).toEqual([crop]);
+      // The pages either side of it are still taken out of the file rather than rendered.
+      expect(pdfs.calls.filter((call) => call.method === 'pdfPageJpg')).toHaveLength(1);
+      expect(files.files.get(fileId)?.pageCount).toBe(3);
     });
   });
 
@@ -301,7 +376,7 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
             [0.1, 0.9],
           ],
         },
-        rotation: { quarterTurns: 1, mirrored: false },
+        turn: { quarterTurns: 1, mirrored: false },
       });
 
       await build.execute(document);
@@ -317,7 +392,7 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
     it('gives the correction a page that is already standing up', async () => {
       images.correction = 'applied';
       const document = documentFixture();
-      await givenPhotograph(document.id, { rotation: { quarterTurns: 3, mirrored: true } });
+      await givenPhotograph(document.id, { turn: { quarterTurns: 3, mirrored: true } });
 
       await build.execute(document);
 
@@ -328,7 +403,7 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
 
     it('measures the shape of the page after the turn, because that is what the page will be', async () => {
       const document = documentFixture();
-      await givenPhotograph(document.id, { rotation: { quarterTurns: 1, mirrored: false } });
+      await givenPhotograph(document.id, { turn: { quarterTurns: 1, mirrored: false } });
 
       await build.execute(document);
 
@@ -346,6 +421,86 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
       // A turn of nothing is not worth re-encoding a page for (docs/05 §5.5 step 1).
       expect(images.rotations).toHaveLength(0);
       expect(images.measured).toEqual(['photograph']);
+    });
+  });
+
+  // What ADR-025 buys, in the smallest test that shows it: a document is a list of pages, and the
+  // pages may come from anywhere.
+  describe('a document made of pages rather than of files', () => {
+    it('merges the pages of two files in the order the document holds them', async () => {
+      pdfs.pageCount = 2;
+      const document = documentFixture();
+      const key = `files/scan-${document.id}/original.pdf`;
+      const pdf = files.add(
+        {
+          id: `scan-${document.id}`,
+          contentHash: `scan-${document.id}`,
+          origin: 'MANAGED',
+          storageKey: key,
+          mimeType: 'application/pdf',
+          ext: 'pdf',
+          name: 'scan.pdf',
+          pageCount: 2,
+        },
+        document.id,
+      );
+      await storage.put(key, Buffer.from('scan'), 'application/pdf');
+      const photograph = await givenPhotograph(document.id);
+      // The photograph between the two pages of the scan, which is the gesture this milestone is for.
+      await editPages(document.id, (pages) => [
+        pages[0] ?? { fileId: pdf.id, pageIndex: 0, turn: null, crop: null, cropSource: 'NONE' },
+        pages[2] ?? {
+          fileId: photograph,
+          pageIndex: null,
+          turn: null,
+          crop: null,
+          cropSource: 'NONE',
+        },
+        pages[1] ?? { fileId: pdf.id, pageIndex: 1, turn: null, crop: null, cropSource: 'NONE' },
+      ]);
+
+      const built = await build.execute(document);
+
+      expect(built.kind).toBe('built');
+      const merged = pdfs.calls.find((call) => call.method === 'mergePdfs');
+      // Page one of the scan, the photograph, page two of the scan — three parts, in that order.
+      expect(merged?.fileName).toBe(
+        'rearranged(0)(scan),image-pdf(photograph),rearranged(1)(scan)',
+      );
+    });
+
+    it('lets two documents crop one photograph apart', async () => {
+      const first = documentFixture({ id: 'doc-first' });
+      const second = documentFixture({ id: 'doc-second' });
+      const fileId = await givenPhotograph(first.id);
+      // The same bytes, read by a page of another document as well (ADR-025).
+      await files.attach(second.id, fileId);
+
+      const left: Crop = {
+        points: [
+          [0, 0],
+          [0.5, 0],
+          [0.5, 1],
+          [0, 1],
+        ],
+      };
+      const right: Crop = {
+        points: [
+          [0.5, 0],
+          [1, 0],
+          [1, 1],
+          [0.5, 1],
+        ],
+      };
+      await editPages(first.id, (pages) => withFileCrop(pages, fileId, left, 'MANUAL'));
+      await editPages(second.id, (pages) => withFileCrop(pages, fileId, right, 'MANUAL'));
+
+      await build.execute(first);
+      await build.execute(second);
+
+      // Each document warps the picture its own way, and neither reads the other's answer: a crop is
+      // a statement about a page, not about the bytes (docs/03 §3.3.17).
+      expect(images.crops.map((one) => one.crop)).toEqual([left, right]);
     });
   });
 

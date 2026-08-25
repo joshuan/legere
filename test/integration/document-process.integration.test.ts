@@ -12,6 +12,7 @@ import { PersonRepository } from '../../src/server/domain/repositories/person.re
 import { SubjectKindRepository } from '../../src/server/domain/repositories/subject-kind.repository';
 import { SubjectRepository } from '../../src/server/domain/repositories/subject.repository';
 import { DocumentRepository } from '../../src/server/domain/repositories/document.repository';
+import { withFilePageOrder } from '../../src/server/domain/entities/document-page';
 import { FileRepository } from '../../src/server/domain/repositories/file.repository';
 import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../src/server/domain/repositories/library.repository';
@@ -49,6 +50,9 @@ describe('Document processing (integration)', () => {
   let prisma: PrismaService;
   let handler: HandleDocumentProcess;
   let files: InMemoryFileStorage;
+  // The repository, beside the bucket above: a composition edit is a rewrite of the document's own
+  // list of pages (docs/03 §3.3.17).
+  let fileRepo: FileRepository;
   let pdfs: FakePdfToolbox;
   let parser: FakeDocumentParser;
   let analyst: FakeAnalyst;
@@ -91,6 +95,7 @@ describe('Document processing (integration)', () => {
       transcriberPageImageMaxDim: 1600,
     };
 
+    fileRepo = moduleRef.get(FileRepository);
     handler = new HandleDocumentProcess(
       moduleRef.get(DocumentRepository),
       moduleRef.get(DocumentEventRepository),
@@ -189,8 +194,8 @@ describe('Document processing (integration)', () => {
         name: SOURCE_PATH,
       },
     });
-    await prisma.documentFile.create({
-      data: { documentId: document.id, position: 0, fileId: file.id },
+    await prisma.documentPage.create({
+      data: { documentId: document.id, position: 0, fileId: file.id, pageIndex: null },
     });
     await prisma.fileRef.create({
       data: {
@@ -249,27 +254,36 @@ describe('Document processing (integration)', () => {
     expect(reader.opened).toContain(SOURCE_PATH);
   });
 
-  it('reads a file in its stored page order, and keeps that order across a reprocess', async () => {
+  it('reads a file in the order the document holds its pages, and keeps it across a reprocess', async () => {
     const documentId = await givenLibraryDocument();
     const file = await prisma.file.findFirstOrThrow({ where: { name: SOURCE_PATH } });
-    await prisma.file.update({ where: { id: file.id }, data: { pageOrder: [2, 0, 1] } });
     pdfs.pageCount = 3;
     pdfs.defaultMarkdown = 'Long enough to read as a text layer over three pages. '.repeat(20);
 
+    // The first build counts the pages and expands the entry standing for the file whole (ADR-025).
     await handler.handle({ documentId });
-
-    expect(pdfs.calls).toContainEqual({ method: 'rearrangePages', fileName: '2,0,1' });
+    expect(
+      (
+        await prisma.documentPage.findMany({ where: { documentId }, orderBy: { position: 'asc' } })
+      ).map((page) => page.pageIndex),
+    ).toEqual([0, 1, 2]);
     // The build counted the file's pages on its way past (docs/03 §3.3.16).
     expect((await prisma.file.findUniqueOrThrow({ where: { id: file.id } })).pageCount).toBe(3);
 
-    // Every step again, from the top: a page order is a property of the file, and nothing in the
-    // pipeline writes it — so a reprocess obeys it exactly as the first run did (docs/05 §5.6).
+    // What a person dragged into place, written on the document's own list.
+    const held = await fileRepo.listPagesForDocument(documentId);
+    await fileRepo.replacePages(documentId, withFilePageOrder(held, file.id, [2, 0, 1]));
+    pdfs.calls.length = 0;
+    await handler.handle({ documentId });
+    expect(pdfs.calls).toContainEqual({ method: 'rearrangePages', fileName: '2,0,1' });
+
+    // Every step again, from the top: the order is the document's, and nothing in the pipeline
+    // rewrites it — so a reprocess obeys it exactly as the run before did (docs/05 §5.6).
     pdfs.calls.length = 0;
     await handler.handle({ documentId });
 
-    const after = await prisma.file.findUniqueOrThrow({ where: { id: file.id } });
-    expect(after.pageOrder).toEqual([2, 0, 1]);
-    expect(after.pageCount).toBe(3);
+    const after = await fileRepo.listPagesForDocument(documentId);
+    expect(after.map((page) => page.pageIndex)).toEqual([2, 0, 1]);
     expect(pdfs.calls).toContainEqual({ method: 'rearrangePages', fileName: '2,0,1' });
   });
 
@@ -440,8 +454,8 @@ describe('Document processing (integration)', () => {
         name: 'b.pdf',
       },
     });
-    await prisma.documentFile.create({
-      data: { documentId, position: 1, fileId: second.id },
+    await prisma.documentPage.create({
+      data: { documentId, position: 1, fileId: second.id, pageIndex: null },
     });
     const library = await prisma.library.findFirstOrThrow();
     await prisma.fileRef.create({

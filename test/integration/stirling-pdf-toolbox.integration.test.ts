@@ -97,7 +97,7 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
   });
 
   itWithStirling('puts the pages of one PDF into the order it is given', async () => {
-    // What step 1.1 does with a file that carries a page order (docs/05 §5.5 step 1.1). The order
+    // What the canonical build does with a file that carries a page order (docs/05 §5.5 step 1). The order
     // is 0-based here and 1-based at the container, which is the one thing this call translates.
     const reordered = await pdfs.rearrangePages(
       pdfWithText(['THIRD', 'FIRST', 'SECOND']),
@@ -113,7 +113,7 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
   itWithStirling(
     'stands the pages that lie sideways up and leaves the rest alone',
     async () => {
-      // What step 1.1 does with a file that carries page turns (docs/05 §5.5 step 1.1): the second
+      // What the canonical build does with a file that carries page turns (docs/05 §5.5 step 1): the second
       // page turned a quarter clockwise, the other two left as they arrived. Stirling's rotate takes
       // one angle for a whole document, so this is the call that proves the port can hand back a
       // file whose pages disagree.

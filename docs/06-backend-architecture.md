@@ -41,7 +41,9 @@ Dependencies point inward only: `presentation → application → domain`;
 - **Repository ports** (abstract classes) — one per aggregate: `UserRepository`, `SessionRepository`,
   `EmailVerificationRepository`, `UserInviteRepository`, `PasswordResetRepository`,
   `LibraryRepository`, `FileRefRepository`, `ScanRunRepository`, `DocumentRepository`,
-  `DocumentChunkRepository`, `DocumentTypeRepository`, `CollectionRepository`, `FileRepository`.
+  `DocumentChunkRepository`, `DocumentTypeRepository`, `CollectionRepository`, `FileRepository` —
+  which owns the bytes *and* the list of pages a document is (`03 §3.3.17`), because a composition
+  edit is one rewrite of one list and splitting it across two ports would split the transaction too.
   Repositories accept/return domain entities, never Prisma types.
 
 ## 6.3. Application layer

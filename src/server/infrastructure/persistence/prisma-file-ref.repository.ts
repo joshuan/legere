@@ -195,7 +195,7 @@ export class PrismaFileRefRepository implements FileRefRepository {
 
   // Folders are derived, not stored (docs/11 §11.4): the distinct next path segment of every ref
   // below `folder`, counted by the documents underneath. A ref points at a file and the file at a
-  // document (docs/03 §3.3.16), so the count travels through `document_files`. Raw SQL because the
+  // document reads the file (docs/03 §3.3.17), so the count travels through `document_pages`. Raw SQL because the
   // shape of the answer is a string operation on the path, which the query builder cannot express.
   async listFoldersUnder(
     libraryId: string,
@@ -212,7 +212,7 @@ export class PrismaFileRefRepository implements FileRefRepository {
                  ELSE substring(f.path from char_length(${folder}) + 2)
                END AS rel
         FROM file_refs f
-        JOIN document_files df ON df.file_id = f.file_id
+        JOIN document_pages df ON df.file_id = f.file_id
         JOIN documents d ON d.id = df.document_id AND d.deleted_at IS NULL
         WHERE f.library_id = ${libraryId}::uuid
           AND (${folder} = '' OR f.path LIKE ${below} ESCAPE '\\')

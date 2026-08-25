@@ -8,6 +8,17 @@ import type {
   UpdateDocumentFileRequest,
 } from '../../../shared/contracts/files';
 import { canEditDocumentMeta } from '../../domain/entities/document';
+import {
+  fileCropSourceOf,
+  filePageOrderOf,
+  filePageRotationsOf,
+  fileTurnOf,
+  withFileCrop,
+  withFilePageOrder,
+  withFilePageTurns,
+  withFileTurn,
+  type PageEntry,
+} from '../../domain/entities/document-page';
 import { classifyFormat } from '../../domain/entities/document-format';
 import {
   isImageFile,
@@ -249,35 +260,48 @@ export class UpdateDocumentFile {
       assertPageRotationsOf(file, pageRotations);
     }
 
+    // What the document holds now, in order — every edit below answers with the list it should hold
+    // instead, and the whole of it is written back once (docs/03 §3.3.17).
+    const held = pagesOf(detail);
+
     await this.unitOfWork.run(async (tx) => {
       const changes: Record<string, { from?: string | null; to?: string | null }> = {};
+      let pages: PageEntry[] = [...held];
 
       if (crop !== undefined) {
         // 🔒 A crop somebody dragged is theirs: MANUAL is what stops the next rebuild from replacing
-        // it with what a detector found (docs/03 §3.3.16). Clearing it returns the file to NONE, so
+        // it with what a detector found (docs/03 §3.3.17). Clearing it returns the page to NONE, so
         // the machine may answer again.
         const cropSource = crop === null ? 'NONE' : 'MANUAL';
-        await this.files.setCrop(fileId, crop, cropSource, tx);
-        changes.crop = { from: file.cropSource, to: cropSource };
+        pages = withFileCrop(pages, fileId, crop, cropSource);
+        changes.crop = { from: fileCropSourceOf(file.pages), to: cropSource };
       }
 
       if (rotation !== undefined) {
-        await this.files.setRotation(fileId, rotation, tx);
-        changes.rotation = { from: rotationLabel(file.rotation), to: rotationLabel(rotation) };
+        pages = withFileTurn(pages, fileId, rotation);
+        changes.rotation = {
+          from: rotationLabel(fileTurnOf(file.pages)),
+          to: rotationLabel(rotation),
+        };
       }
 
       if (pageOrder !== undefined) {
-        await this.files.setPageOrder(fileId, pageOrder, tx);
-        changes.pageOrder = { from: pagesLabel(file.pageOrder), to: pagesLabel(pageOrder) };
+        pages = withFilePageOrder(pages, fileId, pageOrder);
+        changes.pageOrder = {
+          from: pagesLabel(filePageOrderOf(file.pages, file.pageCount)),
+          to: pagesLabel(pageOrder),
+        };
       }
 
       if (pageRotations !== undefined) {
-        await this.files.setPageRotations(fileId, pageRotations, tx);
+        pages = withFilePageTurns(pages, fileId, pageRotations);
         changes.pageRotations = {
-          from: turnsLabel(file.pageRotations),
+          from: turnsLabel(filePageRotationsOf(file.pages, file.pageCount)),
           to: turnsLabel(pageRotations),
         };
       }
+
+      await this.files.replacePages(documentId, pages, tx);
 
       await this.events.record(
         {
@@ -445,7 +469,7 @@ export class ReplaceDocumentFile {
       if (file.trashedAt !== null) await this.files.untrash(file.id, tx);
 
       // Out of the composition and into the trash, then in at the same position: the two are one
-      // move, and `document_files.file_id` is unique among live rows, so the order is forced.
+      // move, and a file may not be read by two documents through this route, so the order is forced.
       await this.files.detach(documentId, fileId, tx);
       await this.files.trash(
         {
@@ -613,6 +637,23 @@ export function assertMayCompose(viewer: Viewer, detail: DocumentDetail): void {
   }
 }
 
+// The whole ordered list a document holds, read back off its detail: the pages of every file, in
+// the order the document holds them (docs/03 §3.3.17). Every composition edit answers with a list
+// like this one and writes it back in a single rewrite.
+export function pagesOf(detail: DocumentDetail): PageEntry[] {
+  return detail.files
+    .flatMap((file) => file.pages)
+    .sort((a, b) => a.position - b.position)
+    .map((page) => ({
+      id: page.id,
+      fileId: page.fileId,
+      pageIndex: page.pageIndex,
+      turn: page.turn,
+      crop: page.crop,
+      cropSource: page.cropSource,
+    }));
+}
+
 export function fileOf(detail: DocumentDetail, fileId: string): DocumentFileView {
   const file = detail.files.find((candidate) => candidate.id === fileId);
   if (file === undefined) {
@@ -644,7 +685,7 @@ export function assertPdf(file: Pick<File, 'mimeType'>): void {
 }
 
 // The order names every page of *this* file, exactly once. What "every page" means is the count the
-// last canonical build wrote down (docs/05 §5.5 step 1.1): a file no build has opened yet takes no
+// last canonical build wrote down (docs/05 §5.5 step 1): a file no build has opened yet takes no
 // order at all, because there is nothing to check one against and an unchecked permutation is a
 // canonical built out of pages that do not exist (docs/07 §7.3).
 export function assertPagesOf(file: Pick<File, 'pageCount'>, order: readonly number[]): void {

@@ -203,8 +203,8 @@ describe('Document files (e2e)', () => {
           name,
         },
       });
-      await testPrisma().documentFile.create({
-        data: { documentId: document.id, position, fileId: file.id },
+      await testPrisma().documentPage.create({
+        data: { documentId: document.id, position, fileId: file.id, pageIndex: null },
       });
       await testPrisma().fileRef.create({
         data: {
@@ -260,8 +260,8 @@ describe('Document files (e2e)', () => {
     });
     const key = artifactKeys.fileOriginal(file.id, 'pdf');
     await testPrisma().file.update({ where: { id: file.id }, data: { storageKey: key } });
-    await testPrisma().documentFile.create({
-      data: { documentId: document.id, position: 0, fileId: file.id },
+    await testPrisma().documentPage.create({
+      data: { documentId: document.id, position: 0, fileId: file.id, pageIndex: null },
     });
     await app.files.put(key, body, 'application/pdf');
 
@@ -541,18 +541,43 @@ describe('Document files (e2e)', () => {
     });
   });
 
-  // The pages inside one file (docs/03 §3.3.16, docs/07 §7.3): the unit below the file, written
-  // beside it and obeyed by the build — never a change to the bytes.
+  // The pages inside one file (docs/03 §3.3.17, docs/07 §7.3): the unit the document is a list of,
+  // named one by one once something has counted them — and never a change to the bytes.
   describe('the order of the pages inside a file', () => {
-    // What a canonical build would have left behind: the pages of this file, counted.
-    const givenCountedPages = async (fileId: string, pageCount: number): Promise<void> => {
+    // What a canonical build would have left behind: the pages of this file counted, and the entry
+    // that stood for it whole expanded into one entry per page (ADR-025).
+    const givenCountedPages = async (
+      documentId: string,
+      fileId: string,
+      pageCount: number,
+    ): Promise<void> => {
       await testPrisma().file.update({ where: { id: fileId }, data: { pageCount } });
+      const held = await testPrisma().documentPage.findMany({
+        where: { documentId },
+        orderBy: { position: 'asc' },
+      });
+      const kept = held.filter((page) => page.fileId !== fileId);
+      const from = held.findIndex((page) => page.fileId === fileId);
+      await testPrisma().documentPage.deleteMany({ where: { documentId } });
+      const expanded = [
+        ...kept.slice(0, from < 0 ? kept.length : from),
+        ...Array.from({ length: pageCount }, (unused, index) => ({ fileId, pageIndex: index })),
+        ...kept.slice(from < 0 ? kept.length : from),
+      ];
+      await testPrisma().documentPage.createMany({
+        data: expanded.map((page, position) => ({
+          documentId,
+          position,
+          fileId: page.fileId,
+          pageIndex: page.pageIndex,
+        })),
+      });
     };
 
     it('stores the order a person chose and rebuilds the document', async () => {
       const { documentId, fileIds } = await givenLibraryDocument({ files: [{ name: 'scan.pdf' }] });
       const fileId = fileIds[0] ?? '';
-      await givenCountedPages(fileId, 3);
+      await givenCountedPages(documentId, fileId, 3);
 
       const res = await api(app)
         .patch(`/api/documents/${documentId}/files/${fileId}`, { pageOrder: [2, 0, 1] })
@@ -580,7 +605,7 @@ describe('Document files (e2e)', () => {
     it('refuses an order that is not exactly the pages of that file', async () => {
       const { documentId, fileIds } = await givenLibraryDocument({ files: [{ name: 'scan.pdf' }] });
       const fileId = fileIds[0] ?? '';
-      await givenCountedPages(fileId, 3);
+      await givenCountedPages(documentId, fileId, 3);
 
       for (const pageOrder of [
         [0, 1],
@@ -627,7 +652,7 @@ describe('Document files (e2e)', () => {
     it('stores one turn per page, clears them again, and refuses the wrong list', async () => {
       const { documentId, fileIds } = await givenLibraryDocument({ files: [{ name: 'scan.pdf' }] });
       const fileId = fileIds[0] ?? '';
-      await givenCountedPages(fileId, 3);
+      await givenCountedPages(documentId, fileId, 3);
 
       const res = await api(app)
         .patch(`/api/documents/${documentId}/files/${fileId}`, { pageRotations: [0, 1, 0] })
@@ -690,7 +715,7 @@ describe('Document files (e2e)', () => {
     it('redirects one page of an original to a signed URL of the picture in the bucket', async () => {
       const { documentId, fileIds } = await givenLibraryDocument({ files: [{ name: 'scan.pdf' }] });
       const fileId = fileIds[0] ?? '';
-      await givenCountedPages(fileId, 3);
+      await givenCountedPages(documentId, fileId, 3);
       // Already rendered by an earlier request: the second one is a redirect and nothing else
       // (docs/09 §9.2).
       const key = artifactKeys.filePageThumb(fileId, 1);
@@ -714,7 +739,7 @@ describe('Document files (e2e)', () => {
       const { documentId, fileIds } = await givenLibraryDocument({
         files: [{ name: 'scan.pdf' }, { name: 'photo.jpg', mimeType: 'image/jpeg', ext: 'jpg' }],
       });
-      await givenCountedPages(fileIds[0] ?? '', 3);
+      await givenCountedPages(documentId, fileIds[0] ?? '', 3);
 
       const past = await api(app)
         .get(`/api/documents/${documentId}/files/${fileIds[0]}/pages/3/thumb`)
@@ -740,7 +765,7 @@ describe('Document files (e2e)', () => {
         files: [{ name: 'private.pdf' }],
       });
       const fileId = fileIds[0] ?? '';
-      await givenCountedPages(fileId, 1);
+      await givenCountedPages(documentId, fileId, 1);
       await app.files.put(
         artifactKeys.filePageThumb(fileId, 0),
         Buffer.from('a page'),

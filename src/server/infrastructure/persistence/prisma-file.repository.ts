@@ -1,24 +1,26 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, type File as PrismaFile } from '@prisma/client';
+import {
+  Prisma,
+  type DocumentPage as PrismaDocumentPage,
+  type File as PrismaFile,
+} from '@prisma/client';
 import {
   cropSchema,
-  pageOrderSchema,
-  pageRotationsSchema,
   rotationSchema,
   type Crop,
-  type PageOrder,
-  type PageRotations,
   type Rotation,
 } from '../../../shared/contracts/documents';
-import type { TrashReason, ValueSource } from '../../../shared/contracts/enums';
+import type { TrashReason } from '../../../shared/contracts/enums';
 import { artifactKeys } from '../../application/storage/artifact-keys';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
+import type { DocumentPage, PageEntry } from '../../domain/entities/document-page';
 import type { File } from '../../domain/entities/file';
 import { ConflictError } from '../../domain/errors/domain-error';
 import {
   FileRepository,
   type CreateFileInput,
   type DocumentFile,
+  type DocumentPageWithFile,
   type FileRefView,
   type TrashedFile,
 } from '../../domain/repositories/file.repository';
@@ -36,11 +38,6 @@ function toDomain(row: PrismaFile): File {
     ext: row.ext,
     sizeBytes: row.sizeBytes,
     name: row.name,
-    crop: toCrop(row.crop),
-    cropSource: row.cropSource,
-    rotation: toRotation(row.rotation),
-    pageOrder: toPageOrder(row.pageOrder),
-    pageRotations: toPageRotations(row.pageRotations),
     pageCount: row.pageCount,
     trashedAt: row.trashedAt,
     trashedReason: row.trashedReason,
@@ -60,35 +57,16 @@ function toCrop(value: unknown): Crop | null {
   return parsed.success ? parsed.data : null;
 }
 
-// The same for the page order: jsonb, so it is parsed rather than trusted. An order that cannot be
-// read is no order — the pages stand as they arrived, which is what the build does with one that
-// does not fit the file either (docs/05 §5.5 step 1.1).
-function toPageOrder(value: unknown): PageOrder | null {
-  const parsed = pageOrderSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
-}
-
 // A JSON column set to `null` must become SQL NULL rather than the JSON literal `null`, which is a
 // different value and would read back as "a crop nobody can parse".
 function toCropColumn(crop: Crop | null): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
   return crop === null ? Prisma.DbNull : { points: crop.points };
 }
 
-function toPageOrderColumn(
-  order: PageOrder | null,
-): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
-  return order === null ? Prisma.DbNull : [...order];
-}
-
-// And the turns, on the same terms: jsonb parsed rather than trusted, because a turn nobody can
-// read is no turn and the page stands the way it arrived (docs/05 §5.5 step 1).
+// And the turn, on the same terms: jsonb parsed rather than trusted, because a turn nobody can read
+// is no turn and the page stands the way it arrived (docs/05 §5.5 step 1).
 function toRotation(value: unknown): Rotation | null {
   const parsed = rotationSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
-}
-
-function toPageRotations(value: unknown): PageRotations | null {
-  const parsed = pageRotationsSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
 }
 
@@ -100,10 +78,19 @@ function toRotationColumn(
     : { quarterTurns: rotation.quarterTurns, mirrored: rotation.mirrored };
 }
 
-function toPageRotationsColumn(
-  rotations: PageRotations | null,
-): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
-  return rotations === null ? Prisma.DbNull : [...rotations];
+// One entry of a document's list (docs/03 §3.3.17). The two json columns are parsed rather than
+// trusted, exactly as they were while they sat on the file.
+function toPage(row: PrismaDocumentPage): DocumentPage {
+  return {
+    id: row.id,
+    documentId: row.documentId,
+    position: row.position,
+    fileId: row.fileId,
+    pageIndex: row.pageIndex,
+    turn: toRotation(row.turn),
+    crop: toCrop(row.crop),
+    cropSource: row.cropSource,
+  };
 }
 
 // The columns a unique violation names, so a P2002 can be attributed to the index that raised it.
@@ -117,14 +104,6 @@ function uniqueViolationColumns(error: unknown): string[] | null {
   if (typeof target === 'string') return [target];
   if (!Array.isArray(target)) return [];
   return target.filter((column): column is string => typeof column === 'string');
-}
-
-// 🔒 document_files_file_id_key — the file already has a home (docs/03 §3.3.16). The compound
-// primary key (document_id, position) names other columns, so the two are told apart rather than
-// both reported as a conflict.
-function isFileHomeViolation(error: unknown): boolean {
-  const columns = uniqueViolationColumns(error);
-  return columns !== null && columns.some((column) => column.includes('file_id'));
 }
 
 @Injectable()
@@ -189,54 +168,9 @@ export class PrismaFileRepository implements FileRepository {
     }
   }
 
-  async setCrop(
-    id: string,
-    crop: Crop | null,
-    cropSource: ValueSource,
-    tx?: TransactionHandle,
-  ): Promise<File> {
-    const row = await clientOf(this.prisma, tx).file.update({
-      where: { id },
-      data: { crop: toCropColumn(crop), cropSource },
-    });
-    return toDomain(row);
-  }
-
-  async setRotation(id: string, rotation: Rotation | null, tx?: TransactionHandle): Promise<File> {
-    const row = await clientOf(this.prisma, tx).file.update({
-      where: { id },
-      data: { rotation: toRotationColumn(rotation) },
-    });
-    return toDomain(row);
-  }
-
-  async setPageOrder(
-    id: string,
-    pageOrder: PageOrder | null,
-    tx?: TransactionHandle,
-  ): Promise<File> {
-    const row = await clientOf(this.prisma, tx).file.update({
-      where: { id },
-      data: { pageOrder: toPageOrderColumn(pageOrder) },
-    });
-    return toDomain(row);
-  }
-
-  async setPageRotations(
-    id: string,
-    pageRotations: PageRotations | null,
-    tx?: TransactionHandle,
-  ): Promise<File> {
-    const row = await clientOf(this.prisma, tx).file.update({
-      where: { id },
-      data: { pageRotations: toPageRotationsColumn(pageRotations) },
-    });
-    return toDomain(row);
-  }
-
   // `updateMany` rather than `update`: the build writes this while the file may be going away under
   // it — a document deleted mid-rebuild — and a count nobody can write is not worth failing a
-  // canonical over (docs/05 §5.5 step 1.1).
+  // canonical over (docs/05 §5.5 step 1).
   async recordPageCount(id: string, pageCount: number, tx?: TransactionHandle): Promise<void> {
     await clientOf(this.prisma, tx).file.updateMany({ where: { id }, data: { pageCount } });
   }
@@ -421,13 +355,53 @@ export class PrismaFileRepository implements FileRepository {
 
   // --- the composition of a document -------------------------------------------------------
 
-  async listForDocument(documentId: string, tx?: TransactionHandle): Promise<DocumentFile[]> {
-    const rows = await clientOf(this.prisma, tx).documentFile.findMany({
+  async listPagesForDocument(
+    documentId: string,
+    tx?: TransactionHandle,
+  ): Promise<DocumentPageWithFile[]> {
+    const rows = await clientOf(this.prisma, tx).documentPage.findMany({
       where: { documentId },
       include: { file: true },
       orderBy: { position: 'asc' },
     });
-    return rows.map((row) => ({ ...toDomain(row.file), position: row.position }));
+    return rows.map((row) => ({ ...toPage(row), file: toDomain(row.file) }));
+  }
+
+  // Wholesale, because `(document_id, position)` is unique: shifting rows one at a time collides
+  // with itself halfway through (docs/03 §3.3.17). Delete-then-insert in one transaction is the only
+  // rewrite that cannot deadlock against its own intermediate state, and an entry that was already
+  // there is written back under its own id, so nothing addressing it is invalidated by a rebuild.
+  async replacePages(
+    documentId: string,
+    pages: readonly PageEntry[],
+    tx?: TransactionHandle,
+  ): Promise<void> {
+    const rewrite = async (client: PrismaTx): Promise<void> => {
+      await client.documentPage.deleteMany({ where: { documentId } });
+      if (pages.length === 0) return;
+      await client.documentPage.createMany({
+        data: pages.map((page, position) => ({
+          ...(page.id === undefined ? {} : { id: page.id }),
+          documentId,
+          position,
+          fileId: page.fileId,
+          pageIndex: page.pageIndex,
+          turn: toRotationColumn(page.turn),
+          crop: toCropColumn(page.crop),
+          cropSource: page.cropSource,
+        })),
+      });
+    };
+
+    if (tx !== undefined && isPrismaTx(tx)) {
+      await rewrite(tx);
+      return;
+    }
+    await this.prisma.$transaction(rewrite);
+  }
+
+  async listForDocument(documentId: string, tx?: TransactionHandle): Promise<DocumentFile[]> {
+    return filesOf(await this.listPagesForDocument(documentId, tx));
   }
 
   // One query for a whole page: the list needs a count, an extension and a weight per row, and a
@@ -439,76 +413,124 @@ export class PrismaFileRepository implements FileRepository {
     const byDocument = new Map<string, DocumentFile[]>(documentIds.map((id) => [id, []]));
     if (documentIds.length === 0) return byDocument;
 
-    const rows = await clientOf(this.prisma, tx).documentFile.findMany({
+    const rows = await clientOf(this.prisma, tx).documentPage.findMany({
       where: { documentId: { in: [...documentIds] } },
       include: { file: true },
       orderBy: [{ documentId: 'asc' }, { position: 'asc' }],
     });
 
+    const pagesByDocument = new Map<string, DocumentPageWithFile[]>();
     for (const row of rows) {
-      const files = byDocument.get(row.documentId);
-      if (files === undefined) continue;
-      files.push({ ...toDomain(row.file), position: row.position });
+      const page = { ...toPage(row), file: toDomain(row.file) };
+      const held = pagesByDocument.get(row.documentId);
+      if (held === undefined) pagesByDocument.set(row.documentId, [page]);
+      else held.push(page);
+    }
+    for (const [documentId, pages] of pagesByDocument) {
+      if (!byDocument.has(documentId)) continue;
+      byDocument.set(documentId, filesOf(pages));
     }
     return byDocument;
   }
 
-  // A soft-deleted document keeps its files rather than releasing them (docs/03 §3.3.10), so this
-  // answers with the home a file has, deleted or not — which is what stops the next scan from
-  // ingesting a file whose document an admin removed on purpose.
+  // A soft-deleted document keeps its pages rather than releasing them (docs/03 §3.3.10), so this
+  // answers with a document that reads the file, deleted or not — which is what stops the next scan
+  // from ingesting a file whose document an admin removed on purpose. Since ADR-025 there may be
+  // several; every caller is asking whether anything reads it at all.
   async findDocumentIdForFile(fileId: string, tx?: TransactionHandle): Promise<string | null> {
-    const row = await clientOf(this.prisma, tx).documentFile.findUnique({
+    const row = await clientOf(this.prisma, tx).documentPage.findFirst({
       where: { fileId },
       select: { documentId: true },
     });
     return row === null ? null : row.documentId;
   }
 
+  async filterFilesWithoutLivePages(
+    fileIds: readonly string[],
+    tx?: TransactionHandle,
+  ): Promise<string[]> {
+    if (fileIds.length === 0) return [];
+    const rows = await clientOf(this.prisma, tx).documentPage.findMany({
+      where: { fileId: { in: [...fileIds] } },
+      select: { fileId: true },
+      distinct: ['fileId'],
+    });
+    const stillRead = new Set(rows.map((row) => row.fileId));
+    return fileIds.filter((fileId) => !stillRead.has(fileId));
+  }
+
   async attach(documentId: string, fileId: string, tx?: TransactionHandle): Promise<void> {
     const client = clientOf(this.prisma, tx);
 
     // Asked before inserting rather than only caught afterwards: a failed statement poisons the
-    // surrounding transaction, and the caller of `attach` is usually inside one.
-    const home = await client.documentFile.findUnique({ where: { fileId } });
+    // surrounding transaction, and the caller of `attach` is usually inside one. The rule is the
+    // product's and no longer the schema's — a file may be read by pages of two documents
+    // (ADR-025) — so it is asked here rather than left to a unique index that no longer exists.
+    const home = await client.documentPage.findFirst({ where: { fileId } });
     if (home !== null) throw fileAlreadyInDocument();
 
-    const last = await client.documentFile.aggregate({
+    const file = await client.file.findUnique({
+      where: { id: fileId },
+      select: { pageCount: true },
+    });
+    const last = await client.documentPage.aggregate({
       where: { documentId },
       _max: { position: true },
     });
+    const from = (last._max.position ?? -1) + 1;
 
-    try {
-      // Appended at the end, keeping positions contiguous and 0-based (docs/03 §3.3.17).
-      await client.documentFile.create({
-        data: { documentId, fileId, position: (last._max.position ?? -1) + 1 },
-      });
-    } catch (error) {
-      // 🔒 The same file arriving twice at once: whoever lost the race is told it has a home
-      // (docs/07 §7.2). A collision on (document_id, position) is a different index and stays an
-      // error, because two appends racing is a retry the caller must decide about.
-      if (isFileHomeViolation(error)) throw fileAlreadyInDocument();
-      throw error;
-    }
+    // Its own pages where a build has counted them, and one entry standing for the file whole where
+    // none has — the transitional state of ADR-025, which the next build ends.
+    const pageCount = file?.pageCount ?? null;
+    const indices: (number | null)[] =
+      pageCount === null || pageCount < 1
+        ? [null]
+        : Array.from({ length: pageCount }, (unused, index) => index);
+
+    await client.documentPage.createMany({
+      data: indices.map((pageIndex, offset) => ({
+        documentId,
+        position: from + offset,
+        fileId,
+        pageIndex,
+      })),
+    });
   }
 
+  // Every page of that file leaves this document; another document reading the same file is not
+  // touched. What is left closes up behind it, because positions are contiguous (docs/03 §3.3.17).
   async detach(documentId: string, fileId: string, tx?: TransactionHandle): Promise<void> {
-    await clientOf(this.prisma, tx).documentFile.deleteMany({ where: { documentId, fileId } });
+    const client = clientOf(this.prisma, tx);
+    const rows = await client.documentPage.findMany({
+      where: { documentId },
+      orderBy: { position: 'asc' },
+      include: { file: true },
+    });
+    const kept = rows
+      .filter((row) => row.fileId !== fileId)
+      .map((row) => ({ ...toPage(row), file: toDomain(row.file) }));
+    if (kept.length === rows.length) return;
+    await this.replacePages(documentId, kept, tx);
   }
 
-  // Wholesale, because position is part of the primary key: shifting rows one at a time collides
-  // with itself halfway through (docs/03 §3.3.17). Delete-then-insert in one transaction is the
-  // only rewrite that cannot deadlock against its own intermediate state.
+  // Rewrites positions wholesale from the given order of files, each file's pages moving as a block
+  // and keeping the order this document reads them in.
   async reorder(
     documentId: string,
     fileIdsInOrder: readonly string[],
     tx?: TransactionHandle,
   ): Promise<void> {
     const rewrite = async (client: PrismaTx): Promise<void> => {
-      await client.documentFile.deleteMany({ where: { documentId } });
-      if (fileIdsInOrder.length === 0) return;
-      await client.documentFile.createMany({
-        data: fileIdsInOrder.map((fileId, position) => ({ documentId, fileId, position })),
-      });
+      const pages = await this.listPagesForDocument(documentId, client);
+      const ordered = fileIdsInOrder.flatMap((fileId) =>
+        pages.filter((page) => page.fileId === fileId),
+      );
+      // A file the order does not name keeps its pages rather than losing them: the caller has
+      // already refused a partial order, and dropping pages here would be a worse answer than
+      // leaving them where they were.
+      const named = new Set(fileIdsInOrder);
+      const rest = pages.filter((page) => !named.has(page.fileId));
+      await this.replacePages(documentId, [...ordered, ...rest], client);
     };
 
     if (tx !== undefined && isPrismaTx(tx)) {
@@ -539,6 +561,38 @@ export class PrismaFileRepository implements FileRepository {
     }
     return counts;
   }
+}
+
+// The files a list of pages is read from, in the order those pages first name them, each carrying
+// the pages it is read as here (docs/03 §3.3.17). This is where "the files of a document" is
+// answered now that the rows are pages.
+function filesOf(pages: readonly DocumentPageWithFile[]): DocumentFile[] {
+  const files: DocumentFile[] = [];
+  const byFile = new Map<string, DocumentFile>();
+  for (const page of pages) {
+    const held = byFile.get(page.fileId);
+    if (held === undefined) {
+      const file: DocumentFile = { ...page.file, position: files.length, pages: [stripFile(page)] };
+      byFile.set(page.fileId, file);
+      files.push(file);
+      continue;
+    }
+    held.pages.push(stripFile(page));
+  }
+  return files;
+}
+
+function stripFile(page: DocumentPageWithFile): DocumentPage {
+  return {
+    id: page.id,
+    documentId: page.documentId,
+    position: page.position,
+    fileId: page.fileId,
+    pageIndex: page.pageIndex,
+    turn: page.turn,
+    crop: page.crop,
+    cropSource: page.cropSource,
+  };
 }
 
 function fileAlreadyInDocument(): ConflictError {

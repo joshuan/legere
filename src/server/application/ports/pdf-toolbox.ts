@@ -60,24 +60,25 @@ export abstract class PdfToolbox {
   // and searchable at once. Run before, it would be the thing that made it unreadable.
   abstract scalePages(source: BinarySource, geometry: PageScale): Promise<Buffer>;
 
-  // The pages of one PDF put into the order the file records, before it becomes a part of the
-  // canonical (docs/05 §5.5 step 1.1). `order` names every 0-based page index of the source exactly
-  // once, so what comes back has the same pages in a different sequence and nothing else changes.
+  // The pages a document asked for, taken out of one PDF in the order it holds them, before they
+  // become a part of the canonical (docs/05 §5.5 step 1). `order` names 0-based page indices of the
+  // source — a subset, a permutation or both — and what comes back is exactly those pages, in that
+  // sequence, with nothing else changed.
   //
   // 🔒 The source is not the file: it is the bytes read out of the file, and the answer becomes the
   // part. A `LIBRARY` original lies on a read-only volume and a `MANAGED` original stays the
-  // original (docs/03 §3.3.16) — a page order is an instruction, never an edit.
+  // original (docs/03 §3.3.17) — the order of the pages is the document's list, never an edit.
   abstract rearrangePages(source: BinarySource, order: readonly number[]): Promise<Buffer>;
 
-  // The pages of one PDF stood the way up the file records, before the merge and before the
-  // reordering (docs/05 §5.5 step 1.1). `rotations` names one quarter turn — 0…3, clockwise — for
-  // every page of the source, in the order the pages arrived in, so what comes back has the same
-  // pages in the same sequence and only their orientation changed. The turn is *added* to each
+  // The pages of one PDF stood the way up their entries say, after they have been picked out of the
+  // file and before the merge (docs/05 §5.5 step 1). `rotations` names one quarter turn — 0…3,
+  // clockwise — for every page of the source, in the source's own order, so what comes back has the
+  // same pages in the same sequence and only their orientation changed. The turn is *added* to each
   // page's own rotation rather than replacing it: a scanner that already said which way up a page
   // lies keeps saying it.
   //
   // 🔒 The source is the bytes read out of the file and the answer becomes the part, exactly as for
-  // `rearrangePages`: a turn is an instruction, never an edit (docs/03 §3.3.16).
+  // `rearrangePages`: a turn is an instruction, never an edit (docs/03 §3.3.17).
   abstract rotatePages(source: BinarySource, rotations: readonly number[]): Promise<Buffer>;
 
   // The parts of a document, in position order, into one PDF (docs/05 §5.5 step 1). A single-part

@@ -21,7 +21,7 @@ User ─┬─< Session
 Library ─┬─< FileRef >── File (n:1, by contentHash; a path where those bytes lie)
          └─< ScanRun
 
-File ──< DocumentFile >── Document   (ordered: position; per-file crop)
+File ──< DocumentPage >── Document   (ordered: position; per-page: which page of the file, a turn, a crop)
 
 Document ─┬─< DocumentChunk (embeddings)
           ├── Document type (n:1)
@@ -218,10 +218,13 @@ What a person reads: one paper, however many files it took to capture it. A pass
 across forty images is one document; a contract that arrived as a single PDF is one document; the
 difference between them is a number, not a kind.
 
-A document owns an **ordered list of files** (§3.3.16, §3.3.17) and exactly one **canonical PDF**
-built from them (§5.5) — the thing the viewer shows, the thing Download hands over by default, and
-the thing every later step reads. The originals are kept untouched and remain downloadable one by
-one; the canonical is rebuildable from them at any moment, so it is an artifact and never a source.
+A document owns an **ordered list of pages** (§3.3.17, [ADR-025](./02-architecture-overview.md#adr-025-a-document-is-an-ordered-list-of-pages))
+and exactly one **canonical PDF** built from them (§5.5) — the thing the viewer shows, the thing
+Download hands over by default, and the thing every later step reads. Each page names the file it is
+read from (§3.3.16), which page of it, which way up it lies and how much of it is paper; the same
+file may be read by pages of two documents at once. The originals are kept untouched and remain
+downloadable one by one; the canonical is rebuildable from the list at any moment, so it is an
+artifact and never a source.
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -357,7 +360,8 @@ description again. The type now travels into the call as a confirmed value inste
 front of it (`05 §5.5` step 4), and the protection lives where it belongs — the step runs, and
 `typeId` and `typeSource` are simply not among the columns it writes.
 
-**Derived state (computed, not stored):**
+**Derived state (computed, not stored):** — "the document's files" throughout means the distinct
+files its pages are read from, in the order those pages first name them (§3.3.17).
 - `origin`: `LIBRARY` when at least one of the document's files is a library file, `MANAGED`
   otherwise. Not a column — a document that absorbs an upload does not change kind, it gains a file.
 - `availability`: `AVAILABLE` when every file of the document can be read right now; `PARTIAL` when
@@ -369,18 +373,19 @@ front of it (`05 §5.5` step 4), and the protection lives where it belongs — t
 - `fileCount`, `sizeBytes`: how many files the document is made of and what they weigh together.
 
 **Invariants:**
-- A live document has ≥1 file. Removing the last one is refused (`DOCUMENT_LAST_FILE`); a document
+- A live document has ≥1 page. Removing the last one is refused (`DOCUMENT_LAST_FILE`); a document
   is emptied by deleting it, not by taking its parts away one at a time.
-- Deduplication is a property of files, not documents (§3.3.16): two documents may hold the same
-  file no more than one may — a file has exactly one home.
+- Deduplication is a property of files, not documents (§3.3.16): the same bytes are one row however
+  many pages of however many documents read them.
 - 🔒 **Deleting a document (admin) is a real deletion, and the one place ADR-015 does not hold.** The
   row goes, and with it the journal, the chunks, the Markdown, the collection items, the links to
-  people and subjects, the links to other documents (§3.3.23) and the `DocumentFile` rows. Its **artifacts** go from the bucket too (§9.2):
-  they are derived from files that are no longer arranged into anything, and they are the one part
+  people and subjects, the links to other documents (§3.3.23) and the `DocumentPage` rows. Its **artifacts** go from the bucket too (§9.2):
+  they are derived from a list of pages that no longer exists, and they are the one part
   of a document that can be built again from what is kept.
-  **Its files go to the trash** (`05 §5.7a`), not to the incinerator. A file has exactly one home
-  (§3.3.16) and this document was it, so they are not re-homed into documents nobody asked for — but
-  they are the bytes, the only thing here that no rebuild can recover, and they wait: an upload until
+  **The files it leaves with no live page go to the trash** (`05 §5.7a`), not to the incinerator: a
+  file still read by a page of another document stays exactly where it is, and one this document was
+  the last to read is not re-homed into a document nobody asked for — but it is the bytes, the only
+  thing here that no rebuild can recover, and it waits: an upload until
   the retention window closes, a library original until the person who owns that volume clears it.
   What could never have gone in any case is a `LIBRARY` file's bytes on the volume, and one `FileRef`
   per path holding them stays `EXCLUDED` so that no scan brings the document back (§3.3.9).
@@ -896,7 +901,13 @@ cannot widen it).
 
 The bytes themselves, once, however many places they turn up in. A file is what a person put on the
 volume or sent from their browser; it is never what they read. What they read is a document
-(§3.3.10), which is an ordered list of files plus everything a machine and a person said about them.
+(§3.3.10), which is an ordered list of **pages** (§3.3.17) plus everything a machine and a person
+said about them.
+
+Since [ADR-025](./02-architecture-overview.md#adr-025-a-document-is-an-ordered-list-of-pages) a file
+says nothing about any document: no crop, no turn, no page order. Those are properties of a page of
+one document, and they live on the entry that names the page (§3.3.17). What is left here is what
+describes the bytes and nothing else.
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -908,15 +919,10 @@ volume or sent from their browser; it is never what they read. What they read is
 | ext | string | lower-cased original extension |
 | sizeBytes | bigint | |
 | name | string | the file's own name, as it arrived: the last path segment, or the uploaded file name |
-| crop | json? | the quadrilateral of this file's content, normalized to `0…1` of the image: `{ points: [[x,y] ×4] }` in the order top-left, top-right, bottom-right, bottom-left. Only meaningful for images; applied when the canonical PDF is built (§5.5) |
-| cropSource | ValueSource | `NONE` (uncropped), `AUTO` (found by edge detection), `MANUAL` (a person dragged the corners). `MANUAL` is never overwritten by a rebuild |
-| rotation | json? | which way up this file lies: `{ quarterTurns: 0…3, mirrored: bool }` — the mirror first, left to right, then that many quarter turns clockwise, which between them name all eight ways a rectangle can be laid down. `NULL` is the way it arrived. Only meaningful for images, exactly as `crop` is; applied when the canonical PDF is built (§5.5 step 1), **after** the crop |
-| pageOrder | json? | the order this file's pages are read in: an array of its **0-based** page indices, each exactly once. `NULL` is the order they arrived in. Only meaningful for PDFs, exactly as `crop` is only meaningful for images; applied when the canonical PDF is built (§5.5 step 1.1) |
-| pageRotations | json? | which way up each of this file's pages lies: one quarter turn per page, `0…3` clockwise, `pageCount` of them, indexed by the page's **own** 0-based index the way `pageOrder` names its pages. `NULL` is the way they all arrived. Only meaningful for PDFs; applied when the canonical PDF is built (§5.5 step 1.1), before the merge and before the reordering |
-| pageCount | int? | how many pages this file has, counted afresh every time the canonical build reads it (§5.5 step 1.1). `NULL` until one has. This is what a `pageOrder` and a `pageRotations` are checked against, so an edit can refuse a wrong one without a round trip to Stirling |
-| trashedAt | timestamptz? | in the trash since (`05 §5.7a`): the file has left every document and is waiting to be deleted or restored. `NULL` for a file that is part of one |
-| trashedReason | TrashReason? | why it left: `REPLACED` by a better copy, or `DOCUMENT_DELETED` with the document it was part of |
-| trashedFrom | string? | the title the document had when the file left it — a record, not a link: that document is usually gone, and "which paper was this a page of" is the question somebody looking at the trash actually asks |
+| pageCount | int? | how many pages this file holds, counted afresh every time the canonical build reads it (§5.5 step 1): an image is one, a PDF is what its page tree says, an office document is what the converter laid it out as. `NULL` until a build has counted. This is what says whether the file can be enumerated at all — a file nobody has counted is held by a document as one entry with no page index (§3.3.17) — and what a page index is checked against, so an edit can refuse a wrong one without a round trip to Stirling |
+| trashedAt | timestamptz? | in the trash since (`05 §5.7a`): the file has no live page in any document and is waiting to be deleted or restored. `NULL` for a file some document still reads |
+| trashedReason | TrashReason? | why it left: `REPLACED` by a better copy, or `DOCUMENT_DELETED` with the last document reading it |
+| trashedFrom | string? | the title the document had when the file left it **last** — leaving the last one is when a file enters the trash. A record, not a link: that document is usually gone, and "which paper was this a page of" is the question somebody looking at the trash actually asks |
 | replacedById | uuid? | for `REPLACED`: the file that took this one's place. Every earlier version of a page points at the file that is in the document **now**, not at the one immediately after it, so "the versions of this page" is one query and stays one however many times the page is replaced; the order among them is `trashedAt` |
 | createdAt / updatedAt / deletedAt | | |
 
@@ -925,62 +931,76 @@ volume or sent from their browser; it is never what they read. What they read is
   are one file with two homes.
 - A `LIBRARY` file has ≥0 `FileRef`s (0 once every copy of it has vanished from every volume, §5.7);
   a `MANAGED` file has a `storageKey` and no `FileRef`s.
-- 🔒 A file belongs to **exactly one live document** (§3.3.17), **or is in the trash** (`05 §5.7a`).
-  Detaching it from a document gives it a document of its own rather than leaving it homeless — so a
-  file on a volume is always somewhere, and a scan that finds it again has nothing to guess. The
-  trash is the second answer to "where does this file belong", added because "it was replaced by a
-  better scan" is not "it is a document of its own": it is not a paper anybody wants to find, and a
-  document per discarded page would fill the archive with them. It is still an answer, and ingest
-  reads it as one (`05 §5.3`).
-- A file in the trash has no `DocumentFile` row, keeps its bytes, and is what the trash screen lists.
-  Restoring it makes a **new** document (`05 §5.7a`); emptying the trash is the one place a file row
-  is deleted outright.
-- Bytes are never modified. A crop, a turn and a page order are numbers written beside a file, not
-  changes to it: the original stays exactly as it arrived and the canonical PDF is rebuilt instead
-  (§5.6).
+- 🔒 A file is read by **any number of live pages, in any number of documents** (§3.3.17), **or it is
+  in the trash** (`05 §5.7a`). The one-home invariant this line used to carry was retired with
+  [ADR-025](./02-architecture-overview.md#adr-025-a-document-is-an-ordered-list-of-pages): pages of
+  one file living in two documents is the point of that decision. What it protected is protected
+  still — a file on a volume is always somewhere, so a scan that finds it again has nothing to guess
+  — because the trash is the answer for a file with **no live page left**: not a paper anybody wants
+  to find, and a document per discarded page would fill the archive with them. Ingest reads the trash
+  as an answer to "where does this file belong" exactly as it did (`05 §5.3`).
+- A file in the trash has no `DocumentPage` row anywhere, keeps its bytes, and is what the trash
+  screen lists. Restoring it makes a **new** document (`05 §5.7a`); emptying the trash is the one
+  place a file row is deleted outright.
+- Bytes are never modified. A crop and a turn are numbers written beside a **page** (§3.3.17), not
+  changes to a file: the original stays exactly as it arrived and the canonical PDF is rebuilt
+  instead (§5.6).
 
-**The pages inside one file.** A duplex scanner interleaves them, a phone app appends the page that
-was rescanned, a batch lands back to front. Until `pageOrder` existed the smallest thing anybody
-could put in order was a whole file (§3.3.17), and the only cure for a shuffled PDF was to scan it
-again. The order is written beside the file exactly as a crop is, and 🔒 **the original bytes are
-never rewritten**: a `LIBRARY` file lies on a volume mounted read-only
-([ADR-007](./02-architecture-overview.md#adr-007-external-library--read-only-volume-scheduled-scanning)),
-and a `MANAGED` original stays the original somebody uploaded, so the order is an instruction the
-canonical build reads (§5.5 step 1.1) and never an edit to a file. Which is also why clearing it
-restores what arrived, whole and unaltered: there was nothing to undo.
+**How many pages are inside it.** A file is one page or many, and until something opens it nobody
+knows which. `pageCount` is what the last canonical build counted (§5.5 step 1) — the one moment
+anything in Legere opens the file — and it is what lets an edit refuse a page index the file does not
+have without a round trip of its own. It is a fact about the bytes and therefore stable: the bytes of
+a file never change, since changing them makes different bytes and a different file (`contentHash` is
+the identity).
 
-The permutation is checked against `pageCount` — every build counts the pages of every PDF it opens
-and writes the number down — so what a file holds is known at edit time without asking Stirling, and
-a file no build has read yet takes no order at all rather than one nothing can verify (`07 §7.3`).
+Until the count exists a document cannot name the file's pages one by one, so it holds the file as a
+single entry with no page index — "this file, whole, in the order it arrived" (§3.3.17) — and the
+first build expands it. That is the only two-level state in the model, and this is where it ends.
 
-**Which way up the paper lay.** A page photographed sideways is built sideways, and text read at
-ninety degrees is read worse than text read straight — by the recognizer and by the person holding
-the screen. The correction is a quarter turn, and it is written beside the file for the same reason
-the crop and the page order are: a `LIBRARY` original lies on a read-only volume
+### 3.3.17. DocumentPage
+
+The unit a document is an ordered list of
+([ADR-025](./02-architecture-overview.md#adr-025-a-document-is-an-ordered-list-of-pages)): one page,
+read out of one file, standing a particular way up and showing a particular part of itself.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | uuid | |
+| documentId | uuid | the document this page is a page of |
+| position | int | where it sits in that document, 0-based and contiguous. `(documentId, position)` is unique; reordering rewrites positions |
+| fileId | uuid | the file the page is read from (§3.3.16). Two documents may name the same file, and so may two pages of one document |
+| pageIndex | int? | **which** page of that file, by the file's own 0-based index — the index the page strip shows and the page-thumb route serves (`07 §7.3`). `NULL` means "this file, whole, in the order it arrived": the entry a file takes while nobody has counted its pages, which the first canonical build expands into one entry per page (§5.5 step 1) |
+| turn | json? | which way up this page lies: `{ quarterTurns: 0…3, mirrored: bool }` — the mirror first, left to right, then that many quarter turns clockwise, which between them name all eight ways a rectangle can be laid down. `NULL` is the way it arrived. A **mirror is offered only for a page of an image**: a PDF page arrives the way its producer laid it out, and what goes wrong at a scanner is which edge went in first |
+| crop | json? | the quadrilateral of what is worth keeping, normalized to `0…1` of the page: `{ points: [[x,y] ×4] }` in the order top-left, top-right, bottom-right, bottom-left. Four points and not a rectangle, because a photograph taken at an angle has none. `NULL` is the whole page |
+| cropSource | ValueSource | `NONE` (uncropped), `AUTO` (found by edge detection), `MANUAL` (a person dragged the corners). `MANUAL` is never overwritten by a rebuild |
+
+**Invariants:**
+- Positions are 0-based and contiguous inside one document; a live document has at least one page
+  (§3.3.10).
+- `pageIndex` is either `NULL` or a page the file actually has — `0 ≤ pageIndex < File.pageCount`,
+  checked against the count the last build wrote down (§3.3.16). A `NULL` index and a known count do
+  not coexist for long: the next build expands the entry.
+- Adding, removing, reordering, re-cropping or turning a page invalidates the document's canonical
+  PDF and enqueues a rebuild (§5.6). Nothing here touches a byte of a file.
+
+**Why the turn and the crop live here.** They are answers about *this page in this document*, not
+about the bytes. A twenty-page scan has three pages lying sideways and not twenty, so a turn per file
+would stand the other seventeen on their heads; and two documents may read one photograph and want
+different parts of it — a passport page cropped to the photo in one document and to the machine
+readable zone in another. Both are corrections *on top of* what the file already says about itself:
+sharp's EXIF auto-orientation still stands a photograph up the way every viewer does, and Stirling's
+rotate adds to a page's own `/Rotate` rather than replacing it, so "one press, a quarter turn" means
+the same thing on every page.
+
+🔒 **And neither is ever an edit to a file.** A `LIBRARY` original lies on a volume mounted read-only
 ([ADR-007](./02-architecture-overview.md#adr-007-external-library--read-only-volume-scheduled-scanning))
-and a `MANAGED` original stays the original somebody uploaded, so 🔒 **the bytes are never
-rewritten** and clearing the turn restores what arrived because nothing was ever done to it.
+and a `MANAGED` original stays the original somebody uploaded, so both are instructions the canonical
+build reads (§5.5 step 1) — which is also why clearing either restores what arrived, whole and
+unaltered: there was nothing to undo.
 
-The turn is two fields rather than one because a file has two shapes. An image is one page and takes
-one `rotation` — a quarter turn *and* a mirror, since a page photographed through glass or scanned
-face down comes back reversed, and mirror-then-turn names all eight ways a rectangle can lie. A PDF
-is many pages and takes `pageRotations`, one quarter turn each: a forty-page scan has three pages
-lying sideways and not forty, so a single number for the file would stand the other thirty-seven on
-their heads. A mirror is not offered per page — a PDF page arrives the way its producer laid it out,
-and the one thing that goes wrong at the scanner is which edge went in first.
-
-Both are corrections *on top of* what the file already says about itself. Sharp's EXIF
-auto-orientation still turns a photograph the way every viewer turns it, and Stirling's rotate adds
-to a page's own `/Rotate` rather than replacing it; a person's turn is a turn on top of that, which
-is what makes "one press, a quarter turn" mean the same thing on every file.
-
-### 3.3.17. DocumentFile
-
-The join that makes a document a sequence rather than a bag: `(documentId, position)` unique,
-`fileId` unique among live rows (a file has one home, §3.3.16). Position is 0-based and contiguous;
-reordering rewrites positions. Adding, removing, reordering, re-cropping or turning a row — or
-reordering and turning the pages inside the file a row points at (§3.3.16) — invalidates the
-document's canonical PDF and enqueues a rebuild (§5.6).
+**A crop on a page of a PDF is honoured exactly as a crop on an image is.** The page is rendered and
+warped: a scanned page is already raster and loses nothing by it, and a vector page cropped becomes
+raster, which is what somebody who dragged its corners asked for.
 
 ### 3.3.23. DocumentLink
 
@@ -1067,7 +1087,7 @@ above runs unchanged — with one subtraction, that the caller may only read.
 | File detached from a document | the file becomes a document of its own, with its own canonical PDF; nothing is deleted (§5.6) |
 | Document absorbed into another | its files move over in order, its own row is soft-deleted, and its collections/metadata are left behind with it (§5.6) |
 | Library soft-deleted | its documents disappear from all listings; artifacts/data retained |
-| Document deleted (admin) | **hard** (§3.3.10): the row, its journal, chunks, Markdown, collection items, people/subject links, document links (§3.3.23), `DocumentFile` rows and its artifacts are gone for good. Its files go to the **trash** (`05 §5.7a`) with `DOCUMENT_DELETED`; a `LIBRARY` file's `FileRef`s are kept `EXCLUDED` so the next scan does not ingest it again (§3.3.9) |
+| Document deleted (admin) | **hard** (§3.3.10): the row, its journal, chunks, Markdown, collection items, people/subject links, document links (§3.3.23), `DocumentPage` rows and its artifacts are gone for good. The files it leaves with no live page anywhere go to the **trash** (`05 §5.7a`) with `DOCUMENT_DELETED`; a `LIBRARY` file's `FileRef`s are kept `EXCLUDED` so the next scan does not ingest it again (§3.3.9) |
 | File replaced in a document | the new bytes take the old file's position; the old file goes to the **trash** with `REPLACED` and `replacedById` pointing at the file now in its place (`05 §5.6`) |
 | File in the trash | a `MANAGED` one is deleted with its object once it is older than `TRASH_RETENTION_DAYS`; a `LIBRARY` one waits for a person, because its bytes are on a read-only volume. Either can be deleted at once, or restored — which makes a **new** document (`05 §5.7a`) |
 | Document type soft-deleted | documents' document type reset to NONE; their `extracted` values stay as a record (the schema is in the code, so they still render), and the next `fields` run skips `NO_SCHEMA` (§3.3.10a) |

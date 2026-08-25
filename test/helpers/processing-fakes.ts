@@ -17,7 +17,7 @@ import {
   type DocumentFilterInput,
   type DocumentGroupCount,
   type DocumentListItem,
-  type DocumentPage,
+  type DocumentListPage,
   type SearchMatch,
   type StaleDocument,
   type StepStatusCounters,
@@ -27,9 +27,11 @@ import {
   FileRepository,
   type CreateFileInput,
   type DocumentFile,
+  type DocumentPageWithFile,
   type FileRefView,
   type TrashedFile,
 } from '../../src/server/domain/repositories/file.repository';
+import type { DocumentPage, PageEntry } from '../../src/server/domain/entities/document-page';
 import {
   FileRefRepository,
   type CreateFileRefInput,
@@ -48,8 +50,6 @@ import {
   type Crop,
   type DocumentGroupBy,
   type DocumentStep,
-  type PageOrder,
-  type PageRotations,
   type Rotation,
 } from '../../src/shared/contracts/documents';
 import type { StepStatus, TrashReason } from '../../src/shared/contracts/enums';
@@ -351,7 +351,7 @@ export class InMemoryDocumentRepository extends DocumentRepository {
     return unused('listReadableItems');
   }
 
-  listReadable(): Promise<DocumentPage> {
+  listReadable(): Promise<DocumentListPage> {
     return unused('listReadable');
   }
   // Whatever a test puts here decides what the viewer may read; absent means "not readable".
@@ -360,10 +360,10 @@ export class InMemoryDocumentRepository extends DocumentRepository {
   findReadableById(id: string): Promise<DocumentDetail | null> {
     return Promise.resolve(this.readable.get(id) ?? null);
   }
-  listInFolder(): Promise<DocumentPage> {
+  listInFolder(): Promise<DocumentListPage> {
     return unused('listInFolder');
   }
-  listInCollection(): Promise<DocumentPage> {
+  listInCollection(): Promise<DocumentListPage> {
     return unused('listInCollection');
   }
   searchByText(): Promise<SearchMatch[]> {
@@ -399,16 +399,10 @@ export function fileFixture(overrides: Partial<File> = {}): File {
     ext: 'pdf',
     sizeBytes: 1024n,
     name: 'a.pdf',
-    crop: null,
-    cropSource: 'NONE',
-    // The way up it arrived, for a file nobody has turned (docs/03 §3.3.16).
-    rotation: null,
-    // The pages as they arrived, and nobody has counted them: what every file reads as until a
-    // canonical build opens it (docs/03 §3.3.16).
-    pageOrder: null,
-    pageRotations: null,
+    // Nobody has counted the pages inside it: what every file reads as until a canonical build opens
+    // it, and while it does a document holds it as one entry standing for it whole (docs/03 §3.3.16).
     pageCount: null,
-    // Part of a document, which is where a file is unless somebody put it in the trash
+    // Read by a document, which is where a file is unless somebody put it in the trash
     // (docs/05 §5.7a).
     trashedAt: null,
     trashedReason: null,
@@ -421,21 +415,47 @@ export function fileFixture(overrides: Partial<File> = {}): File {
   };
 }
 
-// The bytes, once, and which document holds them in what order (docs/03 §3.3.16–3.3.17). The map of
-// homes is the join table: a file has exactly one, and the fake enforces that as the schema does.
+// The bytes, once, and which pages of which documents read them (docs/03 §3.3.16–3.3.17, ADR-025).
+// The map of lists is `document_pages`: an ordered list of entries per document, exactly as the
+// schema holds it.
 export class InMemoryFileRepository extends FileRepository {
   readonly files = new Map<string, File>();
-  // documentId → fileIds in position order.
-  readonly composition = new Map<string, string[]>();
+  // documentId → the entries of that document, in position order.
+  readonly composition = new Map<string, DocumentPage[]>();
   private created = 0;
+  private entries = 0;
 
-  // Adds a file and, unless told otherwise, gives it a home — which is what every file has.
+  // Adds a file and, unless told otherwise, has a document read it — which is where a file is.
   add(file: Partial<File> = {}, documentId: string | null = DOCUMENT_ID): File {
     const full = fileFixture({ id: file.id ?? `file-${this.files.size + 1}`, ...file });
     this.files.set(full.id, full);
-    if (documentId !== null)
-      this.composition.set(documentId, [...(this.composition.get(documentId) ?? []), full.id]);
+    if (documentId !== null) this.appendPages(documentId, full);
     return full;
+  }
+
+  // Its own pages where a build has counted them, and one entry standing for the file whole where
+  // none has (docs/03 §3.3.17).
+  private appendPages(documentId: string, file: File): void {
+    const held = this.composition.get(documentId) ?? [];
+    const count = file.pageCount === null || file.pageCount < 1 ? null : file.pageCount;
+    const indices: (number | null)[] =
+      count === null ? [null] : Array.from({ length: count }, (unused, index) => index);
+    this.composition.set(documentId, [
+      ...held,
+      ...indices.map((pageIndex, offset) => {
+        this.entries += 1;
+        return {
+          id: `page-${this.entries}`,
+          documentId,
+          position: held.length + offset,
+          fileId: file.id,
+          pageIndex,
+          turn: null,
+          crop: null,
+          cropSource: 'NONE' as const,
+        };
+      }),
+    ]);
   }
 
   findById(id: string): Promise<File | null> {
@@ -462,42 +482,7 @@ export class InMemoryFileRepository extends FileRepository {
     return Promise.resolve({ file, created: true });
   }
 
-  setCrop(id: string, crop: Crop | null, cropSource: File['cropSource']): Promise<File> {
-    const file = this.files.get(id);
-    if (file === undefined) throw new Error(`No file ${id}`);
-    const updated = { ...file, crop, cropSource };
-    this.files.set(id, updated);
-    return Promise.resolve(updated);
-  }
-
-  setRotation(id: string, rotation: Rotation | null): Promise<File> {
-    const file = this.files.get(id);
-    if (file === undefined) throw new Error(`No file ${id}`);
-    const updated = { ...file, rotation };
-    this.files.set(id, updated);
-    return Promise.resolve(updated);
-  }
-
-  setPageOrder(id: string, pageOrder: PageOrder | null): Promise<File> {
-    const file = this.files.get(id);
-    if (file === undefined) throw new Error(`No file ${id}`);
-    const updated = { ...file, pageOrder: pageOrder === null ? null : [...pageOrder] };
-    this.files.set(id, updated);
-    return Promise.resolve(updated);
-  }
-
-  setPageRotations(id: string, pageRotations: PageRotations | null): Promise<File> {
-    const file = this.files.get(id);
-    if (file === undefined) throw new Error(`No file ${id}`);
-    const updated = {
-      ...file,
-      pageRotations: pageRotations === null ? null : [...pageRotations],
-    };
-    this.files.set(id, updated);
-    return Promise.resolve(updated);
-  }
-
-  // What the last canonical build counted in this file (docs/05 §5.5 step 1.1). Recorded rather
+  // What the last canonical build counted in this file (docs/05 §5.5 step 1). Recorded rather
   // than asserted on directly, so a test can watch the count arrive on a file that had none.
   recordPageCount(id: string, pageCount: number): Promise<void> {
     const file = this.files.get(id);
@@ -514,12 +499,12 @@ export class InMemoryFileRepository extends FileRepository {
   hardDelete(ids: readonly string[]): Promise<void> {
     for (const id of ids) {
       this.files.delete(id);
-      // The join goes with the document in the schema; here it is one map, so the home is cleared
-      // with the file rather than left pointing at nothing.
+      // The entries go with the document in the schema; here it is one map, so the pages reading a
+      // deleted file go with it rather than being left pointing at nothing.
       for (const [documentId, held] of this.composition) {
-        this.composition.set(
+        this.renumber(
           documentId,
-          held.filter((held_id) => held_id !== id),
+          held.filter((page) => page.fileId !== id),
         );
       }
     }
@@ -560,9 +545,9 @@ export class InMemoryFileRepository extends FileRepository {
         replacedById: input.replacedById ?? null,
       });
       for (const [documentId, held] of this.composition) {
-        this.composition.set(
+        this.renumber(
           documentId,
-          held.filter((heldId) => heldId !== fileId),
+          held.filter((page) => page.fileId !== fileId),
         );
       }
     }
@@ -633,14 +618,51 @@ export class InMemoryFileRepository extends FileRepository {
     );
   }
 
-  listForDocument(documentId: string): Promise<DocumentFile[]> {
-    const ids = this.composition.get(documentId) ?? [];
+  listPagesForDocument(documentId: string): Promise<DocumentPageWithFile[]> {
+    const held = this.composition.get(documentId) ?? [];
     return Promise.resolve(
-      ids.flatMap((id, position) => {
-        const file = this.files.get(id);
-        return file === undefined ? [] : [{ ...file, position }];
+      held.flatMap((page) => {
+        const file = this.files.get(page.fileId);
+        return file === undefined ? [] : [{ ...page, file }];
       }),
     );
+  }
+
+  replacePages(documentId: string, pages: readonly PageEntry[]): Promise<void> {
+    this.entries += pages.length;
+    this.composition.set(
+      documentId,
+      pages.map((page, position) => ({
+        id: page.id ?? `page-${this.entries}-${position}`,
+        documentId,
+        position,
+        fileId: page.fileId,
+        pageIndex: page.pageIndex,
+        turn: page.turn,
+        crop: page.crop,
+        cropSource: page.cropSource,
+      })),
+    );
+    return Promise.resolve();
+  }
+
+  // The files those pages are read from, in the order the pages first name them (docs/03 §3.3.17).
+  async listForDocument(documentId: string): Promise<DocumentFile[]> {
+    const pages = await this.listPagesForDocument(documentId);
+    const files: DocumentFile[] = [];
+    const byFile = new Map<string, DocumentFile>();
+    for (const page of pages) {
+      const { file, ...entry } = page;
+      const held = byFile.get(page.fileId);
+      if (held === undefined) {
+        const one: DocumentFile = { ...file, position: files.length, pages: [entry] };
+        byFile.set(page.fileId, one);
+        files.push(one);
+        continue;
+      }
+      held.pages.push(entry);
+    }
+    return files;
   }
 
   async listForDocuments(documentIds: readonly string[]): Promise<Map<string, DocumentFile[]>> {
@@ -652,28 +674,50 @@ export class InMemoryFileRepository extends FileRepository {
   }
 
   findDocumentIdForFile(fileId: string): Promise<string | null> {
-    for (const [documentId, ids] of this.composition) {
-      if (ids.includes(fileId)) return Promise.resolve(documentId);
+    for (const [documentId, pages] of this.composition) {
+      if (pages.some((page) => page.fileId === fileId)) return Promise.resolve(documentId);
     }
     return Promise.resolve(null);
   }
 
+  filterFilesWithoutLivePages(fileIds: readonly string[]): Promise<string[]> {
+    const read = new Set<string>();
+    for (const pages of this.composition.values()) {
+      for (const page of pages) read.add(page.fileId);
+    }
+    return Promise.resolve(fileIds.filter((fileId) => !read.has(fileId)));
+  }
+
   attach(documentId: string, fileId: string): Promise<void> {
-    this.composition.set(documentId, [...(this.composition.get(documentId) ?? []), fileId]);
+    const file = this.files.get(fileId);
+    if (file !== undefined) this.appendPages(documentId, file);
     return Promise.resolve();
   }
 
   detach(documentId: string, fileId: string): Promise<void> {
-    this.composition.set(
+    this.renumber(
       documentId,
-      (this.composition.get(documentId) ?? []).filter((id) => id !== fileId),
+      (this.composition.get(documentId) ?? []).filter((page) => page.fileId !== fileId),
     );
     return Promise.resolve();
   }
 
   reorder(documentId: string, fileIdsInOrder: readonly string[]): Promise<void> {
-    this.composition.set(documentId, [...fileIdsInOrder]);
+    const held = this.composition.get(documentId) ?? [];
+    const named = new Set(fileIdsInOrder);
+    this.renumber(documentId, [
+      ...fileIdsInOrder.flatMap((fileId) => held.filter((page) => page.fileId === fileId)),
+      ...held.filter((page) => !named.has(page.fileId)),
+    ]);
     return Promise.resolve();
+  }
+
+  // Positions are contiguous (docs/03 §3.3.17), so whatever is left closes up behind what went.
+  private renumber(documentId: string, pages: readonly DocumentPage[]): void {
+    this.composition.set(
+      documentId,
+      pages.map((page, position) => ({ ...page, position })),
+    );
   }
 
   countLiveRefsForFiles(fileIds: readonly string[]): Promise<Map<string, number>> {
@@ -918,8 +962,14 @@ export class FakePdfToolbox extends PdfToolbox {
     return Promise.resolve(Buffer.from('converted-pdf'));
   }
 
-  pdfPageJpg(_source: BinarySource, _options?: PageRenderOptions): Promise<Buffer> {
-    this.check('pdfPageJpg');
+  // Which page was asked for and at what resolution: a cropped page of a PDF is rendered before its
+  // quadrilateral is applied (docs/05 §5.5 step 1), and which page that is matters.
+  pdfPageJpg(_source: BinarySource, options?: PageRenderOptions): Promise<Buffer> {
+    const page = options?.page ?? 1;
+    this.check(
+      'pdfPageJpg',
+      options?.dpi === undefined ? `page:${page}` : `page:${page}@${options.dpi}`,
+    );
     return Promise.resolve(Buffer.from('rendered-page'));
   }
 
@@ -959,7 +1009,7 @@ export class FakePdfToolbox extends PdfToolbox {
     return Buffer.from(`image-pdf(${bodies.join(',')})`);
   }
 
-  // The pages of one file put into the order the file records (docs/05 §5.5 step 1.1). The call
+  // The pages of one file put into the order the document holds them in (docs/05 §5.5 step 1). The call
   // names the order it was given and the result carries it, so a test can see both that the
   // rearrange happened and what it was asked for — and that it did not happen at all where the
   // pages already stand as they should.
@@ -968,7 +1018,7 @@ export class FakePdfToolbox extends PdfToolbox {
     return Buffer.from(`rearranged(${order.join(',')})(${await describe(source)})`);
   }
 
-  // The pages of one file stood the way up the file records (docs/05 §5.5 step 1.1). Named and
+  // The pages of one file stood the way up their entries say (docs/05 §5.5 step 1). Named and
   // carried like the rearrange above, so a test can see which turns were asked for and — the calls
   // being recorded in order — that they were asked for before the pages were put in order.
   async rotatePages(source: BinarySource, rotations: readonly number[]): Promise<Buffer> {

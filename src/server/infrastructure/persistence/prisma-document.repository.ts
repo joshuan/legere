@@ -42,7 +42,7 @@ import {
   type DocumentGroupCount,
   type DocumentListItem,
   type DocumentName,
-  type DocumentPage,
+  type DocumentListPage,
   type ListDocumentsInput,
   type ProcessingUpdate,
   type SearchFilters,
@@ -210,7 +210,7 @@ function readableBy(viewer: Viewer, reach: ShareReach): Prisma.DocumentWhereInpu
     // can see. A ref that has gone MISSING still counts — it makes the document unavailable, not
     // invisible, and the canonical PDF reads either way.
     {
-      files: {
+      pages: {
         some: {
           file: {
             origin: 'LIBRARY',
@@ -235,7 +235,7 @@ function readableBy(viewer: Viewer, reach: ShareReach): Prisma.DocumentWhereInpu
   // documents the viewer created, which the branch above already grants.
   if (reach.length > 0) {
     branches.push({
-      files: { none: { file: { origin: 'LIBRARY' } } },
+      pages: { none: { file: { origin: 'LIBRARY' } } },
       OR: reach.map(({ ownerId, collectionIds }) => ({
         createdById: ownerId,
         collectionItems: { some: { collectionId: { in: collectionIds } } },
@@ -320,13 +320,13 @@ function visibleLibrary(viewer: Viewer): Prisma.LibraryWhereInput {
 
 function filters(query: DocumentFilterInput): Prisma.DocumentWhereInput {
   const where: Prisma.DocumentWhereInput = {};
-  // Every file-shaped filter is another clause on `files`, so they are collected into one AND list
+  // Every file-shaped filter is another clause on `pages`, so they are collected into one AND list
   // rather than overwriting each other on a single key.
   const and: Prisma.DocumentWhereInput[] = [];
 
   if (query.libraryId !== undefined) {
     and.push({
-      files: {
+      pages: {
         some: {
           file: { refs: { some: { libraryId: query.libraryId, library: { deletedAt: null } } } },
         },
@@ -366,10 +366,10 @@ function filters(query: DocumentFilterInput): Prisma.DocumentWhereInput {
   // Origin is derived from the files, so it filters on the same condition it is computed from
   // (docs/03 §3.3.10): LIBRARY means at least one library file, MANAGED means none at all.
   if (query.origin === 'LIBRARY') {
-    and.push({ files: { some: { file: { origin: 'LIBRARY' } } } });
+    and.push({ pages: { some: { file: { origin: 'LIBRARY' } } } });
   }
   if (query.origin === 'MANAGED') {
-    and.push({ files: { none: { file: { origin: 'LIBRARY' } } } });
+    and.push({ pages: { none: { file: { origin: 'LIBRARY' } } } });
   }
 
   if (query.availability !== undefined) {
@@ -451,16 +451,16 @@ function stepStatusFilter(
 function availabilityFilter(availability: Availability): Prisma.DocumentWhereInput {
   switch (availability) {
     case 'AVAILABLE':
-      return { AND: [{ files: { some: {} } }, { files: { none: { file: UNREADABLE_FILE } } }] };
+      return { AND: [{ pages: { some: {} } }, { pages: { none: { file: UNREADABLE_FILE } } }] };
     case 'PARTIAL':
       return {
         AND: [
-          { files: { some: { file: READABLE_FILE } } },
-          { files: { some: { file: UNREADABLE_FILE } } },
+          { pages: { some: { file: READABLE_FILE } } },
+          { pages: { some: { file: UNREADABLE_FILE } } },
         ],
       };
     case 'UNAVAILABLE':
-      return { AND: [{ files: { some: {} } }, { files: { none: { file: READABLE_FILE } } }] };
+      return { AND: [{ pages: { some: {} } }, { pages: { none: { file: READABLE_FILE } } }] };
   }
 }
 
@@ -475,11 +475,11 @@ function readableSql(viewer: Viewer): Prisma.Sql {
     d.deleted_at IS NULL
     AND (
       EXISTS (
-        SELECT 1 FROM document_files df
-        JOIN files fi ON fi.id = df.file_id
+        SELECT 1 FROM document_pages dp
+        JOIN files fi ON fi.id = dp.file_id
         JOIN file_refs fr ON fr.file_id = fi.id
         JOIN libraries l ON l.id = fr.library_id
-        WHERE df.document_id = d.id
+        WHERE dp.document_id = d.id
           AND fi.origin = 'LIBRARY'
           AND l.deleted_at IS NULL
           AND (
@@ -493,9 +493,9 @@ function readableSql(viewer: Viewer): Prisma.Sql {
       OR d.created_by_id = ${viewer.id}::uuid
       OR (
       NOT EXISTS (
-        SELECT 1 FROM document_files df2
-        JOIN files fi2 ON fi2.id = df2.file_id
-        WHERE df2.document_id = d.id AND fi2.origin = 'LIBRARY'
+        SELECT 1 FROM document_pages dp2
+        JOIN files fi2 ON fi2.id = dp2.file_id
+        WHERE dp2.document_id = d.id AND fi2.origin = 'LIBRARY'
       )
       AND EXISTS (
         SELECT 1 FROM collection_items ci
@@ -582,9 +582,11 @@ export function searchByTextSql(
                translate(transliterate_russian(lower(${query})), '_-.', '   ')
              ) AS tsq
     ), named AS MATERIALIZED (
-      SELECT df.document_id AS id, 'fileName'::text AS kind, f.name AS name
-      FROM document_files df
-      JOIN files f ON f.id = df.file_id, q
+      -- DISTINCT because one file may be read by several pages of one document (ADR-025), and a
+      -- name that matched once must not be counted twice.
+      SELECT DISTINCT dp.document_id AS id, 'fileName'::text AS kind, f.name AS name
+      FROM document_pages dp
+      JOIN files f ON f.id = dp.file_id, q
       WHERE search_tokens(f.name) @@ q.tsq
       UNION ALL
       SELECT dp.document_id, 'person'::text, p.name
@@ -728,10 +730,10 @@ function filtersSql(filters: SearchFilters): Prisma.Sql {
   }
   if (filters.libraryId !== undefined) {
     clauses.push(Prisma.sql`EXISTS (
-      SELECT 1 FROM document_files df
-      JOIN file_refs fl ON fl.file_id = df.file_id
+      SELECT 1 FROM document_pages dp
+      JOIN file_refs fl ON fl.file_id = dp.file_id
       JOIN libraries ll ON ll.id = fl.library_id
-      WHERE df.document_id = d.id AND fl.library_id = ${filters.libraryId}::uuid
+      WHERE dp.document_id = d.id AND fl.library_id = ${filters.libraryId}::uuid
         AND ll.deleted_at IS NULL
     )`);
   }
@@ -1194,7 +1196,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
     viewer: Viewer,
     query: ListDocumentsInput,
     tx?: TransactionHandle,
-  ): Promise<DocumentPage> {
+  ): Promise<DocumentListPage> {
     // 🔒 The cursor names the order it was cut from, and one that names another order is refused
     // rather than read off this column (docs/07 §7.1): a keyset predicate applied to the wrong
     // column does not fail, it answers — skipping and repeating rows while looking like a page.
@@ -1228,13 +1230,13 @@ export class PrismaDocumentRepository implements DocumentRepository {
   // Documents whose files sit directly in one folder, by title (docs/07 §7.3). The folder match is
   // a string operation on the path, so the ids come from raw SQL; the rows themselves then load
   // through the same include and mapper as every other list. A ref points at a file and the file at
-  // a document (docs/03 §3.3.16), so the join goes through `document_files`.
+  // a document (docs/03 §3.3.17), so the join goes through `document_pages`.
   async listInFolder(
     libraryId: string,
     folder: string,
     query: { limit: number; cursor?: string | undefined },
     tx?: TransactionHandle,
-  ): Promise<DocumentPage> {
+  ): Promise<DocumentListPage> {
     const client = clientOf(this.prisma, tx);
     const cursor = decodeTextCursor(query.cursor);
     // 🔒 The pattern is escaped, the offset counts the folder itself — see `folderPrefixPattern`.
@@ -1243,8 +1245,8 @@ export class PrismaDocumentRepository implements DocumentRepository {
     const keys = await client.$queryRaw<{ id: string; title: string }[]>`
       SELECT DISTINCT d.id, d.title
       FROM documents d
-      JOIN document_files df ON df.document_id = d.id
-      JOIN file_refs f ON f.file_id = df.file_id
+      JOIN document_pages dp ON dp.document_id = d.id
+      JOIN file_refs f ON f.file_id = dp.file_id
       WHERE d.deleted_at IS NULL
         AND f.library_id = ${libraryId}::uuid
         AND (${folder} = '' OR f.path LIKE ${below} ESCAPE '\\')
@@ -1384,7 +1386,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
     viewer: Viewer,
     query: { limit: number; cursor?: string | undefined },
     tx?: TransactionHandle,
-  ): Promise<DocumentPage> {
+  ): Promise<DocumentListPage> {
     // A collection has one order and takes no `sort` (docs/07 §7.1), so the cursor it cuts names
     // that one — and the shared predicate below reads the column the name says, not the column this
     // method happens to have ordered by.
@@ -1624,7 +1626,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
   }
 
   // One statement, and the cascades of docs/04 §4.2 take the journal, the chunks, the people and
-  // subject links and the `document_files` rows with it (docs/03 §3.3.10).
+  // subject links and the `document_pages` rows with it (docs/03 §3.3.10).
   async hardDelete(id: string, tx?: TransactionHandle): Promise<void> {
     await clientOf(this.prisma, tx).document.deleteMany({ where: { id } });
   }
