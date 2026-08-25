@@ -255,6 +255,71 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
     expect(counted.pageCount).toBe(3);
   });
 
+  // Which way up the paper lay (docs/05 §5.5 step 1.1). One page of a scan lying sideways is stood
+  // up in the canonical while the other two are left exactly as they are — and the file the build
+  // read is byte for byte what it was.
+  itWithStirling('stands one page of a scan upright without touching the file', async () => {
+    const document = await prisma.document.create({ data: { title: 'Sideways' } });
+    const scan = pdfWithText(['UPRIGHT one', 'SIDEWAYS two', 'UPRIGHT three']);
+    await givenFile(document.id, 0, {
+      name: 'sideways.pdf',
+      ext: 'pdf',
+      mimeType: 'application/pdf',
+      bytes: scan,
+    });
+    const file = await prisma.file.findFirstOrThrow({ where: { name: 'sideways.pdf' } });
+    // A build has to have counted the pages before an edit could store this; here the first build
+    // does it and the turn is written straight onto the row, which is the same state it lands in.
+    await prisma.file.update({ where: { id: file.id }, data: { pageRotations: [0, 1, 0] } });
+
+    const built = await build.execute({ ...documentRow(document.id), title: 'Sideways' });
+
+    if (built.kind !== 'built') throw new Error('the canonical was not built');
+    expect(built.pageCount).toBe(3);
+
+    const pdfs = new StirlingPdfToolbox(config, new ServiceGates(new FixedClock()));
+    // The page that was turned is landscape in the canonical; the two beside it are not.
+    const shapes = await Promise.all(
+      [1, 2, 3].map(async (page) => {
+        const jpeg = await pdfs.pdfPageJpg(built.pdf, { page, dpi: 50 });
+        const meta = await sharp(jpeg).metadata();
+        return { width: meta.width ?? 0, height: meta.height ?? 0 };
+      }),
+    );
+    expect(shapes[1]?.width).toBeGreaterThan(shapes[1]?.height ?? 0);
+    expect(shapes[0]?.height).toBeGreaterThan(shapes[0]?.width ?? 0);
+    expect(shapes[2]?.height).toBeGreaterThan(shapes[2]?.width ?? 0);
+
+    // 🔒 Not a byte of the original was rewritten: a turn is an instruction the build reads, never
+    // an edit to the file (docs/03 §3.3.16, ADR-007).
+    expect(storage.get(originalKeyOf({ id: file.id, ext: 'pdf', storageKey: null })).body).toEqual(
+      scan,
+    );
+  });
+
+  itWithStirling('rebuilds to the pages as they arrived once the turn is cleared', async () => {
+    const document = await prisma.document.create({ data: { title: 'Stood back down' } });
+    await givenFile(document.id, 0, {
+      name: 'turned.pdf',
+      ext: 'pdf',
+      mimeType: 'application/pdf',
+      bytes: pdfWithText(['One', 'Two']),
+    });
+    const file = await prisma.file.findFirstOrThrow({ where: { name: 'turned.pdf' } });
+    await prisma.file.update({ where: { id: file.id }, data: { pageRotations: [1, 1] } });
+    await build.execute({ ...documentRow(document.id), title: 'Stood back down' });
+
+    // Clearing costs nothing to say, because nothing was ever changed (docs/05 §5.6).
+    await prisma.file.update({ where: { id: file.id }, data: { pageRotations: Prisma.DbNull } });
+    const built = await build.execute({ ...documentRow(document.id), title: 'Stood back down' });
+
+    if (built.kind !== 'built') throw new Error('the canonical was not built');
+    const pdfs = new StirlingPdfToolbox(config, new ServiceGates(new FixedClock()));
+    const jpeg = await pdfs.pdfPageJpg(built.pdf, { page: 1, dpi: 50 });
+    const meta = await sharp(jpeg).metadata();
+    expect(meta.height ?? 0).toBeGreaterThan(meta.width ?? 0);
+  });
+
   itWithStirling('rebuilds to the pages as they arrived once the order is cleared', async () => {
     const document = await prisma.document.create({ data: { title: 'Put back' } });
     await givenFile(document.id, 0, {

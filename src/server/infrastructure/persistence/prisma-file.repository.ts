@@ -3,8 +3,12 @@ import { Prisma, type File as PrismaFile } from '@prisma/client';
 import {
   cropSchema,
   pageOrderSchema,
+  pageRotationsSchema,
+  rotationSchema,
   type Crop,
   type PageOrder,
+  type PageRotations,
+  type Rotation,
 } from '../../../shared/contracts/documents';
 import type { TrashReason, ValueSource } from '../../../shared/contracts/enums';
 import { artifactKeys } from '../../application/storage/artifact-keys';
@@ -34,7 +38,9 @@ function toDomain(row: PrismaFile): File {
     name: row.name,
     crop: toCrop(row.crop),
     cropSource: row.cropSource,
+    rotation: toRotation(row.rotation),
     pageOrder: toPageOrder(row.pageOrder),
+    pageRotations: toPageRotations(row.pageRotations),
     pageCount: row.pageCount,
     trashedAt: row.trashedAt,
     trashedReason: row.trashedReason,
@@ -72,6 +78,32 @@ function toPageOrderColumn(
   order: PageOrder | null,
 ): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
   return order === null ? Prisma.DbNull : [...order];
+}
+
+// And the turns, on the same terms: jsonb parsed rather than trusted, because a turn nobody can
+// read is no turn and the page stands the way it arrived (docs/05 §5.5 step 1).
+function toRotation(value: unknown): Rotation | null {
+  const parsed = rotationSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+function toPageRotations(value: unknown): PageRotations | null {
+  const parsed = pageRotationsSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+function toRotationColumn(
+  rotation: Rotation | null,
+): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
+  return rotation === null
+    ? Prisma.DbNull
+    : { quarterTurns: rotation.quarterTurns, mirrored: rotation.mirrored };
+}
+
+function toPageRotationsColumn(
+  rotations: PageRotations | null,
+): Prisma.InputJsonValue | Prisma.NullTypes.DbNull {
+  return rotations === null ? Prisma.DbNull : [...rotations];
 }
 
 // The columns a unique violation names, so a P2002 can be attributed to the index that raised it.
@@ -170,6 +202,14 @@ export class PrismaFileRepository implements FileRepository {
     return toDomain(row);
   }
 
+  async setRotation(id: string, rotation: Rotation | null, tx?: TransactionHandle): Promise<File> {
+    const row = await clientOf(this.prisma, tx).file.update({
+      where: { id },
+      data: { rotation: toRotationColumn(rotation) },
+    });
+    return toDomain(row);
+  }
+
   async setPageOrder(
     id: string,
     pageOrder: PageOrder | null,
@@ -178,6 +218,18 @@ export class PrismaFileRepository implements FileRepository {
     const row = await clientOf(this.prisma, tx).file.update({
       where: { id },
       data: { pageOrder: toPageOrderColumn(pageOrder) },
+    });
+    return toDomain(row);
+  }
+
+  async setPageRotations(
+    id: string,
+    pageRotations: PageRotations | null,
+    tx?: TransactionHandle,
+  ): Promise<File> {
+    const row = await clientOf(this.prisma, tx).file.update({
+      where: { id },
+      data: { pageRotations: toPageRotationsColumn(pageRotations) },
     });
     return toDomain(row);
   }

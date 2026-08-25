@@ -25,8 +25,11 @@ function makeFile(overrides: Partial<DocumentFileDto> = {}): DocumentFileDto {
     isImage: false,
     crop: null,
     cropSource: 'NONE',
-    // Three pages, standing as they arrived — which is what a strip opens on (docs/03 §3.3.16).
+    rotation: null,
+    // Three pages, standing in the order and the way up they arrived — which is what a strip
+    // opens on (docs/03 §3.3.16).
     pageOrder: null,
+    pageRotations: null,
     pageCount: 3,
     refs: [],
     storageKey: `files/${FILE_ID}/original.pdf`,
@@ -91,14 +94,18 @@ afterAll(() => server.close());
 
 // jsdom lays nothing out, and a drag is hit-tested against the tiles themselves — so the strip is
 // given a layout: 100 pixels per slot, in the order the tiles actually stand in the DOM, which is
-// what makes a pointer at x=245 a pointer over the third page.
+// what makes a pointer at x=245 a pointer over the third page. A tile is the drag button *inside*
+// its own wrapper — the two turns are its siblings, and a button inside a button is not a thing a
+// browser hit-tests the way anybody means it.
 const SLOT_WIDTH = 100;
 function layOutTiles(): void {
   vi.spyOn(HTMLButtonElement.prototype, 'getBoundingClientRect').mockImplementation(function (
     this: HTMLButtonElement,
   ) {
-    const siblings = this.parentElement === null ? [] : [...this.parentElement.children];
-    const slot = Math.max(0, siblings.indexOf(this));
+    const wrapper = this.parentElement;
+    const row = wrapper === null ? null : wrapper.parentElement;
+    const slot =
+      row === null || wrapper === null ? 0 : Math.max(0, [...row.children].indexOf(wrapper));
     const left = slot * SLOT_WIDTH;
     return {
       x: left,
@@ -230,7 +237,7 @@ describe('PageArranger', () => {
 
     // And what it arranged is what Save sends.
     await userEvent.click(screen.getByRole('button', { name: pages.save }));
-    await waitFor(() => expect(save.body()).toEqual({ pageOrder: [1, 2, 0] }));
+    await waitFor(() => expect(save.body()).toEqual({ pageOrder: [1, 2, 0], pageRotations: null }));
   });
 
   it('sends the whole permutation on Save, and nothing until then', async () => {
@@ -246,7 +253,7 @@ describe('PageArranger', () => {
     await userEvent.click(screen.getByRole('button', { name: pages.save }));
 
     // The complete order, every page of the file exactly once — not "this one moved" (docs/07 §7.3).
-    await waitFor(() => expect(save.body()).toEqual({ pageOrder: [1, 0, 2] }));
+    await waitFor(() => expect(save.body()).toEqual({ pageOrder: [1, 0, 2], pageRotations: null }));
     expect(await screen.findByText(pages.saved)).toBeInTheDocument();
   });
 
@@ -307,6 +314,90 @@ describe('PageArranger', () => {
 
     expect(screen.queryByTestId('page-strip')).toBeNull();
     expect(container.querySelector('img')).toBeNull();
+  });
+
+  // Which way up each page lies, one page at a time (docs/11 §11.5a).
+  const turnButton = (page: number, direction: 'rotateLeft' | 'rotateRight'): HTMLElement =>
+    screen.getByRole('button', { name: pages[direction].replace('{page}', String(page)) });
+
+  it('turns one page at a time and draws the thumbnail turned with it', async () => {
+    open();
+
+    await userEvent.click(turnButton(2, 'rotateRight'));
+
+    // 🔒 The picture is still the page as it arrived — the same request, the same cache key — and
+    // the strip turns what it draws (docs/07 §7.3).
+    const thumb = screen.getByTestId('page-thumb-1');
+    expect(thumb).toHaveAttribute('src', `${SAVE_PATH}/pages/1/thumb`);
+    expect(thumb.style.transform).toBe('rotate(90deg)');
+    // Its neighbours did not move.
+    expect(screen.getByTestId('page-thumb-0').style.transform).toBe('');
+  });
+
+  it('comes back to where it started after four presses', async () => {
+    const save = captureSave();
+    open();
+
+    for (let press = 0; press < 4; press += 1) {
+      await userEvent.click(turnButton(1, 'rotateLeft'));
+    }
+
+    expect(screen.getByTestId('page-thumb-0').style.transform).toBe('');
+    // And there is nothing to save, because nothing differs from what the file says.
+    expect(screen.getByRole('button', { name: pages.save })).toBeDisabled();
+    expect(save.count()).toBe(0);
+  });
+
+  it('sends one turn per page beside the whole order on Save', async () => {
+    const save = captureSave();
+    open();
+
+    await userEvent.click(turnButton(2, 'rotateRight'));
+    await userEvent.click(turnButton(3, 'rotateLeft'));
+    expect(save.count()).toBe(0);
+
+    await userEvent.click(screen.getByRole('button', { name: pages.save }));
+
+    // Indexed by the page's own number, the way the order names its pages (docs/03 §3.3.16).
+    await waitFor(() =>
+      expect(save.body()).toEqual({ pageOrder: [0, 1, 2], pageRotations: [0, 1, 3] }),
+    );
+    expect(await screen.findByText(pages.saved)).toBeInTheDocument();
+  });
+
+  it('opens on the turns the file already carries and discards pending ones on Cancel', async () => {
+    const save = captureSave();
+    open(makeFile({ pageRotations: [0, 2, 0] }));
+
+    expect(screen.getByTestId('page-thumb-1').style.transform).toBe('rotate(180deg)');
+
+    await userEvent.click(turnButton(1, 'rotateRight'));
+    expect(screen.getByTestId('page-thumb-0').style.transform).toBe('rotate(90deg)');
+
+    await userEvent.click(screen.getByRole('button', { name: pages.cancel }));
+
+    // Back to what the file says, with nothing having gone out.
+    expect(screen.getByTestId('page-thumb-0').style.transform).toBe('');
+    expect(screen.getByTestId('page-thumb-1').style.transform).toBe('rotate(180deg)');
+    expect(save.count()).toBe(0);
+  });
+
+  it('sends null for Reset turns, the way Restore original order sends null for the order', async () => {
+    const save = captureSave();
+    open(makeFile({ pageRotations: [0, 1, 0] }));
+
+    await userEvent.click(screen.getByRole('button', { name: pages.resetTurns }));
+
+    await waitFor(() => expect(save.body()).toEqual({ pageRotations: null }));
+    expect(await screen.findByText(pages.turnsRestored)).toBeInTheDocument();
+    // The pages read the way up they arrived again.
+    expect(screen.getByTestId('page-thumb-1').style.transform).toBe('');
+  });
+
+  it('offers nothing to reset on a file whose pages stand the way they arrived', () => {
+    open();
+
+    expect(screen.getByRole('button', { name: pages.resetTurns })).toBeDisabled();
   });
 
   it('keeps the pending order and localizes the failure when the save is refused', async () => {

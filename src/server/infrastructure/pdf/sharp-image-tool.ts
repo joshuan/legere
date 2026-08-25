@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import sharp from 'sharp';
-import type { Crop } from '../../../shared/contracts/documents';
+import type { Crop, Rotation } from '../../../shared/contracts/documents';
 import { toBuffer, type BinarySource } from '../../application/ports/binary-source';
 import { ImageTool, type JpegPreviewOptions } from '../../application/ports/image-tool';
 import { planCrop, rectangleToCrop, warpPerspective } from '../../domain/entities/crop-geometry';
@@ -217,6 +217,23 @@ export class SharpImageTool extends ImageTool {
     })
       .jpeg({ quality: CROP_QUALITY })
       .toBuffer();
+  }
+
+  // Which way up the paper lay (docs/03 §3.3.16): the mirror first, left to right, then the quarter
+  // turns clockwise. `.rotate()` with no argument comes first and is a different thing entirely — it
+  // is EXIF, what every viewer already does to the file — so the stored turn is applied to the
+  // picture as anybody would see it rather than to whichever way the sensor wrote the rows.
+  async applyRotation(source: BinarySource, rotation: Rotation): Promise<Buffer> {
+    const upright = sharp(await toBuffer(source), INPUT).rotate();
+    const mirrored = rotation.mirrored ? upright.flop() : upright;
+    const turned =
+      rotation.quarterTurns === 0
+        ? mirrored
+        : // sharp turns clockwise for a positive angle, which is the direction the contract counts in.
+          mirrored.rotate(rotation.quarterTurns * 90);
+    // Flattened for the reason the crop flattens: a page of a PDF has no transparency, and a
+    // transparent PNG would otherwise turn black in JPEG.
+    return turned.flatten({ background: '#ffffff' }).jpeg({ quality: CROP_QUALITY }).toBuffer();
   }
 
   // Lighting levelled, skew taken out, and nothing done to a page that needs neither

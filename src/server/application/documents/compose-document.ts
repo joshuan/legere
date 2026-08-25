@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { DocumentDetailDto } from '../../../shared/contracts/documents';
+import type { DocumentDetailDto, Rotation } from '../../../shared/contracts/documents';
 import type {
   CombineDocumentsRequest,
   CropSuggestionResponse,
@@ -9,7 +9,13 @@ import type {
 } from '../../../shared/contracts/files';
 import { canEditDocumentMeta } from '../../domain/entities/document';
 import { classifyFormat } from '../../domain/entities/document-format';
-import { isImageFile, isPagePermutation, isPdfFile, type File } from '../../domain/entities/file';
+import {
+  isImageFile,
+  isPagePermutation,
+  isPageRotationList,
+  isPdfFile,
+  type File,
+} from '../../domain/entities/file';
 import { detectPageEdges } from '../../domain/entities/page-detection';
 import {
   ConflictError,
@@ -205,9 +211,10 @@ export class ReorderDocumentFiles {
 }
 
 // PATCH /api/documents/:id/files/:fileId (docs/07 §7.3): what one file says about itself — the
-// quadrilateral its content sits in, and the order its own pages are read in. Both are numbers
-// written beside a file and never a change to its bytes (docs/03 §3.3.16); either may be sent
-// alone, and both together are one edit and therefore one rebuild.
+// quadrilateral its content sits in, which way up it lies, the order its own pages are read in and
+// which way up each of those lies. All four are numbers written beside a file and never a change to
+// its bytes (docs/03 §3.3.16); any may be sent alone, and any together are one edit and therefore
+// one rebuild.
 export class UpdateDocumentFile {
   constructor(
     private readonly documents: DocumentRepository,
@@ -231,9 +238,16 @@ export class UpdateDocumentFile {
     // changes nothing at all rather than half of what it asked for.
     const crop = input.crop;
     if (crop !== undefined) assertImage(file);
+    const rotation = input.rotation;
+    if (rotation !== undefined) assertImage(file);
     const pageOrder = input.pageOrder;
     if (pageOrder !== undefined) assertPdf(file);
     if (pageOrder !== undefined && pageOrder !== null) assertPagesOf(file, pageOrder);
+    const pageRotations = input.pageRotations;
+    if (pageRotations !== undefined) assertPdf(file);
+    if (pageRotations !== undefined && pageRotations !== null) {
+      assertPageRotationsOf(file, pageRotations);
+    }
 
     await this.unitOfWork.run(async (tx) => {
       const changes: Record<string, { from?: string | null; to?: string | null }> = {};
@@ -247,9 +261,22 @@ export class UpdateDocumentFile {
         changes.crop = { from: file.cropSource, to: cropSource };
       }
 
+      if (rotation !== undefined) {
+        await this.files.setRotation(fileId, rotation, tx);
+        changes.rotation = { from: rotationLabel(file.rotation), to: rotationLabel(rotation) };
+      }
+
       if (pageOrder !== undefined) {
         await this.files.setPageOrder(fileId, pageOrder, tx);
         changes.pageOrder = { from: pagesLabel(file.pageOrder), to: pagesLabel(pageOrder) };
+      }
+
+      if (pageRotations !== undefined) {
+        await this.files.setPageRotations(fileId, pageRotations, tx);
+        changes.pageRotations = {
+          from: turnsLabel(file.pageRotations),
+          to: turnsLabel(pageRotations),
+        };
       }
 
       await this.events.record(
@@ -594,19 +621,25 @@ export function fileOf(detail: DocumentDetail, fileId: string): DocumentFileView
   return file;
 }
 
-// Only an image carries a crop: a PDF page is already a page, and there is nothing to straighten
-// (docs/05 §5.6).
+// Only an image carries a crop, and only an image is turned as one picture: a PDF page is already a
+// page, there is nothing to straighten, and its pages are turned one at a time (docs/05 §5.6).
 export function assertImage(file: Pick<File, 'mimeType'>): void {
   if (!isImageFile(file)) {
-    throw new UnprocessableError('FILE_NOT_IMAGE', 'Only an image file can be cropped');
+    throw new UnprocessableError(
+      'FILE_NOT_IMAGE',
+      'Only an image file can be cropped or turned as one picture',
+    );
   }
 }
 
-// And the other way round: only a PDF has pages to put in order. An image is one page and a format
-// nothing renders is none (docs/03 §3.3.16).
+// And the other way round: only a PDF has pages to put in order and to turn one at a time. An image
+// is one page and a format nothing renders is none (docs/03 §3.3.16).
 export function assertPdf(file: Pick<File, 'mimeType'>): void {
   if (!isPdfFile(file)) {
-    throw new UnprocessableError('FILE_NOT_PDF', 'Only a PDF file has pages to put in order');
+    throw new UnprocessableError(
+      'FILE_NOT_PDF',
+      'Only a PDF file has pages to put in order and to turn',
+    );
   }
 }
 
@@ -629,11 +662,43 @@ export function assertPagesOf(file: Pick<File, 'pageCount'>, order: readonly num
   }
 }
 
+// And the same for a list of turns: one turn per page, in degrees clockwise, which is how a person
+// says it out loud (docs/07 §7.3).
+export function assertPageRotationsOf(
+  file: Pick<File, 'pageCount'>,
+  rotations: readonly number[],
+): void {
+  if (file.pageCount === null) {
+    throw new UnprocessableError(
+      'VALIDATION_FAILED',
+      'Nothing has counted the pages of this file yet, so turns for them cannot be checked',
+    );
+  }
+  if (!isPageRotationList(rotations, file.pageCount)) {
+    throw new UnprocessableError(
+      'VALIDATION_FAILED',
+      `The turns must name each of the ${file.pageCount} pages of this file exactly once`,
+    );
+  }
+}
+
 // A page order as the journal reads it: the pages counted the way a person counts them, from one.
 // `null` for a file that has none, which is what the log should say rather than a word invented for
 // it (docs/03 §3.3.18).
 function pagesLabel(order: readonly number[] | null): string | null {
   return order === null ? null : order.map((index) => index + 1).join(', ');
+}
+
+// A turn as the journal reads it: degrees clockwise, and the mirror said in words where there is
+// one. `null` for a file that reads the way it arrived.
+function rotationLabel(rotation: Rotation | null): string | null {
+  if (rotation === null) return null;
+  const degrees = `${rotation.quarterTurns * 90}°`;
+  return rotation.mirrored ? `${degrees} mirrored` : degrees;
+}
+
+function turnsLabel(rotations: readonly number[] | null): string | null {
+  return rotations === null ? null : rotations.map((turn) => `${turn * 90}°`).join(', ');
 }
 
 // The composition changed, so the canonical PDF and everything read off it are stale. The old

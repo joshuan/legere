@@ -571,12 +571,19 @@ model File {
   name          String
   crop          Json?
   cropSource    ValueSource  @default(NONE) @map("crop_source")
-  // The order this file's own pages are read in, and how many of them there are (docs/03 §3.3.16).
-  // `pageOrder` is a permutation of the 0-based page indices, null for the order they arrived in,
-  // and meaningful only for a PDF exactly as `crop` is meaningful only for an image — the canonical
-  // build obeys it and the file itself is never rewritten. `pageCount` is what the last build
-  // counted, and what a stored order is checked against.
+  // Which way up this file lies (docs/03 §3.3.16): `{ quarterTurns: 0…3, mirrored: bool }`, the
+  // mirror first and the quarter turns clockwise after it, null for the way it arrived. Meaningful
+  // only for an image, exactly as `crop` is, and never a change to the bytes — the canonical build
+  // applies it after the crop and the original stays the original.
+  rotation      Json?
+  // The order this file's own pages are read in, which way up each of them lies, and how many of
+  // them there are (docs/03 §3.3.16). `pageOrder` is a permutation of the 0-based page indices and
+  // `pageRotations` one quarter turn per page, both null for the way they arrived, and both
+  // meaningful only for a PDF exactly as `crop` is meaningful only for an image — the canonical
+  // build obeys them and the file itself is never rewritten. `pageCount` is what the last build
+  // counted, and what a stored order and a stored list of turns are checked against.
   pageOrder     Json?        @map("page_order")
+  pageRotations Json?        @map("page_rotations")
   pageCount     Int?         @map("page_count")
   // In the trash since, and how it got there (docs/05 §5.7a): a file is in exactly one document or
   // in the trash, and the trash is where every file that leaves a document waits to be deleted or

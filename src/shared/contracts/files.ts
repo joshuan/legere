@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { cropSchema, documentDetailDtoSchema, pageOrderSchema } from './documents';
+import {
+  cropSchema,
+  documentDetailDtoSchema,
+  pageOrderSchema,
+  pageRotationsSchema,
+  rotationSchema,
+} from './documents';
 
 // Composing a document out of files (docs/07 §7.3 "Document files", docs/05 §5.6). Every one of
 // these answers with the whole document: a composition change is never local.
@@ -11,21 +17,29 @@ export const reorderDocumentFilesRequestSchema = z.object({
 export type ReorderDocumentFilesRequest = z.infer<typeof reorderDocumentFilesRequestSchema>;
 
 // PATCH /api/documents/:id/files/:fileId — what one file says about itself: the quadrilateral its
-// content sits in, and the order its own pages are read in (docs/03 §3.3.16). `null` clears either,
-// and the file goes back to what arrived — neither is ever a change to the bytes.
+// content sits in, which way up it lies, the order its own pages are read in and which way up each
+// of those lies (docs/03 §3.3.16). `null` clears any of them and the file goes back to what arrived
+// — none of them is ever a change to the bytes.
 //
-// Both keys are optional and a body naming neither is refused: "change nothing" is not an edit, and
-// a PATCH that quietly did nothing would look exactly like one that worked. In practice a body
-// names one of the two — only an image is cropped and only a PDF has pages to order, so no file can
-// take both.
+// Every key is optional and a body naming none is refused: "change nothing" is not an edit, and a
+// PATCH that quietly did nothing would look exactly like one that worked. In practice a body names
+// the pair its file has — an image is cropped and turned as one picture, a PDF has pages to order
+// and to turn one at a time — so no file can take all four.
 export const updateDocumentFileRequestSchema = z
   .object({
     crop: cropSchema.nullable().optional(),
+    rotation: rotationSchema.nullable().optional(),
     pageOrder: pageOrderSchema.nullable().optional(),
+    pageRotations: pageRotationsSchema.nullable().optional(),
   })
-  .refine((body) => body.crop !== undefined || body.pageOrder !== undefined, {
-    message: 'Name at least one of crop or pageOrder',
-  });
+  .refine(
+    (body) =>
+      body.crop !== undefined ||
+      body.rotation !== undefined ||
+      body.pageOrder !== undefined ||
+      body.pageRotations !== undefined,
+    { message: 'Name at least one of crop, rotation, pageOrder or pageRotations' },
+  );
 export type UpdateDocumentFileRequest = z.infer<typeof updateDocumentFileRequestSchema>;
 
 // GET /api/documents/:id/files/:fileId/crop-suggestion — a proposal, stored only if the client saves

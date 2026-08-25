@@ -43,8 +43,10 @@ function fileOf(id: string, overrides: Partial<DocumentFileDto> = {}): DocumentF
     isImage: false,
     crop: null,
     cropSource: 'NONE',
+    rotation: null,
     // The pages as they arrived, and nobody has counted them (docs/03 §3.3.16).
     pageOrder: null,
+    pageRotations: null,
     pageCount: null,
     refs: [
       { libraryId: LIBRARY_ID, libraryName: 'Invoices', path: 'a/rental.pdf', status: 'HASHED' },
@@ -1856,7 +1858,7 @@ describe('DocumentViewerScreen', () => {
         expect(sent).toBeNull();
         await userEvent.click(screen.getByRole('button', { name: PAGES.save }));
 
-        await waitFor(() => expect(sent).toEqual({ pageOrder: [1, 0, 2] }));
+        await waitFor(() => expect(sent).toEqual({ pageOrder: [1, 0, 2], pageRotations: null }));
         expect(await screen.findByText(PAGES.saved)).toBeInTheDocument();
       });
 
@@ -1912,6 +1914,48 @@ describe('DocumentViewerScreen', () => {
         await waitFor(() =>
           expect(screen.queryByText(enMessages.viewer.files.rearranged)).toBeNull(),
         );
+      });
+
+      // Which way up the file lies, said on the row beside Cropped and Rearranged and on the same
+      // terms (docs/11 §11.5a).
+      it('wears a Turned tag for an image somebody stood upright', async () => {
+        await openPages({
+          ...detail,
+          files: [
+            fileOf(FIRST_FILE, {
+              name: 'lease.pdf',
+              mimeType: 'image/jpeg',
+              ext: 'jpg',
+              isImage: true,
+              rotation: { quarterTurns: 1, mirrored: false },
+            }),
+          ],
+        });
+
+        expect(screen.getByText(enMessages.viewer.files.turned)).toBeInTheDocument();
+      });
+
+      it('wears one for a PDF with a page on its side', async () => {
+        await openPages({
+          ...detail,
+          files: [
+            fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3, pageRotations: [0, 3, 0] }),
+          ],
+        });
+
+        expect(screen.getByText(enMessages.viewer.files.turned)).toBeInTheDocument();
+      });
+
+      it('wears none while every page stands the way it arrived', async () => {
+        // A stored list in which nothing is turned is not a turn: the file reads as it arrived.
+        await openPages({
+          ...detail,
+          files: [
+            fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3, pageRotations: [0, 0, 0] }),
+          ],
+        });
+
+        expect(screen.queryByText(enMessages.viewer.files.turned)).toBeNull();
       });
     });
 

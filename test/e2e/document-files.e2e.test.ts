@@ -467,6 +467,57 @@ describe('Document files (e2e)', () => {
       expect(expectError(res).code).toBe('FILE_NOT_IMAGE');
     });
 
+    // Which way up the paper lay, sent beside the crop it belongs with (docs/07 §7.3).
+    it('takes the crop and the turn of one picture as one edit and one rebuild', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({
+        files: [{ name: 'sideways.jpg', mimeType: 'image/jpeg', ext: 'jpg' }],
+      });
+      const fileId = fileIds[0] ?? '';
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileId}`, {
+          crop,
+          rotation: { quarterTurns: 1, mirrored: true },
+        })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      expect(expectData(res, documentDetailDtoSchema).files[0]).toMatchObject({
+        crop,
+        rotation: { quarterTurns: 1, mirrored: true },
+      });
+      // One edit, one rebuild — not one per key (docs/05 §5.6).
+      expect(await processJobs(documentId)).toHaveLength(1);
+
+      const cleared = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileId}`, { rotation: null })
+        .set('Cookie', adminCookie);
+      expect(expectData(cleared, documentDetailDtoSchema).files[0]).toMatchObject({
+        crop,
+        rotation: null,
+      });
+    });
+
+    it('refuses to turn a PDF as if it were one picture, and a turn that is not a quarter', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument();
+
+      const notImage = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileIds[0]}`, {
+          rotation: { quarterTurns: 1, mirrored: false },
+        })
+        .set('Cookie', adminCookie);
+      expect(notImage.status).toBe(422);
+      expect(expectError(notImage).code).toBe('FILE_NOT_IMAGE');
+
+      const nonsense = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileIds[0]}`, {
+          rotation: { quarterTurns: 5, mirrored: false },
+        })
+        .set('Cookie', adminCookie);
+      expect(nonsense.status).toBe(422);
+      expect(expectError(nonsense).code).toBe('VALIDATION_FAILED');
+    });
+
     it('proposes corners for an image without storing them', async () => {
       const image = await sharp({
         create: { width: 200, height: 150, channels: 3, background: '#ffffff' },
@@ -571,6 +622,69 @@ describe('Document files (e2e)', () => {
 
       expect(res.status).toBe(422);
       expect(expectError(res).code).toBe('FILE_NOT_PDF');
+    });
+
+    it('stores one turn per page, clears them again, and refuses the wrong list', async () => {
+      const { documentId, fileIds } = await givenLibraryDocument({ files: [{ name: 'scan.pdf' }] });
+      const fileId = fileIds[0] ?? '';
+      await givenCountedPages(fileId, 3);
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileId}`, { pageRotations: [0, 1, 0] })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      expect(expectData(res, documentDetailDtoSchema).files[0]).toMatchObject({
+        pageRotations: [0, 1, 0],
+        pageCount: 3,
+      });
+      // Every composition change enqueues the same rebuild (docs/05 §5.6).
+      expect(await processJobs(documentId)).toHaveLength(1);
+
+      // Too short, too long, and a turn that is not a quarter of anything.
+      for (const pageRotations of [
+        [0, 1],
+        [0, 1, 0, 0],
+        [0, 4, 0],
+      ]) {
+        const refused = await api(app)
+          .patch(`/api/documents/${documentId}/files/${fileId}`, { pageRotations })
+          .set('Cookie', adminCookie);
+        expect(refused.status).toBe(422);
+        expect(expectError(refused).code).toBe('VALIDATION_FAILED');
+      }
+      expect((await detailOf(documentId)).files[0]?.pageRotations).toEqual([0, 1, 0]);
+
+      const cleared = await api(app)
+        .patch(`/api/documents/${documentId}/files/${fileId}`, { pageRotations: null })
+        .set('Cookie', adminCookie);
+
+      // Nothing to undo: the file was never rewritten (docs/03 §3.3.16).
+      expect(expectData(cleared, documentDetailDtoSchema).files[0]).toMatchObject({
+        pageRotations: null,
+      });
+    });
+
+    it('refuses turns for a file whose pages nothing has counted yet, and for one with no pages', async () => {
+      const fresh = await givenLibraryDocument({ files: [{ name: 'fresh.pdf' }] });
+      const uncounted = await api(app)
+        .patch(`/api/documents/${fresh.documentId}/files/${fresh.fileIds[0]}`, {
+          pageRotations: [0],
+        })
+        .set('Cookie', adminCookie);
+      expect(uncounted.status).toBe(422);
+      expect(expectError(uncounted).code).toBe('VALIDATION_FAILED');
+
+      const photo = await givenLibraryDocument({
+        files: [{ name: 'photo.jpg', mimeType: 'image/jpeg', ext: 'jpg' }],
+      });
+      const notPdf = await api(app)
+        .patch(`/api/documents/${photo.documentId}/files/${photo.fileIds[0]}`, {
+          pageRotations: [0],
+        })
+        .set('Cookie', adminCookie);
+      expect(notPdf.status).toBe(422);
+      expect(expectError(notPdf).code).toBe('FILE_NOT_PDF');
     });
 
     it('redirects one page of an original to a signed URL of the picture in the bucket', async () => {

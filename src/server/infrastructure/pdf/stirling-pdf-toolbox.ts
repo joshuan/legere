@@ -32,6 +32,7 @@ const ENDPOINTS = {
   ocr: '/api/v1/misc/ocr-pdf',
   imagesToPdf: '/api/v1/convert/img/pdf',
   rearrangePages: '/api/v1/general/rearrange-pages',
+  rotatePages: '/api/v1/general/rotate-pdf',
   mergePdfs: '/api/v1/general/merge-pdfs',
   updateMetadata: '/api/v1/misc/update-metadata',
   pageCount: '/api/v1/analysis/page-count',
@@ -58,6 +59,8 @@ const TIMEOUTS_MS: Record<keyof typeof ENDPOINTS, number> = {
   imagesToPdf: 5 * 60_000,
   // Rewriting a page tree: the pages are copied by reference, not re-rendered.
   rearrangePages: 2 * 60_000,
+  // Rewriting one entry of each page dictionary — cheaper still than rearranging them.
+  rotatePages: 2 * 60_000,
   mergePdfs: 5 * 60_000,
   // Rewriting a metadata dictionary; anything slower is a container in trouble.
   updateMetadata: 60_000,
@@ -181,6 +184,54 @@ export class StirlingPdfToolbox extends PdfToolbox {
     form.append('pageNumbers', order.map((index) => index + 1).join(','));
     form.append('customMode', 'CUSTOM');
     return this.postForBytes('rearrangePages', form);
+  }
+
+  // 🔒 Stirling's rotate takes one angle for a whole document, and a scan whose pages disagree is
+  // exactly the case this exists for (docs/05 §5.5 step 1.1). So one copy is made per angle actually
+  // asked for — three at the very most — and each page is picked out of the copy that holds it
+  // upright, which is a merge and a rearrange. Five calls in the worst case and one in the common
+  // one, whatever the page count, and every one of them a page-tree rewrite rather than a render;
+  // the alternative — a call per page — would be forty calls for a forty-page scan.
+  async rotatePages(source: BinarySource, rotations: readonly number[]): Promise<Buffer> {
+    if (rotations.length === 0) throw new Error('rotatePages needs at least one page');
+    const original = await toBuffer(source);
+
+    // The distinct angles, in a fixed order so the same file is always assembled the same way.
+    const angles = [...new Set(rotations)].filter((turn) => turn !== 0).sort((a, b) => a - b);
+    if (angles.length === 0) return original;
+
+    // Every page turned the same way and none left straight: the copy *is* the answer, and nothing
+    // has to be taken apart to reach it.
+    if (angles.length === 1 && !rotations.includes(0)) {
+      return this.rotateWhole(original, angles[0] ?? 0);
+    }
+
+    // Variant 0 is the file as it arrived; the rest are it turned. A variant nobody's page comes
+    // from is never asked for.
+    const variants = [original];
+    const variantOf = new Map<number, number>([[0, 0]]);
+    for (const angle of angles) {
+      variantOf.set(angle, variants.length);
+      variants.push(await this.rotateWhole(original, angle));
+    }
+
+    const merged = await this.mergePdfs(variants);
+    // Page `page` of variant `v` sits at `v * pageCount + page` in the merge, and the rearrange
+    // takes exactly one page per page of the original, in the original's own order.
+    const pageCount = rotations.length;
+    return this.rearrangePages(
+      merged,
+      rotations.map((turn, page) => (variantOf.get(turn) ?? 0) * pageCount + page),
+    );
+  }
+
+  // One angle over every page of a document. Stirling *adds* it to each page's own rotation, which
+  // is what makes a person's turn a turn on top of what the scanner already said.
+  private async rotateWhole(pdf: Buffer, quarterTurns: number): Promise<Buffer> {
+    const form = new FormData();
+    form.append('fileInput', await blobOf(pdf), 'input.pdf');
+    form.append('angle', String((quarterTurns % 4) * 90));
+    return this.postForBytes('rotatePages', form);
   }
 
   async mergePdfs(parts: readonly BinarySource[]): Promise<Buffer> {

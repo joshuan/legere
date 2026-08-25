@@ -110,6 +110,50 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
     expect(text.indexOf('SECOND')).toBeLessThan(text.indexOf('THIRD'));
   });
 
+  itWithStirling(
+    'stands the pages that lie sideways up and leaves the rest alone',
+    async () => {
+      // What step 1.1 does with a file that carries page turns (docs/05 §5.5 step 1.1): the second
+      // page turned a quarter clockwise, the other two left as they arrived. Stirling's rotate takes
+      // one angle for a whole document, so this is the call that proves the port can hand back a
+      // file whose pages disagree.
+      const turned = await pdfs.rotatePages(pdfWithText(['ONE', 'TWO', 'THREE']), [0, 1, 0]);
+
+      expect(await pdfs.pdfPageCount(turned)).toBe(3);
+      // The pages are still the same pages, in the same order — only their orientation moved.
+      const text = await pdfs.pdfToMarkdown(turned);
+      expect(text.indexOf('ONE')).toBeLessThan(text.indexOf('TWO'));
+      expect(text.indexOf('TWO')).toBeLessThan(text.indexOf('THREE'));
+
+      const [first, second, third] = await Promise.all([
+        shapeOf(pdfs, turned, 1),
+        shapeOf(pdfs, turned, 2),
+        shapeOf(pdfs, turned, 3),
+      ]);
+      // The one that was turned came out landscape; the two that were not are still portrait.
+      expect(second.width).toBeGreaterThan(second.height);
+      expect(first.height).toBeGreaterThan(first.width);
+      expect(third.height).toBeGreaterThan(third.width);
+    },
+    120_000,
+  );
+
+  itWithStirling(
+    'turns every page in one call when they all agree, and none at all when none is turned',
+    async () => {
+      const source = pdfWithText(['ONE', 'TWO']);
+
+      const all = await pdfs.rotatePages(source, [1, 1]);
+      const shape = await shapeOf(pdfs, all, 1);
+      expect(shape.width).toBeGreaterThan(shape.height);
+
+      // Nothing asked for is nothing done: the very bytes that went in come back out, which is what
+      // keeps a file nobody has turned from being rewritten for no reason.
+      expect(await pdfs.rotatePages(source, [0, 0])).toEqual(source);
+    },
+    120_000,
+  );
+
   itWithStirling('stamps the title and the date into the metadata', async () => {
     const stamped = await pdfs.stampMetadata(pdfWithText(['A page']), {
       title: 'Lease agreement',
@@ -146,6 +190,18 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
     );
   });
 });
+
+// The shape one page presents, read off a render of it: which way up a page lies is a fact about
+// the picture it makes, and nothing shorter than rendering it says so honestly (docs/05 §5.5).
+async function shapeOf(
+  toolbox: StirlingPdfToolbox,
+  pdf: Buffer,
+  page: number,
+): Promise<{ width: number; height: number }> {
+  const jpeg = await toolbox.pdfPageJpg(pdf, { page, dpi: 50 });
+  const meta = await sharp(jpeg).metadata();
+  return { width: meta.width ?? 0, height: meta.height ?? 0 };
+}
 
 function colorImage(background: string, width: number, height: number): Promise<Buffer> {
   return sharp({ create: { width, height, channels: 3, background } })

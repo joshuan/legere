@@ -194,4 +194,126 @@ describe('UpdateDocumentFile: the order of the pages inside one file', () => {
 
     expect(error.code).toBe('FILE_NOT_IMAGE');
   });
+
+  // Which way up the paper lay (docs/03 §3.3.16, docs/07 §7.3): the same shape of edit as the crop
+  // and the page order beside it, refused on the same terms, and never a change to the bytes.
+  describe('which way up it lies', () => {
+    it('stores an image turn and enqueues the same rebuild', async () => {
+      const detail = given({ mimeType: 'image/jpeg', ext: 'jpg', name: 'photo.jpg' });
+
+      await update.execute(VIEWER, detail, PDF_FILE, {
+        rotation: { quarterTurns: 1, mirrored: true },
+      });
+
+      expect(files.files.get(PDF_FILE)?.rotation).toEqual({ quarterTurns: 1, mirrored: true });
+      expect(queue.enqueued).toEqual([
+        { name: 'document-process', payload: { documentId: DOCUMENT_ID } },
+      ]);
+      // The journal says it in degrees, which is how a person says it out loud.
+      expect(events.events.at(0)?.payload).toMatchObject({
+        path: 'photo.jpg',
+        changes: { rotation: { from: null, to: '90° mirrored' } },
+      });
+    });
+
+    it('clears an image turn back to the way it arrived', async () => {
+      const detail = given({
+        mimeType: 'image/jpeg',
+        ext: 'jpg',
+        name: 'photo.jpg',
+        rotation: { quarterTurns: 2, mirrored: false },
+      });
+
+      await update.execute(VIEWER, detail, PDF_FILE, { rotation: null });
+
+      // Nothing to undo: the turn was an instruction beside bytes nobody rewrote (docs/03 §3.3.16).
+      expect(files.files.get(PDF_FILE)?.rotation).toBeNull();
+    });
+
+    it('refuses to turn a PDF as if it were one picture', async () => {
+      const detail = given();
+
+      const error = await refused(detail, { rotation: { quarterTurns: 1, mirrored: false } });
+
+      // A PDF's pages are turned one at a time — an image has one turn and a PDF has a list.
+      expect(error.code).toBe('FILE_NOT_IMAGE');
+      expect(files.files.get(PDF_FILE)?.rotation).toBeNull();
+    });
+
+    it('stores one turn per page of a PDF, and clears them again', async () => {
+      const detail = given();
+
+      await update.execute(VIEWER, detail, PDF_FILE, { pageRotations: [0, 1, 0] });
+      expect(files.files.get(PDF_FILE)?.pageRotations).toEqual([0, 1, 0]);
+      expect(events.events.at(0)?.payload).toMatchObject({
+        changes: { pageRotations: { from: null, to: '0°, 90°, 0°' } },
+      });
+
+      await update.execute(VIEWER, detail, PDF_FILE, { pageRotations: null });
+      expect(files.files.get(PDF_FILE)?.pageRotations).toBeNull();
+    });
+
+    it('refuses a list of turns that is not exactly the pages of that file', async () => {
+      const detail = given({ pageRotations: [0, 1, 0] });
+
+      for (const pageRotations of [
+        [0, 1],
+        [0, 1, 0, 0],
+      ]) {
+        expect((await refused(detail, { pageRotations })).code).toBe('VALIDATION_FAILED');
+      }
+
+      // A refusal changes nothing: what was there is what is there.
+      expect(files.files.get(PDF_FILE)?.pageRotations).toEqual([0, 1, 0]);
+      expect(queue.enqueued).toHaveLength(0);
+    });
+
+    it('refuses turns for a file whose pages nothing has counted yet', async () => {
+      const detail = given({ pageCount: null });
+
+      const error = await refused(detail, { pageRotations: [0, 1, 0] });
+
+      expect(error.code).toBe('VALIDATION_FAILED');
+      expect(files.files.get(PDF_FILE)?.pageRotations).toBeNull();
+    });
+
+    it('refuses to turn the pages of something that has none', async () => {
+      const detail = given({ mimeType: 'image/jpeg', ext: 'jpg', name: 'photo.jpg' });
+
+      expect((await refused(detail, { pageRotations: [0] })).code).toBe('FILE_NOT_PDF');
+    });
+
+    it('takes a crop and a turn together as one edit and one rebuild', async () => {
+      const detail = given({ mimeType: 'image/jpeg', ext: 'jpg', name: 'photo.jpg' });
+
+      await update.execute(VIEWER, detail, PDF_FILE, {
+        crop: {
+          points: [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+          ],
+        },
+        rotation: { quarterTurns: 3, mirrored: false },
+      });
+
+      expect(files.files.get(PDF_FILE)?.crop).not.toBeNull();
+      expect(files.files.get(PDF_FILE)?.rotation).toEqual({ quarterTurns: 3, mirrored: false });
+      expect(queue.enqueued).toHaveLength(1);
+    });
+
+    it('refuses a body naming none of the four, before it reaches the file at all', () => {
+      expect(updateDocumentFileRequestSchema.safeParse({}).success).toBe(false);
+      expect(updateDocumentFileRequestSchema.safeParse({ rotation: null }).success).toBe(true);
+      expect(updateDocumentFileRequestSchema.safeParse({ pageRotations: null }).success).toBe(true);
+      // And the four values a quarter turn may take, and no fifth.
+      expect(updateDocumentFileRequestSchema.safeParse({ pageRotations: [4] }).success).toBe(false);
+      expect(
+        updateDocumentFileRequestSchema.safeParse({
+          rotation: { quarterTurns: 4, mirrored: false },
+        }).success,
+      ).toBe(false);
+    });
+  });
 });

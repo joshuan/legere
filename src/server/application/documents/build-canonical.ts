@@ -4,7 +4,12 @@ import { classifyFormat } from '../../domain/entities/document-format';
 import { pageGeometryOf, type SourceShape } from '../../domain/entities/document-page-geometry';
 import { hasUsableTextLayer } from '../../domain/entities/document-text';
 import { ocrLanguagesOf } from '../../domain/entities/document-language';
-import { effectivePageOrder, type File } from '../../domain/entities/file';
+import {
+  effectivePageOrder,
+  effectivePageRotations,
+  effectiveRotation,
+  type File,
+} from '../../domain/entities/file';
 import type { DocumentFile, FileRepository } from '../../domain/repositories/file.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
@@ -119,19 +124,29 @@ export class BuildCanonical {
         file.crop === null
           ? await toBuffer(await this.open(file))
           : await this.images.applyCrop(await this.open(file), file.crop);
-      // 🔒 And the correction after the crop, never before it. The crop decides what the page *is*:
-      // a photograph carries the desk it was lying on, and lighting levelled over the desk levels
-      // the desk — the paper's own shading is then read as part of a much wider range and barely
-      // touched. The crop also straightens the sheet, so what skew is left after it is the skew of
-      // the page rather than of the snapshot (docs/05 §5.5 step 1, §5.6).
-      const corrected = this.settings.correctImagePages ? await this.correct(framed) : null;
-      const page = corrected ?? framed;
-      // Measured after both, because that is what the page will be: a photograph taken at an angle
-      // and straightened to the paper's own corners is a sheet, whatever the snapshot was.
+      // 🔒 The turn after the crop, never before it: the stored quadrilateral is in the pixels that
+      // arrived, so turning first would leave every corner somebody dragged pointing at a different
+      // part of the page (docs/05 §5.6).
+      const turn = effectiveRotation(file);
+      const stood = turn === null ? framed : await this.images.applyRotation(framed, turn);
+      // 🔒 And the correction after both. The crop decides what the page *is*: a photograph carries
+      // the desk it was lying on, and lighting levelled over the desk levels the desk — the paper's
+      // own shading is then read as part of a much wider range and barely touched. The crop also
+      // straightens the sheet, so what skew is left after it is the skew of the page rather than of
+      // the snapshot. And the deskew reads the *rows* of a page, which on a sheet still lying
+      // sideways run down it instead of across it (docs/05 §5.5 step 1, §5.6).
+      const corrected = this.settings.correctImagePages ? await this.correct(stood) : null;
+      const page = corrected ?? stood;
+      // Measured after all three, because that is what the page will be: a photograph taken at an
+      // angle, straightened to the paper's own corners and stood upright is a sheet, whatever the
+      // snapshot was.
       const shape = await this.images.dimensions(page);
       return {
         pdf: await this.pdfs.imagesToPdf([
-          { body: page, fileName: pageNameOf(file, file.crop !== null || corrected !== null) },
+          {
+            body: page,
+            fileName: pageNameOf(file, file.crop !== null || turn !== null || corrected !== null),
+          },
         ]),
         shape,
       };
@@ -148,8 +163,8 @@ export class BuildCanonical {
     return null;
   }
 
-  // A PDF is already pages, so the part is the file — read in the order the file records, where it
-  // records one (docs/05 §5.5 step 1.1).
+  // A PDF is already pages, so the part is the file — stood the way up and read in the order the
+  // file records, where it records either (docs/05 §5.5 step 1.1).
   //
   // Its pages are counted here, every build, and the number written onto the row: this is the one
   // moment anything opens the file, and knowing how many pages it holds is what lets an edit refuse
@@ -164,9 +179,15 @@ export class BuildCanonical {
     const pageCount = await this.pdfs.pdfPageCount(bytes);
     if (pageCount !== file.pageCount) await this.files.recordPageCount(file.id, pageCount);
 
+    // Turned first, then reordered: both name the pages by the index they arrived under, and doing
+    // the turn while that is still the sequence is what keeps one index meaning one thing
+    // (docs/05 §5.5 step 1.1).
+    const turns = effectivePageRotations(file, pageCount);
+    const stood = turns === null ? bytes : await this.pdfs.rotatePages(bytes, turns);
+
     const order = effectivePageOrder(file, pageCount);
-    if (order === null) return bytes;
-    return this.pdfs.rearrangePages(bytes, order);
+    if (order === null) return stood;
+    return this.pdfs.rearrangePages(stood, order);
   }
 
   // Levelling the lighting and taking out the skew, best-effort like the format and the stamping

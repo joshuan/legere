@@ -447,6 +447,16 @@ model File {
   name        String
   crop        Json?
   cropSource  ValueSource @default(NONE) @map("crop_source")
+  // What one file says about itself besides its bytes (03 §3.3.16), none of it ever a change to
+  // them: the quadrilateral above, which way up it lies, the order its own pages are read in and
+  // which way up each of those lies. `rotation` is `{ quarterTurns, mirrored }` and belongs to an
+  // image; `pageOrder` is a permutation of the 0-based page indices and `pageRotations` one quarter
+  // turn per page, and both belong to a PDF. `pageCount` is what the last canonical build counted,
+  // and what the two lists are checked against. Null everywhere means "the way it arrived".
+  rotation      Json?
+  pageOrder     Json?        @map("page_order")
+  pageRotations Json?        @map("page_rotations")
+  pageCount     Int?         @map("page_count")
   // In the trash since, and how it got there (05 §5.7a). A file is in exactly one document or in
   // the trash; `replaced_by_id` is the file that took its place, for the versions of a page.
   trashedAt     DateTime?    @map("trashed_at") @db.Timestamptz(6)

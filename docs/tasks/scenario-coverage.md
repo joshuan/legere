@@ -182,6 +182,8 @@ standard lists them.
 | the crop is a quadrilateral applied as a perspective transform | `src/server/domain/entities/crop-geometry.test.ts` — maps a skewed quad onto a rectangle |
 | corners are detected, and fall back to the content box | `src/server/domain/entities/page-detection.test.ts` — finds a rotated page; answers nothing for a frame with no page in it |
 | a MANUAL crop survives a rebuild | `test/e2e/document-files.e2e.test.ts` — a rebuild does not overwrite a crop somebody dragged |
+| a turn is an instruction beside a file, never a rewrite of it | `test/integration/canonical-build.integration.test.ts` — stands one page of a scan upright without touching the file; rebuilds to the pages as they arrived once the turn is cleared |
+| an image's turn is applied after its crop, a PDF's page turns before the merge | `src/server/application/documents/build-canonical.test.ts` — turns the page after cropping it, so the stored quadrilateral still means what it meant; turns the pages before it puts them in order, so one index means one thing |
 | a document with a missing original still serves its canonical | `test/e2e/document-files.e2e.test.ts` — the canonical downloads while the volume is gone |
 
 ## API

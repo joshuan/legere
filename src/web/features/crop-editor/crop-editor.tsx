@@ -10,11 +10,21 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import type { Crop, DocumentFileDto } from '../../../shared/contracts/documents';
+import {
+  isIdentityRotation,
+  turnedQuad,
+  turnedRotation,
+  unturnedQuad,
+  type Crop,
+  type DocumentFileDto,
+  type Rotation,
+  type Turn,
+} from '../../../shared/contracts/documents';
 import type { CropSuggestionResponse } from '../../../shared/contracts/files';
 import { useErrorMessage } from '../../shared/lib';
 import { cropApi } from './api';
 import { Loupe } from './loupe';
+import { shownImageSize, shownSize, shownWidth, turnTransform } from './turn-layout';
 import { useImageFrame } from './use-image-frame';
 
 // The crop editor of docs/11 §11.5c: the image at the largest size that fits, four corners joined by
@@ -35,6 +45,15 @@ const FULL_FRAME: CropPoints = [
 // Clockwise from the top-left (docs/05 §5.6) — the order the contract fixes, used for React keys so
 // they say which corner they are.
 const CORNER_KEYS = ['top-left', 'top-right', 'bottom-right', 'bottom-left'] as const;
+
+// One press of a button, as a turn of the page in front of the person pressing it. Applied to the
+// points the editor is holding, which is what keeps a corner on the bit of paper it was put on
+// (docs/11 §11.5c).
+const GESTURES: Record<Turn, Rotation> = {
+  LEFT: { quarterTurns: 3, mirrored: false },
+  RIGHT: { quarterTurns: 1, mirrored: false },
+  MIRROR: { quarterTurns: 0, mirrored: true },
+};
 
 // The last two pixels of a corner are not a mouse gesture (docs/11 §11.5c).
 const ARROW_STEPS: Record<string, CropPoint | undefined> = {
@@ -85,10 +104,15 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
   const imageRef = useRef<HTMLImageElement>(null);
   const { frame, measure } = useImageFrame(imageRef, open);
 
+  // 🔒 The points are in the orientation on the screen, not the one the file is stored in: a corner
+  // is dragged onto the page a person is looking at. They are turned back on the way out, because
+  // the build applies the crop first and the turn after it (docs/05 §5.6).
   const [points, setPoints] = useState<CropPoints>(FULL_FRAME);
   // Whether Save means "clear this crop". A file that arrives without one starts here, so opening
   // the editor and saving it untouched is the no-op it looks like rather than a full-frame crop.
   const [cleared, setCleared] = useState(true);
+  // Which way up the page is being read. Sent with the crop — one edit, one rebuild.
+  const [rotation, setRotation] = useState<Rotation | null>(null);
   const [proposal, setProposal] = useState<CropSuggestionResponse['method'] | null>(null);
   const dragging = useRef<number | null>(null);
 
@@ -138,8 +162,11 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
   const [editing, setEditing] = useState<string | null>(null);
   if (open && editing !== file.id) {
     setEditing(file.id);
-    setPoints(file.crop === null ? FULL_FRAME : file.crop.points);
+    // Turned on the way in: what is stored is against the pixels that arrived, and what is drawn is
+    // the page as it will be read (docs/11 §11.5c).
+    setPoints(file.crop === null ? FULL_FRAME : turnedQuad(file.crop.points, file.rotation));
     setCleared(file.crop === null);
+    setRotation(file.rotation);
     setProposal(null);
   }
   if (!open && editing !== null) {
@@ -165,9 +192,10 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
   const suggest = useMutation({
     mutationFn: () => cropApi.suggestion(documentId, file.id),
     // A proposal, dropped into the editor for the person to accept or drag. It never saves by
-    // itself (docs/11 §11.5c).
+    // itself (docs/11 §11.5c). The server found the page in the pixels that arrived, so the answer
+    // is turned into the orientation on the screen like a stored crop.
     onSuccess: (result) => {
-      setPoints(result.crop.points);
+      setPoints(turnedQuad(result.crop.points, rotation));
       setCleared(false);
       setProposal(result.method);
     },
@@ -175,7 +203,13 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
   });
 
   const save = useMutation({
-    mutationFn: () => cropApi.save(documentId, file.id, { crop: cleared ? null : { points } }),
+    mutationFn: () =>
+      cropApi.save(documentId, file.id, {
+        // Turned back on the way out, and both in one request: the crop and the turn are one edit
+        // and therefore one rebuild (docs/07 §7.3).
+        crop: cleared ? null : { points: unturnedQuad(points, rotation) },
+        rotation: isIdentityRotation(rotation) ? null : rotation,
+      }),
     onSuccess: () => {
       // The document is rebuilding, and it can appear in any list — hence the shared prefix.
       void queryClient.invalidateQueries({ queryKey: ['document', documentId] });
@@ -191,6 +225,20 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
     setPoints(FULL_FRAME);
     setCleared(true);
     setProposal(null);
+  };
+
+  // One press of rotate or mirror: the page in front of the person turns, and the quadrilateral
+  // turns with it, so a corner stays on the bit of paper it was put on (docs/11 §11.5c).
+  const turn = (gesture: Turn): void => {
+    setPoints((current) => turnedQuad(current, GESTURES[gesture]));
+    setRotation((current) => turnedRotation(current, gesture));
+  };
+
+  // The sibling of Clear crop: the file reads the way up it arrived, and the points come back out of
+  // the orientation they were turned into (docs/11 §11.5c).
+  const resetTurn = (): void => {
+    setPoints((current) => unturnedQuad(current, rotation));
+    setRotation(null);
   };
 
   const startDrag =
@@ -253,6 +301,11 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
   const corners = points.map(([x, y]) => `${percent(x)},${percent(y)}`);
   const outside = `M0,0 H100 V100 H0 Z M${corners.join(' L')} Z`;
 
+  // The page as it will be read: the picture's own size with the sides swapped where the turn swaps
+  // them, which is what the box, the overlay and the loupe are all measured in (docs/11 §11.5c).
+  const shown = shownSize(natural, rotation);
+  const shownImage = shownImageSize(natural, rotation);
+
   return (
     <Modal
       open={open}
@@ -274,7 +327,18 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
           <Button loading={suggest.isPending} onClick={() => suggest.mutate()}>
             {t('viewer.crop.autoDetect')}
           </Button>
+          {/* Which way up the paper lay — one press, a quarter turn, and the page in front of the
+              person turns with it (docs/11 §11.5c). Buttons like everything else here, and reached
+              with the keyboard like everything else here. Named in words rather than drawn as
+              arrows: an icon beside a label is a second name for one control, and a screen reader
+              would read both. */}
+          <Button onClick={() => turn('LEFT')}>{t('viewer.crop.rotateLeft')}</Button>
+          <Button onClick={() => turn('RIGHT')}>{t('viewer.crop.rotateRight')}</Button>
+          <Button onClick={() => turn('MIRROR')}>{t('viewer.crop.mirror')}</Button>
           <Button onClick={clearCrop}>{t('viewer.crop.reset')}</Button>
+          <Button disabled={isIdentityRotation(rotation)} onClick={resetTurn}>
+            {t('viewer.crop.resetTurn')}
+          </Button>
         </Space>
 
         {proposal !== null && (
@@ -296,6 +360,15 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
               maxWidth: '100%',
               userSelect: 'none',
               touchAction: 'none',
+              // The box is the page as it will be read, so the overlay stretched over it lands on
+              // the paper rather than beside it (docs/11 §11.5c). Until the image has said how large
+              // it is there is nothing to shape it by, and it lays out the way it always has.
+              ...(shownImage === null
+                ? {}
+                : {
+                    width: shownWidth(natural, rotation),
+                    aspectRatio: `${shown.width} / ${shown.height}`,
+                  }),
             }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element -- an API route that streams the
@@ -306,7 +379,22 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
               alt={file.name}
               draggable={false}
               onLoad={handleLoad}
-              style={{ display: 'block', maxWidth: '100%', maxHeight: '60vh' }}
+              style={
+                shownImage === null
+                  ? { display: 'block', maxWidth: '100%', maxHeight: '60vh' }
+                  : {
+                      display: 'block',
+                      position: 'absolute',
+                      left: '50%',
+                      top: '50%',
+                      // Quarter-turned, the picture's width is the box's height and the other way
+                      // round — which a percentage of the box says exactly, and no measurement has
+                      // to be taken to find out.
+                      width: `${shownImage.width}%`,
+                      height: `${shownImage.height}%`,
+                      transform: turnTransform(rotation),
+                    }
+              }
             />
 
             <svg
@@ -365,14 +453,17 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
               />
             ))}
 
-            {/* Beside the corner being placed, inside the image, gone when it is let go. */}
+            {/* Beside the corner being placed, inside the image, gone when it is let go — and in
+                the page's current orientation, because a magnified patch of a page that has since
+                moved is a patch of the wrong paper (docs/11 §11.5c). */}
             {watched !== null && (
               <Loupe
                 image={imageRef}
                 points={points}
                 index={watched}
                 frame={frame}
-                natural={natural}
+                natural={shown}
+                rotation={rotation}
               />
             )}
           </div>

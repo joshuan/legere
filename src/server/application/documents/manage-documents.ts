@@ -551,9 +551,14 @@ export function toFileDto(file: DocumentFileView): DocumentFileDto {
     isImage: isImageFile(file),
     crop: file.crop,
     cropSource: file.cropSource,
-    // The pages inside this file: the order they are read in, and how many of them the last build
-    // counted (docs/03 §3.3.16). Both null for everything that is not a PDF anybody has built from.
+    // Which way up the picture lies (docs/03 §3.3.16); null for everything that is not an image
+    // somebody has turned.
+    rotation: file.rotation,
+    // The pages inside this file: the order they are read in, which way up each of them lies, and
+    // how many of them the last build counted (docs/03 §3.3.16). All null for everything that is not
+    // a PDF anybody has built from.
     pageOrder: file.pageOrder,
+    pageRotations: file.pageRotations,
     pageCount: file.pageCount,
     refs: file.refs,
     // A LIBRARY file has no object at all — its bytes stay on the volume (docs/09 §9.2) — so it has

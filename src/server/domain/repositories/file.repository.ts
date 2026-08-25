@@ -1,4 +1,4 @@
-import type { Crop, PageOrder } from '../../../shared/contracts/documents';
+import type { Crop, PageOrder, PageRotations, Rotation } from '../../../shared/contracts/documents';
 import type {
   FileOrigin,
   FileRefStatus,
@@ -61,12 +61,28 @@ export abstract class FileRepository {
     tx?: TransactionHandle,
   ): Promise<File>;
 
+  // Which way up this image lies, or `null` for the way it arrived (docs/03 §3.3.16). Like a crop:
+  // a number written beside the file, never a change to it.
+  abstract setRotation(
+    id: string,
+    rotation: Rotation | null,
+    tx?: TransactionHandle,
+  ): Promise<File>;
+
   // The order this file's pages are read in, or `null` for the order they arrived in
   // (docs/03 §3.3.16). The caller has already checked that it is a permutation of the pages the
   // file is recorded as having; nothing here rewrites a byte of the file itself.
   abstract setPageOrder(
     id: string,
     pageOrder: PageOrder | null,
+    tx?: TransactionHandle,
+  ): Promise<File>;
+
+  // Which way up each of this file's pages lies, or `null` for the way they arrived. The caller has
+  // already checked that there is one turn per page of the count the file is recorded as having.
+  abstract setPageRotations(
+    id: string,
+    pageRotations: PageRotations | null,
     tx?: TransactionHandle,
   ): Promise<File>;
 

@@ -58,6 +58,7 @@ import remarkGfm from 'remark-gfm';
 import {
   DOCUMENT_STEPS,
   QUALITY_MARKS,
+  isFileTurned,
   type DocumentDetailDto,
   type DocumentEventDto,
   type DocumentEventPage,
@@ -2813,6 +2814,9 @@ function FilesPane({
                       somebody chose, so the list says at a glance which files were touched
                       (docs/11 §11.5a). */}
                   {isRearranged(file) && <Tag color="blue">{t('viewer.files.rearranged')}</Tag>}
+                  {/* And which of them lie a way up they did not arrive in — an image turned as one
+                      picture, or a PDF with a page standing on its side (docs/11 §11.5a). */}
+                  {isFileTurned(file) && <Tag color="blue">{t('viewer.files.turned')}</Tag>}
                 </Space>
               }
               description={

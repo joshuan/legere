@@ -14,6 +14,28 @@ function landscape(width = 1200, height = 800): Promise<Buffer> {
     .toBuffer();
 }
 
+// The same landscape picture with one corner marked, because a rectangle of one colour cannot say
+// which way round it has been turned and a mark in one corner can.
+function markedLandscape(width = 1200, height = 800): Promise<Buffer> {
+  return sharp({ create: { width, height, channels: 3, background: '#ffffff' } })
+    .composite([
+      {
+        input: {
+          create: {
+            width: Math.round(width / 4),
+            height: Math.round(height / 4),
+            channels: 3,
+            background: '#000000',
+          },
+        },
+        left: 0,
+        top: 0,
+      },
+    ])
+    .png()
+    .toBuffer();
+}
+
 // A dark page floating in a wide white border — what a photographed sheet looks like to the scanner.
 function pageOnWhite(): Promise<Buffer> {
   return sharp({ create: { width: 400, height: 400, channels: 3, background: '#ffffff' } })
@@ -231,6 +253,85 @@ describe('SharpImageTool', () => {
     });
   });
 
+  // Which way up the paper lay (docs/03 §3.3.16): the mirror first, then the quarter turns
+  // clockwise, on top of whatever EXIF already said about the file.
+  describe('applyRotation', () => {
+    // Where the one dark corner of the picture ended up. A colour cannot say which way a rectangle
+    // was turned; a mark in one corner can.
+    const markedCorner = async (bytes: Buffer): Promise<string> => {
+      const raw = await sharp(bytes).raw().toBuffer({ resolveWithObject: true });
+      const { width, height, channels } = raw.info;
+      const at = (x: number, y: number): number => raw.data[(y * width + x) * channels] ?? 255;
+      const corners: Array<[string, number]> = [
+        ['top-left', at(4, 4)],
+        ['top-right', at(width - 5, 4)],
+        ['bottom-right', at(width - 5, height - 5)],
+        ['bottom-left', at(4, height - 5)],
+      ];
+      return corners.reduce((darkest, corner) => (corner[1] < darkest[1] ? corner : darkest))[0];
+    };
+
+    it('swaps the sides for a quarter turn and sends the mark round clockwise', async () => {
+      const source = await markedLandscape();
+
+      const right = await images.applyRotation(source, { quarterTurns: 1, mirrored: false });
+      const meta = await sharp(right).metadata();
+      expect(meta.width).toBe(800);
+      expect(meta.height).toBe(1200);
+      expect(await markedCorner(right)).toBe('top-right');
+
+      expect(
+        await markedCorner(
+          await images.applyRotation(source, { quarterTurns: 2, mirrored: false }),
+        ),
+      ).toBe('bottom-right');
+      expect(
+        await markedCorner(
+          await images.applyRotation(source, { quarterTurns: 3, mirrored: false }),
+        ),
+      ).toBe('bottom-left');
+    });
+
+    it('reflects left to right for a mirror, keeping the picture the shape it was', async () => {
+      const mirrored = await images.applyRotation(await markedLandscape(), {
+        quarterTurns: 0,
+        mirrored: true,
+      });
+
+      const meta = await sharp(mirrored).metadata();
+      expect(meta.width).toBe(1200);
+      expect(meta.height).toBe(800);
+      expect(await markedCorner(mirrored)).toBe('top-right');
+    });
+
+    it('mirrors before it turns, which is the order the stored value is defined in', async () => {
+      // Mirror first sends the mark to the top-right; a quarter turn clockwise then sends it to the
+      // bottom-right. Turning first and mirroring after would land it at the top-left instead.
+      const both = await images.applyRotation(await markedLandscape(), {
+        quarterTurns: 1,
+        mirrored: true,
+      });
+
+      expect(await markedCorner(both)).toBe('bottom-right');
+    });
+
+    it('turns on top of EXIF rather than instead of it', async () => {
+      // Orientation 6 is "rotate 90° clockwise on display", so the picture is already 800×1200 as
+      // far as every viewer is concerned; a further quarter turn makes it 1200×800 again. A person
+      // presses rotate on the page they can see (docs/05 §5.5 step 1).
+      const sideways = await sharp(await markedLandscape())
+        .withMetadata({ orientation: 6 })
+        .toBuffer();
+
+      const meta = await sharp(
+        await images.applyRotation(sideways, { quarterTurns: 1, mirrored: false }),
+      ).metadata();
+
+      expect(meta.width).toBe(1200);
+      expect(meta.height).toBe(800);
+    });
+  });
+
   // What a camera does to a page and a scanner does not (docs/05 §5.5 step 1). Measured on one real
   // photograph — a lab report lit from one side — where levelling took the recognised text from 643
   // characters to 768 and gave back three of the nine rows of its results table, which had been
@@ -394,6 +495,9 @@ describe('SharpImageTool', () => {
             [0.1, 0.9],
           ],
         }),
+      ).rejects.toThrow(/pixel limit/);
+      await expect(
+        images.applyRotation(bomb, { quarterTurns: 1, mirrored: false }),
       ).rejects.toThrow(/pixel limit/);
     });
 

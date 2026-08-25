@@ -793,10 +793,20 @@ arrived, and — the order having only ever been an instruction beside bytes nob
 (`03 §3.3.16`) — there is nothing to undo. What happens after any of the three is what the tab
 already says once above the list: changing the files rebuilds the document.
 
-**A file whose pages have been moved says so on its row.** A **Rearranged** tag stands beside
-**Cropped**, on the same terms: it is there while the stored order differs from the one the file
-arrived in, and gone the moment it does not — so a list of forty scans says at a glance which of them
-somebody has already been through.
+**A page is turned where it is arranged.** Under each thumbnail of the strip sit **rotate left** and
+**rotate right**, one page at a time — because a forty-page scan has three pages lying sideways and
+not forty (`03 §3.3.16`) — and the thumbnail turns with them, so what the strip shows is what the
+page will be. The thumbnail itself is still the page of the **original**, asked for by the same
+route and cached under the same key (`07 §7.3`): the picture cannot change, so the strip turns what
+it draws rather than sending anything to be re-rendered. The pending turns ride with the pending
+order: **Save** sends both, **Cancel** puts both back, and **Reset turns** clears the stored ones the
+way **Restore original order** clears the order — `null`, and the pages read the way up they arrived,
+there having never been anything to undo.
+
+**A file that has been moved or turned says so on its row.** A **Rearranged** tag stands beside
+**Cropped**, and a **Turned** tag beside both, all on the same terms: each is there while the stored
+value differs from what the file arrived with, and gone the moment it does not — so a list of forty
+scans says at a glance which of them somebody has already been through.
 
 Every one of these rebuilds the document — the canonical PDF, the preview, the text, the analysis —
 so the tab says so once, quietly, above the list: "Changing the files rebuilds the document." While
@@ -827,14 +837,31 @@ cuts the corner off or keeps the table it is lying on.
 
 - **Auto-detect corners** asks the server (`GET …/crop-suggestion`) and drops the answer into the
   editor for the person to accept or drag. It is a proposal and says so; it never saves by itself.
-- **Reset** clears the crop entirely — the file goes back into the canonical whole.
-- **Save** stores the quadrilateral and rebuilds the document; the modal closes on the answer, not
-  on the click, so a failure is visible where it happened.
+- **Rotate left**, **Rotate right** and **Mirror** say which way up the paper lay — the correction a
+  reader makes in a second, and one this editor is the place for, because "which part of this" and
+  "which way up" are one question about one page. They are buttons like every other control here and
+  are reached with the keyboard like every other control here.
+- **Clear crop** clears the crop entirely — the file goes back into the canonical whole.
+- **Reset turn** clears the turn the same way: it sends `null` and the file reads the way up it
+  arrived, there having never been anything to undo (`03 §3.3.16`).
+- **Save** stores the quadrilateral and the turn together — one edit, one rebuild — and the modal
+  closes on the answer, not on the click, so a failure is visible where it happened.
 - Handles are draggable with a pointer and nudgeable with the arrow keys once focused (1 px, 10 px
   with Shift), because the last two pixels of a corner are not a mouse gesture.
 - The preview inside the modal shows the source image as it is; the perspective correction happens
   when the canonical is built, and the modal says what the result will be ("the page will be
   straightened to a rectangle") rather than pretending to render it.
+- **What it draws turns with the buttons.** The picture, the crop outline, the handles and the loupe
+  all stand in the page's current orientation, because a corner marked on a page that has since moved
+  is a corner in the wrong place. The quadrilateral is still *stored* against the pixels that
+  arrived — that is what lets the build apply the crop first and the turn after it (`05 §5.6`) — so
+  the editor turns the points on the way in and turns them back on the way out, and a person only
+  ever drags corners onto the page they are looking at.
+  🔒 **A turn renames the corners as well as moving them.** A crop is a *list* of four corners
+  clockwise from the top-left (`03 §3.3.16`), and after a quarter turn clockwise the corner that was
+  top-left is the top-right one. Move the points without re-lettering the list and the stored quad
+  carries a second copy of the turn into a build that is about to turn the page again — a quarter
+  turn asked for and a half turn delivered.
 
 **While a corner is being placed, a loupe watches it.** The image is on screen at whatever fits
 under 60 vh, so a photograph three thousand pixels wide arrives at about a fifth of its resolution —

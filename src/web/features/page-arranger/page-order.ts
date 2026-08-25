@@ -41,6 +41,23 @@ export function isRearranged(file: Pick<DocumentFileDto, 'pageOrder'>): boolean 
   return file.pageOrder !== null && !isNaturalOrder(file.pageOrder);
 }
 
+// The pages of a file all standing the way they arrived: 0, 0, 0 … — which is what
+// `pageRotations: null` means (docs/03 §3.3.16).
+export function noTurns(pageCount: number): number[] {
+  return Array.from({ length: pageCount }, () => 0);
+}
+
+export function sameTurns(one: readonly number[], other: readonly number[]): boolean {
+  return one.length === other.length && one.every((turn, index) => turn === other[index]);
+}
+
+// One page turned, the rest left alone. Quarter turns clockwise, wrapping through zero: four presses
+// of the same button bring a page back where it started, which is what a person expects of a thing
+// that turns (docs/11 §11.5a).
+export function turnPage(turns: readonly number[], page: number, step: 1 | -1): number[] {
+  return turns.map((turn, index) => (index === page ? (turn + step + 4) % 4 : turn));
+}
+
 // One page taken out of the order and put back at `to`, the rest closing up behind it — the whole of
 // what both the drag and the arrow keys do. Positions outside the strip are refused rather than
 // clamped: a page at the end asked to move further right stays where it is.

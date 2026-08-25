@@ -481,8 +481,9 @@ not block steps independent of it (no preview — text is still extracted, and v
 ```
 files ──► (1) canonical PDF ──► (2) JPG preview ──► (3) Markdown ──► (4) analysis ──► (5) fields ──► (6) vectorization
             │
-            └─ per file: crop (images) → correct (images) → to PDF → merge in order → text layer
-               → page format → metadata; and step 3 re-reads a recognised document with a vision model
+            └─ per file: crop (images) → turn (images) → correct (images) → to PDF → merge in order
+               → text layer → page format → metadata; and step 3 re-reads a recognised document with
+               a vision model
 ```
 
 All derived artifacts (the canonical PDF, previews, Markdown files) are saved to the private S3 bucket
@@ -494,9 +495,20 @@ they are served to the client via short-lived signed URLs after an access check.
    from the document's files in their order, rebuildable from them at any time. Five passes:
    1. **Each file becomes a PDF part**, `unitConcurrency` of them at a time (§5.4):
       - an image → its crop applied when it has one (a perspective transform of the stored
-        quadrilateral, §5.6), then **corrected** (`IMAGE_PAGE_CORRECTION`, on by default), then one
+        quadrilateral, §5.6), then **turned** when it has a turn, then **corrected**
+        (`IMAGE_PAGE_CORRECTION`, on by default), then one
         page via Stirling `img → pdf` — **on a page the shape of the image**, not on a fixed sheet,
-        and the image's shape is measured after both, because that is what the page will be.
+        and the image's shape is measured after all three, because that is what the page will be.
+        🔒 **The turn comes after the crop and before the correction**, and both halves of that are
+        deliberate. After the crop, because the stored quadrilateral is in the pixels that arrived
+        (`03 §3.3.16`): a turn applied first would leave every corner somebody dragged pointing at a
+        different part of the page. Before the correction, because the deskew reads the *rows* of a
+        page — it shears the ink through ±8° and takes the angle whose row profile has the sharpest
+        steps — and on a page still lying sideways those rows run down the sheet instead of across
+        it, so the search would be looking for lines of text where there are none. The turn is a
+        quarter turn and a mirror (`03 §3.3.16`), applied on top of EXIF rather than instead of it:
+        `sharp` still stands a photograph up the way every viewer stands it up, and a person's turn
+        is a turn on top of that.
         The correction is the two things a camera does to a page and a scanner does not. **The
         lighting is levelled**: the paper of the page is estimated — the brightest pixel around each
         cell of a 128-pixel thumbnail, smoothed into the gradient a lamp makes — and every pixel is
@@ -526,15 +538,26 @@ they are served to the client via short-lived signed URLs after an access check.
       - a PDF → itself, as is; its pages are the part. Its pages are also **counted** here, every
         time, and the number is written onto the file (`03 §3.3.16`) — this is the one moment
         anything in Legere opens that file, and knowing how many pages it holds is what lets an edit
-        refuse a wrong page order later without a round trip of its own. Where the file carries a
-        `pageOrder`, the pages are put into it **before the merge**, through Stirling's
-        page-rearrange endpoint: the part is the file read in that order, and 🔒 **the file itself is
-        untouched** — a `LIBRARY` original lies on a read-only volume (ADR-007) and a `MANAGED`
-        original stays the original, so the order is an instruction this pass obeys and never a
-        rewrite (`03 §3.3.16`). An order that is not a permutation of the pages just counted — a file
-        replaced by different bytes under a stored order, a row written by another version — is
-        ignored and the pages stand as they arrived, on the same reasoning as an unreadable crop:
-        the document is worth more than the correction;
+        refuse a wrong page order later without a round trip of its own. Where the file carries
+        `pageRotations`, the pages that have a turn are **turned first**, through Stirling's rotate
+        endpoint; where it carries a `pageOrder`, the pages are then put into it — both **before the
+        merge**, and 🔒 **the file itself is untouched** either way: a `LIBRARY` original lies on a
+        read-only volume (ADR-007) and a `MANAGED` original stays the original, so both are
+        instructions this pass obeys and never a rewrite (`03 §3.3.16`). Turning before reordering is
+        what lets one index mean one thing: a stored turn and a stored order both name the pages by
+        the index they arrived under, which is also the index the page strip shows and the page-thumb
+        route serves (`07 §7.3`). Stirling's rotate takes one angle for a whole document, so a file
+        whose pages disagree is turned by making one copy per angle asked for — at most three — and
+        picking each page out of the copy that holds it upright: a bounded number of calls whatever
+        the page count, all of them page-tree rewrites rather than renders. A file where every turned
+        page shares one angle and none is left straight is a single call. Nothing is paid for in
+        size: the pages nobody picked are dropped with the copies they came from, and a 3.17 MB scan
+        of photographs measured 3.17 MB after the round trip. The angle is *added* to the page's own
+        `/Rotate` rather than replacing it, so a scanner that already said which way up a page lies
+        keeps saying it. A turn list or an order that does not describe the pages just
+        counted — a file replaced by different bytes under a stored one, a row written by another
+        version — is ignored and the pages stand as they arrived, on the same reasoning as an
+        unreadable crop: the document is worth more than the correction;
       - an office format, plain text or Markdown → Stirling `file → pdf`;
       - a format nothing can render → the file contributes no page, and the step records
         `UNSUPPORTED_FORMAT` as the reason it is incomplete rather than failing the whole document.
@@ -865,7 +888,8 @@ Scenario: a passport photographed into forty images with a phone, at an angle, o
 Forty files, one document — and the person who took them should be able to say so, put them in
 order, straighten each one, and end up with a PDF they would print.
 
-Every operation below changes only the **composition**: which files, in what order, cropped how.
+Every operation below changes only the **composition**: which files, in what order, cropped how and
+which way up.
 Nothing rewrites a file, and every one of them ends by enqueueing a canonical rebuild (§5.5 step 1)
 followed by the rest of the pipeline — because a document whose pages changed is a different
 document to read, search and categorize.
@@ -913,6 +937,17 @@ document to read, search and categorize.
   derived from the quad's own edge lengths, so a page shot from the side comes out flat and
   rectangular. `cropSource` records who chose it, and a crop somebody dragged is never replaced by a
   machine.
+- **Turn.** Which way up the paper lay — the correction a reader makes in a second and could not
+  make at all before this release. An image file carries a `rotation` (03 §3.3.16): a quarter turn
+  and a mirror, which between them name all eight ways a rectangle can lie. A PDF file carries
+  `pageRotations`, one quarter turn per page, because a forty-page scan has three pages lying
+  sideways and not forty. Both are sent whole, like a page order, and a list of turns is checked
+  against the page count the last build recorded — a file no build has opened yet takes none
+  (`07 §7.3`). `null` puts the file back the way it arrived, which costs nothing to say because
+  nothing was ever changed. The build applies an image's turn **after its crop**, so the stored
+  quadrilateral keeps meaning what it meant in the pixels that arrived, and a PDF's page turns
+  **before the merge**, beside the page order (§5.5 step 1.1). Only an image takes a mirror: a page
+  out of a scanner is the right way round, and what goes wrong there is which edge went in first.
 - **Auto-detect corners.** On request the server finds the page in the photograph: the image is
   downscaled, converted to grayscale, differentiated (Sobel), and the dominant near-horizontal and
   near-vertical lines are found by a Hough transform; the four intersections of the two strongest

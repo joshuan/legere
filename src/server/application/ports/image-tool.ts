@@ -1,4 +1,4 @@
-import type { Crop } from '../../../shared/contracts/documents';
+import type { Crop, Rotation } from '../../../shared/contracts/documents';
 import type { GrayscaleRaster } from '../../domain/entities/page-detection';
 import type { BinarySource } from './binary-source';
 
@@ -29,6 +29,14 @@ export abstract class ImageTool {
   // comes out flat and rectangular, at a size taken from the quad's own edges (docs/05 §5.6). The
   // result is a JPEG, ready to become one page of the canonical PDF.
   abstract applyCrop(source: BinarySource, crop: Crop): Promise<Buffer>;
+
+  // Which way up the paper lay, applied: the mirror first and then the quarter turns clockwise
+  // (docs/03 §3.3.16). Run *after* the crop, so the stored quadrilateral keeps meaning what it meant
+  // in the pixels that arrived (docs/05 §5.5 step 1). The result is a JPEG, like a cropped page.
+  //
+  // 🔒 On top of EXIF, never instead of it: a photograph taken sideways is stood up the way every
+  // viewer stands it up, and a person's turn is a turn on top of that.
+  abstract applyRotation(source: BinarySource, rotation: Rotation): Promise<Buffer>;
 
   // The two things a camera does to a page and a scanner does not: it lights it from one side and
   // holds it at an angle (docs/05 §5.5 step 1). Both are undone here, before the picture becomes a

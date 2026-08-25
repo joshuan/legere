@@ -130,6 +130,162 @@ export const MAX_FILE_PAGES = 2000;
 export const pageOrderSchema = z.array(z.number().int().nonnegative()).min(1).max(MAX_FILE_PAGES);
 export type PageOrder = z.infer<typeof pageOrderSchema>;
 
+// --- which way up the paper lay (docs/03 §3.3.16) ---------------------------------------------
+
+// How a rectangle may be laid down. The mirror is applied first, left to right, and the quarter
+// turns clockwise after it; between them the two name all eight orientations, which is why one
+// mirror is enough and a second one would only spell an existing turn differently.
+export const rotationSchema = z.object({
+  quarterTurns: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
+  mirrored: z.boolean(),
+});
+export type Rotation = z.infer<typeof rotationSchema>;
+
+// One quarter turn per page of a PDF, in the file's own page order — checked against the recorded
+// page count where the file is known, exactly as a page order is (docs/07 §7.3).
+export const pageRotationSchema = z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]);
+export type PageRotation = z.infer<typeof pageRotationSchema>;
+
+export const pageRotationsSchema = z.array(pageRotationSchema).min(1).max(MAX_FILE_PAGES);
+export type PageRotations = z.infer<typeof pageRotationsSchema>;
+
+// The way the file arrived: nothing turned, nothing mirrored. Stored as `null` rather than as this,
+// so "clear the turn" and "never turned" are one value in the database.
+export const NO_ROTATION: Rotation = { quarterTurns: 0, mirrored: false };
+
+export function isIdentityRotation(rotation: Rotation | null): boolean {
+  return rotation === null || (rotation.quarterTurns === 0 && !rotation.mirrored);
+}
+
+// What the editor's three buttons do. Each is a turn applied *after* whatever the file already says,
+// which is what makes pressing rotate-right twice a half turn whether or not the page is mirrored:
+// a mirror reverses which way "clockwise" runs, so mirroring turns the stored quarter turns round
+// rather than leaving them to disagree with the picture.
+export type Turn = 'LEFT' | 'RIGHT' | 'MIRROR';
+
+export function turnedRotation(rotation: Rotation | null, turn: Turn): Rotation {
+  const current = rotation ?? NO_ROTATION;
+  if (turn === 'MIRROR') {
+    return {
+      quarterTurns: quarterTurnsOf((4 - current.quarterTurns) % 4),
+      mirrored: !current.mirrored,
+    };
+  }
+  const step = turn === 'RIGHT' ? 1 : 3;
+  return {
+    quarterTurns: quarterTurnsOf((current.quarterTurns + step) % 4),
+    mirrored: current.mirrored,
+  };
+}
+
+// The remainder above is 0…3 by construction; this is where the compiler is told so, without a type
+// assertion (docs/14 §14.2).
+function quarterTurnsOf(value: number): Rotation['quarterTurns'] {
+  if (value === 1) return 1;
+  if (value === 2) return 2;
+  if (value === 3) return 3;
+  return 0;
+}
+
+// A point of the unit square through the same turn, for the editor that draws the page turned while
+// the crop stays stored against the pixels that arrived (docs/11 §11.5c). The mirror first — x
+// reflected — then each quarter turn clockwise, which sends (x, y) to (1 − y, x).
+export function turnedPoint(
+  point: readonly [number, number],
+  rotation: Rotation | null,
+): [number, number] {
+  const turn = rotation ?? NO_ROTATION;
+  let x = turn.mirrored ? 1 - point[0] : point[0];
+  let y = point[1];
+  for (let step = 0; step < turn.quarterTurns; step += 1) {
+    const turnedX = 1 - y;
+    y = x;
+    x = turnedX;
+  }
+  return [tidy(x), tidy(y)];
+}
+
+// 🔒 A corner turned and turned back is the corner it was. Every step above is `1 − v`, and in
+// binary floating point `1 − (1 − 0.1)` is 0.09999999999999998 — so a person who pressed rotate and
+// then reset would silently rewrite four numbers nobody touched. A twelfth decimal of a normalized
+// coordinate is a millionth of a pixel on the largest scan an archive holds, so rounding there
+// costs nothing and makes the two functions exact inverses of one another.
+function tidy(value: number): number {
+  return Math.round(value * 1e12) / 1e12;
+}
+
+// And back again: the same turn undone, so what a person dragged onto the page they were looking at
+// is stored against the page that arrived.
+export function unturnedPoint(
+  point: readonly [number, number],
+  rotation: Rotation | null,
+): [number, number] {
+  const turn = rotation ?? NO_ROTATION;
+  let x = point[0];
+  let y = point[1];
+  for (let step = 0; step < turn.quarterTurns; step += 1) {
+    const unturnedY = 1 - x;
+    x = y;
+    y = unturnedY;
+  }
+  return [tidy(turn.mirrored ? 1 - x : x), tidy(y)];
+}
+
+// 🔒 A turn renames the corners as well as moving them, and a crop is a *list* of four corners
+// clockwise from the top-left (docs/03 §3.3.16). Turn the page a quarter clockwise and the corner
+// that was top-left is the top-right one; leave the list alone and the stored quad would carry a
+// second copy of the turn into the build, which applies the crop and then turns again — a quarter
+// turn asked for and a half turn delivered. So the two functions below move the points *and*
+// re-letter them, which is what makes them exact inverses of one another.
+//
+// Reflected in a mirror the corners swap in pairs — top-left with top-right, bottom-right with
+// bottom-left — which is also what keeps the list wound the way round it was.
+const MIRRORED_CORNERS: readonly [number, number, number, number] = [1, 0, 3, 2];
+
+// Which corner of the page that arrived is drawn at this corner of the page on screen.
+function sourceCorner(rotation: Rotation | null, screenIndex: number): number {
+  const turn = rotation ?? NO_ROTATION;
+  const unturned = (screenIndex - turn.quarterTurns + 4) % 4;
+  return turn.mirrored ? (MIRRORED_CORNERS[unturned] ?? unturned) : unturned;
+}
+
+// And the other way: where on screen this corner of the page that arrived ends up.
+function screenCorner(rotation: Rotation | null, sourceIndex: number): number {
+  const turn = rotation ?? NO_ROTATION;
+  const mirrored = turn.mirrored ? (MIRRORED_CORNERS[sourceIndex] ?? sourceIndex) : sourceIndex;
+  return (mirrored + turn.quarterTurns) % 4;
+}
+
+// A tuple read at a computed index, without an assertion (docs/14 §14.2).
+function cornerAt(points: CropPoints, index: number): readonly [number, number] {
+  if (index === 1) return points[1];
+  if (index === 2) return points[2];
+  if (index === 3) return points[3];
+  return points[0];
+}
+
+type CropPoints = Crop['points'];
+
+// The whole quadrilateral as the page now stands: what an editor draws over a turned picture.
+export function turnedQuad(points: CropPoints, rotation: Rotation | null): CropPoints {
+  return [
+    turnedPoint(cornerAt(points, sourceCorner(rotation, 0)), rotation),
+    turnedPoint(cornerAt(points, sourceCorner(rotation, 1)), rotation),
+    turnedPoint(cornerAt(points, sourceCorner(rotation, 2)), rotation),
+    turnedPoint(cornerAt(points, sourceCorner(rotation, 3)), rotation),
+  ];
+}
+
+// And as the file stores it: against the pixels that arrived, clockwise from *their* top-left.
+export function unturnedQuad(points: CropPoints, rotation: Rotation | null): CropPoints {
+  return [
+    unturnedPoint(cornerAt(points, screenCorner(rotation, 0)), rotation),
+    unturnedPoint(cornerAt(points, screenCorner(rotation, 1)), rotation),
+    unturnedPoint(cornerAt(points, screenCorner(rotation, 2)), rotation),
+    unturnedPoint(cornerAt(points, screenCorner(rotation, 3)), rotation),
+  ];
+}
+
 // A copy of this page that a better one replaced (docs/05 §5.6). It is in the trash, so it is no
 // part of the document — but "what did this page look like before" is a question about the page, and
 // this is where it is answered. Its bytes download from the document's own file-content route, by
@@ -165,11 +321,15 @@ export const documentFileDtoSchema = z.object({
   isImage: z.boolean(),
   crop: cropSchema.nullable(),
   cropSource: valueSourceSchema,
+  // Which way up the image lies (docs/03 §3.3.16); null for the way it arrived. Only an image ever
+  // carries one, exactly as only an image carries a crop.
+  rotation: rotationSchema.nullable(),
   // The pages inside this one file (docs/03 §3.3.16): the order they are read in — null where they
-  // stand as they arrived — and how many of them the last canonical build counted, null until one
-  // has. Only a PDF ever carries either, and the two together are what says whether this row has
-  // pages worth arranging at all.
+  // stand as they arrived — which way up each of them lies, and how many of them the last canonical
+  // build counted, null until one has. Only a PDF ever carries any of the three, and they are what
+  // says whether this row has pages worth arranging at all.
   pageOrder: pageOrderSchema.nullable(),
+  pageRotations: pageRotationsSchema.nullable(),
   pageCount: z.number().int().nonnegative().nullable(),
   // Where the same bytes lie on the volumes the caller can see; empty for a managed file.
   refs: z.array(documentFileRefSchema),
@@ -186,6 +346,15 @@ export const documentFileDtoSchema = z.object({
   earlierVersions: z.array(documentFileVersionSchema),
 });
 export type DocumentFileDto = z.infer<typeof documentFileDtoSchema>;
+
+// Whether this file reads any way up but the one it arrived in — what the **Turned** tag of
+// docs/11 §11.5a is drawn from, on the same terms as **Cropped**: present while the stored value
+// differs from what arrived, gone the moment it does not. A stored turn of nothing at all is not a
+// turn, so a file whose turns were pressed round in a circle stops claiming to be turned.
+export function isFileTurned(file: Pick<DocumentFileDto, 'rotation' | 'pageRotations'>): boolean {
+  if (!isIdentityRotation(file.rotation)) return true;
+  return file.pageRotations !== null && file.pageRotations.some((turn) => turn !== 0);
+}
 
 export const documentSkipReasonsSchema = z.record(documentStepSchema, stepSkipReasonSchema);
 export type DocumentSkipReasons = z.infer<typeof documentSkipReasonsSchema>;

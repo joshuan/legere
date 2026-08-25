@@ -71,8 +71,8 @@
       "LINK_NOT_FOUND": "There is no link between these documents.",
       "LINK_SELF": "A document cannot be linked to itself.",
       "CANONICAL_NOT_READY": "The document is still being assembled. Try again in a moment.",
-      "FILE_NOT_IMAGE": "Only an image can be cropped.",
-      "FILE_NOT_PDF": "Only a PDF has pages to put in order."
+      "FILE_NOT_IMAGE": "Only an image can be cropped or turned as one picture.",
+      "FILE_NOT_PDF": "Only a PDF has pages to put in order and to turn."
     }
   },
   "auth": {
@@ -1091,12 +1091,16 @@
       "autoDetect": "Auto-detect corners",
       "autoDetected": "Corners proposed — drag them if they are off",
       "autoFailed": "Nothing page-shaped found; the content box is proposed instead",
+      "rotateLeft": "Rotate left",
+      "rotateRight": "Rotate right",
+      "mirror": "Mirror",
       "reset": "Clear crop",
+      "resetTurn": "Reset turn",
       "save": "Save and rebuild",
       "cancel": "Cancel",
       "hint": "Drag the corners to the page. It will be straightened to a rectangle when the document is rebuilt.",
       "corner": "Corner {index}",
-      "saved": "Crop saved; the document is rebuilding"
+      "saved": "The page is saved; the document is rebuilding"
     },
     "downloadOriginals": "Download one of the originals",
     "canonical": {
@@ -1117,15 +1121,20 @@
       "missingReason": "the volume no longer has it",
       "cropped": "Cropped",
       "rearranged": "Rearranged",
+      "turned": "Turned",
       "pages": {
         "arrange": "Arrange pages",
         "hint": "Drag a page into place, or move a focused one with the arrow keys.",
         "page": "Page {page}, now {position} of {total}",
+        "rotateLeft": "Turn page {page} left",
+        "rotateRight": "Turn page {page} right",
         "save": "Save",
         "cancel": "Cancel",
         "restore": "Restore original order",
-        "saved": "The page order is saved; the document is being rebuilt.",
-        "restored": "The pages read as they arrived again; the document is being rebuilt."
+        "resetTurns": "Reset turns",
+        "saved": "The pages are saved; the document is being rebuilt.",
+        "restored": "The pages read as they arrived again; the document is being rebuilt.",
+        "turnsRestored": "The pages read the way up they arrived again; the document is being rebuilt."
       },
       "objectStorage": "Object storage",
       "replace": "Replace",

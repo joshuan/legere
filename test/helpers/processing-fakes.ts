@@ -49,6 +49,8 @@ import {
   type DocumentGroupBy,
   type DocumentStep,
   type PageOrder,
+  type PageRotations,
+  type Rotation,
 } from '../../src/shared/contracts/documents';
 import type { StepStatus, TrashReason } from '../../src/shared/contracts/enums';
 import { toBuffer, type BinarySource } from '../../src/server/application/ports/binary-source';
@@ -399,9 +401,12 @@ export function fileFixture(overrides: Partial<File> = {}): File {
     name: 'a.pdf',
     crop: null,
     cropSource: 'NONE',
+    // The way up it arrived, for a file nobody has turned (docs/03 §3.3.16).
+    rotation: null,
     // The pages as they arrived, and nobody has counted them: what every file reads as until a
     // canonical build opens it (docs/03 §3.3.16).
     pageOrder: null,
+    pageRotations: null,
     pageCount: null,
     // Part of a document, which is where a file is unless somebody put it in the trash
     // (docs/05 §5.7a).
@@ -465,10 +470,29 @@ export class InMemoryFileRepository extends FileRepository {
     return Promise.resolve(updated);
   }
 
+  setRotation(id: string, rotation: Rotation | null): Promise<File> {
+    const file = this.files.get(id);
+    if (file === undefined) throw new Error(`No file ${id}`);
+    const updated = { ...file, rotation };
+    this.files.set(id, updated);
+    return Promise.resolve(updated);
+  }
+
   setPageOrder(id: string, pageOrder: PageOrder | null): Promise<File> {
     const file = this.files.get(id);
     if (file === undefined) throw new Error(`No file ${id}`);
     const updated = { ...file, pageOrder: pageOrder === null ? null : [...pageOrder] };
+    this.files.set(id, updated);
+    return Promise.resolve(updated);
+  }
+
+  setPageRotations(id: string, pageRotations: PageRotations | null): Promise<File> {
+    const file = this.files.get(id);
+    if (file === undefined) throw new Error(`No file ${id}`);
+    const updated = {
+      ...file,
+      pageRotations: pageRotations === null ? null : [...pageRotations],
+    };
     this.files.set(id, updated);
     return Promise.resolve(updated);
   }
@@ -944,6 +968,14 @@ export class FakePdfToolbox extends PdfToolbox {
     return Buffer.from(`rearranged(${order.join(',')})(${await describe(source)})`);
   }
 
+  // The pages of one file stood the way up the file records (docs/05 §5.5 step 1.1). Named and
+  // carried like the rearrange above, so a test can see which turns were asked for and — the calls
+  // being recorded in order — that they were asked for before the pages were put in order.
+  async rotatePages(source: BinarySource, rotations: readonly number[]): Promise<Buffer> {
+    this.check('rotatePages', rotations.join(','));
+    return Buffer.from(`rotated(${rotations.join(',')})(${await describe(source)})`);
+  }
+
   // The parts of a document, in position order (docs/05 §5.5 step 1). The result names them, so a
   // reordered merge is visible in an assertion rather than only in a person's document.
   async mergePdfs(parts: readonly BinarySource[]): Promise<Buffer> {
@@ -1040,6 +1072,19 @@ export class FakeImageTool extends ImageTool {
     return this.box;
   }
 
+  // Which way up the paper lay (docs/03 §3.3.16). Like the crop above, the result names what it was
+  // given and how it was turned, so a test can follow one page through the crop *and* the turn and
+  // see which came first.
+  readonly rotations: Array<{ input: string; rotation: Rotation }> = [];
+
+  async applyRotation(source: BinarySource, rotation: Rotation): Promise<Buffer> {
+    const input = await describe(source);
+    this.rotations.push({ input, rotation });
+    if (this.failing) throw new Error('sharp: unsupported image format');
+    const mirror = rotation.mirrored ? 'm' : '';
+    return Buffer.from(`turned(${rotation.quarterTurns}${mirror}):${input}`);
+  }
+
   // Levelling and deskewing (docs/05 §5.5 step 1). What each page was handed to it, and what it
   // answers with — its own switch rather than `failing`, because most of the suite is about other
   // things and a fake that rewrote every page would put its own name in every assertion. `none`,
@@ -1054,8 +1099,13 @@ export class FakeImageTool extends ImageTool {
     return this.correction === 'none' ? null : Buffer.from(`corrected(${input})`);
   }
 
+  // What the shape of the page was read off. The size answered is the same every time — the point
+  // of recording it is *which* picture was measured, because the format of the canonical is decided
+  // from the page as it will be, after the crop and the turn (docs/05 §5.5 step 1).
+  readonly measured: string[] = [];
+
   async dimensions(source: BinarySource): Promise<{ width: number; height: number }> {
-    await describe(source);
+    this.measured.push(await describe(source));
     return this.size;
   }
 

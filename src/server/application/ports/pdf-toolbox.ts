@@ -69,6 +69,17 @@ export abstract class PdfToolbox {
   // original (docs/03 §3.3.16) — a page order is an instruction, never an edit.
   abstract rearrangePages(source: BinarySource, order: readonly number[]): Promise<Buffer>;
 
+  // The pages of one PDF stood the way up the file records, before the merge and before the
+  // reordering (docs/05 §5.5 step 1.1). `rotations` names one quarter turn — 0…3, clockwise — for
+  // every page of the source, in the order the pages arrived in, so what comes back has the same
+  // pages in the same sequence and only their orientation changed. The turn is *added* to each
+  // page's own rotation rather than replacing it: a scanner that already said which way up a page
+  // lies keeps saying it.
+  //
+  // 🔒 The source is the bytes read out of the file and the answer becomes the part, exactly as for
+  // `rearrangePages`: a turn is an instruction, never an edit (docs/03 §3.3.16).
+  abstract rotatePages(source: BinarySource, rotations: readonly number[]): Promise<Buffer>;
+
   // The parts of a document, in position order, into one PDF (docs/05 §5.5 step 1). A single-part
   // document never gets here — its part already is the canonical.
   abstract mergePdfs(parts: readonly BinarySource[]): Promise<Buffer>;

@@ -2,7 +2,7 @@
 
 import { theme } from 'antd';
 import { useEffect, useRef, type RefObject } from 'react';
-import type { Crop } from '../../../shared/contracts/documents';
+import { NO_ROTATION, type Crop, type Rotation } from '../../../shared/contracts/documents';
 import { loupePoint, loupeView, type Size } from './loupe-geometry';
 
 // The loupe of docs/11 §11.5c: while a corner is being placed, the neighbourhood of that corner from
@@ -19,12 +19,16 @@ export type LoupeProps = {
   points: CropPoints;
   // The corner being placed — the one under the pointer, or the focused one being nudged.
   index: number;
-  // Where the image ended up, in CSS pixels, and how large it actually is.
+  // Where the image ended up, in CSS pixels, and how large the page is once it has been turned —
+  // sides swapped where the turn swaps them, because that is the picture the points are drawn in.
   frame: Size;
   natural: Size;
+  // Which way up the page is being read. The magnified patch is turned with it, or the loupe would
+  // show the one part of the modal that had not moved (docs/11 §11.5c).
+  rotation?: Rotation | null;
 };
 
-export function Loupe({ image, points, index, frame, natural }: LoupeProps) {
+export function Loupe({ image, points, index, frame, natural, rotation = null }: LoupeProps) {
   const { token } = theme.useToken();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -36,6 +40,9 @@ export function Loupe({ image, points, index, frame, natural }: LoupeProps) {
   const sourceLeft = view === null ? 0 : view.source.left;
   const sourceTop = view === null ? 0 : view.source.top;
   const sourceSize = view === null ? 0 : view.source.size;
+  const turn = rotation ?? NO_ROTATION;
+  const quarterTurns = turn.quarterTurns;
+  const mirrored = turn.mirrored;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -50,8 +57,33 @@ export function Loupe({ image, points, index, frame, natural }: LoupeProps) {
     context.clearRect(0, 0, size, size);
     // A loupe over pixels shows pixels rather than a smooth guess about them.
     context.imageSmoothingEnabled = false;
-    context.drawImage(element, sourceLeft, sourceTop, sourceSize, sourceSize, 0, 0, size, size);
-  }, [image, size, sourceLeft, sourceTop, sourceSize]);
+
+    // The element holds the picture as it arrived; everything above is measured on the page as it is
+    // being read. The canvas is therefore given the same turn the modal gives the image — mirror
+    // first, then the quarter turns clockwise — after which the source rectangle can be asked for in
+    // the coordinates the rest of this component speaks (docs/11 §11.5c).
+    context.save();
+    context.scale(size / sourceSize, size / sourceSize);
+    context.translate(-sourceLeft, -sourceTop);
+    const width = element.naturalWidth;
+    const height = element.naturalHeight;
+    if (quarterTurns === 1) {
+      context.translate(height, 0);
+      context.rotate(Math.PI / 2);
+    } else if (quarterTurns === 2) {
+      context.translate(width, height);
+      context.rotate(Math.PI);
+    } else if (quarterTurns === 3) {
+      context.translate(0, width);
+      context.rotate(-Math.PI / 2);
+    }
+    if (mirrored) {
+      context.translate(width, 0);
+      context.scale(-1, 1);
+    }
+    context.drawImage(element, 0, 0);
+    context.restore();
+  }, [image, size, sourceLeft, sourceTop, sourceSize, quarterTurns, mirrored]);
 
   if (point === undefined || view === null) return null;
 

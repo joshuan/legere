@@ -157,11 +157,13 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
   channel, never the system message (SEC-55), with the nonce scrubbed from every name and note; a
   catalogue answer in another case links the existing row rather than creating a twin.
 - Files and documents: a canonical PDF is built for every document whatever it is made of; adding,
-  reordering, cropping and splitting each rebuild it; splitting off a file yields a document of its
-  own and refuses to empty the last one (`DOCUMENT_LAST_FILE`); combining moves files in the chosen
-  order and soft-deletes the emptied documents; a file belongs to exactly one document
+  reordering, cropping, turning and splitting each rebuild it; splitting off a file yields a document
+  of its own and refuses to empty the last one (`DOCUMENT_LAST_FILE`); combining moves files in the
+  chosen order and soft-deletes the emptied documents; a file belongs to exactly one document
   (`FILE_ALREADY_IN_DOCUMENT`); the crop is a quadrilateral applied as a perspective transform and a
-  `MANUAL` one survives a rebuild; a document with a missing original still serves its canonical.
+  `MANUAL` one survives a rebuild; a turn is an instruction beside a file and never a rewrite of it,
+  applied after an image's crop and before a PDF's merge; a document with a missing original still
+  serves its canonical.
 - API: unknown `/api/*` → JSON `NOT_FOUND` (not HTML); envelope shape on success and error; BigInt as
   string; soft-deleted → 404 everywhere.
 

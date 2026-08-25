@@ -3,7 +3,12 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Crop, DocumentDetailDto, DocumentFileDto } from '../../../shared/contracts/documents';
+import type {
+  Crop,
+  DocumentDetailDto,
+  DocumentFileDto,
+  Rotation,
+} from '../../../shared/contracts/documents';
 import { updateDocumentFileRequestSchema } from '../../../shared/contracts/files';
 import { createApiMock, envelope, errorEnvelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
@@ -30,7 +35,7 @@ const CROP: Crop = {
   ],
 };
 
-function makeFile(crop: Crop | null): DocumentFileDto {
+function makeFile(crop: Crop | null, rotation: Rotation | null = null): DocumentFileDto {
   return {
     id: FILE_ID,
     position: 0,
@@ -43,7 +48,9 @@ function makeFile(crop: Crop | null): DocumentFileDto {
     isImage: true,
     crop,
     cropSource: crop === null ? 'NONE' : 'MANUAL',
+    rotation,
     pageOrder: null,
+    pageRotations: null,
     pageCount: null,
     refs: [],
     storageKey: `files/${FILE_ID}/original.jpg`,
@@ -237,7 +244,8 @@ describe('CropEditor', () => {
 
     await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 
-    await waitFor(() => expect(save.body()).toEqual({ crop: CROP }));
+    // The turn travels with the crop, and a file nobody has turned sends the null it already has.
+    await waitFor(() => expect(save.body()).toEqual({ crop: CROP, rotation: null }));
     expect(await screen.findByText(enMessages.viewer.crop.saved)).toBeInTheDocument();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
@@ -251,8 +259,100 @@ describe('CropEditor', () => {
 
     await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 
-    await waitFor(() => expect(save.body()).toEqual({ crop: null }));
+    await waitFor(() => expect(save.body()).toEqual({ crop: null, rotation: null }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  // Which way up the paper lay, in the editor that already answers "which part of this"
+  // (docs/11 §11.5c). The outline is drawn in the orientation on the screen, so a corner stays on
+  // the bit of paper it was dragged onto; what is *stored* is still against the pixels that arrived.
+  describe('the turn', () => {
+    const button = (key: 'rotateLeft' | 'rotateRight' | 'mirror' | 'resetTurn'): HTMLElement =>
+      screen.getByRole('button', { name: enMessages.viewer.crop[key] });
+
+    it('turns what it draws, so the outline follows the page instead of staying behind', async () => {
+      open(makeFile(CROP));
+      expect(outline()).toBe('10,5 90,8 92,95 8,90');
+
+      await userEvent.click(button('rotateRight'));
+
+      // A quarter turn clockwise sends (x, y) to (1 − y, x) — and renames the corners with it: the
+      // one that was top-left is the top-right one now, so the list starts from what was bottom-left.
+      expect(outline()).toBe('10,8 95,10 92,90 5,92');
+    });
+
+    it('sends the turn beside the crop, with the quadrilateral back in the pixels that arrived', async () => {
+      const save = captureSave();
+      open(makeFile(CROP));
+
+      await userEvent.click(button('rotateRight'));
+      await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
+
+      await waitFor(() => expect(save.body()).not.toBeNull());
+      const sent = updateDocumentFileRequestSchema.parse(save.body());
+      expect(sent.rotation).toEqual({ quarterTurns: 1, mirrored: false });
+      // 🔒 Untouched: the build applies the crop first and the turn after it (docs/05 §5.6).
+      expect(sent.crop).toEqual(CROP);
+    });
+
+    it('opens on the turn the file already carries, drawing the page the way it will be read', () => {
+      open(makeFile(CROP, { quarterTurns: 1, mirrored: false }));
+
+      // The stored quadrilateral is against the pixels that arrived, so what is drawn is it, turned.
+      expect(outline()).toBe('10,8 95,10 92,90 5,92');
+    });
+
+    it('mirrors, and takes the stored turn round the other way with it', async () => {
+      const save = captureSave();
+      open(makeFile(CROP, { quarterTurns: 1, mirrored: false }));
+
+      await userEvent.click(button('mirror'));
+      await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
+
+      await waitFor(() => expect(save.body()).not.toBeNull());
+      const sent = updateDocumentFileRequestSchema.parse(save.body());
+      // The person flipped the page they were looking at; the stored value says the same thing in
+      // the order it is defined in — mirror first, then the quarter turns.
+      expect(sent.rotation).toEqual({ quarterTurns: 3, mirrored: true });
+      expect(sent.crop).toEqual(CROP);
+    });
+
+    it('sends null for Reset turn and puts the outline back where it started', async () => {
+      const save = captureSave();
+      open(makeFile(CROP, { quarterTurns: 2, mirrored: false }));
+
+      await userEvent.click(button('resetTurn'));
+      expect(outline()).toBe('10,5 90,8 92,95 8,90');
+
+      await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
+
+      await waitFor(() => expect(save.body()).not.toBeNull());
+      const sent = updateDocumentFileRequestSchema.parse(save.body());
+      // Nothing to undo: the turn was an instruction beside bytes nobody rewrote (docs/03 §3.3.16).
+      expect(sent.rotation).toBeNull();
+      expect(sent.crop).toEqual(CROP);
+    });
+
+    it('offers nothing to reset on a file that reads the way it arrived', () => {
+      open(makeFile(CROP));
+
+      expect(button('resetTurn')).toBeDisabled();
+    });
+
+    it('comes back to where it started after four presses', async () => {
+      const save = captureSave();
+      open(makeFile(CROP));
+
+      for (const _press of [0, 1, 2, 3]) await userEvent.click(button('rotateLeft'));
+      expect(outline()).toBe('10,5 90,8 92,95 8,90');
+
+      await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
+
+      await waitFor(() => expect(save.body()).not.toBeNull());
+      // A turn of nothing is not a turn: what goes out is the null a file that arrived this way up
+      // already has (docs/03 §3.3.16).
+      expect(updateDocumentFileRequestSchema.parse(save.body()).rotation).toBeNull();
+    });
   });
 
   it('keeps the modal open and localizes the failure when the save is refused', async () => {
