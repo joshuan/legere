@@ -59,6 +59,9 @@ enum TrashReason {
 }
 
 enum StepStatus {
+  // PENDING and QUEUED are the two halves of what used to be one word (docs/03 §3.3.10): QUEUED says
+  // a job exists, PENDING says nothing is scheduled — which is what a migration that resets a step
+  // leaves behind.
   PENDING
   QUEUED
   RUNNING
@@ -116,7 +119,7 @@ model User {
   theme         Theme     @default(SYSTEM)
   deactivatedAt DateTime? @map("deactivated_at") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   sessions         Session[]
@@ -231,7 +234,7 @@ model Library {
   scanIntervalMinutes Int               @default(15) @map("scan_interval_minutes")
   excludeGlobs        String[]          @map("exclude_globs")
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
 
   fileRefs FileRef[]
@@ -316,7 +319,7 @@ model Document {
   // (docs/04 §4.3) — rewritten whenever `extracted` is, never edited on its own.
   extracted           Json?
   extractedSearchText String?                  @map("extracted_search_text")
-  languages           String[]                 @map("languages")
+  languages           String[]                 @default([]) @map("languages")
   autoValues          Json                     @default("{}") @map("auto_values")
   // The date written on the document, not the day it was filed. A date, not a timestamp: a signing
   // has no clock (docs/03 §3.3.10).
@@ -333,7 +336,7 @@ model Document {
   typeSource          ValueSource              @default(NONE) @map("type_source")
   createdById         String?                  @map("created_by_id") @db.Uuid
   createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt           DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   // When this document last changed: the newest entry in its journal, whatever kind (docs/03
   // §3.3.18). Denormalised because ranking an archive by max(document_events.at) is a correlated
   // aggregate no index serves; maintained by the one method every event is written through. Never
@@ -371,7 +374,10 @@ model DocumentEvent {
   at         DateTime          @default(now()) @db.Timestamptz(6)
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  actor    User?    @relation(fields: [actorId], references: [id])
+  // Restricted, not the default SET NULL: null here is "the pipeline acting on its own", so a
+  // database that nulled the column on a deleted user would reattribute that person's every action
+  // to the machine rather than record that they are gone (docs/04 §4.2).
+  actor    User?    @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   // The log is always read for one document, newest first.
   @@index([documentId, at(sort: Desc)])
@@ -429,7 +435,7 @@ model Person {
   // Anything that tells two people with the same name apart, in whatever words the owner likes.
   note       String?
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   documents DocumentPerson[]
@@ -463,7 +469,7 @@ model SubjectKind {
   nameFolded String    @default("") @map("name_folded")
   note       String?
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   subjects Subject[]
@@ -480,7 +486,7 @@ model Subject {
   nameFolded String    @default("") @map("name_folded")
   note       String?
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   // Restricted rather than cascading: a kind still used by a living subject cannot be removed, and
@@ -511,7 +517,7 @@ model DocumentType {
   name        String
   description String?
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   documents Document[]
@@ -525,7 +531,7 @@ model Collection {
   name        String
   description String?
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   owner  User              @relation(fields: [ownerId], references: [id])
@@ -556,7 +562,11 @@ model CollectionShare {
   revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
 
   collection Collection @relation(fields: [collectionId], references: [id])
-  grantee    User?      @relation(fields: [granteeUserId], references: [id])
+  // 🔒 Restricted, not the default SET NULL: null here is not "grantee unknown", it is the
+  // instance-wide share (docs/03 §3.3.15). A database that nulled the column on a deleted user
+  // would turn every private grant that user held into a grant to everybody, and the partial unique
+  // index on (collection_id) WHERE grantee_user_id IS NULL would make the result look canonical.
+  grantee    User?      @relation(fields: [granteeUserId], references: [id], onDelete: Restrict)
 
   @@map("collection_shares")
 }
@@ -589,7 +599,7 @@ model File {
   // the page is replaced (docs/03 §3.3.16).
   replacedById  String?      @map("replaced_by_id") @db.Uuid
   createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt     DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime?    @map("deleted_at") @db.Timestamptz(6)
 
   refs            FileRef[]
@@ -640,7 +650,7 @@ model DocumentPage {
 model Setting {
   key       String   @id
   value     Json
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("settings")
 }

@@ -10,9 +10,19 @@ enums stored as Postgres enums; money does not exist in this domain; time — `t
 
 ## 4.1. Prisma schema
 
+The block below is `prisma/schema.prisma`, character for character, apart from the two-line header
+that file carries naming this section. They are one artefact kept in two places, because somebody
+asking whether a `Person` row is scoped to a user, or whether a link table cascades, or whether a
+`DocumentType` slug has to be unique, must not have to read the implementation to find out. So the
+answer to any difference between them is that both move together, in the same commit and in that
+order — and because the block is whole and valid Prisma, that claim is checkable rather than
+asserted: paste it into `prisma validate` and it parses.
+
 ```prisma
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Required for the `extensions` datasource property below (pgvector, docs/04 §4.1).
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
@@ -46,18 +56,10 @@ enum FileRefStatus {
   DISCOVERED
   HASHED
   MISSING
-  // The document these bytes were part of was deleted by an admin (03 §3.3.9). The row stays as the
-  // tombstone that keeps the next scan from ingesting the file again; `file_id` is null, because the
-  // file it pointed at is gone.
+  // An admin deleted the document these bytes were part of (docs/03 §3.3.9). The row survives as the
+  // tombstone that keeps the next scan from ingesting the file again — the volume is read-only, so
+  // this mark is the whole of what a deletion can do out there.
   EXCLUDED
-}
-
-// How a file came to be in the trash (03 §3.2, 05 §5.7a).
-enum TrashReason {
-  REPLACED
-  DOCUMENT_DELETED
-  // The last page reading these bytes was taken out of a document that is still there (05 §5.6).
-  PAGE_REMOVED
 }
 
 enum FileOrigin {
@@ -65,9 +67,18 @@ enum FileOrigin {
   MANAGED
 }
 
+// How a file came to be in the trash (docs/03 §3.2, docs/05 §5.7a). Not who put it there but what
+// happened to it, which is what decides whether there is a newer copy to compare it with.
+enum TrashReason {
+  REPLACED
+  DOCUMENT_DELETED
+  // The last page reading these bytes was taken out of a document that is still there (docs/05 §5.6).
+  PAGE_REMOVED
+}
+
 enum StepStatus {
-  // PENDING and QUEUED are the two halves of what used to be one word (03 §3.3.10): QUEUED says a
-  // job exists, PENDING says nothing is scheduled — which is what a migration that resets a step
+  // PENDING and QUEUED are the two halves of what used to be one word (docs/03 §3.3.10): QUEUED says
+  // a job exists, PENDING says nothing is scheduled — which is what a migration that resets a step
   // leaves behind.
   PENDING
   QUEUED
@@ -77,25 +88,32 @@ enum StepStatus {
   SKIPPED
 }
 
-// What shape the pages of the canonical take (05 §5.5 step 1). AUTO reads it off the files.
-enum PageFormat {
-  AUTO
-  A4
-  MATCH_SOURCE
+// What can happen to a document, in the order a person would tell it (docs/03 §3.3.18).
+enum DocumentEventType {
+  CREATED
+  FILE_ATTACHED
+  FILE_MISSING
+  QUEUED
+  STEP_STARTED
+  STEP_FINISHED
+  META_CHANGED
+  // An edge to another document, made or removed by a person (docs/03 §3.3.23); written on both.
+  LINKED
+  UNLINKED
 }
 
-model Setting {
-  key       String   @id
-  value     Json
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@map("settings")
-}
-
+// Where a value came from: nobody, the pipeline, or a person (docs/03 §3.3.10).
 enum ValueSource {
   NONE
   AUTO
   MANUAL
+}
+
+// What shape the pages of the canonical take (docs/05 §5.5 step 1). AUTO reads it off the files.
+enum PageFormat {
+  AUTO
+  A4
+  MATCH_SOURCE
 }
 
 enum ScanRunStatus {
@@ -119,18 +137,21 @@ model User {
   theme         Theme     @default(SYSTEM)
   deactivatedAt DateTime? @map("deactivated_at") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  sessions          Session[]
-  createdInvites    UserInvite[]    @relation("InviteCreator")
-  acceptedInvites   UserInvite[]    @relation("InviteAcceptor")
-  passwordResets    PasswordReset[] @relation("ResetTarget")
-  createdResets     PasswordReset[] @relation("ResetCreator")
-  libraryAccess     LibraryAccess[]
-  collections       Collection[]
-  collectionShares  CollectionShare[]
-  derivedDocuments  Document[]
+  sessions         Session[]
+  apiTokens        ApiToken[]
+  createdInvites   UserInvite[]      @relation("InviteCreator")
+  acceptedInvites  UserInvite[]      @relation("InviteAcceptor")
+  passwordResets   PasswordReset[]   @relation("ResetTarget")
+  createdResets    PasswordReset[]   @relation("ResetCreator")
+  documentLinks    DocumentLink[]
+  libraryAccess    LibraryAccess[]
+  collections      Collection[]
+  collectionShares CollectionShare[]
+  derivedDocuments Document[]
+  documentEvents   DocumentEvent[]
 
   @@map("users")
 }
@@ -150,6 +171,7 @@ model Session {
   @@map("sessions")
 }
 
+// A read-only bearer credential its owner issues to a script (docs/03 §3.3.22, docs/08 §8.2a).
 model ApiToken {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @map("user_id") @db.Uuid
@@ -181,7 +203,8 @@ model EmailVerification {
   passwordResetId String?             @map("password_reset_id") @db.Uuid
   createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  @@unique([email, purpose]) // one active series per (email, purpose); new request replaces the row
+  // one active series per (email, purpose); new request replaces the row
+  @@unique([email, purpose])
   @@map("email_verifications")
 }
 
@@ -229,7 +252,7 @@ model Library {
   scanIntervalMinutes Int               @default(15) @map("scan_interval_minutes")
   excludeGlobs        String[]          @map("exclude_globs")
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
 
   fileRefs FileRef[]
@@ -292,45 +315,69 @@ model FileRef {
 }
 
 model Document {
-  id                   String         @id @default(uuid()) @db.Uuid
-  pageCount            Int?           @map("page_count")
-  title                String
-  description          String?        @map("description")
-  markdown             String?
-  searchVector         Unsupported("tsvector")? @map("search_vector")
-  canonicalStatus      StepStatus     @default(QUEUED) @map("canonical_status")
-  previewStatus        StepStatus     @default(QUEUED) @map("preview_status")
-  markdownStatus       StepStatus     @default(QUEUED) @map("markdown_status")
-  analysisStatus StepStatus     @default(QUEUED) @map("analysis_status")
-  fieldsStatus         StepStatus     @default(QUEUED) @map("fields_status")
-  vectorizationStatus  StepStatus     @default(QUEUED) @map("vectorization_status")
-  extracted            Json?
-  extractedSearchText  String?        @map("extracted_search_text")
-  processingError      String?        @map("processing_error")
-  skipReasons          Json           @default("{}") @map("skip_reasons")
-  languages            String[]
-  autoValues           Json           @default("{}") @map("auto_values")       @map("languages")
-  country              String?        @map("country")
-  city                 String?        @map("city")
-  failedStep           String?        @map("failed_step")
-  ocrUsed              Boolean        @default(false) @map("ocr_used")
-  pageFormat       PageFormat  @default(AUTO) @map("page_format")
-  titleSource      ValueSource @default(NONE) @map("title_source")
-  typeId           String?        @map("type_id") @db.Uuid
-  typeSource       ValueSource @default(NONE) @map("type_source")
-  createdById          String?        @map("created_by_id") @db.Uuid
-  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt            DateTime?      @map("deleted_at") @db.Timestamptz(6)
+  id                  String                   @id @default(uuid()) @db.Uuid
+  pageCount           Int?                     @map("page_count")
+  title               String
+  // What this document is, for somebody who has never seen it (docs/03 §3.3.10). Null until the
+  // analysis writes it, or where nobody has.
+  description         String?
+  markdown            String?
+  searchVector        Unsupported("tsvector")? @map("search_vector")
+  canonicalStatus     StepStatus               @default(QUEUED) @map("canonical_status")
+  previewStatus       StepStatus               @default(QUEUED) @map("preview_status")
+  markdownStatus      StepStatus               @default(QUEUED) @map("markdown_status")
+  analysisStatus      StepStatus               @default(QUEUED) @map("analysis_status")
+  fieldsStatus        StepStatus               @default(QUEUED) @map("fields_status")
+  vectorizationStatus StepStatus               @default(QUEUED) @map("vectorization_status")
+  processingError     String?                  @map("processing_error")
+  skipReasons         Json                     @default("{}") @map("skip_reasons")
+  // The typed fields of the document's type (docs/03 §3.3.10a): { schema: {slug, version}, values,
+  // sources }. Null until the fields step first writes it or a person does. The search text beside
+  // it is a projection of the searchable values, read by the search_vector generated column
+  // (docs/04 §4.3) — rewritten whenever `extracted` is, never edited on its own.
+  extracted           Json?
+  extractedSearchText String?                  @map("extracted_search_text")
+  languages           String[]                 @default([]) @map("languages")
+  autoValues          Json                     @default("{}") @map("auto_values")
+  // The date written on the document, not the day it was filed. A date, not a timestamp: a signing
+  // has no clock (docs/03 §3.3.10).
+  documentDate        DateTime?                @map("document_date") @db.Date
+  country             String?                  @map("country")
+  city                String?                  @map("city")
+  failedStep          String?                  @map("failed_step")
+  ocrUsed             Boolean                  @default(false) @map("ocr_used")
+  // A file name is not a title anybody chose, so a fresh document is NONE and the analysis may name
+  // it; a person titling it makes it MANUAL, and no machine touches it again (docs/03 §3.3.10).
+  pageFormat          PageFormat               @default(AUTO) @map("page_format")
+  titleSource         ValueSource              @default(NONE) @map("title_source")
+  typeId              String?                  @map("type_id") @db.Uuid
+  typeSource          ValueSource              @default(NONE) @map("type_source")
+  createdById         String?                  @map("created_by_id") @db.Uuid
+  createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  // When this document last changed: the newest entry in its journal, whatever kind (docs/03
+  // §3.3.18). Denormalised because ranking an archive by max(document_events.at) is a correlated
+  // aggregate no index serves; maintained by the one method every event is written through. Never
+  // null — a document with no journal at all reads as the moment it came into being.
+  lastEventAt         DateTime                 @default(now()) @map("last_event_at") @db.Timestamptz(6)
+  deletedAt           DateTime?                @map("deleted_at") @db.Timestamptz(6)
 
-  document type        Document type?        @relation(fields: [typeId], references: [id])
-  createdBy       User?            @relation(fields: [createdById], references: [id])
+  documentType    DocumentType?     @relation(fields: [typeId], references: [id])
+  createdBy       User?             @relation(fields: [createdById], references: [id])
   pages           DocumentPage[]
   chunks          DocumentChunk[]
+  events          DocumentEvent[]
+  people          DocumentPerson[]
+  subjects        DocumentSubject[]
   collectionItems CollectionItem[]
+  linksA          DocumentLink[]    @relation("DocumentLinkA")
+  linksB          DocumentLink[]    @relation("DocumentLinkB")
 
   @@index([typeId])
   @@index([createdAt(sort: Desc)])
+  // "When it last changed", newest first (docs/07 §7.1). Expressible here, unlike the document-date
+  // order it sits beside, which needs NULLS FIRST and lives in raw SQL (docs/04 §4.3).
+  @@index([lastEventAt(sort: Desc)])
   @@map("documents")
 }
 
@@ -338,21 +385,31 @@ model DocumentEvent {
   id         String            @id @default(uuid()) @db.Uuid
   documentId String            @map("document_id") @db.Uuid
   type       DocumentEventType
+  // Who did it; null is the pipeline acting on its own.
   actorId    String?           @map("actor_id") @db.Uuid
+  // What the event needs to be readable: the step, the values that changed, the error.
   payload    Json              @default("{}")
   at         DateTime          @default(now()) @db.Timestamptz(6)
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  actor    User?    @relation(fields: [actorId], references: [id])
+  // Restricted, not the default SET NULL: null here is "the pipeline acting on its own", so a
+  // database that nulled the column on a deleted user would reattribute that person's every action
+  // to the machine rather than record that they are gone (docs/04 §4.2).
+  actor    User?    @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
+  // The log is always read for one document, newest first.
   @@index([documentId, at(sort: Desc)])
   @@map("document_events")
 }
 
+// Two documents that belong together and stay two documents (docs/03 §3.3.23, ADR-023). An
+// unordered pair — a_id < b_id always, checked in SQL (docs/04 §4.3) — hard-deleted on removal
+// like a collection item, and cascading with a hard-deleted document.
 model DocumentLink {
   id          String   @id @default(uuid()) @db.Uuid
   aId         String   @map("a_id") @db.Uuid
   bId         String   @map("b_id") @db.Uuid
+  // The person who confirmed it; links are never machine-made (ADR-023).
   createdById String?  @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -361,19 +418,21 @@ model DocumentLink {
   createdBy User?    @relation(fields: [createdById], references: [id])
 
   @@unique([aId, bId])
+  // One edge, findable from either end: the unique above serves a_id, this serves b_id.
   @@index([bId])
   @@map("document_links")
 }
 
 model DocumentChunk {
-  id         String                    @id @default(uuid()) @db.Uuid
-  documentId String                    @map("document_id") @db.Uuid
+  id         String                      @id @default(uuid()) @db.Uuid
+  documentId String                      @map("document_id") @db.Uuid
   index      Int
   content    String
-  charCount  Int                       @map("char_count")
+  charCount  Int                         @map("char_count")
   embedding  Unsupported("vector(1024)")
-  // Which embedder produced this vector (docs/03 §3.3.11). Null on a chunk written before the
-  // column existed; never null on one written since.
+  // Which embedder produced this vector (docs/03 §3.3.11). Two models in one table is a search whose
+  // distances mean nothing, and this is what makes a half-finished switch visible. Null only on a
+  // chunk written before the column existed.
   model      String?
 
   document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
@@ -382,13 +441,101 @@ model DocumentChunk {
   @@map("document_chunks")
 }
 
-model Document type {
+// A person a document is about: the parties to a contract, the passenger on a ticket, the patient in
+// a report (docs/03 §3.3.19). A shared catalogue, so the same person on forty documents is one row
+// and renaming them fixes all forty.
+model Person {
+  id         String    @id @default(uuid()) @db.Uuid
+  name       String
+  // The identity fold (docs/03 §3.3.19): written by the application on every create and
+  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  nameFolded String    @default("") @map("name_folded")
+  // Anything that tells two people with the same name apart, in whatever words the owner likes.
+  note       String?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  documents DocumentPerson[]
+
+  @@map("people")
+}
+
+model DocumentPerson {
+  documentId String   @map("document_id") @db.Uuid
+  personId   String   @map("person_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  person   Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, personId])
+  @@index([personId])
+  @@map("document_people")
+}
+
+// What a document is about: a flat, a car, a country (docs/03 §3.3.20). The kind says what sort of
+// thing it is; the name says which one. A tax return is about a country, an insurance policy about a
+// car — and both are the thing you want the document by.
+// What sort of thing a subject is: "apartment", "car", "country" (docs/03 §3.3.20a). A catalogue
+// rather than a string on every row — renaming a kind is then one edit rather than forty.
+model SubjectKind {
+  id         String    @id @default(uuid()) @db.Uuid
+  name       String
+  // The identity fold (docs/03 §3.3.19): written by the application on every create and
+  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  nameFolded String    @default("") @map("name_folded")
+  note       String?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  subjects Subject[]
+
+  @@map("subject_kinds")
+}
+
+model Subject {
+  id         String    @id @default(uuid()) @db.Uuid
+  kindId     String    @map("kind_id") @db.Uuid
+  name       String
+  // The identity fold (docs/03 §3.3.19): written by the application on every create and
+  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  nameFolded String    @default("") @map("name_folded")
+  note       String?
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  // Restricted rather than cascading: a kind still used by a living subject cannot be removed, and
+  // a subject with no kind is not a thing anybody can file by (docs/03 §3.3.20a).
+  kind      SubjectKind       @relation(fields: [kindId], references: [id], onDelete: Restrict)
+  documents DocumentSubject[]
+
+  @@index([kindId])
+  @@map("subjects")
+}
+
+model DocumentSubject {
+  documentId String   @map("document_id") @db.Uuid
+  subjectId  String   @map("subject_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  subject  Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, subjectId])
+  @@index([subjectId])
+  @@map("document_subjects")
+}
+
+model DocumentType {
   id          String    @id @default(uuid()) @db.Uuid
   slug        String
   name        String
   description String?
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   documents Document[]
@@ -402,7 +549,7 @@ model Collection {
   name        String
   description String?
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   owner  User              @relation(fields: [ownerId], references: [id])
@@ -433,59 +580,77 @@ model CollectionShare {
   revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
 
   collection Collection @relation(fields: [collectionId], references: [id])
-  grantee    User?      @relation(fields: [granteeUserId], references: [id])
+  // 🔒 Restricted, not the default SET NULL: null here is not "grantee unknown", it is the
+  // instance-wide share (docs/03 §3.3.15). A database that nulled the column on a deleted user
+  // would turn every private grant that user held into a grant to everybody, and the partial unique
+  // index on (collection_id) WHERE grantee_user_id IS NULL would make the result look canonical.
+  grantee    User?      @relation(fields: [granteeUserId], references: [id], onDelete: Restrict)
 
   @@map("collection_shares")
 }
 
+// The bytes themselves, once, however many places they turn up in (docs/03 §3.3.16, ADR-021).
 model File {
-  id          String     @id @default(uuid()) @db.Uuid
-  contentHash String     @map("content_hash")
-  origin      FileOrigin
-  storageKey  String?    @map("storage_key")
-  mimeType    String     @map("mime_type")
-  ext         String
-  sizeBytes   BigInt     @map("size_bytes")
-  name        String
-  // How many pages are inside these bytes (03 §3.3.16): what the last canonical build counted, and
-  // what a page index is checked against. Null until a build has opened the file, which is the one
-  // state in which a document cannot name its pages one by one (ADR-025).
+  id            String       @id @default(uuid()) @db.Uuid
+  contentHash   String       @map("content_hash")
+  origin        FileOrigin
+  storageKey    String?      @map("storage_key")
+  mimeType      String       @map("mime_type")
+  ext           String
+  sizeBytes     BigInt       @map("size_bytes")
+  name          String
+  // How many pages are inside these bytes (docs/03 §3.3.16): an image is one, a PDF is what its page
+  // tree says, an office document is what the converter laid it out as. Counted afresh by every
+  // canonical build that opens the file, null until one has — and while it is null a document cannot
+  // name the file's pages one by one, so it holds it as a single entry standing for it whole
+  // (ADR-025). It is also what a page index is checked against, without a round trip to Stirling.
   pageCount     Int?         @map("page_count")
-  // In the trash since, and how it got there (05 §5.7a). A file with no live page anywhere is in
-  // the trash; `replaced_by_id` is the file that took its place, for the versions of a page.
+  // In the trash since, and how it got there (docs/05 §5.7a): a file with no live page anywhere is
+  // in the trash, and the trash is where every file that leaves the last document reading it waits
+  // to be deleted or restored. `trashedFrom` is the title the document had when it left — a record
+  // and not a link, because that document is usually gone by the time anybody reads this.
   trashedAt     DateTime?    @map("trashed_at") @db.Timestamptz(6)
   trashedReason TrashReason? @map("trashed_reason")
   trashedFrom   String?      @map("trashed_from")
+  // For REPLACED: the file that took this one's place. Every earlier copy of a page points at the
+  // file in the document *now*, so "the versions of this page" stays one query however many times
+  // the page is replaced (docs/03 §3.3.16).
   replacedById  String?      @map("replaced_by_id") @db.Uuid
-  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt   DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime?    @map("deleted_at") @db.Timestamptz(6)
 
-  refs     FileRef[]
-  pages    DocumentPage[]
-  // The versions of one page: every earlier copy points at the file now in the document (03 §3.3.16).
-  replacedBy      File?  @relation("FileVersions", fields: [replacedById], references: [id])
-  earlierVersions File[] @relation("FileVersions")
+  refs            FileRef[]
+  pages           DocumentPage[]
+  replacedBy      File?          @relation("FileVersions", fields: [replacedById], references: [id])
+  earlierVersions File[]         @relation("FileVersions")
 
-  // The trash is read newest first and swept by age, and both are this one index.
+  // The trash is read newest first and swept by age; both are this index.
   @@index([trashedAt(sort: Desc)])
   @@index([replacedById])
   @@map("files")
 }
 
-// One page of one document (03 §3.3.17, ADR-025): which file it is read from, which page of that
-// file, which way up it lies and how much of it is paper. The turn and the crop live here rather
-// than on the file because they are answers about this page in this document, and the same file may
-// be read by pages of two documents at once.
+// A document is an ordered list of pages (docs/03 §3.3.17, ADR-025): one page, read out of one file,
+// standing a particular way up and showing a particular part of itself. The turn and the crop live
+// here rather than on the file because they are answers about this page in this document — the same
+// file may be read by pages of two documents, and a twenty-page scan has three pages lying sideways
+// and not twenty.
 model DocumentPage {
   id         String      @id @default(uuid()) @db.Uuid
   documentId String      @map("document_id") @db.Uuid
   position   Int
   fileId     String      @map("file_id") @db.Uuid
-  // Null is "this file, whole, in the order it arrived" — the entry a file takes while nobody has
-  // counted its pages; the first canonical build expands it into one entry per page.
+  // Which page of the file, by the file's own 0-based index. Null is "this file, whole, in the order
+  // it arrived" — the entry a file takes while nobody has counted its pages, which the first
+  // canonical build expands into one entry per page (docs/05 §5.5 step 1).
   pageIndex  Int?        @map("page_index")
+  // Which way up this page lies: `{ quarterTurns: 0…3, mirrored: bool }`, the mirror first and the
+  // quarter turns clockwise after it, null for the way it arrived. A mirror is offered only for a
+  // page of an image. Never a change to the bytes — the build applies it after the crop.
   turn       Json?
+  // The quadrilateral of what is worth keeping, normalized to 0…1 of the page, and who chose it. A
+  // crop somebody dragged is MANUAL and no rebuild replaces it (docs/03 §3.3.17).
   crop       Json?
   cropSource ValueSource @default(NONE) @map("crop_source")
 
@@ -495,6 +660,17 @@ model DocumentPage {
   @@unique([documentId, position])
   @@index([fileId])
   @@map("document_pages")
+}
+
+// Instance settings an admin changes at runtime (docs/03 §3.3.21): a key-value store, because these
+// arrive one knob at a time and a migration per knob is a migration nobody wants to write. The env
+// values remain the defaults; a row here is a deliberate override (docs/12 §12.4).
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("settings")
 }
 ```
 
@@ -506,12 +682,46 @@ model DocumentPage {
 - BigInt columns (`size`, `sizeBytes`) are serialized to JSON as strings in DTOs (contract rule,
   [`07 §7.4`](./07-api-specification.md#74-dto-serialization)).
 - `onDelete: Cascade` is used on what belongs to a document and cannot outlive it: `DocumentChunk`,
-  `DocumentEvent`, `DocumentPerson`, `DocumentSubject` and `DocumentPage`. Deleting a document for
-  real (`03 §3.3.10`) is then one `DELETE` and not five, and — more to the point — no future
-  statement can leave a chunk or a journal entry behind pointing at a row that is gone.
+  `DocumentEvent`, `DocumentPerson`, `DocumentSubject`, `DocumentPage` and both ends of
+  `DocumentLink`. Deleting a document for real (`03 §3.3.10`) is then one `DELETE` and not six, and —
+  more to the point — no future statement can leave a chunk or a journal entry behind pointing at a
+  row that is gone.
   **`CollectionItem` deliberately has none:** a collection is somebody else's list, and a document is
-  taken off it by application code that knows it is doing so, not by a foreign key. Everything else
-  has no DB-level cascades, because everything else is deleted softly and in application code.
+  taken off it by application code that knows it is doing so, not by a foreign key.
+- **Six foreign keys carry `ON DELETE SET NULL`, and none of them may ever be one where NULL is an
+  answer rather than the absence of one.** This is the rule, because Prisma's default for an optional
+  relation *is* `SET NULL` — it is what you get by not choosing, and what you get by not choosing is
+  a database that invents a value when a row goes away. Where null already means something, that is a
+  silent rewrite of meaning; where it means "we no longer know", it is the truth. The six, and what
+  null says in each:
+
+  | Foreign key | What NULL means |
+  |---|---|
+  | `documents.type_id` → `document_types` | nobody has said what this document is (`03 §3.3.10`) |
+  | `documents.created_by_id` → `users` | a library document: it arrived by a scan and nobody made it |
+  | `document_links.created_by_id` → `users` | the person who confirmed the edge is no longer on the instance; the edge stands (`03 §3.3.23`) |
+  | `file_refs.file_id` → `files` | the path has not been hashed yet, or the file it named is excluded (`03 §3.3.9`) |
+  | `files.replaced_by_id` → `files` | nothing has taken this file's place (`03 §3.3.16`) |
+  | `user_invites.accepted_by_id` → `users` | nobody has accepted the invite |
+
+  🔒 Two more were `SET NULL` and are now `Restrict`, because in both of them NULL is a value with a
+  meaning of its own. `collection_shares.grantee_user_id` NULL is the **instance-wide share**
+  (`03 §3.3.15`), so a hard-deleted user's every private grant would silently become a grant to
+  everybody — and `collection_shares_instance_active_uq` (§4.3) would make the result look like a row
+  its owner had made on purpose. `document_events.actor_id` NULL is **the pipeline acting on its
+  own** (`03 §3.3.18`), so the same `DELETE` would reattribute that person's whole history to the
+  machine. No product code path hard-deletes a user and the `RESTRICT` edges from `sessions`,
+  `api_tokens`, `collections`, `library_access`, `password_resets` and `user_invites.created_by_id`
+  would refuse one — which is the only reason this was a landmine rather than a hole, and the reason
+  it is defused here rather than described.
+- Every other foreign key is `RESTRICT`: the database refuses the delete rather than repairing it,
+  because everything else is deleted softly and in application code.
+- **Every `updated_at` carries `@default(now())` beside `@updatedAt`.** Prisma writes the value on
+  every create and update, so the default never decides anything at runtime; it is there so that a
+  hand-written `INSERT` in a future migration cannot leave the column null, and so that the ten
+  tables answer the question the same way. Five of them carried the default and five did not — an
+  accident of which migration wrote the table, and one of the seven differences that kept
+  `prisma migrate diff` from being usable as a gate (§4.3).
 - pg-boss creates and owns its objects in a separate `pgboss` schema at first start; Prisma does not
   manage them. The admin queue view reads them through the `QueueMonitor` port (raw SQL), never via
   Prisma models.
@@ -899,6 +1109,40 @@ the `NULLS FIRST` index does **not** replace `documents(document_date DESC NULLS
 scanned backwards yields `ASC NULLS FIRST`, which is the wrong order among the dated rows, so the
 two orders need two indexes and both stay.
 
+**The known residue of `prisma migrate diff`.** Because the migration chain is hand-written, the one
+mechanical proof that this document, `schema.prisma` and the live tables still describe one thing is
+
+```
+npx prisma migrate diff --from-url "$DATABASE_URL" \
+  --to-schema-datamodel prisma/schema.prisma --script
+```
+
+against a fully migrated database. It cannot be empty — the raw SQL above says things Prisma's schema
+language cannot — so it is **exactly these five statements, and nothing else is acceptable**:
+
+```sql
+DROP INDEX "document_chunks_embedding_idx";
+DROP INDEX "documents_document_date_idx";
+DROP INDEX "documents_document_date_nulls_first_idx";
+DROP INDEX "documents_search_vector_idx";
+ALTER TABLE "documents" ALTER COLUMN "search_vector" DROP DEFAULT;
+```
+
+🔒 **Every one of them must never be run.** The four indexes are the HNSW vector index, the GIN
+full-text index and the two document-date orders — Prisma proposes dropping them only because it did
+not create them and cannot express them, and running the proposal turns semantic search, every search
+query and the default document list into sequential scans of the archive on a request any signed-in
+user can repeat (§4.4). The fifth is Prisma reading `search_vector`'s `GENERATED ALWAYS AS … STORED`
+expression as a column default; dropping it would drop the whole of the full-text projection.
+
+That is the point of writing the residue down. The output of this command is a list of statements
+that look alike and are not: a line inside this allow-list is the price of raw SQL, and a line outside
+it is drift and has to be explained or fixed before anything else ships. Until M47.17 it was seven
+lines longer — a foreign key still carrying its pre-rename name and six columns whose defaults
+`schema.prisma` did not declare — and the noise made the check unusable as a gate, which is how a
+`schema.prisma` that no longer matched the documentation went unnoticed for a milestone (SEC-81,
+SEC-82).
+
 **The catalogue identity fold** (`03 §3.3.19`). The database is created with collation `C`, whose
 `lower()` folds ASCII alone — so the `lower(name)` partial unique indexes on `people`,
 `subjects` and `subject_kinds` never held for Cyrillic, and case-twins of one name lived beside
@@ -964,6 +1208,15 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
   already-applied migration, dropping/renaming a column without a data backfill in the same migration.
 - Data moves (backfills) are written inside the migration itself (SQL), so a freshly cloned instance
   and a long-lived one converge to identical states.
+- **A migration is finished when `prisma migrate diff` is back to its five known lines** (§4.3), and
+  the fix for anything else in that output is another migration, never an edit to the applied one.
+  This is the whole of what a hand-written chain can offer in place of a generated one, so it is not
+  optional: a defaulted foreign-key action and a column default nobody declared are precisely the
+  things a person writing SQL by hand does not notice, and precisely the things this command names.
+  🔒 **A referential action is a decision and is written out even when it is the default.** Prisma
+  gives an optional relation `onDelete: SetNull` for free, which means an FK acquires it by nobody
+  choosing — and where NULL is already an answer in that column, "SET NULL on delete" is a rule that
+  rewrites meaning behind a `DELETE` that reads as clean-up (§4.2).
 - **Changing the embedding model is a migration and a full re-vectorization, and that is on purpose.**
   The column is `vector(1024)` — the width of the model this instance ships pointed at (`12 §12.4`) —
   and a vector of another width cannot live in it. Changing it means one migration that empties
