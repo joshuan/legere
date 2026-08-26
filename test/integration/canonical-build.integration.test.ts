@@ -8,9 +8,11 @@ import { ServiceGates } from '../../src/server/application/queue/service-gate';
 import { FixedClock } from '../helpers/fakes';
 import { originalKeyOf } from '../../src/server/application/storage/artifact-keys';
 import {
+  pagesForFile,
   withFileCrop,
   withFilePageOrder,
   withFilePageTurns,
+  withInsertedAt,
   type PageEntry,
 } from '../../src/server/domain/entities/document-page';
 import { FileRepository } from '../../src/server/domain/repositories/file.repository';
@@ -51,6 +53,25 @@ const PDF_TEXT =
   'The first part of this document is an ordinary PDF and it carries a whole sentence of its own.';
 const OFFICE_TEXT =
   'The third part started life as an office file and was converted on its way into the canonical.';
+
+// The five pages of the contract a photograph is put into the middle of, and the twelve of the lease
+// a split cuts in two. Each page names itself in a token no other page of either fixture contains,
+// short enough to sit inside the sheet the fixture draws it on — so "which page is this" and "is
+// this page here at all" are questions the built bytes answer rather than the calls that made them.
+const CONTRACT_PAGES = [
+  'C01 the first page of the contract',
+  'C02 the second page of the contract',
+  'C03 the third page of the contract',
+  'C04 the fourth page of the contract',
+  'C05 the fifth page of the contract',
+];
+const LEASE_PAGES = Array.from(
+  { length: 12 },
+  (unused, index) => `P${String(index + 1).padStart(2, '0')} a page of the lease agreement`,
+);
+// Where the lease is cut: eight pages stay behind and four go, which is the scan whose ninth page
+// begins another contract (docs/05 §5.6).
+const CUT_AT = 8;
 
 // Step 1 of the pipeline end to end (docs/05 §5.5, ADR-021): a photograph, a PDF and an office file
 // are three files of one document, and what comes out is a single PDF in position order. The real
@@ -128,7 +149,8 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
   // One managed file whose pages are appended to the document, with its bytes in the bucket. A file
   // `pages` says the count of is held as its own pages, exactly as a file a build has already
   // counted; anything else is one entry standing for it whole, which the first build expands
-  // (docs/03 §3.3.17).
+  // (docs/03 §3.3.17). `at` puts them at a position in the list instead of after it — the entries
+  // `POST …/files` writes when a file is dropped between two pages (docs/05 §5.6, ADR-025).
   async function givenFile(
     documentId: string,
     position: number,
@@ -139,6 +161,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
       bytes: Buffer;
       crop?: Crop;
       pages?: number;
+      at?: number;
     },
   ): Promise<string> {
     const file = await prisma.file.create({
@@ -156,7 +179,14 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
       where: { id: file.id },
       data: { storageKey: `files/${file.id}/original.${input.ext}` },
     });
-    await files.attach(documentId, file.id);
+    const at = input.at;
+    if (at === undefined) {
+      await files.attach(documentId, file.id);
+    } else {
+      await rewrite(documentId, (pages) =>
+        withInsertedAt(pages, at, pagesForFile({ id: file.id, pageCount: input.pages ?? null })),
+      );
+    }
     const crop = input.crop;
     if (crop !== undefined) {
       await rewrite(documentId, (pages) => withFileCrop(pages, file.id, crop, 'MANUAL'));
@@ -280,6 +310,139 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
     const counted = await prisma.file.findUniqueOrThrow({ where: { id: fileId } });
     expect(counted.pageCount).toBe(3);
   });
+
+  // 🔒 The whole of what "a document is pages" buys, on real bytes (M55.3, ADR-025). M55.3 could
+  // only watch the composed order go past `rearrangePages` and `mergePdfs` with a fake toolbox;
+  // this reads the canonical Stirling actually gave back, page by page, and asks where each page
+  // stands.
+  itWithStirling(
+    'holds a photograph inserted between two pages of a PDF exactly where it was put',
+    async () => {
+      const document = await prisma.document.create({ data: { title: 'A page in the middle' } });
+      await givenFile(document.id, 0, {
+        name: 'contract.pdf',
+        ext: 'pdf',
+        mimeType: 'application/pdf',
+        bytes: pdfWithText(CONTRACT_PAGES),
+        pages: 5,
+      });
+      // Between page two and page three, which is the gesture the whole milestone exists for. The
+      // photograph arrives uncounted, as an upload does, so the entry stands for the file whole and
+      // this build is also the one that expands it — in the middle of the list (docs/05 §5.5 step 1.1).
+      await givenFile(document.id, 1, {
+        name: 'annex.jpg',
+        ext: 'jpg',
+        mimeType: 'image/jpeg',
+        bytes: await landscapePhotograph(),
+        at: 2,
+      });
+
+      const built = await build.execute({
+        ...documentRow(document.id),
+        title: 'A page in the middle',
+      });
+
+      if (built.kind !== 'built') throw new Error('the canonical was not built');
+      const pdfs = new StirlingPdfToolbox(config, new ServiceGates(new FixedClock()));
+      // Six pages, counted off the finished artifact rather than off the parts that went into it.
+      expect(await pdfs.pdfPageCount(built.pdf)).toBe(6);
+      expect(built.pageCount).toBe(6);
+      expect(built.unsupported).toBe(0);
+      // The five text pages are well over the threshold, so what is read below is the pages' own
+      // text and not a recognizer's guess at it.
+      expect(built.ocrUsed).toBe(false);
+
+      // The composed order, page by page: the contract's first two pages, then the photograph —
+      // which carries no text at all — then the contract's remaining three.
+      const texts = await pageTextsOf(pdfs, built.pdf, 6);
+      expect(texts[0]).toContain('C01');
+      expect(texts[1]).toContain('C02');
+      expect(texts[2]?.trim()).toBe('');
+      expect(texts[3]).toContain('C03');
+      expect(texts[4]).toContain('C04');
+      expect(texts[5]).toContain('C05');
+      // And no page of the contract wandered onto the page the photograph took.
+      for (const [index, text] of texts.entries()) {
+        for (const [page, marker] of ['C01', 'C02', 'C03', 'C04', 'C05'].entries()) {
+          const expected = page < 2 ? page : page + 1;
+          if (index !== expected) expect(text).not.toContain(marker);
+        }
+      }
+
+      // The textless page is the photograph and not a blank the merge left behind: it is the one
+      // page of the six lying on its side, because a page is built in the shape of what it was made
+      // from (docs/05 §5.5 step 1).
+      const middle = await shapeOf(pdfs, built.pdf, 3);
+      expect(middle.width).toBeGreaterThan(middle.height);
+      const before = await shapeOf(pdfs, built.pdf, 2);
+      expect(before.height).toBeGreaterThan(before.width);
+    },
+    180_000,
+  );
+
+  // 🔒 A split on real bytes (M55.4, ADR-025): the entries divide between two documents over the
+  // *same* file, nothing is extracted and nothing is copied — so the only honest proof that each
+  // half is its own paper is the two canonicals, read for what they hold and for what they do not.
+  itWithStirling(
+    'gives each half of a split its own pages of the one file and none of the other half’s',
+    async () => {
+      const document = await prisma.document.create({ data: { title: 'The whole lease' } });
+      const lease = pdfWithText(LEASE_PAGES);
+      const fileId = await givenFile(document.id, 0, {
+        name: 'lease.pdf',
+        ext: 'pdf',
+        mimeType: 'application/pdf',
+        bytes: lease,
+        pages: 12,
+      });
+
+      // What `SplitDocumentAtPages` writes: the list divides at the boundary, the far half is
+      // written afresh in a document of its own — a page id addresses an entry inside the document
+      // that holds it — and every entry goes on naming the file it always named.
+      const held = await files.listPagesForDocument(document.id);
+      const far = await prisma.document.create({ data: { title: 'The rest of the lease' } });
+      await files.replacePages(far.id, held.slice(CUT_AT).map(asNewEntry));
+      await files.replacePages(document.id, held.slice(0, CUT_AT));
+
+      const near = await build.execute({
+        ...documentRow(document.id),
+        title: 'The whole lease',
+      });
+      const rest = await build.execute({ ...documentRow(far.id), title: 'The rest of the lease' });
+
+      if (near.kind !== 'built') throw new Error('the near half was not built');
+      if (rest.kind !== 'built') throw new Error('the far half was not built');
+      const pdfs = new StirlingPdfToolbox(config, new ServiceGates(new FixedClock()));
+      // Eight pages and four, counted off the two finished artifacts.
+      expect(await pdfs.pdfPageCount(near.pdf)).toBe(CUT_AT);
+      expect(await pdfs.pdfPageCount(rest.pdf)).toBe(LEASE_PAGES.length - CUT_AT);
+      expect(near.pageCount).toBe(CUT_AT);
+      expect(rest.pageCount).toBe(LEASE_PAGES.length - CUT_AT);
+      expect(near.ocrUsed).toBe(false);
+      expect(rest.ocrUsed).toBe(false);
+
+      // Each half holds its own pages, in the order the paper reads them…
+      const nearText = await pdfs.pdfToMarkdown(near.pdf);
+      const restText = await pdfs.pdfToMarkdown(rest.pdf);
+      expectMarkersInOrder(nearText, markersOf(0, CUT_AT));
+      expectMarkersInOrder(restText, markersOf(CUT_AT, LEASE_PAGES.length));
+      // …and not one page of the other's.
+      for (const marker of markersOf(CUT_AT, LEASE_PAGES.length)) {
+        expect(nearText).not.toContain(marker);
+      }
+      for (const marker of markersOf(0, CUT_AT)) {
+        expect(restText).not.toContain(marker);
+      }
+
+      // 🔒 One file, read by pages in two places: no bytes copied, no file extracted, the original
+      // byte for byte what it was (docs/05 §5.6, ADR-007).
+      expect(storage.get(originalKeyOf({ id: fileId, ext: 'pdf', storageKey: null })).body).toEqual(
+        lease,
+      );
+      expect(await files.filterFilesWithoutLivePages([fileId])).toEqual([]);
+    },
+    240_000,
+  );
 
   // Which way up the paper lay (docs/05 §5.5 step 1). One page of a scan lying sideways is stood
   // up in the canonical while the other two are left exactly as they are — and the file the build
@@ -451,6 +614,59 @@ function documentRow(id: string) {
   };
 }
 
+// The text of a built PDF, one page at a time. Taking each page out on its own is what makes the
+// answer say *where* a page stands rather than merely that its words are somewhere in the file —
+// which is the only question a composed order asks (docs/05 §5.5 step 1). One page at a time and in
+// order, because this reads a document that is already built and not a container under load.
+async function pageTextsOf(
+  toolbox: StirlingPdfToolbox,
+  pdf: Buffer,
+  pageCount: number,
+): Promise<string[]> {
+  const texts: string[] = [];
+  for (let page = 0; page < pageCount; page += 1) {
+    texts.push(await toolbox.pdfToMarkdown(await toolbox.rearrangePages(pdf, [page])));
+  }
+  return texts;
+}
+
+// The shape one page presents, read off a render of it: which way up a page lies is a fact about the
+// picture it makes, and nothing shorter than rendering it says so honestly (docs/05 §5.5).
+async function shapeOf(
+  toolbox: StirlingPdfToolbox,
+  pdf: Buffer,
+  page: number,
+): Promise<{ width: number; height: number }> {
+  const meta = await sharp(await toolbox.pdfPageJpg(pdf, { page, dpi: 50 })).metadata();
+  return { width: meta.width ?? 0, height: meta.height ?? 0 };
+}
+
+// The tokens the lease's pages `from`…`to` name themselves by, in the order the paper reads them.
+function markersOf(from: number, to: number): string[] {
+  return LEASE_PAGES.slice(from, to).map((page) => page.slice(0, 3));
+}
+
+function expectMarkersInOrder(text: string, markers: readonly string[]): void {
+  const at = markers.map((marker) => text.indexOf(marker));
+  for (const [index, position] of at.entries()) {
+    expect(position, `${markers[index] ?? ''} is missing`).toBeGreaterThanOrEqual(0);
+    if (index > 0) expect(position).toBeGreaterThan(at[index - 1] ?? -1);
+  }
+}
+
+// An entry joining another document is a new entry there: nothing addresses a page across documents,
+// and a row carries the document it belongs to (docs/03 §3.3.17). This is what a split does to the
+// half that leaves.
+function asNewEntry(page: PageEntry): PageEntry {
+  return {
+    fileId: page.fileId,
+    pageIndex: page.pageIndex,
+    turn: page.turn,
+    crop: page.crop,
+    cropSource: page.cropSource,
+  };
+}
+
 // A page photographed on a dark table: light rectangle, dark border, which is what the crop cuts.
 function photograph(): Promise<Buffer> {
   return sharp({ create: { width: 800, height: 1000, channels: 3, background: '#202020' } })
@@ -461,6 +677,24 @@ function photograph(): Promise<Buffer> {
         },
         left: 100,
         top: 100,
+      },
+    ])
+    .jpeg()
+    .toBuffer();
+}
+
+// The photograph that goes between page two and page three: a sheet lying the other way up, so the
+// page it becomes is the one landscape page of an otherwise portrait document and can be told apart
+// from its neighbours by its shape alone. Its proportion is deliberately no sheet's — 8:5, well
+// outside the ±8% of √2 of `document-page-geometry` — so `AUTO` leaves every page as it was built
+// and the shape stays the evidence it is meant to be (docs/05 §5.5 step 1).
+function landscapePhotograph(): Promise<Buffer> {
+  return sharp({ create: { width: 1200, height: 750, channels: 3, background: '#202020' } })
+    .composite([
+      {
+        input: { create: { width: 1000, height: 600, channels: 3, background: '#f4f4f4' } },
+        left: 100,
+        top: 75,
       },
     ])
     .jpeg()
