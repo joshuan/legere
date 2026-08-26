@@ -96,6 +96,19 @@ const rebuilt: DocumentDetailDto = {
   city: null,
   processingError: null,
   failedStep: null,
+  // An image is one page, and the crop is written on that page (docs/03 §3.3.17): the file row
+  // beside it says the same thing, read off this entry.
+  pages: [
+    {
+      id: 'cccccccc-3333-4333-8333-333333333333',
+      position: 0,
+      fileId: FILE_ID,
+      pageIndex: null,
+      turn: null,
+      crop: CROP,
+      cropSource: 'MANUAL',
+    },
+  ],
   files: [makeFile(CROP)],
   createdBy: null,
   extracted: null,

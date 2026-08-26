@@ -9,14 +9,18 @@ import type {
 } from '../../../shared/contracts/files';
 import { canEditDocumentMeta } from '../../domain/entities/document';
 import {
+  entryOf,
   fileCropSourceOf,
   filePageOrderOf,
   filePageRotationsOf,
   fileTurnOf,
+  orderedPages,
+  pagesForFile,
   withFileCrop,
   withFilePageOrder,
   withFilePageTurns,
   withFileTurn,
+  withInsertedAt,
   type PageEntry,
 } from '../../domain/entities/document-page';
 import { classifyFormat } from '../../domain/entities/document-format';
@@ -77,7 +81,9 @@ export type UploadedFile = {
   fileName: string;
 };
 
-// POST /api/documents/:id/files (docs/07 §7.3): the bytes are stored, deduplicated and appended last.
+// POST /api/documents/:id/files?at= (docs/07 §7.3): the bytes are stored, deduplicated, and their
+// pages put at a position — after the last page the document has unless the request names one, which
+// is what puts a photograph between page two and page three of a five-page PDF (docs/05 §5.6).
 export class AddDocumentFile {
   constructor(
     private readonly documents: DocumentRepository,
@@ -93,9 +99,22 @@ export class AddDocumentFile {
     viewer: Viewer,
     detail: DocumentDetail,
     input: UploadedFile,
+    at?: number,
   ): Promise<DocumentDetailDto> {
     assertMayCompose(viewer, detail);
     const documentId = detail.document.id;
+    // What the document holds now — and the list the position is a place in, which is the list the
+    // caller was last answered with (docs/03 §3.3.17).
+    const held = pagesOf(detail);
+    // Refused before the bytes are read, let alone stored: a position past the end of the list is a
+    // request about a document that does not exist (docs/07 §7.3).
+    const where = at ?? held.length;
+    if (where > held.length) {
+      throw new UnprocessableError(
+        'VALIDATION_FAILED',
+        `This document has ${held.length} pages, so there is no position ${where} to insert at`,
+      );
+    }
     const upload = await describeUpload(this.mime, input);
 
     const stored = await this.unitOfWork.run(async (tx) => {
@@ -128,13 +147,26 @@ export class AddDocumentFile {
       // them back, and a file cannot be in a document and in the trash at once (docs/05 §5.7a).
       if (file.trashedAt !== null) await this.files.untrash(file.id, tx);
 
-      await this.files.attach(documentId, file.id, tx);
+      // An append is still computed inside the transaction, from the last position the document
+      // actually has, so the several files an upload panel sends at once cannot lose each other. An
+      // insert at a chosen position cannot be: it is a rewrite of the whole list against the list the
+      // caller was shown, and two of those race exactly as every other composition edit does
+      // (docs/03 §3.3.17).
+      if (at === undefined) await this.files.attach(documentId, file.id, tx);
+      else
+        await this.files.replacePages(documentId, withInsertedAt(held, at, pagesForFile(file)), tx);
       await this.events.record(
         {
           documentId,
           type: 'FILE_ATTACHED',
           actorId: viewer.id,
-          payload: { source: 'UPLOAD', path: file.name },
+          // Where it landed as well as that it arrived: the position is the whole difference
+          // between an append and an insert (docs/03 §3.3.18).
+          payload: {
+            source: 'UPLOAD',
+            path: file.name,
+            changes: { position: { from: null, to: String(where) } },
+          },
         },
         tx,
       );
@@ -641,17 +673,7 @@ export function assertMayCompose(viewer: Viewer, detail: DocumentDetail): void {
 // the order the document holds them (docs/03 §3.3.17). Every composition edit answers with a list
 // like this one and writes it back in a single rewrite.
 export function pagesOf(detail: DocumentDetail): PageEntry[] {
-  return detail.files
-    .flatMap((file) => file.pages)
-    .sort((a, b) => a.position - b.position)
-    .map((page) => ({
-      id: page.id,
-      fileId: page.fileId,
-      pageIndex: page.pageIndex,
-      turn: page.turn,
-      crop: page.crop,
-      cropSource: page.cropSource,
-    }));
+  return orderedPages(detail.files).map(entryOf);
 }
 
 export function fileOf(detail: DocumentDetail, fileId: string): DocumentFileView {
@@ -745,7 +767,7 @@ function turnsLabel(rotations: readonly number[] | null): string | null {
 // The composition changed, so the canonical PDF and everything read off it are stale. The old
 // artifacts are left where they are until the new ones are written, so the document keeps reading
 // while it rebuilds (docs/05 §5.6).
-async function enqueueRebuild(
+export async function enqueueRebuild(
   queue: JobQueue,
   events: DocumentEventRepository,
   tx: TransactionHandle,
@@ -758,7 +780,7 @@ async function enqueueRebuild(
 
 // Every composition route answers with the whole document: a change to one file moves positions,
 // availability and the origin of the document itself, so anything less would be a lie (docs/07 §7.3).
-async function reload(
+export async function reload(
   documents: DocumentRepository,
   viewer: Viewer,
   documentId: string,

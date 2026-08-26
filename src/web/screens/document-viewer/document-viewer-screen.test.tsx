@@ -59,6 +59,20 @@ function fileOf(id: string, overrides: Partial<DocumentFileDto> = {}): DocumentF
   };
 }
 
+// The document as the ordered list of pages it is (docs/03 §3.3.17): one entry per file here,
+// because nobody has counted the pages inside any of them yet.
+function pagesOf(...fileIds: string[]): DocumentDetailDto['pages'] {
+  return fileIds.map((fileId, position) => ({
+    id: `eeeeeeee-0000-4000-8000-00000000000${position}`,
+    position,
+    fileId,
+    pageIndex: null,
+    turn: null,
+    crop: null,
+    cropSource: 'NONE' as const,
+  }));
+}
+
 // A copy of a page that a better one replaced: in the trash, still readable, hanging off the file
 // that took its place (docs/05 §5.6, §5.7a).
 function versionOf(
@@ -117,6 +131,7 @@ const detail: DocumentDetailDto = {
   },
   processingError: null,
   failedStep: null,
+  pages: pagesOf(FIRST_FILE),
   files: [fileOf(FIRST_FILE)],
   createdBy: null,
   extracted: null,
@@ -127,6 +142,7 @@ const detail: DocumentDetailDto = {
 const twoFiles: DocumentDetailDto = {
   ...detail,
   fileCount: 2,
+  pages: pagesOf(FIRST_FILE, SECOND_FILE),
   files: [
     fileOf(FIRST_FILE, { name: 'page-1.jpg', ext: 'jpg', mimeType: 'image/jpeg', isImage: true }),
     fileOf(SECOND_FILE, {
@@ -1657,6 +1673,7 @@ describe('DocumentViewerScreen', () => {
       const threeFiles: DocumentDetailDto = {
         ...twoFiles,
         fileCount: 3,
+        pages: pagesOf(FIRST_FILE, SECOND_FILE, THIRD_FILE),
         files: [
           ...twoFiles.files,
           fileOf(THIRD_FILE, {

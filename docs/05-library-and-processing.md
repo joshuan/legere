@@ -914,21 +914,54 @@ Nothing rewrites a file, and every one of them ends by enqueueing a canonical re
 followed by the rest of the pipeline — because a document whose pages changed is a different
 document to read, search and categorize.
 
-- **Add by upload.** Files sent to an existing document are stored, deduplicated and their pages
-  appended after the last page the document has, in the order the files arrive. A file nothing has
-  counted the pages of yet arrives as **one entry standing for it whole**, which the next build
-  expands (§5.5 step 1). A file that already belongs to another document is refused
-  (`FILE_ALREADY_IN_DOCUMENT`) — moving it is `combine`, below.
+- **Add by upload, anywhere in the order.** Files sent to an existing document are stored,
+  deduplicated and their pages put **at a position** — after the last page the document has unless
+  the request names one, which is what puts a photograph between page two and page three of a
+  five-page PDF (ADR-025). A position is a place in the list the document was last answered with
+  (`03 §3.3.17`): a file nothing has counted the pages of yet arrives as **one entry standing for it
+  whole**, which the next build expands (§5.5 step 1), and until then that whole file is one place —
+  an insert lands before it or after it, never inside it. A position outside the list is refused
+  (`VALIDATION_FAILED`). A file that already belongs to another document is refused
+  (`FILE_ALREADY_IN_DOCUMENT`) — moving it is `combine` or a page move, below.
 - **Combine.** Several documents become one: the pages of the others are appended to the target in
   the order the user chose, and the emptied documents are soft-deleted. Their titles, types, people
   and collections stay with the rows that are going away — the target keeps what it had, and the
   analysis is re-run over the whole. This is what "these two scans are one document" means, and it
   replaces the scan sets of earlier releases.
-- **Split.** A file removed from a document takes its pages with it into a document of its own —
-  never nothing. The new
+- **Split off a file.** A file removed from a document takes its pages with it into a document of its
+  own — never nothing. The new
   document is titled after the file, inherits nothing else, and is processed from scratch. Removing
   the only file of a document is refused (`DOCUMENT_LAST_FILE`): a document is emptied by deleting
   it, not by taking its parts away one at a time.
+- **Split at a page.** The twenty-page scan whose eighth page begins another contract is cut at one
+  or more page boundaries into two or more documents, the entries dividing between them. 🔒 **No
+  bytes are copied and no file is extracted**: the same file is simply read by pages in two places,
+  which is exactly what ADR-025 exists for and what it refused to do with a page splitter. Each new
+  document takes the original's **owner**, and therefore its access — whoever could read and edit the
+  original can read and edit the part (`03 §3.4`) — and nothing it has not earned: no title but the
+  name of the file its first page comes from, no type, no people, no collections, because half a
+  paper is not the paper and the pipeline reads it afresh. The parts are **linked** to each other and
+  to the original (`03 §3.3.23`), which is what
+  makes them separate-but-together and what lets a reader of one part find the rest. A cut at the
+  first page or past the last is refused (`VALIDATION_FAILED`): every part has to be a document, and
+  a document has at least one page. Every part rebuilds, and both journals say what happened, each
+  naming the other.
+- **Move pages to another document.** The page that belongs elsewhere goes there instead of being
+  scanned again: entries picked in one document leave its list and join another's — an existing
+  document, at a chosen position, or a new one made to hold them, which takes the source's owner on
+  the same terms as a split. The bytes do not move, because they were never in a document to begin
+  with: what changes hands is the entry that reads them. 🔒 The mover must be allowed to edit **both**
+  documents, and a move into one they may not edit is refused whole rather than done by halves; so is
+  one that would empty the document the pages came from. Both documents rebuild, and both journals
+  say what happened, each naming the other. A page that has moved is still read, so nothing goes to
+  the trash for it — the rule below is asked all the same, because it is the rule and not a guess
+  about which edits can bite.
+- **Remove a page.** An entry leaves the document and the rest close up behind it. Removing the last
+  page of a document is refused (`DOCUMENT_LAST_PAGE`) for the reason removing its last file is: a
+  document is emptied by deleting it. 🔒 **A file with no live page left anywhere goes to the trash**
+  (§5.7a) with `PAGE_REMOVED` — one join further out than the rule used to sit, and asked of every
+  edit that can leave a file unread. A file another document still reads a page of stays exactly
+  where it is.
 - **Replace.** A bad scan is re-taken and sent in place of the file it is a better copy of: the new
   bytes are stored and deduplicated like any upload, and **take the old file's place in the order** —
   its pages stand where the old file's pages stood, so the rest of the document does not move. They
@@ -950,9 +983,13 @@ document to read, search and categorize.
   takes that version back out of the trash, which is what deduplication means when the file it finds
   is one of ours.
 - **Reorder.** Positions are rewritten wholesale from the order the client sends; the order is the
-  page order of the canonical PDF and nothing else depends on it. The order is still sent as a list
-  of files, and the pages of each file move as a block — until the composition endpoints speak pages
-  outright (`07 §7.3`), which is what a document being a list of pages is for.
+  page order of the canonical PDF and nothing else depends on it. It is sent as **the whole order,
+  every page of the document exactly once** (`07 §7.3`) — one request and one truth, the way the page
+  strip already sends a whole permutation (`11 §11.5a`) — so "move this page to position 3" is not an
+  endpoint of its own but the order that results from it, which is the only shape that cannot be half
+  applied. A partial order is refused (`VALIDATION_FAILED`): the rest would sit somewhere nobody
+  chose. The older shape, a list of **files** whose pages move as a block, is still there and still
+  means what it meant; it is what a screen that shows files rather than pages sends.
 - **Order the pages inside a file.** The unit above is the file; this one is finer. The pages of one
   file are put into an order of the caller's choosing — a permutation of the file's own 0-based page
   indices — and what it rewrites is the order those pages sit in **in this document** (`03 §3.3.17`),
@@ -1153,10 +1190,14 @@ are a user-written catalogue and not log material.
 ## 5.7a. The trash
 
 **Every file left with no live page goes to the trash; no file is destroyed by the act that removed
-it.** Replacing a page (§5.6) puts the old scan there, and deleting a document
-(`03 §3.3.10`) puts the files nothing else reads there. A file another document still reads a page
-of stays exactly where it is — the rule is the one it always was, one join further out
-(ADR-025). The document itself does not go to the trash — it is
+it.** Replacing a page (§5.6) puts the old scan there with `REPLACED`, deleting a document
+(`03 §3.3.10`) puts the files nothing else reads there with `DOCUMENT_DELETED`, and **removing the
+last page that reads a file** puts it there with `PAGE_REMOVED` — three ways in, told apart because
+"there is a newer scan of this", "the paper it was part of is gone" and "somebody took this page out"
+are three different things to read on the screen that lists them. A file another document still reads
+a page of stays exactly where it is — the rule is the one it always was, one join further out
+(ADR-025), and it is asked by every edit that can leave a file unread rather than by the one that
+usually does. The document itself does not go to the trash — it is
 deleted at once, with its journal, its chunks and its artifacts, because a document is a record about
 files and the files are what is worth keeping. What the trash protects is the one thing that cannot
 be rebuilt: bytes.

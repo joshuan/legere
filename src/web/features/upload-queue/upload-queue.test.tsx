@@ -56,6 +56,9 @@ function detailDto(id: string): Record<string, unknown> {
     skipReasons: {},
     processingError: null,
     failedStep: null,
+    // The document as the ordered list of pages it is (docs/03 §3.3.17); this one holds none, since
+    // what the panel watches is the upload and not the composition.
+    pages: [],
     files: [],
     createdBy: null,
     extracted: null,

@@ -469,6 +469,54 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
       );
     });
 
+    it('builds each half of a split out of its own pages of the one file', async () => {
+      // What a document looks like after a cut at a page (docs/05 §5.6): two documents, one file,
+      // and no bytes copied — each half holds the entries it was given and builds only those.
+      pdfs.pageCount = 4;
+      const first = documentFixture({ id: 'doc-kept' });
+      const second = documentFixture({ id: 'doc-cut' });
+      const key = 'files/two-deeds/original.pdf';
+      const scan = files.add(
+        {
+          id: 'two-deeds',
+          contentHash: 'two-deeds',
+          origin: 'MANAGED',
+          storageKey: key,
+          mimeType: 'application/pdf',
+          ext: 'pdf',
+          name: 'two-deeds.pdf',
+          pageCount: 4,
+        },
+        first.id,
+      );
+      await storage.put(key, Buffer.from('deeds'), 'application/pdf');
+      const entry = (pageIndex: number): PageEntry => ({
+        fileId: scan.id,
+        pageIndex,
+        turn: null,
+        crop: null,
+        cropSource: 'NONE',
+      });
+      await files.replacePages(first.id, [entry(0), entry(1)]);
+      await files.replacePages(second.id, [entry(2), entry(3)]);
+
+      const picked = (): string[] =>
+        pdfs.calls.flatMap((call) =>
+          call.method === 'rearrangePages' && call.fileName !== undefined ? [call.fileName] : [],
+        );
+
+      await build.execute(first);
+      const kept = picked();
+      await build.execute(second);
+      const cut = picked().slice(kept.length);
+
+      // 🔒 Each canonical holds its own pages, taken out of the same file by index: pages one and
+      // two here, three and four there, and the file itself untouched (ADR-007).
+      expect(kept).toEqual(['0,1']);
+      expect(cut).toEqual(['2,3']);
+      expect(files.files.size).toBe(1);
+    });
+
     it('lets two documents crop one photograph apart', async () => {
       const first = documentFixture({ id: 'doc-first' });
       const second = documentFixture({ id: 'doc-second' });

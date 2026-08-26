@@ -308,6 +308,31 @@ export const documentFileVersionSchema = z.object({
 });
 export type DocumentFileVersionDto = z.infer<typeof documentFileVersionSchema>;
 
+// 🔒 How many entries one document may be asked to hold in one request. The same reasoning as
+// `MAX_FILE_PAGES` above, one level out: a whole order arrives as an array from a browser, and an
+// array with no ceiling is a request that costs whatever the sender felt like. What decides a valid
+// order is the document's own list; this is the outer bound, checked before anything is looked up.
+export const MAX_DOCUMENT_PAGES = 2000;
+
+// One page of one document (docs/03 §3.3.17, ADR-025) — the thing the document is an ordered list
+// of. The composition endpoints count positions in *this* list, so a caller inserts, cuts and moves
+// against exactly what it was last answered with (docs/07 §7.3).
+export const documentPageDtoSchema = z.object({
+  id: z.string().uuid(),
+  // 0-based and contiguous inside one document.
+  position: z.number().int().nonnegative(),
+  fileId: z.string().uuid(),
+  // Which page of that file, by the file's own 0-based index — `null` for the entry standing for a
+  // file **whole** while nobody has counted its pages, which is the one place a position covers more
+  // than one sheet of paper (docs/03 §3.3.17).
+  pageIndex: z.number().int().nonnegative().nullable(),
+  // Which way up this page lies and how much of it is paper. `null` is the way it arrived.
+  turn: rotationSchema.nullable(),
+  crop: cropSchema.nullable(),
+  cropSource: valueSourceSchema,
+});
+export type DocumentPageDto = z.infer<typeof documentPageDtoSchema>;
+
 export const documentFileDtoSchema = z.object({
   id: z.string().uuid(),
   position: z.number().int().nonnegative(),
@@ -469,6 +494,11 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   // any of them (docs/11 §11.3), so the detail inherits them rather than repeating them.
   processingError: z.string().nullable(),
   failedStep: z.string().nullable(),
+  // The document itself, in order (docs/03 §3.3.17): one entry per page, each naming the file it is
+  // read from. `files` below is the same list read the other way round — one row per distinct file,
+  // everything it says about this document derived from these entries — and this is the one the
+  // composition endpoints address, because a position is a place in this list (docs/07 §7.3).
+  pages: z.array(documentPageDtoSchema),
   files: z.array(documentFileDtoSchema),
   createdBy: z.object({ id: z.string().uuid(), displayName: z.string() }).nullable(),
   // The whole typed-fields answer (docs/03 §3.3.10a): which schema, the values, and who decided

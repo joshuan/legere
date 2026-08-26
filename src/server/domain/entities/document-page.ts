@@ -6,6 +6,7 @@ import {
   type Rotation,
 } from '../../../shared/contracts/documents';
 import type { ValueSource } from '../../../shared/contracts/enums';
+import type { File } from './file';
 
 // One page of one document (docs/03 §3.3.17, ADR-025): read out of one file, standing a particular
 // way up, showing a particular part of itself. This — not the file — is what a document is an
@@ -42,6 +43,56 @@ export type PageEntry = {
   crop: Crop | null;
   cropSource: ValueSource;
 };
+
+// The whole ordered list a document holds, read back off the files it was answered with: the pages
+// of every file, in the order the document holds them (docs/03 §3.3.17). One place, because every
+// composition edit starts here — with the list as it stands — and answers with the list it should
+// hold instead.
+export function orderedPages(
+  files: ReadonlyArray<{ pages: readonly DocumentPage[] }>,
+): DocumentPage[] {
+  return files.flatMap((file) => [...file.pages]).sort((a, b) => a.position - b.position);
+}
+
+// An entry without where it stands: what a rewrite is written in, keeping the id so that a page that
+// was already there stays the same page.
+export function entryOf(page: DocumentPage): PageEntry {
+  return {
+    id: page.id,
+    fileId: page.fileId,
+    pageIndex: page.pageIndex,
+    turn: page.turn,
+    crop: page.crop,
+    cropSource: page.cropSource,
+  };
+}
+
+// The entries a file joins a document as: its own pages where a build has counted them, and one
+// entry standing for it whole where none has — the transitional state of ADR-025, which the next
+// build ends (docs/03 §3.3.17).
+export function pagesForFile(file: Pick<File, 'id' | 'pageCount'>): PageEntry[] {
+  const count = file.pageCount === null || file.pageCount < 1 ? null : file.pageCount;
+  const indices: Array<number | null> =
+    count === null ? [null] : Array.from({ length: count }, (unused, index) => index);
+  return indices.map((pageIndex) => ({
+    fileId: file.id,
+    pageIndex,
+    turn: null,
+    crop: null,
+    cropSource: 'NONE',
+  }));
+}
+
+// Entries put **at a position** in the list — the whole of what "between page two and page three"
+// means (ADR-025). The position is a place among the entries the document holds, so a file held
+// whole is one place: the insert lands before it or after it, never inside it (docs/03 §3.3.17).
+export function withInsertedAt(
+  pages: readonly PageEntry[],
+  at: number,
+  inserted: readonly PageEntry[],
+): PageEntry[] {
+  return [...pages.slice(0, at), ...inserted, ...pages.slice(at)];
+}
 
 // The turn a build should apply to this page, or `null` for "the way it arrived" — which covers both
 // a page that carries none and one whose turns were pressed round in a circle, because a quarter

@@ -1,0 +1,13 @@
+-- A third way into the trash (docs/05 §5.7a, docs/05 §5.6). Since ADR-025 a document is an ordered
+-- list of pages, so a page can be taken out of a document that goes on existing — and when the page
+-- taken out was the last one anywhere reading a file, that file is left with no live page and goes
+-- to the trash by the rule that already covers the other two ways in.
+--
+-- It gets a reason of its own rather than borrowing DOCUMENT_DELETED, which would say something
+-- untrue on the one screen where the answer matters: "the paper this was part of is gone" and
+-- "somebody took this page out of a paper that is still there" are different things to know about
+-- bytes somebody is deciding whether to keep (docs/11 §11.13b).
+--
+-- Nothing here uses the new value: Postgres forbids using an enum value in the transaction that
+-- added it, and Prisma runs one migration per transaction. It is written at runtime, by the edit.
+ALTER TYPE "TrashReason" ADD VALUE IF NOT EXISTS 'PAGE_REMOVED';

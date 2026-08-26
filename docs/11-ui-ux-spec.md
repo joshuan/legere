@@ -761,6 +761,12 @@ off the only file is not offered at all rather than refused after the fact. Abov
 files** — the same global queue and the same panel (§11.3a), addressed to this document rather than to
 the library, appending in the order chosen.
 
+**Splitting off a file is the coarse half of a cut.** The finer half — cutting the document at a
+**page** boundary, and moving pages into another document (`05 §5.6`) — is in the API
+(`07 §7.3`) and is deliberately not on this tab yet: both are aimed at a page, and a control that
+cut between two pages the list does not draw would be a control nobody could point. They arrive with
+the page strip that replaces this list.
+
 **The tab opens with the two things you can do with the document as a whole**: the **Download split
 button** of §11.5b on the left, **Add files** on the right, and the rebuild note under them. This is
 where they belong rather than in the sidebar: "the document as one piece", "one of the originals"
@@ -1340,8 +1346,9 @@ not the page — that number is the reason to open this screen at all — and on
 a confirmation naming the same figures.
 
 One row per file: a thumbnail for an image, the name, its kind and size, **where it came from** (the
-title the document had, and why it left — *replaced by a newer scan*, or *its document was deleted*),
-and **when it goes**:
+title the document had, and why it left — *replaced by a newer scan*, *its document was deleted*, or
+*its last page was removed*, which is a document that is still there minus the page that read these
+bytes), and **when it goes**:
 
 - a file of ours says the date the sweep will delete it — "deleted on 12 March", not "in 27 days",
   because a date survives being read a week later;

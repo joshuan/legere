@@ -76,6 +76,16 @@ const rebuilt: DocumentDetailDto = {
   city: null,
   processingError: null,
   failedStep: null,
+  // The document as the list of pages it is (docs/03 §3.3.17): three pages of the one file.
+  pages: [0, 1, 2].map((pageIndex) => ({
+    id: `cccccccc-3333-4333-8333-33333333333${pageIndex}`,
+    position: pageIndex,
+    fileId: FILE_ID,
+    pageIndex,
+    turn: null,
+    crop: null,
+    cropSource: 'NONE' as const,
+  })),
   files: [makeFile()],
   createdBy: null,
   extracted: null,

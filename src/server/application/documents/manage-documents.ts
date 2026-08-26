@@ -13,6 +13,7 @@ import {
   type DocumentDetailDto,
   type DocumentEventPage,
   type DocumentFileDto,
+  type DocumentPageDto,
   type DocumentGroupsResponse,
   type DocumentYearsResponse,
   type DocumentListDto,
@@ -35,6 +36,8 @@ import {
   filePageOrderOf,
   filePageRotationsOf,
   fileTurnOf,
+  orderedPages,
+  type DocumentPage,
 } from '../../domain/entities/document-page';
 import { isImageFile } from '../../domain/entities/file';
 import type { DocumentEventPayload } from '../../domain/entities/document-event';
@@ -549,6 +552,22 @@ function extractedSummaryOf(
   return summaryValuesOf(schema, document.extracted.values);
 }
 
+// The document itself, in order (docs/03 §3.3.17, ADR-025): one entry per page, each naming the file
+// it is read from and which page of it. This is the list the composition endpoints address — a
+// position is a place in it — so every one of them answers with it and a caller never has to guess
+// what it is indexing into (docs/07 §7.3).
+export function toPageDto(page: DocumentPage): DocumentPageDto {
+  return {
+    id: page.id,
+    position: page.position,
+    fileId: page.fileId,
+    pageIndex: page.pageIndex,
+    turn: page.turn,
+    crop: page.crop,
+    cropSource: page.cropSource,
+  };
+}
+
 // One file of a document, in page order (docs/07 §7.3). `refs` are already filtered to the libraries
 // the caller may see, so a file with three homes may show one — and `storageKey` answers the same
 // question for the file that has no volume at all, so a location is answered for every file rather
@@ -645,6 +664,7 @@ export function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     subjects: detail.subjects,
     processingError: document.processingError,
     failedStep: document.failedStep,
+    pages: orderedPages(detail.files).map(toPageDto),
     files: detail.files.map(toFileDto),
     createdBy: detail.createdBy,
     extracted: document.extracted,

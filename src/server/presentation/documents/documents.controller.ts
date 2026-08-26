@@ -40,14 +40,24 @@ import {
   DocumentMarkdownResponse,
 } from '../../../shared/contracts/documents';
 import {
+  addDocumentFileQuerySchema,
   combineDocumentsRequestSchema,
+  moveDocumentPagesRequestSchema,
   reorderDocumentFilesRequestSchema,
+  reorderDocumentPagesRequestSchema,
+  splitDocumentRequestSchema,
   updateDocumentFileRequestSchema,
+  type AddDocumentFileQuery,
   type CombineDocumentsRequest,
   type CropSuggestionResponse,
   type GroupingSuggestionsResponse,
+  type MoveDocumentPagesRequest,
+  type MoveDocumentPagesResponse,
   type ReorderDocumentFilesRequest,
+  type ReorderDocumentPagesRequest,
   type SplitDocumentFileResponse,
+  type SplitDocumentRequest,
+  type SplitDocumentResponse,
   type UpdateDocumentFileRequest,
 } from '../../../shared/contracts/files';
 import type { OkResponse } from '../../../shared/contracts/users';
@@ -70,6 +80,12 @@ import {
   SuggestDocumentFileCrop,
   UpdateDocumentFile,
 } from '../../application/documents/compose-document';
+import {
+  MoveDocumentPages,
+  RemoveDocumentPage,
+  ReorderDocumentPages,
+  SplitDocumentAtPages,
+} from '../../application/documents/arrange-pages';
 import {
   DownloadDocumentCanonical,
   DownloadDocumentFile,
@@ -140,6 +156,10 @@ export class DocumentsController {
     private readonly upload: UploadDocument,
     private readonly addFile: AddDocumentFile,
     private readonly reorderFiles: ReorderDocumentFiles,
+    private readonly reorderPages: ReorderDocumentPages,
+    private readonly removePage: RemoveDocumentPage,
+    private readonly splitAtPages: SplitDocumentAtPages,
+    private readonly movePages: MoveDocumentPages,
     private readonly updateFile: UpdateDocumentFile,
     private readonly suggestCrop: SuggestDocumentFileCrop,
     private readonly pageThumb: GetDocumentFilePageThumb,
@@ -298,18 +318,74 @@ export class DocumentsController {
 
   // --- what the document is made of (docs/07 §7.3, docs/05 §5.6) -------------------------------
 
-  // The file is the body, its name in a header, and it is appended last. Every composition route
-  // answers with the whole document: a change to one file is never local to it.
+  // The file is the body, its name in a header, and its pages go where `?at=` says — after the last
+  // page of the document when it says nothing, which is what an append always was. Every composition
+  // route answers with the whole document: a change to one page is never local to it.
   @Post(':id/files')
   @UseGuards(DocumentAccessGuard)
   async postFile(
     @CurrentUser() user: User,
     @CurrentDocument() document: DocumentDetail,
+    @ZodQuery(addDocumentFileQuerySchema) query: AddDocumentFileQuery,
     @Req() req: Request,
   ): Promise<Envelope<DocumentDetailDto>> {
     const fileName = attachedFileName(req);
     const bytes = await readUploadBody(req, this.config.get('UPLOAD_MAX_BYTES'));
-    return successEnvelope(await this.addFile.execute(user, document, { bytes, fileName }));
+    return successEnvelope(
+      await this.addFile.execute(user, document, { bytes, fileName }, query.at),
+    );
+  }
+
+  // --- the pages themselves (docs/07 §7.3, docs/05 §5.6, ADR-025) ------------------------------
+
+  // The whole order, every page of this document exactly once: one request and one truth, which is
+  // also the only shape a reorder cannot be half applied in.
+  @Patch(':id/pages')
+  @UseGuards(DocumentAccessGuard)
+  async patchPages(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @ZodBody(reorderDocumentPagesRequestSchema) body: ReorderDocumentPagesRequest,
+  ): Promise<Envelope<DocumentDetailDto>> {
+    return successEnvelope(await this.reorderPages.execute(user, document, body));
+  }
+
+  // The pages that belong elsewhere go there — an existing document at a chosen position, or a new
+  // one made to hold them. 🔒 Refused whole when the caller may not edit the other end.
+  @Post(':id/pages/move')
+  @HttpCode(200)
+  @UseGuards(DocumentAccessGuard)
+  async postPagesMove(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @ZodBody(moveDocumentPagesRequestSchema) body: MoveDocumentPagesRequest,
+  ): Promise<Envelope<MoveDocumentPagesResponse>> {
+    return successEnvelope(await this.movePages.execute(user, document, body));
+  }
+
+  // One page leaves and the rest close up behind it; the file goes to the trash only if nothing
+  // anywhere still reads a page of it (docs/05 §5.7a).
+  @Delete(':id/pages/:pageId')
+  @UseGuards(DocumentAccessGuard)
+  async deletePage(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @UuidParam('pageId', 'PAGE_NOT_FOUND', 'Page') pageId: string,
+  ): Promise<Envelope<DocumentDetailDto>> {
+    return successEnvelope(await this.removePage.execute(user, document, pageId));
+  }
+
+  // The scan whose eighth page begins another contract becomes two documents and no new bytes
+  // (docs/05 §5.6): the entries divide, the parts are linked, and every one of them rebuilds.
+  @Post(':id/split')
+  @HttpCode(200)
+  @UseGuards(DocumentAccessGuard)
+  async postSplit(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @ZodBody(splitDocumentRequestSchema) body: SplitDocumentRequest,
+  ): Promise<Envelope<SplitDocumentResponse>> {
+    return successEnvelope(await this.splitAtPages.execute(user, document, body));
   }
 
   @Patch(':id/files')

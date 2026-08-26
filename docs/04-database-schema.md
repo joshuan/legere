@@ -56,6 +56,8 @@ enum FileRefStatus {
 enum TrashReason {
   REPLACED
   DOCUMENT_DELETED
+  // The last page reading these bytes was taken out of a document that is still there (05 §5.6).
+  PAGE_REMOVED
 }
 
 enum FileOrigin {

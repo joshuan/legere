@@ -1081,6 +1081,9 @@ function detailOf(index: number): Record<string, unknown> {
     city: null,
     processingError: null,
     failedStep: null,
+    // The document as the ordered list of pages it is (docs/03 §3.3.17). This screen never draws
+    // them — it is the shelf, not the composition — so the list is empty here.
+    pages: [],
     files: [],
     createdBy: null,
     extracted: null,

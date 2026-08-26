@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   canOverwriteCrop,
   effectiveTurn,
+  entryOf,
   fileCropOf,
   fileCropSourceOf,
   filePageOrderOf,
   filePageRotationsOf,
   fileTurnOf,
+  orderedPages,
+  pagesForFile,
   pagesOfFile,
   samePages,
   standsForWholeFile,
@@ -15,6 +18,7 @@ import {
   withFilePageOrder,
   withFilePageTurns,
   withFileTurn,
+  withInsertedAt,
   type DocumentPage,
 } from './document-page';
 import type { Crop } from '../../../shared/contracts/documents';
@@ -220,5 +224,78 @@ describe('rewriting the list', () => {
     ).toBe(false);
     expect(samePages(listOf(), listOf().slice(1))).toBe(false);
     expect(samePages(listOf(), withFileCrop(listOf(), 'file-1', QUAD, 'AUTO'))).toBe(false);
+  });
+});
+
+// The list itself, before any of it reaches a database: where an edit reads it from, what a file
+// joins it as, and what "at a position" means (docs/03 §3.3.17, docs/05 §5.6).
+describe('the list a document is', () => {
+  it('reads the whole order back off the files it was answered with', () => {
+    // Deliberately out of order and split across two files: a document's order is its positions and
+    // not the order the files happen to be listed in.
+    const files = [
+      { pages: [page({ position: 2, pageIndex: 2 }), page({ position: 0, pageIndex: 0 })] },
+      { pages: [page({ position: 1, fileId: 'file-2', pageIndex: null })] },
+    ];
+
+    expect(orderedPages(files).map((entry) => entry.position)).toEqual([0, 1, 2]);
+    expect(orderedPages(files).map((entry) => entry.fileId)).toEqual([
+      'file-1',
+      'file-2',
+      'file-1',
+    ]);
+  });
+
+  it('turns a page into the entry a rewrite is written in, id and all', () => {
+    const entry = entryOf(page({ position: 3, pageIndex: 1, cropSource: 'MANUAL', crop: QUAD }));
+
+    // The id travels, so a page that was already there stays the same page across a rewrite.
+    expect(entry).toEqual({
+      id: 'page-3',
+      fileId: 'file-1',
+      pageIndex: 1,
+      turn: null,
+      crop: QUAD,
+      cropSource: 'MANUAL',
+    });
+  });
+
+  it('gives a file its own pages where a build has counted them, and one entry where none has', () => {
+    expect(pagesForFile({ id: 'file-9', pageCount: 3 }).map((entry) => entry.pageIndex)).toEqual([
+      0, 1, 2,
+    ]);
+    // The transitional state of ADR-025: "this file, whole, in the order it arrived".
+    expect(pagesForFile({ id: 'file-9', pageCount: null }).map((entry) => entry.pageIndex)).toEqual(
+      [null],
+    );
+    // A count of nothing is not a count: a file a build read as zero pages is still one entry.
+    expect(pagesForFile({ id: 'file-9', pageCount: 0 }).map((entry) => entry.pageIndex)).toEqual([
+      null,
+    ]);
+    // Nothing is said about a page nobody has looked at yet.
+    expect(pagesForFile({ id: 'file-9', pageCount: 1 }).at(0)).toMatchObject({
+      fileId: 'file-9',
+      turn: null,
+      crop: null,
+      cropSource: 'NONE',
+    });
+  });
+
+  it('puts a page between two others, and at either end', () => {
+    const held = listOf().map(entryOf);
+    const photo = pagesForFile({ id: 'file-7', pageCount: 1 });
+
+    // Between page two and page three of the scan, which is the whole of what this buys (ADR-025).
+    expect(withInsertedAt(held, 2, photo).map((entry) => entry.fileId)).toEqual([
+      'file-1',
+      'file-1',
+      'file-7',
+      'file-1',
+      'file-2',
+    ]);
+    expect(withInsertedAt(held, 0, photo).at(0)?.fileId).toBe('file-7');
+    // The end of the list is a position like any other, and it is what an append always was.
+    expect(withInsertedAt(held, held.length, photo).at(-1)?.fileId).toBe('file-7');
+    expect(withInsertedAt(held, 2, photo)).toHaveLength(held.length + 1);
   });
 });

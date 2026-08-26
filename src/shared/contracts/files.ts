@@ -2,19 +2,83 @@ import { z } from 'zod';
 import {
   cropSchema,
   documentDetailDtoSchema,
+  MAX_DOCUMENT_PAGES,
   pageOrderSchema,
   pageRotationsSchema,
   rotationSchema,
 } from './documents';
 
-// Composing a document out of files (docs/07 §7.3 "Document files", docs/05 §5.6). Every one of
-// these answers with the whole document: a composition change is never local.
+// Composing a document out of pages (docs/07 §7.3 "Document pages and files", docs/05 §5.6). Every
+// one of these answers with the whole document: a composition change is never local — and the answer
+// carries the page list the caller's next request will index into (docs/03 §3.3.17).
 
 // PATCH /api/documents/:id/files — the complete order, every file of the document exactly once.
 export const reorderDocumentFilesRequestSchema = z.object({
   order: z.array(z.string().uuid()).min(1).max(200),
 });
 export type ReorderDocumentFilesRequest = z.infer<typeof reorderDocumentFilesRequestSchema>;
+
+// A place in a document's own list of entries, 0-based (docs/03 §3.3.17). What "between page two and
+// page three" is said with, and — while a file is held whole — a place before that file or after it,
+// never inside it.
+const positionSchema = z.number().int().nonnegative().max(MAX_DOCUMENT_PAGES);
+
+// POST /api/documents/:id/files?at= — where the uploaded file's pages go. Absent is "after the last
+// page the document has", which is what an append always was.
+export const addDocumentFileQuerySchema = z.object({
+  at: z.coerce.number().int().nonnegative().max(MAX_DOCUMENT_PAGES).optional(),
+});
+export type AddDocumentFileQuery = z.infer<typeof addDocumentFileQuerySchema>;
+
+// PATCH /api/documents/:id/pages — the complete order, every page of the document exactly once. One
+// request and one truth: a partial order would leave the rest somewhere nobody chose, and "move this
+// page to position 3" is this request with the resulting order in it rather than an endpoint of its
+// own, because a whole permutation is the only shape that cannot be half applied (docs/05 §5.6).
+export const reorderDocumentPagesRequestSchema = z.object({
+  order: z.array(z.string().uuid()).min(1).max(MAX_DOCUMENT_PAGES),
+});
+export type ReorderDocumentPagesRequest = z.infer<typeof reorderDocumentPagesRequestSchema>;
+
+// 🔒 How many cuts one request may make. A split answers with a document per part, and every part is
+// linked to every other (docs/03 §3.3.23) — so the edges grow with the square of this number, and it
+// is small on purpose: twenty cuts is more than anybody makes at a page strip in one gesture.
+export const MAX_SPLIT_BOUNDARIES = 20;
+
+// POST /api/documents/:id/split — the 0-based page boundaries to cut at: `[8]` puts pages 0…7 in the
+// document that is there and 8… in a new one. A cut at 0 or past the last page is refused where the
+// list is known, because every part has to be a document and a document has at least one page.
+export const splitDocumentRequestSchema = z.object({
+  at: z.array(z.number().int().positive().max(MAX_DOCUMENT_PAGES)).min(1).max(MAX_SPLIT_BOUNDARIES),
+});
+export type SplitDocumentRequest = z.infer<typeof splitDocumentRequestSchema>;
+
+export const splitDocumentResponseSchema = z.object({
+  document: documentDetailDtoSchema,
+  // The parts that were cut off, in the order the cuts made them.
+  splitDocumentIds: z.array(z.string().uuid()).min(1),
+});
+export type SplitDocumentResponse = z.infer<typeof splitDocumentResponseSchema>;
+
+// POST /api/documents/:id/pages/move — the pages that belong elsewhere go there. `documentId: null`
+// is "a new document made to hold them", which has one place to put them and therefore takes no
+// position at all (docs/05 §5.6).
+export const moveDocumentPagesRequestSchema = z
+  .object({
+    pageIds: z.array(z.string().uuid()).min(1).max(MAX_DOCUMENT_PAGES),
+    documentId: z.string().uuid().nullable(),
+    at: positionSchema.optional(),
+  })
+  .refine((body) => body.documentId !== null || body.at === undefined, {
+    message: 'A new document has one place to put them, so it takes no position',
+  });
+export type MoveDocumentPagesRequest = z.infer<typeof moveDocumentPagesRequestSchema>;
+
+export const moveDocumentPagesResponseSchema = z.object({
+  document: documentDetailDtoSchema,
+  // Where they went: the document named, or the one that was made for them.
+  movedToDocumentId: z.string().uuid(),
+});
+export type MoveDocumentPagesResponse = z.infer<typeof moveDocumentPagesResponseSchema>;
 
 // PATCH /api/documents/:id/files/:fileId — what one file says about itself: the quadrilateral its
 // content sits in, which way up it lies, the order its own pages are read in and which way up each

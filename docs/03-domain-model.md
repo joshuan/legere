@@ -43,7 +43,7 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `StepStatus` | `PENDING`, `QUEUED`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. **`PENDING` and `QUEUED` are the two halves of what used to be one word**: `QUEUED` says a job exists and a worker will get to it; `PENDING` says nothing is scheduled — the artifact is out of date and waits for the hourly sweep (`05 §5.4`), for somebody to ask, or, where the step is paused (`05 §5.4d`), for the pause to be lifted: a held step is `PENDING` and stays there on purpose, which is why the sweep leaves it alone and the screens say which of the two it is. A migration that resets a step produces the second, and while the two shared a name the archive read as busy for the two hours before the sweep noticed, with the queue counter beside it honestly showing nothing. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes a step that has not started reads as "stuck". The mark is best-effort and never the reason a job fails |
 | `PageFormat` | `AUTO`, `A4`, `MATCH_SOURCE` | what shape the pages of the canonical take (`05 §5.5` step 1). `AUTO` reads it off the pictures the pages were made from |
 | `ValueSource` | `NONE`, `AUTO`, `MANUAL` | who decided a value: nobody, the pipeline, a person. Carried by `typeSource` and `titleSource`, and — as the two words `AUTO`/`MANUAL` inside JSON — by the per-field `sources` of the typed fields (§3.3.10a): one vocabulary, because it is one question |
-| `TrashReason` | `REPLACED`, `DOCUMENT_DELETED` | how a file came to be in the trash (`05 §5.7a`). Not "who deleted it" but "what happened to it", which is what decides whether there is a newer copy to compare it with |
+| `TrashReason` | `REPLACED`, `DOCUMENT_DELETED`, `PAGE_REMOVED` | how a file came to be in the trash (`05 §5.7a`). Not "who deleted it" but "what happened to it", which is what decides whether there is a newer copy to compare it with. The third is what a composition edit leaves: the last page reading those bytes was taken out of a document that still exists (`05 §5.6`), which is a different story from the document going away and is told as one |
 | `ScanRunStatus` | `RUNNING`, `DONE`, `FAILED` | |
 | `VerificationPurpose` | `REGISTRATION`, `PASSWORD_RESET` | on `EmailVerification` |
 
@@ -921,7 +921,7 @@ describes the bytes and nothing else.
 | name | string | the file's own name, as it arrived: the last path segment, or the uploaded file name |
 | pageCount | int? | how many pages this file holds, counted afresh every time the canonical build reads it (§5.5 step 1): an image is one, a PDF is what its page tree says, an office document is what the converter laid it out as. `NULL` until a build has counted. This is what says whether the file can be enumerated at all — a file nobody has counted is held by a document as one entry with no page index (§3.3.17) — and what a page index is checked against, so an edit can refuse a wrong one without a round trip to Stirling |
 | trashedAt | timestamptz? | in the trash since (`05 §5.7a`): the file has no live page in any document and is waiting to be deleted or restored. `NULL` for a file some document still reads |
-| trashedReason | TrashReason? | why it left: `REPLACED` by a better copy, or `DOCUMENT_DELETED` with the last document reading it |
+| trashedReason | TrashReason? | why it left: `REPLACED` by a better copy, `DOCUMENT_DELETED` with the last document reading it, or `PAGE_REMOVED` when the last page reading it was taken out of a document that is still there (`05 §5.6`) |
 | trashedFrom | string? | the title the document had when the file left it **last** — leaving the last one is when a file enters the trash. A record, not a link: that document is usually gone, and "which paper was this a page of" is the question somebody looking at the trash actually asks |
 | replacedById | uuid? | for `REPLACED`: the file that took this one's place. Every earlier version of a page points at the file that is in the document **now**, not at the one immediately after it, so "the versions of this page" is one query and stays one however many times the page is replaced; the order among them is `trashedAt` |
 | createdAt / updatedAt / deletedAt | | |
@@ -982,6 +982,17 @@ read out of one file, standing a particular way up and showing a particular part
   not coexist for long: the next build expands the entry.
 - Adding, removing, reordering, re-cropping or turning a page invalidates the document's canonical
   PDF and enqueues a rebuild (§5.6). Nothing here touches a byte of a file.
+
+**A position is a place in the list, and the list is of entries.** Every composition endpoint that
+names a position (`07 §7.3`) counts the entries this document holds, from zero — which is a page
+wherever a build has counted the file's pages and the entry standing for the file **whole** wherever
+none has. So "insert at position 3" means "fourth in the list you were just shown", and while a file
+is held whole the whole of it is one place: a photograph cannot go between pages two and three of a
+PDF nobody has counted, because until something counts them there is no position between them. It
+goes before that file or after it, and the moment the first build expands the entry the positions
+inside it exist and can be used like any other. This is why every one of those endpoints answers with
+the document's whole page list — what a caller indexes is what it has just been shown, and never a
+guess about a file nothing has opened.
 
 **Why the turn and the crop live here.** They are answers about *this page in this document*, not
 about the bytes. A twenty-page scan has three pages lying sideways and not twenty, so a turn per file
@@ -1085,6 +1096,9 @@ above runs unchanged — with one subtraction, that the caller may only read.
 |--------|--------|
 | File gone from disk | `FileRef.MISSING`; the document turns `PARTIAL` or `UNAVAILABLE`; nothing is deleted, and the canonical PDF still reads |
 | File detached from a document | the file becomes a document of its own, with its own canonical PDF; nothing is deleted (§5.6) |
+| Page removed from a document | the entry goes and the rest close up behind it; the file goes to the **trash** with `PAGE_REMOVED` only if no live page anywhere still reads it (`05 §5.6`, `05 §5.7a`) |
+| Document split at a page | the entries divide between the original and the new documents, which are linked to it and to each other (§3.3.23); no bytes are copied and nothing is deleted (`05 §5.6`) |
+| Pages moved to another document | the entries leave one list and join another; the files they name are read in their new home, so nothing goes to the trash unless something else has already stopped reading them (`05 §5.6`) |
 | Document absorbed into another | its files move over in order, its own row is soft-deleted, and its collections/metadata are left behind with it (§5.6) |
 | Library soft-deleted | its documents disappear from all listings; artifacts/data retained |
 | Document deleted (admin) | **hard** (§3.3.10): the row, its journal, chunks, Markdown, collection items, people/subject links, document links (§3.3.23), `DocumentPage` rows and its artifacts are gone for good. The files it leaves with no live page anywhere go to the **trash** (`05 §5.7a`) with `DOCUMENT_DELETED`; a `LIBRARY` file's `FileRef`s are kept `EXCLUDED` so the next scan does not ingest it again (§3.3.9) |

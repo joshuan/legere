@@ -17,6 +17,12 @@ import {
   SuggestDocumentFileCrop,
   UpdateDocumentFile,
 } from '../../application/documents/compose-document';
+import {
+  MoveDocumentPages,
+  RemoveDocumentPage,
+  ReorderDocumentPages,
+  SplitDocumentAtPages,
+} from '../../application/documents/arrange-pages';
 import { DocumentFileBytes } from '../../application/documents/document-file-bytes';
 import {
   CreateDocumentLink,
@@ -211,6 +217,86 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
       ): ReorderDocumentFiles =>
         new ReorderDocumentFiles(documents, files, events, queue, unitOfWork),
       inject: [DocumentRepository, FileRepository, DocumentEventRepository, JobQueue, UnitOfWork],
+    },
+    // Arranging a document by the page (docs/05 §5.6, ADR-025): the order, one page removed, a cut
+    // at a boundary, and pages that change hands. All four move entries and no bytes.
+    {
+      provide: ReorderDocumentPages,
+      useFactory: (
+        documents: DocumentRepository,
+        files: FileRepository,
+        events: DocumentEventRepository,
+        queue: JobQueue,
+        unitOfWork: UnitOfWork,
+      ): ReorderDocumentPages =>
+        new ReorderDocumentPages(documents, files, events, queue, unitOfWork),
+      inject: [DocumentRepository, FileRepository, DocumentEventRepository, JobQueue, UnitOfWork],
+    },
+    {
+      provide: RemoveDocumentPage,
+      useFactory: (
+        documents: DocumentRepository,
+        files: FileRepository,
+        fileRefs: FileRefRepository,
+        events: DocumentEventRepository,
+        queue: JobQueue,
+        unitOfWork: UnitOfWork,
+        clock: Clock,
+      ): RemoveDocumentPage =>
+        new RemoveDocumentPage(documents, files, fileRefs, events, queue, unitOfWork, clock),
+      inject: [
+        DocumentRepository,
+        FileRepository,
+        FileRefRepository,
+        DocumentEventRepository,
+        JobQueue,
+        UnitOfWork,
+        Clock,
+      ],
+    },
+    {
+      provide: SplitDocumentAtPages,
+      useFactory: (
+        documents: DocumentRepository,
+        files: FileRepository,
+        links: DocumentLinkRepository,
+        events: DocumentEventRepository,
+        queue: JobQueue,
+        unitOfWork: UnitOfWork,
+        clock: Clock,
+      ): SplitDocumentAtPages =>
+        new SplitDocumentAtPages(documents, files, links, events, queue, unitOfWork, clock),
+      inject: [
+        DocumentRepository,
+        FileRepository,
+        DocumentLinkRepository,
+        DocumentEventRepository,
+        JobQueue,
+        UnitOfWork,
+        Clock,
+      ],
+    },
+    {
+      provide: MoveDocumentPages,
+      useFactory: (
+        documents: DocumentRepository,
+        files: FileRepository,
+        fileRefs: FileRefRepository,
+        events: DocumentEventRepository,
+        queue: JobQueue,
+        unitOfWork: UnitOfWork,
+        clock: Clock,
+      ): MoveDocumentPages =>
+        new MoveDocumentPages(documents, files, fileRefs, events, queue, unitOfWork, clock),
+      inject: [
+        DocumentRepository,
+        FileRepository,
+        FileRefRepository,
+        DocumentEventRepository,
+        JobQueue,
+        UnitOfWork,
+        Clock,
+      ],
     },
     {
       provide: UpdateDocumentFile,

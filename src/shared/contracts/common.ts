@@ -12,6 +12,9 @@ export const ERROR_CODES = [
   'DOCUMENT_TYPE_NOT_FOUND',
   'COLLECTION_NOT_FOUND',
   'FILE_NOT_FOUND',
+  // A page of another document, or of none at all (docs/03 §3.3.17): an entry is addressed inside
+  // the document that holds it, so one that is not this document's is simply not there.
+  'PAGE_NOT_FOUND',
   'INVITE_NOT_FOUND',
   'API_TOKEN_NOT_FOUND',
   // 🔒 Somebody else's session is not found rather than forbidden: that it exists at all is none
@@ -39,6 +42,9 @@ export const ERROR_CODES = [
   'COLLECTION_NAME_TAKEN',
   // 🔒 A document is emptied by deleting it, not by taking its parts away (docs/03 §3.3.10).
   'DOCUMENT_LAST_FILE',
+  // The same rule counted in pages (docs/05 §5.6): removing the last one, moving every one of them
+  // away, or cutting at a boundary that would leave a part with nothing in it.
+  'DOCUMENT_LAST_PAGE',
   'FILE_ALREADY_IN_DOCUMENT',
   // The edges between documents (docs/03 §3.3.23): one per pair, never to itself, and gone is gone.
   'LINK_EXISTS',
