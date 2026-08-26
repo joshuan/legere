@@ -202,6 +202,28 @@ function quarterTurnOf(value: number): 0 | 1 | 2 | 3 {
 // list so that what an edit means is decided here rather than in SQL, and so that the awkward cases
 // — a file held whole, a file whose pages are not contiguous — have one answer each.
 
+// A crop written on **one** entry, named by its id (docs/03 §3.3.17): the page somebody dragged the
+// corners of, and nothing else in the list stirs — not the other pages of its file, and not the same
+// page read by another document.
+export function withPageCrop(
+  pages: readonly PageEntry[],
+  pageId: string,
+  crop: Crop | null,
+  cropSource: ValueSource,
+): PageEntry[] {
+  return pages.map((page) => (page.id === pageId ? { ...page, crop, cropSource } : page));
+}
+
+// And the same for the turn of one page: a forty-page scan has three pages lying sideways and not
+// forty (docs/05 §5.6).
+export function withPageTurn(
+  pages: readonly PageEntry[],
+  pageId: string,
+  turn: Rotation | null,
+): PageEntry[] {
+  return pages.map((page) => (page.id === pageId ? { ...page, turn } : page));
+}
+
 // A crop said about a file is said about the pages that file is read as here. An image is one page;
 // a file held whole is the entry standing for it (ADR-025).
 export function withFileCrop(

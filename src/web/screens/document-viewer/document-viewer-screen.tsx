@@ -2872,6 +2872,9 @@ function FilesPane({
           open
           documentId={document.id}
           file={cropping}
+          // The crop is written on the page, not on the file (docs/03 §3.3.17). The editor opens for
+          // an image, which this document reads as exactly one page — the first entry naming it.
+          pageId={document.pages.find((page) => page.fileId === cropping.id)?.id ?? ''}
           onClose={() => {
             setCropping(null);
             refresh();

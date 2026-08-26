@@ -430,92 +430,26 @@ describe('Document files (e2e)', () => {
       ],
     };
 
-    it('stores the quadrilateral a person dragged and rebuilds', async () => {
+    // 🔒 What this route is *not* any more (docs/07 §7.3). A crop and a turn belong to the page that
+    // carries them: they are asked of `PATCH …/pages/:pageId`, which is where the e2e for them is,
+    // and a body naming only one of them names nothing this route understands.
+    it('no longer takes a crop or a turn of the file itself', async () => {
       const { documentId, fileIds } = await givenLibraryDocument({
         files: [{ name: 'photo.jpg', mimeType: 'image/jpeg', ext: 'jpg' }],
       });
       const fileId = fileIds[0] ?? '';
 
-      const res = await api(app)
-        .patch(`/api/documents/${documentId}/files/${fileId}`, { crop })
-        .set('Cookie', adminCookie);
+      for (const body of [{ crop }, { rotation: { quarterTurns: 1, mirrored: false } }]) {
+        const res = await api(app)
+          .patch(`/api/documents/${documentId}/files/${fileId}`, body)
+          .set('Cookie', adminCookie);
+        expect(res.status).toBe(422);
+        expect(expectError(res).code).toBe('VALIDATION_FAILED');
+      }
 
-      expect(res.status).toBe(200);
-      const file = expectData(res, documentDetailDtoSchema).files[0];
-      expect(file?.crop).toEqual(crop);
-      // 🔒 MANUAL is what stops a rebuild from replacing it with what a detector found.
-      expect(file?.cropSource).toBe('MANUAL');
-      expect(await processJobs(documentId)).toHaveLength(1);
-
-      const cleared = await api(app)
-        .patch(`/api/documents/${documentId}/files/${fileId}`, { crop: null })
-        .set('Cookie', adminCookie);
-      expect(expectData(cleared, documentDetailDtoSchema).files[0]).toMatchObject({
-        crop: null,
-        cropSource: 'NONE',
-      });
-    });
-
-    it('refuses to crop something that is not an image', async () => {
-      const { documentId, fileIds } = await givenLibraryDocument();
-
-      const res = await api(app)
-        .patch(`/api/documents/${documentId}/files/${fileIds[0]}`, { crop })
-        .set('Cookie', adminCookie);
-
-      expect(res.status).toBe(422);
-      expect(expectError(res).code).toBe('FILE_NOT_IMAGE');
-    });
-
-    // Which way up the paper lay, sent beside the crop it belongs with (docs/07 §7.3).
-    it('takes the crop and the turn of one picture as one edit and one rebuild', async () => {
-      const { documentId, fileIds } = await givenLibraryDocument({
-        files: [{ name: 'sideways.jpg', mimeType: 'image/jpeg', ext: 'jpg' }],
-      });
-      const fileId = fileIds[0] ?? '';
-
-      const res = await api(app)
-        .patch(`/api/documents/${documentId}/files/${fileId}`, {
-          crop,
-          rotation: { quarterTurns: 1, mirrored: true },
-        })
-        .set('Cookie', adminCookie);
-
-      expect(res.status).toBe(200);
-      expect(expectData(res, documentDetailDtoSchema).files[0]).toMatchObject({
-        crop,
-        rotation: { quarterTurns: 1, mirrored: true },
-      });
-      // One edit, one rebuild — not one per key (docs/05 §5.6).
-      expect(await processJobs(documentId)).toHaveLength(1);
-
-      const cleared = await api(app)
-        .patch(`/api/documents/${documentId}/files/${fileId}`, { rotation: null })
-        .set('Cookie', adminCookie);
-      expect(expectData(cleared, documentDetailDtoSchema).files[0]).toMatchObject({
-        crop,
-        rotation: null,
-      });
-    });
-
-    it('refuses to turn a PDF as if it were one picture, and a turn that is not a quarter', async () => {
-      const { documentId, fileIds } = await givenLibraryDocument();
-
-      const notImage = await api(app)
-        .patch(`/api/documents/${documentId}/files/${fileIds[0]}`, {
-          rotation: { quarterTurns: 1, mirrored: false },
-        })
-        .set('Cookie', adminCookie);
-      expect(notImage.status).toBe(422);
-      expect(expectError(notImage).code).toBe('FILE_NOT_IMAGE');
-
-      const nonsense = await api(app)
-        .patch(`/api/documents/${documentId}/files/${fileIds[0]}`, {
-          rotation: { quarterTurns: 5, mirrored: false },
-        })
-        .set('Cookie', adminCookie);
-      expect(nonsense.status).toBe(422);
-      expect(expectError(nonsense).code).toBe('VALIDATION_FAILED');
+      // Nothing was written and nothing was rebuilt.
+      expect((await detailOf(documentId)).files[0]).toMatchObject({ crop: null, rotation: null });
+      expect(await processJobs(documentId)).toHaveLength(0);
     });
 
     it('proposes corners for an image without storing them', async () => {

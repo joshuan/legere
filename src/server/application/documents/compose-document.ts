@@ -10,16 +10,12 @@ import type {
 import { canEditDocumentMeta } from '../../domain/entities/document';
 import {
   entryOf,
-  fileCropSourceOf,
   filePageOrderOf,
   filePageRotationsOf,
-  fileTurnOf,
   orderedPages,
   pagesForFile,
-  withFileCrop,
   withFilePageOrder,
   withFilePageTurns,
-  withFileTurn,
   withInsertedAt,
   type PageEntry,
 } from '../../domain/entities/document-page';
@@ -253,11 +249,15 @@ export class ReorderDocumentFiles {
   }
 }
 
-// PATCH /api/documents/:id/files/:fileId (docs/07 §7.3): what one file says about itself — the
-// quadrilateral its content sits in, which way up it lies, the order its own pages are read in and
-// which way up each of those lies. All four are numbers written beside a file and never a change to
-// its bytes (docs/03 §3.3.16); any may be sent alone, and any together are one edit and therefore
-// one rebuild.
+// PATCH /api/documents/:id/files/:fileId (docs/07 §7.3): what one file says about **its own pages
+// as a set** — the order they are read in, and which way up each of them lies, both by the file's
+// own 0-based indices. Numbers written beside a file and never a change to its bytes
+// (docs/03 §3.3.16); either may be sent alone, and both together are one edit and one rebuild.
+//
+// A crop and a turn used to be here too. They belong to the page that carries them and are asked of
+// the route that names it (`UpdateDocumentPage`, docs/07 §7.3): a crop because every page takes one
+// since ADR-025 and this route could only ever offer it to an image, a turn because an image is one
+// page and two ways of writing one row is how they drift apart.
 export class UpdateDocumentFile {
   constructor(
     private readonly documents: DocumentRepository,
@@ -279,10 +279,6 @@ export class UpdateDocumentFile {
 
     // Every refusal before anything is written, so a body carrying one good half and one bad one
     // changes nothing at all rather than half of what it asked for.
-    const crop = input.crop;
-    if (crop !== undefined) assertImage(file);
-    const rotation = input.rotation;
-    if (rotation !== undefined) assertImage(file);
     const pageOrder = input.pageOrder;
     if (pageOrder !== undefined) assertPdf(file);
     if (pageOrder !== undefined && pageOrder !== null) assertPagesOf(file, pageOrder);
@@ -299,23 +295,6 @@ export class UpdateDocumentFile {
     await this.unitOfWork.run(async (tx) => {
       const changes: Record<string, { from?: string | null; to?: string | null }> = {};
       let pages: PageEntry[] = [...held];
-
-      if (crop !== undefined) {
-        // 🔒 A crop somebody dragged is theirs: MANUAL is what stops the next rebuild from replacing
-        // it with what a detector found (docs/03 §3.3.17). Clearing it returns the page to NONE, so
-        // the machine may answer again.
-        const cropSource = crop === null ? 'NONE' : 'MANUAL';
-        pages = withFileCrop(pages, fileId, crop, cropSource);
-        changes.crop = { from: fileCropSourceOf(file.pages), to: cropSource };
-      }
-
-      if (rotation !== undefined) {
-        pages = withFileTurn(pages, fileId, rotation);
-        changes.rotation = {
-          from: rotationLabel(fileTurnOf(file.pages)),
-          to: rotationLabel(rotation),
-        };
-      }
 
       if (pageOrder !== undefined) {
         pages = withFilePageOrder(pages, fileId, pageOrder);
@@ -684,13 +663,25 @@ export function fileOf(detail: DocumentDetail, fileId: string): DocumentFileView
   return file;
 }
 
-// Only an image carries a crop, and only an image is turned as one picture: a PDF page is already a
-// page, there is nothing to straighten, and its pages are turned one at a time (docs/05 §5.6).
+// Edge detection reads a picture: a crop *proposal* can only be made for a file that is one, whatever
+// else may be cropped (docs/05 §5.6). The crop itself is asked of a page and every page takes one.
 export function assertImage(file: Pick<File, 'mimeType'>): void {
   if (!isImageFile(file)) {
     throw new UnprocessableError(
       'FILE_NOT_IMAGE',
-      'Only an image file can be cropped or turned as one picture',
+      'Only an image file can be asked where the page in it is',
+    );
+  }
+}
+
+// 🔒 And the mirror: a page of a PDF arrives the way its producer laid it out, so it turns in
+// quarters and nothing else. What goes wrong at a scanner is which edge went in first, which is a
+// thing that happens to a photograph (docs/03 §3.3.17).
+export function assertMayMirror(file: Pick<File, 'mimeType'>): void {
+  if (!isImageFile(file)) {
+    throw new UnprocessableError(
+      'FILE_NOT_IMAGE',
+      'Only a page of an image can be mirrored; a page of a PDF turns in quarters',
     );
   }
 }
@@ -753,8 +744,8 @@ function pagesLabel(order: readonly number[] | null): string | null {
 }
 
 // A turn as the journal reads it: degrees clockwise, and the mirror said in words where there is
-// one. `null` for a file that reads the way it arrived.
-function rotationLabel(rotation: Rotation | null): string | null {
+// one. `null` for a page that reads the way it arrived.
+export function rotationLabel(rotation: Rotation | null): string | null {
   if (rotation === null) return null;
   const degrees = `${rotation.quarterTurns * 90}°`;
   return rotation.mirrored ? `${degrees} mirrored` : degrees;

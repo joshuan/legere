@@ -9,7 +9,7 @@ import type {
   DocumentFileDto,
   Rotation,
 } from '../../../shared/contracts/documents';
-import { updateDocumentFileRequestSchema } from '../../../shared/contracts/files';
+import { updateDocumentPageRequestSchema } from '../../../shared/contracts/files';
 import { createApiMock, envelope, errorEnvelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { CropEditor } from './crop-editor';
@@ -25,6 +25,7 @@ vi.mock('./use-image-frame', () => ({
 
 const DOCUMENT_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
 const FILE_ID = 'bbbbbbbb-2222-4222-8222-222222222222';
+const PAGE_ID = 'cccccccc-3333-4333-8333-333333333333';
 
 const CROP: Crop = {
   points: [
@@ -58,7 +59,7 @@ function makeFile(crop: Crop | null, rotation: Rotation | null = null): Document
   };
 }
 
-// What `PATCH …/files/:fileId` answers with: the whole document (docs/07 §7.3). The client
+// What `PATCH …/pages/:pageId` answers with: the whole document (docs/07 §7.3). The client
 // validates it against the contract, so it has to be a real one.
 const rebuilt: DocumentDetailDto = {
   id: DOCUMENT_ID,
@@ -100,7 +101,7 @@ const rebuilt: DocumentDetailDto = {
   // beside it says the same thing, read off this entry.
   pages: [
     {
-      id: 'cccccccc-3333-4333-8333-333333333333',
+      id: PAGE_ID,
       position: 0,
       fileId: FILE_ID,
       pageIndex: null,
@@ -115,8 +116,10 @@ const rebuilt: DocumentDetailDto = {
   extractedSummary: null,
 };
 
-const SAVE_PATH = `/api/documents/${DOCUMENT_ID}/files/${FILE_ID}`;
-const SUGGESTION_PATH = `${SAVE_PATH}/crop-suggestion`;
+// The crop and the turn are written on the page; the proposal is still asked of the file, edge
+// detection having a picture to read and not an entry (docs/07 §7.3).
+const SAVE_PATH = `/api/documents/${DOCUMENT_ID}/pages/${PAGE_ID}`;
+const SUGGESTION_PATH = `/api/documents/${DOCUMENT_ID}/files/${FILE_ID}/crop-suggestion`;
 
 const server = createApiMock();
 
@@ -145,7 +148,9 @@ function captureSave(): { body: () => unknown } {
 }
 
 function open(file: DocumentFileDto, onClose = vi.fn()): { onClose: ReturnType<typeof vi.fn> } {
-  renderWithProviders(<CropEditor open documentId={DOCUMENT_ID} file={file} onClose={onClose} />);
+  renderWithProviders(
+    <CropEditor open documentId={DOCUMENT_ID} file={file} pageId={PAGE_ID} onClose={onClose} />,
+  );
   return { onClose };
 }
 
@@ -158,7 +163,11 @@ describe('CropEditor', () => {
     for (const index of [1, 2, 3, 4]) {
       expect(screen.getByRole('button', { name: corner(index) })).toBeInTheDocument();
     }
-    expect(screen.getByAltText('passport-01.jpg')).toHaveAttribute('src', `${SAVE_PATH}/content`);
+    // What is drawn is the file's own bytes — the page is what the edit is written on.
+    expect(screen.getByAltText('passport-01.jpg')).toHaveAttribute(
+      'src',
+      `/api/documents/${DOCUMENT_ID}/files/${FILE_ID}/content`,
+    );
   });
 
   it('starts from the whole image when the file has no crop', () => {
@@ -240,7 +249,7 @@ describe('CropEditor', () => {
     await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
     await waitFor(() => expect(save.body()).not.toBeNull());
 
-    const sent = updateDocumentFileRequestSchema.parse(save.body()).crop;
+    const sent = updateDocumentPageRequestSchema.parse(save.body()).crop;
     expect(sent).not.toBeNull();
     const moved = sent?.points[0] ?? [0, 0];
     expect(moved[0]).toBeCloseTo(0.1 + 1 / frame.width, 10);
@@ -258,7 +267,7 @@ describe('CropEditor', () => {
     await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 
     // The turn travels with the crop, and a file nobody has turned sends the null it already has.
-    await waitFor(() => expect(save.body()).toEqual({ crop: CROP, rotation: null }));
+    await waitFor(() => expect(save.body()).toEqual({ crop: CROP, turn: null }));
     expect(await screen.findByText(enMessages.viewer.crop.saved)).toBeInTheDocument();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
@@ -272,7 +281,7 @@ describe('CropEditor', () => {
 
     await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 
-    await waitFor(() => expect(save.body()).toEqual({ crop: null, rotation: null }));
+    await waitFor(() => expect(save.body()).toEqual({ crop: null, turn: null }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
@@ -302,8 +311,8 @@ describe('CropEditor', () => {
       await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 
       await waitFor(() => expect(save.body()).not.toBeNull());
-      const sent = updateDocumentFileRequestSchema.parse(save.body());
-      expect(sent.rotation).toEqual({ quarterTurns: 1, mirrored: false });
+      const sent = updateDocumentPageRequestSchema.parse(save.body());
+      expect(sent.turn).toEqual({ quarterTurns: 1, mirrored: false });
       // 🔒 Untouched: the build applies the crop first and the turn after it (docs/05 §5.6).
       expect(sent.crop).toEqual(CROP);
     });
@@ -323,10 +332,10 @@ describe('CropEditor', () => {
       await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 
       await waitFor(() => expect(save.body()).not.toBeNull());
-      const sent = updateDocumentFileRequestSchema.parse(save.body());
+      const sent = updateDocumentPageRequestSchema.parse(save.body());
       // The person flipped the page they were looking at; the stored value says the same thing in
       // the order it is defined in — mirror first, then the quarter turns.
-      expect(sent.rotation).toEqual({ quarterTurns: 3, mirrored: true });
+      expect(sent.turn).toEqual({ quarterTurns: 3, mirrored: true });
       expect(sent.crop).toEqual(CROP);
     });
 
@@ -340,9 +349,9 @@ describe('CropEditor', () => {
       await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 
       await waitFor(() => expect(save.body()).not.toBeNull());
-      const sent = updateDocumentFileRequestSchema.parse(save.body());
+      const sent = updateDocumentPageRequestSchema.parse(save.body());
       // Nothing to undo: the turn was an instruction beside bytes nobody rewrote (docs/03 §3.3.16).
-      expect(sent.rotation).toBeNull();
+      expect(sent.turn).toBeNull();
       expect(sent.crop).toEqual(CROP);
     });
 
@@ -364,7 +373,7 @@ describe('CropEditor', () => {
       await waitFor(() => expect(save.body()).not.toBeNull());
       // A turn of nothing is not a turn: what goes out is the null a file that arrived this way up
       // already has (docs/03 §3.3.16).
-      expect(updateDocumentFileRequestSchema.parse(save.body()).rotation).toBeNull();
+      expect(updateDocumentPageRequestSchema.parse(save.body()).turn).toBeNull();
     });
   });
 

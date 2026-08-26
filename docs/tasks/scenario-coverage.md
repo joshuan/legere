@@ -174,7 +174,8 @@ standard lists them.
 | Scenario | Test |
 |---|---|
 | a canonical PDF is built for every document, whatever it is made of | `test/integration/canonical-build.integration.test.ts` — assembles an image, a PDF and an office file into one canonical PDF |
-| adding, reordering, cropping and splitting each rebuild the document | `test/e2e/document-files.e2e.test.ts` — every composition change enqueues a rebuild |
+| adding, reordering and splitting each rebuild the document | `test/e2e/document-files.e2e.test.ts` — every composition change enqueues a rebuild |
+| cropping rebuilds it too, and a crop and a turn together are one rebuild | `test/e2e/document-pages.e2e.test.ts` — crops a page of a PDF and turns another, one edit and one rebuild each |
 | splitting off a file yields a document of its own | `test/e2e/document-files.e2e.test.ts` — the file leaves and becomes its own document |
 | the last file cannot be taken away (`DOCUMENT_LAST_FILE`) | `test/e2e/document-files.e2e.test.ts` — refuses to empty a document |
 | combining moves pages in the chosen order and soft-deletes the emptied documents | `test/e2e/document-files.e2e.test.ts` — combines two documents in the order asked for |
@@ -190,7 +191,9 @@ standard lists them.
 | 🔒 pages move between documents only where the mover may edit both | `test/e2e/document-pages.e2e.test.ts` — refuses a move into a document the mover may read but not edit, whole; moves a page between two documents, and both hold what they should afterwards |
 | the crop is a quadrilateral applied as a perspective transform | `src/server/domain/entities/crop-geometry.test.ts` — maps a skewed quad onto a rectangle |
 | corners are detected, and fall back to the content box | `src/server/domain/entities/page-detection.test.ts` — finds a rotated page; answers nothing for a frame with no page in it |
-| a MANUAL crop survives a rebuild | `test/e2e/document-files.e2e.test.ts` — a rebuild does not overwrite a crop somebody dragged |
+| a MANUAL crop survives a rebuild | `test/e2e/document-pages.e2e.test.ts` — a crop somebody dragged is stored `MANUAL`, which no rebuild overwrites |
+| a crop is taken on **any** page, a page of a PDF included, and the build renders and warps it | `src/server/application/documents/arrange-pages.test.ts` — crops a page of a PDF, and the build renders that page and warps it |
+| 🔒 a mirror is a page of an image's own | `test/e2e/document-pages.e2e.test.ts` — mirrors a page of an image and refuses a mirror anywhere else (`FILE_NOT_IMAGE`) |
 | a turn is an instruction beside a page, never a rewrite of the file | `test/integration/canonical-build.integration.test.ts` — stands one page of a scan upright without touching the file; rebuilds to the pages as they arrived once the turn is cleared |
 | a turn is applied after the crop, and follows its own page out of the file | `src/server/application/documents/build-canonical.test.ts` — turns the page after cropping it, so the stored quadrilateral still means what it meant; picks the pages first and turns what it picked |
 | a document with a missing original still serves its canonical | `test/e2e/document-files.e2e.test.ts` — the canonical downloads while the volume is gone |

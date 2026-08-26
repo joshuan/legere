@@ -20,6 +20,7 @@ const NATURAL = { width: 3000, height: 2000 };
 
 const DOCUMENT_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
 const FILE_ID = 'bbbbbbbb-2222-4222-8222-222222222222';
+const PAGE_ID = 'cccccccc-3333-4333-8333-333333333333';
 const CONTENT_PATH = `/api/documents/${DOCUMENT_ID}/files/${FILE_ID}/content`;
 
 const CROP: Crop = {
@@ -75,7 +76,9 @@ const handle = (index: number): HTMLElement => screen.getByRole('button', { name
 // The loupe magnifies the image the modal already loaded, so it needs the size that image would
 // have reported. jsdom never loads one, hence the two properties and the load event by hand.
 function openEditor(): void {
-  renderWithProviders(<CropEditor open documentId={DOCUMENT_ID} file={file} onClose={vi.fn()} />);
+  renderWithProviders(
+    <CropEditor open documentId={DOCUMENT_ID} file={file} pageId={PAGE_ID} onClose={vi.fn()} />,
+  );
   const image = screen.getByAltText('passport-01.jpg');
   Object.defineProperty(image, 'naturalWidth', { value: NATURAL.width, configurable: true });
   Object.defineProperty(image, 'naturalHeight', { value: NATURAL.height, configurable: true });
@@ -168,7 +171,9 @@ describe('CropEditor loupe', () => {
   });
 
   it('says nothing until the image has said how large it is', () => {
-    renderWithProviders(<CropEditor open documentId={DOCUMENT_ID} file={file} onClose={vi.fn()} />);
+    renderWithProviders(
+      <CropEditor open documentId={DOCUMENT_ID} file={file} pageId={PAGE_ID} onClose={vi.fn()} />,
+    );
 
     fireEvent.pointerDown(handle(1), { pointerId: 1 });
 

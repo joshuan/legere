@@ -1,18 +1,26 @@
 import type { DocumentDetailDto } from '../../../shared/contracts/documents';
+import type { ValueSource } from '../../../shared/contracts/enums';
 import type {
   MoveDocumentPagesRequest,
   MoveDocumentPagesResponse,
   ReorderDocumentPagesRequest,
   SplitDocumentRequest,
   SplitDocumentResponse,
+  UpdateDocumentPageRequest,
 } from '../../../shared/contracts/files';
 import { orderedPair } from '../../domain/entities/document-link';
-import type { PageEntry } from '../../domain/entities/document-page';
+import {
+  withPageCrop,
+  withPageTurn,
+  type DocumentPage,
+  type PageEntry,
+} from '../../domain/entities/document-page';
 import { NotFoundError, UnprocessableError } from '../../domain/errors/domain-error';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { DocumentLinkRepository } from '../../domain/repositories/document-link.repository';
 import type {
   DocumentDetail,
+  DocumentFileView,
   DocumentRepository,
   Viewer,
 } from '../../domain/repositories/document.repository';
@@ -21,12 +29,21 @@ import type { FileRepository } from '../../domain/repositories/file.repository';
 import type { Clock } from '../ports/clock';
 import type { JobQueue } from '../ports/job-queue';
 import type { TransactionHandle, UnitOfWork } from '../ports/unit-of-work';
-import { assertMayCompose, enqueueRebuild, pagesOf, reload, titleOf } from './compose-document';
+import {
+  assertMayCompose,
+  assertMayMirror,
+  enqueueRebuild,
+  pagesOf,
+  reload,
+  rotationLabel,
+  titleOf,
+} from './compose-document';
 
-// Arranging a document by the page (docs/05 §5.6, docs/07 §7.3, ADR-025). Everything here moves
-// **entries** — which page of which file stands where — and nothing here touches a byte: a split is
-// the entries of one document dividing between two over the *same* files, and a move is entries
-// changing hands. The library is read-only (ADR-007) and an original stays the original.
+// A document worked on by the page (docs/05 §5.6, docs/07 §7.3, ADR-025). Everything here addresses
+// **entries** — which page of which file stands where, which way up it lies and how much of it is
+// paper — and nothing here touches a byte: a split is the entries of one document dividing between
+// two over the *same* files, a move is entries changing hands, and a crop is four numbers written
+// beside one of them. The library is read-only (ADR-007) and an original stays the original.
 //
 // Every one of them rewrites a document's whole list in one statement and ends by enqueueing the
 // rebuild every composition change enqueues, because a document whose pages changed is a different
@@ -96,6 +113,80 @@ export class ReorderDocumentPages {
               },
             },
           },
+        },
+        tx,
+      );
+      await enqueueRebuild(this.queue, this.events, tx, documentId, viewer.id);
+    });
+
+    return reload(this.documents, viewer, documentId);
+  }
+}
+
+// PATCH /api/documents/:id/pages/:pageId (docs/07 §7.3): how one page lies and how much of it is
+// paper (docs/03 §3.3.17). Both may be sent alone and both together are one edit and therefore one
+// rebuild, which is what the crop editor sends — "which part of this" and "which way up" being one
+// question about one page (docs/11 §11.5c).
+//
+// 🔒 A crop is taken on **any** page, an image's or a PDF's, because the build honours it on either:
+// the page is rendered and warped exactly as a photograph is (docs/05 §5.5 step 1). Only the mirror
+// is an image's own — a page of a PDF arrives the way its producer laid it out and turns in
+// quarters.
+export class UpdateDocumentPage {
+  constructor(
+    private readonly documents: DocumentRepository,
+    private readonly files: FileRepository,
+    private readonly events: DocumentEventRepository,
+    private readonly queue: JobQueue,
+    private readonly unitOfWork: UnitOfWork,
+  ) {}
+
+  async execute(
+    viewer: Viewer,
+    detail: DocumentDetail,
+    pageId: string,
+    input: UpdateDocumentPageRequest,
+  ): Promise<DocumentDetailDto> {
+    assertMayCompose(viewer, detail);
+    const documentId = detail.document.id;
+    const target = pageOf(detail, pageId);
+
+    // Every refusal before anything is written, so a body carrying one good half and one bad one
+    // changes nothing at all rather than half of what it asked for.
+    const { crop, turn } = input;
+    if (turn !== undefined && turn !== null && turn.mirrored) assertMayMirror(target.file);
+
+    // What the document holds now, in order — the edits below answer with the list it should hold
+    // instead, and the whole of it is written back once (docs/03 §3.3.17).
+    const held = pagesOf(detail);
+
+    await this.unitOfWork.run(async (tx) => {
+      const changes: Record<string, { from?: string | null; to?: string | null }> = {};
+      let pages: PageEntry[] = [...held];
+
+      if (crop !== undefined) {
+        // 🔒 A crop somebody dragged is theirs: MANUAL is what stops the next rebuild from replacing
+        // it with what a detector found (docs/03 §3.3.17). Clearing it returns the page to NONE, so
+        // the machine may answer again.
+        const cropSource: ValueSource = crop === null ? 'NONE' : 'MANUAL';
+        pages = withPageCrop(pages, pageId, crop, cropSource);
+        changes.crop = { from: target.page.cropSource, to: cropSource };
+      }
+
+      if (turn !== undefined) {
+        pages = withPageTurn(pages, pageId, turn);
+        changes.turn = { from: rotationLabel(target.page.turn), to: rotationLabel(turn) };
+      }
+
+      await this.files.replacePages(documentId, pages, tx);
+      await this.events.record(
+        {
+          documentId,
+          type: 'META_CHANGED',
+          actorId: viewer.id,
+          // Which page of which paper, counted the way a person counts them: the file's name and
+          // the page's own place in the document (docs/03 §3.3.18).
+          payload: { path: `${target.file.name} · ${target.page.position + 1}`, changes },
         },
         tx,
       );
@@ -486,6 +577,23 @@ async function trashFilesNothingReads(
     { fileIds: orphaned, reason: 'PAGE_REMOVED', trashedFrom, at: deps.clock.now() },
     tx,
   );
+}
+
+// One entry of this document, with the file it is read from — which is what says whether it may be
+// mirrored, and what the journal calls it. A page id addresses an entry inside the document that
+// holds it, so a page of another document is simply not there (docs/03 §3.3.17).
+function pageOf(
+  detail: DocumentDetail,
+  pageId: string,
+): { page: DocumentPage; file: DocumentFileView } {
+  const found = detail.files.flatMap((file) =>
+    file.pages.flatMap((page) => (page.id === pageId ? [{ page, file }] : [])),
+  );
+  const one = found[0];
+  if (one === undefined) {
+    throw new NotFoundError('PAGE_NOT_FOUND', 'This document has no such page');
+  }
+  return one;
 }
 
 // An entry joining another document is a new entry there: nothing addresses a page across documents,

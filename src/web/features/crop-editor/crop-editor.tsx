@@ -91,10 +91,13 @@ export type CropEditorProps = {
   open: boolean;
   documentId: string;
   file: DocumentFileDto;
+  // The entry the crop and the turn are written on (docs/03 §3.3.17). The file is what is drawn —
+  // one page of an image is the whole picture — and the page is what is saved.
+  pageId: string;
   onClose: () => void;
 };
 
-export function CropEditor({ open, documentId, file, onClose }: CropEditorProps) {
+export function CropEditor({ open, documentId, file, pageId, onClose }: CropEditorProps) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
@@ -204,11 +207,11 @@ export function CropEditor({ open, documentId, file, onClose }: CropEditorProps)
 
   const save = useMutation({
     mutationFn: () =>
-      cropApi.save(documentId, file.id, {
+      cropApi.save(documentId, pageId, {
         // Turned back on the way out, and both in one request: the crop and the turn are one edit
         // and therefore one rebuild (docs/07 §7.3).
         crop: cleared ? null : { points: unturnedQuad(points, rotation) },
-        rotation: isIdentityRotation(rotation) ? null : rotation,
+        turn: isIdentityRotation(rotation) ? null : rotation,
       }),
     onSuccess: () => {
       // The document is rebuilding, and it can appear in any list — hence the shared prefix.

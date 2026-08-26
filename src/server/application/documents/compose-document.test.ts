@@ -9,10 +9,7 @@ import {
   fileFixture,
 } from '../../../../test/helpers/processing-fakes';
 import { updateDocumentFileRequestSchema } from '../../../shared/contracts/files';
-import type { Crop } from '../../../shared/contracts/documents';
 import {
-  fileCropOf,
-  fileTurnOf,
   filePageOrderOf,
   filePageRotationsOf,
   type DocumentPage,
@@ -168,7 +165,11 @@ describe('UpdateDocumentFile: what one file says about the document reading it',
     // and a PATCH that quietly did nothing would look exactly like one that worked.
     expect(updateDocumentFileRequestSchema.safeParse({}).success).toBe(false);
     expect(updateDocumentFileRequestSchema.safeParse({ pageOrder: null }).success).toBe(true);
-    expect(updateDocumentFileRequestSchema.safeParse({ crop: null }).success).toBe(true);
+    expect(updateDocumentFileRequestSchema.safeParse({ pageRotations: null }).success).toBe(true);
+    // 🔒 And the two this route no longer takes: they are asked of the page that carries them
+    // (docs/07 §7.3), so a body naming only one of them names nothing this route understands.
+    expect(updateDocumentFileRequestSchema.safeParse({ crop: null }).success).toBe(false);
+    expect(updateDocumentFileRequestSchema.safeParse({ rotation: null }).success).toBe(false);
   });
 
   it('refuses an order that is not the whole file, and writes nothing at all', async () => {
@@ -217,57 +218,11 @@ describe('UpdateDocumentFile: what one file says about the document reading it',
     expect(error.code).toBe('FILE_NOT_PDF');
   });
 
-  it('still refuses to crop something that is not an image', async () => {
-    const detail = await given();
-
-    const error = await refused(detail, { crop: null });
-
-    expect(error.code).toBe('FILE_NOT_IMAGE');
-  });
-
-  // Which way up the paper lay (docs/03 §3.3.17, docs/07 §7.3): the same shape of edit as the crop
-  // and the page order beside it, refused on the same terms, and never a change to the bytes.
-  describe('which way up it lies', () => {
-    it('stores an image turn and enqueues the same rebuild', async () => {
-      const detail = await given({ mimeType: 'image/jpeg', ext: 'jpg', name: 'photo.jpg' });
-
-      await update.execute(VIEWER, detail, PDF_FILE, {
-        rotation: { quarterTurns: 1, mirrored: true },
-      });
-
-      expect(fileTurnOf(await held())).toEqual({ quarterTurns: 1, mirrored: true });
-      expect(queue.enqueued).toEqual([
-        { name: 'document-process', payload: { documentId: DOCUMENT_ID } },
-      ]);
-      // The journal says it in degrees, which is how a person says it out loud.
-      expect(events.events.at(0)?.payload).toMatchObject({
-        path: 'photo.jpg',
-        changes: { rotation: { from: null, to: '90° mirrored' } },
-      });
-    });
-
-    it('clears an image turn back to the way it arrived', async () => {
-      const detail = await given({ mimeType: 'image/jpeg', ext: 'jpg', name: 'photo.jpg' });
-      await update.execute(VIEWER, detail, PDF_FILE, {
-        rotation: { quarterTurns: 2, mirrored: false },
-      });
-
-      await update.execute(VIEWER, await reload(), PDF_FILE, { rotation: null });
-
-      // Nothing to undo: the turn was an instruction beside bytes nobody rewrote (docs/03 §3.3.17).
-      expect(fileTurnOf(await held())).toBeNull();
-    });
-
-    it('refuses to turn a PDF as if it were one picture', async () => {
-      const detail = await given();
-
-      const error = await refused(detail, { rotation: { quarterTurns: 1, mirrored: false } });
-
-      // A PDF's pages are turned one at a time — an image has one turn and a PDF has a list.
-      expect(error.code).toBe('FILE_NOT_IMAGE');
-      expect(fileTurnOf(await held())).toBeNull();
-    });
-
+  // Which way up the paper lay (docs/03 §3.3.17, docs/07 §7.3): the same shape of edit as the page
+  // order beside it, refused on the same terms, and never a change to the bytes. One page's own turn
+  // is not here any more — it is asked of the page (`UpdateDocumentPage`), and what a *file* still
+  // says is a turn for each of its pages at once.
+  describe('which way up its pages lie', () => {
     it('stores one turn per page of a PDF, and clears them again', async () => {
       const detail = await given();
 
@@ -314,37 +269,24 @@ describe('UpdateDocumentFile: what one file says about the document reading it',
       expect((await refused(detail, { pageRotations: [0] })).code).toBe('FILE_NOT_PDF');
     });
 
-    it('takes a crop and a turn together as one edit and one rebuild', async () => {
-      const detail = await given({ mimeType: 'image/jpeg', ext: 'jpg', name: 'photo.jpg' });
+    it('takes an order and a list of turns together as one edit and one rebuild', async () => {
+      const detail = await given();
 
       await update.execute(VIEWER, detail, PDF_FILE, {
-        crop: {
-          points: [
-            [0, 0],
-            [1, 0],
-            [1, 1],
-            [0, 1],
-          ],
-        },
-        rotation: { quarterTurns: 3, mirrored: false },
+        pageOrder: [2, 0, 1],
+        pageRotations: [0, 3, 0],
       });
 
-      expect(fileCropOf(await held())).not.toBeNull();
-      expect(fileTurnOf(await held())).toEqual({ quarterTurns: 3, mirrored: false });
+      expect((await held()).map((page) => page.pageIndex)).toEqual([2, 0, 1]);
+      expect(filePageRotationsOf(await held(), 3)).toEqual([0, 3, 0]);
       expect(queue.enqueued).toHaveLength(1);
     });
 
-    it('refuses a body naming none of the four, before it reaches the file at all', () => {
+    it('refuses a body naming neither of the two, before it reaches the file at all', () => {
       expect(updateDocumentFileRequestSchema.safeParse({}).success).toBe(false);
-      expect(updateDocumentFileRequestSchema.safeParse({ rotation: null }).success).toBe(true);
       expect(updateDocumentFileRequestSchema.safeParse({ pageRotations: null }).success).toBe(true);
       // And the four values a quarter turn may take, and no fifth.
       expect(updateDocumentFileRequestSchema.safeParse({ pageRotations: [4] }).success).toBe(false);
-      expect(
-        updateDocumentFileRequestSchema.safeParse({
-          rotation: { quarterTurns: 4, mirrored: false },
-        }).success,
-      ).toBe(false);
     });
   });
 
@@ -353,21 +295,13 @@ describe('UpdateDocumentFile: what one file says about the document reading it',
   it('says it about the pages of this document only', async () => {
     const other = 'dddddddd-1111-4111-8111-111111111111';
     documents.add(documentFixture({ id: other, createdById: VIEWER.id }));
-    const detail = await given({ mimeType: 'image/jpeg', ext: 'jpg', name: 'photo.jpg' });
+    const detail = await given();
     await files.attach(other, PDF_FILE);
 
-    const crop: Crop = {
-      points: [
-        [0, 0],
-        [0.5, 0],
-        [0.5, 1],
-        [0, 1],
-      ],
-    };
-    await update.execute(VIEWER, detail, PDF_FILE, { crop });
+    await update.execute(VIEWER, detail, PDF_FILE, { pageRotations: [0, 1, 0] });
 
-    expect(fileCropOf(await held())).toEqual(crop);
+    expect(filePageRotationsOf(await held(), 3)).toEqual([0, 1, 0]);
     const elsewhere = (await pagesOf(other)).filter((page) => page.fileId === PDF_FILE);
-    expect(fileCropOf(elsewhere)).toBeNull();
+    expect(filePageRotationsOf(elsewhere, 3)).toBeNull();
   });
 });

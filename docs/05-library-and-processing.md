@@ -1005,15 +1005,22 @@ document to read, search and categorize.
   applies it as a **perspective transform**: the quad is mapped onto a rectangle whose size is
   derived from the quad's own edge lengths, so a page shot from the side comes out flat and
   rectangular. `cropSource` records who chose it, and a crop somebody dragged is never replaced by a
-  machine. A crop asked for a file is a crop of the pages that file is read as here — one page, for
-  an image — and two documents may crop one photograph differently, because the quadrilateral is a
-  statement about a page and not about the bytes.
+  machine. It is asked of **the page**, by naming it (`07 §7.3`), and two documents may crop one
+  photograph differently, because the quadrilateral is a statement about a page and not about the
+  bytes.
+  **Every page takes one — a page of a PDF as much as a photograph.** The build renders that page
+  and warps it exactly as it warps an image (§5.5 step 1): a scanned page is already raster and
+  loses nothing by it, and a vector page cropped becomes raster, which is what somebody who dragged
+  its corners asked for. That is why the crop left the file it used to be written on: a file could
+  only ever offer it to an image, and the pages of a twenty-page scan are where the corners
+  actually are.
 - **Turn.** Which way up the paper lay — the correction a reader makes in a second. A page carries a
   turn (03 §3.3.17): a quarter turn and a mirror, which between them name all eight ways a rectangle
   can lie. It is asked for one page at a time, because a forty-page scan has three pages lying
-  sideways and not forty; an image is one page and takes one turn, and a list of turns for a PDF is
-  checked against the page count the last build recorded — a file no build has opened yet takes none
-  (`07 §7.3`). `null` puts a page back the way it arrived, which costs nothing to say because
+  sideways and not forty — the page is named and the turn is written on it (`07 §7.3`) — and a whole
+  file's worth may still be sent at once by the file, as a list checked against the page count the
+  last build recorded, a file no build has opened yet taking none.
+  `null` puts a page back the way it arrived, which costs nothing to say because
   nothing was ever changed. The build applies a turn **after the crop**, so the stored
   quadrilateral keeps meaning what it meant in the pixels that arrived, and turns a page of a PDF as
   it is taken out of the file (§5.5 step 1). Only a page of an image takes a mirror: a page

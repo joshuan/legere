@@ -311,6 +311,146 @@ describe('Document pages (e2e)', () => {
     });
   });
 
+  // How one page lies and how much of it is paper (docs/07 §7.3, docs/03 §3.3.17). A crop is taken
+  // on any page there is — the promise the model makes about a page of a PDF — and only the mirror
+  // stays an image's own.
+  describe('one page cropped and turned', () => {
+    const crop = {
+      points: [
+        [0.1, 0.1],
+        [0.9, 0.12],
+        [0.88, 0.9],
+        [0.12, 0.88],
+      ],
+    };
+
+    it('crops a page of a PDF and turns another, one edit and one rebuild each', async () => {
+      const { documentId } = await givenDocument([{ name: 'scan.pdf', pageCount: 3 }]);
+      const before = await detailOf(documentId);
+
+      const cropped = await api(app)
+        .patch(`/api/documents/${documentId}/pages/${before.pages[1]?.id ?? ''}`, {
+          crop,
+          turn: { quarterTurns: 1, mirrored: false },
+        })
+        .set('Cookie', adminCookie);
+
+      expect(cropped.status).toBe(200);
+      const after = expectData(cropped, documentDetailDtoSchema);
+      expect(after.pages[1]).toMatchObject({
+        crop,
+        // 🔒 MANUAL is what stops a rebuild from replacing it with what a detector found.
+        cropSource: 'MANUAL',
+        turn: { quarterTurns: 1, mirrored: false },
+      });
+      // The pages either side of it are untouched: a crop is a statement about one page.
+      expect(after.pages[0]).toMatchObject({ crop: null, cropSource: 'NONE', turn: null });
+      expect(after.pages[2]).toMatchObject({ crop: null, cropSource: 'NONE', turn: null });
+      // One edit, one rebuild — not one per key (docs/05 §5.6).
+      expect(await rebuildsOf(documentId)).toHaveLength(1);
+    });
+
+    it('clears both back to the way the page arrived', async () => {
+      const { documentId } = await givenDocument([{ name: 'scan.pdf', pageCount: 2 }]);
+      const pageId = (await detailOf(documentId)).pages[0]?.id ?? '';
+      await api(app)
+        .patch(`/api/documents/${documentId}/pages/${pageId}`, {
+          crop,
+          turn: { quarterTurns: 2, mirrored: false },
+        })
+        .set('Cookie', adminCookie);
+
+      const cleared = await api(app)
+        .patch(`/api/documents/${documentId}/pages/${pageId}`, { crop: null, turn: null })
+        .set('Cookie', adminCookie);
+
+      // Nothing to undo: both were instructions beside bytes nobody rewrote (docs/03 §3.3.17).
+      expect(expectData(cleared, documentDetailDtoSchema).pages[0]).toMatchObject({
+        crop: null,
+        cropSource: 'NONE',
+        turn: null,
+      });
+    });
+
+    it('mirrors a page of an image and refuses a mirror anywhere else', async () => {
+      const { documentId } = await givenDocument([
+        { name: 'photo.jpg', mimeType: 'image/jpeg', pageCount: 1 },
+        { name: 'scan.pdf', pageCount: 2 },
+      ]);
+      const before = await detailOf(documentId);
+
+      const mirrored = await api(app)
+        .patch(`/api/documents/${documentId}/pages/${before.pages[0]?.id ?? ''}`, {
+          turn: { quarterTurns: 1, mirrored: true },
+        })
+        .set('Cookie', adminCookie);
+      expect(mirrored.status).toBe(200);
+      expect(expectData(mirrored, documentDetailDtoSchema).pages[0]?.turn).toEqual({
+        quarterTurns: 1,
+        mirrored: true,
+      });
+
+      // 🔒 A page of a PDF arrives the way its producer laid it out and turns in quarters.
+      const refused = await api(app)
+        .patch(`/api/documents/${documentId}/pages/${before.pages[1]?.id ?? ''}`, {
+          turn: { quarterTurns: 1, mirrored: true },
+        })
+        .set('Cookie', adminCookie);
+      expect(refused.status).toBe(422);
+      expect(expectError(refused).code).toBe('FILE_NOT_IMAGE');
+      expect((await detailOf(documentId)).pages[1]?.turn).toBeNull();
+    });
+
+    it('refuses a page of another document, an empty body and a corner off the page', async () => {
+      const { documentId } = await givenDocument([{ name: 'scan.pdf', pageCount: 2 }]);
+      const { documentId: elsewhere } = await givenDocument([{ name: 'other.pdf', pageCount: 1 }]);
+      const foreign = (await detailOf(elsewhere)).pages[0]?.id ?? '';
+      const pageId = (await detailOf(documentId)).pages[0]?.id ?? '';
+
+      const notHere = await api(app)
+        .patch(`/api/documents/${documentId}/pages/${foreign}`, { crop: null })
+        .set('Cookie', adminCookie);
+      expect(notHere.status).toBe(404);
+      expect(expectError(notHere).code).toBe('PAGE_NOT_FOUND');
+
+      for (const body of [
+        {},
+        {
+          crop: {
+            points: [
+              [0, 0],
+              [1.5, 0],
+              [1, 1],
+              [0, 1],
+            ],
+          },
+        },
+        { turn: { quarterTurns: 4, mirrored: false } },
+      ]) {
+        const res = await api(app)
+          .patch(`/api/documents/${documentId}/pages/${pageId}`, body)
+          .set('Cookie', adminCookie);
+        expect(res.status).toBe(422);
+        expect(expectError(res).code).toBe('VALIDATION_FAILED');
+      }
+
+      expect(await rebuildsOf(documentId)).toHaveLength(0);
+    });
+
+    it('refuses somebody who may not edit the document', async () => {
+      const stranger = await inviteUser(`pagecrop${(seq += 1)}@legere.local`);
+      const documentId = await uploadDocument(await pictureOf(11), 'mine.png');
+      const pageId = (await detailOf(documentId)).pages[0]?.id ?? '';
+
+      const res = await api(app)
+        .patch(`/api/documents/${documentId}/pages/${pageId}`, { crop })
+        .set('Cookie', stranger.cookie);
+
+      // Not theirs to read, so not theirs to find (docs/03 §3.4).
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe('a page removed', () => {
     it('takes the page out and rebuilds', async () => {
       const { documentId, fileIds } = await givenDocument([{ name: 'scan.pdf', pageCount: 3 }]);

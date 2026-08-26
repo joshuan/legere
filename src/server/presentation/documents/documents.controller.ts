@@ -47,6 +47,7 @@ import {
   reorderDocumentPagesRequestSchema,
   splitDocumentRequestSchema,
   updateDocumentFileRequestSchema,
+  updateDocumentPageRequestSchema,
   type AddDocumentFileQuery,
   type CombineDocumentsRequest,
   type CropSuggestionResponse,
@@ -59,6 +60,7 @@ import {
   type SplitDocumentRequest,
   type SplitDocumentResponse,
   type UpdateDocumentFileRequest,
+  type UpdateDocumentPageRequest,
 } from '../../../shared/contracts/files';
 import type { OkResponse } from '../../../shared/contracts/users';
 import type { User } from '../../domain/entities/user';
@@ -85,6 +87,7 @@ import {
   RemoveDocumentPage,
   ReorderDocumentPages,
   SplitDocumentAtPages,
+  UpdateDocumentPage,
 } from '../../application/documents/arrange-pages';
 import {
   DownloadDocumentCanonical,
@@ -157,6 +160,7 @@ export class DocumentsController {
     private readonly addFile: AddDocumentFile,
     private readonly reorderFiles: ReorderDocumentFiles,
     private readonly reorderPages: ReorderDocumentPages,
+    private readonly updatePage: UpdateDocumentPage,
     private readonly removePage: RemoveDocumentPage,
     private readonly splitAtPages: SplitDocumentAtPages,
     private readonly movePages: MoveDocumentPages,
@@ -348,6 +352,20 @@ export class DocumentsController {
     @ZodBody(reorderDocumentPagesRequestSchema) body: ReorderDocumentPagesRequest,
   ): Promise<Envelope<DocumentDetailDto>> {
     return successEnvelope(await this.reorderPages.execute(user, document, body));
+  }
+
+  // How one page lies and how much of it is paper (docs/03 §3.3.17). A crop is taken on any page —
+  // the build renders and warps a page of a PDF exactly as it warps a photograph — and only the
+  // mirror is an image's own.
+  @Patch(':id/pages/:pageId')
+  @UseGuards(DocumentAccessGuard)
+  async patchPage(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @UuidParam('pageId', 'PAGE_NOT_FOUND', 'Page') pageId: string,
+    @ZodBody(updateDocumentPageRequestSchema) body: UpdateDocumentPageRequest,
+  ): Promise<Envelope<DocumentDetailDto>> {
+    return successEnvelope(await this.updatePage.execute(user, document, pageId, body));
   }
 
   // The pages that belong elsewhere go there — an existing document at a chosen position, or a new

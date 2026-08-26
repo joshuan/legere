@@ -22,6 +22,7 @@ import {
   RemoveDocumentPage,
   ReorderDocumentPages,
   SplitDocumentAtPages,
+  UpdateDocumentPage,
 } from '../../application/documents/arrange-pages';
 import { DocumentFileBytes } from '../../application/documents/document-file-bytes';
 import {
@@ -218,8 +219,9 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
         new ReorderDocumentFiles(documents, files, events, queue, unitOfWork),
       inject: [DocumentRepository, FileRepository, DocumentEventRepository, JobQueue, UnitOfWork],
     },
-    // Arranging a document by the page (docs/05 §5.6, ADR-025): the order, one page removed, a cut
-    // at a boundary, and pages that change hands. All four move entries and no bytes.
+    // A document worked on by the page (docs/05 §5.6, ADR-025): the order, how one page lies, one
+    // page removed, a cut at a boundary, and pages that change hands. Every one of them addresses
+    // entries and no bytes.
     {
       provide: ReorderDocumentPages,
       useFactory: (
@@ -230,6 +232,17 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
         unitOfWork: UnitOfWork,
       ): ReorderDocumentPages =>
         new ReorderDocumentPages(documents, files, events, queue, unitOfWork),
+      inject: [DocumentRepository, FileRepository, DocumentEventRepository, JobQueue, UnitOfWork],
+    },
+    {
+      provide: UpdateDocumentPage,
+      useFactory: (
+        documents: DocumentRepository,
+        files: FileRepository,
+        events: DocumentEventRepository,
+        queue: JobQueue,
+        unitOfWork: UnitOfWork,
+      ): UpdateDocumentPage => new UpdateDocumentPage(documents, files, events, queue, unitOfWork),
       inject: [DocumentRepository, FileRepository, DocumentEventRepository, JobQueue, UnitOfWork],
     },
     {

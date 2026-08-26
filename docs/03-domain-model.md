@@ -998,7 +998,14 @@ guess about a file nothing has opened.
 about the bytes. A twenty-page scan has three pages lying sideways and not twenty, so a turn per file
 would stand the other seventeen on their heads; and two documents may read one photograph and want
 different parts of it — a passport page cropped to the photo in one document and to the machine
-readable zone in another. Both are corrections *on top of* what the file already says about itself:
+readable zone in another. Both are therefore asked of the **page**, by naming it (`07 §7.3`), and a
+crop is taken on any page there is — a page of a PDF is rendered and warped exactly as a photograph
+is (`05 §5.5` step 1), because a scanned page is already raster and a vector page cropped becomes
+raster, which is what somebody who dragged its corners asked for. The one thing a page of a PDF does
+not take is a **mirror**: it arrives the way its producer laid it out, and what goes wrong at a
+scanner is which edge went in first.
+
+Both are corrections *on top of* what the file already says about itself:
 sharp's EXIF auto-orientation still stands a photograph up the way every viewer does, and Stirling's
 rotate adds to a page's own `/Rotate` rather than replacing it, so "one press, a quarter turn" means
 the same thing on every page.

@@ -2,16 +2,24 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DOCUMENT_ID,
   FakeDocumentEventRepository,
+  FakeImageTool,
+  FakePdfToolbox,
   ImmediateUnitOfWork,
   InMemoryDocumentRepository,
   InMemoryFileRefRepository,
   InMemoryFileRepository,
+  InMemoryLibraryRepository,
+  InMemorySettingsRepository,
+  StubLibraryReader,
   documentFixture,
   fileFixture,
 } from '../../../../test/helpers/processing-fakes';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import type { Crop } from '../../../shared/contracts/documents';
-import { splitDocumentRequestSchema } from '../../../shared/contracts/files';
+import {
+  splitDocumentRequestSchema,
+  updateDocumentPageRequestSchema,
+} from '../../../shared/contracts/files';
 import type { OrderedPair } from '../../domain/entities/document-link';
 import type { DocumentPage } from '../../domain/entities/document-page';
 import type { File } from '../../domain/entities/file';
@@ -28,17 +36,41 @@ import type {
 import type { DocumentFile } from '../../domain/repositories/file.repository';
 import { JobQueue, type EnqueueOptions, type QueueName } from '../ports/job-queue';
 import type { TransactionHandle } from '../ports/unit-of-work';
+import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
+import { QueueSettings, ungatedServices } from '../queue/queue-settings';
 import {
   MoveDocumentPages,
   RemoveDocumentPage,
   ReorderDocumentPages,
   SplitDocumentAtPages,
+  UpdateDocumentPage,
 } from './arrange-pages';
+import { BuildCanonical } from './build-canonical';
 
-// Arranging a document by the page (docs/05 §5.6, docs/07 §7.3, ADR-025). Every one of these moves
-// **entries** and no bytes: the split is one file read by two documents afterwards, and the move is
-// an entry changing hands. What the tests watch is therefore the list, the files that are still read
-// somewhere, and the rebuild each edit enqueues.
+// A document worked on by the page (docs/05 §5.6, docs/07 §7.3, ADR-025). Every one of these
+// addresses **entries** and no bytes: the split is one file read by two documents afterwards, the
+// move is an entry changing hands, and a crop is four numbers written beside one of them. What the
+// tests watch is therefore the list, the files that are still read somewhere, and the rebuild each
+// edit enqueues — and, for the crop, the build that reads it.
+
+// What the build needs to be told about this instance. Nothing here is the subject of these tests —
+// the crop is — so the numbers are the defaults a fresh instance runs with, and the correction is
+// off, which is what a page of a PDF gets anyway (docs/05 §5.5 step 1).
+const BUILD_SETTINGS = {
+  previewMaxDim: 1600,
+  thumbMaxDim: 400,
+  ocrLanguages: ['rus', 'eng'],
+  pdfTextMinCharsPerPage: 100,
+  correctImagePages: false,
+  chunkTargetChars: 200,
+  chunkOverlapChars: 40,
+  analystExcerptChars: 0,
+  analystMaxPageImages: 20,
+  analystPageImageMaxDim: 1200,
+  analystAutoMaxPages: 0,
+  transcriberMaxPages: 0,
+  transcriberPageImageMaxDim: 1600,
+};
 
 const ADMIN: Viewer = { id: '11111111-1111-4111-8111-111111111111', role: 'ADMIN' };
 const OTHER_USER: Viewer = { id: '22222222-2222-4222-8222-222222222222', role: 'USER' };
@@ -107,7 +139,7 @@ function viewOf(file: DocumentFile): DocumentFileView {
   return { ...file, available: true, refs: [], earlierVersions: [] };
 }
 
-describe('Arranging a document by the page', () => {
+describe('A document worked on by the page', () => {
   let documents: InMemoryDocumentRepository;
   let files: InMemoryFileRepository;
   let fileRefs: InMemoryFileRefRepository;
@@ -119,6 +151,13 @@ describe('Arranging a document by the page', () => {
   let remove: RemoveDocumentPage;
   let split: SplitDocumentAtPages;
   let move: MoveDocumentPages;
+  let update: UpdateDocumentPage;
+  // The build itself, so that what a route writes on a page can be followed into the canonical: the
+  // crop of a page of a PDF is a promise of `03 §3.3.17` and only bytes keep it.
+  let pdfs: FakePdfToolbox;
+  let images: FakeImageTool;
+  let storage: InMemoryFileStorage;
+  let build: BuildCanonical;
 
   beforeEach(() => {
     documents = new InMemoryDocumentRepository();
@@ -133,6 +172,30 @@ describe('Arranging a document by the page', () => {
     remove = new RemoveDocumentPage(documents, files, fileRefs, events, queue, unitOfWork, clock);
     split = new SplitDocumentAtPages(documents, files, links, events, queue, unitOfWork, clock);
     move = new MoveDocumentPages(documents, files, fileRefs, events, queue, unitOfWork, clock);
+    update = new UpdateDocumentPage(documents, files, events, queue, unitOfWork);
+    pdfs = new FakePdfToolbox();
+    images = new FakeImageTool();
+    storage = new InMemoryFileStorage();
+    build = new BuildCanonical(
+      files,
+      fileRefs,
+      new InMemoryLibraryRepository(),
+      new StubLibraryReader(),
+      storage,
+      images,
+      pdfs,
+      new QueueSettings(new InMemorySettingsRepository(), {
+        concurrency: {
+          'library-scan': 1,
+          'file-ingest': 1,
+          'document-process': 1,
+          maintenance: 1,
+        },
+        unitConcurrency: 1,
+        services: ungatedServices(),
+      }),
+      BUILD_SETTINGS,
+    );
     documents.add(documentFixture({ id: DOCUMENT_ID, createdById: ADMIN.id }));
   });
 
@@ -294,6 +357,181 @@ describe('Arranging a document by the page', () => {
       );
       expect(await orderOf()).toEqual([`${SCAN}:0`]);
       expect(rebuilt()).toEqual([]);
+    });
+  });
+
+  // How one page lies and how much of it is paper (docs/03 §3.3.17, docs/07 §7.3). What these watch
+  // is the entry — and, for the crop, the build that reads it, because the promise `03 §3.3.17`
+  // makes about a page of a PDF is only a promise until something renders and warps one.
+  describe('one page cropped and turned', () => {
+    const CROP: Crop = {
+      points: [
+        [0.1, 0.1],
+        [0.9, 0.12],
+        [0.88, 0.9],
+        [0.12, 0.88],
+      ],
+    };
+
+    // A PDF whose bytes are in the bucket, so the build can open it without a volume.
+    async function givenScan(pageCount: number): Promise<DocumentDetail> {
+      const key = `files/${SCAN}/original.pdf`;
+      files.add(
+        fileFixture({ id: SCAN, storageKey: key, origin: 'MANAGED', pageCount }),
+        DOCUMENT_ID,
+      );
+      await storage.put(key, Buffer.from('scan'), 'application/pdf');
+      pdfs.pageCount = pageCount;
+      return detailOf(DOCUMENT_ID);
+    }
+
+    async function buildCanonical(): Promise<void> {
+      const document = documents.documents.get(DOCUMENT_ID);
+      if (document === undefined) throw new Error('no document to build');
+      await build.execute(document);
+    }
+
+    it('crops a page of a PDF, and the build renders that page and warps it', async () => {
+      const detail = await givenScan(3);
+      const second = (await pagesOf()).at(1);
+
+      await update.execute(ADMIN, detail, second?.id ?? '', { crop: CROP });
+
+      const stored = (await pagesOf()).at(1);
+      expect(stored?.crop).toEqual(CROP);
+      // 🔒 MANUAL is what stops the next rebuild from replacing it with what a detector found.
+      expect(stored?.cropSource).toBe('MANUAL');
+      expect(rebuilt()).toEqual([DOCUMENT_ID]);
+      // The journal names the paper and the page of it, counted from one (docs/03 §3.3.18).
+      expect(events.events.at(0)?.payload).toMatchObject({
+        path: 'a.pdf · 2',
+        changes: { crop: { from: 'NONE', to: 'MANUAL' } },
+      });
+
+      await buildCanonical();
+
+      // 🔒 The promise of `03 §3.3.17`, kept on the bytes: the page is asked for by its 1-based
+      // number at the resolution the recognizer reads best at, and the quadrilateral is applied to
+      // what came back. The pages either side of it are still taken out of the file.
+      expect(pdfs.calls).toContainEqual({ method: 'pdfPageJpg', fileName: 'page:2@300' });
+      expect(pdfs.calls.filter((call) => call.method === 'pdfPageJpg')).toHaveLength(1);
+      expect(images.crops.map((one) => one.crop)).toEqual([CROP]);
+    });
+
+    it('turns one page of a scan and leaves the pages either side of it standing', async () => {
+      const detail = await givenScan(3);
+      const second = (await pagesOf()).at(1);
+
+      await update.execute(ADMIN, detail, second?.id ?? '', {
+        turn: { quarterTurns: 1, mirrored: false },
+      });
+
+      expect((await pagesOf()).map((page) => page.turn)).toEqual([
+        null,
+        { quarterTurns: 1, mirrored: false },
+        null,
+      ]);
+      // The journal says it in degrees, which is how a person says it out loud.
+      expect(events.events.at(0)?.payload).toMatchObject({
+        changes: { turn: { from: null, to: '90°' } },
+      });
+      expect(rebuilt()).toEqual([DOCUMENT_ID]);
+    });
+
+    it('takes both in one edit and clears both back to the way the page arrived', async () => {
+      const detail = await givenScan(2);
+      const first = (await pagesOf()).at(0);
+
+      await update.execute(ADMIN, detail, first?.id ?? '', {
+        crop: CROP,
+        turn: { quarterTurns: 2, mirrored: false },
+      });
+      // "Which part of this" and "which way up" are one question about one page, so they are one
+      // edit and therefore one rebuild (docs/11 §11.5c).
+      expect(rebuilt()).toEqual([DOCUMENT_ID]);
+
+      await update.execute(ADMIN, await detailOf(DOCUMENT_ID), first?.id ?? '', {
+        crop: null,
+        turn: null,
+      });
+
+      // Nothing to undo: both were instructions beside bytes nobody rewrote (docs/03 §3.3.17).
+      expect((await pagesOf()).at(0)).toMatchObject({ crop: null, cropSource: 'NONE', turn: null });
+    });
+
+    it('refuses a mirror on a page that is not a page of an image, and writes nothing', async () => {
+      const detail = await givenScan(2);
+      const first = (await pagesOf()).at(0);
+
+      const error = await refused(
+        update.execute(ADMIN, detail, first?.id ?? '', {
+          turn: { quarterTurns: 1, mirrored: true },
+        }),
+      );
+
+      // 🔒 A page of a PDF arrives the way its producer laid it out and turns in quarters; what goes
+      // wrong at a scanner is which edge went in first (docs/03 §3.3.17).
+      expect(error.code).toBe('FILE_NOT_IMAGE');
+      expect((await pagesOf()).at(0)?.turn).toBeNull();
+      expect(rebuilt()).toEqual([]);
+    });
+
+    it('mirrors a page of an image, which is the one page that takes one', async () => {
+      const detail = await given({ id: PHOTO, mimeType: 'image/jpeg', ext: 'jpg', pageCount: 1 });
+      const only = (await pagesOf()).at(0);
+
+      await update.execute(ADMIN, detail, only?.id ?? '', {
+        turn: { quarterTurns: 1, mirrored: true },
+      });
+
+      expect((await pagesOf()).at(0)?.turn).toEqual({ quarterTurns: 1, mirrored: true });
+    });
+
+    it('refuses a page this document has not got', async () => {
+      const detail = await givenScan(2);
+
+      expect(
+        (await refused(update.execute(ADMIN, detail, 'not-a-page-of-this', { crop: null }))).code,
+      ).toBe('PAGE_NOT_FOUND');
+      expect(rebuilt()).toEqual([]);
+    });
+
+    // 🔒 The point of the whole move onto the page (ADR-025): a file two documents read is cropped
+    // in one of them and untouched in the other.
+    it('crops the page this document reads and not the same file elsewhere', async () => {
+      documents.add(documentFixture({ id: OTHER_DOCUMENT, createdById: ADMIN.id }));
+      const detail = await givenScan(2);
+      await files.attach(OTHER_DOCUMENT, SCAN);
+      const first = (await pagesOf()).at(0);
+
+      await update.execute(ADMIN, detail, first?.id ?? '', { crop: CROP });
+
+      expect((await pagesOf()).at(0)?.crop).toEqual(CROP);
+      expect((await pagesOf(OTHER_DOCUMENT)).every((page) => page.crop === null)).toBe(true);
+    });
+
+    it('refuses a body naming neither, and a quadrilateral outside the page', () => {
+      // The contract is where these are decided (docs/07 §7.3): "change nothing" is not an edit, and
+      // a point outside 0…1 is not a corner of anything.
+      expect(updateDocumentPageRequestSchema.safeParse({}).success).toBe(false);
+      expect(updateDocumentPageRequestSchema.safeParse({ crop: null }).success).toBe(true);
+      expect(updateDocumentPageRequestSchema.safeParse({ turn: null }).success).toBe(true);
+      expect(
+        updateDocumentPageRequestSchema.safeParse({
+          crop: {
+            points: [
+              [0, 0],
+              [1.5, 0],
+              [1, 1],
+              [0, 1],
+            ],
+          },
+        }).success,
+      ).toBe(false);
+      expect(
+        updateDocumentPageRequestSchema.safeParse({ turn: { quarterTurns: 4, mirrored: false } })
+          .success,
+      ).toBe(false);
     });
   });
 

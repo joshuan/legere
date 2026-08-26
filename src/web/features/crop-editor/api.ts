@@ -4,9 +4,9 @@ import {
 } from '../../../shared/contracts/documents';
 import {
   cropSuggestionResponseSchema,
-  updateDocumentFileRequestSchema,
+  updateDocumentPageRequestSchema,
   type CropSuggestionResponse,
-  type UpdateDocumentFileRequest,
+  type UpdateDocumentPageRequest,
 } from '../../../shared/contracts/files';
 import { apiClient } from '../../shared/api';
 
@@ -24,16 +24,18 @@ export const cropApi = {
       schema: cropSuggestionResponseSchema,
     }),
 
-  // `crop: null` clears it and puts the whole file back into the canonical.
+  // The crop and the turn of **one page** (docs/07 §7.3): they are one question about one page, so
+  // they are one request and one rebuild. `crop: null` clears it and the page goes back into the
+  // canonical whole.
   save: (
     documentId: string,
-    fileId: string,
-    body: UpdateDocumentFileRequest,
+    pageId: string,
+    body: UpdateDocumentPageRequest,
   ): Promise<DocumentDetailDto> =>
-    apiClient.patch(`/api/documents/${documentId}/files/${fileId}`, {
+    apiClient.patch(`/api/documents/${documentId}/pages/${pageId}`, {
       schema: documentDetailDtoSchema,
       // Validated on the way out too: a point outside 0…1 is a bug in this editor, and it should
       // fail here rather than as a 422 the person has to interpret.
-      body: updateDocumentFileRequestSchema.parse(body),
+      body: updateDocumentPageRequestSchema.parse(body),
     }),
 };

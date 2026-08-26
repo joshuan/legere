@@ -80,30 +80,45 @@ export const moveDocumentPagesResponseSchema = z.object({
 });
 export type MoveDocumentPagesResponse = z.infer<typeof moveDocumentPagesResponseSchema>;
 
-// PATCH /api/documents/:id/files/:fileId — what one file says about itself: the quadrilateral its
-// content sits in, which way up it lies, the order its own pages are read in and which way up each
-// of those lies (docs/03 §3.3.16). `null` clears any of them and the file goes back to what arrived
-// — none of them is ever a change to the bytes.
+// PATCH /api/documents/:id/pages/:pageId — how one page lies and how much of it is paper
+// (docs/03 §3.3.17). `null` clears either and the page goes back to what arrived; neither is ever a
+// change to the bytes.
 //
-// Every key is optional and a body naming none is refused: "change nothing" is not an edit, and a
-// PATCH that quietly did nothing would look exactly like one that worked. In practice a body names
-// the pair its file has — an image is cropped and turned as one picture, a PDF has pages to order
-// and to turn one at a time — so no file can take all four.
-export const updateDocumentFileRequestSchema = z
+// 🔒 A crop is taken on **any** page — a page of a PDF as much as a photograph — because the build
+// honours it on either by rendering the page and warping it (docs/05 §5.5 step 1). A `mirrored`
+// turn is a page of an image's own, and asking for it elsewhere is `422 FILE_NOT_IMAGE`: that
+// cannot be checked here, where nothing knows which file the page is read from, so the shape is
+// checked here and the page where the page is known (docs/07 §7.3).
+export const updateDocumentPageRequestSchema = z
   .object({
     crop: cropSchema.nullable().optional(),
-    rotation: rotationSchema.nullable().optional(),
+    turn: rotationSchema.nullable().optional(),
+  })
+  .refine((body) => body.crop !== undefined || body.turn !== undefined, {
+    message: 'Name at least one of crop or turn',
+  });
+export type UpdateDocumentPageRequest = z.infer<typeof updateDocumentPageRequestSchema>;
+
+// PATCH /api/documents/:id/files/:fileId — what one file says about **its own pages as a set**: the
+// order they are read in and which way up each of them lies, both by the file's own 0-based indices
+// (docs/03 §3.3.16). `null` clears either and the file goes back to what arrived — neither is ever a
+// change to the bytes.
+//
+// That is all this route is since ADR-025. A crop and a turn belong to the page that carries them
+// and are asked of the route that names it, above: a crop because every page takes one now and a
+// file could only ever offer it to an image, a turn because an image is one page and two ways of
+// writing one row is how they drift apart (docs/07 §7.3).
+//
+// Both keys are optional and a body naming none is refused: "change nothing" is not an edit, and a
+// PATCH that quietly did nothing would look exactly like one that worked.
+export const updateDocumentFileRequestSchema = z
+  .object({
     pageOrder: pageOrderSchema.nullable().optional(),
     pageRotations: pageRotationsSchema.nullable().optional(),
   })
-  .refine(
-    (body) =>
-      body.crop !== undefined ||
-      body.rotation !== undefined ||
-      body.pageOrder !== undefined ||
-      body.pageRotations !== undefined,
-    { message: 'Name at least one of crop, rotation, pageOrder or pageRotations' },
-  );
+  .refine((body) => body.pageOrder !== undefined || body.pageRotations !== undefined, {
+    message: 'Name at least one of pageOrder or pageRotations',
+  });
 export type UpdateDocumentFileRequest = z.infer<typeof updateDocumentFileRequestSchema>;
 
 // GET /api/documents/:id/files/:fileId/crop-suggestion — a proposal, stored only if the client saves
