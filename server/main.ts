@@ -52,7 +52,7 @@ export async function wireServer(
   server.disable('x-powered-by');
 
   // Before the dispatcher, so pages carry them too (docs/12 §12.8).
-  server.use(securityHeaders({ usesHttps: config.usesHttps }));
+  server.use(securityHeaders({ usesHttps: config.usesHttps, bucketOrigin: config.bucketOrigin }));
   // 🔒 And the origin check with them, above the dispatcher rather than on `/api`: a rule about
   // which requests may change state should not depend on where a route happens to be mounted. The
   // product has no Next route handler and no server action today, so this changes nothing now —

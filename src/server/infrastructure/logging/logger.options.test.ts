@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../config/app-config';
-import { buildPinoHttpOptions, routeShapedUrl, serializeRequest } from './logger.options';
+import {
+  buildPinoHttpOptions,
+  routeShapedUrl,
+  serializeRequest,
+  serializeResponse,
+} from './logger.options';
 
 const ENV = {
   APP_BASE_URL: 'http://localhost:3000',
@@ -87,14 +92,71 @@ describe('the request serializer', () => {
   });
 });
 
+// 🔒 SEC-58 (docs/06 §6.7, docs/09 §9.2). What a download answers with is a credential and a file
+// name, and pino's standard response serializer writes every header there is.
+describe('the response serializer', () => {
+  const SIGNED =
+    'http://minio:9000/legere/documents/0f5f0f2c-1b7e-4a2f-9a1e-2f6a1a2b3c4d/canonical.pdf' +
+    '?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=9c1f0a2b3c4d5e6f';
+
+  function serializedResponse(headers: Record<string, string>) {
+    return serializeResponse({ statusCode: 302, headers });
+  }
+
+  it('drops the presigned URL a download redirects to', () => {
+    const res = serializedResponse({
+      location: SIGNED,
+      'content-disposition': 'attachment; filename="biopsy results 2026.pdf"',
+    });
+
+    expect(JSON.stringify(res)).not.toContain('X-Amz-Signature');
+    expect(JSON.stringify(res)).not.toContain('biopsy');
+    expect(res.headers).toEqual({});
+    expect(res.statusCode).toBe(302);
+  });
+
+  it('keeps the three that say how a request ended and nothing about what it carried', () => {
+    const res = serializedResponse({
+      'content-type': 'application/pdf',
+      'content-length': '1024',
+      'retry-after': '60',
+      'x-request-id': 'req-1',
+      'set-cookie': 'sid=secret; HttpOnly',
+    });
+
+    expect(res.headers).toEqual({
+      'content-type': 'application/pdf',
+      'content-length': '1024',
+      'retry-after': '60',
+    });
+  });
+
+  // The point of an allow-list rather than a deny-list (SEC-23): the header nobody has thought of
+  // yet is dropped by the rule that already exists, not by an amendment to it.
+  it('drops a header this codebase has never heard of', () => {
+    const res = serializedResponse({ 'x-legere-next-secret': 'whatever it turns out to be' });
+
+    expect(res.headers).toEqual({});
+  });
+});
+
 describe('buildPinoHttpOptions', () => {
   it('removes the credentials and the document names a request carries in its headers', () => {
     const paths = buildPinoHttpOptions(loadConfig(ENV)).redact.paths;
 
     expect(paths).toContain('req.headers.cookie');
     expect(paths).toContain('req.headers.authorization');
-    expect(paths).toContain('res.headers["set-cookie"]');
     expect(paths).toContain('req.headers["x-legere-filename"]');
     expect(paths).toContain('req.headers["x-file-name"]');
+    // `Set-Cookie` is gone from the deny-list because the response serializer above never lets it
+    // through — a redact path that can never match is a claim about a rule that no longer applies.
+    expect(paths).not.toContain('res.headers["set-cookie"]');
+  });
+
+  it('serializes both halves of a request line, so neither falls back to pino’s own', () => {
+    const serializers = buildPinoHttpOptions(loadConfig(ENV)).serializers;
+
+    expect(serializers.req).toBe(serializeRequest);
+    expect(serializers.res).toBe(serializeResponse);
   });
 });

@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest';
+import { QueryClient } from '@tanstack/react-query';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -97,5 +98,34 @@ describe('SessionsCard', () => {
     expect(
       await screen.findByText(enMessages.settings.sessions.revokeCurrentConfirm),
     ).toBeInTheDocument();
+  });
+
+  // 🔒 SEC-68 (docs/10 §10.5). This is the second of the two ways a session ends, and the one that
+  // used to leave the previous person's archive in the cache for whoever signed in next.
+  it('empties the cache when it is this browser’s own session that ends', async () => {
+    const cleared = vi.spyOn(QueryClient.prototype, 'clear');
+    server.use(
+      http.delete('/api/me/sessions/:id', () => HttpResponse.json(envelope({ ok: true }))),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SessionsCard />);
+
+    const rows = await screen.findAllByRole('button', {
+      name: enMessages.settings.sessions.revoke,
+    });
+    const currentRow = rows[1];
+    if (currentRow === undefined) throw new Error('the current session has no row');
+    await user.click(currentRow);
+
+    const buttons = await screen.findAllByRole('button', {
+      name: enMessages.settings.sessions.revoke,
+    });
+    const confirm = buttons.at(-1);
+    if (confirm === undefined) throw new Error('the popconfirm never opened');
+    await user.click(confirm);
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/login'));
+    expect(cleared).toHaveBeenCalled();
+    cleared.mockRestore();
   });
 });

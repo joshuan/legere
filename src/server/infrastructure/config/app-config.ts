@@ -32,6 +32,18 @@ export class AppConfig {
   get usesHttps(): boolean {
     return this.values.APP_BASE_URL.startsWith('https://');
   }
+
+  // The origin a browser is sent to for a presigned URL: the public endpoint when one is configured,
+  // the server's own otherwise (docs/09 §9.2). `null` when neither parses as a URL — only reachable
+  // through `S3_PUBLIC_ENDPOINT`, which is a free-form string because it may be empty.
+  //
+  // Two things read it, and both need the same answer: the boot refusal below, which will not let
+  // the bucket share an origin with the app (SEC-39), and the page CSP, which has to name the host a
+  // preview or a canonical PDF redirects to (docs/12 §12.8a).
+  get bucketOrigin(): string | null {
+    const configured = this.values.S3_PUBLIC_ENDPOINT;
+    return originOf(configured === '' ? this.values.S3_ENDPOINT : configured);
+  }
 }
 
 // The values this repository publishes as examples. They exist so a reader can copy a file and see
@@ -102,7 +114,7 @@ function productionRefusals(config: AppConfig): readonly string[] {
   // script in the origin that served it. That is harmless only while the bucket is a *different*
   // origin from the app: put them on one, and any document in the archive can script the app
   // (docs/09 §9.2, security audit SEC-39). The invariant is silent, so it is asserted here.
-  const bucketOrigin = browserFacingOrigin(config);
+  const bucketOrigin = config.bucketOrigin;
   if (bucketOrigin !== null && bucketOrigin === originOf(config.get('APP_BASE_URL'))) {
     refusals.push(
       'the bucket browsers reach and APP_BASE_URL are the same origin — a document served from it could script the app',
@@ -144,13 +156,6 @@ export function configWarnings(config: AppConfig): readonly string[] {
   }
 
   return warnings;
-}
-
-// The origin a browser is sent to for a presigned URL: the public endpoint when one is configured,
-// the server's own otherwise (docs/09 §9.2).
-function browserFacingOrigin(config: AppConfig): string | null {
-  const configured = config.get('S3_PUBLIC_ENDPOINT');
-  return originOf(configured === '' ? config.get('S3_ENDPOINT') : configured);
 }
 
 function originOf(value: string): string | null {

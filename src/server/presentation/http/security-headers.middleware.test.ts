@@ -3,11 +3,18 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { securityHeaders } from './security-headers.middleware';
 
+const BUCKET = 'https://files.legere.example';
+
 // A real Express instance rather than a stubbed request and response: the middleware's whole job is
 // the headers that come out the other side, and that is what this reads.
-function appWith(options: { usesHttps: boolean }): Express {
+function appWith(options: { usesHttps: boolean; bucketOrigin?: string | null }): Express {
   const app = express();
-  app.use(securityHeaders(options));
+  app.use(
+    securityHeaders({
+      usesHttps: options.usesHttps,
+      bucketOrigin: options.bucketOrigin === undefined ? BUCKET : options.bucketOrigin,
+    }),
+  );
   app.get('/api/documents', (_req, res) => {
     res.json({ data: [] });
   });
@@ -44,6 +51,44 @@ describe('securityHeaders', () => {
 
     expect(response.headers['content-security-policy']).not.toContain("default-src 'none'");
     expect(response.text).toBe('a page');
+  });
+
+  // 🔒 SEC-66. A document's Markdown is what the parser read off its pages, and a page can say
+  // `![](https://beacon.example/p.png)`. Rendered, that tells whoever put the document there which
+  // readers opened it and from where — no script required, so no `script-src` is required to stop
+  // it either.
+  it('lets a page load pictures from itself and the bucket, and from nowhere else', async () => {
+    const response = await request(appWith({ usesHttps: false })).get('/documents');
+    const policy = response.headers['content-security-policy'] ?? '';
+
+    expect(policy).toContain(`img-src 'self' data: ${BUCKET}`);
+    // The preview `<img>` and the canonical `<object>` point at `/api/documents/:id/…`, which
+    // answers 302 to the bucket — and a CSP is checked again against the host a redirect lands on.
+    expect(policy).toContain(`object-src 'self' ${BUCKET}`);
+    expect(policy).toContain("base-uri 'none'");
+    expect(policy).toContain("form-action 'self'");
+  });
+
+  // A `S3_PUBLIC_ENDPOINT` that does not parse leaves the app's own origin standing: a preview that
+  // does not load is visible, and a policy that quietly allows everything is not.
+  it('names only the app when there is no bucket origin to name', async () => {
+    const response = await request(appWith({ usesHttps: false, bucketOrigin: null })).get(
+      '/documents',
+    );
+    const policy = response.headers['content-security-policy'] ?? '';
+
+    expect(policy).toContain("img-src 'self' data:;");
+    expect(policy).toContain("object-src 'self'");
+  });
+
+  // The nonce policy is deliberately absent and is a task of its own — backlog M47.19, written down
+  // by M47.9 because the sentence promising it pointed at a closed one (SEC-89).
+  it('still leaves script-src and connect-src to the task that owns them', async () => {
+    const response = await request(appWith({ usesHttps: false })).get('/documents');
+    const policy = response.headers['content-security-policy'] ?? '';
+
+    expect(policy).not.toContain('script-src');
+    expect(policy).not.toContain('connect-src');
   });
 
   // Sent to an instance served over plain HTTP — which docs/08 §8.2 deliberately supports on a LAN

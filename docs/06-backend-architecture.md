@@ -183,13 +183,35 @@ serializer therefore rewrites the URL into the shape of its route before anythin
 | `/api/documents/<uuid>/files` | `/api/documents/:x/files` | Identifiers share the fate of tokens; `requestId` already ties a line to the rest of its request, and handlers log the ids they act on deliberately |
 | `?q=<what somebody searched for>` | dropped whole | A search of one's own archive is as private as the archive. No query parameter is worth keeping at the cost of a rule that has to know which ones are safe |
 | `X-Legere-Filename` / `X-File-Name` | removed | A file's name is often the most sensitive metadata an archive holds — one `biopsy-results.pdf` says what a folder of PDFs does not |
-| `Cookie`, `Authorization`, `Set-Cookie` | removed | Session and API-token material |
+| `Cookie`, `Authorization` | removed | Session and API-token material |
 
 Express's own `req.route.path` would name the parameters (`:token` rather than `:x`) and is
 deliberately unused: it is empty exactly when a request never reached its handler — throttled,
 refused by the origin check, an unknown route — which is when a URL carrying a token is most likely
 to be the one being logged. `req.query` and `req.params` are dropped from the serialized shape
 entirely, since Express fills both with the same material the URL is scrubbed of.
+
+🔒 **A response line says how it ended, not what it handed over.** `pino-http` serializes the
+response of every completed request, and its standard serializer writes `res.getHeaders()` whole.
+Two of the headers this application sets on the way out are exactly what the rule above exists to
+keep out of a log: a download answers `302` with a presigned URL in `Location` — a bearer credential
+for the bytes behind it, valid for `SIGNED_URL_TTL_SEC` with no session, no cookie and no token
+([`09 §9.2`](./09-file-storage.md)) — and both of a download's two branches set `Content-Disposition`,
+which spells out the file name the request side is already scrubbed of. So the `res` serializer keeps
+an **allow-list** and drops the rest:
+
+| In the response | In the log | Why |
+|---|---|---|
+| `statusCode` | kept | How the request ended, which is what the line is for |
+| `Content-Type`, `Content-Length`, `Retry-After` | kept | What kind of answer, how big, and how long a throttled caller was told to wait — none of them says anything about the archive |
+| `Location` | dropped | A download's redirect target is a presigned URL; whoever reads the log would otherwise hold the document ([SEC-58](./tasks/security-audit-2026-08-second-pass.md#sec-58)) |
+| `Content-Disposition` | dropped | The file name, on both the redirect and the streamed branch |
+| `Set-Cookie`, and every other header | dropped | Session material — and everything else, by omission |
+
+An allow-list for the same reason the URL is one, and it is the lesson of
+[SEC-23](./tasks/security-audit-2026-08.md#sec-23) applied to headers: a deny-list has to be told
+about each secret in advance, and the next response header to carry one would not think to add
+itself. `X-Request-Id` is not on the list because `req.id` on the same line already is it.
 
 ### 6.7.1. The account journal
 

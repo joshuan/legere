@@ -246,8 +246,20 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   ≤1 code/60 s and ≤5/day; `register/verify` ≤5 wrong attempts → the record is burned; `login` — an
   exponential backoff on **failures**, specified below. Exceeding → `429 RATE_LIMITED`; all errors
   are generic.
-- **CAPTCHA:** Cloudflare Turnstile on login and register/start; a `CaptchaVerifier` port; keys not set
-  (dev) → no-op.
+- **CAPTCHA:** Cloudflare Turnstile on login and register/start, **both halves of it** — the widget
+  renders on the client and the token it mints travels as `captchaToken`; the server checks it
+  through a `CaptchaVerifier` port. 🔒 The halves are two switches and they have to be thrown
+  together: the widget appears when `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is set, verification happens
+  when `TURNSTILE_SECRET_KEY` is set, and a secret with no widget in front of it refuses **every**
+  login and **every** registration on the instance — including the admin's, and including the
+  password reset that runs through `register/start` — because nothing mints the token the server
+  then demands. Neither key set (the shipped default, and dev) → no widget and a verifier that says
+  yes. The site key is read by the client, so it is baked into the bundle at **build** time
+  ([`12 §12.6`](./12-build-config-run.md#126-dockerfile-one-image)): an image built without it cannot
+  grow a widget from a runtime variable, which is what `/admin/instance` says on that row
+  ([`12 §12.4`](./12-build-config-run.md#124-envexample)).
+  Until the token arrives the form does not submit, so a configured widget is a step in the flow
+  rather than a rejection after the fact ([SEC-77](./tasks/security-audit-2026-08-second-pass.md#sec-77)).
 
 ### 8.4.1a. The login backoff, and what it may never do
 
@@ -374,12 +386,16 @@ fixed; the habit that let them sit here unnoticed is what
 - [x] A user can list and end their own sessions, and change their own password with the current one
       — which ends every other session of theirs and keeps the one that asked (§8.1.6a, §8.2).
 - [x] Mutations — fail-closed `csrfOriginCheck`, above the dispatcher rather than on `/api` (§8.4);
-      per-IP + per-email rate limiting; CAPTCHA on login/start.
+      per-IP + per-email rate limiting; CAPTCHA on login/start — the widget mints the token on the
+      client and the server verifies it, so the control is whole where both keys are set and absent
+      where neither is, rather than half of each (§8.4).
 - [x] API tokens: hashed at rest, shown once, mandatory expiry, revoked with the owner; a mutating
       request carrying one is refused before routing (§8.2a).
 - [x] `passwordHash`/`tokenHash`/codes/tickets and email bodies are never serialized or logged —
       including by the request log, which writes the shape of a route and not the token in it, drops
-      the query string, and removes the filename headers ([`06 §6.7`](./06-backend-architecture.md#67-logging));
+      the query string, removes the filename headers, and keeps a response to an allow-list of
+      headers, so a download's presigned `Location` and its `Content-Disposition` are not written
+      either ([`06 §6.7`](./06-backend-architecture.md#67-logging));
       including when no mail server is configured, where the letter is recorded as its recipient and
       subject and its body is dropped (§8.1.8).
 - [x] Every protected route — `SessionGuard` (+ `RolesGuard`/`DocumentAccessGuard`); file endpoints —

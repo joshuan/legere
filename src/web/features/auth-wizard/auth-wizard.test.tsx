@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -26,6 +26,8 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  delete window.turnstile;
 });
 afterAll(() => server.close());
 
@@ -230,4 +232,63 @@ describe('AuthWizard', () => {
     const resend = await screen.findByRole('button', { name: /Resend in \d+s/ });
     expect(resend).toBeDisabled();
   });
+
+  // 🔒 SEC-77 (docs/08 §8.4, docs/11 §11.2). The wizard's first step and the resend on its second
+  // both call `register/start`, which is the endpoint the CAPTCHA guards — and a Turnstile token is
+  // good for one call, so the second step needs a widget of its own rather than the first one's
+  // leftovers.
+  describe('the Turnstile widget', () => {
+    it('renders nothing at all on a build with no site key', async () => {
+      mockHappyPath();
+
+      renderWithProviders(<AuthWizard mode="onboarding" />);
+
+      expect(screen.queryByTestId('captcha-slot')).not.toBeInTheDocument();
+      await submitEmail();
+      await screen.findByRole('button', { name: /Resend in \d+s/ });
+      expect(screen.queryByTestId('captcha-slot')).not.toBeInTheDocument();
+    });
+
+    it('carries the widget’s token into register/start, and mints a second for the resend', async () => {
+      vi.stubEnv('NEXT_PUBLIC_TURNSTILE_SITE_KEY', '1x00000000000000000000AA');
+      const turnstile = fakeTurnstile();
+      const bodies: unknown[] = [];
+      mockHappyPath((body) => bodies.push(body));
+
+      renderWithProviders(<AuthWizard mode="onboarding" />);
+      await screen.findByTestId('captcha-slot');
+
+      const send = screen.getByRole('button', { name: enMessages.auth.wizard.actions.sendCode });
+      expect(send).toBeDisabled();
+
+      turnstile.solve('first-token');
+      await waitFor(() => expect(send).toBeEnabled());
+      await submitEmail();
+
+      // The second step draws its own widget, beside the resend that needs it.
+      await screen.findByRole('button', { name: /Resend in \d+s/ });
+      expect(screen.getByTestId('captcha-slot')).toBeInTheDocument();
+
+      expect(bodies).toEqual([{ email: 'admin@legere.local', captchaToken: 'first-token' }]);
+    });
+  });
 });
+
+// The Cloudflare script, as far as this wizard is concerned: something that draws into the element
+// it is given and calls back with a token.
+function fakeTurnstile(): { solve: (token: string) => void } {
+  let callback: (token: string) => void = () => {};
+  window.turnstile = {
+    render: (_element, options) => {
+      callback = options.callback;
+      return 'widget-1';
+    },
+    reset: () => {},
+    remove: () => {},
+  };
+  return {
+    solve: (token: string) => {
+      act(() => callback(token));
+    },
+  };
+}

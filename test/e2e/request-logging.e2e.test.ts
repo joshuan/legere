@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
 import { registerVerifyResponseSchema } from '../../src/shared/contracts/auth';
+import { uploadDocumentResponseSchema } from '../../src/shared/contracts/documents';
 import {
   createInviteResponseSchema,
   createPasswordResetResponseSchema,
@@ -10,6 +12,9 @@ import { cookieNamed, expectData } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n%%EOF\n');
+// Bytes of its own: an upload of the same content deduplicates onto the document that already holds
+// it (docs/05 §5.1a), which would hand the download tests below the name from the upload test above.
+const OTHER_PDF = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 >>\nendobj\n%%EOF\n');
 
 // 🔒 SEC-10 (docs/06 §6.7, docs/08 §8.1.2, §8.1.6). Two links this application hands out are bearer
 // credentials living in a path segment, and `pino-http` writes the URL of every request it serves.
@@ -130,5 +135,73 @@ describe('Request logging (e2e)', () => {
     const written = log().slice(before.length);
     expect(written).toContain('"url":"/api/documents"');
     expect(written).not.toContain('biopsy');
+  });
+
+  // 🔒 SEC-58 (docs/06 §6.7, docs/09 §9.2). The upload above only ever exercised the request half:
+  // no response it produces carries a `Content-Disposition`, and none of them redirects. What a
+  // *download* answers with is a presigned URL — a credential for the bytes, with no session behind
+  // it — and the file's own name, on both of the two ways bytes leave Legere.
+  describe('a download', () => {
+    let documentId: string;
+    let fileId: string;
+
+    beforeAll(async () => {
+      const uploaded = expectData(
+        await api(app)
+          .postBinary('/api/documents', OTHER_PDF)
+          .set('Cookie', adminCookie)
+          .set('X-Legere-Filename', encodeURIComponent('cardiology 2026.pdf')),
+        uploadDocumentResponseSchema,
+      );
+      documentId = uploaded.document.id;
+
+      const file = await testPrisma().file.findFirstOrThrow({
+        where: { pages: { some: { documentId } } },
+      });
+      fileId = file.id;
+
+      // The pipeline is not running in this suite, so the canonical is put where a finished build
+      // would have left it — this is about the response, not about how the object got there.
+      await app.files.put(artifactKeys.canonicalPdf(documentId), OTHER_PDF, 'application/pdf');
+      await testPrisma().document.update({
+        where: { id: documentId },
+        data: { canonicalStatus: 'DONE' },
+      });
+    });
+
+    it('writes neither the signed URL nor the file name on the redirect branch', async () => {
+      const before = log();
+      const redirected = await api(app)
+        .get(`/api/documents/${documentId}/files/${fileId}/content`)
+        .set('Cookie', adminCookie)
+        .redirects(0);
+
+      // The response really did carry both — otherwise this passes for the wrong reason.
+      expect(redirected.status).toBe(302);
+      expect(redirected.headers.location).toContain('X-Amz-');
+      expect(redirected.headers['content-disposition']).toContain('cardiology');
+
+      const written = log().slice(before.length);
+      expect(written).toContain('"url":"/api/documents/:x/files/:x/content"');
+      expect(written).not.toContain('X-Amz-');
+      expect(written).not.toContain('in-memory-storage.test');
+      expect(written).not.toContain('cardiology');
+    });
+
+    it('writes neither of them on the streamed branch either', async () => {
+      const before = log();
+      const saved = await api(app)
+        .get(`/api/documents/${documentId}/canonical?download=1`)
+        .set('Cookie', adminCookie);
+
+      expect(saved.status).toBe(200);
+      expect(saved.headers['content-disposition']).toContain('cardiology');
+
+      const written = log().slice(before.length);
+      expect(written).toContain('"url":"/api/documents/:x/canonical"');
+      expect(written).not.toContain('cardiology');
+      // What a line may still say about an answer: how it ended, and of what kind.
+      expect(written).toContain('"content-type":"application/pdf"');
+    });
   });
 });

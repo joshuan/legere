@@ -113,7 +113,7 @@ person who wrote it.
 ## 11.2. Auth screens
 
 ### Login (`/login`)
-Centered card: email, password, Turnstile widget (when configured), submit. Errors inline
+Centered card: email, password, Turnstile widget (when configured — see below), submit. Errors inline
 (`INVALID_CREDENTIALS` → "Invalid email or password", `RATE_LIMITED` → cooldown notice). Link
 "Forgot password?" opens a static hint: "Ask your administrator for a reset link." If
 `GET /api/auth/onboarding` says `required` → redirect to `/onboarding`.
@@ -130,6 +130,15 @@ The same **3-step wizard** (antd `Steps`):
 
 Invalid/expired token pages show a dedicated state ("This invitation is no longer valid") — no wizard.
 Onboarding when already onboarded → 404 page.
+
+**The Turnstile widget, when configured.** Both screens render it themselves: the Cloudflare script
+is loaded once per page, the widget draws in the space the two forms leave for it, and the token it
+hands back rides on the request the button sends
+([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)). Until a token is in
+hand the submit button of that step is **disabled** — the challenge is a step of the form rather
+than a rejection after the fact, and the person is not sent round a login they had no way to pass.
+An instance built without `NEXT_PUBLIC_TURNSTILE_SITE_KEY` renders no widget, keeps no space for one
+and disables nothing: the screens look exactly as they do today.
 
 ## 11.3. Documents (`/documents`) — the home screen
 

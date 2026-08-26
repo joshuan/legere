@@ -139,6 +139,15 @@ the shell is the sider and the content, and a screen's heading and actions belon
   - a global handler: `ApiError` 401 outside `(public)` routes → hard redirect to `/login`.
 - Query keys per entity slice: `['documents', filters]`, `['document', id]`, `['collections']`, etc.
   Lists use `useInfiniteQuery` with `nextCursor`. Mutations invalidate the narrowest affected keys.
+- 🔒 **A session that ends takes the cache with it.** The `QueryClient` is created once, in the root
+  layout shared by `(app)` and `(public)`, so `router.replace('/login')` is a client-side transition
+  that never remounts it: without an explicit `clear()` the next person to sign in on that browser
+  renders the previous one's documents, filters and account from cache before any refetch lands.
+  There are **two** ways a session ends from the UI — the shell's *Sign out* and the sessions card's
+  revoke of the row tagged `current` ([`11 §11.9`](./11-ui-ux-spec.md)) — and they must not differ,
+  which they did ([SEC-68](./tasks/security-audit-2026-08-second-pass.md#sec-68)). Both therefore go
+  through one helper in `shared/lib`, and a third exit is one call away rather than one omission
+  away.
 - **Processing liveness:** the documents list and the viewer poll with `refetchInterval: 5000` while
   any visible document has `processing: true`; the admin queue dashboard polls every 5 s. The
   viewer's other queries — the extracted text, the log, **and the people and subject catalogues** —

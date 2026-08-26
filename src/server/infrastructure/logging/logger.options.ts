@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Params } from 'nestjs-pino';
-import type { SerializedRequest } from 'pino';
+import type { SerializedRequest, SerializedResponse } from 'pino';
 import { AppConfig } from '../config/app-config';
 
 // 🔒 How much of a URL a log line may repeat (docs/06 §6.7).
@@ -59,9 +59,40 @@ export function serializeRequest(req: LoggedRequest): LoggedRequest {
   };
 }
 
+// 🔒 Which of a response's headers a log line may repeat (docs/06 §6.7).
+//
+// An allow-list, for the reason the URL above is one. Two headers this application sets on the way
+// out are precisely what a log may not hold: `Location` on a download's 302 is a presigned URL — a
+// bearer credential for the bytes behind it, good for SIGNED_URL_TTL_SEC with no session, no cookie
+// and no token (docs/09 §9.2) — and `Content-Disposition`, set on both branches of a download,
+// spells out the file name the request side is already scrubbed of. Naming those two in a
+// deny-list would have held until the third one: SEC-23's lesson is that a deny-list of secrets is
+// the wrong shape, and it applies to headers as much as to configuration (SEC-58).
+//
+// What survives says how the request ended and nothing about what it carried. `X-Request-Id` is not
+// here because `req.id` on the same line already is it, and the constant security headers would say
+// the same thing on every line.
+const LOGGED_RESPONSE_HEADERS = ['content-type', 'content-length', 'retry-after'] as const;
+
+export type LoggedResponse = Pick<SerializedResponse, 'statusCode' | 'headers'>;
+
+// Like the request serializer, this is wrapped around pino's standard one, so `headers` is already
+// what `res.getHeaders()` returned — lower-cased names, as they stood when the response finished.
+// It takes what it keeps, not the whole serialized shape: `raw` is pino's non-enumerable handle on
+// the response object, and nothing here has a reason to hold it.
+export function serializeResponse(res: LoggedResponse): LoggedResponse {
+  const headers: Record<string, string> = {};
+  for (const name of LOGGED_RESPONSE_HEADERS) {
+    const value = res.headers[name];
+    if (value !== undefined) headers[name] = value;
+  }
+  return { statusCode: res.statusCode, headers };
+}
+
 // pino-http options (docs/06 §6.7). Every request gets a uuid requestId (echoed as X-Request-Id and
-// attached to logs). Sensitive material is never logged: cookies, auth headers, set-cookie, the
-// name of an uploaded document, and anything a URL carries beyond the route it matched.
+// attached to logs). Sensitive material is never logged: cookies, auth headers, the name of an
+// uploaded document, anything a URL carries beyond the route it matched, and every response header
+// but the three above — `Set-Cookie` among them, dropped by omission rather than by name.
 export function buildPinoHttpOptions(config: AppConfig) {
   const base = {
     level: config.get('LOG_LEVEL'),
@@ -70,12 +101,11 @@ export function buildPinoHttpOptions(config: AppConfig) {
       res.setHeader('X-Request-Id', id);
       return id;
     },
-    serializers: { req: serializeRequest },
+    serializers: { req: serializeRequest, res: serializeResponse },
     redact: {
       paths: [
         'req.headers.cookie',
         'req.headers.authorization',
-        'res.headers["set-cookie"]',
         // 🔒 The name of a file is often the most sensitive metadata an archive holds — one
         // "biopsy-results.pdf" says what a folder of PDFs does not — and an upload carries it in a
         // header, since the body is the file itself (docs/07 §7.3). Both spellings the upload

@@ -3,7 +3,7 @@
 import { Alert, Button, Card, Form, Input, Steps, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   emailSchema,
   PASSWORD_MAX_LENGTH,
@@ -13,6 +13,7 @@ import {
 import { sessionApi } from '../../entities/session';
 import { isApiError } from '../../shared/api';
 import { safeReturnTo, useErrorMessage } from '../../shared/lib';
+import { isTurnstileConfigured, TurnstileWidget } from '../captcha';
 
 // The one wizard behind onboarding, invite acceptance and password reset (docs/11 §11.2): the three
 // flows differ only in which token they carry and whether the address is fixed.
@@ -50,6 +51,14 @@ export function AuthWizard({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // 🔒 The CAPTCHA guards `register/start` (docs/08 §8.4), which is the endpoint both the first step
+  // and the resend on the second one call — so the widget belongs to whichever of those two steps
+  // is on screen. Each mount mints its own token, which is what a single-use token needs: a resend
+  // is a second call and cannot ride on the one the first call spent.
+  const captchaRequired = isTurnstileConfigured();
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaAttempt, setCaptchaAttempt] = useState(0);
+  const captcha = <TurnstileWidget onToken={setCaptchaToken} resetKey={captchaAttempt} />;
 
   const tokenPayload = useMemo(() => {
     if (token === undefined) return {};
@@ -66,7 +75,11 @@ export function AuthWizard({
           setError(t('auth.wizard.email.invalid'));
           return false;
         }
-        const started = await sessionApi.registerStart({ email: parsed.data, ...tokenPayload });
+        const started = await sessionApi.registerStart({
+          email: parsed.data,
+          ...tokenPayload,
+          ...(captchaToken === null ? {} : { captchaToken }),
+        });
         setEmail(parsed.data);
         setExpiresAt(started.expiresAt);
         setNotice(t('auth.wizard.code.sent', { email: parsed.data }));
@@ -75,10 +88,13 @@ export function AuthWizard({
         setError(describeError(caught));
         return false;
       } finally {
+        // Spent either way — a token is good for one call to `register/start`, answered or refused.
+        setCaptchaToken(null);
+        setCaptchaAttempt((attempt) => attempt + 1);
         setBusy(false);
       }
     },
-    [describeError, t, tokenPayload],
+    [captchaToken, describeError, t, tokenPayload],
   );
 
   const submitEmail = useCallback(
@@ -155,6 +171,8 @@ export function AuthWizard({
           initialEmail={email}
           {...(emailHint === undefined ? {} : { hint: emailHint })}
           busy={busy}
+          captcha={captcha}
+          blocked={captchaRequired && captchaToken === null}
           onSubmit={submitEmail}
         />
       )}
@@ -164,6 +182,8 @@ export function AuthWizard({
           notice={notice}
           expiresAt={expiresAt}
           busy={busy}
+          captcha={captcha}
+          blocked={captchaRequired && captchaToken === null}
           onSubmit={submitCode}
           onResend={() => void sendCode(email)}
         />
@@ -178,11 +198,16 @@ function EmailStep({
   initialEmail,
   hint,
   busy,
+  captcha,
+  blocked,
   onSubmit,
 }: {
   initialEmail: string;
   hint?: string;
   busy: boolean;
+  captcha: ReactNode;
+  // A configured CAPTCHA with no token yet: the step cannot be sent, and says so by being off.
+  blocked: boolean;
   onSubmit: (values: { email: string }) => Promise<void>;
 }) {
   const t = useTranslations();
@@ -200,9 +225,8 @@ function EmailStep({
       >
         <Input type="email" autoComplete="email" aria-label={t('auth.fields.email')} />
       </Form.Item>
-      {/* Turnstile mounts here when NEXT_PUBLIC_TURNSTILE_SITE_KEY is configured (docs/08 §8.4). */}
-      <div data-testid="captcha-slot" />
-      <Button type="primary" htmlType="submit" loading={busy} block>
+      {captcha}
+      <Button type="primary" htmlType="submit" loading={busy} disabled={blocked} block>
         {t('auth.wizard.actions.sendCode')}
       </Button>
     </Form>
@@ -213,12 +237,18 @@ function CodeStep({
   notice,
   expiresAt,
   busy,
+  captcha,
+  blocked,
   onSubmit,
   onResend,
 }: {
   notice: string | null;
   expiresAt: string | null;
   busy: boolean;
+  // The widget stands with the resend, not with the code: verifying a code needs no challenge, and
+  // asking for another letter is another call to the endpoint that does (docs/08 §8.4).
+  captcha: ReactNode;
+  blocked: boolean;
   onSubmit: (code: string) => Promise<void>;
   onResend: () => void;
 }) {
@@ -248,11 +278,13 @@ function CodeStep({
         }}
       />
 
+      <div style={{ marginTop: 12 }}>{captcha}</div>
+
       <Button
         type="link"
-        disabled={cooldown > 0 || busy}
+        disabled={cooldown > 0 || busy || blocked}
         onClick={onResend}
-        style={{ paddingLeft: 0, marginTop: 12 }}
+        style={{ paddingLeft: 0 }}
       >
         {cooldown > 0
           ? t('auth.wizard.actions.resendIn', { seconds: cooldown })

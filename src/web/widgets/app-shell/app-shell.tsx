@@ -26,7 +26,7 @@ import type { UserDto } from '../../../shared/contracts/auth';
 import { libraryApi, libraryKeys } from '../../entities/library';
 import { sessionApi } from '../../entities/session';
 import { useSearchOverlay, useShortcutHint } from '../search-overlay';
-import { useErrorMessage } from '../../shared/lib';
+import { endSession, useErrorMessage } from '../../shared/lib';
 
 // The authenticated shell (docs/11 §11.1): a collapsible sider with the product's sections, and the
 // content. 🔒 Nothing across the top of it — the screen title repeated the menu item beside it, the
@@ -62,9 +62,9 @@ export function AppShell({
     mutationFn: sessionApi.logout,
     onSuccess: () => {
       // 🔒 Everything cached belongs to the session that just ended; the next person to use this
-      // browser must not see it flash by before their own data loads.
-      queryClient.clear();
-      router.replace('/login');
+      // browser must not see it flash by before their own data loads. Shared with the sessions
+      // card, which ends the same session by another route (docs/10 §10.5, SEC-68).
+      endSession(queryClient, router);
     },
     onError: (error: unknown) => {
       void message.error(describeError(error));

@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import type { SessionDto } from '../../../shared/contracts/users';
 import { sessionApi, sessionKeys } from '../../entities/session';
-import { useErrorMessage } from '../../shared/lib';
+import { endSession, useErrorMessage } from '../../shared/lib';
 
 // The sessions card on /settings (docs/11 §11.9, docs/08 §8.2). The same power an admin already has
 // over somebody's sessions, in the hands of the person those sessions belong to: a credential you
@@ -25,8 +25,10 @@ export function SessionsCard() {
     onSuccess: (_result, session) => {
       // Ending this browser's own session leaves it holding nothing; the server already cleared the
       // cookie, so a refresh lands on the login screen rather than on a page that 401s piecemeal.
+      // 🔒 The cache goes with it, on the same terms as Sign out — one helper, so the two exits
+      // cannot drift apart again (docs/10 §10.5, SEC-68).
       if (session.current) {
-        router.replace('/login');
+        endSession(queryClient, router);
         return;
       }
       void message.success(t('settings.sessions.revoked'), 2);

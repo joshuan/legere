@@ -66,8 +66,8 @@ AUTH_SECRET=dev-secret-change-me-min-32-chars!!   # ≥32 chars; HMAC for email 
 SESSION_TTL_DAYS=30
 API_TOKEN_TTL_DAYS=90                        # default lifetime of a read-only API token (08 §8.2a); the owner may choose 1…365
 COOKIE_DOMAIN=                               # empty in dev; set consciously in prod
-TURNSTILE_SECRET_KEY=                        # empty = CAPTCHA disabled
-NEXT_PUBLIC_TURNSTILE_SITE_KEY=              # build-time (baked into the client bundle)
+TURNSTILE_SECRET_KEY=                        # empty = CAPTCHA disabled; set it only on a build that has the site key below, or nothing can pass it (08 §8.4)
+NEXT_PUBLIC_TURNSTILE_SITE_KEY=              # build-time (baked into the client bundle); the widget is rendered when it is set
 
 # --- email (empty SMTP_HOST = LogEmailSender: the letter is dropped, never printed) ---
 SMTP_HOST=                                   # a local catcher makes registration work on a laptop (§12.5)
@@ -569,18 +569,39 @@ carry them ([`06 §6.9`](./06-backend-architecture.md)):
 |---|---|---|
 | `X-Content-Type-Options` | `nosniff` | The archive serves user content; nothing in it may be sniffed into something executable |
 | `X-Frame-Options` | `DENY` | Clickjacking, for anything predating `frame-ancestors` |
-| `Content-Security-Policy` | `frame-ancestors 'none'` on pages; `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` on `/api` | Nothing under `/api` has a reason to load anything at all |
+| `Content-Security-Policy` | on pages: `frame-ancestors 'none'; base-uri 'none'; form-action 'self'; img-src 'self' data: <bucket>; object-src 'self' <bucket>`; on `/api`: `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` | Nothing under `/api` has a reason to load anything at all; the page directives are below |
 | `Referrer-Policy` | `no-referrer` | 🔒 Invite and reset links carry a single-use credential in their path ([`08 §8.1.2`](./08-auth-and-authorization.md#812-admin-invite)); the browser default would hand it to the first third-party asset a page loads |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | None of them is used |
 | `Strict-Transport-Security` | one year, `includeSubDomains` — **only when `APP_BASE_URL` is `https://`** | An instance on `http://<lan-ip>` is supported ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions)); telling that browser to upgrade would lock its operator out |
 
 Neither Express nor Next advertises what it is built on.
 
-**What is deliberately absent: a `script-src` for pages.** Ant Design's CSS-in-JS and Next's inline
-bootstrap need either `'unsafe-inline'`, which would buy nothing while looking like it bought
-something, or a per-request nonce threaded through the Ant Design registry and Next's script tags.
-The second is the one worth having — it is what would blunt a stored XSS — and it is a task of its
-own, tracked in the backlog rather than left as a comment.
+**Where `<bucket>` comes from.** The origin a browser is actually sent to for a presigned URL —
+`S3_PUBLIC_ENDPOINT` when one is set, `S3_ENDPOINT` otherwise ([`09 §9.2`](./09-file-storage.md)) —
+computed at boot from the same configuration `12.4a` already refuses to start on when it equals
+`APP_BASE_URL`. It has to be named: the viewer's preview `<img>` and its canonical `<object>` point
+at `/api/documents/:id/…`, which answers `302` to that origin, and a CSP is re-checked against the
+host a redirect lands on.
+
+🔒 **What `img-src` is for.** A document's Markdown is what the parser read off the pages, and a page
+can say `![](https://beacon.example/p.png?d=payroll)`. Rendered, that is a read receipt on a private
+archive: the uploader learns which of their documents were opened, when and from which address, out
+of a deployment that is often meant to have no way out to the internet at all
+([SEC-66](./tasks/security-audit-2026-08-second-pass.md#sec-66)). `img-src` is the directive that
+closes it without a renderer having to be trusted, and it needs no script to be worth having —
+which is why it does not wait for the nonce below. `data:` rides along for what the UI toolkit
+inlines; `object-src` keeps the viewer's PDF embed working while refusing every other origin a
+plugin could be pointed at.
+
+**What is deliberately absent: a `script-src` for pages, and a `connect-src` with it.** Ant Design's
+CSS-in-JS and Next's inline bootstrap need either `'unsafe-inline'`, which would buy nothing while
+looking like it bought something, or a per-request nonce threaded through the Ant Design registry and
+Next's script tags. The second is the one worth having — it is what would blunt a stored XSS — and it
+is a task of its own, **`M47.19` in [the backlog](./tasks/backlog.md)**. `connect-src` belongs to that
+same task rather than to this one: it constrains only code that is already running, so it is worth
+nothing until `script-src` exists, and it is the directive the login page's CAPTCHA widget
+([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)) has to be designed
+against, which is a decision for whoever writes the policy that has a `script-src` in it.
 
 ## 12.8b. Observing a live instance from the dev machine
 

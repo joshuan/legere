@@ -248,7 +248,7 @@
         "ANALYSIS_SKIPPED_NO_MODEL": "No model to ask: the analysis step is skipped.",
         "COOKIE_NOT_SHARED_WITH_SUBDOMAINS": "The session cookie is bound to the host that issued it and is not shared with subdomains.",
         "CAPTCHA_DISABLED": "CAPTCHA is disabled: login and registration accept requests without a challenge.",
-        "CAPTCHA_WIDGET_ABSENT": "No CAPTCHA widget is rendered. This value is baked into the client bundle at build time, so setting it at runtime has no effect.",
+        "CAPTCHA_WIDGET_ABSENT": "This value is baked into the client bundle at build time, so setting it at runtime has no effect and this row cannot see what the build used. If the bundle was built without it, no widget is rendered and nothing mints a token — and with TURNSTILE_SECRET_KEY set, every login and every registration is then refused.",
         "EMAIL_UNDELIVERABLE": "No mail server is configured: letters are not sent, and the code inside one is written nowhere at all — nobody can sign up, verify an address or finish a password reset."
       },
       "keys": {
