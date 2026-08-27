@@ -75,9 +75,13 @@ services:
       # verifies and recovers every account arrives by email and is written nowhere else — least of
       # all to this container's log, which is where it used to go. Set ALLOW_UNCONFIGURED_EMAIL to
       # run with no mail server anyway, knowing nobody can sign up (docs/12 §12.4a).
+      # 🔒 SEC-62. 465 and `secure`, not 587 and STARTTLS: on 465 the session is TLS from the first
+      # byte, and a relay that will not speak it fails loudly. STARTTLS is an upgrade the *server*
+      # offers, and an attacker on the path who removes that one line from the greeting gets the
+      # relay password and every code in the clear, with nothing failing anywhere (docs/12 §12.8).
       SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-Legere <no-reply@example.com>}
@@ -153,6 +157,30 @@ services:
     environment:
       SECURITY_ENABLELOGIN: 'false'
       SYSTEM_ENABLEANALYTICS: 'false'
+    # 🔒 SEC-78. The same block the app carries, on the container that actually opens the bytes: it
+    # runs tesseract, Ghostscript, LibreOffice and PDFBox over whatever a scan found. uid 1001 is
+    # the account the image now starts as (`deploy/stirling/Dockerfile`) and the one that owns every
+    # directory Stirling writes; the rest is what the app has had since SEC-09.
+    user: '1001:1001'
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    # The five paths Stirling insists on writing, and every one of them is scratch: its generated
+    # settings and heap-dump directory, its own log file, the two folders of the pipeline feature
+    # Legere does not use, and the LibreOffice profile unoserver builds on the first conversion.
+    # Nothing here is worth keeping between restarts, so nothing here is on a disk.
+    tmpfs:
+      - /configs:uid=1001,gid=1001,size=32m
+      - /logs:uid=1001,gid=1001,size=64m
+      - /customFiles:uid=1001,gid=1001,size=8m
+      - /pipeline:uid=1001,gid=1001,size=8m
+      - /home/stirlingpdfuser:uid=1001,gid=1001,size=64m
+    # …but the temporary files are not scratch of that size: one conversion writes the whole upload
+    # and its intermediates here, hundreds of megabytes for a large scan. A `tmpfs` would spend the
+    # memory limit below on them, so this one is a disk volume — writable, and still not the image.
+    volumes:
+      - stirling-tmp:/tmp
+    mem_limit: ${STIRLING_MEMORY_LIMIT:-2g}
 
   # Layout-aware parsing: headings, lists and real tables instead of a wall of text, and OCR that
   # actually reads Cyrillic (docs/05 §5.5). This is the heaviest image in the stack — a few
@@ -167,6 +195,23 @@ services:
       # Captioning a page takes minutes; the default 120 s would 504 a request that is working
       # fine. The client has its own budget (docs/12 §12.4).
       DOCLING_SERVE_MAX_SYNC_WAIT: '3600'
+    # 🔒 SEC-78, and the same block again: this is the other container that opens the bytes, and the
+    # heavier of the two. uid 1001 with group 0 is what the image already drops to — its files are
+    # owned `1001:0` — declared here so it stays true if the base image forgets. The memory limit is
+    # the one that matters most in this file: a layout parse holds its answer in memory while it
+    # builds it, and on 2026-08-18 one long PDF took the host down with the reverse proxy and sshd
+    # on it. A window of a dozen pages (docs/05 §5.5) is what bounds the parse; this is what bounds
+    # the container, so an expensive document dies alone.
+    user: '1001:0'
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    # Docling writes nothing outside /tmp: the models are baked in and read from a read-only cache.
+    # A disk volume rather than a `tmpfs` for the same reason as Stirling's — the intermediates of
+    # one window are large, and they must not come out of the limit below.
+    volumes:
+      - docling-tmp:/tmp
+    mem_limit: ${DOCLING_MEMORY_LIMIT:-4g}
 
   minio:
     image: minio/minio
@@ -252,3 +297,8 @@ services:
 volumes:
   db-data:
   minio-data:
+  # The scratch space of the two parsers (`stirling`, `docling` above). Both root filesystems are
+  # read-only, and a document's intermediates are too large to keep in memory; these hold them, and
+  # nothing in them outlives a conversion. `docker compose down -v` is how they go away.
+  stirling-tmp:
+  docling-tmp:

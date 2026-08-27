@@ -465,6 +465,54 @@ first render. A hole in a native image or PDF library then costs a container rat
 `document-process` jobs start dying with exit code 137, `APP_MEMORY_LIMIT` is the knob: OCR and the
 conversion of a large scan are what need the room.
 
+🔒 **So are the two containers that do the opening** ([`SEC-78`](./tasks/security-audit-2026-08-second-pass.md#sec-78)).
+The app hands the bytes on: tesseract, Ghostscript, LibreOffice, PDFBox and torch run in `stirling`
+and `docling`, which is where a malformed document meets native code, and until M47.11 those two
+declared nothing but an image, a restart policy and an environment. They now carry the same block — a non-root user,
+`cap_drop: [ALL]`, `no-new-privileges`, a read-only root filesystem, and `STIRLING_MEMORY_LIMIT` /
+`DOCLING_MEMORY_LIMIT` beside `APP_MEMORY_LIMIT` in `.env`. The memory limit is the one that answers
+a recorded failure rather than a hypothetical one: on 2026-08-18 a single long PDF grew until the
+kernel started killing things on the host, and took the reverse proxy and sshd with it. The page
+window of [`05 §5.5`](./05-library-and-processing.md) bounds what one parse asks for; this bounds
+what the container may take, so an expensive document dies alone. Docling's 4 GB is the number to
+lower first on a small box, and lowering it turns a dead host into failed documents.
+
+Both take the whole set — but not as the app takes it, and each departure is written beside the
+setting it belongs to:
+
+- **Neither `/tmp` is memory.** Both write the whole upload and its intermediates there — hundreds of
+  megabytes for one large scan — so a `tmpfs` would spend the memory limit above on scratch files
+  and turn a big document into an OOM kill. Each gets a Docker volume instead (`stirling-tmp`,
+  `docling-tmp`): writable, on disk, and still not the image. `docker compose down -v` empties them;
+  nothing in them outlives a conversion.
+- **Stirling insists on five more writable paths**, and they are `tmpfs` because none of them is
+  worth keeping: `/configs` (its generated settings and heap-dump directory), `/logs`, `/pipeline`
+  and `/customFiles` (a feature Legere does not use), and `/home/stirlingpdfuser`, where unoserver
+  builds a LibreOffice profile on the first conversion. Docling needs none of this: its models are
+  baked in and read from a read-only cache.
+- **Stirling's image had to change to allow any of it** (`deploy/stirling/Dockerfile`). Upstream
+  starts as root and its entrypoint links a diagnostics helper into `/usr/local/bin` before doing
+  anything else — a write no non-root process may make and no read-only filesystem allows, and
+  `set -e` turns the refusal into a container that exits 1 without saying why. Taking the executable
+  bit off that helper is what the entrypoint tests for, so the block is skipped; the script is still
+  there for `docker exec … bash /scripts/stirling-diagnostics.sh`. The image then declares
+  `USER stirlingpdfuser` (1001), the account upstream drops to when it is started as root and the
+  one that already owns everything Stirling writes — so `npm run dev:up` runs it unprivileged too,
+  not only the deployment.
+
+All of it was measured on the images this repository publishes, not reasoned about: both containers
+start under the full set, Stirling answers `/api/v1/info/status`, OCRs a PDF in Russian and converts
+a document through LibreOffice, and Docling parses a twelve-page window with forced tesseract OCR.
+
+🔒 **The two parser images are pinned by digest and built by CI** ([`SEC-79`](./tasks/security-audit-2026-08-second-pass.md#sec-79),
+[`13 §13.3`](./13-ci-cd.md)). `deploy/stirling` and `deploy/docling` name their bases as
+`tag@sha256:…` rather than `:latest`, and their tesseract language data by commit rather than by
+`main`: what the two containers that chew on hostile documents are made of no longer depends on what
+an upstream published this morning. Moving a pin forward is a one-line edit that Dependabot writes
+itself (it watches both directories, [`13 §13.1`](./13-ci-cd.md)), and by hand it is
+`docker buildx imagetools inspect <image>:latest --format '{{.Manifest.Digest}}'` — the command is in
+the comment above each `FROM`.
+
 🔒 **The app is not given the object store's root credentials.** `minio-init` creates a scoped
 service account whose policy reaches the `legere` bucket and nothing else — no other bucket, no user
 administration, no console — and the app is given that. `MINIO_ROOT_PASSWORD` stays for
@@ -480,9 +528,12 @@ that state, which as a first experience is a container restarting in a loop. Ans
 questions is therefore part of the install; leaving the host blank ends the script with the two
 steps that finish it (`SMTP_HOST` in `.env`, then `docker compose up -d`) and the opt-in for running
 without mail on purpose. The port answers for `SMTP_SECURE` — 465 is implicit TLS, 587 is STARTTLS,
-and mismatching that pair is the commonest mail failure there is. What is typed goes into `.env` by
-string replacement rather than through `sed`, because `&`, `|` and a backslash are all legal in a
-mail password and all mean something in a `sed` replacement.
+and mismatching that pair is the commonest mail failure there is. 🔒 **465 is the default it offers**
+([`SEC-62`](./tasks/security-audit-2026-08-second-pass.md#sec-62)), and an operator who types
+anything else gets a paragraph rather than silence, because the difference is not a preference:
+§12.8 has it. What is typed goes into `.env` by string replacement rather than through `sed`,
+because `&`, `|` and a backslash are all legal in a mail password and all mean something in a `sed`
+replacement.
 
 Two settings decide whether a fresh install works, and both are the first thing `.env.example`
 explains:
@@ -516,6 +567,19 @@ development stack of §12.5, which takes the same name from its directory — us
   must be authorized (SPF/DKIM) or providers will 5xx/spam-folder you. A letter that could not be
   sent is a log line naming the recipient and the subject and never the body, so "did it try?" is
   answerable from the log and "what was the code?" is not.
+- 🔒 **Mail on 465, not on 587** ([`SEC-62`](./tasks/security-audit-2026-08-second-pass.md#sec-62)).
+  What travels in these letters is the six-digit code that creates, verifies and recovers every
+  account, and the relay password that carries it. On **465** the session is TLS from the first byte:
+  a relay that will not speak it fails, loudly, and nothing about the connection is negotiable by
+  whoever sits between. On **587** the session opens in the clear and is upgraded only if the server
+  advertises `STARTTLS` — one line of a greeting, which an attacker on the path (a hostile LAN, a
+  resolver they control, a compromised upstream) can simply delete. Nodemailer then does not upgrade
+  and does not complain: the relay credential and every code go out in plaintext and every letter
+  arrives, so nothing looks wrong from either end. The shipped `.env.example`, the compose defaults
+  and `init.sh` therefore all say 465 with `SMTP_SECURE=true`, and 587 is a deliberate edit that
+  says the network between this host and the relay is trusted. **The floor is the deployment's, not
+  yet the client's:** on 587 Legere still sends whatever the server offers, because the transport
+  does not pass `requireTLS`. That half is application code and a task of its own (M47.11a).
 - **Behind a proxy:** set `TRUST_PROXY` — `1` for a single ingress, a larger number for a chain, or
   a value Express understands (`loopback`, a CIDR list). It is **empty by default**, and that is
   deliberate: with it on, `req.ip` comes from `X-Forwarded-For`, which the client writes. Publish the

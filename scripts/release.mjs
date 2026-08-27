@@ -16,9 +16,11 @@ const BUMPS = ['patch', 'minor', 'major'];
 const POLL_INTERVAL_MS = 15_000;
 const APPEARANCE_LIMIT_MS = 2 * 60_000;
 const COMPLETION_LIMIT_MS = 30 * 60_000;
-// The release build is the long one: two native runners, and on a busy day a queue in front of
-// them. It is also the one worth waiting through, because its end is the point of the command.
-const PUBLISH_LIMIT_MS = 45 * 60_000;
+// The release build is the long one: six native runners since the two parser images joined it
+// (docs/13 §13.3), the heaviest of them pushing several gigabytes, and on a busy day a queue in
+// front of them. It is also the one worth waiting through, because its end is the point of the
+// command.
+const PUBLISH_LIMIT_MS = 60 * 60_000;
 // Once the run is green the tags are there; this only covers a registry catching its breath.
 const REGISTRY_LIMIT_MS = 2 * 60_000;
 

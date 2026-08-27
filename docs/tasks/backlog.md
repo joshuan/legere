@@ -1274,10 +1274,15 @@ probes survived refutation, which is a better yield than the reviews themselves 
   **Docs:** [`08 §8.2a`](../08-auth-and-authorization.md#82a-api-tokens-read-only), [`08 §8.1.6`](../08-auth-and-authorization.md#816-password-reset-admin-initiated)
   **Acceptance:** closes [SEC-65](./security-audit-2026-08-second-pass.md#sec-65). An admin-issued password reset revokes the account's API tokens along with its sessions, or the admin screen says plainly that it does not and offers the second button. Tests: a token minted before a reset does not answer after it.
 
-- [ ] **M47.11 — The deployment hardens what parses**
+- [x] **M47.11 — The deployment hardens what parses**
   **Goal:** the containers that open attacker-supplied bytes are not the unhardened ones.
   **Docs:** [`12 §12.7`](../12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository), [`13`](../13-ci-cd.md)
-  **Acceptance:** closes [SEC-62](./security-audit-2026-08-second-pass.md#sec-62), [SEC-78](./security-audit-2026-08-second-pass.md#sec-78), [SEC-79](./security-audit-2026-08-second-pass.md#sec-79). Stirling and Docling get the hardening the app container already has (non-root, `no-new-privileges`, dropped capabilities, a read-only rootfs where the image allows); SMTP requires TLS rather than accepting a stripped STARTTLS; and the two unpinned, unscanned images are pinned by digest and scanned by the same job that scans the rest.
+  **Acceptance:** closes [SEC-62](./security-audit-2026-08-second-pass.md#sec-62), [SEC-78](./security-audit-2026-08-second-pass.md#sec-78), [SEC-79](./security-audit-2026-08-second-pass.md#sec-79). Stirling and Docling get the hardening the app container already has (non-root, `no-new-privileges`, dropped capabilities, a read-only rootfs where the image allows); SMTP requires TLS rather than accepting a stripped STARTTLS; and the two unpinned, unscanned images are pinned by digest and scanned by the same job that scans the rest. **SEC-62 is closed from the deployment only** — 465 with implicit TLS in the compose defaults, `.env.example` and `init.sh`, which is as far as a compose file reaches; the transport-level floor is application code and is M47.11a.
+
+- [ ] **M47.11a — Mail is encrypted, or it is not sent**
+  **Goal:** a relay that will not encrypt gets an error, not the six-digit code.
+  **Docs:** [`12 §12.4`](../12-build-config-run.md#124-envexample), [`12 §12.4a`](../12-build-config-run.md#124a-what-production-refuses-to-start-with), [`12 §12.8`](../12-build-config-run.md#128-production-notes)
+  **Acceptance:** the residue of [SEC-62](./security-audit-2026-08-second-pass.md#sec-62) that M47.11 could not reach from `deploy/`. `SmtpEmailSender` passes `requireTLS: true` whenever `SMTP_SECURE` is false, so a server whose EHLO is missing the `STARTTLS` line — one line, deleted by anyone on the path — fails the send instead of opening a plaintext session that carries the relay password and every verification code and looks like success from both ends. An explicit opt-out (`SMTP_ALLOW_PLAINTEXT`, refused in production like the rest of §12.4a) keeps the relay-on-the-same-host case, and the failure says TLS rather than "mail is broken". Tests: a transport built with `SMTP_SECURE=false` requires the upgrade; the opt-out is refused in production.
 
 - [x] **M47.12 — The MCP surface says what it is**
   **Goal:** the agent-facing API is as exact about its own rules as the register is.

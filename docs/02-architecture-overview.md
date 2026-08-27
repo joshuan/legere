@@ -483,6 +483,13 @@ until the new ones land.
 - **Why:** operations are separated from the repository; secrets live only in GitHub Secrets.
 - **Consequences:** migrations are applied automatically on container start; S3 and external services
   are mocked in CI tests behind ports (`FileStorage`/`PdfToolbox`/`EmailSender`).
+- **Since M47.11:** one *application* image, and two more beside it. `deploy/stirling` and
+  `deploy/docling` are built in this repository and run in the shipped stack, so on a `v*` tag the
+  same pipeline publishes and scans them as `ghcr.io/<owner>/legere-stirling` and `…-docling`
+  ([`13 §13.3`](./13-ci-cd.md)). Nothing about the decision changes: it is still a build, still no
+  deploy job, and still the only credential in play is `GITHUB_TOKEN`. What changed is that the
+  images built by hand outside it were the two that open hostile documents
+  ([`SEC-79`](./tasks/security-audit-2026-08-second-pass.md#sec-79)).
 
 ### ADR-014. Pull-request-based development
 - **Decision:** direct pushes to `main` are forbidden (branch protection); every change goes branch

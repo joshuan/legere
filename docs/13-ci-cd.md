@@ -1,7 +1,9 @@
 # 13. CI/CD (GitHub Actions)
 
-CI validates every PR and builds **one** application image published to **GHCR**. Deployment is not
-described in the repository (example only — [`12 §12.7`](./12-build-config-run.md#127-deployment-example-illustration--keep-outside-the-repository)).
+CI validates every PR and builds the **three** images the shipped stack runs, published to **GHCR**:
+the application, and the two parsers of [`12 §12.7`](./12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)
+(`legere-stirling`, `legere-docling`). Deployment itself is not described here — the compose file
+that runs them is.
 
 ## 13.1. Principles
 
@@ -13,7 +15,8 @@ described in the repository (example only — [`12 §12.7`](./12-build-config-ru
   `CaptchaVerifier`, `EmbeddingProvider`, `DocumentAnalyst` are mocked behind their ports
   ([`14 §14.8`](./14-coding-standards.md#148-testing)). Dummy env values exist only to satisfy config
   validation.
-- On `main`/tags: build and push a single Docker image. **No deploy job.**
+- On `main`/tags: build and push the application image. On a `v*` tag, the two parser images beside
+  it — they are what `LEGERE_VERSION` names, and a branch is not a version. **No deploy job.**
 
 ### The pipeline is itself an attack surface
 
@@ -30,9 +33,13 @@ repository keeps all four (SEC-21):
 - **A dependency audit that can fail the build.** `npm audit --omit=dev --audit-level=high` runs in
   `build-and-test` *before* `npm ci`, so an advisory is reported before the packages it concerns get
   to run their install scripts. `npm audit` reads the lockfile and needs no `node_modules`.
-- **An image scan on release.** The audit sees the lockfile and nothing below it; the base image is
-  where the native libraries live — including libvips, whose four CVEs (SEC-07) are the reason this
-  section exists.
+- **An image scan on release, over every image this repository publishes.** The audit sees the
+  lockfile and nothing below it; the base image is where the native libraries live — including
+  libvips, whose four CVEs (SEC-07) are the reason this section exists. For a long time the rule
+  reached one image of the three, and the two it missed are the ones whose base image *is* the
+  native OCR/PDF stack ([`SEC-79`](./tasks/security-audit-2026-08-second-pass.md#sec-79)); they are
+  built, tagged and scanned here now, and their bases are pinned by digest so that a fixed CVE in
+  one of them is an edit somebody can make.
 
 The threshold is deliberate. `--omit=dev` is what ships in the image and `high` is the severity that
 warrants stopping a merge; a moderate advisory in a linter is a Dependabot pull request, not a red
@@ -53,8 +60,11 @@ the code, and only a suppression list would let the finding survive as an entry 
 keeps the SHA pins above from freezing), and `docker` for the three base images (`/`,
 `/deploy/docling`, `/deploy/stirling`). Minor and patch updates are grouped into one pull request per
 ecosystem; majors come one at a time, because those are the ones that need a person to read a
-migration guide. This is the half of the answer the audit does not give: `npm audit` says something
-is wrong, Dependabot arrives with the fix already written and CI green or not on it.
+migration guide. The two parser bases are written `tag@sha256:…`, which is the form that makes this
+work in both directions: the digest is what the build resolves, and the tag beside it is what
+Dependabot reads to know a newer one exists — it rewrites the pair, the way it rewrites an action's
+SHA and its version comment. This is the half of the answer the audit does not give: `npm audit`
+says something is wrong, Dependabot arrives with the fix already written and CI green or not on it.
 
 ## 13.2. `.github/workflows/ci.yml`
 
@@ -134,17 +144,41 @@ emulated arm64 makes `prisma generate` fall back to its wasm engine, which rejec
 `env("DATABASE_URL")` in the schema (P1012). Native runners also build in roughly a third of the
 time.
 
+🔒 **`build-parsers` and `merge-parsers` do the same for the other two images** — `deploy/stirling`
+and `deploy/docling`, published as `ghcr.io/<owner>/legere-stirling` and `…-docling` under the tag
+the app takes, so `LEGERE_VERSION` names one version of the whole stack
+([`SEC-79`](./tasks/security-audit-2026-08-second-pass.md#sec-79)). Three things about them differ
+from the app's pair, and each is deliberate:
+
+- **On a `v*` tag only.** `deploy/docker-compose.yaml` pulls `${LEGERE_VERSION:-latest}`, which is
+  never a branch name, so a `main` push has nobody to publish for — and these images are gigabytes
+  each. What they are made of does not move between releases anyway: both bases are pinned by digest.
+- **No `type=gha` build cache.** Their whole content is one enormous pinned base layer, which the
+  registry caches already and which would evict everything the app's build keeps in the 10 GB the
+  Actions cache gives a repository.
+- **Digest artifacts are named per image** (`digest-legere-…`, `digest-stirling-…`,
+  `digest-docling-…`). All four builds export into the same run, and a `merge` job collecting
+  `digest-*` would happily stitch one image's manifest list out of another image's platforms.
+
+`publish` waits for both merges: a release page that exists is a promise that every image that
+version names can be pulled. `scan` runs over all three, and on a `main` push the two parser entries
+have nothing to read back and do nothing.
+
 On a `v*` tag a `publish` job follows `merge` and creates the **GitHub Release** from the tag —
 nobody writes or clicks anything. The notes are the commit subjects since the previous tag plus the
 compare link, assembled in the job itself: GitHub's own `--generate-notes` reads pull requests, and
 a repository in its direct-commit mode has none to read, so it would produce a bare compare link.
 Commit subjects are Conventional Commits either way — under squash-merge they *are* the PR titles —
-so the same notes read correctly in both modes. The job waits for `merge` on purpose: a release page
-that exists is a promise that `ghcr.io/<owner>/legere:vX.Y.Z` can be pulled.
+so the same notes read correctly in both modes. The job waits for both merges on purpose: a release
+page that exists is a promise that `ghcr.io/<owner>/legere:vX.Y.Z` — and the two parser images that
+version names — can be pulled.
 
-A further job, `scan`, reads the published tag back and fails on a fixed HIGH or CRITICAL finding.
-It runs *after* publication rather than over a locally built image so that what is reported is the
-artifact deployments pull; it gets neither `packages: write` nor `contents: write`.
+A further job, `scan`, reads the published tags back and fails on a fixed HIGH or CRITICAL finding
+in any of the three images. It runs *after* publication rather than over a locally built image so
+that what is reported is the artifact deployments pull; it gets neither `packages: write` nor
+`contents: write`. A red `scan` is therefore a report, not a rollback: the images are out, and
+`npm run release` (§13.3a) says so in as many words, because a failed `scan` and a failed `build`
+mean opposite things about what is in the registry.
 
 ```yaml
 name: Release
@@ -154,7 +188,7 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: read      # `packages: write` is granted per job, to the two that publish
+  contents: read      # `packages: write` is granted per job, to the four that publish
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
@@ -188,7 +222,30 @@ jobs:
             NEXT_PUBLIC_TURNSTILE_SITE_KEY=${{ secrets.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
-      # …digest exported as an artifact…
+      # …digest exported as the artifact `digest-legere-<job-index>`…
+
+  # The parsers of 12 §12.7, on a tag only, and without the Actions cache.
+  build-parsers:
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        parser: [stirling, docling]
+        platform: [linux/amd64, linux/arm64]
+        include:
+          - { platform: linux/amd64, runner: ubuntu-latest }
+          - { platform: linux/arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    permissions: { contents: read, packages: write }
+    steps:
+      # …checkout, buildx, ghcr login…
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: deploy/${{ matrix.parser }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }}-${{ matrix.parser }},push-by-digest=true,name-canonical=true,push=true
+      # …digest exported as the artifact `digest-<parser>-<job-index>`…
 
   merge:
     needs: build
@@ -203,9 +260,20 @@ jobs:
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf "${IMAGE}@sha256:%s " *)
 
+  # The same stitch, once per parser image, over that image's own digest artifacts.
+  merge-parsers:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-parsers
+    strategy:
+      fail-fast: false
+      matrix:
+        parser: [stirling, docling]
+    runs-on: ubuntu-latest
+    permissions: { contents: read, packages: write }
+
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: merge
+    needs: [merge, merge-parsers]
     runs-on: ubuntu-latest
     permissions: { contents: write }
     steps:
@@ -217,22 +285,32 @@ jobs:
               --title "$GITHUB_REF_NAME" --notes-file /tmp/notes.md --verify-tag
 
   scan:
-    needs: merge
+    name: scan legere${{ matrix.suffix }}
+    needs: [merge, merge-parsers]
+    # `merge-parsers` is skipped on a branch push, and a skipped dependency would skip this too.
+    if: ${{ !cancelled() && needs.merge.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        suffix: ['', '-stirling', '-docling']
     runs-on: ubuntu-latest
     permissions: { contents: read, packages: read }
     steps:
       # …ghcr login…
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        # The parser images exist at a version tag only.
+        if: ${{ matrix.suffix == '' || startsWith(github.ref, 'refs/tags/v') }}
         with:
-          image-ref: ${{ env.IMAGE }}:${{ needs.merge.outputs.version }}
+          image-ref: ${{ env.IMAGE }}${{ matrix.suffix }}:${{ needs.merge.outputs.version }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
 ```
 
-- Image: `ghcr.io/<owner>/legere`, tags `main`, `sha-…`, `X.Y.Z` (the semver of the tag, without its
+- Images: `ghcr.io/<owner>/legere`, tags `main`, `sha-…`, `X.Y.Z` (the semver of the tag, without its
   `v` — that is what `type=semver,pattern={{version}}` writes) and `latest`, the last two published
-  by the tag's run only: a push to `main` tags the branch and leaves `latest` where it was.
+  by the tag's run only: a push to `main` tags the branch and leaves `latest` where it was. And
+  `…/legere-stirling`, `…/legere-docling`, which take `X.Y.Z` and `latest` and nothing else.
 - `NEXT_PUBLIC_TURNSTILE_SITE_KEY` is a **build-arg** (baked into the client bundle at `next build`);
   empty secret → CAPTCHA widget absent, server verification no-op — a working degradation.
 
@@ -269,8 +347,10 @@ What the command does, in order (`scripts/release.mjs`):
    command watches that run rather than sending the person to `gh run list`: the one push carries
    the version commit **and** the tag, so GitHub starts two runs on the same SHA, and only the tag's
    moves `latest` — it is the one whose `head_branch` is `vX.Y.Z`, and the one followed here. Same
-   rewriting line, now counting jobs (`3/5 jobs`), up to 2 minutes for the run to appear and 45 for
-   it to finish: two native builds and, on a busy day, a queue in front of them.
+   rewriting line, now counting jobs (`3/5 jobs`), up to 2 minutes for the run to appear and 60 for
+   it to finish: six native builds since the parser images joined the run — the app on two
+   architectures and each parser on both — the heaviest of them pushing several gigabytes, and on a
+   busy day a queue in front of them.
 5. **Ends where "released" means something: `latest` in the registry.** The command asks GHCR itself
    what `latest` and `X.Y.Z` resolve to — an anonymous pull token and a `HEAD` on the manifest, the
    image being public — and finishes only when both are the one digest, which it prints. A red run
@@ -303,7 +383,8 @@ setup defines.
 ## 13.5. Checklist
 
 - [ ] `ci.yml`: typecheck/lint/test/build against pgvector Postgres; no real external credentials.
-- [ ] `release.yml`: one image to GHCR with meaningful tags; public `NEXT_PUBLIC_*` via build-args.
+- [ ] `release.yml`: the app image to GHCR with meaningful tags, and the two parser images of
+      `12 §12.7` under the same version on a `v*` tag; public `NEXT_PUBLIC_*` via build-args.
 - [ ] Releases cut by `npm run release` only (§13.3a); the GitHub Release is published by CI from
       the tag, never by hand; the command returns when `latest` points at the image it just cut.
 - [ ] Secrets only in GitHub Secrets; `deploy/` ships a compose file and a `.env.example` of
@@ -312,7 +393,8 @@ setup defines.
 - [ ] Every workflow declares `permissions:`; no file grants more than the job that needs it.
 - [ ] Every third-party action pinned to a commit SHA, version in the trailing comment.
 - [ ] `npm audit --omit=dev --audit-level=high` in `build-and-test`, before `npm ci`.
-- [ ] Image scan on release; `.github/dependabot.yml` covers npm, `github-actions` and docker.
+- [ ] Image scan on release, over all three published images; both parser bases pinned
+      `tag@sha256:…`; `.github/dependabot.yml` covers npm, `github-actions` and docker.
 
 ## 13.6. Open questions
 

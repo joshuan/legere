@@ -60,9 +60,63 @@ jobs:
           touch "/tmp/digests/${DIGEST#sha256:}"
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
+      # `digest-legere-…`, because the parser images below export digests into the same run and
+      # `merge` collects by pattern: an artifact name that matched both would stitch one image's
+      # manifest out of another image's platforms.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: digest-${{ strategy.job-index }}
+          name: digest-legere-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  # 🔒 SEC-79. The other two images the shipped stack runs, and the two that carry the native OCR and
+  # PDF stack: `deploy/stirling` and `deploy/docling`, built from the reviewed tree instead of by
+  # hand on somebody's laptop with a long-lived `write:packages` token. Only on a tag, because only a
+  # tag publishes what `deploy/docker-compose.yaml` pulls — `${LEGERE_VERSION:-latest}` is never a
+  # branch name — and because these are gigabytes each. Same platforms and the same push-by-digest
+  # dance as the app: a self-hoster on an ARM box needs all three.
+  build-parsers:
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        parser: [stirling, docling]
+        platform: [linux/amd64, linux/arm64]
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: deploy/${{ matrix.parser }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }}-${{ matrix.parser }},push-by-digest=true,name-canonical=true,push=true
+          # No `type=gha` cache here, unlike the app: the whole of these images is one pinned base
+          # layer of several gigabytes, which the registry already caches and which would evict
+          # everything the app build keeps in the 10 GB the Actions cache gives a repository.
+      - name: Export the digest
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: digest-${{ matrix.parser }}-${{ strategy.job-index }}
           path: /tmp/digests/*
           retention-days: 1
 
@@ -78,7 +132,7 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: /tmp/digests
-          pattern: digest-*
+          pattern: digest-legere-*
           merge-multiple: true
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
@@ -103,6 +157,50 @@ jobs:
       - name: Show what was published
         run: docker buildx imagetools inspect "${IMAGE}:${{ steps.meta.outputs.version }}"
 
+  # The parsers' half of `merge`: one manifest list per image, tagged `X.Y.Z` and `latest` exactly
+  # like the app, so `LEGERE_VERSION` names one version of the whole stack.
+  merge-parsers:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-parsers
+    strategy:
+      fail-fast: false
+      matrix:
+        parser: [stirling, docling]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: /tmp/digests
+          pattern: digest-${{ matrix.parser }}-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.IMAGE }}-${{ matrix.parser }}
+          tags: |
+            type=semver,pattern={{version}}
+      - name: Create the multi-platform tags
+        working-directory: /tmp/digests
+        env:
+          PARSER: ${{ matrix.parser }}
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}-${PARSER}@sha256:%s " *)
+      - name: Show what was published
+        env:
+          PARSER: ${{ matrix.parser }}
+        run: docker buildx imagetools inspect "${IMAGE}-${PARSER}:${{ steps.meta.outputs.version }}"
+
   # The release is the tag (docs/13 §13.3a): the same push carries the version commit and the tag,
   # and the GitHub Release is published here, once the image the tag names exists — so no by-hand
   # step ties the three together. The notes are the commit subjects since the previous tag: GitHub's
@@ -110,7 +208,9 @@ jobs:
   # Re-runs are harmless: an existing release is left as it is.
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: merge
+    # Both merges: a release page that exists is a promise that every image the compose file of
+    # docs/12 §12.7 pulls at that version can be pulled.
+    needs: [merge, merge-parsers]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -135,25 +235,42 @@ jobs:
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --title "$GITHUB_REF_NAME" --notes-file /tmp/notes.md --verify-tag
 
-  # 🔒 SEC-07/SEC-21. `npm audit` in CI covers what the lockfile declares; it says nothing about the
-  # Alpine packages and the native libraries underneath — which is exactly where the libvips CVEs
-  # that started this lived. The scan runs after publication and on the tag that was published, so
-  # what is reported is the artifact deployments pull, not an approximation of it.
+  # 🔒 SEC-07/SEC-21/SEC-79. `npm audit` in CI covers what the lockfile declares; it says nothing
+  # about the Alpine packages and the native libraries underneath — which is exactly where the
+  # libvips CVEs that started this lived. The scan runs after publication and on the tag that was
+  # published, so what is reported is the artifact deployments pull, not an approximation of it.
+  #
+  # All three images, not just the app: tesseract, Ghostscript, LibreOffice, PDFBox, torch — the
+  # native stack this rule was written for is mostly in the other two, and until now they were the
+  # ones it never looked at. A fixed CVE in a parser base is actionable in exactly one edit now that
+  # both are pinned by digest (`deploy/*/Dockerfile`), and Dependabot writes that edit itself.
   scan:
-    needs: merge
+    name: scan legere${{ matrix.suffix }}
+    needs: [merge, merge-parsers]
+    # `merge-parsers` does not run on a branch push, and a skipped dependency would skip this job:
+    # what this needs is that the app image was published.
+    if: ${{ !cancelled() && needs.merge.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        suffix: ['', '-stirling', '-docling']
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
     steps:
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        if: ${{ matrix.suffix == '' || startsWith(github.ref, 'refs/tags/v') }}
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        # The parser images exist at a version tag only, so on a branch push there is nothing to read
+        # back and this entry has nothing to do.
+        if: ${{ matrix.suffix == '' || startsWith(github.ref, 'refs/tags/v') }}
         with:
-          image-ref: ${{ env.IMAGE }}:${{ needs.merge.outputs.version }}
+          image-ref: ${{ env.IMAGE }}${{ matrix.suffix }}:${{ needs.merge.outputs.version }}
           severity: HIGH,CRITICAL
           # A finding nobody can act on is a broken build nobody can fix: an unfixed base-image CVE
           # has no upgrade to take. Fixed ones do, and those fail the job.

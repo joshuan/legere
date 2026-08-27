@@ -123,13 +123,13 @@ if [ -z "$smtp_host" ]; then
   smtp_host=$(ask 'SMTP host, e.g. smtp.example.com []: ')
 fi
 
-smtp_port=587
+smtp_port=465
 smtp_user=''
 smtp_password=''
 smtp_from='Legere <no-reply@example.com>'
 if [ -n "$smtp_host" ]; then
-  smtp_port=$(ask 'SMTP port [587]: ')
-  smtp_port="${smtp_port:-587}"
+  smtp_port=$(ask 'SMTP port [465]: ')
+  smtp_port="${smtp_port:-465}"
   smtp_user=$(ask 'SMTP username (blank = no authentication): ')
   if [ -n "$smtp_user" ]; then
     smtp_password=$(ask_secret 'SMTP password: ')
@@ -140,8 +140,24 @@ fi
 
 # 465 is implicit TLS and 587 is STARTTLS; mismatching the pair is the commonest mail failure there
 # is, and the port is the half the operator actually knows.
+#
+# 🔒 465 is also the only one of the two that cannot be talked out of encrypting (SEC-62), which is
+# why it is the default and why choosing the other one gets a paragraph rather than silence: what is
+# in these letters is the six-digit code that creates, verifies and recovers every account.
 smtp_secure=false
-if [ "$smtp_port" = 465 ]; then smtp_secure=true; fi
+if [ "$smtp_port" = 465 ]; then
+  smtp_secure=true
+elif [ -n "$smtp_host" ]; then
+  cat <<EOF
+
+Note on port ${smtp_port}: TLS there is STARTTLS — the connection opens in the clear and is upgraded
+only if ${smtp_host} offers the upgrade. Anyone on the path who removes that one line from the
+greeting gets the relay password and every six-digit sign-up code in plaintext, and nothing fails
+visibly. Port 465 is TLS from the first byte and cannot be downgraded; most providers offer it.
+Change SMTP_PORT to 465 and SMTP_SECURE to true in .env to switch later.
+
+EOF
+fi
 
 printf 'Fetching docker-compose.yaml…\n'
 curl -fsSL "${BASE_URL}/docker-compose.yaml" -o docker-compose.yaml ||

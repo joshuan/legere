@@ -88,8 +88,9 @@ Two things to know before serving it to anyone else:
 
 Pointing the `S3_*` variables at a managed object store and deleting the two MinIO services is a
 supported edit; the full variable list is in
-[`docs/12 §12.4`](./docs/12-build-config-run.md#124-envexample). The image is published for
-`linux/amd64` and `linux/arm64`.
+[`docs/12 §12.4`](./docs/12-build-config-run.md#124-envexample). All three images the stack runs —
+the app and the two parsers — are published for `linux/amd64` and `linux/arm64`, and carry the
+version `LEGERE_VERSION` names.
 
 ## Local development
 

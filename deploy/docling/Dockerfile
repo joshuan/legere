@@ -4,11 +4,20 @@
 # (RapidOCR) has no Cyrillic model at all — asked for Russian it silently falls back to the Chinese
 # model set and returns mangled text with a confident-looking score. So: real tesseract language
 # data, and Legere asks for the tesseract engine by name.
-FROM quay.io/docling-project/docling-serve-cpu:latest
+#
+# 🔒 Pinned by digest, not by a tag (SEC-79): this is the base of one of the two containers that
+# open whatever a scan finds, and `:latest` is whatever its owner last pushed. The tag beside the
+# digest is what a person reads and what Dependabot rewrites together with it. Moving it by hand:
+#
+#   docker buildx imagetools inspect quay.io/docling-project/docling-serve-cpu:latest \
+#     --format '{{.Manifest.Digest}}'
+FROM quay.io/docling-project/docling-serve-cpu:v1.31.0@sha256:32ba1a1dded8d8fd21f9d8da1b9837e04cfee164ef891d9513174c3d989dcee9
 
 # tessdata_fast: a few MB per language, and the accuracy difference against the full models is not
-# visible on document scans.
-ARG TESSDATA_REF=main
+# visible on document scans. 🔒 A commit, not `main`: the language data is parsed by tesseract's
+# native code inside the container that OCRs every document, so what it is depends on nothing that
+# can move under a rebuild. Newer data is a deliberate edit of this line.
+ARG TESSDATA_REF=87416418657359cb625c412a48b6e1d6d41c29bd
 ARG LANGUAGES="rus ukr srp srp_latn deu fra spa ita pol tur"
 
 USER 0
