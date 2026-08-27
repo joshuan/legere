@@ -3,6 +3,7 @@ import {
   FakePasswordHasher,
   FakeSessionTokens,
   FixedClock,
+  InMemoryApiTokenRepository,
   InMemoryEmailVerificationRepository,
   InMemoryPasswordResetRepository,
   InMemorySessionRepository,
@@ -40,6 +41,7 @@ function build(
   const users = new InMemoryUserRepository(clock);
   const verifications = new InMemoryEmailVerificationRepository(clock);
   const sessions = new InMemorySessionRepository(clock);
+  const apiTokens = new InMemoryApiTokenRepository(clock);
   const tokens = new FakeSessionTokens();
   const events = new RecordingSecurityEvents();
 
@@ -49,6 +51,7 @@ function build(
     invites,
     resets,
     sessions,
+    apiTokens,
     new FakePasswordHasher(),
     tokens,
     new IssueSession(sessions, tokens, clock, 30),
@@ -57,7 +60,18 @@ function build(
     events,
   );
 
-  return { useCase, clock, users, verifications, invites, resets, sessions, tokens, events };
+  return {
+    useCase,
+    clock,
+    users,
+    verifications,
+    invites,
+    resets,
+    sessions,
+    apiTokens,
+    tokens,
+    events,
+  };
 }
 
 type Context = ReturnType<typeof build>;
@@ -322,9 +336,54 @@ describe('CompleteRegistration', () => {
       event: 'password_reset.completed',
       actor: { userId: target.id },
       target: { userId: target.id, id: reset.id },
-      detail: { sessions: 1 },
+      detail: { sessions: 1, apiTokens: 0 },
     });
     expect(JSON.stringify(record)).not.toContain(ticket);
+  });
+
+  // 🔒 SEC-65: the one remediation the product offers has to remediate. A stranger who held a
+  // session long enough to mint a read-only token used to keep reading the archive for a year after
+  // the admin's reset had ended every session and changed the password (docs/08 §8.1.6).
+  it('revokes the API tokens of a reset account along with its sessions', async () => {
+    const { target, reset } = await seedResetTarget(context);
+    const minted = await context.apiTokens.create({
+      userId: target.id,
+      name: 'sync',
+      tokenHash: 'hash:legere_stolen',
+      expiresAt: new Date(context.clock.now().getTime() + 365 * 86_400_000),
+    });
+    const ticket = await issueTicket(context, { email: target.email, passwordResetId: reset.id });
+
+    await context.useCase.execute({ ticket, password: PASSWORD, language: 'EN', userAgent: null });
+
+    expect((await context.apiTokens.findById(minted.id))?.revokedAt).not.toBeNull();
+    expect(context.events.only('password_reset.completed')).toMatchObject({
+      detail: { apiTokens: 1 },
+    });
+  });
+
+  // …and the self-service rotation of §8.1.6a keeps them, which is the asymmetry §8.2a records: a
+  // person tidying up does not lose their backup script. A registration is not a recovery either.
+  it('leaves the tokens of an unrelated account alone when an invite is accepted', async () => {
+    const other = await context.users.create({
+      email: 'other@legere.local',
+      passwordHash: 'hashed:whatever',
+      displayName: 'other',
+      role: 'USER',
+      language: 'EN',
+    });
+    const kept = await context.apiTokens.create({
+      userId: other.id,
+      name: 'backup',
+      tokenHash: 'hash:legere_backup',
+      expiresAt: new Date(context.clock.now().getTime() + 86_400_000),
+    });
+    seedInvite(context, {});
+    const ticket = await issueTicket(context, { email: INVITEE, inviteId: 'invite-1' });
+
+    await context.useCase.execute({ ticket, password: PASSWORD, language: 'EN', userAgent: null });
+
+    expect((await context.apiTokens.findById(kept.id))?.revokedAt).toBeNull();
   });
 
   it('records nothing when the completion is refused', async () => {

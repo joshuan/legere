@@ -9,7 +9,6 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import {
   loginRequestSchema,
@@ -37,6 +36,7 @@ import type { Session } from '../../domain/entities/session';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { successEnvelope } from '../http/envelope';
 import { clearSessionCookie, setLocaleCookie, setSessionCookie } from '../http/session-cookie';
+import { Throttled } from '../http/throttling';
 import { ZodBody } from '../http/zod-validation.pipe';
 import { CurrentSession } from './current-user';
 import { SessionGuard } from './session.guard';
@@ -45,7 +45,7 @@ import type { Envelope } from '../../../shared/contracts/common';
 // Auth endpoints (docs/07 §7.3). Controllers stay thin: validate with the contract schema, call the
 // use case, map to the envelope. Per-IP throttling covers the whole controller (docs/08 §8.4).
 @Controller('auth')
-@UseGuards(ThrottlerGuard)
+@Throttled('auth')
 export class AuthController {
   constructor(
     private readonly getOnboardingStatus: GetOnboardingStatus,

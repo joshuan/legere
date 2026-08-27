@@ -129,8 +129,13 @@ atomically.
 - **Filters:** a global `DomainExceptionFilter` mapping `DomainError → { status, body }` per
   [`07 §7.1`](./07-api-specification.md#71-conventions); unknown errors → `500 INTERNAL` (logged with
   stack, response body carries no internals).
-- **Rate limiting:** `@nestjs/throttler` per-IP on `/api/auth/*` and `/api/invites/*`; per-email
-  limits live inside the auth use cases (they read `EmailVerification`/login-failure state).
+- **Rate limiting:** `@nestjs/throttler` with four named budgets — `auth`, `catalogue`, `password`,
+  `search` — counted against the signed-in caller where there is one and against `req.ip` otherwise,
+  over a sliding-window storage of this application's own
+  ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha),
+  [`08 §8.4.1b`](./08-auth-and-authorization.md#841b-what-the-throttles-forget-when-the-process-restarts));
+  per-email limits live inside the auth use cases (they read `EmailVerification`/login-failure
+  state).
 - **CSRF:** an Express-level middleware on `/api` for mutating methods — fail-closed
   `Origin`/`Referer` check against `APP_BASE_URL` (see [`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)).
 - **Read-only bearer:** a second middleware beside it, also on `/api` and also for mutating methods:

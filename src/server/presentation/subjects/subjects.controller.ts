@@ -36,10 +36,10 @@ import {
   PreviewSubjectMerge,
   SuggestSubjectMerges,
 } from '../../application/subjects/suggest-subject-merges';
-import { SkipThrottle, ThrottlerGuard } from '@nestjs/throttler';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
+import { Throttled } from '../http/throttling';
 import { UuidParam } from '../http/uuid-param.pipe';
 import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
 
@@ -63,9 +63,7 @@ export class SubjectsController {
 
   // 🔒 Rate-limited (SEC-56), like the people beside it.
   @Post()
-  @UseGuards(ThrottlerGuard)
-  // The catalogue budget of the module config alone: the auth budget belongs to the auth routes.
-  @SkipThrottle({ auth: true })
+  @Throttled('catalogue')
   async create(
     @ZodBody(createSubjectRequestSchema) body: CreateSubjectRequest,
   ): Promise<Envelope<SubjectDto>> {

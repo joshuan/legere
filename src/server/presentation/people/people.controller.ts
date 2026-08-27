@@ -36,10 +36,10 @@ import {
   PreviewPeopleMerge,
   SuggestPeopleMerges,
 } from '../../application/people/suggest-people-merges';
-import { SkipThrottle, ThrottlerGuard } from '@nestjs/throttler';
 import { Roles, RolesGuard } from '../auth/roles.guard';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
+import { Throttled } from '../http/throttling';
 import { UuidParam } from '../http/uuid-param.pipe';
 import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
 
@@ -64,9 +64,7 @@ export class PeopleController {
   // 🔒 Rate-limited (SEC-56): every row lands in a namespace every other user reads, so one
   // account does not get to fill it at machine speed.
   @Post()
-  @UseGuards(ThrottlerGuard)
-  // The catalogue budget of the module config alone: the auth budget belongs to the auth routes.
-  @SkipThrottle({ auth: true })
+  @Throttled('catalogue')
   async create(
     @ZodBody(createPersonRequestSchema) body: CreatePersonRequest,
   ): Promise<Envelope<PersonDto>> {

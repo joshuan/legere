@@ -14,6 +14,7 @@ import { ArchiveTools } from '../../application/mcp/archive-tools';
 import type { User } from '../../domain/entities/user';
 import { CurrentUser } from '../auth/current-user';
 import { SessionGuard } from '../auth/session.guard';
+import { Throttled } from '../http/throttling';
 
 // The version this server reports as its own when a client asks for one it has never heard of.
 const SERVER_INFO = { name: 'legere', title: 'Legere archive' } as const;
@@ -32,7 +33,13 @@ const SERVER_INFO = { name: 'legere', title: 'Legere archive' } as const;
 export class McpController {
   constructor(private readonly tools: ArchiveTools) {}
 
+  // 🔒 The `search` budget of docs/08 §8.4, shared with GET /api/search and counted against the
+  // token's owner rather than the machine the assistant runs on: `search_documents` is that same
+  // search and spends the same outbound embeddings call (SEC-74). A 429 here is an HTTP failure,
+  // like authentication and unlike everything else on this route — it is refused before the
+  // protocol is read.
   @Post()
+  @Throttled('search')
   @HttpCode(200)
   async handle(
     @CurrentUser() user: User,

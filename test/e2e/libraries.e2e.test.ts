@@ -87,6 +87,7 @@ describe('Libraries (e2e)', () => {
 
     await api(app).post('/api/auth/register/start', { email, inviteToken: token });
     const verified = await api(app).post('/api/auth/register/verify', {
+      inviteToken: token,
       email,
       code: app.emails.lastCodeFor(email),
     });

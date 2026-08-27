@@ -43,9 +43,39 @@ lives in the `EmailVerification` table, not in `users`.
    `expiresAt = now + 10 min`, `attempts = 0`. The code is sent by email (SMTP, the `EmailSender`
    port). The response is always `200` (anti-enumeration); if the email is already taken, the letter
    says "you already have an account".
-2. **Code check.** `POST /api/auth/register/verify { email, code }` — constant-time `codeHash`
-   comparison; `attempts > 5` → the record is burned (`429 EMAIL_CODE_TOO_MANY_ATTEMPTS`); success →
-   a single-use `registrationTicket` (opaque, hash in the DB, TTL 15 min).
+2. **Code check.** `POST /api/auth/register/verify { email, code, inviteToken?, resetToken? }` —
+   constant-time `codeHash` comparison; `attempts > 5` → the record is burned
+   (`429 EMAIL_CODE_TOO_MANY_ATTEMPTS`); success → a single-use `registrationTicket` (opaque, hash in
+   the DB, TTL 15 min).
+
+   🔒 **An attempt is charged only to a caller who proves they hold the link the series was made
+   from.** The series remembers which invite or reset started it
+   ([`03 §3.3.3`](./03-domain-model.md#333-emailverification)), and step 2 must echo the same
+   `inviteToken`/`resetToken` step 1 accepted. A caller who does not is answered
+   `400 EMAIL_CODE_INVALID` — the same answer a wrong code gets, so nothing is learned — **before the
+   attempt counter is touched**, so nothing is spent. Where an address has an active reset *and* an
+   active registration series, the reset is still tried first (§8.4); the series a code is measured
+   against is the first one the caller can prove is theirs.
+
+   The one series with no link to hold is the onboarding one, and its attempts are charged to
+   whoever presents a code. Nothing is lost by that: while onboarding is open anybody who can reach
+   the instance can finish it and become its first administrator (§8.1.1), so that code is not
+   standing in front of an account.
+
+   **Why this shape.** §8.4.1a's rule for the login backoff — *a backoff may slow an attacker down,
+   and it may never stand between an account and its own password* — has a verification-code twin,
+   and it used to be broken here. The series was found by address alone and the attempt was charged
+   before the code was compared, so anyone who knew an address could spend its five guesses and burn
+   the row: the owner's own correct code then answered `EMAIL_CODE_INVALID`, their resend was burned
+   again, and after five letters the daily cap of §8.4 took away the only recovery path this product
+   has (§8.1.7) for a day (SEC-57). Two other shapes were on the table and neither satisfies the
+   rule. Capping per (series, IP) with a larger per-series ceiling only raises the price of the
+   denial — a second source address buys the attacker the ceiling back, and the burn still stands
+   between an account and its own password. Re-issuing on exhaustion rather than deleting turns the
+   endpoint into a mailer aimed at the victim, and the code they had already typed stops working,
+   which is the same denial with the operator's return address on it. Proof of possession is the only
+   one of the three that removes the attacker instead of slowing them, and it costs the brute-force
+   cap nothing: five wrong codes from the holder still burn the series.
 3. **Password setup.** `POST /api/auth/register/complete { ticket, password }` — password validation
    (8–128 + a denylist of common passwords), `User` creation (Argon2id hash; `displayName` from the
    local part of the email; language from `Accept-Language`), `Session` creation, the `sid` cookie.
@@ -65,8 +95,18 @@ There is no self-service "forgot password". An admin generates a **single-use re
 admin panel (`PasswordReset`: opaque token, `tokenHash` in the DB, TTL 24 h, revocable) and hands it
 to the user out of band. The user opens the link and passes the same 3-step flow (§8.1.3) with
 `purpose = PASSWORD_RESET`: code to their email → new password. Completion revokes **all** of the
-user's sessions. Entities — [`03 §3.3.5`](./03-domain-model.md#335-passwordreset); endpoints —
+user's sessions **and all of their API tokens**. Entities —
+[`03 §3.3.5`](./03-domain-model.md#335-passwordreset); endpoints —
 [`07 §7.3`](./07-api-specification.md#73-endpoints).
+
+🔒 **The tokens go with the sessions, because this is the recovery.** An admin issues a reset link
+for one reason: somebody believes the account is in somebody else's hands. A stranger who held a
+session for a minute could mint a read-only API token from it (§8.2a) — one request, no admin
+involved, good for up to a year — and until this rule was written the documented remediation ended
+every session, changed the password, and left that credential reading the archive (SEC-65). The
+asymmetry with the self-service rotation of §8.1.6a is deliberate and is the point: a person
+changing their own password is tidying up and should not lose their backup script, while an admin
+handing over a reset link is cleaning up after a compromise and must not leave a credential behind.
 
 ### 8.1.6a. Password change (self-service, authenticated)
 `POST /api/me/password { currentPassword, newPassword }` — a signed-in user replaces their own
@@ -91,7 +131,11 @@ nothing here is a way in for somebody who is locked out.
 - API tokens are deliberately **not** revoked by a password change: a token is a separate credential
   with its own list and its own revocation (§8.2a), and killing a backup script because somebody
   changed their password is a surprise nobody asked for. The sessions card and the tokens card sit
-  next to each other on `/settings` precisely so both can be dealt with in one visit.
+  next to each other on `/settings` precisely so both can be dealt with in one visit. An
+  admin-issued **reset** does revoke them (§8.1.6) — a rotation is housekeeping, a recovery is not.
+- Throttled at 5 requests per 60 s per caller (§8.4). The route verifies an Argon2 hash before it
+  can fail, and that verification queues at the same concurrency gate login uses; a budget in front
+  of it is what keeps the gate serving logins rather than one account's replay (SEC-54).
 
 ### 8.1.7. Not in the MVP
 No self-service password **recovery** — a person who cannot sign in is told to contact their
@@ -186,6 +230,10 @@ credential which leaks costs its owner nothing but a revocation and can never ch
 - **Authorization.** The token resolves to its owner and inherits **their** role and visibility: an
   admin's token reads the admin endpoints, a user's token reads what that user can read. Deactivating
   the owner, or revoking the token, ends it immediately — every request re-reads both.
+- 🔒 **What ends every one of them at once.** Deactivating the account (`03 §3.3.22`) and completing
+  an **admin-issued password reset** (§8.1.6) both revoke the owner's whole list, inside the same
+  transaction as the sessions they stand beside. A self-service password change does not (§8.1.6a).
+  Recovery takes every credential; rotation takes none of them.
 - **Lifetime.** Expiry is mandatory (`API_TOKEN_TTL_DAYS`, default 90, max 365): a token nobody can
   remember issuing should stop working by itself. `lastUsedAt` is written at most once a minute, so
   the list can answer "is this one still in use?" without a write per request.
@@ -237,15 +285,43 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   allowance a password reset needs — and a stale registration series would swallow the attempts of
   the reset its owner actually asked for. A code is never compared while choosing between series:
   the attempt counter is the only gate, and a comparison in front of it would be a guess that was
-  tested without being counted.
-- **Rate limiting:** layer 1 — per-IP in-memory (`@nestjs/throttler`) on `/api/auth/*` and
-  `/api/invites/*` (incl. protection against Argon2 flooding), and on the open catalogue creates —
-  `POST /api/people`, `/api/subjects`, `/api/subject-kinds` — under a budget of their own (SEC-56):
-  fast enough for a person correcting an archive, far too slow to fill a namespace every other user
-  reads by script; layer 2 — per-email: `register/start`
-  ≤1 code/60 s and ≤5/day; `register/verify` ≤5 wrong attempts → the record is burned; `login` — an
-  exponential backoff on **failures**, specified below. Exceeding → `429 RATE_LIMITED`; all errors
-  are generic.
+  tested without being counted — and the series a caller is measured against is the first one they
+  can prove they hold (§8.1.3 step 2).
+- **Rate limiting:** layer 1 — in-memory budgets (`@nestjs/throttler`), four of them, each counted
+  separately:
+
+  | Budget | Where | Allowance |
+  |---|---|---|
+  | `auth` | `/api/auth/*`, `/api/invites/*`, `/api/password-resets/*` | 20 / 60 s |
+  | `catalogue` | `POST /api/people`, `/api/subjects`, `/api/subject-kinds` | 30 / 60 s |
+  | `password` | `POST /api/me/password` | 5 / 60 s |
+  | `search` | `GET /api/search`, `POST /api/mcp` | 30 / 60 s |
+
+  `auth` is the Argon2-flooding brake the login path leans on (§8.4.1a). `catalogue` is fast enough
+  for a person correcting an archive and far too slow to fill by script a namespace every other user
+  reads (SEC-56). 🔒 `password` exists because that route verifies an Argon2 hash before it can
+  fail, and does it behind the same concurrency gate of two that login queues at: with no budget in
+  front of it one signed-in account could fill that queue from a route no throttler covered, and
+  nobody on the instance could sign in or finish registering (SEC-54). 🔒 `search` exists because
+  every non-text search spends one outbound embeddings call on the operator's provider and takes a
+  turn at the pipeline's own embeddings gate ([`05 §5.4b`](./05-library-and-processing.md)), so a
+  read that costs money off-instance is metered like a write (SEC-74) — and `POST /api/mcp` carries
+  the same search for an assistant (`07 §7.3a`).
+
+  🔒 **A budget is counted against the caller, not the address they arrived from,** wherever the
+  request has one: a signed-in caller — session or API token — is counted by their user id, and only
+  an anonymous one by `req.ip`. The attacker of SEC-54 and SEC-74 is an account, and an account
+  changes addresses far more easily than an address changes accounts; the anonymous routes keep the
+  per-IP behaviour they always had.
+
+  🔒 **And it is one allowance over the routes it names, not one per route.** The throttler's own
+  key carries the controller and the handler, which would have made the first row of that table mean
+  twenty per endpoint — the reading SEC-57 leaned on to poll `register/verify` twenty times a minute
+  while spending nothing anywhere else. The budget's name and the caller are the whole key.
+
+  layer 2 — per-email: `register/start` ≤1 code/60 s and ≤5/day; `register/verify` ≤5 wrong attempts
+  → the record is burned; `login` — an exponential backoff on **failures**, specified below.
+  Exceeding → `429 RATE_LIMITED`; all errors are generic.
 - **CAPTCHA:** Cloudflare Turnstile on login and register/start, **both halves of it** — the widget
   renders on the client and the token it mints travels as `captchaToken`; the server checks it
   through a `CaptchaVerifier` port. 🔒 The halves are two switches and they have to be thrown
@@ -316,6 +392,28 @@ forward-only migration plus a repository, and nothing in the ports has to change
 per-IP throttler already documents the same per-instance limitation
 ([`12 §12.8`](./12-build-config-run.md)).
 
+🔒 **What they may not do is grow.** Forgetting on a restart is a limitation; growing until the
+restart is a bug, and all three of these structures had it.
+
+- **The login streaks are swept and capped.** `InMemoryLoginAttempts` is keyed by whatever address a
+  caller typed, and failures are recorded for addresses nobody owns on purpose (§8.4.1a) — so one
+  well-behaved source IP, spending exactly the documented budget on 254-character addresses, used to
+  buy the operator a few hundred megabytes a month that nothing ever returned (SEC-70). A streak
+  means nothing once the fifteen-minute cap has elapsed since its last failure, so entries older than
+  that are dropped on the way in, and a ceiling on the number of streaks evicts the coldest as a
+  backstop. Neither can refuse anybody: dropping a streak only forgets a failure.
+- **The daily email cap prunes on the same pass**, rather than only when the address it belongs to is
+  touched again.
+- **The per-IP counters live in this application's own throttler storage**, not the package's
+  default one, for two reasons. The default keeps its decay timers in one bucket per throttler
+  *name*, and cancels the whole bucket whenever any blocked key comes back — so one anonymous caller
+  cycling "spend the budget, wait a minute, knock once" stopped the documented 20-per-60 s window
+  from sliding for every other client on the instance (SEC-73). And it never deletes a key, so the
+  map grew one entry per source address for the life of the process. Ours holds the timestamps of
+  the hits inside the window instead, which makes the window slide exactly and needs no timers at
+  all, and it drops a key once its window and its block have both elapsed, with a cap on the number
+  of keys as a backstop.
+
 ## 8.5. Content access model
 
 Principles (the exact entity model — in 03):
@@ -375,7 +473,9 @@ fixed; the habit that let them sit here unnoticed is what
 - [x] No open registration: one-time first-admin onboarding + single-use invite links
       (tokenHash, TTL, revocation).
 - [x] Registration — 3 steps with an email code (HMAC hash, TTL 10 min, ≤5 attempts); the `User` is
-      created only at step 3 via a single-use ticket.
+      created only at step 3 via a single-use ticket. Those five attempts are spendable only by a
+      caller who proves they hold the link the series came from, so knowing an address does not deny
+      it its own recovery (§8.1.3 step 2).
 - [x] Login: a single `INVALID_CREDENTIALS` + dummy verify; Argon2id; no JWT.
 - [x] The login backoff never locks an account out: the password is verified before the streak is
       read, a correct one signs in and clears it, and a failure against an unknown address is
@@ -386,11 +486,12 @@ fixed; the habit that let them sit here unnoticed is what
 - [x] A user can list and end their own sessions, and change their own password with the current one
       — which ends every other session of theirs and keeps the one that asked (§8.1.6a, §8.2).
 - [x] Mutations — fail-closed `csrfOriginCheck`, above the dispatcher rather than on `/api` (§8.4);
-      per-IP + per-email rate limiting; CAPTCHA on login/start — the widget mints the token on the
-      client and the server verifies it, so the control is whole where both keys are set and absent
-      where neither is, rather than half of each (§8.4).
-- [x] API tokens: hashed at rest, shown once, mandatory expiry, revoked with the owner; a mutating
-      request carrying one is refused before routing (§8.2a).
+      four named rate-limit budgets counted per caller (per IP where there is none) + per-email
+      limits; CAPTCHA on login/start — the widget mints the token on the client and the server
+      verifies it, so the control is whole where both keys are set and absent where neither is (§8.4).
+- [x] API tokens: hashed at rest, shown once, mandatory expiry, revoked with the owner and with the
+      admin-issued reset that takes the account back (§8.1.6); a mutating request carrying one is
+      refused before routing (§8.2a).
 - [x] `passwordHash`/`tokenHash`/codes/tickets and email bodies are never serialized or logged —
       including by the request log, which writes the shape of a route and not the token in it, drops
       the query string, removes the filename headers, and keeps a response to an allow-list of

@@ -109,7 +109,9 @@ export function AuthWizard({
       setBusy(true);
       setError(null);
       try {
-        const verified = await sessionApi.registerVerify({ email, code });
+        // The link token goes with the code: an attempt is charged only to a caller who proves they
+        // hold the link the series was made from (docs/08 §8.1.3 step 2).
+        const verified = await sessionApi.registerVerify({ email, code, ...tokenPayload });
         setTicket(verified.ticket);
         setNotice(null);
         setStep(2);
@@ -124,7 +126,7 @@ export function AuthWizard({
         setBusy(false);
       }
     },
-    [describeError, email],
+    [describeError, email, tokenPayload],
   );
 
   const submitPassword = useCallback(

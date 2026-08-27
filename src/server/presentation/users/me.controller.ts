@@ -18,6 +18,7 @@ import { CurrentSession, CurrentUser } from '../auth/current-user';
 import { SessionGuard } from '../auth/session.guard';
 import { successEnvelope } from '../http/envelope';
 import { setLocaleCookie } from '../http/session-cookie';
+import { Throttled } from '../http/throttling';
 import { ZodBody } from '../http/zod-validation.pipe';
 
 // Profile endpoints (docs/07 §7.3).
@@ -51,7 +52,13 @@ export class MeController {
   // POST /api/me/password (docs/08 §8.1.6a). `@CurrentSession()` is what keeps this browser signed
   // in while every other session of the same user ends — and it is unreachable with an API token,
   // which is right: a read-only credential has no business rotating the password behind it.
+  //
+  // 🔒 Throttled against the caller, and the only reason this route has a budget of its own: it
+  // verifies an Argon2 hash before it can fail, and that verification queues at the one concurrency
+  // gate of two that login shares. Unbudgeted, one signed-in account filled that queue from a route
+  // no throttler covered and nobody on the instance could sign in (docs/08 §8.4, SEC-54).
   @Post('password')
+  @Throttled('password')
   @HttpCode(HttpStatus.OK)
   async password(
     @CurrentUser() user: User,

@@ -7,6 +7,10 @@ import express, { type Express } from 'express';
 import request, { type Test as SupertestRequest } from 'supertest';
 import { wireServer } from '../../server/main';
 import { AppModule } from '../../src/server/app.module';
+import {
+  throttlerOptions,
+  type ThrottleBudget,
+} from '../../src/server/presentation/http/throttling';
 import { CatalogueAnalyst } from '../../src/server/application/ports/catalogue-analyst';
 import { EmailSender, type EmailMessage } from '../../src/server/application/ports/email-sender';
 import { FileStorage } from '../../src/server/application/ports/file-storage';
@@ -41,6 +45,10 @@ export class RecordingEmailSender extends EmailSender {
   }
 }
 
+// A budget no suite can reach by accident, which is how a throttle behaves in every test that is
+// not about throttling.
+const UNTHROTTLED: ThrottleBudget = { ttl: 60_000, limit: 100_000 };
+
 export type TestApp = {
   server: Express;
   // What the instance under test accepts for an upload, so a size test does not hardcode the
@@ -61,9 +69,13 @@ export type TestAppOptions = {
   // Per-IP throttle for /api/auth/*. Tests share one source address, so the real production budget
   // would trip in the middle of an unrelated suite; the default is effectively unlimited and the
   // throttling test asks for a small budget explicitly.
-  throttle?: { ttl: number; limit: number };
+  throttle?: ThrottleBudget;
   // The same, for the open catalogue creates (SEC-56).
-  catalogueThrottle?: { ttl: number; limit: number };
+  catalogueThrottle?: ThrottleBudget;
+  // The same, for POST /api/me/password (SEC-54)…
+  passwordThrottle?: ThrottleBudget;
+  // …and for GET /api/search and POST /api/mcp (SEC-74).
+  searchThrottle?: ThrottleBudget;
   // The catalogue suggester's analyst (docs/05 §5.6c). Left alone, the real adapter is bound and
   // reports itself unconfigured, since no suite may reach a provider; a suite that wants to see
   // what a *configured* analyst does — above all, what happens when it cannot answer — puts its
@@ -77,7 +89,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   const emails = new RecordingEmailSender();
   // No e2e test may reach a real bucket (docs/14 §14.8): artifacts stay in memory and readable.
   const files = new InMemoryFileStorage();
-  const throttle = options.throttle ?? { ttl: 60_000, limit: 100_000 };
+  const throttle = options.throttle ?? UNTHROTTLED;
   const config = loadConfig({
     ...process.env,
     ...(options.uploadMaxBytes === undefined
@@ -96,12 +108,18 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   }
   const moduleRef = await builder
     .overrideProvider(getOptionsToken())
-    // The catalogue throttle rides along effectively unlimited unless a test asks for it: the e2e
-    // suites create catalogue rows far faster than any person would (SEC-56).
-    .useValue([
-      { name: 'auth', ...throttle },
-      { name: 'catalogue', ...(options.catalogueThrottle ?? { ttl: 60_000, limit: 100_000 }) },
-    ])
+    // Every budget rides along effectively unlimited unless a test asks for it: the e2e suites
+    // create catalogue rows, search and change passwords far faster than any person would. The
+    // shape is the production one (docs/08 §8.4), so the per-caller tracker and the bounded storage
+    // are the ones under test as well.
+    .useValue(
+      throttlerOptions({
+        auth: throttle,
+        catalogue: options.catalogueThrottle ?? UNTHROTTLED,
+        password: options.passwordThrottle ?? UNTHROTTLED,
+        search: options.searchThrottle ?? UNTHROTTLED,
+      }),
+    )
     .compile();
 
   const server = express();

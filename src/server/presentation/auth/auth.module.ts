@@ -16,6 +16,7 @@ import { SecurityEvents } from '../../application/ports/security-events';
 import { SessionTokens } from '../../application/ports/session-tokens';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { VerificationCodes } from '../../application/ports/verification-codes';
+import { ApiTokenRepository } from '../../domain/repositories/api-token.repository';
 import { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
 import { SessionRepository } from '../../domain/repositories/session.repository';
@@ -117,11 +118,21 @@ import { sessionGuardProviders } from './session-guard.providers';
       provide: VerifyEmailCode,
       useFactory: (
         verifications: EmailVerificationRepository,
+        invites: UserInviteRepository,
+        resets: PasswordResetRepository,
         codes: VerificationCodes,
         tokens: SessionTokens,
         clock: Clock,
-      ): VerifyEmailCode => new VerifyEmailCode(verifications, codes, tokens, clock),
-      inject: [EmailVerificationRepository, VerificationCodes, SessionTokens, Clock],
+      ): VerifyEmailCode =>
+        new VerifyEmailCode(verifications, invites, resets, codes, tokens, clock),
+      inject: [
+        EmailVerificationRepository,
+        UserInviteRepository,
+        PasswordResetRepository,
+        VerificationCodes,
+        SessionTokens,
+        Clock,
+      ],
     },
     {
       provide: CompleteRegistration,
@@ -131,6 +142,7 @@ import { sessionGuardProviders } from './session-guard.providers';
         invites: UserInviteRepository,
         resets: PasswordResetRepository,
         sessions: SessionRepository,
+        apiTokens: ApiTokenRepository,
         hasher: PasswordHasher,
         tokens: SessionTokens,
         issueSession: IssueSession,
@@ -144,6 +156,7 @@ import { sessionGuardProviders } from './session-guard.providers';
           invites,
           resets,
           sessions,
+          apiTokens,
           hasher,
           tokens,
           issueSession,
@@ -157,6 +170,7 @@ import { sessionGuardProviders } from './session-guard.providers';
         UserInviteRepository,
         PasswordResetRepository,
         SessionRepository,
+        ApiTokenRepository,
         PasswordHasher,
         SessionTokens,
         IssueSession,

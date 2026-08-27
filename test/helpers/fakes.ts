@@ -2,6 +2,11 @@ import type { EmailVerification } from '../../src/server/domain/entities/email-v
 import type { Session } from '../../src/server/domain/entities/session';
 import type { User } from '../../src/server/domain/entities/user';
 import {
+  ApiTokenRepository,
+  type ApiToken,
+  type CreateApiTokenInput,
+} from '../../src/server/domain/repositories/api-token.repository';
+import {
   SessionRepository,
   type CreateSessionInput,
 } from '../../src/server/domain/repositories/session.repository';
@@ -523,5 +528,60 @@ export class InMemoryPasswordResetRepository extends PasswordResetRepository {
     this.resets.length = 0;
     this.resets.push(...kept);
     return Promise.resolve(before - kept.length);
+  }
+}
+
+export class InMemoryApiTokenRepository extends ApiTokenRepository {
+  readonly tokens: ApiToken[] = [];
+  private counter = 0;
+
+  constructor(private readonly clock: Clock = new FixedClock()) {
+    super();
+  }
+
+  create(input: CreateApiTokenInput): Promise<ApiToken> {
+    this.counter += 1;
+    const token: ApiToken = {
+      id: `api-token-${this.counter}`,
+      userId: input.userId,
+      name: input.name,
+      tokenHash: input.tokenHash,
+      expiresAt: input.expiresAt,
+      lastUsedAt: null,
+      revokedAt: null,
+      createdAt: this.clock.now(),
+    };
+    this.tokens.push(token);
+    return Promise.resolve(token);
+  }
+
+  findByTokenHash(tokenHash: string): Promise<ApiToken | null> {
+    return Promise.resolve(this.tokens.find((token) => token.tokenHash === tokenHash) ?? null);
+  }
+
+  findById(id: string): Promise<ApiToken | null> {
+    return Promise.resolve(this.tokens.find((token) => token.id === id) ?? null);
+  }
+
+  listForUser(userId: string): Promise<ApiToken[]> {
+    return Promise.resolve(this.tokens.filter((token) => token.userId === userId).reverse());
+  }
+
+  revoke(id: string, revokedAt: Date): Promise<void> {
+    const token = this.tokens.find((candidate) => candidate.id === id);
+    if (token !== undefined) token.revokedAt = revokedAt;
+    return Promise.resolve();
+  }
+
+  revokeAllForUser(userId: string, revokedAt: Date): Promise<number> {
+    const live = this.tokens.filter((token) => token.userId === userId && token.revokedAt === null);
+    live.forEach((token) => (token.revokedAt = revokedAt));
+    return Promise.resolve(live.length);
+  }
+
+  touch(id: string, lastUsedAt: Date): Promise<void> {
+    const token = this.tokens.find((candidate) => candidate.id === id);
+    if (token !== undefined) token.lastUsedAt = lastUsedAt;
+    return Promise.resolve();
   }
 }

@@ -287,7 +287,7 @@ describe('Registration and onboarding (e2e)', () => {
 
     const email = 'invited@legere.local';
     await start({ email, inviteToken });
-    const verified = await verify({ email, code: app.emails.lastCodeFor(email) });
+    const verified = await verify({ email, code: app.emails.lastCodeFor(email), inviteToken });
     const completed = await complete({
       ticket: expectData(verified, registerVerifyResponseSchema).ticket,
       password: 'a-decent-passphrase',
@@ -297,6 +297,55 @@ describe('Registration and onboarding (e2e)', () => {
     expect(expectData(completed, userDtoSchema).role).toBe('USER');
     const invite = await testPrisma().userInvite.findFirstOrThrow();
     expect(invite.acceptedAt).not.toBeNull();
+  });
+
+  // 🔒 SEC-57: knowing an address used to be enough to spend its five guesses and burn the series,
+  // so the person the letter went to was refused their own correct code. §8.4.1a's rule has a
+  // verification-code twin: a backoff may slow an attacker down and may never stand between an
+  // account and its own password (docs/08 §8.1.3 step 2).
+  it('lets the holder of an invite pass their code while a stranger burns guesses at it', async () => {
+    await onboardFirstAdmin('owner4@legere.local');
+    await clearEmailSeries();
+    const inviteToken = await createInvite();
+
+    const email = 'targeted@legere.local';
+    await start({ email, inviteToken });
+    const realCode = app.emails.lastCodeFor(email);
+    const wrongCode = realCode === '000000' ? '111111' : '000000';
+
+    // The stranger knows the address and nothing else. Nothing they send is worth an attempt.
+    for (let attempt = 1; attempt <= 8; attempt += 1) {
+      const res = await verify({ email, code: wrongCode });
+      expect(res.status).toBe(400);
+      expect(expectError(res).code).toBe('EMAIL_CODE_INVALID');
+    }
+    const series = await testPrisma().emailVerification.findFirstOrThrow({ where: { email } });
+    expect(series.attempts).toBe(0);
+
+    // The invited user, who holds the link, still gets in with the code from their inbox.
+    const verified = await verify({ email, code: realCode, inviteToken });
+    expect(verified.status).toBe(200);
+    expect(expectData(verified, registerVerifyResponseSchema).ticket).toBeTruthy();
+  });
+
+  // …and the cap the attempts exist to enforce still holds against the one caller who can spend it.
+  it('still burns an invite series after five wrong codes from the holder', async () => {
+    await onboardFirstAdmin('owner5@legere.local');
+    await clearEmailSeries();
+    const inviteToken = await createInvite();
+
+    const email = 'guessed@legere.local';
+    await start({ email, inviteToken });
+    const realCode = app.emails.lastCodeFor(email);
+    const wrongCode = realCode === '000000' ? '111111' : '000000';
+
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      expect((await verify({ email, code: wrongCode, inviteToken })).status).toBe(400);
+    }
+    const fifth = await verify({ email, code: wrongCode, inviteToken });
+    expect(fifth.status).toBe(429);
+    expect(expectError(fifth).code).toBe('EMAIL_CODE_TOO_MANY_ATTEMPTS');
+    expect(await testPrisma().emailVerification.count({ where: { email } })).toBe(0);
   });
 
   it('validates the request body against the contract schema', async () => {

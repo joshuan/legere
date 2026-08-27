@@ -2,72 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FakeSessionTokens,
   FixedClock,
+  InMemoryApiTokenRepository,
   InMemoryUserRepository,
   RecordingSecurityEvents,
 } from '../../../../test/helpers/fakes';
-import {
-  ApiTokenRepository,
-  type ApiToken,
-  type CreateApiTokenInput,
-} from '../../domain/repositories/api-token.repository';
 import { ForbiddenError, UnauthenticatedError } from '../../domain/errors/domain-error';
 import { CreateApiToken, ListApiTokens, RevokeApiToken } from '../users/manage-api-tokens';
 import { API_TOKEN_PREFIX, AuthenticateApiToken } from './authenticate-api-token';
-
-class InMemoryApiTokenRepository extends ApiTokenRepository {
-  readonly tokens: ApiToken[] = [];
-  private counter = 0;
-
-  constructor(private readonly clock: FixedClock) {
-    super();
-  }
-
-  create(input: CreateApiTokenInput): Promise<ApiToken> {
-    this.counter += 1;
-    const token: ApiToken = {
-      id: `api-token-${this.counter}`,
-      userId: input.userId,
-      name: input.name,
-      tokenHash: input.tokenHash,
-      expiresAt: input.expiresAt,
-      lastUsedAt: null,
-      revokedAt: null,
-      createdAt: this.clock.now(),
-    };
-    this.tokens.push(token);
-    return Promise.resolve(token);
-  }
-
-  findByTokenHash(tokenHash: string): Promise<ApiToken | null> {
-    return Promise.resolve(this.tokens.find((token) => token.tokenHash === tokenHash) ?? null);
-  }
-
-  findById(id: string): Promise<ApiToken | null> {
-    return Promise.resolve(this.tokens.find((token) => token.id === id) ?? null);
-  }
-
-  listForUser(userId: string): Promise<ApiToken[]> {
-    return Promise.resolve(this.tokens.filter((token) => token.userId === userId).reverse());
-  }
-
-  revoke(id: string, revokedAt: Date): Promise<void> {
-    const token = this.tokens.find((candidate) => candidate.id === id);
-    if (token !== undefined) token.revokedAt = revokedAt;
-    return Promise.resolve();
-  }
-
-  revokeAllForUser(userId: string, revokedAt: Date): Promise<number> {
-    const live = this.tokens.filter((token) => token.userId === userId && token.revokedAt === null);
-    live.forEach((token) => (token.revokedAt = revokedAt));
-    return Promise.resolve(live.length);
-  }
-
-  touch(id: string, lastUsedAt: Date): Promise<void> {
-    const token = this.tokens.find((candidate) => candidate.id === id);
-    if (token !== undefined) token.lastUsedAt = lastUsedAt;
-    return Promise.resolve();
-  }
-}
 
 // Read-only API tokens (docs/08 §8.2a).
 describe('API tokens', () => {

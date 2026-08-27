@@ -3,6 +3,7 @@ import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/co
 import {
   createApiTokenResponseSchema,
   createInviteResponseSchema,
+  createPasswordResetResponseSchema,
   listApiTokensResponseSchema,
   listUsersResponseSchema,
 } from '../../src/shared/contracts/users';
@@ -56,6 +57,7 @@ describe('API tokens (e2e)', () => {
     const token = expectData(created, createInviteResponseSchema).url.split('/').pop() ?? '';
     await api(app).post('/api/auth/register/start', { email, inviteToken: token });
     const verified = await api(app).post('/api/auth/register/verify', {
+      inviteToken: token,
       email,
       code: app.emails.lastCodeFor(email),
     });
@@ -184,6 +186,47 @@ describe('API tokens (e2e)', () => {
       .set('Authorization', `Bearer ${userToken}`)
       .expect(401);
     expect(expectError(afterBlock).code).toBe('UNAUTHENTICATED');
+  });
+
+  // 🔒 SEC-65: the product's one remediation has to remediate. A stranger who held a session for a
+  // minute could mint one of these, good for up to a year, and the documented recovery — an
+  // admin-issued reset link, completed by its owner — used to end every session, change the
+  // password and leave that credential reading the archive (docs/08 §8.1.6).
+  it('does not survive the password reset an admin issued to take the account back', async () => {
+    const email = `compromised${seq}@legere.local`;
+    const userCookie = await inviteUser(email);
+    const stolen = await issue(userCookie, 'sync');
+    await api(app).get('/api/me').set('Authorization', `Bearer ${stolen}`).expect(200);
+
+    const users = await api(app).get('/api/admin/users').set('Cookie', adminCookie);
+    const target = expectData(users, listUsersResponseSchema).items.find(
+      (item) => item.email === email,
+    );
+    const created = await api(app)
+      .post(`/api/admin/users/${target?.id ?? ''}/password-reset`)
+      .set('Cookie', adminCookie)
+      .expect(201);
+    const resetToken = expectData(created, createPasswordResetResponseSchema).url.split('/').pop();
+
+    app.emails.reset();
+    await api(app).post('/api/auth/register/start', { email, resetToken });
+    const verified = await api(app).post('/api/auth/register/verify', {
+      email,
+      code: app.emails.lastCodeFor(email),
+      resetToken,
+    });
+    await api(app)
+      .post('/api/auth/register/complete', {
+        ticket: expectData(verified, registerVerifyResponseSchema).ticket,
+        password: 'a-brand-new-passphrase',
+      })
+      .expect(200);
+
+    const afterReset = await api(app)
+      .get('/api/me')
+      .set('Authorization', `Bearer ${stolen}`)
+      .expect(401);
+    expect(expectError(afterReset).code).toBe('UNAUTHENTICATED');
   });
 
   it('will not surface or revoke somebody else token', async () => {

@@ -56,6 +56,7 @@ describe('Account: password and sessions (e2e)', () => {
     const token = expectData(created, createInviteResponseSchema).url.split('/').pop() ?? '';
     await api(app).post('/api/auth/register/start', { email, inviteToken: token });
     const verified = await api(app).post('/api/auth/register/verify', {
+      inviteToken: token,
       email,
       code: app.emails.lastCodeFor(email),
     });
@@ -136,6 +137,51 @@ describe('Account: password and sessions (e2e)', () => {
         .post('/api/me/password', { currentPassword: PASSWORD, newPassword: NEXT_PASSWORD })
         .expect(401);
       expect(expectError(refused).code).toBe('UNAUTHENTICATED');
+    });
+
+    // 🔒 SEC-54. The route verifies an Argon2 hash before it can fail, and that verification queues
+    // at the one concurrency gate of two that login shares. Unbudgeted, one signed-in account could
+    // fill that queue from a route no throttler covered and nobody on the instance could sign in
+    // (docs/08 §8.4). The count is the latency claim, stated without a clock: exactly `limit`
+    // verifications are ever handed to the gate, whatever the caller sends.
+    it('refuses a replay past its budget without letting it reach the hasher, and login is unmoved', async () => {
+      const throttled = await createTestApp({ passwordThrottle: { ttl: 60_000, limit: 3 } });
+      try {
+        const email = `flood${seq}@legere.local`;
+        await api(throttled).post('/api/auth/register/start', { email });
+        const verified = await api(throttled).post('/api/auth/register/verify', {
+          email,
+          code: throttled.emails.lastCodeFor(email),
+        });
+        await api(throttled).post('/api/auth/register/complete', {
+          ticket: expectData(verified, registerVerifyResponseSchema).ticket,
+          password: PASSWORD,
+        });
+        const cookie = cookieNamed(
+          await api(throttled).post('/api/auth/login', { email, password: PASSWORD }).expect(200),
+          'sid',
+        );
+
+        const statuses: number[] = [];
+        for (let attempt = 1; attempt <= 10; attempt += 1) {
+          const res = await api(throttled)
+            .post('/api/me/password', {
+              currentPassword: 'not-the-password',
+              newPassword: NEXT_PASSWORD,
+            })
+            .set('Cookie', cookie ?? '');
+          statuses.push(res.status);
+        }
+
+        // Three reached the hasher and were refused on the merits; the other seven never got there.
+        expect(statuses.filter((status) => status === 401)).toHaveLength(3);
+        expect(statuses.filter((status) => status === 429)).toHaveLength(7);
+
+        // And signing in is exactly as available as it was before the replay started.
+        await api(throttled).post('/api/auth/login', { email, password: PASSWORD }).expect(200);
+      } finally {
+        await throttled.close();
+      }
     });
   });
 

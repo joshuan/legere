@@ -64,6 +64,7 @@ describe('Invites and password resets (e2e)', () => {
   async function acceptInvite(token: string, email: string) {
     await api(app).post('/api/auth/register/start', { email, inviteToken: token });
     const verified = await api(app).post('/api/auth/register/verify', {
+      inviteToken: token,
       email,
       code: app.emails.lastCodeFor(email),
     });
@@ -79,6 +80,7 @@ describe('Invites and password resets (e2e)', () => {
   async function ticketForInvite(token: string, email: string): Promise<string> {
     await api(app).post('/api/auth/register/start', { email, inviteToken: token });
     const verified = await api(app).post('/api/auth/register/verify', {
+      inviteToken: token,
       email,
       code: app.emails.lastCodeFor(email),
     });
@@ -328,6 +330,7 @@ describe('Invites and password resets (e2e)', () => {
       const verified = await api(app).post('/api/auth/register/verify', {
         email,
         code: app.emails.lastCodeFor(email),
+        resetToken: tokenFrom(reset.url),
       });
       const completed = await api(app).post('/api/auth/register/complete', {
         ticket: expectData(verified, registerVerifyResponseSchema).ticket,
@@ -369,6 +372,7 @@ describe('Invites and password resets (e2e)', () => {
     async function ticketForReset(token: string, email: string): Promise<string> {
       await api(app).post('/api/auth/register/start', { email, resetToken: token });
       const verified = await api(app).post('/api/auth/register/verify', {
+        resetToken: token,
         email,
         code: app.emails.lastCodeFor(email),
       });

@@ -1,11 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
 import { searchResponseSchema } from '../../src/shared/contracts/search';
-import { createInviteResponseSchema } from '../../src/shared/contracts/users';
+import {
+  createApiTokenResponseSchema,
+  createInviteResponseSchema,
+} from '../../src/shared/contracts/users';
 import { api, createTestApp, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, embeddingOf, testPrisma, truncateAll } from '../helpers/db';
 import { seedDocument } from '../helpers/documents';
-import { cookieNamed, expectData } from '../helpers/http';
+import { cookieNamed, expectData, expectError } from '../helpers/http';
 
 const PASSWORD = 'a-decent-passphrase';
 
@@ -55,6 +58,7 @@ describe('Search (e2e)', () => {
 
     await api(app).post('/api/auth/register/start', { email, inviteToken: token });
     const verified = await api(app).post('/api/auth/register/verify', {
+      inviteToken: token,
       email,
       code: app.emails.lastCodeFor(email),
     });
@@ -587,5 +591,65 @@ describe('Search (e2e)', () => {
 
   it('refuses an anonymous caller', async () => {
     expect((await api(app).get('/api/search?q=anything')).status).toBe(401);
+  });
+
+  // 🔒 SEC-74: search is the one read a signed-in caller can repeat at will, and every non-text one
+  // spends an outbound embeddings call on the operator's provider and a turn at the pipeline's own
+  // embeddings gate. The budget is counted against the caller, not their address (docs/08 §8.4).
+  describe('the search budget', () => {
+    // Sessions live in the database, so a cookie minted through the suite's app authenticates just
+    // as well against a second one raised over it — which is how these two get a signed-in caller
+    // without onboarding twice.
+    it('refuses one caller past their budget and leaves everybody else searching', async () => {
+      const other = await inviteUser(`budgetuser${seq}@legere.local`);
+      const throttled = await createTestApp({ searchThrottle: { ttl: 60_000, limit: 2 } });
+      try {
+        for (let query = 1; query <= 2; query += 1) {
+          await api(throttled).get('/api/search?q=anything').set('Cookie', adminCookie).expect(200);
+        }
+        const refused = await api(throttled)
+          .get('/api/search?q=anything')
+          .set('Cookie', adminCookie)
+          .expect(429);
+        expect(expectError(refused).code).toBe('RATE_LIMITED');
+
+        // The second account arrives from the same address and has a budget of its own.
+        await api(throttled).get('/api/search?q=anything').set('Cookie', other.cookie).expect(200);
+      } finally {
+        await throttled.close();
+      }
+    });
+
+    // The MCP tool is the same search under another protocol, so it draws on the same budget
+    // (docs/07 §7.3a) — and a 429 there is an HTTP failure, not a JSON-RPC one.
+    it('is shared with the MCP route the assistant searches through', async () => {
+      const created = await api(app)
+        .post('/api/me/api-tokens', { name: 'an assistant' })
+        .set('Cookie', adminCookie)
+        .expect(201);
+      const token = expectData(created, createApiTokenResponseSchema).token;
+
+      const throttled = await createTestApp({ searchThrottle: { ttl: 60_000, limit: 2 } });
+      try {
+        await api(throttled).get('/api/search?q=anything').set('Cookie', adminCookie).expect(200);
+        await api(throttled)
+          .post('/api/mcp', { jsonrpc: '2.0', id: 1, method: 'ping' })
+          .set('Authorization', `Bearer ${token}`)
+          .expect(200);
+
+        const refused = await api(throttled)
+          .post('/api/mcp', {
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'tools/call',
+            params: { name: 'search_documents', arguments: { query: 'anything' } },
+          })
+          .set('Authorization', `Bearer ${token}`)
+          .expect(429);
+        expect(expectError(refused).code).toBe('RATE_LIMITED');
+      } finally {
+        await throttled.close();
+      }
+    });
   });
 });

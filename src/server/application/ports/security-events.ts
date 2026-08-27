@@ -66,6 +66,8 @@ export type SecurityEventDetail = {
   fromRole?: UserRole;
   // How many sessions an action ended.
   sessions?: number;
+  // How many API tokens it ended with them — a recovery takes both (docs/08 §8.1.6, SEC-65).
+  apiTokens?: number;
 };
 
 export type SecurityEvent = {

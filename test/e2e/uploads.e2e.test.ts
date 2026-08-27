@@ -62,6 +62,7 @@ describe('Uploads (e2e)', () => {
     const token = expectData(created, createInviteResponseSchema).url.split('/').pop() ?? '';
     await api(app).post('/api/auth/register/start', { email, inviteToken: token });
     const verified = await api(app).post('/api/auth/register/verify', {
+      inviteToken: token,
       email,
       code: app.emails.lastCodeFor(email),
     });

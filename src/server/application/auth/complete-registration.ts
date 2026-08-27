@@ -3,6 +3,7 @@ import type { Language } from '../../../shared/contracts/enums';
 import { isTicketUsable } from '../../domain/entities/email-verification';
 import { defaultDisplayName, isUserActive, type User } from '../../domain/entities/user';
 import { AuthFlowError, ConflictError } from '../../domain/errors/domain-error';
+import type { ApiTokenRepository } from '../../domain/repositories/api-token.repository';
 import type { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import {
   isPasswordResetValid,
@@ -48,6 +49,7 @@ export class CompleteRegistration {
     private readonly invites: UserInviteRepository,
     private readonly passwordResets: PasswordResetRepository,
     private readonly sessions: SessionRepository,
+    private readonly apiTokens: ApiTokenRepository,
     private readonly hasher: PasswordHasher,
     private readonly tokens: SessionTokens,
     private readonly issueSession: IssueSession,
@@ -167,6 +169,13 @@ export class CompleteRegistration {
   // Reset series: the password changes and every existing session dies (docs/08 §8.1.6). The new
   // session issued below is deliberately created after the revocation, so the user stays signed in
   // on this device only.
+  //
+  // 🔒 And every API token dies with them. An admin issues a reset link for one reason — somebody
+  // believes the account is in somebody else's hands — and a stranger who held a session for a
+  // minute could have minted a read-only token from it, good for up to a year and invisible to the
+  // admin, which the documented remediation then left reading the archive (docs/08 §8.1.6, §8.2a,
+  // SEC-65). The self-service rotation of §8.1.6a deliberately keeps them: that is housekeeping,
+  // this is recovery.
   private async resetPassword(
     passwordResetId: string | null,
     passwordHash: string,
@@ -198,13 +207,14 @@ export class CompleteRegistration {
 
     const user = await this.users.update(reset.userId, { passwordHash }, tx);
     const sessions = await this.sessions.revokeAllForUser(user.id, now, tx);
+    const apiTokens = await this.apiTokens.revokeAllForUser(user.id, now, tx);
     return {
       user,
       event: {
         event: 'password_reset.completed',
         actor: { userId: user.id },
         target: { userId: user.id, id: reset.id },
-        detail: { sessions },
+        detail: { sessions, apiTokens },
       },
     };
   }

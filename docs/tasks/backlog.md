@@ -1249,12 +1249,12 @@ probes survived refutation, which is a better yield than the reviews themselves 
   **Docs:** [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`03 §3.3.19`](../03-domain-model.md)
   **Acceptance:** closes [SEC-55](./security-audit-2026-08-second-pass.md#sec-55). Subject notes and catalogue names reach the model as **data**, not as part of the system message — the two-channel design [SEC-11](./security-audit-2026-08.md#sec-11)'s fix rests on is restored for the catalogue as it already is for the document — and the kind list is capped like the subject list beside it. Tests: a subject note containing an instruction does not change the analysis of an unrelated document; the system message is bounded whatever the catalogue holds.
 
-- [ ] **M47.6 — An address cannot be denied its own recovery**
+- [x] **M47.6 — An address cannot be denied its own recovery**
   **Goal:** a stranger cannot spend somebody else's verification attempts.
   **Docs:** [`08 §8.1.3`](../08-auth-and-authorization.md#813-the-three-account-setup-steps-shared-by-onboarding-invites-and-password-resets), [`08 §8.4.1a`](../08-auth-and-authorization.md#841a-the-login-backoff-and-what-it-may-never-do)
   **Acceptance:** closes [SEC-57](./security-audit-2026-08-second-pass.md#sec-57). §8.4.1a's principle — a backoff may slow an attacker down and may never stand between an account and its own password — gets its verification-code twin: an attempt is charged only to a caller who proves they hold the link the series was created from, or the cap is per-(series, IP) with a larger per-series ceiling, or exhaustion re-issues rather than deletes. Tests: five wrong codes from a stranger do not stop the holder's correct code; the brute-force cap the attempts exist to enforce still holds.
 
-- [ ] **M47.7 — The login queue is not a user's to fill**
+- [x] **M47.7 — The login queue is not a user's to fill**
   **Goal:** one signed-in account cannot deny login to everybody.
   **Docs:** [`08 §8.4`](../08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)
   **Acceptance:** closes [SEC-54](./security-audit-2026-08-second-pass.md#sec-54). `POST /api/me/password` is throttled before it reaches the Argon2 concurrency gate, so the gate serves logins rather than a user's replay. Tests: sustained password-change requests from one account leave login latency unchanged.
@@ -1269,7 +1269,7 @@ probes survived refutation, which is a better yield than the reviews themselves 
   **Docs:** [`10 §10.x`](../10-frontend-architecture.md), [`12 §12.8`](../12-build-config-run.md#128-production-notes)
   **Acceptance:** closes [SEC-66](./security-audit-2026-08-second-pass.md#sec-66), [SEC-68](./security-audit-2026-08-second-pass.md#sec-68), [SEC-77](./security-audit-2026-08-second-pass.md#sec-77), [SEC-89](./security-audit-2026-08-second-pass.md#sec-89). The CSP gains the directives a one-directive policy is missing — `img-src` at minimum, so a document's Markdown cannot beacon to the uploader's host; ending your own last session clears the query cache exactly as Sign out does; and the Turnstile widget either mints a token on the client or the CAPTCHA claim leaves §8.4 and §8.6 — an empty div is the worst of both, since enabling the secret key today locks everyone out. The follow-up task `docs/12 §12.8a` says is tracked gets written or the sentence goes.
 
-- [ ] **M47.10 — A revocation revokes everything**
+- [x] **M47.10 — A revocation revokes everything**
   **Goal:** the product's one remediation actually remediates.
   **Docs:** [`08 §8.2a`](../08-auth-and-authorization.md#82a-api-tokens-read-only), [`08 §8.1.6`](../08-auth-and-authorization.md#816-password-reset-admin-initiated)
   **Acceptance:** closes [SEC-65](./security-audit-2026-08-second-pass.md#sec-65). An admin-issued password reset revokes the account's API tokens along with its sessions, or the admin screen says plainly that it does not and offers the second button. Tests: a token minted before a reset does not answer after it.
@@ -1299,7 +1299,7 @@ probes survived refutation, which is a better yield than the reviews themselves 
   **Docs:** [`05 §5.6`](../05-library-and-processing.md), [`03 §3.4`](../03-domain-model.md)
   **Acceptance:** closes [SEC-60](./security-audit-2026-08-second-pass.md#sec-60), [SEC-67](./security-audit-2026-08-second-pass.md#sec-67). Replacing the only library file of a library document flips its derived origin to `MANAGED`, and since such a document has `createdById = null` it then satisfies no branch of the access rule — it vanishes for every non-admin, and the route says so by answering 404 *after* committing. `docs/05 §5.6` promises the opposite ("nothing else about the document changes"), so either the promise or the behaviour moves. Documents absorbed by combine are likewise unreachable by every API including the admin's hard delete while keeping their S3 artifacts. Tests: a replacement never changes who may read the document; `reload` throwing on a committed write is treated as the assertion it accidentally is.
 
-- [ ] **M47.16 — Throttle state is bounded, and one client's burst is not everyone's**
+- [x] **M47.16 — Throttle state is bounded, and one client's burst is not everyone's**
   **Goal:** the rate limiter cannot be turned into either a memory leak or a shared penalty.
   **Docs:** [`08 §8.4`](../08-auth-and-authorization.md#84-csrf-rate-limiting-captcha), [`08 §8.4.1b`](../08-auth-and-authorization.md#841b-what-the-throttles-forget-when-the-process-restarts)
   **Acceptance:** closes [SEC-70](./security-audit-2026-08-second-pass.md#sec-70), [SEC-73](./security-audit-2026-08-second-pass.md#sec-73), [SEC-74](./security-audit-2026-08-second-pass.md#sec-74). `InMemoryLoginAttempts.streaks` is swept or capped rather than growing forever on attacker-chosen 254-character addresses; a throttled IP stops cancelling every other client's decay timers, so the documented 20-per-60s window slides for everybody; and semantic search and the MCP `search_documents` tool are limited, since each spends an outbound embeddings call and shares the pipeline's gate.

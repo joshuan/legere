@@ -80,10 +80,15 @@ export type RegisterStartRequest = z.infer<typeof registerStartRequestSchema>;
 export const registerStartResponseSchema = z.object({ expiresAt: z.string().datetime() });
 export type RegisterStartResponse = z.infer<typeof registerStartResponseSchema>;
 
-// POST /api/auth/register/verify
+// POST /api/auth/register/verify — the same link token step 1 accepted, echoed back. 🔒 An attempt
+// is charged only to a caller who proves they hold the link the series was made from, so a stranger
+// who knows only an address cannot spend somebody else's five guesses (docs/08 §8.1.3 step 2,
+// SEC-57). Optional in the schema because the onboarding series is started with no link at all.
 export const registerVerifyRequestSchema = z.object({
   email: emailSchema,
   code: emailCodeSchema,
+  inviteToken: opaqueTokenSchema.optional(),
+  resetToken: opaqueTokenSchema.optional(),
 });
 export type RegisterVerifyRequest = z.infer<typeof registerVerifyRequestSchema>;
 

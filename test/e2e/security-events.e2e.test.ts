@@ -150,7 +150,11 @@ describe('Security events (e2e)', () => {
     await api(app).post('/api/auth/register/start', { email: MEMBER, inviteToken });
     const code = app.emails.lastCodeFor(MEMBER);
     credentials.push(code);
-    const verified = await api(app).post('/api/auth/register/verify', { email: MEMBER, code });
+    const verified = await api(app).post('/api/auth/register/verify', {
+      inviteToken,
+      email: MEMBER,
+      code,
+    });
     const ticket = expectData(verified, registerVerifyResponseSchema).ticket;
     credentials.push(ticket);
     const completed = await api(app).post('/api/auth/register/complete', {
@@ -244,7 +248,11 @@ describe('Security events (e2e)', () => {
     await api(app).post('/api/auth/register/start', { email: MEMBER, resetToken });
     const code = app.emails.lastCodeFor(MEMBER);
     credentials.push(code);
-    const verified = await api(app).post('/api/auth/register/verify', { email: MEMBER, code });
+    const verified = await api(app).post('/api/auth/register/verify', {
+      resetToken,
+      email: MEMBER,
+      code,
+    });
     const ticket = expectData(verified, registerVerifyResponseSchema).ticket;
     credentials.push(ticket);
     const completed = await api(app).post('/api/auth/register/complete', {

@@ -20,6 +20,7 @@ import { SubjectsModule } from './presentation/subjects/subjects.module';
 import { CollectionsModule } from './presentation/collections/collections.module';
 import { DocumentsModule } from './presentation/documents/documents.module';
 import { DomainExceptionFilter } from './presentation/http/domain-exception.filter';
+import { throttlerOptions } from './presentation/http/throttling';
 import { HealthModule } from './presentation/health/health.module';
 import { InstanceModule } from './presentation/instance/instance.module';
 import { JobsModule } from './presentation/jobs/jobs.module';
@@ -38,14 +39,10 @@ import { UsersModule } from './presentation/users/users.module';
       inject: [AppConfig],
       useFactory: buildLoggerOptions,
     }),
-    // Per-IP rate limiting (docs/06 §6.4, docs/08 §8.4). The guard is applied per route rather than
-    // globally, so it covers /api/auth/* and /api/invites/* without throttling the health probe.
-    ThrottlerModule.forRoot([
-      { name: 'auth', ttl: 60_000, limit: 20 },
-      // 🔒 The open catalogue creates (SEC-56): fast enough for a person correcting an archive,
-      // far too slow to fill a shared namespace by script.
-      { name: 'catalogue', ttl: 60_000, limit: 30 },
-    ]),
+    // Rate limiting (docs/06 §6.4, docs/08 §8.4): four named budgets, each asked for by name with
+    // `@Throttled(...)` rather than applied globally, so nothing throttles the health probe. The
+    // budgets, the per-caller tracker and the bounded storage all live in one module.
+    ThrottlerModule.forRoot(throttlerOptions()),
     LoggingModule,
     PersistenceModule,
     AuthInfrastructureModule,
