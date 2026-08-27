@@ -44,9 +44,22 @@ export abstract class DocumentTypeRepository {
     tx?: TransactionHandle,
   ): Promise<DocumentType>;
 
-  // Soft delete (ADR-015). The documents that carried it are reset to NONE in the same
-  // transaction — an application-level cascade (docs/03 §3.3.12).
+  // Soft delete (ADR-015). The documents that carried it are reset to NONE first — an
+  // application-level cascade, run in bounded batches rather than in one transaction with this
+  // (docs/03 §3.3.12, docs/07 §7.3).
   abstract softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void>;
 
-  abstract clearCategoryFromDocuments(typeId: string, tx?: TransactionHandle): Promise<number>;
+  // 🔒 At most `limit` documents, and the count of the ones it actually cleared, so the caller can
+  // keep going until there are none left. Bounded because the size of this cascade is decided by how
+  // many documents ordinary users happened to file under one type: each row carries a `type_id`
+  // btree, so the update cannot be HOT and writes a new tuple into every index of the row —
+  // including the GIN over the whole of its Markdown. Past a few thousand of them, one `updateMany`
+  // inside Prisma's default five-second interactive transaction times out with `P2028`, which is
+  // neither a `DomainError` nor an `HttpException`: the admin gets `500 INTERNAL`, the type cannot
+  // be deleted at all, and docs/07 §7.3 says it can.
+  abstract clearTypeFromDocuments(
+    typeId: string,
+    limit: number,
+    tx?: TransactionHandle,
+  ): Promise<number>;
 }

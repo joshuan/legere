@@ -17,7 +17,7 @@ import type {
 } from '../../domain/repositories/file.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { LibraryRepository } from '../../domain/repositories/library.repository';
-import { toBuffer, type BinarySource } from '../ports/binary-source';
+import { MAX_BINARY_BYTES, toBuffer, type BinarySource } from '../ports/binary-source';
 import type { FileStorage } from '../ports/file-storage';
 import type { ImageTool } from '../ports/image-tool';
 import type { LibraryReader } from '../ports/library-reader';
@@ -71,6 +71,19 @@ type Run = { file: File; opened: OpenedFile; pages: DocumentPage[] };
 // the recognizer reads best at, and a page arriving here is about to be recognised (docs/05 §5.5).
 const CROPPED_PAGE_DPI = 300;
 
+// 🔒 What every part of one document may weigh, added up (docs/05 §5.4a). `MAX_BINARY_BYTES` bounds
+// one file and one answer; nothing bounded the *sum*, and this step holds every converted part at
+// once — `inBatches` decides how many convert in parallel and nothing decides how many are retained,
+// so the peak was a document's file count times whatever each of them weighed. Eighteen PDFs near
+// `UPLOAD_MAX_BYTES` is ~1.8 GB of parts held before `mergePdfs` is even called, against a container
+// given 2 GB (docs/12 §12.7), in the process that is also the HTTP surface (ADR-002).
+//
+// The same 256 MiB, because it is the same bound one level up: the merge hands the parts to Stirling
+// and reads the answer back under `MAX_BINARY_BYTES`, so a document whose parts weigh more than this
+// could never have produced a canonical anyway. What changes is where it finds out — before 1.8 GB
+// is allocated instead of after.
+const MAX_PARTS_BYTES = MAX_BINARY_BYTES;
+
 export class BuildCanonical {
   constructor(
     private readonly files: FileRepository,
@@ -93,6 +106,10 @@ export class BuildCanonical {
     // takes effect on the next document, with no worker to re-register (docs/11 §11.13).
     const { unitConcurrency } = await this.queueSettings.read();
     const distinct = distinctFilesOf(held);
+    // 🔒 Asked of the sizes already written down, before a single file is opened — the same order
+    // `HandleFileIngest` refuses an oversized file in, and for the same reason: a bound that fires
+    // after the bytes are in memory is not a bound (docs/05 §5.4a).
+    refuseOversizedDocument(distinct);
     const openedList = await inBatches(distinct, unitConcurrency, (file) => this.open(file));
     const opened = new Map(distinct.map((file, index) => [file.id, openedList[index]]));
 
@@ -101,7 +118,11 @@ export class BuildCanonical {
     const pages = await this.expand(document.id, held, opened);
 
     const runs = runsOf(pages, opened);
-    const parts = await inBatches(runs, unitConcurrency, (run) => this.partOf(run));
+    // And again on the way out, because a conversion decides its own size: an office document is a
+    // few kilobytes of XML and a hundred megabytes of PDF, so the sum of the sources is a floor on
+    // what the parts weigh rather than a ceiling (docs/05 §5.4a). Counted as each batch lands, so
+    // the refusal costs the batch that crossed the line and never the whole document's worth.
+    const parts = await inBatches(runs, unitConcurrency, (run) => this.partOf(run), weighParts);
     const built = parts.filter((part): part is Part => part !== null);
     if (built.length === 0) return { kind: 'nothingToBuild', unsupported };
 
@@ -426,16 +447,46 @@ function pageNameOf(position: number, rewritten: boolean, ext: string): string {
   return `page-${at}.${ext === '' ? 'jpg' : ext}`;
 }
 
+// The sizes the archive already recorded, added up (docs/05 §5.4a). A `sizeBytes` is written when a
+// file is ingested or uploaded and is the only thing here that can be known without opening
+// anything, which is exactly what makes it worth asking first.
+function refuseOversizedDocument(files: readonly File[]): void {
+  const total = files.reduce((sum, file) => sum + file.sizeBytes, 0n);
+  if (total > BigInt(MAX_PARTS_BYTES)) {
+    throw new Error(
+      `This document's ${files.length} files weigh ${total} bytes, past the ${MAX_PARTS_BYTES} ` +
+        `bytes one canonical build may hold`,
+    );
+  }
+}
+
+// What the parts held so far weigh, refused past the budget. Given to `inBatches` as its watcher, so
+// the count is taken once per batch rather than threaded through every caller.
+function weighParts(parts: readonly (Part | null)[]): void {
+  const total = parts.reduce((sum, part) => sum + (part?.pdf.byteLength ?? 0), 0);
+  if (total > MAX_PARTS_BYTES) {
+    throw new Error(
+      `The pages of this document convert to ${total} bytes, past the ${MAX_PARTS_BYTES} bytes ` +
+        `one canonical build may hold`,
+    );
+  }
+}
+
 // `size` at a time, in order, results in the order they went in. Written here rather than reached
 // for from a library: it is six lines, and the alternative is a dependency for six lines.
+//
+// `watch` sees everything accumulated so far after each batch — which is what lets a bound on the
+// *sum* fire while the sum is still small enough to be survivable (docs/05 §5.4a).
 async function inBatches<T, R>(
   items: readonly T[],
   size: number,
   work: (item: T) => Promise<R>,
+  watch?: (results: readonly R[]) => void,
 ): Promise<R[]> {
   const results: R[] = [];
   for (let index = 0; index < items.length; index += Math.max(1, size)) {
     results.push(...(await Promise.all(items.slice(index, index + Math.max(1, size)).map(work))));
+    watch?.(results);
   }
   return results;
 }

@@ -501,6 +501,31 @@ describe('SharpImageTool', () => {
       ).rejects.toThrow(/pixel limit/);
     });
 
+    // 🔒 And the budget binds what a crop *writes*, not only what it reads (docs/05 §5.4a). The
+    // perspective warp is plain arithmetic over a raw buffer and consults no image library's limit,
+    // so the size of what it allocates came from the quad: this one asks for 4.7× a picture already
+    // at the budget. Refused in milliseconds, with nothing allocated and the process still here.
+    it('refuses a crop asking for several times the picture, without allocating it', async () => {
+      const wide = await sharp({
+        create: { width: 8000, height: 1600, channels: 3, background: '#ffffff' },
+      })
+        .png({ compressionLevel: 1 })
+        .toBuffer();
+
+      const startedAt = Date.now();
+      await expect(
+        images.applyCrop(wide, {
+          points: [
+            [1, 1],
+            [0.08, 0.907],
+            [0.077, 0.904],
+            [0, 0],
+          ],
+        }),
+      ).rejects.toThrow(/more of a page than the page holds/);
+      expect(Date.now() - startedAt).toBeLessThan(5000);
+    });
+
     it('still processes the largest scan a document archive actually produces', async () => {
       // An A3 sheet at 600 dpi is 69.7 Mpx, which is the worst legitimate case and sits under the
       // budget: the guard has to refuse bombs without refusing scanners.

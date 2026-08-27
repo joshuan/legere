@@ -192,6 +192,9 @@ export class SharpImageTool extends ImageTool {
   // The quadrilateral as a perspective transform over raw pixels: sharp decodes and encodes, the
   // geometry is the domain's (docs/05 §5.6).
   async applyCrop(source: BinarySource, crop: Crop): Promise<Buffer> {
+    // 🔒 The decode is bounded by `MAX_INPUT_PIXELS` like every other pipeline in this file, and
+    // since `planCrop` will not plan an output larger than its input, that one number now bounds
+    // both rasters a crop holds rather than only the first (docs/05 §5.4a).
     const decoded = await sharp(await toBuffer(source), INPUT)
       .rotate()
       // Transparency has no meaning on a page of a PDF, and raw pixels with an alpha channel would
@@ -200,8 +203,12 @@ export class SharpImageTool extends ImageTool {
       .raw()
       .toBuffer({ resolveWithObject: true });
 
+    // 🔒 The decoded buffer itself, not a copy of it. A Buffer *is* a Uint8Array, the warp only
+    // reads its source, and at the top of the pixel budget the copy this used to make was another
+    // 240 MB held for the length of the resample — in the process that is also answering HTTP
+    // (ADR-002, docs/05 §5.4a).
     const raster = {
-      data: new Uint8Array(decoded.data),
+      data: decoded.data,
       width: decoded.info.width,
       height: decoded.info.height,
       channels: decoded.info.channels,
@@ -211,7 +218,9 @@ export class SharpImageTool extends ImageTool {
       planCrop(crop, { width: raster.width, height: raster.height }),
     );
 
-    return sharp(Buffer.from(warped.data), {
+    // And the same on the way out: a view over the bytes the warp just wrote rather than a second
+    // copy of them, the way `blobOf` re-views a scan instead of holding it twice.
+    return sharp(Buffer.from(warped.data.buffer, warped.data.byteOffset, warped.data.byteLength), {
       ...INPUT,
       raw: { width: warped.width, height: warped.height, channels: channelsOf(warped.channels) },
     })

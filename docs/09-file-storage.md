@@ -78,6 +78,25 @@ files/{fileId}/pages/{n}.jpg           # one page of that file's own original, s
   (`put` overwrites).
 - **Writes** always go app → S3 (`FileStorage.put`) with `Content-Type` set; multipart upload for
   bodies > 8 MiB (SDK `Upload` helper). No client-side uploads, no POST policies.
+- 🔒 **An upload's bytes are in the bucket before the transaction that enqueues the pipeline opens.**
+  The other order — commit the rows, then write the object — reads as the safe one and is not: the
+  job commits *with* the rows (§6.3.4), pg-boss polls every two seconds, and the run's first read is
+  the file it was just handed. `getStream` re-throws the SDK's `NoSuchKey` unchanged and no S3 error
+  is a `ServiceUnavailableError`, so the canonical was recorded `FAILED` with no retry
+  ([`05 §5.4e`](./05-library-and-processing.md#54e-an-outage-is-not-a-verdict)), every reader of that
+  document got `409 CANONICAL_NOT_READY`, and only an admin's reprocess undid it — a window as wide
+  as the upload takes to reach a non-local endpoint. Writing first costs the opposite and much
+  cheaper failure: bytes belonging to a transaction that rolled back are an orphan under
+  `files/{id}/`, which is precisely what the sweep of §9.5 exists to collect. **The file's id is
+  therefore minted by the application rather than by the database**, because the key contains it —
+  and the row must carry the same id, or the sweep would read the key, find no file with it, and
+  delete a live original an hour later.
+- **A request handler holds at most four whole files at once.** The upload bodies and the page-thumb
+  render each read a file into memory while a caller waits on a socket; the per-call cap says how
+  much one may weigh and nothing about how many may be in flight
+  ([`05 §5.4a`](./05-library-and-processing.md#54a-what-one-document-may-cost)). They queue in FIFO
+  order behind a bound sized to what the container can spare beside the pipeline, and a queue deeper
+  than 32 is answered `429` rather than held.
 - **Reads by clients** use presigned GET URLs, TTL `SIGNED_URL_TTL_SEC` (default 300 s), issued only
   by endpoints that already passed the document access check; the API responds `302 Location:
   <signed url>` so `<img src>`/`<object data>` work naturally with cookies on the same origin.

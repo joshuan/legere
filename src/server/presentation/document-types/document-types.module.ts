@@ -6,7 +6,6 @@ import {
   UpdateDocumentType,
 } from '../../application/document-types/manage-document-types';
 import { Clock } from '../../application/ports/clock';
-import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
 import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { AdminDocumentTypesController, DocumentTypesController } from './document-types.controller';
@@ -36,12 +35,9 @@ import { AdminDocumentTypesController, DocumentTypesController } from './documen
     },
     {
       provide: DeleteDocumentType,
-      useFactory: (
-        documentTypes: DocumentTypeRepository,
-        unitOfWork: UnitOfWork,
-        clock: Clock,
-      ): DeleteDocumentType => new DeleteDocumentType(documentTypes, unitOfWork, clock),
-      inject: [DocumentTypeRepository, UnitOfWork, Clock],
+      useFactory: (documentTypes: DocumentTypeRepository, clock: Clock): DeleteDocumentType =>
+        new DeleteDocumentType(documentTypes, clock),
+      inject: [DocumentTypeRepository, Clock],
     },
   ],
 })

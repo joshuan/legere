@@ -166,6 +166,24 @@ describe('QueueSettings', () => {
     expect(read.paused).toEqual([]);
   });
 
+  // 🔒 And a stored number is checked on the way **out**, not only on the way in (docs/05 §5.4b:
+  // "whatever the stored row holds is checked as it is read, and a value another version of this
+  // code left behind is not trusted"). The gates one level down already did this; the concurrencies
+  // did not, so a hand-edited row went straight to `boss.work` as the batch size — the `LIMIT` of
+  // the fetch and the width of the `Promise.all` over what it returns.
+  it('does not trust a stored concurrency outside the range it accepts', async () => {
+    await store.write(QUEUE_SETTINGS_KEY, {
+      concurrency: { 'document-process': 1_000_000, 'file-ingest': 0 },
+      unitConcurrency: 1_000_000,
+    });
+
+    const read = await settings.read();
+
+    expect(read.concurrency['document-process']).toBe(2);
+    expect(read.concurrency['file-ingest']).toBe(4);
+    expect(read.unitConcurrency).toBe(1);
+  });
+
   it('ignores a paused entry naming a queue this version does not have', async () => {
     await store.write(QUEUE_SETTINGS_KEY, { paused: ['thumbnails', 'file-ingest'] });
 

@@ -92,7 +92,7 @@ export function planCrop(crop: Crop, source: Size): CropPlan {
     throw new CropGeometryError('The crop is too small to be a page');
   }
 
-  const size = { width: Math.round(width), height: Math.round(height) };
+  const size = boundedSize(width, height, source);
   const unitToQuad = unitSquareToQuad(corners);
   // Output pixel coordinates are turned into unit-square ones on the way in, which is one matrix
   // multiplication by a scale — folded into the columns rather than done per pixel.
@@ -109,6 +109,48 @@ export function planCrop(crop: Crop, source: Size): CropPlan {
       unitToQuad[7] / size.height,
       unitToQuad[8],
     ],
+  };
+}
+
+// 🔒 The straightened page, never larger than the picture it was cut from (docs/05 §5.4a).
+//
+// The two sides above are each a *maximum* over a pair of opposite edges, and each of those edges
+// can approach the source's own diagonal independently — so the planned area is not tied to the
+// source area at all, and a convex quad that passes every check above can ask for several times it.
+// The decode budget (`MAX_INPUT_PIXELS`, 80 Mpx) therefore bound what a crop *read* and nothing at
+// all about what it wrote: the warp is plain arithmetic over a raw buffer and consults no image
+// library's limit. Verified against this function: a 20000×4000 source — 80.0 Mpx, exactly the
+// budget — with the quad `[[1,1],[0.08,0.907],[0.077,0.904],[0,0]]` plans 18404×20396 = 375.4 Mpx,
+// 4.7× the source, one allocation of 1074 MB inside the one process that also serves HTTP
+// (ADR-002), with the resample holding the event loop while it fills it.
+//
+// The bound is the picture's own pixel count, and it is a fact about resampling rather than a
+// policy: no interpolation invents detail, so a crop that asks for more pixels than the source holds
+// is asking for a bigger blurry copy of a smaller sharp one.
+const MAX_PLAN_RATIO = 1;
+
+// …and past this it is not a crop at all. An honest photograph of a page fills the frame and
+// keystones a little, which plans a fraction of a percent over the source: 0.25% for a top edge of
+// 0.8·W against a bottom edge of W. Nothing anybody drags around a sheet of paper asks for twice the
+// picture, so past that the quad is a mis-drag or a bomb, and saying so is better than silently
+// answering with a crop scaled to less than half of what was asked for.
+const MAX_PLAN_OVERSHOOT = 2;
+
+function boundedSize(width: number, height: number, source: Size): Size {
+  const budget = source.width * source.height * MAX_PLAN_RATIO;
+  const asked = width * height;
+  if (asked > budget * MAX_PLAN_OVERSHOOT) {
+    throw new CropGeometryError('The crop asks for more of a page than the page holds');
+  }
+  if (asked <= budget) {
+    return { width: Math.round(width), height: Math.round(height) };
+  }
+  // Down to whole pixels rather than to the nearest one: rounding a scaled side up puts the product
+  // back over the budget the scale was computed to meet, which would make the bound a suggestion.
+  const scale = Math.sqrt(budget / asked);
+  return {
+    width: Math.max(MIN_SIDE_PX, Math.floor(width * scale)),
+    height: Math.max(MIN_SIDE_PX, Math.floor(height * scale)),
   };
 }
 

@@ -22,13 +22,22 @@ describe('excludeGlobsSchema', () => {
     const result = excludeGlobsSchema.safeParse([bomb]);
 
     expect(result.success).toBe(false);
-    expect(result.error?.issues[0]?.message).toMatch(/wildcards/);
+    expect(result.error?.issues[0]?.message).toMatch(/pattern characters/);
   });
 
   it('refuses the bomb even when it hides among honest globs', () => {
     const result = excludeGlobsSchema.safeParse(['**/*.tmp', `${'b*'.repeat(12)}c`]);
 
     expect(result.success).toBe(false);
+  });
+
+  // 🔒 The form that sat inside the old allowance because it counted `*` and nothing else
+  // (docs/05 §5.4a): `?*` eight times is exactly eight asterisks, passed, and cost 149 ms against a
+  // thirty-four-character name, 2.6 s against sixty and 21 s against eighty. What drives the
+  // backtracking is how many variable-length pieces the pattern has, and `?` is one of them.
+  it('counts every pattern character, not only the asterisks', () => {
+    expect(excludeGlobsSchema.safeParse([`${'?*'.repeat(8)}z`]).success).toBe(false);
+    expect(excludeGlobsSchema.safeParse([`${'@(a|a)'.repeat(10)}z`]).success).toBe(false);
   });
 
   it('still bounds the length and the count', () => {

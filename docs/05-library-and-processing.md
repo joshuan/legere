@@ -208,16 +208,29 @@ document* decides how much work happens is bounded:
 | Bound | Value | What it is for |
 |---|---|---|
 | Pixels decoded out of one image | 80 Mpx | sharp's own limit is a ceiling on what libvips can address (~268 Mpx), not a budget. A 16383×16383 single-colour PNG is a few hundred KB — far under `UPLOAD_MAX_BYTES` — and decodes to ~805 MB of raw RGB, with the perspective warp of §5.6 allocating an output of the same order. 80 Mpx clears the worst legitimate case (an A3 sheet at 600 dpi is 69.7 Mpx) and refuses the rest |
+| Pixels a crop **writes**, against the picture it was cut from | never more, and refused past twice | The row above bounds what a crop reads and, until it was written down, nothing bounded what it wrote: the warp of §5.6 is arithmetic over a raw buffer, and its size comes from the quad rather than from the picture. Both sides of the planned rectangle are a maximum over a pair of opposite edges, and each of those can approach the source's own diagonal independently — measured, a 20000×4000 source (80.0 Mpx, exactly the budget above) with a convex quad that passes every other check plans 375.4 Mpx, one allocation of 1074 MB. A resample invents no detail, so more output pixels than the source holds is a bigger blurry copy of a smaller sharp one: over the source's own count the plan is scaled back to it, keeping the shape somebody dragged, and past twice it the quad is a mis-drag rather than a page and is refused. An honest keystoned photograph of a sheet plans a quarter of a percent over, which is why the first is a scale and not a refusal |
 | Bytes one step holds in memory | 256 MiB | The pipeline works on whole documents — hash it, convert it, upload it — so whatever it opens is a buffer for as long as the step runs. Deliberately above `UPLOAD_MAX_BYTES`: a file this instance accepted must still be processable |
+| Bytes **every part of one document** weighs, added up | the same 256 MiB, asked twice: of the sizes already recorded before a file is opened, and of the converted parts as each batch lands | The row above bounds one file; step 1 holds every converted part at once until the merge, and nothing bounded the sum — eighteen PDFs near `UPLOAD_MAX_BYTES` is ~1.8 GB held in a container given 2 GB ([`12 §12.7`](./12-build-config-run.md)). The same number because it is the same bound one level up: the merge reads its answer back under it, so a document whose parts weigh more could never have produced a canonical. What changes is that it finds out before the memory is spent |
+| Distinct files one document may hold | 200 | Every one of them is opened, converted and held, so the count decides step 1's peak — and nothing decided it: `attach` read `max(position)` and inserted, counting nothing, so a repeated add or a repeated combine chose it. Counted in **files**, not pages: a four-hundred-page scan is one file opened once, and a page of a file the document already holds costs nothing. Refused at the door with `422 DOCUMENT_TOO_MANY_FILES` ([`07 §7.3`](./07-api-specification.md)) |
+| Whole files held in memory by **request handlers** at once | 4, then a queue 32 deep, then `429` | The three upload bodies and the page-thumb render each read a file whole while somebody waits on a socket. Each is capped per call and none was capped in how many may be in flight, so twenty-five concurrent requests for twenty-five pages of one 100 MiB scan is 2.5 GB. Callers wait in FIFO order like the gates of §5.4b; past the queue's depth the answer is a `429` a client can read and retry, because a wait list that only grows is a second way to spend the same memory |
 | A library file taken in at all | the same 256 MiB, refused **before the file is opened**, on the size the scan already recorded | `SCAN_MAX_FILES` bounds how many files a scan takes in, never how large one of them is. A 5 GB PDF dropped on a read-only volume is left where it is; the refusal is a failed `file-ingest` job in the queue journal, naming the file and the bound |
 | Bytes read back from one outbound call | 64 MiB for a document, a Markdown conversion or a batch of vectors; 64 KiB for a page count, a task acknowledgement or an error detail | A wedged — or hostile — sibling container answering with gigabytes. The body is read chunk by chunk and the sender is cancelled, so the refusal costs one chunk instead of the whole answer |
 | Characters of Markdown the search snippet is cut from | 8000 | `documents.markdown` is unbounded text holding OCR output; `ts_headline` re-parses whatever it is given, once per row returned ([`07 §7.3`](./07-api-spec.md)). Which documents match does not change — that is `search_vector`, generated over the whole column ([`04 §4.3`](./04-database-schema.md)) — only where the snippet is cut from |
+| Pattern characters in one `excludeGlobs` entry | 8 | picomatch compiles a glob to a backtracking regular expression with no complexity limit of its own, and the matcher runs once per directory entry of a scan. Counting `*` alone was not the bound it read as: `?*` eight times is exactly eight asterisks and cost 21 s against an eighty-character name, and `+(*)x` is *one* asterisk whose cost doubles with every character of the subject — 102 s against thirty-two. So `*`, `?` and the openers of the extglob, brace and class syntaxes all count against the same allowance, the matcher is built once per glob set rather than per entry, and extglobs and braces are switched off where it is built, so a row an older version wrote cannot compile to one either |
+
+🔒 **And every regular expression that reads a document's own text is linear.** Markdown derived from
+an uploaded PDF is attacker-chosen text of attacker-chosen length, so a pattern that backtracks
+polynomially over it is a way to stop the process: `/[ \t]+$/gm` tries every start offset inside a run
+of spaces against the end of its line — measured, 200 000 spaces cost 59 s and a megabyte-long line
+about twenty-five minutes — and `<image redacted:[^>]*>` scans to the end of the document once per
+occurrence with no `>` after it, 12 s for 640 KB of them. Both are on the path **every** document
+takes. The first is a `trimEnd` per line and no pattern at all; the second is bounded by what the
+placeholder actually looks like.
 
 **Every outbound call carries a timeout.** Without one, undici's 300 s header timeout is the only
 backstop and a slow drip defeats it outright: a container that accepts a request and then says
 nothing holds a processing worker for ever, and there are only `document-process` concurrency of
-them. Each budget is what the work costs on the slowest hardware this is meant to run on, and each
-stays under the hour a `document-process` job has ([`06 §6.8`](./06-backend-architecture.md)):
+them. Each budget is what the work costs on the slowest hardware this is meant to run on:
 
 | Call | Budget |
 |---|---|
@@ -234,6 +247,21 @@ stays under the hour a `document-process` job has ([`06 §6.8`](./06-backend-arc
 The captcha is the odd one out and the reason it is in this list at all: it is not a queue job but an
 HTTP request handler, so a hung verifier holds a *login*. It fails closed
 ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)), timeout included.
+
+🔒 **And these budgets sum to less than the job's own expiry, which is the arithmetic that makes
+"one run per document" true.** pg-boss does not cancel a handler that outruns `expireInSeconds`: it
+races the handler's promise against a timer and, on losing, fails the job and hands out another
+delivery seconds later, while the first is still holding buffers and calling Stirling. An expiry
+below the work is therefore a second run of the same document every expiry, up to the retry limit,
+two or three alive at once — each rewriting the same rows and the same artifacts in an order nobody
+chose. The sum for one document taking each of its slow steps once is **165 minutes**: 30 for the
+OCR pass, 6 for the conversions, the merge and the counts, 2 for the preview, 55 for one whole
+Docling parse, 40 for the transcriber's twenty page renders and 20 for the transcription itself, 5
+for the analysis and 5 for the fields, 2 for a batch of vectors. The expiry is **three hours**
+([`06 §6.8`](./06-backend-architecture.md)). The price of the headroom is recovery time — a job whose
+worker died is invisible for three hours rather than one — and it is paid by the hourly sweep above,
+which re-enqueues a document whose steps have been unstarted for two, and by the handler, which
+refuses to start a document it is already running (§5.5).
 
 All of these are **constants in the code, not settings**. An operator has no way to know what the
 right Stirling timeout is, and an instance that needs a different one has a container to fix rather
@@ -492,6 +520,28 @@ the screen an operator is looking at, live and per service.
 Steps run sequentially for a document; each step records its status
 (`PENDING / QUEUED / RUNNING / DONE / FAILED / SKIPPED`) — progress is visible in the admin panel. A step's failure does
 not block steps independent of it (no preview — text is still extracted, and vice versa).
+
+🔒 **One run per document at a time, and one queued run per thing being asked.** Two runs of one
+document write the same rows and the same artifacts in an order nobody chose, so neither is allowed:
+
+- **In the queue**, a job is keyed by the document *and the steps asked for*, on a queue whose policy
+  makes that key mean something ([`06 §6.8`](./06-backend-architecture.md)). Every composition edit
+  enqueues a full run, so a loop of cheap `PATCH`es used to queue one canonical rebuild, OCR pass,
+  parse, transcription and two analyst completions **per request**, ahead of every other document on
+  the instance; now the second and the twentieth collapse into the first. The steps are part of the
+  key rather than the document alone, because a debounce on the document alone would silently drop a
+  rebuild a crop asked for whenever a one-step job happened to be waiting — and the crop would never
+  appear. Asking twice for the same steps is one piece of work; asking for different steps is not.
+- **In the process**, the handler refuses a document it is already running. A run that outlives its
+  job's expiry is not cancelled by pg-boss — it is failed and delivered again while it is still
+  working (§5.4a) — and one process runs the whole instance
+  ([ADR-002](./02-architecture-overview.md#adr-002-one-processport-expressexpressadapter--nestjs--next)),
+  so this is the whole of "at a time".
+- **And a neighbour's failure is not a document's problem.** A worker takes its jobs a batch at a
+  time, and pg-boss's own wrapper completes or fails *every id in the batch* on the batch's one
+  outcome. Each job's outcome is recorded against that job instead, so a document that met a
+  container which was down no longer costs the healthy document delivered beside it a full re-run
+  during exactly the outage §5.4e exists to make cheap.
 
 ```
 pages ──► (1) canonical PDF ──► (2) JPG preview ──► (3) Markdown ──► (4) analysis ──► (5) fields ──► (6) vectorization

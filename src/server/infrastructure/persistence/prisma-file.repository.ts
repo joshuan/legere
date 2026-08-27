@@ -13,9 +13,13 @@ import {
 import type { TrashReason } from '../../../shared/contracts/enums';
 import { artifactKeys } from '../../application/storage/artifact-keys';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
-import type { DocumentPage, PageEntry } from '../../domain/entities/document-page';
+import {
+  MAX_FILES_PER_DOCUMENT,
+  type DocumentPage,
+  type PageEntry,
+} from '../../domain/entities/document-page';
 import type { File } from '../../domain/entities/file';
-import { ConflictError } from '../../domain/errors/domain-error';
+import { ConflictError, UnprocessableError } from '../../domain/errors/domain-error';
 import {
   FileRepository,
   type CreateFileInput,
@@ -132,6 +136,9 @@ export class PrismaFileRepository implements FileRepository {
     try {
       const row = await clientOf(this.prisma, tx).file.create({
         data: {
+          // Only an upload gives one, because only an upload has to write the object before the row
+          // exists (docs/09 §9.2). Everywhere else the column default mints it.
+          ...(input.id === undefined ? {} : { id: input.id }),
           contentHash: input.contentHash,
           origin: input.origin,
           storageKey: input.storageKey,
@@ -376,6 +383,11 @@ export class PrismaFileRepository implements FileRepository {
     pages: readonly PageEntry[],
     tx?: TransactionHandle,
   ): Promise<void> {
+    // 🔒 Here as well as in `attach`, because the two are the only ways a file joins a document and
+    // an insert at a position takes this one (docs/05 §5.4a). Asked of the list being written rather
+    // than of the rows, so a rewrite that merely reorders what is already there always passes.
+    refuseTooManyFiles(new Set(pages.map((page) => page.fileId)).size);
+
     const rewrite = async (client: PrismaTx): Promise<void> => {
       await client.documentPage.deleteMany({ where: { documentId } });
       if (pages.length === 0) return;
@@ -468,6 +480,12 @@ export class PrismaFileRepository implements FileRepository {
     // (ADR-025) — so it is asked here rather than left to a unique index that no longer exists.
     const home = await client.documentPage.findFirst({ where: { fileId } });
     if (home !== null) throw fileAlreadyInDocument();
+
+    // 🔒 And the same question about how many files this document already reads (docs/05 §5.4a),
+    // asked in the same place and for the same reason: a bound the caller may forget is not a bound,
+    // and `attach` is where every add, restore, split and combine passes.
+    const held = await client.documentPage.groupBy({ by: ['fileId'], where: { documentId } });
+    refuseTooManyFiles(held.length + 1);
 
     const file = await client.file.findUnique({
       where: { id: fileId },
@@ -599,5 +617,16 @@ function fileAlreadyInDocument(): ConflictError {
   return new ConflictError(
     'FILE_ALREADY_IN_DOCUMENT',
     'This file already belongs to another document',
+  );
+}
+
+// The count the canonical build's memory is decided by (docs/05 §5.4a). 422 rather than 409: the
+// request is well-formed and the document is in no conflicting state — it is the size of what was
+// asked for that cannot be processed.
+function refuseTooManyFiles(files: number): void {
+  if (files <= MAX_FILES_PER_DOCUMENT) return;
+  throw new UnprocessableError(
+    'DOCUMENT_TOO_MANY_FILES',
+    `A document holds at most ${MAX_FILES_PER_DOCUMENT} files`,
   );
 }

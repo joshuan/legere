@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { UploadDocumentResponse } from '../../../shared/contracts/documents';
 import { ConflictError } from '../../domain/errors/domain-error';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
@@ -7,7 +8,7 @@ import type { FileStorage } from '../ports/file-storage';
 import type { JobQueue } from '../ports/job-queue';
 import type { MimeDetector } from '../ports/mime-detector';
 import type { UnitOfWork } from '../ports/unit-of-work';
-import { originalKeyOf, servableContentType } from '../storage/artifact-keys';
+import { artifactKeys, servableContentType } from '../storage/artifact-keys';
 import { describeUpload, titleOf, type UploadedFile } from './compose-document';
 import { listItemOf, toListDto } from './manage-documents';
 
@@ -48,14 +49,37 @@ export class UploadDocument {
       }
     }
 
+    // 🔒 The bytes go into the bucket **before** the transaction opens (docs/09 §9.2). They used to
+    // go in after it committed, under a comment saying the pipeline "cannot outrun this — its first
+    // act is to read the rows it was given", and that was simply false: the job commits with the
+    // rows, pg-boss polls every two seconds, and the run's first *read* is the file it was just
+    // given. `BuildCanonical.open` asks S3 for the original, `getStream` re-throws `NoSuchKey`
+    // unchanged, no S3 error is a `ServiceUnavailableError` — so the canonical is recorded FAILED
+    // with no retry (docs/05 §5.4e), the viewer answers `409 CANONICAL_NOT_READY` to every reader,
+    // and only an admin's reprocess undoes it. The window is as wide as the upload takes to reach a
+    // non-local endpoint, which is exactly the case an operator with remote storage lives in.
+    //
+    // The cost of this order is the one the sweep exists for: bytes written for a transaction that
+    // then rolls back are an orphan under `files/{id}/`, which the hourly maintenance pass collects
+    // because no file row carries that id (docs/09 §9.5). A file whose bytes are missing cannot be
+    // swept back into existence; a few unreferenced objects can.
+    //
+    // The id is minted here rather than by the database for the same reason: the key contains it, so
+    // writing the object first means knowing it first — and the row must carry the *same* id, or the
+    // sweep would read the key, find no file with that id, and delete a live original.
+    const fileId = randomUUID();
+    const storageKey = artifactKeys.fileOriginal(fileId, upload.ext);
+    // 🔒 Stored as what it may be served as, not as what it says it is: the row keeps the detected
+    // MIME, and everything that has to understand the file reads the row (docs/09 §9.2).
+    await this.storage.put(storageKey, input.bytes, servableContentType(upload.mimeType));
+
     const stored = await this.unitOfWork.run(async (tx) => {
       const { file, created } = await this.files.findOrCreateByContentHash(
         {
+          id: fileId,
           contentHash: upload.contentHash,
           origin: 'MANAGED',
-          // The key contains the id the row is about to be given, so whoever knows the id records
-          // it; `originalKeyOf` reads it back or falls back to the layout (docs/09 §9.2).
-          storageKey: null,
+          storageKey,
           mimeType: upload.mimeType,
           ext: upload.ext,
           sizeBytes: BigInt(input.bytes.byteLength),
@@ -106,18 +130,11 @@ export class UploadDocument {
       return { document, file, created };
     });
 
-    if (stored.created) {
-      // After the commit: an object written for a transaction that then rolled back would be an
-      // orphan, and maintenance would have to sweep it (docs/09 §9.5). The pipeline is enqueued but
-      // cannot outrun this — its first act is to read the rows it was given.
-      //
-      // 🔒 Stored as what it may be served as, not as what it says it is: the row keeps the detected
-      // MIME, and everything that has to understand the file reads the row (docs/09 §9.2).
-      await this.storage.put(
-        originalKeyOf(stored.file),
-        input.bytes,
-        servableContentType(upload.mimeType),
-      );
+    if (!stored.created) {
+      // These bytes were already here under another row — deduplication won the race between the
+      // check above and the insert. What was just written belongs to nobody, and the sweep that
+      // exists for a rolled-back transaction collects it for the same reason (docs/09 §9.5).
+      await this.storage.delete(storageKey).catch(() => undefined);
     }
 
     // Freshly created: nothing is processed yet, no documentType, no preview — but the grid can show

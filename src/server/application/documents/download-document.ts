@@ -8,6 +8,7 @@ import type { PdfToolbox } from '../ports/pdf-toolbox';
 import { artifactKeys, originalDelivery, originalKeyOf } from '../storage/artifact-keys';
 import { assertPdf, fileOf } from './compose-document';
 import type { DocumentFileBytes } from './document-file-bytes';
+import { wholeFileReads } from './whole-file-reads';
 
 // Bytes reach a client one of two ways (docs/09 §9.1–9.2): what sits on the read-only volume is
 // streamed through the app, and anything Legere keeps in its own bucket is handed over as a
@@ -194,14 +195,20 @@ export class GetDocumentFilePageThumb {
 
     const key = artifactKeys.filePageThumb(file.id, page);
     if (!(await this.storage.exists(key))) {
-      const rendered = await this.pdfs.pdfPageJpg(await toBuffer(await this.bytes.open(file)), {
-        // Stirling counts pages from one; this route counts from zero, the way a page order does.
-        page: page + 1,
+      // 🔒 Behind the whole-file gate, because this is the one read path that opens a whole file
+      // while somebody waits on a socket (docs/05 §5.4a). Twenty-five requests for twenty-five pages
+      // of one 100 MiB scan each independently found the thumb absent and each buffered the file:
+      // 2.5 GB in a container given 2 GB, from twenty-five ordinary GETs.
+      await wholeFileReads.run(async () => {
+        const rendered = await this.pdfs.pdfPageJpg(await toBuffer(await this.bytes.open(file)), {
+          // Stirling counts pages from one; this route counts from zero, the way a page order does.
+          page: page + 1,
+        });
+        const thumb = await this.images.toJpegPreview(rendered, {
+          maxDim: this.settings.thumbMaxDim,
+        });
+        await this.storage.put(key, thumb, 'image/jpeg');
       });
-      const thumb = await this.images.toJpegPreview(rendered, {
-        maxDim: this.settings.thumbMaxDim,
-      });
-      await this.storage.put(key, thumb, 'image/jpeg');
     }
 
     // A picture Legere rendered itself, shown where it stands — the terms the document's own preview

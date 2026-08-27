@@ -39,9 +39,20 @@ export function normalizeText(text: string): string {
 // paragraphs, list items, table rows — and collapsing them (which is what this used to do) turned
 // every document into one unbroken line in the viewer. Only runs of three or more blank lines go,
 // since those are page gaps rather than meaning.
+//
+// 🔒 The trailing whitespace goes line by line and without a regular expression, and the shape is
+// the whole point (docs/05 §5.4a). `/[ \t]+$/gm` is the same polynomial backtracker
+// `stirling-pdf-toolbox.ts` had to lose one file away: every start offset inside a run of spaces is
+// tried against the end of its line, so a run of n costs n² — measured with node on this machine,
+// 20 000 spaces took 0.6 s, 100 000 took 14 s and 200 000 took 59 s, which puts a megabyte-long line
+// at about twenty-five minutes of the one process that also serves HTTP (ADR-002). That line is
+// Markdown a parser read off a PDF somebody uploaded, so its length is theirs to choose. `trimEnd`
+// is linear and gives the identical answer.
 export function tidyMarkdown(markdown: string): string {
   return normalizeText(markdown)
-    .replace(/[ \t]+$/gm, '')
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
     .replace(/\n{3,}/g, '\n\n');
 }
 

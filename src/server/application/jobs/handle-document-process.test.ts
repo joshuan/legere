@@ -2265,6 +2265,31 @@ describe('HandleDocumentProcess', () => {
     it('ignores a job for a document that no longer exists', async () => {
       await expect(run(GONE_ID)).resolves.toBeUndefined();
     });
+
+    // 🔒 One thing per document at a time (docs/05 §5.4, §5.5). pg-boss enforces a job's expiry by
+    // racing the handler against a timer and, on losing, failing the job and delivering another copy
+    // — it does not cancel the handler. A run that outlives its expiry is therefore still holding
+    // buffers, still calling Stirling and still writing step statuses when its replacement starts
+    // from the top, and the two write the same rows and the same artifacts in an order nobody chose.
+    it('refuses a second delivery of a document it is already running', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      const [, second] = await Promise.all([run(), run()]);
+
+      expect(second).toBeUndefined();
+      // One run's worth of work, not two, from two deliveries of the same document.
+      expect(pdfs.calls.filter((call) => call.method === 'pdfPageJpg')).toHaveLength(1);
+      expect(stateOf().steps.markdown).toBe('DONE');
+    });
+
+    it('takes the document again once the run that held it has finished', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+
+      await run();
+      await run();
+
+      expect(pdfs.calls.filter((call) => call.method === 'pdfPageJpg')).toHaveLength(2);
+    });
   });
 
   // A step this instance is holding (docs/05 §5.4d). Held, not skipped: the row keeps what it had,

@@ -1,6 +1,7 @@
 import { Injectable, type Type } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { InjectPinoLogger, type PinoLogger } from 'nestjs-pino';
+import type PgBoss from 'pg-boss';
 import type { Job } from 'pg-boss';
 import type { JobHandler } from '../../application/jobs/job-handler';
 import type { QueueName } from '../../application/ports/job-queue';
@@ -69,7 +70,7 @@ export class WorkerRegistry {
         // used to be awaited one job at a time, so the setting fetched four jobs and then ran them
         // in a queue of its own (docs/05 §5.4).
         async (jobs: Job<object>[]): Promise<void> => {
-          await Promise.all(jobs.map((job) => this.runOne(binding.queue, job, handler)));
+          await Promise.all(jobs.map((job) => this.runOne(boss, binding.queue, job, handler)));
         },
       );
 
@@ -94,9 +95,27 @@ export class WorkerRegistry {
     await boss.schedule('maintenance', MAINTENANCE_CRON, {});
   }
 
-  // One job at a time inside a batch, with the outcome logged per docs/06 §6.7. Errors are rethrown
-  // so pg-boss applies its retry policy instead of the job being marked complete.
-  private async runOne(queue: QueueName, job: Job<object>, handler: JobHandler): Promise<void> {
+  // One job at a time inside a batch, with the outcome logged per docs/06 §6.7.
+  //
+  // 🔒 A failure is recorded against **this** job and rethrown nowhere (docs/05 §5.4e, docs/06 §6.8).
+  // pg-boss's own wrapper is `try { await callback(jobs); complete(name, jobIds) } catch { fail(name,
+  // jobIds) }`, and `jobIds` is every id in the batch — so one job throwing used to fail every other
+  // job delivered beside it, whatever they had finished. On `document-process` that cost an innocent
+  // document a full re-run of the pipeline — a fresh OCR pass, a fresh parse, a transcription, two
+  // analyst completions — because a neighbour met a container that was down, which is the opposite
+  // of what §5.4e asks for during exactly that outage.
+  //
+  // `boss.fail` moves this one job to retry (or to failed past `RETRY_LIMIT`) with the same policy
+  // the wrapper would have applied, and the wrapper's `complete` then skips it, because completion
+  // only touches rows still `active`. If failing it does not land, the error is rethrown after all
+  // and the old all-or-nothing behaviour stands — a job that is neither completed nor failed would
+  // sit `active` until its expiry.
+  private async runOne(
+    boss: PgBoss,
+    queue: QueueName,
+    job: Job<object>,
+    handler: JobHandler,
+  ): Promise<void> {
     const startedAt = Date.now();
     try {
       await handler.handle(job.data);
@@ -115,7 +134,15 @@ export class WorkerRegistry {
         },
         'Job failed',
       );
-      throw error;
+      await boss.fail(queue, job.id, { message: messageOf(error) }).catch(() => {
+        throw error;
+      });
     }
   }
+}
+
+// What pg-boss stores as the job's output. The same shape its own wrapper writes, so the failures
+// screen reads a job this failed exactly as it reads one the wrapper failed (docs/11 §11.13).
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -141,6 +141,57 @@ describe('planCrop', () => {
   it('refuses an image with no usable size', () => {
     expect(() => planCrop(fullFrameCrop(), { width: 0, height: 100 })).toThrow(CropGeometryError);
   });
+
+  // 🔒 The bomb SEC-48 was escalated on (docs/05 §5.4a). Both sides of the planned rectangle are a
+  // maximum over a pair of opposite edges, and each of those can approach the source's diagonal
+  // independently — so a convex quad that passes every check above used to plan 18404×20396 =
+  // 375 Mpx out of a 20000×4000 = 80 Mpx source: 4.7×, one allocation of 1074 MB, copied again on
+  // the way into sharp, with the resample holding the event loop while it filled it. Refused rather
+  // than resampled, because nothing anybody drags around a sheet of paper asks for twice the picture.
+  it('refuses a quad asking for several times the picture it was cut from', () => {
+    const bomb = cropOf([
+      [1, 1],
+      [0.08, 0.907],
+      [0.077, 0.904],
+      [0, 0],
+    ]);
+
+    expect(() => planCrop(bomb, { width: 20_000, height: 4_000 })).toThrow(CropGeometryError);
+  });
+
+  // Under that, the plan is scaled back to the picture's own pixel count rather than refused: no
+  // resample invents detail, so more output pixels than the source holds is a bigger blurry copy of
+  // a smaller sharp one, and the shape somebody dragged is kept.
+  it('scales a plan that overshoots back to the picture, keeping its shape', () => {
+    const source = { width: 1000, height: 1000 };
+    const wide = cropOf([
+      [0.3, 0],
+      [0.7, 0],
+      [1, 1],
+      [0, 1],
+    ]);
+
+    const plan = planCrop(wide, source);
+
+    expect(plan.size.width * plan.size.height).toBeLessThanOrEqual(source.width * source.height);
+  });
+
+  // …and this is why it scales rather than refuses: an honest photograph of a page fills the frame
+  // and keystones a little, which plans a fraction of a percent over the source area. A refusal
+  // would answer "this crop is not allowed" for an ordinary picture; the scale is 0.25% and nobody
+  // can see it.
+  it('costs a keystoned full-frame crop a quarter of a percent, not a refusal', () => {
+    const keystone = cropOf([
+      [0.1, 0],
+      [0.9, 0],
+      [1, 1],
+      [0, 1],
+    ]);
+
+    const plan = planCrop(keystone, { width: 1000, height: 1000 });
+
+    expect(plan.size).toEqual({ width: 997, height: 1002 });
+  });
 });
 
 describe('sampleBilinear', () => {

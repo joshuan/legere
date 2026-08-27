@@ -174,11 +174,21 @@ function parse(value: unknown): {
   if (value === null || typeof value !== 'object') return null;
   const record: Record<string, unknown> = { ...value };
 
+  // 🔒 Checked against the range on the way **out** of the database, not only on the way in
+  // (docs/05 §5.4b: "whatever the stored row holds is checked as it is read, and a value another
+  // version of this code left behind is not trusted"). The gates one level down already did this and
+  // the concurrencies did not: a row holding `{"document-process": 1000000}` — a hand edit, a
+  // restore from another version, a write primitive found elsewhere — was handed straight to
+  // `boss.work` as the batch size, which is both the `LIMIT` of the fetch and the width of the
+  // `Promise.all` over the jobs it returns. An out-of-range value falls back to the environment
+  // default, exactly as an out-of-range gate does; a settings row must never be able to stop the
+  // workers from starting, and it must not be able to start a million of them either (docs/03
+  // §3.3.21).
   const concurrency: Record<string, number> = {};
   const stored = record.concurrency;
   if (stored !== null && typeof stored === 'object') {
     for (const [queue, raw] of Object.entries({ ...stored })) {
-      if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 1) concurrency[queue] = raw;
+      if (inConcurrencyRange(raw)) concurrency[queue] = raw;
     }
   }
 
@@ -188,10 +198,20 @@ function parse(value: unknown): {
     paused: knownQueues(record.paused),
     pausedSteps: knownSteps(record.pausedSteps),
     services: parseServices(record.services),
-    ...(typeof unit === 'number' && Number.isInteger(unit) && unit >= 1
-      ? { unitConcurrency: unit }
-      : {}),
+    ...(inConcurrencyRange(unit) ? { unitConcurrency: unit } : {}),
   };
+}
+
+// 1…QUEUE_CONCURRENCY_MAX, the range the contract refuses outside of (docs/07 §7.3). A queue
+// concurrency of zero would be a queue nobody serves, which is what pausing is for, so the floor
+// here is one rather than the gates' zero.
+function inConcurrencyRange(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= QUEUE_CONCURRENCY_MAX
+  );
 }
 
 // Knob by knob, and only the ones that read as a number in range: a stored gate written by a later

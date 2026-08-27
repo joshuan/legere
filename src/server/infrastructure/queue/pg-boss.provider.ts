@@ -20,9 +20,21 @@ export const EXPIRE_IN_SECONDS: Readonly<Record<QueueName, number>> = {
   'library-scan': 15 * 60,
   // Reads and hashes one file.
   'file-ingest': 10 * 60,
-  // The slow one: cropping, conversion, merging and OCR through Stirling, for a document of any
-  // number of files (docs/05 §5.5 step 1).
-  'document-process': 60 * 60,
+  // 🔒 The slow one, and the only one whose expiry has to be argued rather than picked (docs/05
+  // §5.4a). pg-boss does not cancel a handler that outruns this — it races the promise against a
+  // timer and, on losing, fails the job and hands out another delivery seconds later while the first
+  // is still holding buffers and calling Stirling. An hour was below the sum of the per-step budgets
+  // §5.4a already documents, so any long scan produced a second run of itself every hour, up to six
+  // deliveries, two or three alive at once.
+  //
+  // Three hours is above that sum: OCR 30 + the merge and the counts 6 + the preview 2 + one whole
+  // Docling parse 55 + the transcriber's twenty page renders 40 and its own 20 + the analyst 5 twice
+  // + a batch of vectors 2 is 165 minutes, and every one of those is a §5.4a constant rather than a
+  // hope. The cost is recovery time: a job whose worker died is invisible for three hours instead of
+  // one. That is paid for by the hourly `maintenance` sweep, which re-enqueues a document whose
+  // steps have been unstarted for two (docs/05 §5.4) — and by the handler itself, which now refuses
+  // to run a document it is already running (`HandleDocumentProcess`).
+  'document-process': 3 * 60 * 60,
   // Lists the bucket and deletes a few rows.
   maintenance: 15 * 60,
 };
@@ -35,6 +47,22 @@ const STOP_TIMEOUT_MS = 30_000;
 // the database level (docs/05 §5.2, §5.4, docs/06 §6.8) — a plain singletonKey on the default
 // `standard` policy does not deduplicate at all.
 const SINGLETON_QUEUES: ReadonlySet<QueueName> = new Set(['library-scan']);
+
+// 🔒 And queues where a key means "this work is already waiting" get `short`: at most one job in the
+// `created` state per key, with nothing said about what is running (docs/05 §5.4, docs/06 §6.8).
+//
+// `document-process` was created `standard`, so the singleton keys three call sites already passed
+// deduplicated nothing — pg-boss's dedup indexes cover only `short`, `singleton` and `stately` — and
+// docs/06 §6.8 claimed the opposite. Every composition edit enqueues a full run at `USER_PRIORITY`,
+// so a loop of `PATCH /documents/:id/pages` — a few hundred bytes, always a valid request — queued
+// one canonical rebuild, OCR pass, parse, transcription and two analyst completions per request,
+// ahead of every other document on the instance.
+//
+// `short` rather than `stately`, and the difference is the one that matters here: a rebuild asked
+// for *while* the previous one runs must still be queued, because it is asking about a document that
+// has changed since. What must collapse is the queue of identical requests, and that is exactly the
+// `created` state.
+const DEBOUNCED_QUEUES: ReadonlySet<QueueName> = new Set(['document-process']);
 
 // Owns the single PgBoss instance for the process (docs/06 §6.8): one connection pool on
 // DATABASE_URL, its own `pgboss` schema, which Prisma does not manage (docs/04 §4.2).
@@ -75,7 +103,7 @@ export class PgBossProvider implements OnApplicationShutdown {
     for (const name of QUEUE_NAMES) {
       const options = {
         name,
-        policy: SINGLETON_QUEUES.has(name) ? ('stately' as const) : ('standard' as const),
+        policy: policyOf(name),
         retryLimit: RETRY_LIMIT,
         retryBackoff: true,
         expireInSeconds: EXPIRE_IN_SECONDS[name],
@@ -95,4 +123,12 @@ export class PgBossProvider implements OnApplicationShutdown {
     if (boss === null) return;
     await boss.stop({ graceful: true, timeout: STOP_TIMEOUT_MS }).catch(() => undefined);
   }
+}
+
+// What a singleton key means on a queue, in one place: the queue is created with it here and the key
+// itself is decided in `PgBossJobQueue`, and a key on a `standard` queue deduplicates nothing at all.
+function policyOf(name: QueueName): 'stately' | 'short' | 'standard' {
+  if (SINGLETON_QUEUES.has(name)) return 'stately';
+  if (DEBOUNCED_QUEUES.has(name)) return 'short';
+  return 'standard';
 }

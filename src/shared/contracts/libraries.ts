@@ -17,13 +17,28 @@ export const libraryRootPathSchema = z
     message: 'Path must not traverse upwards',
   });
 
-// 🔒 The wildcard count is bounded, not just the length. picomatch compiles a glob to a backtracking
-// regular expression with no complexity limit of its own, and the matcher runs once per directory
-// entry during a scan — so `a*a*a*…b` against a filename of forty `a`s does not finish. Measured on
-// the developer's machine: ten `a*` pairs took 195 ms, twelve took 8.2 s, fourteen took 86 s, and a
-// scan job has no CPU timeout to stop it. Eight wildcards is far more than any real exclusion needs
-// (`**/node_modules/**` uses three) and far below where the growth starts to bite.
-const MAX_WILDCARDS = 8;
+// 🔒 The count of **pattern characters** is bounded, not just the length. picomatch compiles a glob
+// to a backtracking regular expression with no complexity limit of its own, and the matcher runs
+// once per directory entry during a scan — so `a*a*a*…b` against a filename of forty `a`s does not
+// finish. Measured on the developer's machine: ten `a*` pairs took 195 ms, twelve took 8.2 s,
+// fourteen took 86 s, and a scan job has no CPU timeout to stop it.
+//
+// 🔒 Counting `*` alone was not the bound it read as, which is the correction this carries. The
+// quantity that drives the backtracking is how many *variable-length* pieces the pattern has, and
+// `*` is only one way to write one. Measured with the repo's own picomatch 4.0.5: `?*?*?*?*?*?*?*?*z`
+// has exactly eight `*` and passed, and cost 149 ms against a 34-character name, 2.6 s against 60
+// and 21 s against 80; `+(*)x` has **one** `*`, five characters, and compiles to
+// `(?:[^/]*?)+x` — 776 ms against 25 `a`s, 6.4 s against 28, 102 s against 32, doubling every two
+// characters. So every metacharacter counts against the same allowance, and the extglob and brace
+// syntaxes are switched off where the matcher is built (`fs-library-reader.ts`) so that `+(…)` and
+// `{…}` are literal characters rather than nested quantifiers. Eight is still far more than any real
+// exclusion needs — `**/node_modules/**` uses three.
+const MAX_PATTERN_CHARS = 8;
+
+// `*`, `?`, and the openers of the extglob, brace and class syntaxes. `)`, `}` and `]` are not
+// counted: they close what an opener already paid for, and counting both halves would halve the
+// allowance without bounding anything further.
+const PATTERN_CHARS = /[*?+@!({[]/g;
 
 export const excludeGlobsSchema = z
   .array(
@@ -31,8 +46,8 @@ export const excludeGlobsSchema = z
       .string()
       .min(1)
       .max(256)
-      .refine((value) => (value.match(/\*/g) ?? []).length <= MAX_WILDCARDS, {
-        message: `A glob may use at most ${MAX_WILDCARDS} wildcards`,
+      .refine((value) => (value.match(PATTERN_CHARS) ?? []).length <= MAX_PATTERN_CHARS, {
+        message: `A glob may use at most ${MAX_PATTERN_CHARS} pattern characters`,
       }),
   )
   .max(50);

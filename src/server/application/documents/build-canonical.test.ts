@@ -564,4 +564,52 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
     // over the shape of its sheet would be a poor trade (docs/05 §5.5 step 1).
     expect(built.kind).toBe('built');
   });
+
+  // 🔒 What a build may hold, added up (docs/05 §5.4a). `MAX_BINARY_BYTES` bounds one file and one
+  // answer; nothing bounded the sum, and this step keeps every converted part until the merge — so
+  // eighteen PDFs near `UPLOAD_MAX_BYTES` is ~1.8 GB of parts held before `mergePdfs` is called, in
+  // a container given 2 GB that is also Nest, Next and the workers (ADR-002). The bound is the same
+  // 256 MiB one level up, because the merge reads its answer back under it anyway: what changes is
+  // that the document finds out before the memory is spent rather than after.
+  describe('what one build may hold (docs/05 §5.4a)', () => {
+    const givenHeavyFiles = async (documentId: string, count: number, each: bigint) => {
+      for (let index = 0; index < count; index += 1) {
+        const { file } = await files.findOrCreateByContentHash({
+          contentHash: `heavy-${documentId}-${index}`,
+          origin: 'MANAGED',
+          storageKey: `documents/${documentId}/heavy-${index}.pdf`,
+          mimeType: 'application/pdf',
+          ext: 'pdf',
+          sizeBytes: each,
+          name: `heavy-${index}.pdf`,
+        });
+        await files.attach(documentId, file.id);
+        await storage.put(
+          `documents/${documentId}/heavy-${index}.pdf`,
+          Buffer.from('pdf'),
+          'application/pdf',
+        );
+      }
+    };
+
+    it('refuses a document whose files weigh more than one build may hold, before opening any', async () => {
+      const document = documentFixture();
+      // Eighteen files a hundred megabytes each: every one of them inside `UPLOAD_MAX_BYTES`, and
+      // together far past what one step may hold.
+      await givenHeavyFiles(document.id, 18, 100n * 1024n * 1024n);
+
+      await expect(build.execute(document)).rejects.toThrow(/one canonical build may hold/);
+      // Asked of the sizes already written down: nothing was opened to find out.
+      expect(pdfs.calls).toEqual([]);
+    });
+
+    it('builds a document whose files fit', async () => {
+      const document = documentFixture();
+      await givenHeavyFiles(document.id, 2, 100n * 1024n * 1024n);
+
+      const built = await build.execute(document);
+
+      expect(built.kind).toBe('built');
+    });
+  });
 });

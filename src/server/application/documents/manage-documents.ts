@@ -416,13 +416,12 @@ export class UpdateDocumentMeta {
     const updated = await this.documents.updateMeta(detail.document.id, update);
 
     if (typeChanged) {
-      // The same enqueue a reprocess of one step makes (docs/05 §5.4): keyed by the document, so
-      // however many edits race, a document is one piece of work in the queue.
-      await this.queue.enqueue(
-        'document-process',
-        { documentId: detail.document.id, steps: ['fields'] },
-        { singletonKey: detail.document.id },
-      );
+      // The same enqueue a reprocess of one step makes (docs/05 §5.4): the queue keys it by the
+      // document and the step, so however many edits race, one fields run is queued for it.
+      await this.queue.enqueue('document-process', {
+        documentId: detail.document.id,
+        steps: ['fields'],
+      });
     }
 
     // 🔒 A new format does mean a new canonical, and a new preview and new text with it — and it is

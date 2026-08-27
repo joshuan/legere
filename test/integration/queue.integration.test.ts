@@ -107,10 +107,28 @@ describe('Queue (integration)', () => {
     // long a library stays unscannable after a restart mid-scan (docs/06 §6.8).
     expect(byName.get('library-scan')).toBe(15 * 60);
     expect(byName.get('file-ingest')).toBe(10 * 60);
-    // Assembling and OCR'ing a whole document through Stirling is the slow one and gets room;
-    // nothing gets the old blanket two hours.
-    expect(byName.get('document-process')).toBe(60 * 60);
-    for (const seconds of byName.values()) expect(seconds).toBeLessThanOrEqual(60 * 60);
+    // 🔒 And `document-process` is above the sum of its own step budgets rather than under it
+    // (docs/05 §5.4a). pg-boss does not cancel a handler that outruns its expiry — it fails the job
+    // and delivers another copy while the first is still running — so an expiry below the work is a
+    // second run of the same document every hour. The §5.4a arithmetic is 165 minutes; this is
+    // three hours.
+    expect(byName.get('document-process')).toBe(3 * 60 * 60);
+    for (const seconds of byName.values()) expect(seconds).toBeLessThanOrEqual(3 * 60 * 60);
+  });
+
+  // 🔒 A key deduplicates only on a queue whose policy says it does (docs/06 §6.8). `document-process`
+  // was created `standard`, so the keys three call sites already passed collapsed nothing and a loop
+  // of cheap composition edits queued one full pipeline run each.
+  it('debounces document-process by the work asked for, and leaves the other queues alone', async () => {
+    const rows = await prisma.$queryRawUnsafe<{ name: string; policy: string }[]>(
+      "SELECT name, policy FROM pgboss.queue WHERE name NOT LIKE '__pgboss__%' ORDER BY name",
+    );
+    const byName = new Map(rows.map((row) => [row.name, row.policy]));
+
+    expect(byName.get('document-process')).toBe('short');
+    expect(byName.get('library-scan')).toBe('stately');
+    expect(byName.get('file-ingest')).toBe('standard');
+    expect(byName.get('maintenance')).toBe('standard');
   });
 
   it('enqueues a job with its payload', async () => {
@@ -148,6 +166,53 @@ describe('Queue (integration)', () => {
     const rows = await jobs();
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row.singletonkey).sort()).toEqual(['lib-1', 'lib-2']);
+  });
+
+  // 🔒 The flood SEC-50 is about (docs/05 §5.4). Every composition edit enqueues a full run at user
+  // priority and none of them passed a key, so a loop of `PATCH /documents/:id/pages` — a few
+  // hundred bytes, always a valid request — queued one canonical rebuild, OCR pass, Docling parse,
+  // transcription and two analyst completions per request, ahead of every other document.
+  it('collapses a burst of rebuilds of one document into a single queued run', async () => {
+    const documentId = '11111111-1111-4111-8111-111111111111';
+
+    const sent = [];
+    for (let index = 0; index < 20; index += 1) {
+      sent.push(await queue.enqueue('document-process', { documentId }, { priority: 10 }));
+    }
+
+    expect(sent.filter((id) => id !== null)).toHaveLength(1);
+    const rows = await jobs();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.singletonkey).toBe(documentId);
+  });
+
+  // 🔒 …and the key is the document *and what is being asked about it* (docs/06 §6.8). Under a
+  // debounce keyed by the document alone, a rebuild asked for by a crop would be silently not
+  // created because a pending one-step job already held the key — and the crop would never appear.
+  it('keeps a rebuild and a one-step run of the same document apart', async () => {
+    const documentId = '22222222-2222-4222-8222-222222222222';
+
+    const rebuild = await queue.enqueue('document-process', { documentId });
+    const fields = await queue.enqueue('document-process', { documentId, steps: ['fields'] });
+    const againstOrder = await queue.enqueue('document-process', {
+      documentId,
+      steps: ['fields'],
+    });
+    const inFull = await queue.enqueue('document-process', { documentId, analyseInFull: true });
+
+    expect(rebuild).not.toBeNull();
+    expect(fields).not.toBeNull();
+    // The same steps of the same document asked for twice is one piece of work.
+    expect(againstOrder).toBeNull();
+    // Being asked to read a long document whole is different work from the run that would skip it.
+    expect(inFull).not.toBeNull();
+
+    const rows = await jobs();
+    expect(rows.map((row) => row.singletonkey).sort()).toEqual([
+      documentId,
+      `${documentId}#fields`,
+      `${documentId}#full`,
+    ]);
   });
 
   describe('enqueueAfterTx', () => {

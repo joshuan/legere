@@ -203,6 +203,22 @@ describe('StirlingPdfToolbox', () => {
     expect(markdown).toContain('Invoice');
   });
 
+  // 🔒 …and the pattern that drops them is bounded by what a placeholder looks like (docs/05 §5.4a).
+  // `[^>]*` meant every `<image redacted:` with no `>` after it scanned to the end of the document:
+  // measured, 5 000 of them took 191 ms, 20 000 took 3 s and 640 KB of them took 12 s of the one
+  // process that also answers HTTP. The text is a page's own, off a PDF somebody uploaded.
+  it('reads a document full of unterminated placeholders in milliseconds (🔒)', async () => {
+    const bomb = '<image redacted:'.repeat(40_000);
+    mockStirling(new Response(bomb, { headers: { 'content-type': 'text/markdown' } }));
+
+    const started = performance.now();
+    const markdown = await toolbox().pdfToMarkdown(Buffer.from('pdf'));
+
+    expect(performance.now() - started).toBeLessThan(1000);
+    // Nothing matched, because nothing was a placeholder: the text comes back as it arrived.
+    expect(markdown).toContain('<image redacted:');
+  });
+
   it('reads a megabyte-long table row without pinning the worker to a core (🔒)', async () => {
     // A line of Markdown derived from somebody's PDF: a pipe, a run of spaces, and one character
     // that is not separator punctuation. The pattern that stood here divided that run between two

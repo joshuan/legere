@@ -366,8 +366,18 @@ function missingLanguageData(error: unknown, languages: readonly string[]): Erro
 // That is a note about the file, not text from the document, and leaving it in would be worse than
 // noise: a scanned page is *only* images, so the placeholders would pass the "has a text layer"
 // threshold and the document would never be sent to OCR (docs/05 §5.5).
+//
+// 🔒 The tail is bounded by what a placeholder actually looks like, not by "anything up to the next
+// `>`" (docs/05 §5.4a). Unbounded, every `<image redacted:` with no `>` after it scans to the end of
+// the document, so a page whose own text carries that literal costs the square of its length:
+// measured, 5 000 occurrences took 191 ms, 20 000 took 3 s and 640 KB of them took 12 s of the one
+// process that also serves HTTP (ADR-002). The longest placeholder Stirling emits is a few dozen
+// characters; anything longer than the bound was never one.
+const MAX_PLACEHOLDER_TAIL = 200;
+const IMAGE_PLACEHOLDER = new RegExp(`<image redacted:[^>]{0,${MAX_PLACEHOLDER_TAIL}}>`, 'g');
+
 function stripImagePlaceholders(markdown: string): string {
-  return markdown.replace(/<image redacted:[^>]*>/g, '');
+  return markdown.replace(IMAGE_PLACEHOLDER, '');
 }
 
 // Beyond this a table cell is not data but a page laid out with table borders — tickets, invoices

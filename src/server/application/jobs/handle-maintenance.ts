@@ -87,7 +87,9 @@ export class HandleMaintenance extends JobHandler {
       // Those steps, and not the whole pipeline: a document waiting on its vectors is worth one
       // embedding call, and re-running all six over it would recognise a scan again to arrive where
       // it already was (docs/05 §5.4).
-      await this.queue.enqueue('document-process', { documentId: id, steps }, { singletonKey: id });
+      // The queue keys this by the document and the steps asked for, so a sweep that runs again
+      // before the last one drained adds nothing (docs/05 §5.4).
+      await this.queue.enqueue('document-process', { documentId: id, steps });
       // And the row says so straight away: the sweep is the moment a PENDING step stops being
       // unscheduled, and a counter that only changed when a worker got round to it would keep the
       // old ambiguity alive under a new name (docs/03 §3.3.10).

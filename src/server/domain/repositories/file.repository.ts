@@ -10,6 +10,13 @@ import type { DocumentPage } from '../entities/document-page';
 import type { File } from '../entities/file';
 
 export type CreateFileInput = {
+  // 🔒 Given only by a caller that has to know the id **before** the row exists, which is one caller:
+  // an upload writes its bytes under `files/{id}/…` before opening the transaction, so that the
+  // pipeline the transaction enqueues cannot reach the bucket before them (docs/09 §9.2). The row
+  // must then carry that same id, or the orphan sweep would read the key, find no file with it, and
+  // delete a live original. Absent everywhere else: the database is a better source of ids than we
+  // are, and a caller inventing one is a caller with something to explain.
+  id?: string | undefined;
   contentHash: string;
   origin: FileOrigin;
   storageKey: string | null;

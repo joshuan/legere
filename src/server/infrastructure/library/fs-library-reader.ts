@@ -18,9 +18,25 @@ import { AppConfig } from '../config/app-config';
 // Hidden files and directories are skipped by default (docs/09 §9.1); excludeGlobs add to that.
 const HIDDEN_PREFIX = '.';
 
+// 🔒 What the exclusion globs are allowed to mean (docs/05 §5.4a). `dot` so that a rule may name a
+// dotted file at all; `noext` and `nobrace` so that `+(…)`, `@(…)`, `!(…)` and `{a,b}` are ordinary
+// characters rather than syntax — the first compiles to a nested quantifier whose cost doubles with
+// every character of the subject (`+(*)x` against 32 `a`s: 102 seconds, measured on picomatch 4.0.5)
+// and the second multiplies the pattern out. The contract counts those openers against the same
+// allowance as `*` (`shared/contracts/libraries.ts`); switching the syntaxes off here is the second,
+// independent half, so a row written by an older version cannot compile to one either.
+const MATCH_OPTIONS = { dot: true, noext: true, nobrace: true } as const;
+
+// How many compiled matchers are kept. `picomatch.isMatch` re-parses and re-compiles every glob on
+// every call, which is once per directory entry — the thing M15.15 already promised not to do. One
+// per library in flight is all this needs; the cap is here so that a long-lived process cannot grow
+// a map out of library configurations that have come and gone.
+const MATCHER_CACHE_MAX = 16;
+
 @Injectable()
 export class FsLibraryReader extends LibraryReader {
   private readonly libraryRoot: string;
+  private readonly matchers = new Map<string, (value: string) => boolean>();
 
   constructor(config: AppConfig) {
     super();
@@ -124,7 +140,26 @@ export class FsLibraryReader extends LibraryReader {
   private isExcluded(library: LibraryLocation, relPath: RelativePath): boolean {
     if (relPath.segments.some((segment) => segment.startsWith(HIDDEN_PREFIX))) return true;
     if (library.excludeGlobs.length === 0) return false;
-    return picomatch.isMatch(relPath.value, [...library.excludeGlobs], { dot: true });
+    return this.matcherFor(library.excludeGlobs)(relPath.value);
+  }
+
+  // Built once per set of globs rather than per directory entry (docs/05 §5.4a). The key is the
+  // globs themselves, so two libraries excluding the same things share one matcher and a library
+  // whose rules were edited gets a new one without anybody having to invalidate anything.
+  private matcherFor(globs: readonly string[]): (value: string) => boolean {
+    const key = JSON.stringify(globs);
+    const held = this.matchers.get(key);
+    if (held !== undefined) return held;
+
+    const built = picomatch([...globs], MATCH_OPTIONS);
+    // Oldest out first: insertion order is what a Map iterates in, and the oldest entry is the
+    // library nothing has scanned for longest.
+    if (this.matchers.size >= MATCHER_CACHE_MAX) {
+      const oldest = this.matchers.keys().next();
+      if (!(oldest.done ?? false)) this.matchers.delete(oldest.value);
+    }
+    this.matchers.set(key, built);
+    return built;
   }
 
   // LIBRARY_ROOT + library.rootPath + relPath, re-verified to still be inside the library root

@@ -44,6 +44,20 @@ export type PageEntry = {
   cropSource: ValueSource;
 };
 
+// 🔒 How many distinct **files** the pages of one document may name (docs/05 §5.4a). Not how many
+// pages: a four-hundred-page scan is one file the canonical build opens once, and adding a page of a
+// file it already holds costs nothing. Every distinct file, by contrast, is opened whole, converted,
+// and its part held until the merge — so this is the number that decides the build's peak memory,
+// and until now nothing decided it at all: `attach` read `max(position)` and inserted, counting
+// nothing, and a repeated `POST /documents/:id/files` or `combine` grew the list until the disk or
+// the container gave out.
+//
+// Two hundred is far above any document a person files — a contract with its annexes, a scan set of
+// a folder — and far below where two hundred whole files could fit in the 256 MiB one build may hold
+// anyway, so the byte bound is what a real archive meets and this is the backstop that makes the
+// count a decision rather than a consequence.
+export const MAX_FILES_PER_DOCUMENT = 200;
+
 // The whole ordered list a document holds, read back off the files it was answered with: the pages
 // of every file, in the order the document holds them (docs/03 §3.3.17). One place, because every
 // composition edit starts here — with the list as it stands — and answers with the list it should

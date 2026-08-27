@@ -88,9 +88,25 @@ export class PrismaCategoryRepository implements DocumentTypeRepository {
 
   // Both AUTO and MANUAL assignments go: the documentType no longer exists, so neither claim is true
   // any more (docs/03 §3.3.12).
-  async clearCategoryFromDocuments(typeId: string, tx?: TransactionHandle): Promise<number> {
-    const result = await clientOf(this.prisma, tx).document.updateMany({
+  //
+  // Two statements rather than one, because `updateMany` has no `LIMIT`: the ids first, then the
+  // rewrite of exactly those. The caller repeats until a batch comes back short, so a type a hundred
+  // thousand documents carry is a hundred short transactions instead of one that cannot finish.
+  async clearTypeFromDocuments(
+    typeId: string,
+    limit: number,
+    tx?: TransactionHandle,
+  ): Promise<number> {
+    const client = clientOf(this.prisma, tx);
+    const rows = await client.document.findMany({
       where: { typeId },
+      select: { id: true },
+      take: limit,
+    });
+    if (rows.length === 0) return 0;
+
+    const result = await client.document.updateMany({
+      where: { id: { in: rows.map((row) => row.id) } },
       data: { typeId: null, typeSource: 'NONE' },
     });
     return result.count;

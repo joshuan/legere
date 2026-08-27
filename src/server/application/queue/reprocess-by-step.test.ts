@@ -93,11 +93,13 @@ describe('ReprocessDocumentsByStep', () => {
     expect(result).toEqual({ enqueued: 2 });
     expect(queue.enqueued).toHaveLength(2);
     expect(queue.enqueued.map((job) => job.name)).toEqual(['document-process', 'document-process']);
-    // Only the step asked for, and keyed by the document so it is one piece of work in the queue.
+    // Only the step asked for. The key is not passed here: the queue derives one from the payload,
+    // so a repair over five hundred documents and the button on one of them agree about what one
+    // piece of work is (docs/05 §5.4).
     expect(queue.enqueued[0]).toMatchObject({
       payload: { documentId: '22222222-2222-4222-8222-222222222222', steps: ['preview'] },
-      options: { singletonKey: '22222222-2222-4222-8222-222222222222' },
     });
+    expect(queue.enqueued[0]?.options).toBeUndefined();
   });
 
   it('puts the step back in the queue and records who asked, like a single reprocess', async () => {

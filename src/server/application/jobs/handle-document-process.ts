@@ -136,8 +136,31 @@ export class HandleDocumentProcess extends JobHandler {
   // step by `running()`, which is the same reason `requestId` uses it (docs/03 §3.3.18).
   private readonly startedAt = new Map<string, number>();
 
+  // 🔒 The documents this process is working on right now (docs/05 §5.4, §5.5). One thing at a time
+  // per document, and this is what makes that true rather than merely intended: pg-boss enforces a
+  // job's expiry by racing the handler against a timer and, on losing, failing the job and handing
+  // out another delivery — it does not cancel the handler, so a run that outlives its expiry is
+  // still holding buffers, still calling Stirling and still writing step statuses while its
+  // replacement starts from the top. Two runs of one document write the same rows and the same
+  // artifacts in an order nobody chose. The expiry is now above the sum of the §5.4a budgets, which
+  // makes the overlap unlikely; this makes it impossible.
+  //
+  // In this process and no other, which is enough: one process runs the whole instance (ADR-002).
+  private readonly inFlight = new Set<string>();
+
   async handle(rawPayload: unknown): Promise<void> {
     const payload = documentProcessPayloadSchema.parse(rawPayload);
+    const documentId = payload.documentId;
+    if (this.inFlight.has(documentId)) return;
+    this.inFlight.add(documentId);
+    try {
+      await this.run(payload);
+    } finally {
+      this.inFlight.delete(documentId);
+    }
+  }
+
+  private async run(payload: DocumentProcessPayload): Promise<void> {
     const documentId = payload.documentId;
     // Which steps this run is allowed to touch. Everything outside the set keeps the status and the
     // artifact it already has (docs/07 §7.3: reprocess re-runs only the requested steps).

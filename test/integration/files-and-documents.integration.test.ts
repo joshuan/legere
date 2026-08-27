@@ -1,12 +1,15 @@
 import { Test } from '@nestjs/testing';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Crop } from '../../src/shared/contracts/documents';
-import { ConflictError } from '../../src/server/domain/errors/domain-error';
+import { ConflictError, UnprocessableError } from '../../src/server/domain/errors/domain-error';
 import {
   DocumentRepository,
   type Viewer,
 } from '../../src/server/domain/repositories/document.repository';
-import { withFileCrop } from '../../src/server/domain/entities/document-page';
+import {
+  MAX_FILES_PER_DOCUMENT,
+  withFileCrop,
+} from '../../src/server/domain/entities/document-page';
 import { FileRepository } from '../../src/server/domain/repositories/file.repository';
 import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
 import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
@@ -194,6 +197,48 @@ describe('Files and documents (integration)', () => {
 
       await expect(attaching).rejects.toBeInstanceOf(ConflictError);
       await expect(attaching).rejects.toMatchObject({ code: 'FILE_ALREADY_IN_DOCUMENT' });
+    });
+
+    // 🔒 SEC-49 (docs/05 §5.4a). Nothing bounded how many files a document holds: `attach` read
+    // `max(position)` and inserted, counting nothing, and every one of those files is opened whole,
+    // converted, and its part kept until the merge — so a repeated add or a repeated combine let the
+    // canonical build's peak memory be chosen by a caller. 422, because the request is well-formed
+    // and the document is in no conflicting state: it is the size of what was asked for.
+    it('refuses to hold more files than one document may (DOCUMENT_TOO_MANY_FILES)', async () => {
+      const document = await documents.create({ title: 'An archive pretending to be a document' });
+      // The bound counted in the entries a document holds, which is where an insert at a position
+      // writes: one call, and no two hundred rows needed to reach it.
+      const pages = Array.from({ length: MAX_FILES_PER_DOCUMENT + 1 }, (unused, index) => ({
+        fileId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        pageIndex: null,
+        turn: null,
+        crop: null,
+        cropSource: 'NONE' as const,
+      }));
+
+      const writing = files.replacePages(document.id, pages);
+
+      await expect(writing).rejects.toBeInstanceOf(UnprocessableError);
+      await expect(writing).rejects.toMatchObject({ code: 'DOCUMENT_TOO_MANY_FILES' });
+      // Refused before anything was written: the document still holds nothing.
+      expect(await files.listPagesForDocument(document.id)).toEqual([]);
+    });
+
+    it('still holds as many pages of one file as the file has', async () => {
+      const document = await documents.create({ title: 'A four-hundred-page scan' });
+      const fileId = await createFile();
+      // One file, four hundred pages: the bound counts files, because a file is what is opened.
+      const pages = Array.from({ length: 400 }, (unused, index) => ({
+        fileId,
+        pageIndex: index,
+        turn: null,
+        crop: null,
+        cropSource: 'NONE' as const,
+      }));
+
+      await files.replacePages(document.id, pages);
+
+      expect(await files.listPagesForDocument(document.id)).toHaveLength(400);
     });
 
     it('rewrites every position in one pass, which is what makes a reorder possible at all', async () => {

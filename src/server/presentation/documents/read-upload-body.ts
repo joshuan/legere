@@ -1,4 +1,5 @@
 import type { Request } from 'express';
+import { wholeFileReads } from '../../application/documents/whole-file-reads';
 import { PayloadTooLargeError, UnprocessableError } from '../../domain/errors/domain-error';
 
 // The file name travels in a header, since the body is the file itself (docs/07 §7.3). Browsers may
@@ -34,7 +35,17 @@ export function isRawBodyRoute(method: string, path: string): boolean {
 // Reads the request body into memory, refusing anything over the cap **while it streams** rather
 // than after: a 500 MiB upload to a 100 MiB instance costs one buffer's worth of memory and a closed
 // socket, not half a gigabyte of it (docs/05 §5.1a).
+//
+// 🔒 And no more of them at once than the process can hold (docs/05 §5.4a). The per-request cap says
+// what one upload may weigh and never how many may be in the air, so twenty-five concurrent
+// hundred-megabyte bodies reached 2.5 GB in a container given 2 GB. The gate is entered **before**
+// the first chunk is read, so a caller that has to wait waits on an empty socket rather than on a
+// buffer it has already filled.
 export async function readUploadBody(req: Request, maxBytes: number): Promise<Buffer> {
+  return wholeFileReads.run(() => readBody(req, maxBytes));
+}
+
+async function readBody(req: Request, maxBytes: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
 

@@ -300,19 +300,46 @@ history from a log already written.
   (defaults in [`05 §5.4`](./05-library-and-processing.md#54-job-queue-pg-boss)); handlers are
   resolved from the Nest DI container (`app.get(HandleFileIngest)`).
 - Retry policy per queue: `retryLimit: 5`, `retryBackoff: true` (exponential).
-  `library-scan` uses a **singleton key** = libraryId (pg-boss `singletonKey`) so one scan per library
-  runs at a time; `document-process` uses singletonKey = documentId. `document-process` settles a
+  `document-process` settles a
   document's own failures inside the handler and lets exactly one error class reach this policy:
   `ServiceUnavailableError`, a service being away, which is retried because it is transient and must
   not be recorded against a document ([`05 §5.4e`](./05-library-and-processing.md#54e-an-outage-is-not-a-verdict)).
+- 🔒 **A singleton key means nothing unless the queue's policy says it does**, and the key is
+  therefore decided in one place — the queue adapter, off the payload — rather than at each of the
+  eight call sites that ask for work. pg-boss's dedup indexes cover only the `short`, `singleton` and
+  `stately` policies; a key passed to a `standard` queue deduplicates nothing at all, silently. Two
+  queues carry one:
+  - **`library-scan` is `stately`**, keyed by libraryId: at most one scan of a library queued and at
+    most one running, which is what makes "one scan per library at a time" hold at the database level
+    ([`05 §5.2`](./05-library-and-processing.md), §5.4).
+  - **`document-process` is `short`**, keyed by the documentId and the steps the payload asks for
+    (`<documentId>[#full][#step+step]`): at most one *queued* job per key, with nothing said about
+    what is running. `short` and not `stately`, because a rebuild asked for while the previous one
+    runs is asking about a document that has changed since and must still be queued; what has to
+    collapse is the queue of identical requests. The steps are in the key because a `short` queue
+    silently declines to create the second job, so a key of the document alone would drop a rebuild
+    whenever a one-step job happened to be waiting ([`05 §5.5`](./05-library-and-processing.md#55-document-processing-pipeline-document-process)).
+- **A batch is delivered together and settled one job at a time.** A worker fetches `concurrency`
+  jobs and runs them in parallel; pg-boss's own wrapper then completes or fails **every id in the
+  batch** on the callback's single outcome. Each job's outcome is recorded against that job instead,
+  so one failure cannot cost its neighbours a re-run
+  ([`05 §5.4e`](./05-library-and-processing.md#54e-an-outage-is-not-a-verdict)).
 - **`expireInSeconds` is per queue**, and it is a recovery time rather than a work timeout: it is how
   long a job stays `active` after its worker disappeared — a crash, a deploy, a dev restart — before
   pg-boss gives it to someone else. Under the `stately` policy an abandoned job keeps its singleton
   slot, so this interval is exactly how long a library stays unscannable (and its ScanRun stuck at
   RUNNING) after a restart mid-scan. Values: `library-scan` 15 min, `file-ingest` 10 min,
-  `document-process` 60 min (assembly, conversion and OCR), `maintenance` 15 min —
+  `document-process` **3 h**, `maintenance` 15 min —
   generous multiples of the real work, safe because every handler is idempotent
   ([`05 §5.4`](./05-library-and-processing.md#54-job-queue-pg-boss)).
+  🔒 The three hours are arithmetic rather than generosity, and the reason is that this expiry is
+  *also* a work timeout in one direction: pg-boss does not cancel a handler that outruns it, it fails
+  the job and delivers another copy beside the first. An hour was below the sum of the per-step
+  budgets §5.4a documents (165 minutes), so any long document produced a duplicate run of itself
+  every hour. The arithmetic is in
+  [`05 §5.4a`](./05-library-and-processing.md#54a-what-one-document-may-cost); the price is that a
+  `document-process` job whose worker died waits three hours rather than one, which the hourly
+  maintenance sweep and the handler's own refusal to run a document twice both cover.
 - Cron: on start, the app (re)registers pg-boss schedules — per-library scans (`*/N` from
   `scanIntervalMinutes`; re-registered whenever a library is created/updated) and `maintenance`
   (hourly).

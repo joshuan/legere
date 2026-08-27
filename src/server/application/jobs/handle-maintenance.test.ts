@@ -325,9 +325,10 @@ describe('HandleMaintenance', () => {
     expect(queue.enqueued).toEqual([
       {
         name: 'document-process',
-        // The steps that never started, which for a document nothing has touched is all six.
+        // The steps that never started, which for a document nothing has touched is all six. No key
+        // is passed: the queue derives one from the payload, so an hourly sweep that runs again
+        // before the last one drained adds nothing (docs/05 §5.4).
         payload: { documentId: 'doc-stale', steps: [...DOCUMENT_STEPS] },
-        options: { singletonKey: 'doc-stale' },
       },
     ]);
     // 🔒 And the row says so at once. The sweep is the moment a step stops being unscheduled, and a

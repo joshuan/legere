@@ -49,6 +49,10 @@ export const ERROR_CODES = [
   // (docs/03 §3.4a): a composition that would leave it holding no library page would leave it
   // readable to an admin and to nobody else, and is refused before it is written (docs/05 §5.6).
   'DOCUMENT_WOULD_HAVE_NO_READERS',
+  // 🔒 And the bound at the other end (docs/05 §5.4a): every file of a document is opened, converted
+  // and held at once by the canonical build, so how many of them there are is a decision rather than
+  // whatever the disk allows.
+  'DOCUMENT_TOO_MANY_FILES',
   'FILE_ALREADY_IN_DOCUMENT',
   // The edges between documents (docs/03 §3.3.23): one per pair, never to itself, and gone is gone.
   'LINK_EXISTS',

@@ -480,7 +480,10 @@ export class InMemoryFileRepository extends FileRepository {
     if (existing !== undefined) return Promise.resolve({ file: existing, created: false });
 
     this.created += 1;
-    const file = fileFixture({ ...input, id: `file-created-${this.created}` });
+    // The caller's id where it gave one, the way the database honours an explicit primary key: an
+    // upload writes its object under `files/{id}/…` before the row exists, and the row has to come
+    // back carrying that same id or the orphan sweep would delete a live original (docs/09 §9.2).
+    const file = fileFixture({ ...input, id: input.id ?? `file-created-${this.created}` });
     this.files.set(file.id, file);
     return Promise.resolve({ file, created: true });
   }
@@ -1226,8 +1229,8 @@ export class InMemoryCategoryRepository extends DocumentTypeRepository {
   softDelete(): Promise<void> {
     return unused('softDelete');
   }
-  clearCategoryFromDocuments(): Promise<number> {
-    return unused('clearCategoryFromDocuments');
+  clearTypeFromDocuments(): Promise<number> {
+    return unused('clearTypeFromDocuments');
   }
 }
 
