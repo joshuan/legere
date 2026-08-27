@@ -228,8 +228,11 @@ export class DocumentsController {
 
   @Get(':id')
   @UseGuards(DocumentAccessGuard)
-  getDocument(@CurrentDocument() document: DocumentDetail): Envelope<DocumentDetailDto> {
-    return successEnvelope(this.get.execute(document));
+  getDocument(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+  ): Envelope<DocumentDetailDto> {
+    return successEnvelope(this.get.execute(user, document));
   }
 
   @Patch(':id')
@@ -308,7 +311,7 @@ export class DocumentsController {
     @ZodQuery(paginationQuerySchema) query: PaginationQuery,
   ): Promise<Envelope<DocumentEventPage>> {
     return successEnvelope(
-      await this.events.execute(document.document.id, {
+      await this.events.execute(user, document.document.id, {
         limit: query.limit,
         cursor: query.cursor,
         // An entry is written whole and read redacted: the host a step ran against names a container

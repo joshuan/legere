@@ -366,6 +366,9 @@ export class InMemoryDocumentRepository extends DocumentRepository {
   listInCollection(): Promise<DocumentListPage> {
     return unused('listInCollection');
   }
+  countReadableInCollections(): Promise<ReadonlyMap<string, number>> {
+    return unused('countReadableInCollections');
+  }
   searchByText(): Promise<SearchMatch[]> {
     return unused('searchByText');
   }

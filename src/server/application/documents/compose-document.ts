@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { DocumentDetailDto, Rotation } from '../../../shared/contracts/documents';
+import type { FileOrigin } from '../../../shared/contracts/enums';
 import type {
   CombineDocumentsRequest,
   CropSuggestionResponse,
@@ -7,7 +8,11 @@ import type {
   SplitDocumentFileResponse,
   UpdateDocumentFileRequest,
 } from '../../../shared/contracts/files';
-import { canEditDocumentMeta } from '../../domain/entities/document';
+import {
+  canDestroyDocumentContent,
+  canEditDocumentMeta,
+  keepsItsReaders,
+} from '../../domain/entities/document';
 import {
   entryOf,
   filePageOrderOf,
@@ -51,7 +56,7 @@ import type { ImageTool } from '../ports/image-tool';
 import type { JobQueue } from '../ports/job-queue';
 import type { MimeDetector } from '../ports/mime-detector';
 import type { TransactionHandle, UnitOfWork } from '../ports/unit-of-work';
-import { originalKeyOf, servableContentType } from '../storage/artifact-keys';
+import { artifactKeys, originalKeyOf, servableContentType } from '../storage/artifact-keys';
 import type { DocumentFileBytes } from './document-file-bytes';
 import { originOfDetail, toDetailDto } from './manage-documents';
 
@@ -358,6 +363,13 @@ export class SplitDocumentFile {
         'This is the only file of the document; delete the document instead',
       );
     }
+    // 🔒 And the file that leaves may not be the one the document is readable through: what stays
+    // behind would be readable to nobody (docs/03 §3.4a). The file itself is fine — it becomes a
+    // document of the caller's own, which they can read.
+    assertKeepsItsReaders(
+      detail.document.createdById,
+      detail.files.flatMap((held) => (held.id === fileId ? [] : [held.origin])),
+    );
 
     const splitDocumentId = await this.unitOfWork.run(async (tx) => {
       await this.files.detach(documentId, fileId, tx);
@@ -438,9 +450,19 @@ export class ReplaceDocumentFile {
     fileId: string,
     input: UploadedFile,
   ): Promise<DocumentDetailDto> {
-    assertMayCompose(viewer, detail);
+    // 🔒 A replacement substitutes the bytes a page reads, so it destroys rather than arranges: it
+    // is the document's creator's or an ADMIN's (docs/03 §3.4a).
+    assertMayDestroy(viewer, detail);
     const documentId = detail.document.id;
     const replaced = fileOf(detail, fileId);
+    // 🔒 And "nothing else about the document changes" (docs/05 §5.6) is checked rather than hoped
+    // for: what arrives is stored MANAGED, so replacing a document's last library file would take
+    // it away from everybody its library reaches — and from everybody at all, a document a scan made
+    // having no creator to fall back on.
+    assertKeepsItsReaders(
+      detail.document.createdById,
+      detail.files.map((held) => (held.id === fileId ? 'MANAGED' : held.origin)),
+    );
     const upload = await describeUpload(this.mime, input);
 
     if (upload.contentHash === replaced.contentHash) {
@@ -533,6 +555,7 @@ export class CombineDocuments {
     private readonly documents: DocumentRepository,
     private readonly files: FileRepository,
     private readonly events: DocumentEventRepository,
+    private readonly storage: FileStorage,
     private readonly queue: JobQueue,
     private readonly unitOfWork: UnitOfWork,
     private readonly clock: Clock,
@@ -563,11 +586,13 @@ export class CombineDocuments {
       }
       seen.add(documentId);
 
-      // 🔒 Reading is not enough: absorbing a document destroys it as a document, so the caller must
-      // be able to edit every one of them (docs/03 §3.4).
+      // 🔒 Reading is not enough, and neither is editing: absorbing a document *ends* it, which is
+      // the outcome `DELETE /api/documents/:id` spends an `@Roles('ADMIN')` on one route above. So
+      // each source is asked the destroying question, not the arranging one (docs/03 §3.4a) — while
+      // the target above is only asked the arranging one, because it gains pages and loses none.
       const source = await this.documents.findReadableById(documentId, viewer);
       if (source === null) throw new NotFoundError('DOCUMENT_NOT_FOUND', 'Document not found');
-      assertMayCompose(viewer, source);
+      assertMayDestroy(viewer, source);
       sources.push(source);
     }
 
@@ -610,7 +635,35 @@ export class CombineDocuments {
       await enqueueRebuild(this.queue, this.events, tx, targetId, viewer.id);
     });
 
+    // 🔒 After the commit, and only then: the artifacts of the documents that are gone. A
+    // soft-deleted document keeps its own everywhere else because that delete is reversible — this
+    // one is not, since no route reaches a soft-deleted document again and the admin's hard delete
+    // refuses it outright, so nothing would ever collect these three (docs/09 §9.2). The originals
+    // are untouched: they are files, the target reads their pages now, and files are the one thing
+    // nothing here rebuilds. A bucket that refuses leaves an orphan for the hourly sweep, which is
+    // the failure this order is chosen for.
+    for (const source of sources) {
+      await this.dropArtifacts(source.document.id);
+    }
+
     return reload(this.documents, viewer, targetId);
+  }
+
+  private async dropArtifacts(documentId: string): Promise<void> {
+    const keys = [
+      artifactKeys.canonicalPdf(documentId),
+      artifactKeys.preview(documentId),
+      artifactKeys.thumbnail(documentId),
+    ];
+    for (const key of keys) {
+      // The rows are already gone, so a delete that fails is a sweepable orphan and never a
+      // half-done combine: the pages are in the target either way (docs/09 §9.5).
+      try {
+        await this.storage.delete(key);
+      } catch {
+        continue;
+      }
+    }
   }
 }
 
@@ -641,11 +694,50 @@ export class SuggestDocumentFileCrop {
   }
 }
 
-// 🔒 Who may change what a document is made of: the same rule as its title and type (docs/03 §3.4).
+// 🔒 Who may **arrange** a document — where a page stands, which way up it lies, how much of it is
+// paper, which document it is read in: the same rule as its title and type (docs/03 §3.4a). Any
+// reader of a library document may, for the reason they may correct its name.
 export function assertMayCompose(viewer: Viewer, detail: DocumentDetail): void {
   if (!canEditDocumentMeta(viewer, detail.document, originOfDetail(detail))) {
     throw new ForbiddenError('You may not edit this document');
   }
+}
+
+// 🔒 And who may **destroy** what it is made of — remove a page, replace a file's bytes, absorb the
+// document into another one (docs/03 §3.4a). Not the same rule, and not the same question: reading a
+// library document is a licence to tidy it, never to empty it.
+export function assertMayDestroy(viewer: Viewer, detail: DocumentDetail): void {
+  if (!canDestroyDocumentContent(viewer, detail.document, originOfDetail(detail))) {
+    throw new ForbiddenError('You may not take content out of this document');
+  }
+}
+
+// 🔒 And what nobody may do, admins included: leave a document nobody can read (docs/03 §3.4a,
+// docs/05 §5.6). Asked of the page list an operation is about to write and of the document it would
+// belong to — the source it takes from, and every part it makes — *before* the write, because the
+// alternative is what this code used to do: commit, then find on the way out that the document was
+// no longer readable, and answer 404 for a change that had already happened.
+export function assertKeepsItsReaders(
+  createdById: string | null,
+  origins: readonly FileOrigin[],
+): void {
+  if (keepsItsReaders(createdById, origins)) return;
+  throw new UnprocessableError(
+    'DOCUMENT_WOULD_HAVE_NO_READERS',
+    'That would leave a library document with no page from a library, and nobody but an ' +
+      'administrator could read it',
+  );
+}
+
+// Where the bytes behind a list of pages are kept — the only thing about a file that decides who may
+// read the document holding it (docs/03 §3.4). A page naming a file the detail no longer describes
+// contributes nothing, which is the safe answer: it cannot be counted as a library page.
+export function originsOfPages(pages: readonly PageEntry[], detail: DocumentDetail): FileOrigin[] {
+  const byId = new Map(detail.files.map((file) => [file.id, file.origin]));
+  return pages.flatMap((page) => {
+    const origin = byId.get(page.fileId);
+    return origin === undefined ? [] : [origin];
+  });
 }
 
 // The whole ordered list a document holds, read back off its detail: the pages of every file, in
@@ -771,14 +863,26 @@ export async function enqueueRebuild(
 
 // Every composition route answers with the whole document: a change to one file moves positions,
 // availability and the origin of the document itself, so anything less would be a lie (docs/07 §7.3).
+//
+// 🔒 This runs *after* the transaction has committed, so the document not coming back is not a 404 —
+// it is a broken invariant, and it used to be reported as the former: a mutation that had already
+// happened answered "Document not found" and the document was gone for every non-admin (SEC-60).
+// `assertKeepsItsReaders` is what stops that before the write; this is the assertion behind it, and
+// an operator reading `INTERNAL` in the log is being told the truth rather than the caller being
+// told a comfortable lie about a write that succeeded.
 export async function reload(
   documents: DocumentRepository,
   viewer: Viewer,
   documentId: string,
 ): Promise<DocumentDetailDto> {
   const detail = await documents.findReadableById(documentId, viewer);
-  if (detail === null) throw new NotFoundError('DOCUMENT_NOT_FOUND', 'Document not found');
-  return toDetailDto(detail);
+  if (detail === null) {
+    throw new Error(
+      `A composition of document ${documentId} committed and then left it unreadable to its own ` +
+        'caller: the composition rules of docs/03 §3.4a did not hold',
+    );
+  }
+  return toDetailDto(detail, viewer);
 }
 
 export type DescribedUpload = {

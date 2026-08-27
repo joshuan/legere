@@ -30,9 +30,12 @@ import type { Clock } from '../ports/clock';
 import type { JobQueue } from '../ports/job-queue';
 import type { TransactionHandle, UnitOfWork } from '../ports/unit-of-work';
 import {
+  assertKeepsItsReaders,
   assertMayCompose,
+  assertMayDestroy,
   assertMayMirror,
   enqueueRebuild,
+  originsOfPages,
   pagesOf,
   reload,
   rotationLabel,
@@ -200,6 +203,12 @@ export class UpdateDocumentPage {
 // DELETE /api/documents/:id/pages/:pageId (docs/07 §7.3): one entry leaves and the rest close up
 // behind it. 🔒 The file it was read from goes to the trash only if no live page anywhere still
 // reads it — the rule of `05 §5.7a`, one join further out since ADR-025.
+//
+// 🔒 This is the one page operation that **destroys** (docs/03 §3.4a): the entry is gone, and with it
+// possibly the file, into a trash only an admin can reach and with its library refs EXCLUDED so the
+// next scan will not bring the bytes back. So it is not an arranging right — a reader of a library
+// document who wants a page out of it **moves** it, which leaves it read somewhere else and takes
+// nothing from anybody.
 export class RemoveDocumentPage {
   constructor(
     private readonly documents: DocumentRepository,
@@ -216,7 +225,7 @@ export class RemoveDocumentPage {
     detail: DocumentDetail,
     pageId: string,
   ): Promise<DocumentDetailDto> {
-    assertMayCompose(viewer, detail);
+    assertMayDestroy(viewer, detail);
     const documentId = detail.document.id;
     const held = pagesOf(detail);
 
@@ -232,14 +241,15 @@ export class RemoveDocumentPage {
         'This is the only page of the document; delete the document instead',
       );
     }
+    const kept = held.filter((page) => page.id !== pageId);
+    // 🔒 And what is left has to be readable by somebody (docs/03 §3.4a): taking the last page that
+    // reads a library file out of a document a scan made would leave it in the database and nowhere
+    // else.
+    assertKeepsItsReaders(detail.document.createdById, originsOfPages(kept, detail));
     const file = detail.files.find((candidate) => candidate.id === removed.fileId);
 
     await this.unitOfWork.run(async (tx) => {
-      await this.files.replacePages(
-        documentId,
-        held.filter((page) => page.id !== pageId),
-        tx,
-      );
+      await this.files.replacePages(documentId, kept, tx);
       await trashFilesNothingReads(
         { files: this.files, fileRefs: this.fileRefs, clock: this.clock },
         [removed.fileId],
@@ -319,6 +329,13 @@ export class SplitDocumentAtPages {
     const [kept, ...cut] = parts;
     if (kept === undefined || cut.length === 0) {
       throw new UnprocessableError('VALIDATION_FAILED', 'A split has to cut somewhere');
+    }
+
+    // 🔒 Every part has to be a document somebody can read, and each of them takes the original's
+    // owner — which for a document a scan made is nobody, so a part that keeps no library page keeps
+    // no readers either (docs/03 §3.4a). Asked of all of them, before any of them exists.
+    for (const part of parts) {
+      assertKeepsItsReaders(detail.document.createdById, originsOfPages(part, detail));
     }
 
     const splitDocumentIds = await this.unitOfWork.run(async (tx) => {
@@ -477,6 +494,15 @@ export class MoveDocumentPages {
       throw new NotFoundError('DOCUMENT_NOT_FOUND', 'Document not found');
     }
     if (target !== null) assertMayCompose(viewer, target);
+
+    // 🔒 Both ends keep their readers (docs/03 §3.4a). The source may not be stripped of the last
+    // page that reads a library file, and a **new** document made to hold the movers takes this
+    // document's owner — nobody, for a document a scan made — so it has to hold one itself. Moving
+    // into an existing document cannot take readers from it: it only gains pages.
+    assertKeepsItsReaders(detail.document.createdById, originsOfPages(remaining, detail));
+    if (target === null) {
+      assertKeepsItsReaders(detail.document.createdById, originsOfPages(moving, detail));
+    }
 
     const targetHeld = target === null ? [] : pagesOf(target);
     const at = input.at ?? targetHeld.length;

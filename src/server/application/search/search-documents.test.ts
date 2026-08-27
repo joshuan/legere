@@ -93,6 +93,9 @@ class StubSearchRepository extends DocumentRepository {
   listInCollection() {
     return notUsed();
   }
+  countReadableInCollections() {
+    return notUsed();
+  }
   findReadableById() {
     return notUsed();
   }

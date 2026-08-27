@@ -186,6 +186,38 @@ describe('Document links (e2e)', () => {
       expect((await linksOf(visible)).items.map((item) => item.document.id)).toEqual([hidden]);
     });
 
+    // 🔒 SEC-63 / docs/03 §3.3.18: the journal of the visible end used to print the hidden end's
+    // title and uuid, which is exactly what the links list above refuses to say.
+    it('does not name the other end in the journal either, where the reader may not read it', async () => {
+      const open = await seedLibrary({ visibility: 'ALL_USERS' });
+      const restricted = await seedLibrary({ visibility: 'RESTRICTED' });
+      const visible = await givenDocument(open, 'Visible');
+      const hidden = await givenDocument(restricted, 'Passport — Ivan Petrov 4510 123456');
+      await api(app)
+        .post(`/api/documents/${visible}/links`, { documentId: hidden })
+        .set('Cookie', adminCookie);
+
+      const reader = await inviteUser(`journalreader${seq}@legere.local`);
+      const events = await api(app)
+        .get(`/api/documents/${visible}/events`)
+        .set('Cookie', reader.cookie);
+      expect(events.status).toBe(200);
+      const linked = expectData(events, documentEventPageSchema).items.filter(
+        (item) => item.type === 'LINKED',
+      );
+      expect(linked).toHaveLength(1);
+      expect(linked[0]?.payload.otherTitle).toBeUndefined();
+      expect(linked[0]?.payload.otherDocumentId).toBeUndefined();
+
+      // The admin still reads the whole entry — the record is not destroyed, only withheld.
+      const forAdmin = expectData(
+        await api(app).get(`/api/documents/${visible}/events`).set('Cookie', adminCookie),
+        documentEventPageSchema,
+      ).items.filter((item) => item.type === 'LINKED');
+      expect(forAdmin[0]?.payload.otherDocumentId).toBe(hidden);
+      expect(forAdmin[0]?.payload.otherTitle).toBe('Passport — Ivan Petrov 4510 123456');
+    });
+
     it('requires read access on the other end to link at all', async () => {
       const open = await seedLibrary({ visibility: 'ALL_USERS' });
       const restricted = await seedLibrary({ visibility: 'RESTRICTED' });

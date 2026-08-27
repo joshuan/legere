@@ -37,9 +37,11 @@ export class BrowseLibrary {
 
     const [folders, documents] = await Promise.all([
       this.fileRefs.listFoldersUnder(libraryId, folder.value),
-      // No extra access clause: the caller was just checked against the library, and everything in
-      // it is readable to them by definition (docs/03 §3.4).
-      this.documents.listInFolder(libraryId, folder.value, {
+      // 🔒 The access rule applies here too. Being granted the library says the *folder* may be
+      // browsed; it does not say every document a ref in it reaches may be read, because the same
+      // bytes may have arrived as somebody's private upload first (docs/05 §5.3). A list never
+      // shows what its detail refuses (docs/03 §3.4).
+      this.documents.listInFolder(libraryId, folder.value, viewer, {
         limit: query.limit,
         cursor: query.cursor,
       }),

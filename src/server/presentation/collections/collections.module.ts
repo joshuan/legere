@@ -26,9 +26,11 @@ import { CollectionsController, UserLookupController } from './collections.contr
     ...sessionGuardProviders,
     {
       provide: ListCollections,
-      useFactory: (collections: CollectionRepository): ListCollections =>
-        new ListCollections(collections),
-      inject: [CollectionRepository],
+      useFactory: (
+        collections: CollectionRepository,
+        documents: DocumentRepository,
+      ): ListCollections => new ListCollections(collections, documents),
+      inject: [CollectionRepository, DocumentRepository],
     },
     {
       provide: CreateCollection,
@@ -46,9 +48,11 @@ import { CollectionsController, UserLookupController } from './collections.contr
     },
     {
       provide: UpdateCollection,
-      useFactory: (collections: CollectionRepository): UpdateCollection =>
-        new UpdateCollection(collections),
-      inject: [CollectionRepository],
+      useFactory: (
+        collections: CollectionRepository,
+        documents: DocumentRepository,
+      ): UpdateCollection => new UpdateCollection(collections, documents),
+      inject: [CollectionRepository, DocumentRepository],
     },
     {
       provide: DeleteCollection,

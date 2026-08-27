@@ -115,6 +115,17 @@ The `file-ingest` job computes SHA-256 of the file stream and then asks two ques
    somebody touched the file on the volume and the ref was re-hashed. Being in the trash is an answer
    about where a file belongs, and it is not "nowhere".
 
+🔒 **What dedup does *not* decide.** Question one is asked of the `contentHash` and of nothing else,
+so the row it finds may be a `MANAGED` one: bytes uploaded from a browser and later found on a volume
+are one file that has a `storageKey` **and** a `FileRef`. That is the "one file with four homes"
+above, working as intended — the alternative is two rows for one set of bytes, and the whole point of
+ADR-021 is that there is one. What it means for every read path is that a `FileRef` is **not** a
+proof that a document is a library document: `origin` is, and a query that reaches a document by
+joining `file_refs` has to say `origin = 'LIBRARY'` for itself, exactly as the access rule of
+`03 §3.4` does. Ingest does not "fix" this by flipping the row's origin: the bytes are in our bucket,
+that is what `MANAGED` means, and a scan may not decide that an upload of somebody's belongs to
+everyone who can see a volume.
+
 **Invariants:**
 - One live `File` per `contentHash`.
 - Every file a scan ingests is read by a live document or is in the trash (ADR-025); a live document
@@ -914,6 +925,24 @@ Nothing rewrites a file, and every one of them ends by enqueueing a canonical re
 followed by the rest of the pipeline — because a document whose pages changed is a different
 document to read, search and categorize.
 
+🔒 **Who may.** Two rules, not one (`03 §3.4a`). Everything that only **arranges** — add, reorder,
+crop, turn, split, move — is open to whoever may edit the document's title, which on a library
+document is any of its readers: the argument for a library people may tidy up is exactly as good
+about the order of its pages as it is about its name. Everything that **destroys** — remove a page,
+replace a file, and combine's treatment of the documents it absorbs — is the document's creator's or
+an `ADMIN`'s, and a document a scan made has no creator, so on a library document those three are an
+`ADMIN`'s. The test between them is whether the operation, by itself, makes a page stop being read
+anywhere; the table is in `03 §3.4a`.
+
+🔒 **And what none of them may do: leave a document nobody can read.** A document is reachable
+because of what it holds — one page read from a library file reaches everybody that library reaches
+(`03 §3.4`) — and a document a scan made has no creator to fall back on. So an operation that would
+take the last such page out of it is refused (`422 DOCUMENT_WOULD_HAVE_NO_READERS`) rather than
+performed, and refused for **every** document it touches: the one it takes pages from, and every part
+it makes. This is asked before anything is written. The alternative is what the code used to do —
+commit the change, then discover on the way out that the document it had just edited was no longer
+readable, and answer `404` for a write that had already happened.
+
 - **Add by upload, anywhere in the order.** Files sent to an existing document are stored,
   deduplicated and their pages put **at a position** — after the last page the document has unless
   the request names one, which is what puts a photograph between page two and page three of a
@@ -928,17 +957,31 @@ document to read, search and categorize.
   and collections stay with the rows that are going away — the target keeps what it had, and the
   analysis is re-run over the whole. This is what "these two scans are one document" means, and it
   replaces the scan sets of earlier releases.
+  🔒 **The caller must be able to destroy each source** (`03 §3.4a`) — absorbing a document ends it,
+  and ending a document is not something reading it entitles anybody to. Editing the *target* is
+  enough for the target: it gains pages and loses none.
+  🔒 **And the sources' artifacts go with them.** An absorbed document is soft-deleted and then
+  unreachable by every route this instance has, the admin's hard delete included, so nothing would
+  ever collect its canonical PDF, preview and thumbnail: they are deleted after the transaction
+  commits, exactly as `DELETE /api/documents/:id` deletes a document's own (`09 §9.2`). Its pages are
+  in the target and its originals are untouched — what is thrown away is three derived files that
+  will be rebuilt for the target anyway.
 - **Split off a file.** A file removed from a document takes its pages with it into a document of its
   own — never nothing. The new
   document is titled after the file, inherits nothing else, and is processed from scratch. Removing
   the only file of a document is refused (`DOCUMENT_LAST_FILE`): a document is emptied by deleting
-  it, not by taking its parts away one at a time.
+  it, not by taking its parts away one at a time. 🔒 So is taking the **last library file** out of a
+  document a scan made (`DOCUMENT_WOULD_HAVE_NO_READERS`): what is left would be readable to nobody.
 - **Split at a page.** The twenty-page scan whose eighth page begins another contract is cut at one
   or more page boundaries into two or more documents, the entries dividing between them. 🔒 **No
   bytes are copied and no file is extracted**: the same file is simply read by pages in two places,
   which is exactly what ADR-025 exists for and what it refused to do with a page splitter. Each new
-  document takes the original's **owner**, and therefore its access — whoever could read and edit the
-  original can read and edit the part (`03 §3.4`) — and nothing it has not earned: no title but the
+  document takes the original's **owner**, and with it what an owner grants (`03 §3.4`); what a
+  *library* grants comes with the library pages, so a part holding one is readable to the library's
+  readers and a part holding none is readable to that owner. 🔒 A part that would have neither — a
+  part of a document a scan made, holding only uploaded pages — is not created: the split is refused
+  whole (`422 DOCUMENT_WOULD_HAVE_NO_READERS`), because a document nobody can read is not a document.
+  Otherwise the part inherits nothing it has not earned: no title but the
   name of the file its first page comes from, no type, no people, no collections, because half a
   paper is not the paper and the pipeline reads it afresh. The parts are **linked** to each other and
   to the original (`03 §3.3.23`), which is what
@@ -952,7 +995,9 @@ document to read, search and categorize.
   the same terms as a split. The bytes do not move, because they were never in a document to begin
   with: what changes hands is the entry that reads them. 🔒 The mover must be allowed to edit **both**
   documents, and a move into one they may not edit is refused whole rather than done by halves; so is
-  one that would empty the document the pages came from. Both documents rebuild, and both journals
+  one that would empty the document the pages came from, and so is one that would leave either end
+  without a reader — the source stripped of its last library page, or a new document made to hold
+  library-less pages of a document a scan made (`DOCUMENT_WOULD_HAVE_NO_READERS`). Both documents rebuild, and both journals
   say what happened, each naming the other. A page that has moved is still read, so nothing goes to
   the trash for it — the rule below is asked all the same, because it is the rule and not a guess
   about which edits can bite.
@@ -962,6 +1007,11 @@ document to read, search and categorize.
   (§5.7a) with `PAGE_REMOVED` — one join further out than the rule used to sit, and asked of every
   edit that can leave a file unread. A file another document still reads a page of stays exactly
   where it is.
+  🔒 **This is the one page operation that destroys**, and therefore the document's creator's or an
+  `ADMIN`'s (`03 §3.4a`): the file behind the last page reading it goes to the trash with its
+  `FileRef`s `EXCLUDED`, which is `ADMIN`-only ground and which the next scan will not undo. A reader
+  of a library document who wants a page out of it **moves** it — the page is then read somewhere
+  else and the archive has lost nothing — and that is why the move is open to them and this is not.
 - **Replace.** A bad scan is re-taken and sent in place of the file it is a better copy of: the new
   bytes are stored and deduplicated like any upload, and **take the old file's place in the order** —
   its pages stand where the old file's pages stood, so the rest of the document does not move. They
@@ -982,6 +1032,16 @@ document to read, search and categorize.
   (`FILE_ALREADY_IN_DOCUMENT`); replacing with bytes that are an *earlier version* of this same file
   takes that version back out of the trash, which is what deduplication means when the file it finds
   is one of ours.
+  🔒 **A replacement destroys**, so it is the document's creator's or an `ADMIN`'s (`03 §3.4a`): the
+  bytes a page reads are substituted, and everything derived from them — canonical PDF, preview,
+  text, analysis, vectors — is rebuilt from what arrived. Whoever may read a library document may not
+  quietly rewrite what it says.
+  🔒 **And "nothing else about the document changes" is a promise, not a hope.** An upload is a
+  `MANAGED` file, so replacing the only library file of a library document would leave it holding no
+  library page — and therefore no readers at all, its creator being nobody. That is refused
+  (`422 DOCUMENT_WOULD_HAVE_NO_READERS`) under the rule above: a replacement may improve a page and
+  may not take a document away from the people who could read it. Getting a better copy of a library
+  document's only page into the archive is an add and a remove, both of which say what they are.
 - **Reorder.** Positions are rewritten wholesale from the order the client sends; the order is the
   page order of the canonical PDF and nothing else depends on it. It is sent as **the whole order,
   every page of the document exactly once** (`07 §7.3`) — one request and one truth, the way the page

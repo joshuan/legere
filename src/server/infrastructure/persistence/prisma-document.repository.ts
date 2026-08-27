@@ -1231,9 +1231,17 @@ export class PrismaDocumentRepository implements DocumentRepository {
   // a string operation on the path, so the ids come from raw SQL; the rows themselves then load
   // through the same include and mapper as every other list. A ref points at a file and the file at
   // a document (docs/03 §3.3.17), so the join goes through `document_pages`.
+  //
+  // 🔒 And the access rule is in the query, like every other read path. "The caller was granted the
+  // library, so everything in it is theirs to read" is false: deduplication is by `contentHash`
+  // alone, so a `file_refs` row in this library may point at a `MANAGED` file an upload created and
+  // a scan later found the same bytes of (docs/05 §5.3) — a private document of somebody else's,
+  // which `GET /api/documents/:id` refuses and this list used to show. A browse never shows what a
+  // detail refuses (docs/03 §3.4).
   async listInFolder(
     libraryId: string,
     folder: string,
+    viewer: Viewer,
     query: { limit: number; cursor?: string | undefined },
     tx?: TransactionHandle,
   ): Promise<DocumentListPage> {
@@ -1247,7 +1255,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
       FROM documents d
       JOIN document_pages dp ON dp.document_id = d.id
       JOIN file_refs f ON f.file_id = dp.file_id
-      WHERE d.deleted_at IS NULL
+      WHERE ${readableSql(viewer)}
         AND f.library_id = ${libraryId}::uuid
         AND (${folder} = '' OR f.path LIKE ${below} ESCAPE '\\')
         AND position('/' in CASE
@@ -1413,6 +1421,30 @@ export class PrismaDocumentRepository implements DocumentRepository {
       items: await this.toItems(rows.slice(0, query.limit), tx),
       nextCursor: nextCursorOf('createdAt', rows, query.limit),
     };
+  }
+
+  // 🔒 The same predicate `listInCollection` builds, counted instead of paged, for a whole screen of
+  // collections in one query (docs/03 §3.3.14). `collection_items` has no `deletedAt` of its own, so
+  // the document's is what says an item is still there.
+  async countReadableInCollections(
+    collectionIds: readonly string[],
+    viewer: Viewer,
+    tx?: TransactionHandle,
+  ): Promise<ReadonlyMap<string, number>> {
+    if (collectionIds.length === 0) return new Map();
+    const client = clientOf(this.prisma, tx);
+    const rows = await client.collectionItem.groupBy({
+      by: ['collectionId'],
+      where: {
+        collectionId: { in: [...collectionIds] },
+        document: {
+          deletedAt: null,
+          AND: [readableBy(viewer, await shareReach(client, viewer))],
+        },
+      },
+      _count: { _all: true },
+    });
+    return new Map(rows.map((row) => [row.collectionId, row._count._all]));
   }
 
   // A whole page of rows plus what their files and their names say about them — four queries for

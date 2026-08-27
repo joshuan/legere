@@ -68,6 +68,7 @@
       "PAGE_NOT_FOUND": "This page is no longer part of this document.",
       "DOCUMENT_LAST_FILE": "A document keeps at least one file. Delete the document instead.",
       "DOCUMENT_LAST_PAGE": "A document keeps at least one page. Delete the document instead.",
+      "DOCUMENT_WOULD_HAVE_NO_READERS": "That would leave nothing from a library in this document, and only an administrator would be able to read it.",
       "FILE_ALREADY_IN_DOCUMENT": "These bytes are already a file of another document.",
       "LINK_EXISTS": "These two documents are already linked.",
       "LINK_NOT_FOUND": "There is no link between these documents.",

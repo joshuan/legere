@@ -369,10 +369,13 @@ export abstract class DocumentRepository {
   // Null when the document does not exist, is soft-deleted, or is one this viewer may not read —
   // 🔒 the three are deliberately indistinguishable from outside (docs/08 §8.5).
   // Documents whose files sit *directly* in one folder of a library, by title (docs/07 §7.3).
-  // Access is settled by the caller having been granted the library itself.
+  // 🔒 Filtered by the same access rule as every other list: a `FileRef` in a library the caller was
+  // granted is not a proof that the document is theirs to read, since the file it points at may be a
+  // `MANAGED` one a scan deduplicated onto (docs/05 §5.3, docs/03 §3.3.16).
   abstract listInFolder(
     libraryId: string,
     folder: string,
+    viewer: Viewer,
     query: { limit: number; cursor?: string | undefined },
     tx?: TransactionHandle,
   ): Promise<DocumentListPage>;
@@ -406,6 +409,17 @@ export abstract class DocumentRepository {
     query: { limit: number; cursor?: string | undefined },
     tx?: TransactionHandle,
   ): Promise<DocumentListPage>;
+
+  // 🔒 How many documents of each collection **this viewer** may list — the size of the set
+  // `listInCollection` would page through, and never the size of the collection (docs/03 §3.3.14).
+  // A count is an answer about a set: reporting the whole one beside a filtered list tells a grantee
+  // how many documents they were refused and, polled, when the owner files another. Collections with
+  // nothing readable in them are absent from the map, which reads as zero.
+  abstract countReadableInCollections(
+    collectionIds: readonly string[],
+    viewer: Viewer,
+    tx?: TransactionHandle,
+  ): Promise<ReadonlyMap<string, number>>;
 
   abstract findReadableById(
     id: string,

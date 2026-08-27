@@ -339,15 +339,17 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
         documents: DocumentRepository,
         files: FileRepository,
         events: DocumentEventRepository,
+        storage: FileStorage,
         queue: JobQueue,
         unitOfWork: UnitOfWork,
         clock: Clock,
       ): CombineDocuments =>
-        new CombineDocuments(documents, files, events, queue, unitOfWork, clock),
+        new CombineDocuments(documents, files, events, storage, queue, unitOfWork, clock),
       inject: [
         DocumentRepository,
         FileRepository,
         DocumentEventRepository,
+        FileStorage,
         JobQueue,
         UnitOfWork,
         Clock,
@@ -450,9 +452,11 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
     },
     {
       provide: ListDocumentEvents,
-      useFactory: (events: DocumentEventRepository): ListDocumentEvents =>
-        new ListDocumentEvents(events),
-      inject: [DocumentEventRepository],
+      useFactory: (
+        events: DocumentEventRepository,
+        documents: DocumentRepository,
+      ): ListDocumentEvents => new ListDocumentEvents(events, documents),
+      inject: [DocumentEventRepository, DocumentRepository],
     },
     {
       provide: ListDocumentYears,

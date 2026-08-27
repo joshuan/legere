@@ -1251,6 +1251,54 @@ describe('Documents (e2e)', () => {
       expect(asAdmin.log).toContain(openPath);
     });
 
+    // 🔒 SEC-64 / docs/03 §3.3.18: the failure text of a step is the exception it threw, and the
+    // canonical build throws the absolute path of a library original it could not open — the same
+    // disclosure as `path`, arriving under another name and through a second door.
+    it('withholds the text of a failure from a reader, on the document and in the journal', async () => {
+      const open = await givenLibrary('ALL_USERS');
+      const documentId = await givenDocument({ libraryId: open, title: 'A scan that failed' });
+      const message = "ENOENT: no such file or directory, lstat '/library/scans/passport.pdf'";
+      await testPrisma().document.update({
+        where: { id: documentId },
+        data: { processingError: message, failedStep: 'canonical', canonicalStatus: 'FAILED' },
+      });
+      await testPrisma().documentEvent.create({
+        data: {
+          documentId,
+          type: 'STEP_FINISHED',
+          payload: { step: 'canonical', status: 'FAILED', error: message },
+        },
+      });
+      const reader = await inviteUser(`failurereader${seq}@legere.local`);
+
+      const detail = expectData(
+        await api(app).get(`/api/documents/${documentId}`).set('Cookie', reader.cookie),
+        documentDetailDtoSchema,
+      );
+      const page = expectData(
+        await api(app).get(`/api/documents/${documentId}/events`).set('Cookie', reader.cookie),
+        documentEventPageSchema,
+      );
+
+      expect(detail.processingError).toBeNull();
+      // What the reader keeps is *which* step failed, which is the part of it that is theirs.
+      expect(detail.failedStep).toBe('canonical');
+      expect(page.items[0]?.payload.error).toBeUndefined();
+      expect(page.items[0]?.payload.status).toBe('FAILED');
+
+      // The operator's text goes to the operator.
+      const asAdmin = expectData(
+        await api(app).get(`/api/documents/${documentId}`).set('Cookie', adminCookie),
+        documentDetailDtoSchema,
+      );
+      expect(asAdmin.processingError).toBe(message);
+      const adminPage = expectData(
+        await api(app).get(`/api/documents/${documentId}/events`).set('Cookie', adminCookie),
+        documentEventPageSchema,
+      );
+      expect(adminPage.items[0]?.payload.error).toBe(message);
+    });
+
     it('still names the file in an entry about bytes this instance holds itself', async () => {
       const owner = await inviteUser(`uploader${seq}@legere.local`);
       const documentId = await givenDocument({ title: 'Scan', createdById: owner.id });

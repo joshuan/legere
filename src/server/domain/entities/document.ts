@@ -133,9 +133,10 @@ export function pendingSteps(): DocumentSteps {
   };
 }
 
-// Who may change a document's title, type or composition (docs/03 §3.4). Read access is decided by
-// the repository query; this is the extra rule on top of it, and it asks the document's derived
-// origin rather than a column, because a document is a library document by holding a library file.
+// Who may change a document's title or type, and — under the same rule — where its pages stand
+// (docs/03 §3.4). Read access is decided by the repository query; this is the extra rule on top of
+// it, and it asks the document's derived origin rather than a column, because a document is a
+// library document by holding a library file.
 export function canEditDocumentMeta(
   user: { id: string; role: UserRole },
   document: Pick<Document, 'createdById'>,
@@ -148,4 +149,38 @@ export function canEditDocumentMeta(
   // A document with no library file at all is its creator's; a share grants reading, not editing
   // (docs/08 §8.5).
   return document.createdById === user.id;
+}
+
+// 🔒 And the other half of composing, which is not the same right (docs/03 §3.4a). The rule above
+// was written about a title and a type, and its argument — the alternative is a library nobody may
+// tidy up — is an argument about *arranging*. It says nothing about a page leaving the archive.
+// This asks the second question: may this person make a page stop being read at all? That is
+// removing a page, replacing a file's bytes, and absorbing a document into another one — the three
+// operations that end something, and deletion is what `DELETE /api/documents/:id` spends an
+// `@Roles('ADMIN')` on one route above.
+//
+// A document a scan made has `createdById = null`, so "creator or admin" reads as admin-only for a
+// library document — which is the answer rather than an accident of it: library content belongs to
+// whoever owns the volume, and a reader who wants a page out of a library document moves it
+// somewhere it is still read (docs/05 §5.6).
+export function canDestroyDocumentContent(
+  user: { id: string; role: UserRole },
+  document: Pick<Document, 'createdById'>,
+  origin: FileOrigin,
+): boolean {
+  if (user.role === 'ADMIN') return true;
+  if (origin === 'LIBRARY') return false;
+  return document.createdById === user.id;
+}
+
+// 🔒 Whether a document holding exactly these files would be readable by anybody but an admin
+// (docs/03 §3.4a). A document is reached either through a library — by holding a file whose origin
+// is LIBRARY — or by being its creator's; a document a scan made has no creator, so taking its last
+// library file away leaves it present in the database, absent from every list and refused by every
+// route. Asked of the list an operation *would* write, before it writes it (docs/05 §5.6).
+export function keepsItsReaders(
+  createdById: string | null,
+  fileOrigins: readonly FileOrigin[],
+): boolean {
+  return createdById !== null || originOf(fileOrigins) === 'LIBRARY';
 }

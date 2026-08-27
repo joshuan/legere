@@ -809,7 +809,10 @@ describe('Document files (e2e)', () => {
     });
 
     it('keeps every earlier copy under the file that is there now', async () => {
-      const { documentId, fileIds } = await givenLibraryDocument({ files: [{ name: 'page.pdf' }] });
+      // Two library files, because a document has to keep one to keep its readers (docs/03 §3.4a).
+      const { documentId, fileIds } = await givenLibraryDocument({
+        files: [{ name: 'page.pdf' }, { name: 'back.pdf' }],
+      });
 
       const first = expectData(
         await replace(documentId, `${fileIds[0]}`, PDF, 'take-2.pdf'),
@@ -835,7 +838,10 @@ describe('Document files (e2e)', () => {
     it('refuses bytes that are already a file of another document', async () => {
       const library = await givenLibrary();
       const theirs = Buffer.from('the page of somebody else');
-      const mine = await givenLibraryDocument({ library, files: [{ name: 'mine.pdf' }] });
+      const mine = await givenLibraryDocument({
+        library,
+        files: [{ name: 'mine.pdf' }, { name: 'back.pdf' }],
+      });
       await givenLibraryDocument({
         library,
         files: [{ name: 'theirs.pdf', body: theirs }],
@@ -852,7 +858,7 @@ describe('Document files (e2e)', () => {
     it('takes an earlier version back out of the trash rather than refusing it', async () => {
       const original = Buffer.from('the first scan of this page');
       const { documentId, fileIds } = await givenLibraryDocument({
-        files: [{ name: 'page.pdf', body: original }],
+        files: [{ name: 'page.pdf', body: original }, { name: 'back.pdf' }],
       });
 
       const replaced = expectData(
@@ -909,6 +915,40 @@ describe('Document files (e2e)', () => {
         ).toBe(404);
       }
       expect(await processJobs(target.documentId)).toHaveLength(1);
+    });
+
+    // 🔒 SEC-67 / docs/09 §9.2: a soft-deleted document keeps its artifacts because that delete is
+    // reversible — an absorbed one is not, since no route reaches it again and the admin's hard
+    // delete refuses it outright. Nothing would ever collect these three, so combine does.
+    it('takes the absorbed documents’ artifacts with them, and leaves the originals alone', async () => {
+      const library = await givenLibrary();
+      const target = await givenLibraryDocument({ library, files: [{ name: 'target.pdf' }] });
+      const source = await givenLibraryDocument({ library, files: [{ name: 'extra.pdf' }] });
+      for (const key of [
+        artifactKeys.canonicalPdf(source.documentId),
+        artifactKeys.preview(source.documentId),
+        artifactKeys.thumbnail(source.documentId),
+      ]) {
+        await app.files.put(key, PDF, 'application/pdf');
+      }
+      await app.files.put(artifactKeys.canonicalPdf(target.documentId), PDF, 'application/pdf');
+
+      const res = await api(app)
+        .post(`/api/documents/${target.documentId}/combine`, {
+          documentIds: [source.documentId],
+        })
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      expect(await app.files.exists(artifactKeys.canonicalPdf(source.documentId))).toBe(false);
+      expect(await app.files.exists(artifactKeys.preview(source.documentId))).toBe(false);
+      expect(await app.files.exists(artifactKeys.thumbnail(source.documentId))).toBe(false);
+      // The target keeps its own, and the pages of the source are read from files nothing touched.
+      expect(await app.files.exists(artifactKeys.canonicalPdf(target.documentId))).toBe(true);
+      const moved = await testPrisma().file.findUniqueOrThrow({
+        where: { id: `${source.fileIds[0]}` },
+      });
+      expect(moved.trashedAt).toBeNull();
     });
 
     it('refuses to combine a document into itself', async () => {
@@ -1399,6 +1439,168 @@ describe('Document files (e2e)', () => {
         const anonymous = await api(app).get(`/api/documents/${documentId}/${path}`);
         expect(anonymous.status).toBe(401);
       }
+    });
+
+    // 🔒 SEC-47 / docs/03 §3.4a: reading a library document is a licence to tidy it, never to empty
+    // it. Arranging stays with `canEditDocumentMeta`; the three that make a page stop being read
+    // anywhere — replace, remove a page, and combine's treatment of a source — are the creator's or
+    // an admin's, and a document a scan made has no creator.
+    describe('arranging and destroying (docs/03 §3.4a)', () => {
+      const replaceAs = (documentId: string, fileId: string, cookie: string) =>
+        api(app)
+          .postBinary(`/api/documents/${documentId}/files/${fileId}/replacement`, PDF)
+          .set('Cookie', cookie)
+          .set('X-Legere-Filename', 'better.pdf');
+
+      it('refuses a reader the three that destroy, and allows an admin', async () => {
+        const library = await givenLibrary();
+        const target = await givenLibraryDocument({ library, files: [{ name: 'target.pdf' }] });
+        const source = await givenLibraryDocument({ library, files: [{ name: 'source.pdf' }] });
+        const victim = await givenLibraryDocument({
+          library,
+          files: [{ name: 'one.pdf' }, { name: 'two.pdf' }, { name: 'three.pdf' }],
+        });
+        const reader = await inviteUser(`reader${seq}@legere.local`);
+
+        // Replace: the bytes a page reads would be substituted.
+        const replaced = await replaceAs(victim.documentId, `${victim.fileIds[0]}`, reader.cookie);
+        expect(replaced.status).toBe(403);
+
+        // Remove a page: the entry goes, and with it possibly the file, into an admin-only trash.
+        const detail = expectData(
+          await api(app).get(`/api/documents/${victim.documentId}`).set('Cookie', reader.cookie),
+          documentDetailDtoSchema,
+        );
+        const pageId = detail.pages[0]?.id ?? '';
+        const removed = await api(app)
+          .delete(`/api/documents/${victim.documentId}/pages/${pageId}`)
+          .set('Cookie', reader.cookie);
+        expect(removed.status).toBe(403);
+
+        // Combine: the source is ended, which is what DELETE /documents/:id is ADMIN-only for.
+        const combined = await api(app)
+          .post(`/api/documents/${target.documentId}/combine`, {
+            documentIds: [source.documentId],
+          })
+          .set('Cookie', reader.cookie);
+        expect(combined.status).toBe(403);
+
+        // And an admin is refused none of them.
+        expect(
+          (
+            await api(app)
+              .delete(`/api/documents/${victim.documentId}/pages/${pageId}`)
+              .set('Cookie', adminCookie)
+          ).status,
+        ).toBe(200);
+        expect(
+          (await replaceAs(victim.documentId, `${victim.fileIds[1]}`, adminCookie)).status,
+        ).toBe(200);
+        expect(
+          (
+            await api(app)
+              .post(`/api/documents/${target.documentId}/combine`, {
+                documentIds: [source.documentId],
+              })
+              .set('Cookie', adminCookie)
+          ).status,
+        ).toBe(200);
+      });
+
+      it('still lets a reader arrange: add, crop, turn, reorder, split and move', async () => {
+        const library = await givenLibrary();
+        const { documentId, fileIds } = await givenLibraryDocument({
+          library,
+          files: [{ name: 'one.pdf' }, { name: 'two.pdf' }],
+        });
+        const elsewhere = await givenLibraryDocument({ library, files: [{ name: 'other.pdf' }] });
+        const reader = await inviteUser(`arranger${seq}@legere.local`);
+
+        expect((await addFile(documentId, PDF, 'three.pdf', reader.cookie)).status).toBe(201);
+
+        const detail = expectData(
+          await api(app).get(`/api/documents/${documentId}`).set('Cookie', reader.cookie),
+          documentDetailDtoSchema,
+        );
+        const pages = detail.pages.map((page) => page.id);
+        expect(
+          (
+            await api(app)
+              .patch(`/api/documents/${documentId}/pages/${pages[0] ?? ''}`, {
+                turn: { quarterTurns: 1, mirrored: false },
+              })
+              .set('Cookie', reader.cookie)
+          ).status,
+        ).toBe(200);
+        expect(
+          (
+            await api(app)
+              .patch(`/api/documents/${documentId}/pages`, { order: [...pages].reverse() })
+              .set('Cookie', reader.cookie)
+          ).status,
+        ).toBe(200);
+        // Splitting off a file: nothing is lost, the file becomes a document of its own.
+        expect(
+          (
+            await api(app)
+              .delete(`/api/documents/${documentId}/files/${fileIds[1]}`)
+              .set('Cookie', reader.cookie)
+          ).status,
+        ).toBe(200);
+        // 🔒 And the reader's own undo for a page they added is a move into a document that exists,
+        // not a removal: the page stays read, so the archive loses nothing (docs/03 §3.4a).
+        const now = expectData(
+          await api(app).get(`/api/documents/${documentId}`).set('Cookie', reader.cookie),
+          documentDetailDtoSchema,
+        );
+        const mine = now.files.find((file) => file.name === 'three.pdf');
+        const minePage = now.pages.find((page) => page.fileId === mine?.id);
+        expect(
+          (
+            await api(app)
+              .post(`/api/documents/${documentId}/pages/move`, {
+                pageIds: [minePage?.id ?? ''],
+                documentId: elsewhere.documentId,
+              })
+              .set('Cookie', reader.cookie)
+          ).status,
+        ).toBe(200);
+      });
+
+      // 🔒 SEC-60 / docs/05 §5.6: a replacement may improve a page and may never take a document
+      // away from the people who could read it — refused before it is written, not discovered after.
+      it('refuses to replace the only library file of a document a scan made', async () => {
+        const { documentId, fileIds } = await givenLibraryDocument({
+          files: [{ name: 'only.pdf' }],
+        });
+
+        const res = await replaceAs(documentId, `${fileIds[0]}`, adminCookie);
+
+        expect(res.status).toBe(422);
+        expect(expectError(res).code).toBe('DOCUMENT_WOULD_HAVE_NO_READERS');
+        // And nothing was written: the document still reads to everybody it read to before.
+        const reader = await inviteUser(`unchanged${seq}@legere.local`);
+        const still = await api(app)
+          .get(`/api/documents/${documentId}`)
+          .set('Cookie', reader.cookie);
+        expect(still.status).toBe(200);
+        expect(expectData(still, documentDetailDtoSchema).files[0]?.id).toBe(fileIds[0]);
+      });
+
+      it('refuses to split the last library file off a document a scan made', async () => {
+        const { documentId, fileIds } = await givenLibraryDocument({
+          files: [{ name: 'only.pdf' }],
+        });
+        // A second file, uploaded: the document now has two, so DOCUMENT_LAST_FILE is not the rule.
+        await addFile(documentId, PDF, 'added.pdf');
+
+        const res = await api(app)
+          .delete(`/api/documents/${documentId}/files/${fileIds[0]}`)
+          .set('Cookie', adminCookie);
+
+        expect(res.status).toBe(422);
+        expect(expectError(res).code).toBe('DOCUMENT_WOULD_HAVE_NO_READERS');
+      });
     });
 
     it('lets a granted user download and compose the same document', async () => {

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   availabilityOf,
+  canDestroyDocumentContent,
   canEditDocumentMeta,
   isFileReadable,
   isProcessing,
+  keepsItsReaders,
   originOf,
   pendingSteps,
 } from './document';
@@ -112,5 +114,47 @@ describe('canEditDocumentMeta (docs/03 §3.4)', () => {
 
   it('lets an admin edit anything', () => {
     expect(canEditDocumentMeta(admin, { createdById: alice.id }, 'MANAGED')).toBe(true);
+  });
+});
+
+describe('canDestroyDocumentContent (docs/03 §3.4a)', () => {
+  const admin = { id: 'admin-1', role: 'ADMIN' } as const;
+  const alice = { id: 'user-alice', role: 'USER' } as const;
+  const bob = { id: 'user-bob', role: 'USER' } as const;
+
+  it('refuses every reader of a library document, its tidier included', () => {
+    // 🔒 The argument for "anyone may tidy up a library document" is an argument about arranging.
+    // Removing a page, replacing bytes and combining a document away all end something, and a
+    // document a scan made has no creator to be asked (SEC-47).
+    expect(canDestroyDocumentContent(alice, { createdById: null }, 'LIBRARY')).toBe(false);
+    expect(canDestroyDocumentContent(bob, { createdById: null }, 'LIBRARY')).toBe(false);
+    // Even the person who uploaded the file that made it a mixed document: it holds library bytes
+    // now, and what a library holds is not one user's to destroy.
+    expect(canDestroyDocumentContent(alice, { createdById: alice.id }, 'LIBRARY')).toBe(false);
+  });
+
+  it('leaves a document with no library file to its creator, exactly as editing does', () => {
+    expect(canDestroyDocumentContent(alice, { createdById: alice.id }, 'MANAGED')).toBe(true);
+    expect(canDestroyDocumentContent(bob, { createdById: alice.id }, 'MANAGED')).toBe(false);
+  });
+
+  it('lets an admin destroy anything, which is the rule DELETE already carries', () => {
+    expect(canDestroyDocumentContent(admin, { createdById: null }, 'LIBRARY')).toBe(true);
+  });
+});
+
+describe('keepsItsReaders (docs/03 §3.4a)', () => {
+  it('refuses a document a scan made that would hold no library page', () => {
+    // 🔒 No creator to fall back on: the document would be present in the database, absent from
+    // every list and refused by every route, for everybody but an admin (SEC-60).
+    expect(keepsItsReaders(null, ['MANAGED'])).toBe(false);
+    expect(keepsItsReaders(null, [])).toBe(false);
+    expect(keepsItsReaders(null, ['MANAGED', 'LIBRARY'])).toBe(true);
+  });
+
+  it('allows one that still has somebody: a library page, or a creator', () => {
+    expect(keepsItsReaders(null, ['LIBRARY'])).toBe(true);
+    expect(keepsItsReaders('user-alice', ['MANAGED'])).toBe(true);
+    expect(keepsItsReaders('user-alice', [])).toBe(true);
   });
 });

@@ -45,6 +45,10 @@ export const ERROR_CODES = [
   // The same rule counted in pages (docs/05 §5.6): removing the last one, moving every one of them
   // away, or cutting at a boundary that would leave a part with nothing in it.
   'DOCUMENT_LAST_PAGE',
+  // 🔒 A document a scan made has no creator, so its readers are the people its libraries reach
+  // (docs/03 §3.4a): a composition that would leave it holding no library page would leave it
+  // readable to an admin and to nobody else, and is refused before it is written (docs/05 §5.6).
+  'DOCUMENT_WOULD_HAVE_NO_READERS',
   'FILE_ALREADY_IN_DOCUMENT',
   // The edges between documents (docs/03 §3.3.23): one per pair, never to itself, and gone is gone.
   'LINK_EXISTS',

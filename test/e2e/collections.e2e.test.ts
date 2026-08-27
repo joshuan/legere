@@ -277,6 +277,57 @@ describe('Collections (e2e)', () => {
       // (docs/03 §3.3.15) — users cannot widen library exposure.
       expect(detail.items.items.map((item) => item.id)).toEqual([derived]);
       expect(detail.collection.sharedWithMe).toBe(true);
+      // 🔒 SEC-84 / docs/03 §3.3.14: the count is the size of that same intersection. Stating 2
+      // beside a list of 1 would say how many documents the grantee was refused, and — polled —
+      // when the owner files another one into a library the grantee cannot see.
+      expect(detail.collection.itemCount).toBe(1);
+      const listed = expectData(
+        await asUser(friend.cookie).list(),
+        listCollectionsResponseSchema,
+      ).items.find((item) => item.id === collection.id);
+      expect(listed?.itemCount).toBe(1);
+      // The owner is not privileged either: the restricted library is not theirs to read, so their
+      // own collection reports what they can list and not what they filed.
+      const own = expectData(
+        await asUser(owner.cookie).get(collection.id),
+        collectionDetailResponseSchema,
+      );
+      expect(own.collection.itemCount).toBe(1);
+      // The admin, who reads everything, is the one who is told there are two.
+      const asAdmin = expectData(
+        await asUser(adminCookie).get(collection.id),
+        collectionDetailResponseSchema,
+      );
+      expect(asAdmin.collection.itemCount).toBe(2);
+    });
+
+    // 🔒 A soft-deleted document is no part of anybody's collection, and the count says so
+    // (docs/03 §3.3.14).
+    it('stops counting an item whose document has been deleted', async () => {
+      const owner = await inviteUser(`counter${seq}@legere.local`);
+      const collection = expectData(
+        await asUser(owner.cookie).create({ name: 'Counted' }),
+        collectionDtoSchema,
+      );
+      const derived = await givenDerivedDocument(owner.id);
+      await testPrisma().collectionItem.create({
+        data: { collectionId: collection.id, documentId: derived, addedById: owner.id },
+      });
+
+      expect(
+        expectData(await asUser(owner.cookie).get(collection.id), collectionDetailResponseSchema)
+          .collection.itemCount,
+      ).toBe(1);
+
+      await testPrisma().document.update({
+        where: { id: derived },
+        data: { deletedAt: new Date() },
+      });
+
+      expect(
+        expectData(await asUser(owner.cookie).get(collection.id), collectionDetailResponseSchema)
+          .collection.itemCount,
+      ).toBe(0);
     });
 
     it('shares with the whole instance', async () => {

@@ -432,6 +432,16 @@ Principles (the exact entity model — in 03):
   boundary that does hold is that they must already be able to read both — a combine grants its
   author nothing they did not have. Byte access is unaffected: a file whose only home is a library
   the reader cannot see still refuses to stream.
+  🔒 **Composing is not one right but two** ([`03 §3.4a`](./03-domain-model.md)). Whoever may read a
+  library document may **arrange** it — add a page, reorder, crop, turn, split, move pages out — for
+  the reason they may correct its title. Whoever may read it may **not destroy** what it is made of:
+  removing a page, replacing a file's bytes, and combining a document away are the creator's or an
+  `ADMIN`'s, and a document a scan made has no creator. Deletion is `ADMIN`-only one route above
+  (`DELETE /api/documents/:id`), and an operation that removes content is not less privileged for
+  being spelled differently. 🔒 No composition, by anybody, may leave a document holding no library
+  page when it had one and has no creator: that document would be readable to an `ADMIN` and to
+  nobody else, and it is refused (`422 DOCUMENT_WOULD_HAVE_NO_READERS`) before it is written rather
+  than discovered after.
 - **Documents nobody found on a volume** — an upload, a split, a combine — belong to their creator;
   visible to them and to whoever they share with.
 - **Sharing.** A user can make their folders/collections (and derived documents) shared: with specific

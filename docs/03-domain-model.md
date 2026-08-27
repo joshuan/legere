@@ -813,6 +813,23 @@ deliberately blunt — it withholds the path from a reader who could have seen t
 naming the library in the payload, so the entry can be filtered rather than stripped, is the better
 answer and a forward-only change.
 
+🔒 **And where a step failed.** `error` is the text of the exception the step threw, and the step
+that opens a library original throws the path it could not open — absolute, mount root and all
+(`05 §5.5` step 1). That is the same disclosure as `path` arriving by another name, so it is under
+the same rule: `error` in an entry, and `processingError` on the document itself (§3.3.10), are
+recorded for everybody and returned only to an admin. A reader is told **which step failed**, which
+is the part of it that is theirs; the operator's text is the operator's.
+
+🔒 **And the document at the other end of an edge.** An entry that names another document —
+`otherDocumentId` and `otherTitle`, written by a link, an unlink, a split and a move — is subject to
+the rule of §3.3.23: a link is visible only where both ends are. The other end is resolved through
+the access rule when the journal is read, and an entry whose other end this reader may not read
+loses both fields, keeping the rest of what it says. **Absent, not redacted** is the rule for the
+*links list*; a journal entry is a record of something that happened to *this* document and stays,
+minus the name of a document that is none of the reader's business. Without this the journal
+publishes what `GET /api/documents/:id/links` correctly refuses, and titles in this product are read
+off file names and analyses — surnames, numbers, amounts.
+
 Read newest first, by whoever may read the document itself. Writing an entry must never be the
 reason an operation fails: a document that processed correctly but could not be written about is
 still a processed document. Every step status the pipeline writes produces an entry, routed through
@@ -883,6 +900,11 @@ are filtered out at read time for that viewer (the collection owner's access gov
 viewers — each viewer sees the intersection of the collection and their own access, **except**
 documents with no library file, which are readable via the share itself, see 08 §8.5).
 
+🔒 **And so is the count.** `itemCount` (`07 §7.3`) is the size of that intersection and not of the
+collection: a number is an answer about a set, and reporting 40 beside a list of 0 tells a grantee
+exactly how many documents they were refused and, by watching it, when the owner files another one.
+It counts live documents only, a soft-deleted item being no part of anybody's collection.
+
 ### 3.3.15. CollectionShare
 | Field | Type | Notes |
 |-------|------|-------|
@@ -930,7 +952,15 @@ describes the bytes and nothing else.
 - One live file per `contentHash` — the same bytes arriving twice, from a scan and from a browser,
   are one file with two homes.
 - A `LIBRARY` file has ≥0 `FileRef`s (0 once every copy of it has vanished from every volume, §5.7);
-  a `MANAGED` file has a `storageKey` and no `FileRef`s.
+  a `MANAGED` file has a `storageKey`.
+- 🔒 **`origin` says where the bytes are kept, not where they have been seen.** A `MANAGED` file may
+  have `FileRef`s: deduplication is by `contentHash` and nothing else, so bytes uploaded from a
+  browser and *later* found on a volume by a scan are one row with a `storageKey` **and** refs —
+  which is exactly the "one file with four homes" of `05 §5.3`, and this line used to say the
+  opposite. It never held: ingest binds the ref to whatever row the hash finds, and it is right to,
+  because the alternative is two rows for one set of bytes. What follows is that a `FileRef` is **not
+  a proof of readability**: a document reached through a library is one holding a file whose `origin`
+  is `LIBRARY`, and every read path that walks refs says so for itself (§3.4, `05 §5.3`).
 - 🔒 A file is read by **any number of live pages, in any number of documents** (§3.3.17), **or it is
   in the trash** (`05 §5.7a`). The one-home invariant this line used to carry was retired with
   [ADR-025](./02-architecture-overview.md#adr-025-a-document-is-an-ordered-list-of-pages): pages of
@@ -1079,9 +1109,17 @@ canReadDocument(user, doc):
 #     collection owner reading their own document is already covered by `doc.createdById == user.id`
 #     above, since the two are now required to be the same person.
 
-canEditDocumentMeta(user, doc):        # title, document type, the composition of files
+canEditDocumentMeta(user, doc):        # title, document type
   → canReadDocument via a library                 — collaborative editing
   → owner or ADMIN, for a document with no library file at all
+
+canArrangeDocument(user, doc):         # where a page stands, which way up, how much of it is paper
+  → canEditDocumentMeta(user, doc)                — the same rule, for the same reason
+
+canDestroyDocumentContent(user, doc):  # what makes a page stop being read at all
+  if user.role == ADMIN                → true
+  if doc has ANY library file          → false    — a library document is nobody's to destroy
+  → doc.createdById == user.id
 
 # A document that absorbed an uploaded file into a library document stays readable to whoever the
 # library is readable to: one visible file is enough, because the document is one thing.
@@ -1096,6 +1134,55 @@ unlinkDocuments(user, a, b):   canEditDocumentMeta(user, a) or canEditDocumentMe
 
 An `ApiToken` (§3.3.22) adds no rule to this table: it resolves to its owner and then every check
 above runs unchanged — with one subtraction, that the caller may only read.
+
+### 3.4a. Composing a library document, and the one thing a reader may not do to it
+
+🔒 **Arranging is not destroying, and only one of the two is a reader's.** `canEditDocumentMeta`'s
+middle branch — anyone who can read a library document may edit it — was written about a **title and
+a type**, and its argument is the right one: the alternative is a library nobody may tidy up. It is
+not an argument about the archive losing a page. So composition asks two questions instead of one,
+and the line between them is a single test:
+
+> **Does the operation, on its own, make a page stop being read anywhere?**
+
+If it does not — the page still stands somewhere, in this document or in another one, and the bytes
+behind it are still read by a live page — the operation is **arranging**, and any reader of a library
+document may do it. If it does, the operation **destroys**, and on a library document it is an
+`ADMIN`'s: a document a scan made has `createdById = null`, so "creator or `ADMIN`" is `ADMIN`-only
+for it in any case, and that is the answer rather than an accident of it.
+
+| Operation (`05 §5.6`, `07 §7.3`) | Which |
+|---|---|
+| Add a file, its pages at a position | arrange — the document gains a page and loses none |
+| Reorder pages, reorder files | arrange |
+| Page order and turns inside one file | arrange |
+| Crop or turn one page | arrange — four numbers beside a page; `null` puts it back |
+| Split off a file (`DELETE …/files/:fileId`) | arrange — the file becomes a document of its own, never nothing |
+| Split at a page (`POST …/split`) | arrange — the entries divide, no bytes are copied and none are lost |
+| Move pages to another document | arrange, **on both documents** — a page that moved is still read |
+| **Remove a page** (`DELETE …/pages/:pageId`) | **destroy** — the entry goes, and the file behind it goes to the trash with its `FileRef`s `EXCLUDED` when no live page anywhere still reads it (§3.3.9): only an `ADMIN` can reach the trash, and the next scan will not bring the bytes back |
+| **Replace a file** (`POST …/files/:fileId/replacement`) | **destroy** — the bytes a page reads are substituted and the old file goes to the trash |
+| **Combine**, on each document it absorbs | **destroy** — the source is soft-deleted, which is what `DELETE /api/documents/:id` spends a `@Roles('ADMIN')` on one route above |
+
+Combine's *target* is arranging: it gains pages and loses none, so a reader may combine into a
+library document — they may not combine one away.
+
+🔒 **The reader's undo is a move, not a removal.** A page somebody added to a library document and
+wants back is moved out (`POST …/pages/move`) into another document they may edit, which leaves it
+read there and therefore takes nothing from anybody. That asymmetry is deliberate: everything a
+reader can do to a library document, another reader can undo, and nothing a reader can do takes a
+page out of the archive. What a move out of a library document may **not** do is ask for a *brand
+new* document to hold uploaded pages: a new document made by a move takes the source's owner
+(`05 §5.6`), and a document a scan made has none — the rule below refuses that one, so the page goes
+into a document that already exists.
+
+🔒 **A composition may never leave a document nobody can read.** Who may read a document is decided
+by what it holds (§3.4): a document a scan made has no creator, so its readers are exactly the people
+its libraries reach, and taking its last library page away leaves it readable to an `ADMIN` and to
+nobody else — present in the database, absent from every list, refused by every route, and
+recoverable only by hand. Every composition that can leave a document holding fewer pages asks this
+before it writes, of the document it takes from and of every part it makes, and refuses with
+`422 DOCUMENT_WOULD_HAVE_NO_READERS` rather than performing it (`05 §5.6`).
 
 ## 3.5. Deletion semantics (summary)
 

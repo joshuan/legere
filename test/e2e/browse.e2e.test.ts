@@ -179,6 +179,44 @@ describe('Browse (e2e)', () => {
     expect(view.documents.items).toEqual([]);
   });
 
+  // 🔒 SEC-71 / docs/03 §3.4: "the caller was granted the library, so everything a ref in it reaches
+  // is theirs to read" is false. Deduplication is by contentHash alone, so a ref in this library may
+  // point at a MANAGED file somebody uploaded privately and a scan later found the same bytes of
+  // (docs/05 §5.3). The browse used to list that document while its detail answered 404.
+  it('leaves out a document whose file is somebody else’s upload, however the ref got here', async () => {
+    const libraryId = await givenLibrary();
+    const owner = await inviteUser(`uploader${seq}@legere.local`);
+    const other = await inviteUser(`browser${seq}@legere.local`);
+    const uploaded = await seedDocument({
+      document: { title: 'Passport — Ivan Petrov', createdById: owner.id, canonicalStatus: 'DONE' },
+      // MANAGED, and yet with a ref: exactly what ingest leaves behind when the same bytes turn up
+      // on a volume after an upload.
+      files: [{ origin: 'MANAGED', libraryId, path: 'scans/passport.pdf' }],
+    });
+
+    const forOther = expectData(
+      await browse(libraryId, other.cookie, '?path=scans'),
+      browseResponseSchema,
+    );
+    const detail = await api(app).get(`/api/documents/${uploaded.id}`).set('Cookie', other.cookie);
+
+    // The list and the detail agree, which is the whole of the finding.
+    expect(forOther.documents.items).toEqual([]);
+    expect(detail.status).toBe(404);
+
+    // The owner, and an admin, still see it where it is.
+    const forOwner = expectData(
+      await browse(libraryId, owner.cookie, '?path=scans'),
+      browseResponseSchema,
+    );
+    expect(forOwner.documents.items.map((item) => item.id)).toEqual([uploaded.id]);
+    const forAdmin = expectData(
+      await browse(libraryId, adminCookie, '?path=scans'),
+      browseResponseSchema,
+    );
+    expect(forAdmin.documents.items.map((item) => item.id)).toEqual([uploaded.id]);
+  });
+
   it('reads a path holding LIKE metacharacters literally (🔒)', async () => {
     const libraryId = await givenLibrary();
     // A folder whose name is a wildcard, a sibling that a wildcard would swallow, and a document

@@ -42,11 +42,20 @@ async function requireManageable(
 }
 
 export class ListCollections {
-  constructor(private readonly collections: CollectionRepository) {}
+  constructor(
+    private readonly collections: CollectionRepository,
+    private readonly documents: DocumentRepository,
+  ) {}
 
   async execute(viewer: Viewer): Promise<ListCollectionsResponse> {
     const rows = await this.collections.listForUser(viewer.id);
-    return { items: rows.map((row) => toDto(row, viewer)) };
+    // 🔒 The count is what this caller may list, not what the collection holds (docs/03 §3.3.14).
+    // One query for the whole screen, and the same predicate the items themselves come through.
+    const counts = await this.documents.countReadableInCollections(
+      rows.map((row) => row.id),
+      viewer,
+    );
+    return { items: rows.map((row) => toDto(row, viewer, counts.get(row.id) ?? 0)) };
   }
 }
 
@@ -68,7 +77,7 @@ export class CreateCollection {
       name: input.name,
       description: input.description ?? null,
     });
-    return toDto({ ...created, itemCount: 0, sharedByMe: false, sharedWithMe: false }, viewer);
+    return toDto({ ...created, itemCount: 0, sharedByMe: false, sharedWithMe: false }, viewer, 0);
   }
 }
 
@@ -87,9 +96,12 @@ export class GetCollection {
     // 🔒 Each viewer sees the intersection of the collection and their own access (docs/03 §3.3.14)
     // — the owner's access grants nothing to anyone else.
     const items = await this.documents.listInCollection(id, viewer, query);
+    // 🔒 And the count is the size of that same intersection. This response is where the leak was
+    // sharpest: it stated 40 beside a list of 0.
+    const counts = await this.documents.countReadableInCollections([id], viewer);
 
     return {
-      collection: toDto(collection, viewer),
+      collection: toDto(collection, viewer, counts.get(id) ?? 0),
       items: { items: items.items.map(toListDto), nextCursor: items.nextCursor },
     };
   }
@@ -110,7 +122,10 @@ export class GetCollection {
 }
 
 export class UpdateCollection {
-  constructor(private readonly collections: CollectionRepository) {}
+  constructor(
+    private readonly collections: CollectionRepository,
+    private readonly documents: DocumentRepository,
+  ) {}
 
   async execute(
     viewer: Viewer,
@@ -130,7 +145,12 @@ export class UpdateCollection {
       ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.description === undefined ? {} : { description: input.description }),
     });
-    return toDto({ ...updated, itemCount: 0, sharedByMe: false, sharedWithMe: false }, viewer);
+    const counts = await this.documents.countReadableInCollections([id], viewer);
+    return toDto(
+      { ...updated, itemCount: 0, sharedByMe: false, sharedWithMe: false },
+      viewer,
+      counts.get(id) ?? 0,
+    );
   }
 }
 
@@ -257,7 +277,9 @@ export class RevokeShare {
   }
 }
 
-function toDto(collection: CollectionSummary, viewer: Viewer): CollectionDto {
+// `itemCount` is passed in rather than read off the summary: the summary's own count is the whole
+// collection, which is the owner's number and nobody else's (docs/03 §3.3.14).
+function toDto(collection: CollectionSummary, viewer: Viewer, itemCount: number): CollectionDto {
   return {
     id: collection.id,
     name: collection.name,
@@ -267,7 +289,7 @@ function toDto(collection: CollectionSummary, viewer: Viewer): CollectionDto {
     mine: collection.ownerId === viewer.id,
     sharedByMe: collection.sharedByMe,
     sharedWithMe: collection.sharedWithMe,
-    itemCount: collection.itemCount,
+    itemCount,
     createdAt: collection.createdAt.toISOString(),
   };
 }

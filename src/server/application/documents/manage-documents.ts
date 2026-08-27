@@ -80,8 +80,8 @@ export class ListDocuments {
 
 // GET /api/documents/:id. The guard has already loaded the document; this only shapes it.
 export class GetDocument {
-  execute(detail: DocumentDetail): DocumentDetailDto {
-    return toDetailDto(detail);
+  execute(viewer: Viewer, detail: DocumentDetail): DocumentDetailDto {
+    return toDetailDto(detail, viewer);
   }
 }
 
@@ -89,20 +89,43 @@ export class GetDocument {
 // The history of one document (docs/03 §3.3.18). Access is the document's own: whoever may read it
 // may read how it came to be what it is.
 export class ListDocumentEvents {
-  constructor(private readonly events: DocumentEventRepository) {}
+  constructor(
+    private readonly events: DocumentEventRepository,
+    private readonly documents: DocumentRepository,
+  ) {}
 
   async execute(
+    viewer: Viewer,
     documentId: string,
     query: { limit: number; cursor?: string | undefined; asAdmin?: boolean },
   ): Promise<DocumentEventPage> {
     const page = await this.events.listForDocument(documentId, query);
+    const asAdmin = query.asAdmin === true;
+    // 🔒 The documents this page names at the other end of an edge, resolved through the access rule
+    // in one query for the whole page (docs/03 §3.3.18, §3.3.23). An entry written by a link, an
+    // unlink, a split or a move carries the other document's title and id, and a title in this
+    // product is read off a file name or an analysis — a surname, a number, an amount. The links
+    // list already refuses to name an end the reader may not read; the journal used to publish it.
+    const named = [
+      ...new Set(
+        page.items.flatMap((event) =>
+          event.payload.otherDocumentId === undefined ? [] : [event.payload.otherDocumentId],
+        ),
+      ),
+    ];
+    const readable = asAdmin
+      ? new Set(named)
+      : new Set(
+          (await this.documents.listReadableItems(viewer, named)).map((item) => item.document.id),
+        );
+
     return {
       items: page.items.map((event) => ({
         id: event.id,
         type: event.type,
         at: event.at.toISOString(),
         actor: event.actorName,
-        payload: query.asAdmin === true ? event.payload : redactForReader(event.payload),
+        payload: asAdmin ? event.payload : redactForReader(event.payload, readable),
       })),
       nextCursor: page.nextCursor,
     };
@@ -118,11 +141,25 @@ export class ListDocumentEvents {
 // Blunt on purpose — it also drops the path for a reader who could have seen that library. The
 // better end state is to filter the entry by the library it names, which waits for the payload to
 // carry its `libraryId` (a forward-only change, with older rows falling back to redacted).
-function redactForReader(payload: DocumentEventPayload): DocumentEventPayload {
-  const withoutEndpoint = { ...payload, endpoint: undefined };
+//
+// 🔒 Two more fields leave with it. `error` is the text of an exception, and the step that opens a
+// library original throws the absolute path it could not open, mount root and all — the same
+// disclosure as `path` arriving under another name, so it goes under the same rule and the reader
+// keeps *which step failed*, which is the part of it that is theirs. And `otherDocumentId` /
+// `otherTitle` are dropped where the document at the other end is not one this reader may read,
+// which is §3.3.23's rule about links applied to the journal that records them.
+function redactForReader(
+  payload: DocumentEventPayload,
+  readable: ReadonlySet<string>,
+): DocumentEventPayload {
+  const withoutEndpoint = { ...payload, endpoint: undefined, error: undefined };
   // Only a library path is somebody else's folder: an upload, a split or a combine names a file of
   // ours, which the reader is looking at anyway.
-  return payload.source === 'LIBRARY' ? { ...withoutEndpoint, path: undefined } : withoutEndpoint;
+  const withoutPath =
+    payload.source === 'LIBRARY' ? { ...withoutEndpoint, path: undefined } : withoutEndpoint;
+  const other = payload.otherDocumentId;
+  if (other === undefined || readable.has(other)) return withoutPath;
+  return { ...withoutPath, otherDocumentId: undefined, otherTitle: undefined };
 }
 
 // The years a shelf has documents in, newest first: the folders of a cabinet arranged by date
@@ -413,14 +450,17 @@ export class UpdateDocumentMeta {
             (candidate) => candidate.id === updated.typeId,
           ) ?? null);
 
-    return toDetailDto({
-      ...detail,
-      document: updated,
-      documentType:
-        documentType === null
-          ? null
-          : { id: documentType.id, slug: documentType.slug, name: documentType.name },
-    });
+    return toDetailDto(
+      {
+        ...detail,
+        document: updated,
+        documentType:
+          documentType === null
+            ? null
+            : { id: documentType.id, slug: documentType.slug, name: documentType.name },
+      },
+      viewer,
+    );
   }
 }
 
@@ -646,7 +686,15 @@ export function originOfDetail(detail: DocumentDetail): FileOrigin {
   return originOf(detail.files.map((file) => file.origin));
 }
 
-export function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
+// 🔒 `processingError` is the text of an exception, and the canonical build throws the absolute path
+// of a library original it could not open — mount root and all, and a folder inside a library this
+// reader may never have been granted (docs/03 §3.3.18). It is operator prose, so it goes to the
+// operator: a reader is told *which* step failed, which is `failedStep` beside it and the part of
+// the failure that is theirs. The journal redacts the same text under `error` for the same reason.
+export function toDetailDto(
+  detail: DocumentDetail,
+  viewer: Pick<Viewer, 'role'>,
+): DocumentDetailDto {
   const { document } = detail;
   return {
     ...toListDto(listItemOf(detail)),
@@ -662,7 +710,7 @@ export function toDetailDto(detail: DocumentDetail): DocumentDetailDto {
     // holds each one (docs/03 §3.3.19–3.3.20).
     people: detail.people,
     subjects: detail.subjects,
-    processingError: document.processingError,
+    processingError: viewer.role === 'ADMIN' ? document.processingError : null,
     failedStep: document.failedStep,
     pages: orderedPages(detail.files).map(toPageDto),
     files: detail.files.map(toFileDto),

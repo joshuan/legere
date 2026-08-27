@@ -770,18 +770,42 @@ describe('Files and documents (integration)', () => {
   // --- browsing by folder ----------------------------------------------------------------------
 
   it('finds the documents whose files sit directly in one folder (docs/07 §7.3)', async () => {
+    const reader = await createUser('folders@legere.local');
     const libraryId = await createLibrary('shelf');
     await libraryDocument(libraryId, 'At the top', 'top.pdf');
     await libraryDocument(libraryId, 'In the folder', 'travel/ticket.pdf');
     await libraryDocument(libraryId, 'Deeper still', 'travel/2019/ticket.pdf');
 
-    const top = await documents.listInFolder(libraryId, '', { limit: 10 });
-    const inside = await documents.listInFolder(libraryId, 'travel', { limit: 10 });
+    const top = await documents.listInFolder(libraryId, '', reader, { limit: 10 });
+    const inside = await documents.listInFolder(libraryId, 'travel', reader, { limit: 10 });
 
     expect(top.items.map((item) => item.document.title)).toEqual(['At the top']);
     expect(inside.items.map((item) => item.document.title)).toEqual(['In the folder']);
     // The rows carry the same derived shape as any other list.
     expect(inside.items[0]?.fileCount).toBe(1);
     expect(inside.items[0]?.availability).toBe('AVAILABLE');
+  });
+
+  // 🔒 A ref in a library the reader was granted does not make the document readable: the file it
+  // points at may be a MANAGED one an upload created and a scan later deduplicated onto
+  // (docs/05 §5.3, SEC-71). The browse asks the access rule like every other list (docs/03 §3.4).
+  it('leaves out a document a ref reaches whose file is somebody else’s upload', async () => {
+    const alice = await createUser('alice-folders@legere.local');
+    const bob = await createUser('bob-folders@legere.local');
+    const libraryId = await createLibrary('shared-shelf');
+
+    // Alice uploads privately: a MANAGED file, a document she created.
+    const fileId = await createFile({ origin: 'MANAGED' });
+    const hers = await documents.create({ title: 'Her passport', createdById: alice.id });
+    await files.attach(hers.id, fileId);
+    // The same bytes then turn up on the volume, and ingest binds the ref to the row it already has
+    // rather than making a second one (docs/05 §5.3).
+    await addRef(libraryId, fileId, 'scans/passport.pdf');
+
+    const forBob = await documents.listInFolder(libraryId, 'scans', bob, { limit: 10 });
+    const forAlice = await documents.listInFolder(libraryId, 'scans', alice, { limit: 10 });
+
+    expect(forBob.items).toEqual([]);
+    expect(forAlice.items.map((item) => item.document.title)).toEqual(['Her passport']);
   });
 });

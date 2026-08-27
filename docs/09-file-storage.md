@@ -116,11 +116,18 @@ an object's life:
 - **Reads by the pipeline** (e.g. OCR needs `canonical.pdf`) go through the SDK directly (streaming
   `GetObject`), not through presigned URLs.
 - Deletion policy: artifacts of **soft-deleted** documents are retained — that delete is reversible,
-  and a library soft-deleted or a document absorbed into another one both keep everything. What is
-  removed for real is what an admin deleted for real: `DELETE /api/documents/:id` is a hard delete
-  (`03 §3.3.10`) and takes the document's **artifacts** with it. The rows are deleted first and the
-  objects afterwards, so the failure mode is an orphaned object rather than a row pointing at bytes
-  that are gone.
+  and a library soft-deleted keeps everything with it. What is removed for real is what an admin
+  deleted for real: `DELETE /api/documents/:id` is a hard delete (`03 §3.3.10`) and takes the
+  document's **artifacts** with it. The rows are deleted first and the objects afterwards, so the
+  failure mode is an orphaned object rather than a row pointing at bytes that are gone.
+  🔒 **A document absorbed by combine is the exception, because for it that delete is not
+  reversible.** No route reaches a soft-deleted document — `findReadableById` requires
+  `deletedAt IS NULL` for an admin too, and the hard delete refuses one outright — so its canonical
+  PDF, preview and thumbnail would be retained by a rule about reversibility that does not apply to
+  them, with nothing able to reap them and the instance's storage figure counting them as live.
+  `POST /api/documents/:id/combine` therefore deletes each source's three artifacts once the
+  transaction commits (`05 §5.6`). Its **originals** are untouched: they are files, its pages are
+  read by the target now, and files are the one thing nothing here rebuilds.
 - 🔒 **An original is never deleted by the act that removed it from a document.** Its file goes to
   the trash (`05 §5.7a`) and its object stays exactly where it was — the key does not change, because
   the file did not. `maintenance` deletes it once the item is older than `TRASH_RETENTION_DAYS`
