@@ -17,10 +17,12 @@ import {
   unturnedQuad,
   type Crop,
   type DocumentFileDto,
+  type DocumentPageDto,
   type Rotation,
   type Turn,
 } from '../../../shared/contracts/documents';
 import type { CropSuggestionResponse } from '../../../shared/contracts/files';
+import { documentApi, documentFiles } from '../../entities/document';
 import { useErrorMessage } from '../../shared/lib';
 import { cropApi } from './api';
 import { Loupe } from './loupe';
@@ -90,14 +92,14 @@ function percent(value: number): number {
 export type CropEditorProps = {
   open: boolean;
   documentId: string;
+  // What is being cropped: **one page** of the document (docs/03 §3.3.17). The file beside it is
+  // where the picture comes from and what decides whether a mirror is on offer.
+  page: DocumentPageDto;
   file: DocumentFileDto;
-  // The entry the crop and the turn are written on (docs/03 §3.3.17). The file is what is drawn —
-  // one page of an image is the whole picture — and the page is what is saved.
-  pageId: string;
   onClose: () => void;
 };
 
-export function CropEditor({ open, documentId, file, pageId, onClose }: CropEditorProps) {
+export function CropEditor({ open, documentId, page, file, onClose }: CropEditorProps) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
@@ -158,18 +160,18 @@ export function CropEditor({ open, documentId, file, pageId, onClose }: CropEdit
     setWatched((current) => (current === index ? null : current));
   }, []);
 
-  // Opening on a file that already has a crop starts from it; one without starts from the whole
+  // Opening on a page that already has a crop starts from it; one without starts from the whole
   // image. Adjusted during render rather than in an effect, so the first frame anybody sees is
-  // already the right quadrilateral. Keyed by the file, so a background refetch of the document
+  // already the right quadrilateral. Keyed by the page, so a background refetch of the document
   // cannot wipe out corners somebody is in the middle of dragging.
   const [editing, setEditing] = useState<string | null>(null);
-  if (open && editing !== file.id) {
-    setEditing(file.id);
+  if (open && editing !== page.id) {
+    setEditing(page.id);
     // Turned on the way in: what is stored is against the pixels that arrived, and what is drawn is
     // the page as it will be read (docs/11 §11.5c).
-    setPoints(file.crop === null ? FULL_FRAME : turnedQuad(file.crop.points, file.rotation));
-    setCleared(file.crop === null);
-    setRotation(file.rotation);
+    setPoints(page.crop === null ? FULL_FRAME : turnedQuad(page.crop.points, page.turn));
+    setCleared(page.crop === null);
+    setRotation(page.turn);
     setProposal(null);
   }
   if (!open && editing !== null) {
@@ -207,9 +209,9 @@ export function CropEditor({ open, documentId, file, pageId, onClose }: CropEdit
 
   const save = useMutation({
     mutationFn: () =>
-      cropApi.save(documentId, pageId, {
+      documentApi.updatePage(documentId, page.id, {
         // Turned back on the way out, and both in one request: the crop and the turn are one edit
-        // and therefore one rebuild (docs/07 §7.3).
+        // of one page and therefore one rebuild (docs/07 §7.3).
         crop: cleared ? null : { points: unturnedQuad(points, rotation) },
         turn: isIdentityRotation(rotation) ? null : rotation,
       }),
@@ -309,6 +311,16 @@ export function CropEditor({ open, documentId, file, pageId, onClose }: CropEdit
   const shown = shownSize(natural, rotation);
   const shownImage = shownImageSize(natural, rotation);
 
+  // What the corners are dragged over. A photograph is its own bytes at their own resolution; a page
+  // of a PDF is the small JPG the page-thumb route renders (docs/07 §7.3), which is the only picture
+  // of one page there is. The crop is stored normalized to 0…1, so a scaled picture places a corner
+  // exactly where a full-size one would — what a smaller picture costs is what the loupe can
+  // magnify, and it says so below rather than pretending otherwise.
+  const pictureUrl =
+    file.isImage || page.pageIndex === null
+      ? cropApi.contentUrl(documentId, file.id)
+      : documentFiles.pageThumb(documentId, file.id, page.pageIndex);
+
   return (
     <Modal
       open={open}
@@ -327,9 +339,14 @@ export function CropEditor({ open, documentId, file, pageId, onClose }: CropEdit
     >
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <Space wrap>
-          <Button loading={suggest.isPending} onClick={() => suggest.mutate()}>
-            {t('viewer.crop.autoDetect')}
-          </Button>
+          {/* 🔒 Only for an image: the detector reads a photograph of a page, and the endpoint
+              refuses anything else (docs/05 §5.6). A button that only ever failed would be worse
+              than no button. */}
+          {file.isImage && (
+            <Button loading={suggest.isPending} onClick={() => suggest.mutate()}>
+              {t('viewer.crop.autoDetect')}
+            </Button>
+          )}
           {/* Which way up the paper lay — one press, a quarter turn, and the page in front of the
               person turns with it (docs/11 §11.5c). Buttons like everything else here, and reached
               with the keyboard like everything else here. Named in words rather than drawn as
@@ -337,7 +354,11 @@ export function CropEditor({ open, documentId, file, pageId, onClose }: CropEdit
               would read both. */}
           <Button onClick={() => turn('LEFT')}>{t('viewer.crop.rotateLeft')}</Button>
           <Button onClick={() => turn('RIGHT')}>{t('viewer.crop.rotateRight')}</Button>
-          <Button onClick={() => turn('MIRROR')}>{t('viewer.crop.mirror')}</Button>
+          {/* 🔒 A mirror is a photograph's question. A PDF page arrives the way its producer laid
+              it out, so it turns in quarters and is never reflected (docs/11 §11.5c). */}
+          {file.isImage && (
+            <Button onClick={() => turn('MIRROR')}>{t('viewer.crop.mirror')}</Button>
+          )}
           <Button onClick={clearCrop}>{t('viewer.crop.reset')}</Button>
           <Button disabled={isIdentityRotation(rotation)} onClick={resetTurn}>
             {t('viewer.crop.resetTurn')}
@@ -378,7 +399,7 @@ export function CropEditor({ open, documentId, file, pageId, onClose }: CropEdit
                 original or 302s to a signed URL (docs/10 §10.8). */}
             <img
               ref={imageRef}
-              src={cropApi.contentUrl(documentId, file.id)}
+              src={pictureUrl}
               alt={file.name}
               draggable={false}
               onLoad={handleLoad}
@@ -474,6 +495,11 @@ export function CropEditor({ open, documentId, file, pageId, onClose }: CropEdit
 
         {/* What the result will be, rather than a preview pretending to render it (docs/11 §11.5c). */}
         <Typography.Text type="secondary">{t('viewer.crop.hint')}</Typography.Text>
+        {/* And, for a page of a PDF, what the picture under the corners actually is: the page as the
+            thumbnail route renders it, which is smaller than the page itself. */}
+        {!file.isImage && (
+          <Typography.Text type="secondary">{t('viewer.crop.pageHint')}</Typography.Text>
+        )}
       </Space>
     </Modal>
   );

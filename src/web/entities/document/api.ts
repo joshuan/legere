@@ -26,14 +26,24 @@ import {
   type ReprocessRequest,
   type ReprocessResponse,
   type UpdateDocumentRequest,
+  type Crop,
+  type Rotation,
 } from '../../../shared/contracts/documents';
 import {
   groupingSuggestionsResponseSchema,
+  moveDocumentPagesResponseSchema,
   splitDocumentFileResponseSchema,
+  splitDocumentResponseSchema,
   type CombineDocumentsRequest,
   type GroupingSuggestionsResponse,
+  type MoveDocumentPagesRequest,
+  type MoveDocumentPagesResponse,
   type ReorderDocumentFilesRequest,
+  type ReorderDocumentPagesRequest,
   type SplitDocumentFileResponse,
+  type SplitDocumentRequest,
+  type SplitDocumentResponse,
+  type UpdateDocumentPageRequest,
 } from '../../../shared/contracts/files';
 import { okResponseSchema, type OkResponse } from '../../../shared/contracts/users';
 import { apiClient, uploadFile, type UploadProgress } from '../../shared/api';
@@ -138,19 +148,72 @@ export const documentApi = {
       schema: documentLinkSuggestionsResponseSchema,
     }),
 
-  // Composing a document out of files (docs/07 §7.3 "Document files"). Every one of these answers
-  // with the whole document, because a composition change is never local — the canonical, the
-  // preview, the text and the analysis are all rebuilt behind it (docs/05 §5.6).
+  // Composing a document out of pages (docs/07 §7.3 "Document pages and files"). Every one of these
+  // answers with the whole document, because a composition change is never local — the canonical,
+  // the preview, the text and the analysis are all rebuilt behind it (docs/05 §5.6) — and the answer
+  // carries the page list the next request will index into (docs/03 §3.3.17).
+  //
+  // `at` is a place in that list, 0-based: the file's pages go **there** rather than after the last
+  // one, which is what puts a photograph between page two and page three (docs/11 §11.5a). Absent is
+  // the append this always was.
   addFile: (
     id: string,
     file: File,
-    onProgress?: UploadProgress,
-    signal?: AbortSignal,
+    options: { at?: number; onProgress?: UploadProgress; signal?: AbortSignal } = {},
   ): Promise<DocumentDetailDto> =>
-    uploadFile(`/api/documents/${id}/files`, file, {
+    uploadFile(
+      options.at === undefined
+        ? `/api/documents/${id}/files`
+        : `/api/documents/${id}/files?at=${options.at}`,
+      file,
+      {
+        schema: documentDetailDtoSchema,
+        ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      },
+    ),
+
+  // The complete order, every page of the document exactly once (docs/07 §7.3): one request and one
+  // truth, which is the only shape a reorder cannot be half applied in. "Move this page to position
+  // three" is this request carrying the order that results from it.
+  reorderPages: (id: string, body: ReorderDocumentPagesRequest): Promise<DocumentDetailDto> =>
+    apiClient.patch(`/api/documents/${id}/pages`, { schema: documentDetailDtoSchema, body }),
+
+  // What one page says about itself: how much of it is paper and which way up it lies
+  // (docs/03 §3.3.17). `null` clears either and the page reads as it arrived; neither is ever a
+  // change to the bytes.
+  //
+  // 🔒 The body is typed here rather than parsed against a contract schema, which every other write
+  // on this client does: the schema arrives with the endpoint's own task and this screen is built
+  // against the shape `07 §7.3` fixes for it. The **answer** is validated like every other, so a
+  // drift still surfaces at the boundary rather than downstream.
+  updatePage: (
+    id: string,
+    pageId: string,
+    body: UpdateDocumentPageRequest,
+  ): Promise<DocumentDetailDto> =>
+    apiClient.patch(`/api/documents/${id}/pages/${pageId}`, {
       schema: documentDetailDtoSchema,
-      ...(onProgress === undefined ? {} : { onProgress }),
-      ...(signal === undefined ? {} : { signal }),
+      body,
+    }),
+
+  // One page leaves and the rest close up behind it; the file it was read from goes to the trash
+  // only if no live page anywhere still reads it (docs/05 §5.7a).
+  removePage: (id: string, pageId: string): Promise<DocumentDetailDto> =>
+    apiClient.delete(`/api/documents/${id}/pages/${pageId}`, { schema: documentDetailDtoSchema }),
+
+  // The document cut at one or more page boundaries into two or more, over the same files and with
+  // no bytes copied (docs/05 §5.6). The parts are linked to each other.
+  splitAtPages: (id: string, body: SplitDocumentRequest): Promise<SplitDocumentResponse> =>
+    apiClient.post(`/api/documents/${id}/split`, { schema: splitDocumentResponseSchema, body }),
+
+  // The pages that belong elsewhere go there: an existing document at a chosen position, or a new
+  // one made to hold them (`documentId: null`), which has one place to put them and takes no
+  // position at all.
+  movePages: (id: string, body: MoveDocumentPagesRequest): Promise<MoveDocumentPagesResponse> =>
+    apiClient.post(`/api/documents/${id}/pages/move`, {
+      schema: moveDocumentPagesResponseSchema,
+      body,
     }),
 
   // The same bytes on the same terms, sent in place of a file rather than after it: the new scan
@@ -206,6 +269,14 @@ export const documentFiles = {
   // One original, exactly as it arrived (docs/07 §7.3).
   fileContent: (documentId: string, fileId: string) =>
     `/api/documents/${documentId}/files/${fileId}/content`,
+  // One page of one original, as it arrived — what somebody putting pages in order looks at
+  // (docs/07 §7.3). `page` is 0-based, the way a page entry counts (docs/03 §3.3.17).
+  //
+  // 🔒 A stored turn does not reach it: the picture is the page as it arrived and the strip turns
+  // what it draws (docs/11 §11.5a). The cache key is bytes that cannot change, which is what lets
+  // the browser keep it for as long as it likes.
+  pageThumb: (documentId: string, fileId: string, page: number) =>
+    `/api/documents/${documentId}/files/${fileId}/pages/${page}/thumb`,
 };
 
 export const documentKeys = {

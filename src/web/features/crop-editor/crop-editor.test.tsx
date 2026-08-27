@@ -3,13 +3,25 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type {
-  Crop,
-  DocumentDetailDto,
-  DocumentFileDto,
-  Rotation,
+import { z } from 'zod';
+import {
+  cropSchema,
+  rotationSchema,
+  type Crop,
+  type DocumentDetailDto,
+  type DocumentFileDto,
+  type DocumentPageDto,
+  type Rotation,
 } from '../../../shared/contracts/documents';
-import { updateDocumentPageRequestSchema } from '../../../shared/contracts/files';
+
+// What `PATCH /api/documents/:id/pages/:pageId` takes (docs/07 §7.3): how much of one page is paper
+// and which way up it lies. Read back here so a test asserts against the shape the endpoint fixes
+// rather than against whatever the editor happened to send.
+const savedBodySchema = z.object({
+  crop: cropSchema.nullable(),
+  turn: rotationSchema.nullable(),
+});
+const savedBody = (body: unknown) => savedBodySchema.parse(body);
 import { createApiMock, envelope, errorEnvelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { CropEditor } from './crop-editor';
@@ -36,6 +48,20 @@ const CROP: Crop = {
   ],
 };
 
+// The page being cropped: an image is one page, and the crop and the turn are written on it
+// (docs/03 §3.3.17, ADR-025).
+function makePage(crop: Crop | null, turn: Rotation | null = null): DocumentPageDto {
+  return {
+    id: PAGE_ID,
+    position: 0,
+    fileId: FILE_ID,
+    pageIndex: 0,
+    turn,
+    crop,
+    cropSource: crop === null ? 'NONE' : 'MANUAL',
+  };
+}
+
 function makeFile(crop: Crop | null, rotation: Rotation | null = null): DocumentFileDto {
   return {
     id: FILE_ID,
@@ -59,7 +85,7 @@ function makeFile(crop: Crop | null, rotation: Rotation | null = null): Document
   };
 }
 
-// What `PATCH …/pages/:pageId` answers with: the whole document (docs/07 §7.3). The client
+// What `PATCH …/files/:fileId` answers with: the whole document (docs/07 §7.3). The client
 // validates it against the contract, so it has to be a real one.
 const rebuilt: DocumentDetailDto = {
   id: DOCUMENT_ID,
@@ -99,27 +125,18 @@ const rebuilt: DocumentDetailDto = {
   failedStep: null,
   // An image is one page, and the crop is written on that page (docs/03 §3.3.17): the file row
   // beside it says the same thing, read off this entry.
-  pages: [
-    {
-      id: PAGE_ID,
-      position: 0,
-      fileId: FILE_ID,
-      pageIndex: null,
-      turn: null,
-      crop: CROP,
-      cropSource: 'MANUAL',
-    },
-  ],
+  pages: [makePage(CROP)],
   files: [makeFile(CROP)],
   createdBy: null,
   extracted: null,
   extractedSummary: null,
 };
 
-// The crop and the turn are written on the page; the proposal is still asked of the file, edge
-// detection having a picture to read and not an entry (docs/07 §7.3).
+// What the editor stores is stored on the **page**; the picture and the proposal are still read off
+// the file, because those are about bytes (docs/07 §7.3).
 const SAVE_PATH = `/api/documents/${DOCUMENT_ID}/pages/${PAGE_ID}`;
-const SUGGESTION_PATH = `/api/documents/${DOCUMENT_ID}/files/${FILE_ID}/crop-suggestion`;
+const FILE_PATH = `/api/documents/${DOCUMENT_ID}/files/${FILE_ID}`;
+const SUGGESTION_PATH = `${FILE_PATH}/crop-suggestion`;
 
 const server = createApiMock();
 
@@ -147,31 +164,38 @@ function captureSave(): { body: () => unknown } {
   return { body: () => received };
 }
 
-function open(file: DocumentFileDto, onClose = vi.fn()): { onClose: ReturnType<typeof vi.fn> } {
+function open(
+  crop: Crop | null,
+  turn: Rotation | null = null,
+  file: DocumentFileDto = makeFile(crop, turn),
+  onClose = vi.fn(),
+): { onClose: ReturnType<typeof vi.fn> } {
   renderWithProviders(
-    <CropEditor open documentId={DOCUMENT_ID} file={file} pageId={PAGE_ID} onClose={onClose} />,
+    <CropEditor
+      open
+      documentId={DOCUMENT_ID}
+      page={makePage(crop, turn)}
+      file={file}
+      onClose={onClose}
+    />,
   );
   return { onClose };
 }
 
 describe('CropEditor', () => {
-  it('starts from the crop the file already has', () => {
-    open(makeFile(CROP));
+  it('starts from the crop the page already has', () => {
+    open(CROP);
 
     expect(screen.getByText(enMessages.viewer.crop.title)).toBeInTheDocument();
     expect(outline()).toBe('10,5 90,8 92,95 8,90');
     for (const index of [1, 2, 3, 4]) {
       expect(screen.getByRole('button', { name: corner(index) })).toBeInTheDocument();
     }
-    // What is drawn is the file's own bytes — the page is what the edit is written on.
-    expect(screen.getByAltText('passport-01.jpg')).toHaveAttribute(
-      'src',
-      `/api/documents/${DOCUMENT_ID}/files/${FILE_ID}/content`,
-    );
+    expect(screen.getByAltText('passport-01.jpg')).toHaveAttribute('src', `${FILE_PATH}/content`);
   });
 
-  it('starts from the whole image when the file has no crop', () => {
-    open(makeFile(null));
+  it('starts from the whole image when the page has no crop', () => {
+    open(null);
 
     expect(outline()).toBe('0,0 100,0 100,100 0,100');
   });
@@ -195,7 +219,7 @@ describe('CropEditor', () => {
       ),
     );
 
-    open(makeFile(null));
+    open(null);
     await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.autoDetect }));
 
     expect(await screen.findByText(enMessages.viewer.crop.autoDetected)).toBeInTheDocument();
@@ -227,7 +251,7 @@ describe('CropEditor', () => {
       }),
     );
 
-    open(makeFile(null));
+    open(null);
     await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.autoDetect }));
 
     expect(await screen.findByText(enMessages.viewer.crop.autoFailed)).toBeInTheDocument();
@@ -237,7 +261,7 @@ describe('CropEditor', () => {
 
   it('nudges a focused corner by a pixel, and by ten with Shift', async () => {
     const save = captureSave();
-    open(makeFile(CROP));
+    open(CROP);
 
     await userEvent.click(screen.getByRole('button', { name: corner(1) }));
     expect(screen.getByRole('button', { name: corner(1) })).toHaveFocus();
@@ -249,7 +273,7 @@ describe('CropEditor', () => {
     await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
     await waitFor(() => expect(save.body()).not.toBeNull());
 
-    const sent = updateDocumentPageRequestSchema.parse(save.body()).crop;
+    const sent = savedBody(save.body()).crop;
     expect(sent).not.toBeNull();
     const moved = sent?.points[0] ?? [0, 0];
     expect(moved[0]).toBeCloseTo(0.1 + 1 / frame.width, 10);
@@ -262,11 +286,11 @@ describe('CropEditor', () => {
 
   it('saves the four points it was given, then closes on the answer', async () => {
     const save = captureSave();
-    const { onClose } = open(makeFile(CROP));
+    const { onClose } = open(CROP);
 
     await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 
-    // The turn travels with the crop, and a file nobody has turned sends the null it already has.
+    // The turn travels with the crop, and a page nobody has turned sends the null it already has.
     await waitFor(() => expect(save.body()).toEqual({ crop: CROP, turn: null }));
     expect(await screen.findByText(enMessages.viewer.crop.saved)).toBeInTheDocument();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
@@ -274,7 +298,7 @@ describe('CropEditor', () => {
 
   it('clears the crop and sends null', async () => {
     const save = captureSave();
-    const { onClose } = open(makeFile(CROP));
+    const { onClose } = open(CROP);
 
     await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.reset }));
     expect(outline()).toBe('0,0 100,0 100,100 0,100');
@@ -293,7 +317,7 @@ describe('CropEditor', () => {
       screen.getByRole('button', { name: enMessages.viewer.crop[key] });
 
     it('turns what it draws, so the outline follows the page instead of staying behind', async () => {
-      open(makeFile(CROP));
+      open(CROP);
       expect(outline()).toBe('10,5 90,8 92,95 8,90');
 
       await userEvent.click(button('rotateRight'));
@@ -305,20 +329,20 @@ describe('CropEditor', () => {
 
     it('sends the turn beside the crop, with the quadrilateral back in the pixels that arrived', async () => {
       const save = captureSave();
-      open(makeFile(CROP));
+      open(CROP);
 
       await userEvent.click(button('rotateRight'));
       await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 
       await waitFor(() => expect(save.body()).not.toBeNull());
-      const sent = updateDocumentPageRequestSchema.parse(save.body());
+      const sent = savedBody(save.body());
       expect(sent.turn).toEqual({ quarterTurns: 1, mirrored: false });
       // 🔒 Untouched: the build applies the crop first and the turn after it (docs/05 §5.6).
       expect(sent.crop).toEqual(CROP);
     });
 
-    it('opens on the turn the file already carries, drawing the page the way it will be read', () => {
-      open(makeFile(CROP, { quarterTurns: 1, mirrored: false }));
+    it('opens on the turn the page already carries, drawing the page the way it will be read', () => {
+      open(CROP, { quarterTurns: 1, mirrored: false });
 
       // The stored quadrilateral is against the pixels that arrived, so what is drawn is it, turned.
       expect(outline()).toBe('10,8 95,10 92,90 5,92');
@@ -326,13 +350,13 @@ describe('CropEditor', () => {
 
     it('mirrors, and takes the stored turn round the other way with it', async () => {
       const save = captureSave();
-      open(makeFile(CROP, { quarterTurns: 1, mirrored: false }));
+      open(CROP, { quarterTurns: 1, mirrored: false });
 
       await userEvent.click(button('mirror'));
       await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 
       await waitFor(() => expect(save.body()).not.toBeNull());
-      const sent = updateDocumentPageRequestSchema.parse(save.body());
+      const sent = savedBody(save.body());
       // The person flipped the page they were looking at; the stored value says the same thing in
       // the order it is defined in — mirror first, then the quarter turns.
       expect(sent.turn).toEqual({ quarterTurns: 3, mirrored: true });
@@ -341,7 +365,7 @@ describe('CropEditor', () => {
 
     it('sends null for Reset turn and puts the outline back where it started', async () => {
       const save = captureSave();
-      open(makeFile(CROP, { quarterTurns: 2, mirrored: false }));
+      open(CROP, { quarterTurns: 2, mirrored: false });
 
       await userEvent.click(button('resetTurn'));
       expect(outline()).toBe('10,5 90,8 92,95 8,90');
@@ -349,21 +373,21 @@ describe('CropEditor', () => {
       await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 
       await waitFor(() => expect(save.body()).not.toBeNull());
-      const sent = updateDocumentPageRequestSchema.parse(save.body());
+      const sent = savedBody(save.body());
       // Nothing to undo: the turn was an instruction beside bytes nobody rewrote (docs/03 §3.3.16).
       expect(sent.turn).toBeNull();
       expect(sent.crop).toEqual(CROP);
     });
 
-    it('offers nothing to reset on a file that reads the way it arrived', () => {
-      open(makeFile(CROP));
+    it('offers nothing to reset on a page that reads the way it arrived', () => {
+      open(CROP);
 
       expect(button('resetTurn')).toBeDisabled();
     });
 
     it('comes back to where it started after four presses', async () => {
       const save = captureSave();
-      open(makeFile(CROP));
+      open(CROP);
 
       for (const _press of [0, 1, 2, 3]) await userEvent.click(button('rotateLeft'));
       expect(outline()).toBe('10,5 90,8 92,95 8,90');
@@ -373,7 +397,7 @@ describe('CropEditor', () => {
       await waitFor(() => expect(save.body()).not.toBeNull());
       // A turn of nothing is not a turn: what goes out is the null a file that arrived this way up
       // already has (docs/03 §3.3.16).
-      expect(updateDocumentPageRequestSchema.parse(save.body()).turn).toBeNull();
+      expect(savedBody(save.body()).turn).toBeNull();
     });
   });
 
@@ -385,7 +409,7 @@ describe('CropEditor', () => {
         }),
       ),
     );
-    const { onClose } = open(makeFile(CROP));
+    const { onClose } = open(CROP);
 
     await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
 

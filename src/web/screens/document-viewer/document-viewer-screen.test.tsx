@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1294,7 +1294,8 @@ describe('DocumentViewerScreen', () => {
       serve(document);
       renderWithProviders(<DocumentViewerScreen id={ID} />);
       await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
-      await screen.findByText('page-1.jpg');
+      // The strip leads the tab, so it is what says the tab has arrived (docs/11 §11.5a).
+      await screen.findByTestId('page-strip');
     }
 
     it('lists the originals under the one piece, one entry per file', async () => {
@@ -1333,7 +1334,7 @@ describe('DocumentViewerScreen', () => {
       serve(twoFiles);
       renderWithProviders(<DocumentViewerScreen id={ID} />, { user: TEST_ADMIN });
       await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
-      await screen.findByText('page-1.jpg');
+      await screen.findByTestId('page-strip');
 
       // Scoped to the tab: the preview pane behind it carries the <object>'s own fallback link,
       // which says the same words.
@@ -1573,16 +1574,42 @@ describe('DocumentViewerScreen', () => {
       serve(document);
       renderWithProviders(<DocumentViewerScreen id={ID} />);
       await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
-      await screen.findByText('page-1.jpg');
+      // The strip leads the tab, so it is what says the tab has arrived (docs/11 §11.5a).
+      await screen.findByTestId('page-strip');
     }
+
+    // A document made of one PDF a build has been through: two pages, each an entry of its own
+    // (docs/03 §3.3.17). What the whole-file entry of `twoFiles` becomes once anything counts it.
+    const pdfPages: DocumentDetailDto = {
+      ...detail,
+      fileCount: 1,
+      pages: [0, 1].map((pageIndex) => ({
+        id: `eeeeeeee-1111-4111-8111-00000000000${pageIndex}`,
+        position: pageIndex,
+        fileId: FIRST_FILE,
+        pageIndex,
+        turn: null,
+        crop: null,
+        cropSource: 'NONE' as const,
+      })),
+      files: [fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 2 })],
+    };
 
     // Replace opens the picker on the row it will stand in for, so the input rc-upload hides is the
     // one inside that row rather than the Add-files one above the list.
     function pickerOn(name: string): HTMLInputElement {
-      const row = screen.getByText(name).closest('li');
+      const row = within(originals()).getByText(name).closest('li');
       const input = row?.querySelector('input[type="file"]');
       if (!(input instanceof HTMLInputElement)) throw new Error(`no picker on the ${name} row`);
       return input;
+    }
+
+    // The list of originals, which is where a **file** is asserted about: the strip above writes
+    // the same name under every page that came from that file (docs/11 §11.5a).
+    function originals(): HTMLElement {
+      const list = screen.getByRole('tabpanel').querySelector('.ant-list');
+      if (!(list instanceof HTMLElement)) throw new Error('no list of originals');
+      return list;
     }
 
     // The block of earlier versions, found by the summary that opens it.
@@ -1597,7 +1624,7 @@ describe('DocumentViewerScreen', () => {
 
       // One row per file, in page order, each with where its bytes live (docs/11 §11.5a).
       expect(screen.getByText('Invoices: a/rental.pdf')).toBeInTheDocument();
-      expect(screen.getByText('page-2.jpg')).toBeInTheDocument();
+      expect(within(originals()).getByText('page-2.jpg')).toBeInTheDocument();
       expect(screen.getByText('Invoices: old/page-2.jpg')).toBeInTheDocument();
       // A file the volume has lost is still listed, badged for what it is.
       expect(screen.getByText(enMessages.viewer.files.missing)).toBeInTheDocument();
@@ -1611,58 +1638,6 @@ describe('DocumentViewerScreen', () => {
       await openFiles();
 
       expect(replace).toHaveBeenCalledWith(`/documents/${ID}/files`);
-    });
-
-    it('sends the whole new order when a file is moved', async () => {
-      let reordered: unknown = null;
-      server.use(
-        http.patch(`/api/documents/${ID}/files`, async ({ request }) => {
-          reordered = await request.json();
-          return HttpResponse.json(envelope(twoFiles));
-        }),
-      );
-      await openFiles();
-
-      await userEvent.click(screen.getByRole('button', { name: /Move page-2\.jpg up/ }));
-
-      // The complete order, every file exactly once (docs/07 §7.3) — not "this one moved".
-      await waitFor(() => expect(reordered).toEqual({ order: [SECOND_FILE, FIRST_FILE] }));
-      // The first row cannot go higher, and the last cannot go lower.
-      expect(screen.getByRole('button', { name: /Move page-1\.jpg up/ })).toBeDisabled();
-      expect(screen.getByRole('button', { name: /Move page-2\.jpg down/ })).toBeDisabled();
-    });
-
-    it('splits a file off into a document of its own', async () => {
-      let split = '';
-      server.use(
-        http.delete(`/api/documents/${ID}/files/:fileId`, ({ params }) => {
-          split = String(params.fileId);
-          return HttpResponse.json(
-            envelope({ document: detail, splitDocumentId: '99999999-9999-4999-8999-999999999999' }),
-          );
-        }),
-      );
-      await openFiles();
-
-      const [, second] = screen.getAllByRole('button', {
-        name: enMessages.viewer.files.splitOff,
-      });
-      if (second === undefined) throw new Error('expected a Split off on every row');
-      await userEvent.click(second);
-
-      await waitFor(() => expect(split).toBe(SECOND_FILE));
-      expect(await screen.findByText(enMessages.viewer.files.splitDone)).toBeInTheDocument();
-    });
-
-    it('does not offer to split off the only file a document has', async () => {
-      serve(detail);
-      renderWithProviders(<DocumentViewerScreen id={ID} />);
-      await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
-
-      await screen.findByText('rental.pdf');
-      // 🔒 Not offered at all rather than refused after the fact: a document is emptied by deleting
-      // it, not by taking its parts away (docs/11 §11.5a).
-      expect(screen.queryByRole('button', { name: enMessages.viewer.files.splitOff })).toBeNull();
     });
 
     it('appends a chosen file to this document, and lists it only once it has landed', async () => {
@@ -1707,11 +1682,11 @@ describe('DocumentViewerScreen', () => {
       await waitFor(() => expect(appended).toBe('page-3.jpg'));
       // 🔒 The list holds real files only: a file on its way is watched in the upload panel, so
       // nothing in the composition is a row that might yet turn out not to exist (docs/11 §11.5a).
-      expect(screen.queryByText('page-3.jpg')).toBeNull();
+      expect(within(originals()).queryByText('page-3.jpg')).toBeNull();
 
       release();
       // And the row appears as the file lands and the document is re-fetched under it.
-      expect(await screen.findByText('page-3.jpg')).toBeInTheDocument();
+      await waitFor(() => expect(within(originals()).getByText('page-3.jpg')).toBeInTheDocument());
     });
 
     // A file's location is answered for every file, not only for the ones lying on a volume: `refs`
@@ -1751,228 +1726,122 @@ describe('DocumentViewerScreen', () => {
       expect(screen.queryByText(new RegExp(enMessages.viewer.files.objectStorage))).toBeNull();
     });
 
-    it('opens the crop editor on an image, and offers it on nothing else', async () => {
-      await openFiles();
+    // The tab leads with the pages of the document and the files follow (docs/11 §11.5a).
+    describe('the page strip', () => {
+      const PAGES = enMessages.viewer.pages;
 
-      const [first] = screen.getAllByRole('button', { name: enMessages.viewer.files.crop });
-      if (first === undefined) throw new Error('expected a Crop on every image row');
-      await userEvent.click(first);
-
-      expect(await screen.findByText(enMessages.viewer.crop.title)).toBeInTheDocument();
-    });
-
-    it('offers no crop for a file that is not an image', async () => {
-      serve(detail);
-      renderWithProviders(<DocumentViewerScreen id={ID} />);
-      await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }));
-
-      await screen.findByText('rental.pdf');
-      expect(screen.queryByRole('button', { name: enMessages.viewer.files.crop })).toBeNull();
-    });
-
-    // The pages inside one file, arranged on the row that holds it (docs/11 §11.5a).
-    describe('arranging the pages of one file', () => {
-      const PAGES = enMessages.viewer.files.pages;
-
-      // A PDF a build has been through: three pages counted, standing as they arrived.
-      const threePages: DocumentDetailDto = {
-        ...detail,
-        files: [fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3 })],
+      const label = (key: 'tile' | 'crop' | 'insert', values: Record<string, string>): string => {
+        let text: string = PAGES[key];
+        for (const [name, value] of Object.entries(values)) {
+          text = text.replace(`{${name}}`, value);
+        }
+        return text;
       };
 
-      const pageThumbs = (): string[] =>
-        [...globalThis.document.querySelectorAll('img')]
-          .map((image) => image.getAttribute('src') ?? '')
-          .filter((src) => src.includes('/pages/'));
+      const tileName = (position: number, total: number, source: string): string =>
+        label('tile', { position: String(position), total: String(total), source });
 
-      const tile = (page: number, position: number): HTMLElement =>
-        screen.getByRole('button', {
-          name: PAGES.page
-            .replace('{page}', String(page))
-            .replace('{position}', String(position))
-            .replace('{total}', '3'),
-        });
-
-      async function openPages(document: DocumentDetailDto = threePages): Promise<void> {
-        serve(document);
-        renderWithProviders(<DocumentViewerScreen id={ID} />);
-        await userEvent.click(
-          await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }),
-        );
-        await screen.findByText('lease.pdf');
-      }
-
-      it('opens the row into a strip of its pages, and asks for no thumbnail before that', async () => {
-        await openPages();
-
-        // Opening the tab costs nothing for the rows nobody expands (docs/11 §11.5a).
-        expect(pageThumbs()).toEqual([]);
-
-        await userEvent.click(screen.getByRole('button', { name: PAGES.arrange }));
+      it('leads with every page of the document, each saying where it came from', async () => {
+        await openFiles();
 
         expect(screen.getByTestId('page-strip')).toBeInTheDocument();
-        expect(pageThumbs()).toEqual([
-          `/api/documents/${ID}/files/${FIRST_FILE}/pages/0/thumb`,
-          `/api/documents/${ID}/files/${FIRST_FILE}/pages/1/thumb`,
-          `/api/documents/${ID}/files/${FIRST_FILE}/pages/2/thumb`,
-        ]);
-
-        // And it closes again from the same control.
-        await userEvent.click(screen.getByRole('button', { name: PAGES.arrange }));
-        expect(screen.queryByTestId('page-strip')).toBeNull();
+        expect(
+          screen.getByRole('button', { name: tileName(1, 2, 'page-1.jpg') }),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByRole('button', { name: tileName(2, 2, 'page-2.jpg') }),
+        ).toBeInTheDocument();
+        // And the files are still listed, under their own heading, with where the bytes live.
+        expect(screen.getByText(enMessages.viewer.files.heading)).toBeInTheDocument();
+        expect(screen.getByText('Invoices: a/rental.pdf')).toBeInTheDocument();
       });
 
-      // 🔒 The strip never renders for a file that has no pages to arrange (docs/11 §11.5a).
-      it('offers nothing to arrange on a file whose pages no build has counted', async () => {
-        serve(detail);
-        renderWithProviders(<DocumentViewerScreen id={ID} />);
-        await userEvent.click(
-          await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }),
-        );
-
-        await screen.findByText('rental.pdf');
-        expect(screen.queryByRole('button', { name: PAGES.arrange })).toBeNull();
-        expect(screen.queryByTestId('page-strip')).toBeNull();
-      });
-
-      it('offers nothing to arrange on a single-page file or on an image', async () => {
-        await openFiles({
-          ...twoFiles,
-          files: [
-            fileOf(FIRST_FILE, {
-              name: 'page-1.jpg',
-              ext: 'jpg',
-              mimeType: 'image/jpeg',
-              isImage: true,
-              pageCount: 4,
-            }),
-            fileOf(SECOND_FILE, { position: 1, name: 'page-2.pdf', pageCount: 1 }),
-          ],
-        });
-
-        // A photograph has no pages, whatever a count says; one page is not an order.
-        expect(screen.queryByRole('button', { name: PAGES.arrange })).toBeNull();
-      });
-
-      // 🔒 The keyboard path end to end, from the row to the request: a hit area only a mouse can
-      // use is half a fix (docs/11 §11.3, §11.5a).
-      it('moves a page with the arrow keys and saves the whole permutation', async () => {
-        let sent: unknown = null;
+      // 🔒 The gesture the whole milestone exists for: a file dropped between two pages goes
+      // between them (docs/11 §11.5a, §11.3a).
+      it('sends a file dropped between two pages to that position', async () => {
+        let sentTo: string | null = null;
         server.use(
-          http.patch(`/api/documents/${ID}/files/${FIRST_FILE}`, async ({ request }) => {
-            sent = await request.json();
-            return HttpResponse.json(envelope(threePages));
+          http.post(`/api/documents/${ID}/files`, ({ request }) => {
+            sentTo = new URL(request.url).searchParams.get('at');
+            return HttpResponse.json(envelope(twoFiles), { status: 201 });
           }),
         );
-        await openPages();
-        await userEvent.click(screen.getByRole('button', { name: PAGES.arrange }));
+        await openFiles();
 
-        await userEvent.click(tile(1, 1));
-        await userEvent.keyboard('{ArrowRight}');
-        expect(tile(1, 2)).toHaveFocus();
-
-        // Nothing has gone out while the pages were being moved.
-        expect(sent).toBeNull();
-        await userEvent.click(screen.getByRole('button', { name: PAGES.save }));
-
-        await waitFor(() => expect(sent).toEqual({ pageOrder: [1, 0, 2], pageRotations: null }));
-        expect(await screen.findByText(PAGES.saved)).toBeInTheDocument();
-      });
-
-      it('wears a Rearranged tag while the stored order differs from the natural one', async () => {
-        await openPages({
-          ...detail,
-          files: [fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3, pageOrder: [2, 0, 1] })],
+        // The seam between page one and page two.
+        fireEvent.drop(screen.getByTestId('page-seam-1'), {
+          dataTransfer: {
+            files: [new File(['x'], 'between.jpg', { type: 'image/jpeg' })],
+            types: ['Files'],
+          },
         });
 
-        expect(screen.getByText(enMessages.viewer.files.rearranged)).toBeInTheDocument();
+        await waitFor(() => expect(sentTo).toBe('1'));
       });
 
-      it('wears none while the pages read as they arrived', async () => {
-        // A stored order that says exactly what the file already said is not a rearrangement.
-        await openPages({
-          ...detail,
-          files: [fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3, pageOrder: [0, 1, 2] })],
-        });
-
-        expect(screen.queryByText(enMessages.viewer.files.rearranged)).toBeNull();
-        expect(screen.getByRole('button', { name: PAGES.arrange })).toBeInTheDocument();
-      });
-
-      it('drops the tag when the order the file arrived in is restored', async () => {
-        const rearranged: DocumentDetailDto = {
-          ...detail,
-          files: [fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3, pageOrder: [2, 0, 1] })],
-        };
-        let restored: unknown = null;
-        serve(rearranged);
-        // Registered after `serve`, so these answer ahead of the handlers it put up: the document
-        // reads as it arrived again once the order has been cleared.
+      // 🔒 And the same seam is a control, so the gesture is not one only a pointer can make
+      // (docs/11 §11.3, §11.5a).
+      it("inserts at the same position from the seam's own picker", async () => {
+        let sentTo: string | null = null;
         server.use(
-          http.get(`/api/documents/${ID}`, () =>
-            HttpResponse.json(envelope(restored === null ? rearranged : threePages)),
-          ),
-          http.patch(`/api/documents/${ID}/files/${FIRST_FILE}`, async ({ request }) => {
-            restored = await request.json();
-            return HttpResponse.json(envelope(threePages));
+          http.post(`/api/documents/${ID}/files`, ({ request }) => {
+            sentTo = new URL(request.url).searchParams.get('at');
+            return HttpResponse.json(envelope(twoFiles), { status: 201 });
           }),
         );
-        renderWithProviders(<DocumentViewerScreen id={ID} />);
+        await openFiles();
+
+        const seam = screen.getByTestId('page-seam-2');
+        expect(
+          within(seam).getByRole('button', { name: label('insert', { position: '3' }) }),
+        ).toBeInTheDocument();
+        const picker = seam.querySelector('input[type="file"]');
+        if (!(picker instanceof HTMLInputElement)) throw new Error('no picker on the seam');
+        await userEvent.upload(picker, new File(['x'], 'last.jpg', { type: 'image/jpeg' }));
+
+        await waitFor(() => expect(sentTo).toBe('2'));
+      });
+
+      it('opens the crop editor on a page, and stores what it draws on that page', async () => {
+        let saved: unknown = null;
+        const pageId = twoFiles.pages[0]?.id ?? '';
+        server.use(
+          http.patch(`/api/documents/${ID}/pages/${pageId}`, async ({ request }) => {
+            saved = await request.json();
+            return HttpResponse.json(envelope(twoFiles));
+          }),
+        );
+        await openFiles();
+
         await userEvent.click(
-          await screen.findByRole('tab', { name: enMessages.viewer.tabs.files }),
+          screen.getByRole('button', { name: label('crop', { position: '1' }) }),
         );
-        await screen.findByText('lease.pdf');
-        await userEvent.click(screen.getByRole('button', { name: PAGES.arrange }));
+        expect(await screen.findByText(enMessages.viewer.crop.title)).toBeInTheDocument();
 
-        await userEvent.click(screen.getByRole('button', { name: PAGES.restore }));
+        await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
+        // The crop is written on the page, not on the file: that is what lets two documents crop
+        // one photograph apart (docs/03 §3.3.17).
+        await waitFor(() => expect(saved).toEqual({ crop: null, turn: null }));
+      });
 
-        // Cleared the way Clear crop clears a crop (docs/11 §11.5c).
-        await waitFor(() => expect(restored).toEqual({ pageOrder: null }));
-        await waitFor(() =>
-          expect(screen.queryByText(enMessages.viewer.files.rearranged)).toBeNull(),
+      // 🔒 A page of a PDF is cropped on the same terms — the crop is on the entry, and the build
+      // honours it exactly as it honours an image's (docs/03 §3.3.17). Only the mirror is an
+      // image's privilege (docs/11 §11.5c).
+      it('crops a page of a PDF too, and offers it no mirror', async () => {
+        await openFiles(pdfPages);
+
+        await userEvent.click(
+          screen.getByRole('button', { name: label('crop', { position: '2' }) }),
         );
-      });
 
-      // Which way up the file lies, said on the row beside Cropped and Rearranged and on the same
-      // terms (docs/11 §11.5a).
-      it('wears a Turned tag for an image somebody stood upright', async () => {
-        await openPages({
-          ...detail,
-          files: [
-            fileOf(FIRST_FILE, {
-              name: 'lease.pdf',
-              mimeType: 'image/jpeg',
-              ext: 'jpg',
-              isImage: true,
-              rotation: { quarterTurns: 1, mirrored: false },
-            }),
-          ],
-        });
-
-        expect(screen.getByText(enMessages.viewer.files.turned)).toBeInTheDocument();
-      });
-
-      it('wears one for a PDF with a page on its side', async () => {
-        await openPages({
-          ...detail,
-          files: [
-            fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3, pageRotations: [0, 3, 0] }),
-          ],
-        });
-
-        expect(screen.getByText(enMessages.viewer.files.turned)).toBeInTheDocument();
-      });
-
-      it('wears none while every page stands the way it arrived', async () => {
-        // A stored list in which nothing is turned is not a turn: the file reads as it arrived.
-        await openPages({
-          ...detail,
-          files: [
-            fileOf(FIRST_FILE, { name: 'lease.pdf', pageCount: 3, pageRotations: [0, 0, 0] }),
-          ],
-        });
-
-        expect(screen.queryByText(enMessages.viewer.files.turned)).toBeNull();
+        expect(await screen.findByText(enMessages.viewer.crop.title)).toBeInTheDocument();
+        expect(
+          screen.queryByRole('button', { name: enMessages.viewer.crop.mirror }),
+        ).not.toBeInTheDocument();
+        // Nor anything to auto-detect: the detector reads a photograph of a page.
+        expect(
+          screen.queryByRole('button', { name: enMessages.viewer.crop.autoDetect }),
+        ).not.toBeInTheDocument();
       });
     });
 
@@ -2787,15 +2656,19 @@ describe('DocumentViewerScreen', () => {
       ).not.toBeInTheDocument();
 
       await userEvent.click(within(peek).getByRole('tab', { name: enMessages.viewer.tabs.files }));
-      // The file is there to be read and downloaded; nothing replaces, splits or deletes it.
+      // The pages and the file are there to be read and downloaded; nothing turns, cuts, moves,
+      // replaces or deletes anything.
       expect(within(peek).getByText('act.pdf')).toBeInTheDocument();
+      expect(within(peek).getByTestId('page-strip')).toBeInTheDocument();
       expect(
         within(peek).getByRole('link', { name: enMessages.viewer.files.download }),
       ).toBeInTheDocument();
       for (const gone of [
         enMessages.viewer.files.add,
         enMessages.viewer.files.replace,
-        enMessages.viewer.files.splitOff,
+        enMessages.viewer.pages.save,
+        enMessages.viewer.pages.turnLeft.replace('{position}', '1'),
+        enMessages.viewer.pages.insert.replace('{position}', '1'),
         enMessages.viewer.delete.action,
       ]) {
         expect(within(peek).queryByRole('button', { name: gone })).not.toBeInTheDocument();

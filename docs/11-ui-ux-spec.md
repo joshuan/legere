@@ -304,6 +304,15 @@ addressed to the library (`POST /api/documents`); files added on a document's Fi
 to that document (`POST /api/documents/:id/files`, §11.5a). Both queue behind whatever is already
 going up, and go up one at a time in the order they were added.
 
+**A file addressed to a document may also be addressed to a place in it.** Dropped on an insert point
+of the page strip, it carries that position with it (`?at=`, §11.5a) — which is how a photograph goes
+between page two and page three rather than after page five. The panel draws no such row differently:
+where a file lands is the document's business, and the panel's is whether the bytes arrived. Several
+files sent to one position keep their order, each going in after the pages of the one before it —
+the answer to every upload is the whole document (`07 §7.3`), so the next position is measured
+against the list the last one produced rather than against the list that was on the screen when they
+were dropped.
+
 **One row per file, and the rows never move.** They are listed in the order they were added and stay
 there whatever happens to them; what changes is the state of the row, in place, so somebody who found
 their file in a list of forty goes on looking at the same line. Every row is **one and the same
@@ -738,20 +747,118 @@ lived at must not be where they are left — and the archive is re-fetched under
 
 ## 11.5a. The Files tab
 
-A document is an ordered list of files (`03 §3.3.10`), and this is where that list is visible and
-editable. **A tab of its own, not a section at the foot of `Details`.** What a document is made of is
-a different question from what it is about, and it is the one thing on this screen that is worked on
-rather than read: pages put back in order, a photograph cropped, a scan that belongs elsewhere split
-off. Underneath the metadata it began below a form nobody had opened and a table of step costs
-nobody had asked for, so "which of these forty scans is upside down" was a scroll past everything
-the document knows about itself. Its own tab is one press from anywhere, and a link to
+A document is an ordered list of **pages** (`03 §3.3.17`, ADR-025), and this is where that list is
+visible and worked on. **A tab of its own, not a section at the foot of `Details`.** What a document
+is made of is a different question from what it is about, and it is the one thing on this screen that
+is worked on rather than read: pages put back in order, a photograph cropped, a page that belongs
+elsewhere moved there. Underneath the metadata it began below a form nobody had opened and a table of
+step costs nobody had asked for, so "which of these forty scans is upside down" was a scroll past
+everything the document knows about itself. Its own tab is one press from anywhere, and a link to
 `/documents/:id/files` is a link to the composition — which is the address to send somebody when the
 pages are in the wrong order.
 
-One row per file, in page order: a thumbnail of the file, its name, kind and size, a
-`MISSING` tag when the volume no longer has it, and the library path underneath when it has one —
-where the bytes live is a fact about the file, and it belongs beside the file rather than in a
-section of its own.
+**The tab keeps its name and leads with the pages.** A document is still made of files, they are
+still listed here and they are still where the bytes are downloaded and replaced — so the tab is
+still `Files` and the address that already points at the composition still points at it. What
+changed is which of the two comes first: the pages are what somebody came to arrange, and the files
+are where they came from.
+
+**The tab opens with the two things you can do with the document as a whole**: the **Download split
+button** of §11.5b on the left, **Add files** on the right, and the rebuild note under them. This is
+where they belong rather than in the sidebar: "the document as one piece", "one of the originals"
+and "these are the originals" are three answers to one question, and the dropdown of the first is a
+list of exactly the file rows below. A person who came for the bytes now comes to one place.
+**Delete** closes the tab from the other end — §11.5d.
+
+### The page strip
+
+**Every page of every file, in the order the canonical will hold them.** One tile per entry of
+`pages` (`03 §3.3.17`): a thumbnail, the number it stands at in the **document** — 7 of 24, not
+"page 3 of the second file" — and, under it, where it came from: the file's name and which page of
+it. The two together are what makes a strip across two scans readable at all, because "page 3" means
+nothing in a document that holds three files with a page 3 each.
+
+Each thumbnail is the page of the **original** as it arrived: a page of a PDF from
+`GET …/files/:fileId/pages/:page/thumb` (`07 §7.3`), a photograph from its own bytes. They are
+fetched lazily, so a hundred-page document asks for what is on the screen and not for what is below
+it.
+
+🔒 **A file nobody has counted the pages of is drawn as one tile that says so.** Until the first
+canonical build a file is held as a single entry with no page index (`03 §3.3.17`), and it occupies
+**one** position: an insert lands before it or after it, never inside it. The tile says "the whole
+file" rather than "page 1", has no thumbnail to show — nothing yet knows how many pages there are to
+render one of — and offers neither a turn nor a crop, because both are written on a page and this
+entry is not one yet. The strip states that honestly instead of drawing a page it cannot name; the
+next build expands the entry and the tiles appear. 🔒 A **photograph** is never one of these: an
+image is one page and always was, whatever has or has not counted it, so it is drawn and named as
+itself.
+
+**A page is dragged into place anywhere in the document, and moved with the keyboard.** Dragging is a
+pointer gesture and a finger is a pointer: the page follows it and the strip closes around where it
+will land, so the gesture works on the tablet the scans were made on rather than only at a desk. The
+drag is over the **whole strip** and not inside one file — a page picked up anywhere lands anywhere,
+which is what makes putting twenty scans in order one gesture rather than twenty. 🔒 **The arrow keys
+do the same work** — a focused page moves one position at a time and keeps the focus as it travels —
+for the reason the grid's cards give in §11.3: a hit area only a mouse can use is half a fix.
+
+**Nothing is sent until it is saved.** The strip holds the pending order and the pending turns
+itself, with **Save** and **Cancel** under it: Save sends the **whole order** — every page of the
+document exactly once (`07 §7.3`) — and the turns beside it, and Cancel puts the strip back to what
+the document says, having sent nothing at all. Both are quiet while the two agree, because a Save
+that would change nothing is a request that says nothing.
+
+**A page is turned where it stands.** Under each tile sit **turn left** and **turn right**, one page
+at a time — because a forty-page scan has three pages lying sideways and not forty — and the
+thumbnail turns with them, so what the strip shows is what the page will be. The picture itself is
+still the page as it arrived, asked for by the same route and cached under the same key (`07 §7.3`):
+the bytes cannot change, so the strip turns what it draws rather than sending anything to be
+re-rendered.
+
+**And the rest of what can be done to one page, in place, from the tile:**
+
+- **Crop** — the editor of §11.5c, for **any** page there is a picture of. Which way up and how much
+  of it is paper are one question about one page, and that editor is where both are answered — for a
+  page of a PDF exactly as for a photograph, because the crop is written on the entry and the build
+  honours it either way (`03 §3.3.17`).
+- **Remove** — the page leaves the document and the rest close up behind it (`07 §7.3`). Not offered
+  on the only page there is: a document is emptied by deleting it, not by taking its pages away one
+  at a time.
+- **Split here** — the document is cut **before** this page into two, over the same files and with no
+  bytes copied (`05 §5.6`); the parts are linked to each other. Not offered on the first page, which
+  is a cut with nothing on one side of it.
+- **Move to…** — the selected pages leave for another document, an existing one or a new one made to
+  hold them. The dialog searches documents the way everything is searched (§11.5e) and says which it
+  will move.
+
+**Pages are selected for the two that act on more than one.** A checkbox on each tile, a count above
+the strip, and **Move to…** beside it; **Clear** empties the selection. Selecting nothing and using a
+tile's own **Move to…** moves that one page, which is the same request with one id in it.
+
+🔒 **While there is an order nobody has saved, the controls that send something are quiet.** A
+position is a place in the list the server was last shown (`03 §3.3.17`), so removing a page or
+cutting "here" while the strip holds an order that has not been sent would be a request about a
+document that does not exist yet. Save or Cancel first — which is the same promise as "nothing is
+sent until it is saved", said from the other side.
+
+**A file goes in between two pages.** Between every pair of tiles — and at both ends — sits an
+**insert point**: a file dragged from the desktop and dropped there goes **there**, and the same
+control opens the file picker when it is pressed, so the gesture has a keyboard path like everything
+else here. What is chosen goes into the same global queue and is watched in the same panel (§11.3a),
+addressed to this document **at that position** (`POST /api/documents/:id/files?at=`) rather than
+appended; several files dropped at one place go in one after another, in the order they were chosen.
+**Add files** at the head of the tab is the same thing with no position: it appends, which is what it
+always did.
+
+### The file rows
+
+Under the strip, under a heading of its own — **Originals**, which is what §11.5b already calls
+them, and never "Files", because a heading under the tab's own label is the same word twice — one row
+per file, in the order the document first reads them, and now only what is genuinely about a
+**file**: its thumbnail, name, kind and size, a `MISSING` tag when the volume no longer has it, where
+its bytes are, **Download** and **Replace**. Everything that was about how a
+page reads — the crop, the turn, the order, splitting off, moving up and down — is on the strip
+above, where the page it acts on is drawn. Two lists that disagreed about the same document is
+exactly what ADR-025 was written to end.
 
 **Every file says where it is, not only the ones on a volume.** A managed file — an upload, or
 something Legere made — has no library path, and used to say nothing at all here, which left a
@@ -762,38 +869,17 @@ nothing on its own — the bucket is private and only a signed URL reads it — 
 clickable would be a promise it will not keep. **Download** on the row is the way to the bytes, and
 it is right there.
 
-Per row: **Download** (this original alone), **Replace**, **Crop** for an image (§11.5c),
-**Arrange pages** for a PDF that has more than one of them (below), **Move up / Move down**, and
-**Split off** — which says plainly what it does, "this file becomes its
-own document", because "remove" would promise a deletion that never happens (`05 §5.6`). Splitting
-off the only file is not offered at all rather than refused after the fact. Above the list: **Add
-files** — the same global queue and the same panel (§11.3a), addressed to this document rather than to
-the library, appending in the order chosen.
-
-**Splitting off a file is the coarse half of a cut.** The finer half — cutting the document at a
-**page** boundary, and moving pages into another document (`05 §5.6`) — is in the API
-(`07 §7.3`) and is deliberately not on this tab yet: both are aimed at a page, and a control that
-cut between two pages the list does not draw would be a control nobody could point. They arrive with
-the page strip that replaces this list.
-
-**The tab opens with the two things you can do with the document as a whole**: the **Download split
-button** of §11.5b on the left, **Add files** on the right, and the rebuild note under them. This is
-where they belong rather than in the sidebar: "the document as one piece", "one of the originals"
-and "these are the originals" are three answers to one question, and the dropdown of the first is a
-list of exactly the rows below it. A person who came for the bytes now comes to one place. **Delete**
-closes the tab from the other end — §11.5d.
-
 **The list holds real files only.** A row appears when its file has landed and the list is refetched,
 never before: a file on its way is watched in the upload panel, where every other upload is watched,
 so nothing in the composition of a document is a row that might yet turn out not to exist. Leaving the
 tab does not abandon what is going up, either — the queue is the application's, not the screen's.
 
 **Replace** opens the file picker and sends what is chosen in place of that row — the new scan takes
-the same position, so the page order does not move. It is one gesture because it is one intention: a
-page re-photographed is still that page, and doing it as split-upload-reorder is three operations to
-say so. This one shows itself **on the row it replaces**, not in the upload panel: a replacement is not
-a file joining the document but the same page arriving again, and it already has a line of its own to
-be busy on.
+the same positions, so the page order does not move, and every page that reads those bytes reads the
+new ones. It is one gesture because it is one intention: a page re-photographed is still that page,
+and doing it as split-upload-reorder is three operations to say so. This one shows itself **on the row
+it replaces**, not in the upload panel: a replacement is not a file joining the document but the same
+page arriving again, and it already has a line of its own to be busy on.
 
 **Under a replaced row: the copies it has had.** "Earlier versions (2)", collapsed, each with its
 name, size, when it was replaced and a **Download** — the old scan is still readable, which is the
@@ -802,55 +888,10 @@ a file of ours names the day it will be deleted, and a library original says it 
 that Legere will not read it again. Getting one back into a document is done from the trash and makes
 a new document, so nothing here pretends to be an undo of the page order.
 
-**The pages inside one file, in the order they are read.** A PDF whose pages a build has counted and
-found more than one of gains **Arrange pages** on its row, and pressing it opens the row into a
-**strip**: one numbered thumbnail per page, in the order stored beside the file (`03 §3.3.16`) — the
-order they arrived in where none is stored. Each thumbnail is a page of the **original**, as it
-arrived, because that is what somebody putting pages back in order is looking at (`07 §7.3`); the
-number on it is the page's own, so a file that reads 3, 1, 2 says so without anything having to be
-counted. The thumbnails are asked for **only when the strip is opened** — a document of forty scans
-is a tab that must cost nothing to look at, and the rows nobody expands cost nothing at all.
-🔒 **Nothing is drawn for a single-page or non-PDF file**: there is nothing to arrange in one page
-and no pages at all in a photograph, and a control that opens onto a single thumbnail is a control
-that teaches the eye to skip the row.
-
-**A page is dragged into place, and moved with the keyboard.** Dragging is a pointer gesture and a
-finger is a pointer: the page follows it and the strip closes around where it will land, so the
-gesture works on the tablet the scans were made on rather than only at a desk. 🔒 **The arrow keys do
-the same work** — a focused page moves one position at a time and keeps the focus as it travels —
-for the reason the grid's cards give in §11.3: a hit area only a mouse can use is half a fix. Each
-page says its own number and where it now stands, so the order can be read by somebody who is not
-looking at the thumbnails at all.
-
-**Nothing is sent until it is saved.** The strip holds the pending order itself, with **Save** and
-**Cancel** under it: Save sends the **whole permutation** — every page of that file exactly once, the
-way a file reorder sends the whole order (`07 §7.3`) — and Cancel puts the strip back to what is
-stored, having sent nothing at all. Both are quiet while the two agree, because a Save that would
-change nothing is a request that says nothing. **Restore original order** clears the stored order the
-way **Clear crop** clears a crop (§11.5c): it sends `null`, the file goes back to reading as it
-arrived, and — the order having only ever been an instruction beside bytes nobody rewrote
-(`03 §3.3.16`) — there is nothing to undo. What happens after any of the three is what the tab
-already says once above the list: changing the files rebuilds the document.
-
-**A page is turned where it is arranged.** Under each thumbnail of the strip sit **rotate left** and
-**rotate right**, one page at a time — because a forty-page scan has three pages lying sideways and
-not forty (`03 §3.3.16`) — and the thumbnail turns with them, so what the strip shows is what the
-page will be. The thumbnail itself is still the page of the **original**, asked for by the same
-route and cached under the same key (`07 §7.3`): the picture cannot change, so the strip turns what
-it draws rather than sending anything to be re-rendered. The pending turns ride with the pending
-order: **Save** sends both, **Cancel** puts both back, and **Reset turns** clears the stored ones the
-way **Restore original order** clears the order — `null`, and the pages read the way up they arrived,
-there having never been anything to undo.
-
-**A file that has been moved or turned says so on its row.** A **Rearranged** tag stands beside
-**Cropped**, and a **Turned** tag beside both, all on the same terms: each is there while the stored
-value differs from what the file arrived with, and gone the moment it does not — so a list of forty
-scans says at a glance which of them somebody has already been through.
-
 Every one of these rebuilds the document — the canonical PDF, the preview, the text, the analysis —
-so the tab says so once, quietly, above the list: "Changing the files rebuilds the document." While
-that happens the rows stay usable and the document keeps showing what it had. The tab is named
-`Files` and nothing inside it repeats that name: a heading under its own label is the same word
+so the tab says so once, quietly, at its head: "Changing the files rebuilds the document." While that
+happens the strip and the rows stay usable and the document keeps showing what it had. The tab is
+named `Files` and nothing inside it repeats that name: a heading under its own label is the same word
 twice.
 
 ## 11.5b. Download: the document, or what it was made of
@@ -869,20 +910,32 @@ day, when the pipeline is broken.
 
 ## 11.5c. The crop editor
 
-Opened from a file row of §11.5a for an image. A modal over the image at the largest size that fits,
+Opened from a **page** of the strip of §11.5a, and it edits that page: what it stores it stores on
+the entry (`PATCH /api/documents/:id/pages/:pageId`, `07 §7.3`), which is what lets two documents
+crop one photograph apart and what lets a page of a PDF be cropped at all. A modal over the image at
+the largest size that fits,
 with **four draggable corner handles** joined by a polygon and the outside dimmed — a quadrilateral,
 not a rectangle, because a page photographed at an angle is not a rectangle and forcing one either
 cuts the corner off or keeps the table it is lying on.
 
 - **Auto-detect corners** asks the server (`GET …/crop-suggestion`) and drops the answer into the
   editor for the person to accept or drag. It is a proposal and says so; it never saves by itself.
+  🔒 Offered only for an **image**: the detector reads a photograph of a page and the endpoint
+  refuses anything else (`05 §5.6`), so a button on a PDF page would be one that only ever fails.
 - **Rotate left**, **Rotate right** and **Mirror** say which way up the paper lay — the correction a
   reader makes in a second, and one this editor is the place for, because "which part of this" and
   "which way up" are one question about one page. They are buttons like every other control here and
-  are reached with the keyboard like every other control here.
-- **Clear crop** clears the crop entirely — the file goes back into the canonical whole.
-- **Reset turn** clears the turn the same way: it sends `null` and the file reads the way up it
-  arrived, there having never been anything to undo (`03 §3.3.16`).
+  are reached with the keyboard like every other control here. 🔒 **The mirror is a photograph's
+  question.** A PDF page arrives the way its producer laid it out, so it turns in quarters and is
+  never reflected; the button is not drawn there.
+- **What is under the corners** is the page as it can be shown: a photograph is its own bytes at
+  their own resolution, and a page of a PDF is the small JPG the page-thumb route renders (`07 §7.3`),
+  which is the only picture of one page there is. A crop is stored normalized to 0…1, so a scaled
+  picture places a corner exactly where a full-size one would — what a smaller picture costs is what
+  the loupe can magnify, and the modal says so rather than pretending otherwise.
+- **Clear crop** clears the crop entirely — the page goes into the canonical whole.
+- **Reset turn** clears the turn the same way: it sends `null` and the page reads the way up it
+  arrived, there having never been anything to undo (`03 §3.3.17`).
 - **Save** stores the quadrilateral and the turn together — one edit, one rebuild — and the modal
   closes on the answer, not on the click, so a failure is visible where it happened.
 - Handles are draggable with a pointer and nudgeable with the arrow keys once focused (1 px, 10 px

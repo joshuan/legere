@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Crop, DocumentFileDto } from '../../../shared/contracts/documents';
+import type { Crop, DocumentFileDto, DocumentPageDto } from '../../../shared/contracts/documents';
 import { createApiMock } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { CropEditor } from './crop-editor';
@@ -53,6 +53,17 @@ const file: DocumentFileDto = {
   earlierVersions: [],
 };
 
+// An image is one page, and the crop lives on it (docs/03 §3.3.17).
+const page: DocumentPageDto = {
+  id: PAGE_ID,
+  position: 0,
+  fileId: FILE_ID,
+  pageIndex: 0,
+  turn: null,
+  crop: CROP,
+  cropSource: 'MANUAL',
+};
+
 const server = createApiMock();
 
 beforeAll(() => {
@@ -77,7 +88,7 @@ const handle = (index: number): HTMLElement => screen.getByRole('button', { name
 // have reported. jsdom never loads one, hence the two properties and the load event by hand.
 function openEditor(): void {
   renderWithProviders(
-    <CropEditor open documentId={DOCUMENT_ID} file={file} pageId={PAGE_ID} onClose={vi.fn()} />,
+    <CropEditor open documentId={DOCUMENT_ID} page={page} file={file} onClose={vi.fn()} />,
   );
   const image = screen.getByAltText('passport-01.jpg');
   Object.defineProperty(image, 'naturalWidth', { value: NATURAL.width, configurable: true });
@@ -172,7 +183,7 @@ describe('CropEditor loupe', () => {
 
   it('says nothing until the image has said how large it is', () => {
     renderWithProviders(
-      <CropEditor open documentId={DOCUMENT_ID} file={file} pageId={PAGE_ID} onClose={vi.fn()} />,
+      <CropEditor open documentId={DOCUMENT_ID} page={page} file={file} onClose={vi.fn()} />,
     );
 
     fireEvent.pointerDown(handle(1), { pointerId: 1 });

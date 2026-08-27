@@ -4,7 +4,12 @@ import { delay, http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope, errorEnvelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
-import { UploadQueueProvider, useUploadQueue, type UploadQueue } from './upload-queue';
+import {
+  UploadQueueProvider,
+  useUploadQueue,
+  type UploadQueue,
+  type UploadTarget,
+} from './upload-queue';
 
 const DOCUMENT_ID = 'aaaaaaaa-1111-4111-8111-000000000009';
 const TARGET_ID = 'aaaaaaaa-2222-4222-8222-000000000002';
@@ -97,7 +102,7 @@ function mount(): void {
   );
 }
 
-function send(files: File[], target?: { documentId: string }): void {
+function send(files: File[], target?: UploadTarget): void {
   act(() => {
     queue?.send(files, target);
   });
@@ -318,6 +323,63 @@ describe('the upload queue', () => {
     expect(targets).toEqual([TARGET_ID]);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['document', TARGET_ID] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['documents'] });
+  });
+
+  // A file dropped between two pages of the strip carries that place with it (docs/11 §11.5a).
+  it('uploads to the position it was addressed to', async () => {
+    const positions: Array<string | null> = [];
+    server.use(
+      http.post('/api/documents/:id/files', ({ params, request }) => {
+        positions.push(new URL(request.url).searchParams.get('at'));
+        return HttpResponse.json(envelope(detailDto(String(params.id))));
+      }),
+    );
+
+    mount();
+    send([file('Between.pdf')], { documentId: TARGET_ID, at: 2 });
+
+    await waitFor(() => expect(rowText(0)).toContain('Between.pdf|done'));
+    expect(positions).toEqual(['2']);
+  });
+
+  // 🔒 Several files sent to one place keep their order: the second goes in after the pages of the
+  // first, measured against the answer rather than against the list that was on the screen when
+  // they were dropped (docs/11 §11.3a).
+  it('measures the next file of a batch against the answer the last one gave', async () => {
+    const positions: Array<string | null> = [];
+    // The document held four pages and the insert went before the third. That third page keeps its
+    // id wherever it is pushed, so the answer says where the next file goes: the first file landed
+    // as two entries, so page `keep` now stands at position 4.
+    const keep = 'ffffffff-3333-4333-8333-333333333333';
+    const answer = {
+      ...detailDto(TARGET_ID),
+      pages: [0, 1, 2, 3].map((position) => ({
+        id: position === 3 ? keep : `ffffffff-0000-4000-8000-00000000000${position}`,
+        position,
+        fileId: 'ffffffff-9999-4999-8999-999999999999',
+        pageIndex: position,
+        turn: null,
+        crop: null,
+        cropSource: 'NONE',
+      })),
+    };
+    server.use(
+      http.post('/api/documents/:id/files', ({ request }) => {
+        positions.push(new URL(request.url).searchParams.get('at'));
+        return HttpResponse.json(envelope(answer));
+      }),
+    );
+
+    mount();
+    send([file('First.pdf'), file('Second.pdf')], {
+      documentId: TARGET_ID,
+      at: 2,
+      beforePageId: keep,
+    });
+
+    await waitFor(() => expect(rowText(1)).toContain('Second.pdf|done'));
+    // The first went where it was told; the second went where the page it must precede now stands.
+    expect(positions).toEqual(['2', '3']);
   });
 
   it('is busy only while something is waiting or in flight', async () => {

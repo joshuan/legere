@@ -1,41 +1,23 @@
 import {
-  documentDetailDtoSchema,
-  type DocumentDetailDto,
-} from '../../../shared/contracts/documents';
-import {
   cropSuggestionResponseSchema,
-  updateDocumentPageRequestSchema,
   type CropSuggestionResponse,
-  type UpdateDocumentPageRequest,
 } from '../../../shared/contracts/files';
 import { apiClient } from '../../shared/api';
 
-// The two routes the crop editor needs (docs/07 §7.3). Both answer about the whole document,
-// because a composition change is never local (docs/05 §5.6).
+// The routes the crop editor needs (docs/07 §7.3). What it stores it stores **on the page**
+// (`PATCH /api/documents/:id/pages/:pageId`, docs/03 §3.3.17) — which is what lets two documents
+// crop one photograph apart, and what lets a page of a PDF be cropped at all; that call is
+// `documentApi.updatePage`, shared with the strip, so there is one way to say it.
 export const cropApi = {
-  // Plain URL, not a fetch: an <img> points straight at it and the browser follows the 302 to the
+  // Plain URLs, not fetches: an <img> points straight at them and the browser follows the 302 to the
   // signed URL itself (docs/10 §10.8).
   contentUrl: (documentId: string, fileId: string): string =>
     `/api/documents/${documentId}/files/${fileId}/content`,
 
-  // A proposal; nothing is stored until the person saves it (docs/05 §5.6).
+  // 🔒 A proposal, and only ever for an image: the detector reads a photograph of a page and the
+  // endpoint refuses anything else (docs/05 §5.6). Nothing is stored until the person saves it.
   suggestion: (documentId: string, fileId: string): Promise<CropSuggestionResponse> =>
     apiClient.get(`/api/documents/${documentId}/files/${fileId}/crop-suggestion`, {
       schema: cropSuggestionResponseSchema,
-    }),
-
-  // The crop and the turn of **one page** (docs/07 §7.3): they are one question about one page, so
-  // they are one request and one rebuild. `crop: null` clears it and the page goes back into the
-  // canonical whole.
-  save: (
-    documentId: string,
-    pageId: string,
-    body: UpdateDocumentPageRequest,
-  ): Promise<DocumentDetailDto> =>
-    apiClient.patch(`/api/documents/${documentId}/pages/${pageId}`, {
-      schema: documentDetailDtoSchema,
-      // Validated on the way out too: a point outside 0…1 is a bug in this editor, and it should
-      // fail here rather than as a 422 the person has to interpret.
-      body: updateDocumentPageRequestSchema.parse(body),
     }),
 };

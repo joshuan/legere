@@ -2,6 +2,7 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { createContext, use, useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { DocumentDetailDto } from '../../../shared/contracts/documents';
 import { documentApi, documentKeys } from '../../entities/document';
 import type { UploadProgress } from '../../shared/api';
 import { useErrorMessage } from '../../shared/lib';
@@ -16,6 +17,12 @@ export type UploadQueueItem = {
   size: number;
   // Absent for a file that becomes a document of its own; present when it is appended to one.
   targetDocumentId?: string;
+  // Where in that document its pages go, 0-based (docs/03 §3.3.17): what a file dropped between two
+  // pages of the strip carries with it (docs/11 §11.5a). Absent is the append this always was.
+  at?: number;
+  // The page the insert goes **before**, which is how the rest of a batch keeps its place: a
+  // position moves as the files ahead of it land, and this id does not (docs/11 §11.3a).
+  beforePageId?: string;
   status: UploadStatus;
   loadedBytes: number;
   error?: string;
@@ -24,7 +31,11 @@ export type UploadQueueItem = {
   settledAt?: number;
 };
 
-export type UploadTarget = { documentId: string };
+// Where a batch of files is addressed. `at` and `beforePageId` are two halves of one answer: the
+// position the first file goes to, and the page it goes before — which is what the ones behind it
+// are measured against once the first has landed and moved everything along (docs/11 §11.3a).
+// `beforePageId` is absent when the insert is at the end, where there is nothing to go before.
+export type UploadTarget = { documentId: string; at?: number; beforePageId?: string };
 
 export type UploadQueue = {
   items: readonly UploadQueueItem[];
@@ -111,8 +122,11 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         };
 
         let settlement: Settlement;
+        let landed: DocumentDetailDto | undefined;
         try {
-          settlement = await sendOne(next, onProgress, controller.signal);
+          const answer = await sendOne(next, onProgress, controller.signal);
+          settlement = answer.settlement;
+          landed = answer.document;
         } catch (error: unknown) {
           // The row stays, wearing its own error; the queue carries on. One rejected file must not
           // take the other thirty-nine with it.
@@ -125,6 +139,23 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         // was abandoned on purpose, and its abort must not write anything back.
         if (!entries.current.some((entry) => entry.key === next.key)) continue;
         patch(next.key, (entry) => ({ ...entry, ...settlement, settledAt: Date.now() }));
+
+        // The file that just went in moved every position after it along, so the ones behind it in
+        // the batch are measured afresh against the answer (docs/11 §11.3a). Only the rows that
+        // named a page to go before: an append needs no arithmetic, and neither does another
+        // document's queue.
+        if (landed !== undefined) {
+          const document = landed;
+          update((current) =>
+            current.map((entry) =>
+              entry.status === 'waiting' &&
+              entry.targetDocumentId === next.targetDocumentId &&
+              entry.beforePageId !== undefined
+                ? { ...entry, at: positionBefore(document, entry.beforePageId) }
+                : entry,
+            ),
+          );
+        }
 
         // Every filter combination shows a different slice and a new document may belong to any of
         // them, hence the shared prefix. Per file rather than per batch: forty files arriving one by
@@ -139,7 +170,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
     } finally {
       running.current = false;
     }
-  }, [describeError, patch, queryClient]);
+  }, [describeError, patch, queryClient, update]);
 
   const send = useCallback(
     (files: File[], target?: UploadTarget) => {
@@ -156,6 +187,8 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
             status: 'waiting',
             loadedBytes: 0,
             ...(target === undefined ? {} : { targetDocumentId: target.documentId }),
+            ...(target?.at === undefined ? {} : { at: target.at }),
+            ...(target?.beforePageId === undefined ? {} : { beforePageId: target.beforePageId }),
           };
         }),
       ]);
@@ -218,23 +251,37 @@ function requeue(entry: QueueEntry): QueueEntry {
 
 // Which of the three things happened. Deduplication doing its job is one of them, not an error
 // (ADR-009): the bytes are already here, and the row says which document has them.
+//
+// The whole document comes back with an upload addressed to one (docs/07 §7.3), and it is handed on
+// beside the settlement: it is what the rest of a batch sent to a position measures itself against.
 async function sendOne(
   entry: QueueEntry,
   onProgress: UploadProgress,
   signal: AbortSignal,
-): Promise<Settlement> {
+): Promise<{ settlement: Settlement; document?: DocumentDetailDto }> {
   if (entry.targetDocumentId !== undefined) {
-    const document = await documentApi.addFile(
-      entry.targetDocumentId,
-      entry.file,
+    const document = await documentApi.addFile(entry.targetDocumentId, entry.file, {
+      ...(entry.at === undefined ? {} : { at: entry.at }),
       onProgress,
       signal,
-    );
-    return { status: 'done', resultDocumentId: document.id };
+    });
+    return { settlement: { status: 'done', resultDocumentId: document.id }, document };
   }
   const result = await documentApi.upload(entry.file, onProgress, signal);
   return {
-    status: result.created ? 'done' : 'duplicate',
-    resultDocumentId: result.document.id,
+    settlement: {
+      status: result.created ? 'done' : 'duplicate',
+      resultDocumentId: result.document.id,
+    },
   };
+}
+
+// Where the next file of a batch goes, now that this one has landed. The page it goes before has not
+// moved — it is the same entry, wherever the insert pushed it — so its place in the answer is the
+// position the next insert wants. A page that is no longer there at all (somebody else was editing)
+// leaves the file at the end, which is where an append has always put it.
+function positionBefore(document: DocumentDetailDto, beforePageId: string): number {
+  const ordered = [...document.pages].sort((a, b) => a.position - b.position);
+  const found = ordered.findIndex((page) => page.id === beforePageId);
+  return found < 0 ? ordered.length : found;
 }

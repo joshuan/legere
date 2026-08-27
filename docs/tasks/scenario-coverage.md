@@ -197,6 +197,12 @@ standard lists them.
 | a turn is an instruction beside a page, never a rewrite of the file | `test/integration/canonical-build.integration.test.ts` — stands one page of a scan upright without touching the file; rebuilds to the pages as they arrived once the turn is cleared |
 | a turn is applied after the crop, and follows its own page out of the file | `src/server/application/documents/build-canonical.test.ts` — turns the page after cropping it, so the stored quadrilateral still means what it meant; picks the pages first and turns what it picked |
 | a document with a missing original still serves its canonical | `test/e2e/document-files.e2e.test.ts` — the canonical downloads while the volume is gone |
+| the strip draws every page of every file in document order, and says where each came from | `src/web/features/page-strip/page-strip.test.tsx` — draws every page of both files in document order, each saying where it came from |
+| 🔒 a page is dragged anywhere in the document, and the arrow keys do the same work | `src/web/features/page-strip/page-strip.test.tsx` — drags a page across the boundary between two files; moves a focused page one position per arrow key and keeps the focus on it |
+| 🔒 nothing is sent until Save, and Cancel sends nothing at all | `src/web/features/page-strip/page-strip.test.tsx` — sends the whole order on Save and nothing until then; discards the pending order on Cancel and sends nothing at all |
+| a page is turned, cropped, removed, cut at and moved from the strip | `src/web/features/page-strip/page-strip.test.tsx` — turns one page at a time and draws the thumbnail turned with it; opens the crop editor on a page of an image; removes a page; cuts the document before a page; moves a selection into another document |
+| 🔒 a file nobody has counted the pages of is drawn as one honest entry | `src/web/features/page-strip/page-strip.test.tsx` — draws a file held whole as one tile that says so, with no thumbnail and no turn |
+| a file dropped between two pages goes between them | `src/web/screens/document-viewer/document-viewer-screen.test.tsx` — sends a file dropped between two pages to that position; `src/web/features/upload-queue/upload-queue.test.tsx` — uploads to a position, and measures the next against the answer |
 
 ## API
 

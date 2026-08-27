@@ -2,8 +2,6 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowDownOutlined,
-  ArrowUpOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   CloseCircleOutlined,
@@ -58,7 +56,6 @@ import remarkGfm from 'remark-gfm';
 import {
   DOCUMENT_STEPS,
   QUALITY_MARKS,
-  isFileTurned,
   type DocumentDetailDto,
   type DocumentEventDto,
   type DocumentEventPage,
@@ -89,9 +86,8 @@ import { searchApi, searchKeys } from '../../entities/search';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { useIsAdmin } from '../../entities/user';
-import { CropEditor } from '../../features/crop-editor';
 import { UploadButton } from '../../features/document-upload';
-import { PageArranger, hasArrangeablePages, isRearranged } from '../../features/page-arranger';
+import { PageStrip } from '../../features/page-strip';
 import { useUploadQueue } from '../../features/upload-queue';
 import { useErrorMessage, formatBytes } from '../../shared/lib';
 import { isViewerTab, type ViewerTab } from './viewer-tab';
@@ -2530,23 +2526,29 @@ const WhatItIsSection = memo(function WhatItIsSection({
   );
 });
 
-// A document is an ordered list of files (docs/03 §3.3.10), and this is where that list is visible
-// and editable (docs/11 §11.5a). A tab of its own rather than the last section of Details: what a
-// document is made of is a different question from what it is about, and it is the one thing here
-// that is worked on rather than read — under the metadata it sat below a form nobody had opened and
-// a table of step costs nobody had asked for. Every action rebuilds the document — the canonical
-// PDF, the preview, the text, the analysis — so the pane says so once, quietly, and then stays
-// usable while it happens.
+// A document is an ordered list of **pages** (docs/03 §3.3.17, ADR-025), and this is where that list
+// is visible and worked on (docs/11 §11.5a). A tab of its own rather than the last section of
+// Details: what a document is made of is a different question from what it is about, and it is the
+// one thing here that is worked on rather than read — under the metadata it sat below a form nobody
+// had opened and a table of step costs nobody had asked for. Every action rebuilds the document —
+// the canonical PDF, the preview, the text, the analysis — so the pane says so once, quietly, and
+// then stays usable while it happens.
+//
+// **The pages lead and the files follow.** The strip is what somebody came to arrange; the rows
+// under it are where the bytes came from, and they keep only what is genuinely about a file —
+// download, replace, the path, the storage key. The crop, the turn, the order, the cut and the move
+// all live on the page they act on, because a control aimed at a page that nothing draws is a
+// control nobody can point (docs/11 §11.5a).
 //
 // It is also where the document as a whole is handed over and where it is destroyed (docs/11 §11.5b,
 // §11.5d): "the document as one piece", "one of the originals" and "these are the originals" are
 // three answers to one question, and the dropdown of the first is a list of exactly the rows below
 // it. Download stands at the top, Delete at the foot with the whole list between them.
 //
-// 🔒 `readOnly` leaves the list and takes the work away (docs/11 §11.5e): the rows, their
-// whereabouts, their earlier versions and every download stay, because that is what reading a
-// document's composition means; adding, replacing, cropping, arranging, reordering, splitting and
-// deleting do not, because a peek is a look at somebody else's document.
+// 🔒 `readOnly` leaves the pages and the rows and takes the work away (docs/11 §11.5e): the strip,
+// the whereabouts, the earlier versions and every download stay, because that is what reading a
+// document's composition means; adding, replacing, cropping, arranging, cutting, moving and deleting
+// do not, because a peek is a look at somebody else's document.
 function FilesPane({
   document,
   isAdmin,
@@ -2564,23 +2566,10 @@ function FilesPane({
   // The application's one queue, pointed at this document: files land here in the order chosen, and
   // they are watched in the upload panel like every other upload (docs/11 §11.3a, §11.5a).
   const { send } = useUploadQueue();
-  const [cropping, setCropping] = useState<DocumentFileDto | null>(null);
   // Which row is having its bytes replaced. The upload happens in place of a file rather than at the
   // end of the list, so the row it lands on is the only honest place to show it going (docs/11
   // §11.5a) — a queued card above the list would be about a file that is not arriving.
   const [replacing, setReplacing] = useState<string | null>(null);
-  // Which rows have their pages open (docs/11 §11.5a). A set rather than one id, because arranging
-  // one file is no reason to close the strip somebody left open two rows up — and it starts empty,
-  // which is what makes the page thumbnails cost nothing on a tab nobody expands.
-  const [arranging, setArranging] = useState<ReadonlySet<string>>(() => new Set());
-
-  const toggleArranging = (fileId: string): void => {
-    setArranging((current) => {
-      const next = new Set(current);
-      if (!next.delete(fileId)) next.add(fileId);
-      return next;
-    });
-  };
 
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.detail(document.id) });
@@ -2588,27 +2577,7 @@ function FilesPane({
     void queryClient.invalidateQueries({ queryKey: ['documents'] });
   };
 
-  const reorder = useMutation({
-    mutationFn: (order: string[]) => documentApi.reorderFiles(document.id, { order }),
-    onSuccess: () => {
-      void message.success(t('viewer.files.rebuilding'), 2);
-      refresh();
-    },
-    onError: (error: unknown) => void message.error(describeError(error)),
-  });
-
-  // Not a deletion, and it does not carry the reader off to the new document either: they are
-  // looking at this one, and the file they split off is a document they can find (docs/11 §11.5a).
-  const split = useMutation({
-    mutationFn: (fileId: string) => documentApi.splitFile(document.id, fileId),
-    onSuccess: () => {
-      void message.success(t('viewer.files.splitDone'), 3);
-      refresh();
-    },
-    onError: (error: unknown) => void message.error(describeError(error)),
-  });
-
-  // A page re-photographed is still that page: the new scan takes the old one's position and the
+  // A page re-photographed is still that page: the new scan takes the old one's positions and the
   // page order does not move (docs/05 §5.6). The scan it displaces goes to the trash under this same
   // row, which is what makes replacing something a person can take back (docs/05 §5.7a).
   const replace = useMutation({
@@ -2625,18 +2594,20 @@ function FilesPane({
     onSettled: () => setReplacing(null),
   });
 
-  const move = (index: number, by: number): void => {
-    const order = document.files.map((file) => file.id);
-    const target = index + by;
-    const moved = order[index];
-    const displaced = order[target];
-    if (moved === undefined || displaced === undefined) return;
-    order[index] = displaced;
-    order[target] = moved;
-    reorder.mutate(order);
+  // A file dropped — or chosen — at a seam of the strip goes **there** (docs/11 §11.5a, §11.3a). The
+  // page it goes before travels with it, so the second file of a batch is measured against the list
+  // the first one produced rather than against the list that was on the screen.
+  const insertAt = (files: File[], at: number): void => {
+    const ordered = [...document.pages].sort((a, b) => a.position - b.position);
+    const before = ordered[at]?.id;
+    send(files, {
+      documentId: document.id,
+      at,
+      ...(before === undefined ? {} : { beforePageId: before }),
+    });
   };
 
-  const busy = reorder.isPending || split.isPending || replace.isPending;
+  const busy = replace.isPending;
 
   return (
     <Space direction="vertical" size="small" style={{ width: '100%' }}>
@@ -2663,13 +2634,18 @@ function FilesPane({
         <Typography.Text type="secondary">{t('viewer.files.rebuildNote')}</Typography.Text>
       )}
 
-      {/* Real files only: a row appears when its file has landed and the list is refetched, never
-          before — what is on its way is watched in the panel (docs/11 §11.5a). */}
+      {/* The document itself, in order: every page of every file, and everything that can be done to
+          one of them (docs/11 §11.5a). */}
+      <PageStrip document={document} onInsertFiles={insertAt} readOnly={readOnly} />
+
+      {/* And where the bytes came from. Real files only: a row appears when its file has landed and
+          the list is refetched, never before — what is on its way is watched in the panel. */}
+      <Typography.Text strong>{t('viewer.files.heading')}</Typography.Text>
       <List
         dataSource={document.files}
         rowKey="id"
         size="small"
-        renderItem={(file: DocumentFileDto, index: number) => (
+        renderItem={(file: DocumentFileDto) => (
           <List.Item
             actions={[
               <Button
@@ -2710,67 +2686,6 @@ function FilesPane({
                         {t('viewer.files.replace')}
                       </Button>
                     </Upload>,
-                    ...(file.isImage
-                      ? [
-                          <Button
-                            key="crop"
-                            size="small"
-                            type="link"
-                            onClick={() => setCropping(file)}
-                          >
-                            {t('viewer.files.crop')}
-                          </Button>,
-                        ]
-                      : []),
-                    // The pages inside one file, for the file that has more than one of them (docs/11
-                    // §11.5a). Offered on nothing else: an image has no pages and a file no build has
-                    // counted has none anybody can name.
-                    ...(hasArrangeablePages(file)
-                      ? [
-                          <Button
-                            key="pages"
-                            size="small"
-                            type="link"
-                            aria-expanded={arranging.has(file.id)}
-                            onClick={() => toggleArranging(file.id)}
-                          >
-                            {t('viewer.files.pages.arrange')}
-                          </Button>,
-                        ]
-                      : []),
-                    <Button
-                      key="up"
-                      size="small"
-                      type="text"
-                      aria-label={t('viewer.files.moveUp', { name: file.name })}
-                      icon={<ArrowUpOutlined />}
-                      disabled={index === 0 || busy}
-                      onClick={() => move(index, -1)}
-                    />,
-                    <Button
-                      key="down"
-                      size="small"
-                      type="text"
-                      aria-label={t('viewer.files.moveDown', { name: file.name })}
-                      icon={<ArrowDownOutlined />}
-                      disabled={index === document.files.length - 1 || busy}
-                      onClick={() => move(index, 1)}
-                    />,
-                    // Splitting off the only file is not offered at all, rather than refused after the
-                    // fact: a document is emptied by deleting it (docs/11 §11.5a).
-                    ...(document.files.length > 1
-                      ? [
-                          <Button
-                            key="split"
-                            size="small"
-                            type="link"
-                            disabled={busy}
-                            onClick={() => split.mutate(file.id)}
-                          >
-                            {t('viewer.files.splitOff')}
-                          </Button>,
-                        ]
-                      : []),
                   ]),
             ]}
           >
@@ -2808,15 +2723,10 @@ function FilesPane({
               title={
                 <Space size={4} wrap>
                   <span>{file.name}</span>
+                  {/* The one tag that is about the **file**: these bytes cannot be read right now.
+                      Cropped, Rearranged and Turned were about how pages read, and pages have a
+                      strip of their own that draws every one of them (docs/11 §11.5a). */}
                   {!file.available && <Tag color="default">{t('viewer.files.missing')}</Tag>}
-                  {file.crop !== null && <Tag color="blue">{t('viewer.files.cropped')}</Tag>}
-                  {/* Beside it, on the same terms: the pages of this file are read in an order
-                      somebody chose, so the list says at a glance which files were touched
-                      (docs/11 §11.5a). */}
-                  {isRearranged(file) && <Tag color="blue">{t('viewer.files.rearranged')}</Tag>}
-                  {/* And which of them lie a way up they did not arrive in — an image turned as one
-                      picture, or a PDF with a page standing on its side (docs/11 §11.5a). */}
-                  {isFileTurned(file) && <Tag color="blue">{t('viewer.files.turned')}</Tag>}
                 </Space>
               }
               description={
@@ -2852,9 +2762,6 @@ function FilesPane({
                   {file.earlierVersions.length > 0 && (
                     <EarlierVersions documentId={document.id} versions={file.earlierVersions} />
                   )}
-                  {/* The row opened into its own pages, and only then are their thumbnails asked
-                      for: a document of forty scans costs nothing to look at (docs/11 §11.5a). */}
-                  {arranging.has(file.id) && <PageArranger documentId={document.id} file={file} />}
                 </Space>
               }
             />
@@ -2866,21 +2773,6 @@ function FilesPane({
           Never in a peek: the one control that destroys anything belongs on the screen of the
           document it destroys (docs/11 §11.5e). */}
       {isAdmin && !readOnly && <DeleteSection document={document} />}
-
-      {cropping !== null && (
-        <CropEditor
-          open
-          documentId={document.id}
-          file={cropping}
-          // The crop is written on the page, not on the file (docs/03 §3.3.17). The editor opens for
-          // an image, which this document reads as exactly one page — the first entry naming it.
-          pageId={document.pages.find((page) => page.fileId === cropping.id)?.id ?? ''}
-          onClose={() => {
-            setCropping(null);
-            refresh();
-          }}
-        />
-      )}
     </Space>
   );
 }
