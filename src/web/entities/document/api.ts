@@ -26,8 +26,6 @@ import {
   type ReprocessRequest,
   type ReprocessResponse,
   type UpdateDocumentRequest,
-  type Crop,
-  type Rotation,
 } from '../../../shared/contracts/documents';
 import {
   groupingSuggestionsResponseSchema,

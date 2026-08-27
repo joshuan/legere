@@ -65,6 +65,10 @@ export default tseslint.config(
       'coverage/**',
       'next-env.d.ts',
       'prisma/generated/**',
+      // Scratch worktrees an agent checks the repository out into: a second copy of every source
+      // file, outside every tsconfig, which typed linting cannot resolve and nobody wants linted
+      // twice. Ignored by git for the same reason.
+      '.claude/worktrees/**',
     ],
   },
 
