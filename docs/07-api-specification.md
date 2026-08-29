@@ -63,7 +63,7 @@ human-readable index and must stay in sync with them.
 | 409 | `DOCUMENT_TYPE_SLUG_TAKEN`, `COLLECTION_NAME_TAKEN` | uniqueness |
 | 409 | `DOCUMENT_LAST_FILE` | removing the only file of a document |
 | 409 | `LINK_EXISTS` | linking two documents that are already linked |
-| 409 | `FILE_ALREADY_IN_DOCUMENT` | attaching bytes a page of **this** document already reads — a file itself may be read by several documents since ADR-025, so the endpoint rows below say which document each route means |
+| 409 | `FILE_ALREADY_IN_DOCUMENT` | attaching bytes that are already a live file of **another** document — moving them is `combine` or a page move (`05 §5.6`). Not the same question as "may one file be read twice": since ADR-025 several pages, in several documents, may read one file (a split, a move) — what is refused is *bringing in from outside* bytes that already have a home |
 | 409 | `DOCUMENT_CHANGED` | a composition edit whose rewrite was computed from a reading of the document's page list that is no longer the list ([`03 §3.3.17`](./03-domain-model.md), `05 §5.6`). Nothing is written; the caller re-reads the document and asks again. Every edit that answers with a whole list carries this risk, and refusing is the alternative to writing an older list back over a newer one |
 | 409 | `FILE_READ_ELSEWHERE` | a replacement whose bytes are also read by a document the caller may not destroy content in, or may not read at all (ADR-025, `03 §3.4a`). A replacement reaches every page reading those bytes, so it is refused whole rather than applied to the part of the archive the caller happens to reach |
 | 409 | `CANONICAL_NOT_READY` | the canonical PDF has not been built yet |
