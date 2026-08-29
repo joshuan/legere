@@ -4,7 +4,35 @@
       "Bash(./scripts/ops/prod-logs.sh:*)",
       "Bash(scripts/ops/prod-logs.sh:*)",
       "Bash(./scripts/ops/prod-db.sh:*)",
-      "Bash(scripts/ops/prod-db.sh:*)"
+      "Bash(scripts/ops/prod-db.sh:*)",
+      "Bash(docker exec legere-db-1 psql *)",
+      "Bash(psql -h localhost *)",
+      "Bash(PGPASSWORD=legere psql -h localhost *)",
+      "Bash(npx prisma *)",
+      "Bash(npx vitest run *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(DATABASE_URL=*)",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/allow-local-db.sh\"",
+            "timeout": 10,
+            "statusMessage": "Checking the local-DB auto-allow rules"
+          },
+          {
+            "type": "command",
+            "if": "Bash(PGPASSWORD=*)",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/allow-local-db.sh\"",
+            "timeout": 10,
+            "statusMessage": "Checking the local-DB auto-allow rules"
+          }
+        ]
+      }
     ]
   }
 }
