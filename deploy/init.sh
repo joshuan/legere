@@ -151,10 +151,11 @@ elif [ -n "$smtp_host" ]; then
   cat <<EOF
 
 Note on port ${smtp_port}: TLS there is STARTTLS — the connection opens in the clear and is upgraded
-only if ${smtp_host} offers the upgrade. Anyone on the path who removes that one line from the
-greeting gets the relay password and every six-digit sign-up code in plaintext, and nothing fails
-visibly. Port 465 is TLS from the first byte and cannot be downgraded; most providers offer it.
-Change SMTP_PORT to 465 and SMTP_SECURE to true in .env to switch later.
+afterwards. Legere asks for that upgrade on every connection and will not send a letter without it,
+so nobody on the path can talk ${smtp_host} out of encrypting; what a failed upgrade costs you is
+the letter, with an error saying so. Port 465 is TLS from the first byte and needs no upgrade at
+all; most providers offer it. Change SMTP_PORT to 465 and SMTP_SECURE to true in .env to switch
+later.
 
 EOF
 fi

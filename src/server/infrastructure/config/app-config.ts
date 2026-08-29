@@ -44,6 +44,41 @@ export class AppConfig {
     const configured = this.values.S3_PUBLIC_ENDPOINT;
     return originOf(configured === '' ? this.values.S3_ENDPOINT : configured);
   }
+
+  // 🔒 Whether the SMTP transport must insist on the `STARTTLS` upgrade rather than accept whatever
+  // the relay offers (docs/12 §12.8). On 465 the session is TLS from the first byte and there is no
+  // upgrade to insist on; otherwise the answer is yes unless the operator has said otherwise in
+  // writing. Read by the transport, which is built once at boot.
+  get requiresSmtpTls(): boolean {
+    return !this.values.SMTP_SECURE && !this.values.SMTP_ALLOW_PLAINTEXT;
+  }
+
+  // 🔒 And whether that permission is actually doing something: a relay is configured, the session
+  // is not already encrypted, and the opt-out is set. `SMTP_ALLOW_PLAINTEXT` beside `SMTP_SECURE=true`
+  // or beside no relay at all changes nothing, and neither the refusal nor the warning below fires
+  // on a setting that changes nothing — the CAPTCHA reasoning in reverse (docs/12 §12.4a).
+  get sendsMailInPlaintext(): boolean {
+    return (
+      this.values.SMTP_HOST !== '' && !this.values.SMTP_SECURE && this.values.SMTP_ALLOW_PLAINTEXT
+    );
+  }
+
+  get smtpHost(): string {
+    return this.values.SMTP_HOST;
+  }
+}
+
+// 🔒 The three ways of writing a relay the packets never leave this machine to reach — the one case
+// `SMTP_ALLOW_PLAINTEXT` exists for (docs/12 §12.4a). Matched literally, and deliberately: resolving
+// a name would put a DNS lookup inside configuration parsing and would answer for the moment of the
+// lookup rather than for the moment of the send, and a name that resolves to a loopback address today
+// is a name somebody else can point elsewhere tomorrow. A literal list is narrower than the truth,
+// which is the safe direction to be wrong in — and it is written down in §12.4a, so nobody has to
+// guess which spellings count.
+const SAME_HOST_RELAYS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+
+function isSameHostRelay(host: string): boolean {
+  return SAME_HOST_RELAYS.has(host.trim().toLowerCase());
 }
 
 // The values this repository publishes as examples. They exist so a reader can copy a file and see
@@ -110,6 +145,18 @@ function productionRefusals(config: AppConfig): readonly string[] {
     );
   }
 
+  // 🔒 The letters carry the six-digit code of every registration, verification and reset, and the
+  // session that carries them carries the relay password. Sending both in the clear to another
+  // machine hands them to anyone on the path, which is the whole of SEC-62 — so the opt-out that
+  // permits it is granted only where the packets never leave this host and refused everywhere else.
+  // Refused by the relay's address rather than by NODE_ENV because that is what the risk depends on:
+  // the same-host case is exactly as safe on a deployment as on a laptop (docs/12 §12.4a).
+  if (config.sendsMailInPlaintext && !isSameHostRelay(config.smtpHost)) {
+    refusals.push(
+      `SMTP_ALLOW_PLAINTEXT is set and ${config.smtpHost} is not this host — the relay password and the six-digit code of every registration, verification and reset would reach it unencrypted; use SMTP_PORT=465 with SMTP_SECURE=true, or drop SMTP_ALLOW_PLAINTEXT and let the transport require the STARTTLS upgrade`,
+    );
+  }
+
   // 🔒 The document viewer embeds the canonical PDF from a presigned URL, and a PDF viewer runs
   // script in the origin that served it. That is harmless only while the bucket is a *different*
   // origin from the app: put them on one, and any document in the archive can script the app
@@ -142,6 +189,17 @@ export function configWarnings(config: AppConfig): readonly string[] {
   if (config.get('SMTP_HOST') === '') {
     warnings.push(
       'SMTP_HOST is empty — a letter is recorded as its recipient and subject, delivered to nobody, and the code inside it is written nowhere at all; registration, verification and password resets cannot complete until a mail server is configured (docs/12 §12.5)',
+    );
+  }
+
+  // 🔒 Where production permits this at all the relay is on this host and there is nothing to refuse
+  // — but a permission granted for a mail catcher and left behind when a real relay replaced it is
+  // how it ends up switched on where it was never meant to be, and the setting itself cannot tell
+  // the two apart. Saying it at every start can. The host is named because "unencrypted to where" is
+  // the question that decides whether it matters (docs/12 §12.4a).
+  if (config.sendsMailInPlaintext) {
+    warnings.push(
+      `SMTP_ALLOW_PLAINTEXT is set — letters to ${config.smtpHost} travel unencrypted, and so does the relay password; the six-digit code of every registration, verification and reset is in them (docs/12 §12.8)`,
     );
   }
 

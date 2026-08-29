@@ -85,6 +85,10 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-Legere <no-reply@example.com>}
+      # 🔒 And on 587 the app issues STARTTLS itself rather than waiting to be offered it, so the
+      # deleted line buys an error instead of a plaintext session. This is the only way past that,
+      # and it is refused at boot for any relay that is not on this host (docs/12 §12.4a).
+      SMTP_ALLOW_PLAINTEXT: ${SMTP_ALLOW_PLAINTEXT:-false}
       ALLOW_UNCONFIGURED_EMAIL: ${ALLOW_UNCONFIGURED_EMAIL:-false}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
       OCR_LANGUAGES: ${OCR_LANGUAGES:-rus+eng}

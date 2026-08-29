@@ -42,6 +42,14 @@ export const configSchema = z.object({
   SMTP_USER: z.string().default(''),
   SMTP_PASSWORD: z.string().default(''),
   SMTP_FROM: z.string().default('Legere <no-reply@example.com>'),
+  // 🔒 Permission to send a letter over a connection that never became TLS (docs/12 §12.4a, §12.8).
+  // With `SMTP_SECURE=false` the transport asks for `STARTTLS` whether or not the greeting offered
+  // it, because the greeting is one line an attacker on the path can delete — and nodemailer's own
+  // rule is to upgrade only when the extension is advertised, so deleting it used to produce a
+  // plaintext session carrying the relay password and every six-digit code, with nothing failing at
+  // either end (SEC-62). Setting this takes that floor away, for the one case where there is no path
+  // to sit on: a relay on this very host. Production refuses it for any other (app-config.ts).
+  SMTP_ALLOW_PLAINTEXT: envBoolean(false),
   // 🔒 Permission to run an instance that cannot send mail (docs/12 §12.4a). Every account is
   // created, verified and recovered through a six-digit code that arrives by email and is written
   // nowhere else — not to the log, which is where it used to go — so an empty SMTP_HOST in

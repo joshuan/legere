@@ -76,6 +76,7 @@ SMTP_SECURE=false                            # 465 → true, 587 → false
 SMTP_USER=
 SMTP_PASSWORD=
 SMTP_FROM="Legere <no-reply@example.com>"
+SMTP_ALLOW_PLAINTEXT=false                   # on 587 the session must upgrade to TLS or the letter is not sent; true sends it in the clear, and production refuses that for a relay that is not on this host (§12.4a)
 ALLOW_UNCONFIGURED_EMAIL=false               # production refuses an empty SMTP_HOST without this (§12.4a)
 
 # --- library volume ---
@@ -224,17 +225,29 @@ schema errors use:
 | `S3_SECRET_ACCESS_KEY` equal to `legere-secret` | Same, for the bucket holding every derived artifact |
 | The browser-facing bucket origin equal to `APP_BASE_URL`'s | 🔒 The viewer embeds the canonical PDF from a presigned URL, and a PDF viewer runs script in the origin that served it. Different origins is what keeps a document in the archive from scripting the app; put them on one and it can. The check reads `S3_PUBLIC_ENDPOINT`, or `S3_ENDPOINT` when no public one is set ([`09 §9.2`](./09-file-storage.md)) |
 | An empty `SMTP_HOST`, unless `ALLOW_UNCONFIGURED_EMAIL=true` | 🔒 Every account is created, verified and recovered by typing a six-digit code that arrives by email ([`08 §8.1.3`](./08-auth-and-authorization.md)), and that code exists in the letter and nowhere else — the log fallback records a letter's recipient and subject and drops its body (§8.1.8). So an instance with no mail server is an instance nobody can sign up to, and it says so at boot rather than at the sign-up form. It used to print the code instead, which made "can read `docker compose logs`" mean "can take over any account" |
+| `SMTP_ALLOW_PLAINTEXT=true` on an unencrypted connection to a relay that is not on this host | 🔒 The opt-out below, granted only where it costs nothing. The letters carry that same six-digit code and the session carries the relay password, so sending them in the clear to another machine is handing both to whoever sits on the path — which is the whole of [SEC-62](./tasks/security-audit-2026-08-second-pass.md#sec-62). "On this host" is read literally: `localhost`, `127.0.0.1` or `::1`, the three ways of writing a relay the packets never leave the machine to reach. Anything else is a network, and a network is what the refusal is about. The refusal is silent when it would change nothing — when `SMTP_SECURE=true`, where the session is TLS from the first byte and the flag is inert, and when there is no `SMTP_HOST` at all |
 
 `ALLOW_UNCONFIGURED_EMAIL` is the way to run without mail on purpose — an archive whose accounts
 already exist, a relay being repaired. It buys the *boot*, not the letters: registration,
 verification and password resets still cannot complete, and the startup warning says so on every
 start, which is how a deliberate setting is noticed once it has outlived its reason.
 
+🔒 `SMTP_ALLOW_PLAINTEXT` is the same shape of permission, for the other half of §12.8's mail rule.
+With `SMTP_SECURE=false` the transport asks for `STARTTLS` whether or not the greeting offered it
+and gives up if the upgrade does not happen, so a relay talked out of encrypting produces a send
+failure rather than a plaintext session that looks like success from both ends. Setting this to
+`true` takes that floor away — for a Postfix listening on `127.0.0.1`, or a mail catcher on a laptop
+(§12.5), where there is no path for anyone to sit on. It is a per-connection decision and not a
+per-environment one, which is why production refuses it by the *relay's address* rather than by
+`NODE_ENV`: the same-host case is exactly as safe on a deployment as it is on a laptop, and every
+other case is exactly as unsafe. Like the setting above it buys nothing quietly — while it is in
+effect the startup warning names the relay and says what travels to it.
+
 `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` carry **no defaults at all**: a credential that works
 without being set is a credential published in this repository. Every path that runs the app supplies
 them — `.env` in development, the compose file in a deployment, `test/setup.server.ts` in CI.
 
-Four things are warned about at startup rather than refused, because an operator may want them:
+Five things are warned about at startup rather than refused, because an operator may want them:
 
 - `APP_BASE_URL` that is not `https://` — session cookies then travel without the `Secure` attribute
   ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions) explains why that follows the
@@ -243,6 +256,12 @@ Four things are warned about at startup rather than refused, because an operator
   refuse it, so the surprise happens on a laptop and not on a deploy.
 - An empty `SMTP_HOST` — on a laptop that is the normal state and the warning is the early notice
   that the three-step flow cannot complete; in production it can only be reached by asking for it.
+- 🔒 A `SMTP_ALLOW_PLAINTEXT` that is actually in effect — set, with a relay configured, on a
+  connection that is not already TLS. Where production allows it at all the relay is on this host, so
+  there is nothing to refuse; but a setting made for a catcher and left behind when the catcher was
+  replaced by a real relay is the way this ends up switched on where it was never meant to be, and a
+  line at every start is what makes that visible. The warning names the host, because "plaintext to
+  where" is the question that decides whether it matters.
 - 🔒 A `TURNSTILE_SECRET_KEY` that is set — **whatever else is set beside it**. The secret turns
   CAPTCHA verification on for every login and every registration, and the token those requests must
   carry is minted by a widget that exists only in a client bundle built with
@@ -278,7 +297,7 @@ npm run dev             # one process on :3000
 `password` — and it is enough for everything but the three-step flow itself. To go through
 registration, an invite or a reset on a laptop, mail needs somewhere to land: the code is in the
 letter and in no log, on purpose ([`08 §8.1.8`](./08-auth-and-authorization.md#818-local-development)).
-Any catcher does; one command and two lines of `.env`:
+Any catcher does; one command and three lines of `.env`:
 
 ```bash
 docker run -d --name mailpit -p 1025:1025 -p 8025:8025 axllent/mailpit   # letters at http://localhost:8025
@@ -286,7 +305,13 @@ docker run -d --name mailpit -p 1025:1025 -p 8025:8025 axllent/mailpit   # lette
 ```dotenv
 SMTP_HOST=localhost
 SMTP_PORT=1025
+SMTP_ALLOW_PLAINTEXT=true
 ```
+
+The third line is the one that is easy to leave out and hard to read the error of: a catcher speaks
+no TLS, and without it the transport asks for the upgrade, does not get it and refuses to send
+(§12.4a). It is the same permission a relay on `127.0.0.1` needs in production, granted here for the
+same reason — the letter never leaves the machine.
 
 It is not in `docker compose up` because it is not part of the product: the dev stack holds the
 services Legere talks to in production, and a mail catcher is a thing to read letters with.
@@ -593,10 +618,26 @@ development stack of §12.5, which takes the same name from its directory — us
   resolver they control, a compromised upstream) can simply delete. Nodemailer then does not upgrade
   and does not complain: the relay credential and every code go out in plaintext and every letter
   arrives, so nothing looks wrong from either end. The shipped `.env.example`, the compose defaults
-  and `init.sh` therefore all say 465 with `SMTP_SECURE=true`, and 587 is a deliberate edit that
-  says the network between this host and the relay is trusted. **The floor is the deployment's, not
-  yet the client's:** on 587 Legere still sends whatever the server offers, because the transport
-  does not pass `requireTLS`. That half is application code and a task of its own (M47.11a).
+  and `init.sh` therefore all say 465 with `SMTP_SECURE=true`, and 587 is a deliberate edit.
+- 🔒 **Mail is encrypted, or it is not sent.** The paragraph above is what the deployment chooses;
+  this is what the application will do whatever it is configured with. Whenever `SMTP_SECURE` is
+  false the transport is built with `requireTLS`, so it issues `STARTTLS` on every connection —
+  whether or not the greeting advertised it — and treats a refusal as a failed send. Deleting that
+  one line from the greeting therefore no longer buys a plaintext session; it buys an error, and the
+  letter is not sent. On 587 that is the difference between "the network between here and the relay
+  is trusted" and "the relay is who it says it is": the *upgrade* is now non-negotiable, and only
+  the certificate is not checked more strictly than Node's defaults check it.
+
+  The failure says so. An operator sees `SMTP refused to encrypt` naming the host and port, the two
+  ways out (465 with `SMTP_SECURE=true`, or `SMTP_ALLOW_PLAINTEXT=true` for a relay on this host) and
+  the original error underneath — because "mail is broken" sends an operator to their relay's
+  configuration, and this one is a decision they can make in `.env` in a minute. The body of the
+  letter is never in it, here as everywhere: the code stays out of the log even when the send fails
+  ([`08 §8.1.8`](./08-auth-and-authorization.md)).
+
+  `SMTP_ALLOW_PLAINTEXT=true` is the whole of the opt-out and it is only for a relay the packets
+  never leave this host to reach — production refuses it for anything else (§12.4a), and while it is
+  on, every start says so.
 - **Behind a proxy:** set `TRUST_PROXY` — `1` for a single ingress, a larger number for a chain, or
   a value Express understands (`loopback`, a CIDR list). It is **empty by default**, and that is
   deliberate: with it on, `req.ip` comes from `X-Forwarded-For`, which the client writes. Publish the

@@ -185,6 +185,65 @@ describe('loadConfig', () => {
       expect(configWarnings(config).join('\n')).toMatch(/SMTP_HOST is empty/);
     });
 
+    // 🔒 SEC-62. The letters carry the six-digit code of every registration, verification and reset,
+    // and the session carries the relay password; sending both in the clear to another machine hands
+    // them to whoever is on the path. The opt-out that permits it is granted where the packets never
+    // leave this host, and refused everywhere else (docs/12 §12.4a).
+    describe('the permission to send mail unencrypted', () => {
+      it('is refused for a relay somewhere else, and says what to change', () => {
+        expect(() =>
+          loadConfig({ ...PRODUCTION, SMTP_ALLOW_PLAINTEXT: 'true' }),
+        ).toThrowError(
+          /Refusing to start in production[\s\S]*SMTP_ALLOW_PLAINTEXT is set and smtp\.legere\.example is not this host/,
+        );
+        expect(() => loadConfig({ ...PRODUCTION, SMTP_ALLOW_PLAINTEXT: 'true' })).toThrowError(
+          /SMTP_SECURE=true/,
+        );
+      });
+
+      it.each(['localhost', '127.0.0.1', '::1'])(
+        'is granted for a relay on this host (%s), and warned about at every start',
+        (host) => {
+          const config = loadConfig({
+            ...PRODUCTION,
+            SMTP_HOST: host,
+            SMTP_ALLOW_PLAINTEXT: 'true',
+          });
+
+          expect(config.isProduction).toBe(true);
+          expect(configWarnings(config).join('\n')).toMatch(
+            new RegExp(`SMTP_ALLOW_PLAINTEXT is set[\\s\\S]*${host.replace('.', '\\.')}`),
+          );
+        },
+      );
+
+      // Beside `SMTP_SECURE=true` the session is TLS from the first byte and the flag does nothing
+      // at all: refusing an instance over a setting that changes nothing would refuse one that had
+      // done it right, which is the mistake §12.4a reasons its way out of for the CAPTCHA.
+      it('is neither refused nor warned about where it changes nothing', () => {
+        const config = loadConfig({
+          ...PRODUCTION,
+          SMTP_PORT: '465',
+          SMTP_SECURE: 'true',
+          SMTP_ALLOW_PLAINTEXT: 'true',
+        });
+
+        expect(config.isProduction).toBe(true);
+        expect(configWarnings(config).join('\n')).not.toMatch(/SMTP_ALLOW_PLAINTEXT/);
+      });
+
+      it('is left to a laptop, where nothing is refused', () => {
+        const config = loadConfig({
+          ...MINIMAL,
+          SMTP_HOST: 'smtp.example.com',
+          SMTP_ALLOW_PLAINTEXT: 'true',
+        });
+
+        expect(config.isProduction).toBe(false);
+        expect(configWarnings(config).join('\n')).toMatch(/SMTP_ALLOW_PLAINTEXT is set/);
+      });
+    });
+
     it('lets development run on exactly what production refuses', () => {
       const config = loadConfig({
         ...MINIMAL,
