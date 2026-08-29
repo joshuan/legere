@@ -709,7 +709,7 @@ carry them ([`06 §6.9`](./06-backend-architecture.md)):
 |---|---|---|
 | `X-Content-Type-Options` | `nosniff` | The archive serves user content; nothing in it may be sniffed into something executable |
 | `X-Frame-Options` | `DENY` | Clickjacking, for anything predating `frame-ancestors` |
-| `Content-Security-Policy` | on pages: `frame-ancestors 'none'; base-uri 'none'; form-action 'self'; img-src 'self' data: <bucket>; object-src 'self' <bucket>`; on `/api`: `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` | Nothing under `/api` has a reason to load anything at all; the page directives are below |
+| `Content-Security-Policy` | on pages: `frame-ancestors 'none'; base-uri 'none'; form-action 'self'; script-src 'self' 'nonce-<per-request>' 'strict-dynamic'; connect-src 'self' <bucket> https://challenges.cloudflare.com; img-src 'self' data: <bucket>; object-src 'self' <bucket>`; on `/api`: `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` | Nothing under `/api` has a reason to load anything at all; the page directives are below |
 | `Referrer-Policy` | `no-referrer` | 🔒 Invite and reset links carry a single-use credential in their path ([`08 §8.1.2`](./08-auth-and-authorization.md#812-admin-invite)); the browser default would hand it to the first third-party asset a page loads |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | None of them is used |
 | `Strict-Transport-Security` | one year, `includeSubDomains` — **only when `APP_BASE_URL` is `https://`** | An instance on `http://<lan-ip>` is supported ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions)); telling that browser to upgrade would lock its operator out |
@@ -728,20 +728,44 @@ can say `![](https://beacon.example/p.png?d=payroll)`. Rendered, that is a read 
 archive: the uploader learns which of their documents were opened, when and from which address, out
 of a deployment that is often meant to have no way out to the internet at all
 ([SEC-66](./tasks/security-audit-2026-08-second-pass.md#sec-66)). `img-src` is the directive that
-closes it without a renderer having to be trusted, and it needs no script to be worth having —
-which is why it does not wait for the nonce below. `data:` rides along for what the UI toolkit
+closes it without a renderer having to be trusted. `data:` rides along for what the UI toolkit
 inlines; `object-src` keeps the viewer's PDF embed working while refusing every other origin a
 plugin could be pointed at.
 
-**What is deliberately absent: a `script-src` for pages, and a `connect-src` with it.** Ant Design's
-CSS-in-JS and Next's inline bootstrap need either `'unsafe-inline'`, which would buy nothing while
-looking like it bought something, or a per-request nonce threaded through the Ant Design registry and
-Next's script tags. The second is the one worth having — it is what would blunt a stored XSS — and it
-is a task of its own, **`M47.19` in [the backlog](./tasks/backlog.md)**. `connect-src` belongs to that
-same task rather than to this one: it constrains only code that is already running, so it is worth
-nothing until `script-src` exists, and it is the directive the login page's CAPTCHA widget
-([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)) has to be designed
-against, which is a decision for whoever writes the policy that has a `script-src` in it.
+🔒 **What `script-src` is for, and why the nonce and not `'unsafe-inline'`.** This is the directive
+that blunts a stored XSS in a viewer that renders attacker-supplied Markdown
+([SEC-03](./tasks/security-audit-2026-08.md#sec-03), [SEC-06](./tasks/security-audit-2026-08.md#sec-06)
+option 2). It reads `'self' 'nonce-<per-request>' 'strict-dynamic'`, and each of the three earns its
+place: `'self'` is the fallback for a browser that has never heard of `'strict-dynamic'`; the nonce
+is minted per response and is the only thing the page's own scripts carry; `'strict-dynamic'` lets a
+script that is already trusted load another, which is how the CAPTCHA widget's script arrives.
+There is deliberately **no `'unsafe-inline'`** — every browser that honours the nonce ignores it, and
+on the ones that do not it hands back exactly what the directive exists to take away, which is why
+this was written down as a task rather than shipped weak.
+
+**How the nonce gets onto the page** is the awkward part, and it is written up in
+[`10 §10.4a`](./10-frontend-architecture.md#104a-how-the-csp-nonce-reaches-a-page): the middleware
+writes the policy onto the **request** as well as the response, and Next reads its own
+`content-security-policy` request header to stamp its script tags. There is no Next middleware in
+this stack to do it the way Next's own guide does. §10.4a also records what Ant Design turned out to
+need (nothing — the registry emits a `<style>`, and there is deliberately no `style-src`) and why
+every page of this app is dynamically rendered anyway, which is what makes a per-request nonce sound.
+
+**`connect-src` beside it.** Worth having only now that `script-src` exists — it constrains code that
+is already running. `'self'` is the app's own API, the only thing the client calls today; the bucket
+is there because every route to a derived artifact answers `302` into that origin and a redirect a
+`fetch` follows is checked against `connect-src` again; and `https://challenges.cloudflare.com` is
+what the login page's CAPTCHA widget talks to
+([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)).
+
+🔒 **The CAPTCHA origin is named unconditionally**, and that is a decision. Whether a build has a
+widget at all is decided by `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, which is inlined into the client bundle
+at build time and is *not* in the environment a correctly built image runs with ([`12 §12.6`](#126-dockerfile-one-image))
+— the same asymmetry `08 §8.4` gives for warning about `TURNSTILE_SECRET_KEY` unconditionally. The
+server cannot tell the two cases apart, and of the two ways to be wrong, naming an origin nobody
+calls costs a line in a header, while omitting the one the widget needs is a sign-in page nobody on
+the instance can get past. The widget's `<iframe>` needs no directive: the page policy has no
+`default-src`, so `frame-src` falls back to nothing and is unconstrained.
 
 ## 12.8b. Observing a live instance from the dev machine
 

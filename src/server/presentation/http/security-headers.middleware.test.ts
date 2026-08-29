@@ -4,9 +4,18 @@ import { describe, expect, it } from 'vitest';
 import { securityHeaders } from './security-headers.middleware';
 
 const BUCKET = 'https://files.legere.example';
+const TURNSTILE = 'https://challenges.cloudflare.com';
+
+// The nonce as it stands in a policy string, so a test can read out what the browser would trust.
+function nonceIn(policy: string): string {
+  const match = /script-src [^;]*'nonce-([^']+)'/.exec(policy);
+  if (match?.[1] === undefined) throw new Error(`no nonce in: ${policy}`);
+  return match[1];
+}
 
 // A real Express instance rather than a stubbed request and response: the middleware's whole job is
-// the headers that come out the other side, and that is what this reads.
+// the headers that come out the other side, and that is what this reads. The page route echoes the
+// request header the middleware wrote, since that is the channel the nonce reaches Next through.
 function appWith(options: { usesHttps: boolean; bucketOrigin?: string | null }): Express {
   const app = express();
   app.use(
@@ -18,8 +27,8 @@ function appWith(options: { usesHttps: boolean; bucketOrigin?: string | null }):
   app.get('/api/documents', (_req, res) => {
     res.json({ data: [] });
   });
-  app.get('/documents', (_req, res) => {
-    res.send('a page');
+  app.get('/documents', (req, res) => {
+    res.send(String(req.headers['content-security-policy'] ?? ''));
   });
   return app;
 }
@@ -44,13 +53,17 @@ describe('securityHeaders', () => {
     expect(policy).toContain("default-src 'none'");
     expect(policy).toContain("base-uri 'none'");
     expect(policy).toContain("form-action 'none'");
+    // The strict policy is whole in itself: `default-src 'none'` already refuses every script and
+    // every fetch, so the page's directives have no business here and no nonce is minted for a
+    // response nothing renders.
+    expect(policy).not.toContain('script-src');
+    expect(policy).not.toContain('nonce-');
   });
 
   it('does not carry the API policy onto a page, which would leave the page blank', async () => {
     const response = await request(appWith({ usesHttps: false })).get('/documents');
 
     expect(response.headers['content-security-policy']).not.toContain("default-src 'none'");
-    expect(response.text).toBe('a page');
   });
 
   // 🔒 SEC-66. A document's Markdown is what the parser read off its pages, and a page can say
@@ -79,16 +92,58 @@ describe('securityHeaders', () => {
 
     expect(policy).toContain("img-src 'self' data:;");
     expect(policy).toContain("object-src 'self'");
+    expect(policy).toContain(`connect-src 'self' ${TURNSTILE}`);
   });
 
-  // The nonce policy is deliberately absent and is a task of its own — backlog M47.19, written down
-  // by M47.9 because the sentence promising it pointed at a closed one (SEC-89).
-  it('still leaves script-src and connect-src to the task that owns them', async () => {
+  // 🔒 M47.19. The directive that blunts a stored XSS, in the only shape worth shipping: no
+  // `'unsafe-inline'`, which every browser that honours the nonce ignores anyway and which on the
+  // rest would give back exactly what the nonce takes away.
+  it('lets only what it named run, and only what is already running fetch', async () => {
     const response = await request(appWith({ usesHttps: false })).get('/documents');
     const policy = response.headers['content-security-policy'] ?? '';
 
-    expect(policy).not.toContain('script-src');
-    expect(policy).not.toContain('connect-src');
+    expect(policy).toContain(`script-src 'self' 'nonce-${nonceIn(policy)}' 'strict-dynamic'`);
+    expect(policy).not.toContain('unsafe-inline');
+    expect(policy).not.toContain('unsafe-eval');
+    // 'self' is the app's own API; the bucket is where every artifact route redirects to; and the
+    // CAPTCHA origin is named whether or not this build has a widget, because the site key that
+    // decides is baked into the client bundle and not into this process (docs/08 §8.4).
+    expect(policy).toContain(`connect-src 'self' ${BUCKET} ${TURNSTILE}`);
+  });
+
+  // A nonce that outlived one response would be a nonce an injected script could read off the page
+  // it is on and write into the markup of the next one.
+  it('mints a new nonce for every page it answers', async () => {
+    const app = appWith({ usesHttps: false });
+
+    const first = await request(app).get('/documents');
+    const second = await request(app).get('/documents');
+
+    const before = nonceIn(first.headers['content-security-policy'] ?? '');
+    const after = nonceIn(second.headers['content-security-policy'] ?? '');
+    expect(before).not.toBe(after);
+    // Long enough to be unguessable, in the alphabet Next's reader accepts.
+    expect(before).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+  });
+
+  // How the nonce reaches the page at all (docs/10 §10.4): Next reads its own request headers.
+  it('hands the page renderer the same policy it hands the browser', async () => {
+    const response = await request(appWith({ usesHttps: false })).get('/documents');
+    const sent = response.headers['content-security-policy'] ?? '';
+
+    expect(response.text).toBe(sent);
+  });
+
+  // 🔒 The request header is written, never read: a caller who could leave their own nonce standing
+  // there would be choosing what the page trusts, and the browser — holding *our* policy — would
+  // then refuse every script the page actually carries.
+  it('overwrites a nonce a caller tried to choose for the page', async () => {
+    const response = await request(appWith({ usesHttps: false }))
+      .get('/documents')
+      .set('Content-Security-Policy', "script-src 'nonce-attackerchosenvalue'");
+
+    expect(response.text).not.toContain('attackerchosenvalue');
+    expect(response.text).toBe(response.headers['content-security-policy']);
   });
 
   // Sent to an instance served over plain HTTP — which docs/08 §8.2 deliberately supports on a LAN

@@ -56,7 +56,10 @@ export async function wireServer(
   // Nothing is served that says what it is built on.
   server.disable('x-powered-by');
 
-  // Before the dispatcher, so pages carry them too (docs/12 §12.8).
+  // Before the dispatcher, so pages carry them too (docs/12 §12.8a) — and now load-bearing rather
+  // than tidy: the page policy carries a per-request nonce, and Next reads it off the *request*
+  // headers this middleware writes before `nextHandle` is ever called (docs/10 §10.4). Mounted
+  // below the dispatcher it would set a header on a response Next had already started.
   server.use(securityHeaders({ usesHttps: config.usesHttps, bucketOrigin: config.bucketOrigin }));
   // 🔒 And the origin check with them, above the dispatcher rather than on `/api`: a rule about
   // which requests may change state should not depend on where a route happens to be mounted. The

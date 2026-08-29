@@ -125,6 +125,58 @@ the shell is the sider and the content, and a screen's heading and actions belon
   next-intl locale.
 - No custom CSS framework; component styling via antd tokens and CSS modules for layout glue only.
 
+### 10.4a. How the CSP nonce reaches a page
+
+The page policy carries a per-request `script-src 'self' 'nonce-…' 'strict-dynamic'`
+([`12 §12.8a`](./12-build-config-run.md#128a-security-headers)). Three things have to meet for that
+to be worth anything, and they live in three different places: the nonce is minted by an **Express**
+middleware, the header goes on the **response**, and the script tags are written by **Next**, which
+Express reaches through a catch-all mounted below that middleware ([`02 §2.2`](./02-architecture-overview.md)).
+There is no Next middleware here to do it the way Next's own guide does.
+
+**The channel is the request.** `securityHeaders` builds the policy once per request, sets it on the
+response, and writes the same string onto `req.headers['content-security-policy']`. Next's
+`app-render` reads exactly that header off the incoming request, takes the first
+`'nonce-…'` out of its `script-src`, and stamps it on every script tag it writes — the bootstrap
+`<script src="/_next/static/…">`, the inline `self.__next_f.push(…)` chunks, and anything
+`ReactDOM.preinit` puts in the document. So the page and the header agree because they are the same
+string, and nothing has to be threaded through React at all.
+
+Three consequences, each load-bearing:
+
+- 🔒 **The request header is written, never read.** A caller can send `Content-Security-Policy` on a
+  request; the middleware overwrites it unconditionally. Merging or trusting it would let a caller
+  choose what the page trusts — and, since the browser is holding the policy *this* server chose,
+  would break every script on the page for whoever followed the link.
+- **The middleware must stay above the dispatcher.** It is what makes the nonce exist before Next
+  is handed the request. Mounted below, it would be setting a header on a response Next has already
+  begun to stream.
+- **Every page is dynamically rendered anyway.** A nonce is per request, so a prerendered page would
+  serve one nonce under another page's header. This costs nothing here: locale is resolved per
+  request from the `NEXT_LOCALE` cookie (`§10.3`), which already opts every route out of static
+  generation.
+
+**What Ant Design needed: nothing.** The task that added the directive expected the nonce to be
+threaded through `@ant-design/nextjs-registry`; reading the registry, it emits a single `<style>`
+through `useServerInsertedHTML` and no script at all, and `script-src` does not reach a style. There
+is no route for a nonce there either — `AntdRegistry` takes `StyleProvider`'s props, and
+`StyleProvider` has none. That is also why the page policy has **no `style-src`**: antd's CSS-in-JS
+writes `<style>` elements from the browser, `next/font` inlines one at build time, and a `style-src`
+none of them could carry a nonce for would have to say `'unsafe-inline'` — the shape of protection
+this directive exists to refuse. The day it is wanted, the route is antd's `ConfigProvider csp={{ nonce }}`,
+and it is a task of its own.
+
+**The CAPTCHA widget rides `'strict-dynamic'`.** The Turnstile script is not in the markup: the
+widget creates a `<script>` and appends it ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)),
+which is a script-inserted script and therefore trusted by whatever loaded the code that inserted it.
+Its origin does not need naming in `script-src`, where `'strict-dynamic'` would make browsers ignore
+it anyway; it is named in `connect-src`, which is a directive about fetches and not about trust.
+
+**What a test cannot see.** A CSP is enforced by a browser and by nothing else, so the suite can
+prove that the header and the markup carry the same nonce and that a fresh one is minted per
+request, and it cannot prove that no page of this app violates the policy at runtime. A change to
+this policy is verified by opening the app and reading the console for violations.
+
 ## 10.5. Server state (TanStack Query v5)
 
 - One `QueryClient` in providers: `staleTime: 30s`, `retry: (failures, err) => failures < 2 &&

@@ -3,7 +3,7 @@ import { ExpressAdapter } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { getOptionsToken } from '@nestjs/throttler';
 import type { Server } from 'node:http';
-import express, { type Express } from 'express';
+import express, { type Express, type Request, type Response } from 'express';
 import request, { type Test as SupertestRequest } from 'supertest';
 import { wireServer } from '../../server/main';
 import { AppModule } from '../../src/server/app.module';
@@ -81,10 +81,15 @@ export type TestAppOptions = {
   // what a *configured* analyst does — above all, what happens when it cannot answer — puts its
   // own here.
   analyst?: CatalogueAnalyst;
+  // What stands in for Next on everything outside `/api`. The default answers a marker, because no
+  // API suite renders a page; the CSP suite puts a renderer here that reads the request the way Next
+  // reads it (docs/10 §10.4).
+  nextHandle?: (req: Request, res: Response) => void;
 };
 
 // Boots the real application over the shared Express instance, exactly as bootstrap does, with a
-// stub in place of Next (no page rendering needed for API tests) and mail captured in memory.
+// stub in place of Next (no page rendering needed for API tests, and `nextHandle` for the one suite
+// that does) and mail captured in memory.
 export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
   const emails = new RecordingEmailSender();
   // No e2e test may reach a real bucket (docs/14 §14.8): artifacts stay in memory and readable.
@@ -127,9 +132,14 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     bodyParser: false,
     logger: false,
   });
-  await wireServer(server, nestApp, (_req, res) => {
-    res.status(200).json({ next: true });
-  });
+  await wireServer(
+    server,
+    nestApp,
+    options.nextHandle ??
+      ((_req, res) => {
+        res.status(200).json({ next: true });
+      }),
+  );
 
   // Start pg-boss but not the workers: /api/health then reports the queue the way it does in
   // production (docs/06 §6.10), while jobs stay queued for tests to inspect rather than being
