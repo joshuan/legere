@@ -144,6 +144,97 @@ describe('A document is pages: the migration (integration)', () => {
     );
   }
 
+  // 🔒 The repair that follows it (docs/04 §4.5). The migration above validated a stored `page_order`
+  // more weakly than the build it replaced — length and non-negative whole numbers, but neither
+  // distinctness nor `< page_count`, where `isPagePermutation` demanded both — so two orders the old
+  // code would have thrown away were written into rows instead. Unreachable through the API is not
+  // the test: a migration exists for rows an older version or a person wrote, and this one ran
+  // against real databases, so the rule is repaired forward rather than edited into the applied file.
+  describe('and the repair of the orders it should have rejected', () => {
+    const REPAIR = join(
+      process.cwd(),
+      'prisma/migrations/20260829120000_a_stored_page_order_was_a_permutation_or_it_was_nothing/migration.sql',
+    );
+
+    // The repair's data step: everything up to the `ALTER TABLE`, which is DDL against the real
+    // table and not part of what is replayed here.
+    async function repair(): Promise<void> {
+      const sql = readFileSync(REPAIR, 'utf8');
+      const statement = sql.slice(0, sql.indexOf('ALTER TABLE'));
+      await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL search_path TO ${SCHEMA}, public`);
+        await tx.$executeRawUnsafe(statement);
+      });
+    }
+
+    it('gives a file back its own pages where the stored order repeated one', async () => {
+      // `[0, 0, 2]` on a three-page file: page 0 twice, page 1 never. Three whole non-negative
+      // numbers, so the migration took it — and `isPagePermutation` would not have.
+      await givenFile('c1111111-1111-4111-8111-111111111111', 0, {
+        name: 'three.pdf',
+        mimeType: 'application/pdf',
+        pageOrder: '[0, 0, 2]',
+        pageCount: 3,
+      });
+      await migrate();
+      expect((await pagesOf()).map((page) => page.page_index)).toEqual([0, 0, 2]);
+
+      await repair();
+
+      // What the build would have read had the order been rejected: the file's pages, as they lie.
+      expect((await pagesOf()).map((page) => page.page_index)).toEqual([0, 1, 2]);
+    });
+
+    it('gives a file back its own pages where the stored order named one it has not got', async () => {
+      await givenFile('c2222222-1111-4111-8111-111111111111', 0, {
+        name: 'three.pdf',
+        mimeType: 'application/pdf',
+        pageOrder: '[0, 1, 5]',
+        pageCount: 3,
+      });
+      await migrate();
+      expect((await pagesOf()).map((page) => page.page_index)).toEqual([0, 1, 5]);
+
+      await repair();
+
+      expect((await pagesOf()).map((page) => page.page_index)).toEqual([0, 1, 2]);
+    });
+
+    it('leaves an order that was a permutation exactly where it was', async () => {
+      // 🔒 The repair is not a re-sort: an order somebody chose is theirs, and `[2, 0, 1]` is a
+      // permutation of a three-page file — the very thing the check was supposed to admit.
+      await givenFile('c3333333-1111-4111-8111-111111111111', 0, {
+        name: 'shuffled.pdf',
+        mimeType: 'application/pdf',
+        pageOrder: '[2, 0, 1]',
+        pageCount: 3,
+      });
+      await migrate();
+
+      await repair();
+
+      expect((await pagesOf()).map((page) => page.page_index)).toEqual([2, 0, 1]);
+    });
+
+    it('leaves a document holding part of a file alone', async () => {
+      // 🔒 A split at a page leaves one document holding a *subset* of a file's pages, which is
+      // legal, is not a permutation, and must not be "repaired" into one. The repair only touches a
+      // group with exactly as many entries as the file has pages — the shape the order branch made.
+      await givenFile('c4444444-1111-4111-8111-111111111111', 0, {
+        name: 'twenty.pdf',
+        mimeType: 'application/pdf',
+        pageCount: 4,
+      });
+      // Cut it down to the far half the way a split does, after the first migration ran.
+      await migrate();
+      await prisma.$executeRawUnsafe(`DELETE FROM ${SCHEMA}.document_pages WHERE page_index < 2`);
+
+      await repair();
+
+      expect((await pagesOf()).map((page) => page.page_index)).toEqual([2, 3]);
+    });
+  });
+
   it('turns a stored page order into that many entries, in that order, with the turns they named', async () => {
     await givenFile('aaaaaaaa-1111-4111-8111-111111111111', 0, {
       name: 'scan.pdf',

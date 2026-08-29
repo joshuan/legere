@@ -11,6 +11,7 @@ import type { UnitOfWork } from '../ports/unit-of-work';
 import { artifactKeys, servableContentType } from '../storage/artifact-keys';
 import { describeUpload, titleOf, type UploadedFile } from './compose-document';
 import { listItemOf, toListDto } from './manage-documents';
+import { pagesForFile } from '../../domain/entities/document-page';
 
 // POST /api/documents (docs/05 §5.1a, docs/07 §7.3). A document that arrives from a browser rather
 // than from a mounted volume: the bytes become a MANAGED file in our own bucket, the file becomes a
@@ -102,7 +103,9 @@ export class UploadDocument {
         { title: titleOf(input.fileName), createdById: viewer.id },
         tx,
       );
-      await this.files.attach(document.id, file.id, tx);
+      // Its pages, in a document that has none: an append, and the entries are computed here
+      // rather than derived inside the repository (docs/03 §3.3.17).
+      await this.files.appendPages(document.id, pagesForFile(file), tx);
 
       // The job commits with the rows, so a document that exists is always one the pipeline will
       // run (docs/06 §6.3.4).

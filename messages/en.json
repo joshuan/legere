@@ -70,6 +70,8 @@
       "DOCUMENT_WOULD_HAVE_NO_READERS": "That would leave nothing from a library in this document, and only an administrator would be able to read it.",
       "DOCUMENT_TOO_MANY_FILES": "This document already holds as many files as one document may. Split it, or combine fewer at a time.",
       "FILE_ALREADY_IN_DOCUMENT": "These bytes are already a file of another document.",
+      "DOCUMENT_CHANGED": "This document changed while you were editing it. Reload it and try again.",
+      "FILE_READ_ELSEWHERE": "These pages are also read by a document you may not change, so they cannot be replaced here.",
       "LINK_EXISTS": "These two documents are already linked.",
       "LINK_NOT_FOUND": "There is no link between these documents.",
       "LINK_SELF": "A document cannot be linked to itself.",

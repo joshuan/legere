@@ -1532,6 +1532,27 @@ describe('Document files (e2e)', () => {
               .set('Cookie', reader.cookie)
           ).status,
         ).toBe(200);
+        // 🔒 The crop, actually sent rather than only named in this test's title: `03 §3.4a` lists it
+        // among the arranging operations — four numbers beside a page, and `null` puts it back — so a
+        // reader of a library document may drag the corners of one.
+        const cropped = await api(app)
+          .patch(`/api/documents/${documentId}/pages/${pages[0] ?? ''}`, {
+            crop: {
+              points: [
+                [0.05, 0.05],
+                [0.95, 0.05],
+                [0.95, 0.95],
+                [0.05, 0.95],
+              ],
+            },
+          })
+          .set('Cookie', reader.cookie);
+        expect(cropped.status).toBe(200);
+        // And it is theirs: a crop somebody dragged is MANUAL, which no rebuild overwrites.
+        expect(
+          expectData(cropped, documentDetailDtoSchema).pages.find((page) => page.id === pages[0])
+            ?.cropSource,
+        ).toBe('MANUAL');
         expect(
           (
             await api(app)
@@ -1585,6 +1606,81 @@ describe('Document files (e2e)', () => {
           .set('Cookie', reader.cookie);
         expect(still.status).toBe(200);
         expect(expectData(still, documentDetailDtoSchema).files[0]?.id).toBe(fileIds[0]);
+      });
+
+      // 🔒 M47.15 promises this refusal on the source **and on every part an operation makes**, and
+      // the two tests above prove only the source. The three calls below were unproven: the split at
+      // a page asks it of each part (`arrange-pages.ts`), the page move asks it of a new document
+      // made to hold the movers, and removing a page asks it of what is left.
+      it('refuses a split whose part would keep no library page', async () => {
+        // A document a scan made — no creator — holding one library page and one uploaded one. Cut
+        // between them and the second part is uploaded-only: readable to nobody at all.
+        const { documentId } = await givenLibraryDocument({ files: [{ name: 'scanned.pdf' }] });
+        await addFile(documentId, PDF, 'uploaded.pdf');
+
+        const res = await api(app)
+          .post(`/api/documents/${documentId}/split`, { at: [1] })
+          .set('Cookie', adminCookie);
+
+        expect(res.status).toBe(422);
+        expect(expectError(res).code).toBe('DOCUMENT_WOULD_HAVE_NO_READERS');
+        // Refused whole: the document still holds both pages and no part was made.
+        const still = expectData(
+          await api(app).get(`/api/documents/${documentId}`).set('Cookie', adminCookie),
+          documentDetailDtoSchema,
+        );
+        expect(still.pages).toHaveLength(2);
+      });
+
+      it('refuses a move into a new document that would keep no library page', async () => {
+        // The same shape, asked of the branch that makes a document rather than one that finds it:
+        // a new document takes the source's owner, and a document a scan made has none.
+        const { documentId } = await givenLibraryDocument({ files: [{ name: 'scanned.pdf' }] });
+        await addFile(documentId, PDF, 'uploaded.pdf');
+        const detail = expectData(
+          await api(app).get(`/api/documents/${documentId}`).set('Cookie', adminCookie),
+          documentDetailDtoSchema,
+        );
+        const uploaded = detail.files.find((file) => file.name === 'uploaded.pdf');
+        const moving = detail.pages.find((page) => page.fileId === uploaded?.id);
+
+        const res = await api(app)
+          .post(`/api/documents/${documentId}/pages/move`, {
+            pageIds: [moving?.id ?? ''],
+            documentId: null,
+          })
+          .set('Cookie', adminCookie);
+
+        expect(res.status).toBe(422);
+        expect(expectError(res).code).toBe('DOCUMENT_WOULD_HAVE_NO_READERS');
+        expect(
+          expectData(
+            await api(app).get(`/api/documents/${documentId}`).set('Cookie', adminCookie),
+            documentDetailDtoSchema,
+          ).pages,
+        ).toHaveLength(2);
+      });
+
+      it('refuses to remove the last page of a document that reads a library file', async () => {
+        // What is left would be a document a scan made holding only an upload: present in the
+        // database, absent from every list, refused by every route.
+        const { documentId } = await givenLibraryDocument({ files: [{ name: 'scanned.pdf' }] });
+        await addFile(documentId, PDF, 'uploaded.pdf');
+        const detail = expectData(
+          await api(app).get(`/api/documents/${documentId}`).set('Cookie', adminCookie),
+          documentDetailDtoSchema,
+        );
+        const scanned = detail.files.find((file) => file.name === 'scanned.pdf');
+        const page = detail.pages.find((one) => one.fileId === scanned?.id);
+
+        const res = await api(app)
+          .delete(`/api/documents/${documentId}/pages/${page?.id ?? ''}`)
+          .set('Cookie', adminCookie);
+
+        expect(res.status).toBe(422);
+        expect(expectError(res).code).toBe('DOCUMENT_WOULD_HAVE_NO_READERS');
+        // And nothing went to the trash for a page that was never removed.
+        expect(await testPrisma().file.count({ where: { trashedAt: { not: null } } })).toBe(0);
       });
 
       it('refuses to split the last library file off a document a scan made', async () => {

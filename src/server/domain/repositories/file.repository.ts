@@ -145,11 +145,46 @@ export abstract class FileRepository {
 
   // The whole list, rewritten. Position is unique per document, so shifting rows one at a time
   // collides with itself halfway through; this is the only rewrite that cannot (docs/03 §3.3.17).
+  //
+  // 🔒 `expecting` is the reading the new list was computed from — the entries the caller was shown,
+  // in order — and the rewrite happens only if that is still the document's list. Anything else is
+  // `DOCUMENT_CHANGED` with nothing written, because a rewrite against a stale reading carries the
+  // stale list back with it (docs/03 §3.3.17, docs/05 §5.6). `null` is the deliberate exception: the
+  // caller read the list itself, inside this transaction, under the same lock this write takes.
   abstract replacePages(
+    documentId: string,
+    input: { pages: readonly DocumentPageInput[]; expecting: readonly DocumentPageInput[] | null },
+    tx?: TransactionHandle,
+  ): Promise<void>;
+
+  // Entries put after whatever the document holds **at the moment they are written**, which is why
+  // this one needs no precondition: appending cannot lose anything, so the several files an upload
+  // panel sends at once do not collide (docs/03 §3.3.17). The caller says what the entries are —
+  // their pages, their turns and their crops — so nothing here re-derives a page list from a file.
+  abstract appendPages(
     documentId: string,
     pages: readonly DocumentPageInput[],
     tx?: TransactionHandle,
   ): Promise<void>;
+
+  // The list as it stands, with the document held for the rest of the transaction: what a writer
+  // reads when it needs the truth rather than the reading a caller was shown (docs/03 §3.3.17).
+  abstract lockPagesForDocument(
+    documentId: string,
+    tx: TransactionHandle,
+  ): Promise<DocumentPageWithFile[]>;
+
+  // 🔒 The end of the one two-level state (ADR-025), done as a read-modify-write of its own: the
+  // entries standing for a whole file become one entry per page now that a build has counted them.
+  // The build spends minutes in Stirling before it gets here, so the list is re-read inside this
+  // call and only the entries being expanded are touched — an arrangement made in that window is
+  // somebody's work and is not overwritten by a snapshot from before the files were opened
+  // (docs/05 §5.5 step 1). Answers with the list as it stands afterwards.
+  abstract expandWholeFileEntries(
+    documentId: string,
+    pageCounts: ReadonlyMap<string, number>,
+    tx?: TransactionHandle,
+  ): Promise<DocumentPageWithFile[]>;
 
   // The files of a document, in the order its pages first name them, each carrying the pages it is
   // read as here.
@@ -167,6 +202,10 @@ export abstract class FileRepository {
   // because every caller is asking "does anything read this at all" (docs/05 §5.3).
   abstract findDocumentIdForFile(fileId: string, tx?: TransactionHandle): Promise<string | null>;
 
+  // And **all** of them, in a stable order — what a replacement has to rewrite, since it replaces
+  // the bytes for every page that reads them wherever that page is read (ADR-025, docs/05 §5.6).
+  abstract listDocumentIdsForFile(fileId: string, tx?: TransactionHandle): Promise<string[]>;
+
   // Which of these files no live page names any more — the files that go to the trash (docs/05
   // §5.7a). Asked after the pages are gone, because that is when the question has an answer.
   abstract filterFilesWithoutLivePages(
@@ -174,21 +213,15 @@ export abstract class FileRepository {
     tx?: TransactionHandle,
   ): Promise<string[]>;
 
-  // Appends a file's pages after the last page the document holds: its own pages where a build has
-  // counted them, and one entry standing for it whole where none has (docs/03 §3.3.17).
-  abstract attach(documentId: string, fileId: string, tx?: TransactionHandle): Promise<void>;
-
-  // Every page of that file leaves this document; other documents reading it are untouched.
-  abstract detach(documentId: string, fileId: string, tx?: TransactionHandle): Promise<void>;
-
-  // Rewrites positions wholesale from the given order of **files**, each file's pages moving as a
-  // block and keeping the order they are read in; the caller has already checked that it is a
-  // permutation of the document's own files.
-  abstract reorder(
-    documentId: string,
-    fileIdsInOrder: readonly string[],
-    tx?: TransactionHandle,
-  ): Promise<void>;
+  // `attach`, `detach` and `reorder` were here until this release and are deliberately gone. All
+  // three spoke the model ADR-025 retired — a file joining a document *whole*, carrying its own crop
+  // and turn, living in exactly one home — and none of that is what any caller means any more:
+  // `attach` re-derived a file's pages from its page count (losing the crops, the turns and the pages
+  // a split had cut away), refused a file a second document already read (the invariant ADR-025
+  // retired in so many words), and `reorder` regrouped a document's pages into blocks of one file
+  // each, which sends a photograph inserted between pages two and three to the end. What replaced
+  // them is `replacePages` and `appendPages` above, which take **entries**: the caller says what the
+  // pages are, so nothing here invents them.
 
   // How many live library refs each of these files has, so availability can be answered for a whole
   // list in one query (docs/03 §3.3.10).

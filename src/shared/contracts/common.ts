@@ -54,6 +54,16 @@ export const ERROR_CODES = [
   // whatever the disk allows.
   'DOCUMENT_TOO_MANY_FILES',
   'FILE_ALREADY_IN_DOCUMENT',
+  // 🔒 A composition edit rewrites the document's whole page list from the reading it was given, so
+  // a reading that has since moved would carry an older list back with it — a page somebody removed
+  // written back, reading a file that is now in the trash (docs/03 §3.3.17). Refused instead:
+  // nothing is written, and the caller re-reads and asks again.
+  'DOCUMENT_CHANGED',
+  // 🔒 A replacement reaches every page that reads those bytes, in every document reading them
+  // (ADR-025), so it needs the right to destroy content in all of them — combine's rule, for
+  // combine's reason (docs/03 §3.4a). Refused whole rather than applied to the part of the archive
+  // the caller happens to reach.
+  'FILE_READ_ELSEWHERE',
   // The edges between documents (docs/03 §3.3.23): one per pair, never to itself, and gone is gone.
   'LINK_EXISTS',
   'LINK_NOT_FOUND',

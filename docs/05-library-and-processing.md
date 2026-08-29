@@ -986,6 +986,15 @@ an `ADMIN`'s, and a document a scan made has no creator, so on a library documen
 `ADMIN`'s. The test between them is whether the operation, by itself, makes a page stop being read
 anywhere; the table is in `03 §3.4a`.
 
+🔒 **And every one of them rewrites the list it was shown, or nothing.** Each operation reads what
+the document holds, answers with the list it should hold instead, and writes the whole of it back —
+the only shape that cannot be half applied. So each of them names the reading it computed that answer
+from, and is refused (`409 DOCUMENT_CHANGED`) when the document's list has moved underneath it
+(`03 §3.3.17`): the alternative is a rewrite carrying an older list back with it, which is how a page
+somebody removed reappears reading a file that is now in the trash. Appending is the exception, and
+for a reason rather than by omission — pages put after whatever is there cannot lose anything, so the
+several files an upload panel sends at once do not collide.
+
 🔒 **And what none of them may do: leave a document nobody can read.** A document is reachable
 because of what it holds — one page read from a library file reaches everybody that library reaches
 (`03 §3.4`) — and a document a scan made has no creator to fall back on. So an operation that would
@@ -1009,6 +1018,14 @@ readable, and answer `404` for a write that had already happened.
   and collections stay with the rows that are going away — the target keeps what it had, and the
   analysis is re-run over the whole. This is what "these two scans are one document" means, and it
   replaces the scan sets of earlier releases.
+  🔒 **What moves is the entries, not the files.** A source's pages arrive in the target as the pages
+  they were — the same file, the same page of it, the same turn and the same crop — because that is
+  what the source held and combining two documents is not an occasion for re-reading either of them
+  (`03 §3.3.17`). Rebuilding the list from the files instead would hand a hand-cropped, turned
+  photograph over as a raw picture, and would give a document that was cut back the pages somebody
+  cut away. And a file a **third** document also reads is carried over like any other: pages of one
+  file living in two documents is what ADR-025 decided, so combine — which `05 §5.6` calls the way to
+  move a file between documents — cannot be the operation that refuses it.
   🔒 **The caller must be able to destroy each source** (`03 §3.4a`) — absorbing a document ends it,
   and ending a document is not something reading it entitles anybody to. Editing the *target* is
   enough for the target: it gains pages and loses none.
@@ -1019,11 +1036,22 @@ readable, and answer `404` for a write that had already happened.
   in the target and its originals are untouched — what is thrown away is three derived files that
   will be rebuilt for the target anyway.
 - **Split off a file.** A file removed from a document takes its pages with it into a document of its
-  own — never nothing. The new
-  document is titled after the file, inherits nothing else, and is processed from scratch. Removing
+  own — never nothing, and **the pages it actually had**: the same turns, the same crops, the same
+  pages of the file and no others, because they are the entries this document held and not a fresh
+  reading of the bytes (`03 §3.3.17`). The new
+  document is titled after the file and is processed from scratch. 🔒 It **takes the original's
+  owner** and inherits nothing else — the same rule as a split at a page and a move into a new
+  document, and for the same reason: a document made out of another one is not a document the person
+  who pressed the button has acquired. Whoever may read a library document may arrange it
+  (`03 §3.4a`), so the alternative gave a reader a private document of their own out of somebody
+  else's uploaded page, which its owner could then no longer read (SEC-47).
+  Removing
   the only file of a document is refused (`DOCUMENT_LAST_FILE`): a document is emptied by deleting
   it, not by taking its parts away one at a time. 🔒 So is taking the **last library file** out of a
   document a scan made (`DOCUMENT_WOULD_HAVE_NO_READERS`): what is left would be readable to nobody.
+  And so, on the same code and for the same reason, is splitting a purely uploaded file off a
+  document a scan made: taking the original's owner means taking nobody, and a part with no library
+  page and no owner is a document nobody can read.
 - **Split at a page.** The twenty-page scan whose eighth page begins another contract is cut at one
   or more page boundaries into two or more documents, the entries dividing between them. 🔒 **No
   bytes are copied and no file is extracted**: the same file is simply read by pages in two places,
@@ -1066,17 +1094,38 @@ readable, and answer `404` for a write that had already happened.
   else and the archive has lost nothing — and that is why the move is open to them and this is not.
 - **Replace.** A bad scan is re-taken and sent in place of the file it is a better copy of: the new
   bytes are stored and deduplicated like any upload, and **take the old file's place in the order** —
-  its pages stand where the old file's pages stood, so the rest of the document does not move. They
+  the new file stands where the first page of the old one stood and the old one's other entries go,
+  so the rest of the document does not move. A photograph somebody put between pages two and three of
+  a five-page PDF is still between pages two and three when it is re-taken; regrouping the list into
+  blocks of one file per block, which is what a reorder by file does, would send it to the end.
+  The new entries
   are its own pages, not the old one's: different bytes are a different paper, and what the last
-  build counted of one says nothing about the other. By ADR-025 a replacement is a replacement for
+  build counted of one says nothing about the other — so it arrives as one entry standing for the
+  file whole, with no turn and no crop, which the next build expands (`03 §3.3.17`).
+  🔒 By ADR-025 a replacement is a replacement for
   **every page that reads those bytes**, in every document that reads them — a better scan is better
-  wherever the page is read, and whoever asks for it is told how many documents that is before it
-  happens; today it is always one, because the composition endpoints still speak of files
-  (`07 §7.3`). It is neither an add nor a
+  wherever the page is read — and since ADR-025 that is no longer always one document: a split at a
+  page and a page move both leave one file read in two places. So every document holding a live page
+  of the old file is rewritten the same way, each of them keeps its readers, each of them rebuilds,
+  and each of them says so in its own journal.
+  🔒 **And the reach is bounded by the right to destroy, not by a warning.** The caller must be
+  allowed to destroy content in **every** one of those documents — combine's rule for each document
+  it absorbs (`03 §3.4a`), applied here for combine's reason — and a replacement that would reach a
+  document they may not destroy content in, or may not read at all, is refused whole
+  (`409 FILE_READ_ELSEWHERE`) with nothing written. This is what ADR-025's "the asker is told how
+  many documents that is before it happens" became: a count of documents somebody cannot read is a
+  number `03 §3.3.14` already refuses to publish, and a warning is not a permission check. What they
+  are told is what happened — the journal of the document they asked on records how many documents
+  the replacement changed.
+  It is neither an add nor a
   split — a page 3 that has been re-photographed is still page 3, and the alternative today is
   "split off, upload, reorder", three operations and three rebuilds to say one thing.
   **The file that was there is not destroyed — it goes to the trash** (§5.7a), marked as replaced by
-  the file that took its place (`03 §3.3.16`): a scan is replaced *because* somebody thinks the new
+  the file that took its place (`03 §3.3.16`), **if no live page anywhere still reads it** — the one
+  question every destroying edit asks, asked here too rather than assumed, and answered after the
+  rewrites so that it has an answer. Its library refs are `EXCLUDED` with it, like every other way
+  into the trash, so the next scan does not ingest the superseded bytes into a brand-new document
+  (`03 §3.3.9`). A scan is replaced *because* somebody thinks the new
   one is better, and that judgement is worth being able to take back. The same page may be replaced
   any number of times; every earlier version hangs off the file that is in the document now, newest
   first, and is offered for download beside it (`11 §11.5a`).
@@ -1094,6 +1143,8 @@ readable, and answer `404` for a write that had already happened.
   (`422 DOCUMENT_WOULD_HAVE_NO_READERS`) under the rule above: a replacement may improve a page and
   may not take a document away from the people who could read it. Getting a better copy of a library
   document's only page into the archive is an add and a remove, both of which say what they are.
+  Asked of **every** document the replacement reaches, since it may be the last library page of one
+  of those too.
 - **Reorder.** Positions are rewritten wholesale from the order the client sends; the order is the
   page order of the canonical PDF and nothing else depends on it. It is sent as **the whole order,
   every page of the document exactly once** (`07 §7.3`) — one request and one truth, the way the page

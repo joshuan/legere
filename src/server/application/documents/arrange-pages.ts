@@ -12,6 +12,7 @@ import { orderedPair } from '../../domain/entities/document-link';
 import {
   withPageCrop,
   withPageTurn,
+  withoutId,
   type DocumentPage,
   type PageEntry,
 } from '../../domain/entities/document-page';
@@ -28,7 +29,7 @@ import type { FileRefRepository } from '../../domain/repositories/file-ref.repos
 import type { FileRepository } from '../../domain/repositories/file.repository';
 import type { Clock } from '../ports/clock';
 import type { JobQueue } from '../ports/job-queue';
-import type { TransactionHandle, UnitOfWork } from '../ports/unit-of-work';
+import type { UnitOfWork } from '../ports/unit-of-work';
 import {
   assertKeepsItsReaders,
   assertMayCompose,
@@ -40,6 +41,7 @@ import {
   reload,
   rotationLabel,
   titleOf,
+  trashFilesNothingReads,
 } from './compose-document';
 
 // A document worked on by the page (docs/05 §5.6, docs/07 §7.3, ADR-025). Everything here addresses
@@ -102,7 +104,7 @@ export class ReorderDocumentPages {
     }
 
     await this.unitOfWork.run(async (tx) => {
-      await this.files.replacePages(documentId, reordered, tx);
+      await this.files.replacePages(documentId, { pages: reordered, expecting: held }, tx);
       await this.events.record(
         {
           documentId,
@@ -181,7 +183,7 @@ export class UpdateDocumentPage {
         changes.turn = { from: rotationLabel(target.page.turn), to: rotationLabel(turn) };
       }
 
-      await this.files.replacePages(documentId, pages, tx);
+      await this.files.replacePages(documentId, { pages, expecting: held }, tx);
       await this.events.record(
         {
           documentId,
@@ -249,7 +251,7 @@ export class RemoveDocumentPage {
     const file = detail.files.find((candidate) => candidate.id === removed.fileId);
 
     await this.unitOfWork.run(async (tx) => {
-      await this.files.replacePages(documentId, kept, tx);
+      await this.files.replacePages(documentId, { pages: kept, expecting: held }, tx);
       await trashFilesNothingReads(
         { files: this.files, fileRefs: this.fileRefs, clock: this.clock },
         [removed.fileId],
@@ -355,7 +357,11 @@ export class SplitDocumentAtPages {
         );
         // The entries change hands: written afresh in their new document, since a page id addresses
         // an entry inside the document that holds it and this is a different one (docs/03 §3.3.17).
-        await this.files.replacePages(created.id, part.map(withoutId), tx);
+        await this.files.replacePages(
+          created.id,
+          { pages: part.map(withoutId), expecting: null },
+          tx,
+        );
         await this.events.record(
           {
             documentId: created.id,
@@ -372,7 +378,7 @@ export class SplitDocumentAtPages {
         made.push(created.id);
       }
 
-      await this.files.replacePages(documentId, kept, tx);
+      await this.files.replacePages(documentId, { pages: kept, expecting: held }, tx);
       await this.events.record(
         {
           documentId,
@@ -517,7 +523,7 @@ export class MoveDocumentPages {
       // The source first: the entries are deleted there before they are written here, so a page id
       // is never held by two documents at once — and they are written afresh, since an id addresses
       // an entry inside the document that holds it (docs/03 §3.3.17).
-      await this.files.replacePages(documentId, remaining, tx);
+      await this.files.replacePages(documentId, { pages: remaining, expecting: held }, tx);
 
       const into =
         target === null
@@ -533,7 +539,12 @@ export class MoveDocumentPages {
       const before = targetHeld.length;
       await this.files.replacePages(
         into.id,
-        [...targetHeld.slice(0, at), ...moving.map(withoutId), ...targetHeld.slice(at)],
+        {
+          pages: [...targetHeld.slice(0, at), ...moving.map(withoutId), ...targetHeld.slice(at)],
+          // A document made a moment ago inside this transaction has the list we just wrote; an
+          // existing target was read before the handler, so its reading is named like any other.
+          expecting: target === null ? null : targetHeld,
+        },
         tx,
       );
 
@@ -585,26 +596,6 @@ export class MoveDocumentPages {
   }
 }
 
-// 🔒 The trash rule of `05 §5.7a`, in one place because every edit that can leave a file unread has
-// to honour it: of the files named, the ones no live page anywhere still reads go to the trash under
-// the title of the document they left **last**, their library refs excluded so the next scan does
-// not ingest the same bytes into a brand-new document (docs/03 §3.3.9). Asked after the pages are
-// written, because that is when the question has an answer.
-async function trashFilesNothingReads(
-  deps: { files: FileRepository; fileRefs: FileRefRepository; clock: Clock },
-  fileIds: readonly string[],
-  trashedFrom: string,
-  tx: TransactionHandle,
-): Promise<void> {
-  const orphaned = await deps.files.filterFilesWithoutLivePages(fileIds, tx);
-  if (orphaned.length === 0) return;
-  await deps.fileRefs.markExcluded(orphaned, tx);
-  await deps.files.trash(
-    { fileIds: orphaned, reason: 'PAGE_REMOVED', trashedFrom, at: deps.clock.now() },
-    tx,
-  );
-}
-
 // One entry of this document, with the file it is read from — which is what says whether it may be
 // mirrored, and what the journal calls it. A page id addresses an entry inside the document that
 // holds it, so a page of another document is simply not there (docs/03 §3.3.17).
@@ -620,18 +611,6 @@ function pageOf(
     throw new NotFoundError('PAGE_NOT_FOUND', 'This document has no such page');
   }
   return one;
-}
-
-// An entry joining another document is a new entry there: nothing addresses a page across documents,
-// and a row carries the document it belongs to (docs/03 §3.3.17).
-function withoutId(page: PageEntry): PageEntry {
-  return {
-    fileId: page.fileId,
-    pageIndex: page.pageIndex,
-    turn: page.turn,
-    crop: page.crop,
-    cropSource: page.cropSource,
-  };
 }
 
 // What a part is called before anything reads it: the name of the file its first page comes from,

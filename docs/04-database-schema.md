@@ -1225,6 +1225,18 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
   already-applied migration, dropping/renaming a column without a data backfill in the same migration.
 - Data moves (backfills) are written inside the migration itself (SQL), so a freshly cloned instance
   and a long-lived one converge to identical states.
+- 🔒 **A backfill that validates less than the code it replaces is a bug with a schedule.** The
+  migration that turned `document_files` into `document_pages` (ADR-025) read each file's stored
+  `page_order` and accepted it as an order if it was an array of that many non-negative whole
+  numbers — where the build it was replacing also demanded that the indices be **distinct** and
+  **below the page count**. `[0, 0, 2]` on a three-page file therefore became two entries for page 0
+  and none for page 1, and `[0, 1, 5]` became an entry naming a page that does not exist, both
+  breaking `03 §3.3.17`'s invariant on rows the application itself could never write. Unreachable
+  through the API is not the test: a migration exists precisely for rows an older version or a person
+  wrote by hand. The rule is repaired forward, in a migration of its own — an applied migration is
+  never edited — which re-indexes each affected `(document, file)` group to the file's own page order
+  in the positions it already occupies, exactly what the build would have read had the stored order
+  been rejected. A `CHECK` keeps the impossible half impossible from now on.
 - **A migration is finished when `prisma migrate diff` is back to its five known lines** (§4.3) and
   §4.1 quotes `schema.prisma` again — `node scripts/check-schema.mjs` asks both questions at once,
   and the test suite asks them on every run. The fix for anything else in that output is another

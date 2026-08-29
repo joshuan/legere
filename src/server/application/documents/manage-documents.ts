@@ -492,16 +492,19 @@ export class DeleteDocument {
       throw new NotFoundError('DOCUMENT_NOT_FOUND', 'Document not found');
     }
 
-    const held = await this.files.listForDocument(documentId);
-    const fileIds = held.map((file) => file.id);
-
     await this.unitOfWork.run(async (tx) => {
       // Off every collection first: `collection_items` has no cascade on purpose (docs/04 §4.2), so
       // the foreign key would refuse the delete below and be right to.
       await this.collections.removeItemEverywhere(documentId, tx);
+      // Which files this document reads, read **inside** the transaction and under the document's
+      // own lock: a page added while the delete was being authorized is still a page whose file has
+      // to be asked about (docs/03 §3.3.17).
+      const held = await this.files.lockPagesForDocument(documentId, tx);
+      const fileIds = [...new Set(held.map((page) => page.fileId))];
       // The pages go before the row does, so the question below — which of these files is nothing
-      // reading any more — has an answer (ADR-025).
-      await this.files.replacePages(documentId, [], tx);
+      // reading any more — has an answer (ADR-025). No precondition: the list was just read here,
+      // and this document is being deleted whatever it holds.
+      await this.files.replacePages(documentId, { pages: [], expecting: null }, tx);
       // 🔒 Only the files this document was the last to read. One another document still reads a
       // page of stays exactly where it is, refs and all: it is not going anywhere, and excluding its
       // refs would stop a scan finding bytes the archive is still using (docs/05 §5.7a).

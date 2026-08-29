@@ -1,11 +1,6 @@
 import type { PageFormat } from '../../../shared/contracts/enums';
 import type { Document } from '../../domain/entities/document';
-import {
-  effectiveTurn,
-  samePages,
-  withExpandedPages,
-  type DocumentPage,
-} from '../../domain/entities/document-page';
+import { effectiveTurn, type DocumentPage } from '../../domain/entities/document-page';
 import { classifyFormat, type DocumentFormat } from '../../domain/entities/document-format';
 import { pageGeometryOf, type SourceShape } from '../../domain/entities/document-page-geometry';
 import { hasUsableTextLayer } from '../../domain/entities/document-text';
@@ -115,7 +110,7 @@ export class BuildCanonical {
 
     const unsupported = openedList.filter((one) => one?.kind === 'unsupported').length;
     await this.recordCounts(distinct, opened);
-    const pages = await this.expand(document.id, held, opened);
+    const pages = await this.expand(document.id, opened);
 
     const runs = runsOf(pages, opened);
     // And again on the way out, because a conversion decides its own size: an office document is a
@@ -196,9 +191,15 @@ export class BuildCanonical {
   // entry per page, now that the pages have been counted. Written down, so it happens once; a file
   // nothing could count keeps the entry it has, because a document is not made smaller by a format
   // we cannot read.
+  //
+  // 🔒 The list is **re-read where it is written**, not carried down from the top of this method.
+  // Between the two there is a pass that opens every file — seconds in Stirling, minutes for a scan
+  // — and a three-file upload is inside that window on its first build, which is exactly when
+  // somebody is arranging it. Rewriting the whole list from the snapshot taken before that pass
+  // deleted their insert and left the uploaded file an orphan no trash rule ever sees, because
+  // nothing had ever recorded that a document read it.
   private async expand(
     documentId: string,
-    pages: readonly DocumentPageWithFile[],
     opened: ReadonlyMap<string, OpenedFile | undefined>,
   ): Promise<DocumentPageWithFile[]> {
     const counts = new Map<string, number>();
@@ -206,12 +207,7 @@ export class BuildCanonical {
       if (one === undefined || one.kind === 'unsupported') continue;
       counts.set(fileId, one.pageCount);
     }
-
-    const expanded = withExpandedPages(pages, counts);
-    if (samePages(pages, expanded)) return [...pages];
-
-    await this.files.replacePages(documentId, expanded);
-    return this.files.listPagesForDocument(documentId);
+    return this.files.expandWholeFileEntries(documentId, counts);
   }
 
   // Pass 2: one run of pages, one part. A page of an image is cropped, turned and corrected; a run

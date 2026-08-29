@@ -181,7 +181,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
     });
     const at = input.at;
     if (at === undefined) {
-      await files.attach(documentId, file.id);
+      await files.appendPages(documentId, pagesForFile(file));
     } else {
       await rewrite(documentId, (pages) =>
         withInsertedAt(pages, at, pagesForFile({ id: file.id, pageCount: input.pages ?? null })),
@@ -206,7 +206,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
     edit: (pages: PageEntry[]) => PageEntry[],
   ): Promise<void> {
     const held = await files.listPagesForDocument(documentId);
-    await files.replacePages(documentId, edit(held));
+    await files.replacePages(documentId, { pages: edit(held), expecting: null });
   }
 
   itWithStirling(
@@ -401,8 +401,11 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
       // that holds it — and every entry goes on naming the file it always named.
       const held = await files.listPagesForDocument(document.id);
       const far = await prisma.document.create({ data: { title: 'The rest of the lease' } });
-      await files.replacePages(far.id, held.slice(CUT_AT).map(asNewEntry));
-      await files.replacePages(document.id, held.slice(0, CUT_AT));
+      await files.replacePages(far.id, {
+        pages: held.slice(CUT_AT).map(asNewEntry),
+        expecting: null,
+      });
+      await files.replacePages(document.id, { pages: held.slice(0, CUT_AT), expecting: null });
 
       const near = await build.execute({
         ...documentRow(document.id),

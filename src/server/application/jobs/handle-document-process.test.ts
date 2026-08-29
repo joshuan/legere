@@ -187,9 +187,9 @@ describe('HandleDocumentProcess', () => {
       // A crop and a turn are written on the entry this document holds, never on the file.
       if (page.crop !== undefined || page.turn !== undefined) {
         const held = await fileRepo.listPagesForDocument(document.id);
-        await fileRepo.replacePages(
-          document.id,
-          held.map((entry) =>
+        await fileRepo.replacePages(document.id, {
+          expecting: null,
+          pages: held.map((entry) =>
             entry.fileId === file.id
               ? {
                   ...entry,
@@ -198,7 +198,7 @@ describe('HandleDocumentProcess', () => {
                 }
               : entry,
           ),
-        );
+        });
       }
       const bytes = page.bytes ?? `bytes-${index + 1}`;
       if (file.origin === 'MANAGED') {

@@ -68,9 +68,9 @@ describe('DeleteDocumentType', () => {
     new DeleteDocumentType(repository, new FixedClock());
 
   it('refuses a type that is not there', async () => {
-    await expect(deleteType(new CountingDocumentTypes(0)).execute('missing')).rejects.toBeInstanceOf(
-      NotFoundError,
-    );
+    await expect(
+      deleteType(new CountingDocumentTypes(0)).execute('missing'),
+    ).rejects.toBeInstanceOf(NotFoundError);
   });
 
   it('clears a small archive in one pass and soft-deletes the type', async () => {

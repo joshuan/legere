@@ -15,6 +15,10 @@ import { artifactKeys } from '../../application/storage/artifact-keys';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import {
   MAX_FILES_PER_DOCUMENT,
+  entryOf,
+  samePages,
+  sameListing,
+  withExpandedPages,
   type DocumentPage,
   type PageEntry,
 } from '../../domain/entities/document-page';
@@ -374,35 +378,42 @@ export class PrismaFileRepository implements FileRepository {
     return rows.map((row) => ({ ...toPage(row), file: toDomain(row.file) }));
   }
 
+  // 🔒 The lock every writer of a document's page list takes first, and the whole reason the
+  // preconditions below are worth anything. Two transactions may otherwise both read the list, both
+  // pass their check and both write — READ COMMITTED gives a statement its own snapshot, so neither
+  // sees the other until it is too late. The **document row** is the thing to lock rather than the
+  // entries: a lock on rows that exist cannot stop a row being inserted, and half of what goes wrong
+  // here is an entry appearing (docs/03 §3.3.17).
+  private async lockDocument(client: PrismaTx, documentId: string): Promise<void> {
+    await client.$queryRaw`SELECT "id" FROM "documents" WHERE "id" = ${documentId}::uuid FOR UPDATE`;
+  }
+
   // Wholesale, because `(document_id, position)` is unique: shifting rows one at a time collides
   // with itself halfway through (docs/03 §3.3.17). Delete-then-insert in one transaction is the only
   // rewrite that cannot deadlock against its own intermediate state, and an entry that was already
   // there is written back under its own id, so nothing addressing it is invalidated by a rebuild.
+  //
+  // 🔒 And it happens only if the document's list is still the reading the new list was computed
+  // from. Without that, an edit computed against a list somebody has since changed writes the older
+  // list back — the page they removed returns, reading a file that went to the trash with it, and
+  // the move that took a page away is undone (docs/05 §5.6).
   async replacePages(
     documentId: string,
-    pages: readonly PageEntry[],
+    input: { pages: readonly PageEntry[]; expecting: readonly PageEntry[] | null },
     tx?: TransactionHandle,
   ): Promise<void> {
-    // 🔒 Here as well as in `attach`, because the two are the only ways a file joins a document and
-    // an insert at a position takes this one (docs/05 §5.4a). Asked of the list being written rather
-    // than of the rows, so a rewrite that merely reorders what is already there always passes.
-    refuseTooManyFiles(new Set(pages.map((page) => page.fileId)).size);
+    // 🔒 SEC-49's bound, asked of the list being written rather than of the rows, so a rewrite that
+    // merely reorders what is already there always passes (docs/05 §5.4a). `appendPages` asks it too
+    // — between them they are the only two ways a file joins a document.
+    refuseTooManyFiles(new Set(input.pages.map((page) => page.fileId)).size);
 
     const rewrite = async (client: PrismaTx): Promise<void> => {
-      await client.documentPage.deleteMany({ where: { documentId } });
-      if (pages.length === 0) return;
-      await client.documentPage.createMany({
-        data: pages.map((page, position) => ({
-          ...(page.id === undefined ? {} : { id: page.id }),
-          documentId,
-          position,
-          fileId: page.fileId,
-          pageIndex: page.pageIndex,
-          turn: toRotationColumn(page.turn),
-          crop: toCropColumn(page.crop),
-          cropSource: page.cropSource,
-        })),
-      });
+      await this.lockDocument(client, documentId);
+      if (input.expecting !== null) {
+        const held = await this.listPagesForDocument(documentId, client);
+        if (!sameListing(input.expecting, held.map(entryOf))) throw documentChanged();
+      }
+      await this.writePages(client, documentId, input.pages);
     };
 
     if (tx !== undefined && isPrismaTx(tx)) {
@@ -410,6 +421,86 @@ export class PrismaFileRepository implements FileRepository {
       return;
     }
     await this.prisma.$transaction(rewrite);
+  }
+
+  // After whatever is there **now**, read under the lock rather than from a snapshot: an append
+  // cannot lose anything, which is why it is the one composition write with no precondition — the
+  // several files an upload panel sends at once must not refuse each other (docs/03 §3.3.17).
+  async appendPages(
+    documentId: string,
+    pages: readonly PageEntry[],
+    tx?: TransactionHandle,
+  ): Promise<void> {
+    if (pages.length === 0) return;
+    const append = async (client: PrismaTx): Promise<void> => {
+      await this.lockDocument(client, documentId);
+      // 🔒 SEC-49's bound (docs/05 §5.4a), asked here for the reason it used to be asked in
+      // `attach`: an append is where every add, restore, ingest and combine passes, and a bound the
+      // caller may forget is not a bound. Counted under the lock, over the files the document would
+      // hold afterwards — a file it already reads adds nothing to the count.
+      const held = await client.documentPage.groupBy({ by: ['fileId'], where: { documentId } });
+      const after = new Set(held.map((row) => row.fileId));
+      for (const page of pages) after.add(page.fileId);
+      refuseTooManyFiles(after.size);
+
+      const last = await client.documentPage.aggregate({
+        where: { documentId },
+        _max: { position: true },
+      });
+      const from = (last._max.position ?? -1) + 1;
+      await client.documentPage.createMany({
+        data: pages.map((page, offset) => rowOf(documentId, from + offset, page)),
+      });
+    };
+
+    if (tx !== undefined && isPrismaTx(tx)) {
+      await append(tx);
+      return;
+    }
+    await this.prisma.$transaction(append);
+  }
+
+  async lockPagesForDocument(
+    documentId: string,
+    tx: TransactionHandle,
+  ): Promise<DocumentPageWithFile[]> {
+    if (!isPrismaTx(tx)) throw new Error('lockPagesForDocument needs a transaction to hold a lock');
+    await this.lockDocument(tx, documentId);
+    return this.listPagesForDocument(documentId, tx);
+  }
+
+  // 🔒 The expansion of ADR-025's one transitional entry, read and written inside one transaction.
+  // The caller has just spent minutes in Stirling counting the pages, so the list it started from is
+  // old by definition: anything else here would blindly rewrite it, and a file somebody inserted
+  // while the build was running would vanish into an orphan no trash rule ever sees.
+  async expandWholeFileEntries(
+    documentId: string,
+    pageCounts: ReadonlyMap<string, number>,
+    tx?: TransactionHandle,
+  ): Promise<DocumentPageWithFile[]> {
+    const expand = async (client: PrismaTx): Promise<DocumentPageWithFile[]> => {
+      await this.lockDocument(client, documentId);
+      const held = await this.listPagesForDocument(documentId, client);
+      const expanded = withExpandedPages(held.map(entryOf), pageCounts);
+      if (samePages(held, expanded)) return held;
+      await this.writePages(client, documentId, expanded);
+      return this.listPagesForDocument(documentId, client);
+    };
+
+    if (tx !== undefined && isPrismaTx(tx)) return expand(tx);
+    return this.prisma.$transaction(expand);
+  }
+
+  private async writePages(
+    client: PrismaTx,
+    documentId: string,
+    pages: readonly PageEntry[],
+  ): Promise<void> {
+    await client.documentPage.deleteMany({ where: { documentId } });
+    if (pages.length === 0) return;
+    await client.documentPage.createMany({
+      data: pages.map((page, position) => rowOf(documentId, position, page)),
+    });
   }
 
   async listForDocument(documentId: string, tx?: TransactionHandle): Promise<DocumentFile[]> {
@@ -457,6 +548,19 @@ export class PrismaFileRepository implements FileRepository {
     return row === null ? null : row.documentId;
   }
 
+  // Every document reading a page of it, deduplicated and in a stable order — what a replacement
+  // has to rewrite, a replacement being a replacement for every page that reads those bytes
+  // (ADR-025, docs/05 §5.6).
+  async listDocumentIdsForFile(fileId: string, tx?: TransactionHandle): Promise<string[]> {
+    const rows = await clientOf(this.prisma, tx).documentPage.findMany({
+      where: { fileId },
+      select: { documentId: true },
+      distinct: ['documentId'],
+      orderBy: { documentId: 'asc' },
+    });
+    return rows.map((row) => row.documentId);
+  }
+
   async filterFilesWithoutLivePages(
     fileIds: readonly string[],
     tx?: TransactionHandle,
@@ -471,92 +575,11 @@ export class PrismaFileRepository implements FileRepository {
     return fileIds.filter((fileId) => !stillRead.has(fileId));
   }
 
-  async attach(documentId: string, fileId: string, tx?: TransactionHandle): Promise<void> {
-    const client = clientOf(this.prisma, tx);
-
-    // Asked before inserting rather than only caught afterwards: a failed statement poisons the
-    // surrounding transaction, and the caller of `attach` is usually inside one. The rule is the
-    // product's and no longer the schema's — a file may be read by pages of two documents
-    // (ADR-025) — so it is asked here rather than left to a unique index that no longer exists.
-    const home = await client.documentPage.findFirst({ where: { fileId } });
-    if (home !== null) throw fileAlreadyInDocument();
-
-    // 🔒 And the same question about how many files this document already reads (docs/05 §5.4a),
-    // asked in the same place and for the same reason: a bound the caller may forget is not a bound,
-    // and `attach` is where every add, restore, split and combine passes.
-    const held = await client.documentPage.groupBy({ by: ['fileId'], where: { documentId } });
-    refuseTooManyFiles(held.length + 1);
-
-    const file = await client.file.findUnique({
-      where: { id: fileId },
-      select: { pageCount: true },
-    });
-    const last = await client.documentPage.aggregate({
-      where: { documentId },
-      _max: { position: true },
-    });
-    const from = (last._max.position ?? -1) + 1;
-
-    // Its own pages where a build has counted them, and one entry standing for the file whole where
-    // none has — the transitional state of ADR-025, which the next build ends.
-    const pageCount = file?.pageCount ?? null;
-    const indices: (number | null)[] =
-      pageCount === null || pageCount < 1
-        ? [null]
-        : Array.from({ length: pageCount }, (unused, index) => index);
-
-    await client.documentPage.createMany({
-      data: indices.map((pageIndex, offset) => ({
-        documentId,
-        position: from + offset,
-        fileId,
-        pageIndex,
-      })),
-    });
-  }
-
-  // Every page of that file leaves this document; another document reading the same file is not
-  // touched. What is left closes up behind it, because positions are contiguous (docs/03 §3.3.17).
-  async detach(documentId: string, fileId: string, tx?: TransactionHandle): Promise<void> {
-    const client = clientOf(this.prisma, tx);
-    const rows = await client.documentPage.findMany({
-      where: { documentId },
-      orderBy: { position: 'asc' },
-      include: { file: true },
-    });
-    const kept = rows
-      .filter((row) => row.fileId !== fileId)
-      .map((row) => ({ ...toPage(row), file: toDomain(row.file) }));
-    if (kept.length === rows.length) return;
-    await this.replacePages(documentId, kept, tx);
-  }
-
-  // Rewrites positions wholesale from the given order of files, each file's pages moving as a block
-  // and keeping the order this document reads them in.
-  async reorder(
-    documentId: string,
-    fileIdsInOrder: readonly string[],
-    tx?: TransactionHandle,
-  ): Promise<void> {
-    const rewrite = async (client: PrismaTx): Promise<void> => {
-      const pages = await this.listPagesForDocument(documentId, client);
-      const ordered = fileIdsInOrder.flatMap((fileId) =>
-        pages.filter((page) => page.fileId === fileId),
-      );
-      // A file the order does not name keeps its pages rather than losing them: the caller has
-      // already refused a partial order, and dropping pages here would be a worse answer than
-      // leaving them where they were.
-      const named = new Set(fileIdsInOrder);
-      const rest = pages.filter((page) => !named.has(page.fileId));
-      await this.replacePages(documentId, [...ordered, ...rest], client);
-    };
-
-    if (tx !== undefined && isPrismaTx(tx)) {
-      await rewrite(tx);
-      return;
-    }
-    await this.prisma.$transaction(rewrite);
-  }
+  // `attach`, `detach` and `reorder` stood here until this release and are deliberately gone. All
+  // three spoke the model ADR-025 retired — a file joining a document *whole*, carrying its own crop
+  // and turn, living in exactly one home — and none of that is what a caller means any more. What
+  // replaced them takes **entries**: `replacePages` and `appendPages` above, where the caller says
+  // what the pages are, so nothing here invents them out of a page count.
 
   // Availability for a whole page in one query (docs/03 §3.3.10): every file asked about is in the
   // answer, with zero for the ones no volume holds any more.
@@ -613,10 +636,31 @@ function stripFile(page: DocumentPageWithFile): DocumentPage {
   };
 }
 
-function fileAlreadyInDocument(): ConflictError {
+// One entry as a row: the id is written back where there is one, so an entry that was already there
+// stays the same entry and nothing addressing it is invalidated by a rewrite (docs/03 §3.3.17).
+function rowOf(
+  documentId: string,
+  position: number,
+  page: PageEntry,
+): Prisma.DocumentPageCreateManyInput {
+  return {
+    ...(page.id === undefined ? {} : { id: page.id }),
+    documentId,
+    position,
+    fileId: page.fileId,
+    pageIndex: page.pageIndex,
+    turn: toRotationColumn(page.turn),
+    crop: toCropColumn(page.crop),
+    cropSource: page.cropSource,
+  };
+}
+
+// 🔒 The list moved under the edit that was about to rewrite it (docs/03 §3.3.17). Nothing is
+// written; the caller reads the document again and asks again against the list that comes back.
+function documentChanged(): ConflictError {
   return new ConflictError(
-    'FILE_ALREADY_IN_DOCUMENT',
-    'This file already belongs to another document',
+    'DOCUMENT_CHANGED',
+    'This document has been edited since the list this change was computed from; read it again',
   );
 }
 

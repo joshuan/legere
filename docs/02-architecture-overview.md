@@ -460,8 +460,15 @@ It was load-bearing, so what leaned on it is re-stated rather than quietly dropp
   when it enters the trash. It was a record and not a link before this, and it stays one.
 - **A replacement replaces the bytes for every page that reads them.** A better scan is better
   wherever the page is read, so the pages of the replaced file become pages of the new one in every
-  document holding them — and the person asking for it is told how many documents that is before it
-  happens, because a page they cannot see is still a page they are changing (`05 §5.6`).
+  document holding them (`05 §5.6`). 🔒 And because a page they cannot see is still a page they are
+  changing, the asker must be allowed to **destroy content in every one of those documents** — the
+  rule combine already spends on each document it absorbs (`03 §3.4a`) — or the replacement is
+  refused whole (`409 FILE_READ_ELSEWHERE`) and nothing is written. This is the sentence that
+  replaced "the asker is told how many documents that is before it happens": being told is worth
+  less than not being able to do it, a warning on a screen is not a permission check, and a count of
+  documents somebody cannot read is the kind of number `03 §3.3.14` already refuses to hand out.
+  What they are told instead is what happened: every document the replacement touched says so in
+  its own journal, and the one they asked on says how many there were.
 - **Ingest is unchanged.** Deduplication by hash never implied one document, only one row: the same
   bytes arriving from a scan and from a browser are one file, and that is as true now as it was.
 

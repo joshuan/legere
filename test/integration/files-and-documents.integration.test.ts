@@ -8,6 +8,8 @@ import {
 } from '../../src/server/domain/repositories/document.repository';
 import {
   MAX_FILES_PER_DOCUMENT,
+  entryOf,
+  pagesForFile,
   withFileCrop,
 } from '../../src/server/domain/entities/document-page';
 import { FileRepository } from '../../src/server/domain/repositories/file.repository';
@@ -113,6 +115,16 @@ describe('Files and documents (integration)', () => {
     });
   };
 
+  // "This document reads that file": its own pages where a build has counted them, and one entry
+  // standing for it whole where none has (docs/03 §3.3.17). A fixture, and now the only shape there
+  // is — `attach(documentId, fileId)` was retired with the model that let a repository decide for
+  // itself what a file's pages in a document are (ADR-025).
+  const hold = async (documentId: string, fileId: string): Promise<void> => {
+    const file = await files.findById(fileId);
+    if (file === null) throw new Error(`No file ${fileId}`);
+    await files.appendPages(documentId, pagesForFile(file));
+  };
+
   // A document holding one library file, visible through `libraryId`.
   const libraryDocument = async (
     libraryId: string,
@@ -121,7 +133,7 @@ describe('Files and documents (integration)', () => {
   ): Promise<{ documentId: string; fileId: string }> => {
     const document = await documents.create({ title });
     const fileId = await createFile();
-    await files.attach(document.id, fileId);
+    await hold(document.id, fileId);
     await addRef(libraryId, fileId, path);
     return { documentId: document.id, fileId };
   };
@@ -178,25 +190,28 @@ describe('Files and documents (integration)', () => {
       const second = await createFile({ name: 'page-2.jpg' });
       const third = await createFile({ name: 'page-3.jpg' });
 
-      await files.attach(document.id, first);
-      await files.attach(document.id, second);
-      await files.attach(document.id, third);
+      await hold(document.id, first);
+      await hold(document.id, second);
+      await hold(document.id, third);
 
       const held = await files.listForDocument(document.id);
       expect(held.map((file) => file.position)).toEqual([0, 1, 2]);
       expect(held.map((file) => file.name)).toEqual(['page-1.jpg', 'page-2.jpg', 'page-3.jpg']);
     });
 
-    it('refuses a file that already has a home (FILE_ALREADY_IN_DOCUMENT)', async () => {
+    // 🔒 The invariant ADR-025 retired, asserted where it used to be enforced: appending a file's
+    // pages to a second document is what a combine and a split do, and the repository refused it
+    // outright — under a comment saying ADR-025 allows it. Undoing a split answered 409.
+    it('lets a second document read a file the first one already reads (ADR-025)', async () => {
       const one = await documents.create({ title: 'One' });
       const other = await documents.create({ title: 'Other' });
       const fileId = await createFile();
-      await files.attach(one.id, fileId);
+      await hold(one.id, fileId);
 
-      const attaching = files.attach(other.id, fileId);
+      await expect(hold(other.id, fileId)).resolves.toBeUndefined();
 
-      await expect(attaching).rejects.toBeInstanceOf(ConflictError);
-      await expect(attaching).rejects.toMatchObject({ code: 'FILE_ALREADY_IN_DOCUMENT' });
+      expect(await files.listDocumentIdsForFile(fileId)).toEqual([one.id, other.id].sort());
+      expect(await files.filterFilesWithoutLivePages([fileId])).toEqual([]);
     });
 
     // 🔒 SEC-49 (docs/05 §5.4a). Nothing bounded how many files a document holds: `attach` read
@@ -216,7 +231,7 @@ describe('Files and documents (integration)', () => {
         cropSource: 'NONE' as const,
       }));
 
-      const writing = files.replacePages(document.id, pages);
+      const writing = files.replacePages(document.id, { pages: pages, expecting: null });
 
       await expect(writing).rejects.toBeInstanceOf(UnprocessableError);
       await expect(writing).rejects.toMatchObject({ code: 'DOCUMENT_TOO_MANY_FILES' });
@@ -236,7 +251,7 @@ describe('Files and documents (integration)', () => {
         cropSource: 'NONE' as const,
       }));
 
-      await files.replacePages(document.id, pages);
+      await files.replacePages(document.id, { pages: pages, expecting: null });
 
       expect(await files.listPagesForDocument(document.id)).toHaveLength(400);
     });
@@ -248,32 +263,106 @@ describe('Files and documents (integration)', () => {
         await createFile({ name: 'b.jpg' }),
         await createFile({ name: 'c.jpg' }),
       ];
-      for (const id of ids) await files.attach(document.id, id);
+      for (const id of ids) await hold(document.id, id);
 
       // Reversed: every row moves, so a shift in place would collide with itself on the primary key.
-      await files.reorder(document.id, [...ids].reverse());
+      const held = (await files.listPagesForDocument(document.id)).map(entryOf);
+      await files.replacePages(document.id, { pages: [...held].reverse(), expecting: held });
 
-      const held = await files.listForDocument(document.id);
-      expect(held.map((file) => file.name)).toEqual(['c.jpg', 'b.jpg', 'a.jpg']);
-      expect(held.map((file) => file.position)).toEqual([0, 1, 2]);
+      const after = await files.listForDocument(document.id);
+      expect(after.map((file) => file.name)).toEqual(['c.jpg', 'b.jpg', 'a.jpg']);
+      expect(after.map((file) => file.position)).toEqual([0, 1, 2]);
     });
 
-    it('detaches a file, which leaves it free to become a document of its own', async () => {
+    // 🔒 Defect 4. Every composition edit rewrites the whole list from the reading it was given, so
+    // a reading that has moved must not be written back: A removes a page, B — holding the older
+    // reading — crops another, and B's write restores A's page. Nothing merges the two; the second
+    // write is refused and the caller re-reads.
+    it('refuses a rewrite computed from a reading the list has moved past (DOCUMENT_CHANGED)', async () => {
+      const document = await documents.create({ title: 'Contract' });
+      for (const name of ['a.jpg', 'b.jpg', 'c.jpg']) {
+        await hold(document.id, await createFile({ name, ext: 'jpg' }));
+      }
+      // What both editors were shown.
+      const shown = (await files.listPagesForDocument(document.id)).map(entryOf);
+
+      // A takes the middle page out, naming the reading it was shown: allowed.
+      await files.replacePages(document.id, {
+        pages: shown.filter((page, index) => index !== 1),
+        expecting: shown,
+      });
+
+      // B still holds the older reading and crops the last page. Writing it back would put the
+      // removed page in again — with its file already on its way to the trash.
+      const stale = files.replacePages(document.id, {
+        pages: shown.map((page) => ({ ...page, cropSource: 'MANUAL' as const })),
+        expecting: shown,
+      });
+
+      await expect(stale).rejects.toBeInstanceOf(ConflictError);
+      await expect(stale).rejects.toMatchObject({ code: 'DOCUMENT_CHANGED' });
+      // And nothing of B's write landed: the list is still the two pages A left behind.
+      const after = await files.listPagesForDocument(document.id);
+      expect(after.map((page) => page.file.name)).toEqual(['a.jpg', 'c.jpg']);
+      expect(after.every((page) => page.cropSource === 'NONE')).toBe(true);
+    });
+
+    // The same guard, the other way round: a rewrite naming the list as it actually stands goes
+    // through, so the refusal above is a precondition and not a repository that refuses everything.
+    it('writes a rewrite that names the list as it stands', async () => {
+      const document = await documents.create({ title: 'Contract' });
+      await hold(document.id, await createFile({ name: 'a.jpg', ext: 'jpg' }));
+      const held = (await files.listPagesForDocument(document.id)).map(entryOf);
+
+      await files.replacePages(document.id, {
+        pages: held.map((page) => ({ ...page, cropSource: 'MANUAL' as const })),
+        expecting: held,
+      });
+
+      const after = await files.listPagesForDocument(document.id);
+      expect(after.map((page) => page.cropSource)).toEqual(['MANUAL']);
+    });
+
+    // 🔒 Defect 5. The build opens every file — seconds to minutes — and then expands the entry
+    // standing for a whole file. Expanding from the snapshot it started with deletes whatever was
+    // arranged in that window; expanding from the list as it stands does not.
+    it('expands a whole-file entry against the list as it stands, not a snapshot (docs/05 §5.5)', async () => {
+      const document = await documents.create({ title: 'Scan' });
+      const scanned = await createFile({ name: 'scan.pdf' });
+      await hold(document.id, scanned);
+
+      // Somebody adds a photograph while the build is off opening the PDF.
+      const inserted = await createFile({ name: 'photo.jpg', ext: 'jpg' });
+      await hold(document.id, inserted);
+
+      const expanded = await files.expandWholeFileEntries(document.id, new Map([[scanned, 3]]));
+
+      // Three pages of the scan, and the photograph still there rather than deleted into an orphan.
+      expect(expanded.map((page) => [page.file.name, page.pageIndex])).toEqual([
+        ['scan.pdf', 0],
+        ['scan.pdf', 1],
+        ['scan.pdf', 2],
+        ['photo.jpg', null],
+      ]);
+      expect(await files.filterFilesWithoutLivePages([inserted])).toEqual([]);
+    });
+
+    it('lets a file leave one document while another still reads it', async () => {
       const document = await documents.create({ title: 'Passport' });
       const fileId = await createFile();
-      await files.attach(document.id, fileId);
+      await hold(document.id, fileId);
 
-      await files.detach(document.id, fileId);
+      await files.replacePages(document.id, { pages: [], expecting: null });
 
       expect(await files.findDocumentIdForFile(fileId)).toBeNull();
       const elsewhere = await documents.create({ title: 'Its own' });
-      await expect(files.attach(elsewhere.id, fileId)).resolves.toBeUndefined();
+      await expect(hold(elsewhere.id, fileId)).resolves.toBeUndefined();
     });
 
     it('remembers the home of a file whose document an admin removed (docs/03 §3.3.10)', async () => {
       const document = await documents.create({ title: 'Deleted' });
       const fileId = await createFile();
-      await files.attach(document.id, fileId);
+      await hold(document.id, fileId);
 
       await documents.softDelete(document.id, new Date());
 
@@ -315,9 +404,9 @@ describe('Files and documents (integration)', () => {
       const a = await createFile({ name: 'a.jpg' });
       const b = await createFile({ name: 'b.jpg' });
       const c = await createFile({ name: 'c.jpg' });
-      await files.attach(first.id, a);
-      await files.attach(first.id, b);
-      await files.attach(second.id, c);
+      await hold(first.id, a);
+      await hold(first.id, b);
+      await hold(second.id, c);
 
       // A document that holds nothing is still in the answer, so a caller never has to guess.
       const empty = await documents.create({ title: 'Empty' });
@@ -331,7 +420,7 @@ describe('Files and documents (integration)', () => {
     it('stores a crop on the page the file is read as, and clears it back to nothing', async () => {
       const document = await documents.create({ title: 'Photographed' });
       const fileId = await createFile({ ext: 'jpg' });
-      await files.attach(document.id, fileId);
+      await hold(document.id, fileId);
       // Clockwise from the top-left, normalized to 0…1 of the page (docs/03 §3.3.17).
       const crop: Crop = {
         points: [
@@ -343,7 +432,10 @@ describe('Files and documents (integration)', () => {
       };
 
       const held = await files.listPagesForDocument(document.id);
-      await files.replacePages(document.id, withFileCrop(held, fileId, crop, 'MANUAL'));
+      await files.replacePages(document.id, {
+        expecting: null,
+        pages: withFileCrop(held, fileId, crop, 'MANUAL'),
+      });
 
       const cropped = await files.listPagesForDocument(document.id);
       expect(cropped[0]?.crop?.points[2]).toEqual([0.88, 0.95]);
@@ -351,7 +443,10 @@ describe('Files and documents (integration)', () => {
       // 🔒 And nothing of it is on the file: a crop is a statement about a page (ADR-025).
       expect(cropped[0]?.file.pageCount).toBeNull();
 
-      await files.replacePages(document.id, withFileCrop(cropped, fileId, null, 'NONE'));
+      await files.replacePages(document.id, {
+        expecting: null,
+        pages: withFileCrop(cropped, fileId, null, 'NONE'),
+      });
       const cleared = await files.listPagesForDocument(document.id);
       expect(cleared[0]?.crop).toBeNull();
       expect(cleared[0]?.cropSource).toBe('NONE');
@@ -363,17 +458,18 @@ describe('Files and documents (integration)', () => {
       const first = await documents.create({ title: 'One half' });
       const second = await documents.create({ title: 'The other' });
       const fileId = await createFile({ ext: 'jpg' });
-      await files.attach(first.id, fileId);
-      await files.replacePages(second.id, [
-        { fileId, pageIndex: null, turn: null, crop: null, cropSource: 'NONE' },
-      ]);
+      await hold(first.id, fileId);
+      await files.replacePages(second.id, {
+        expecting: null,
+        pages: [{ fileId, pageIndex: null, turn: null, crop: null, cropSource: 'NONE' }],
+      });
 
       expect(await files.filterFilesWithoutLivePages([fileId])).toEqual([]);
 
-      await files.replacePages(first.id, []);
+      await files.replacePages(first.id, { expecting: null, pages: [] });
       expect(await files.filterFilesWithoutLivePages([fileId])).toEqual([]);
 
-      await files.replacePages(second.id, []);
+      await files.replacePages(second.id, { expecting: null, pages: [] });
       expect(await files.filterFilesWithoutLivePages([fileId])).toEqual([fileId]);
     });
   });
@@ -391,8 +487,8 @@ describe('Files and documents (integration)', () => {
 
     it('counts, weighs and badges a row from the files it holds (docs/07 §7.3)', async () => {
       const document = await documents.create({ title: 'Passport' });
-      await files.attach(document.id, await createFile({ ext: 'jpg', sizeBytes: 300n }));
-      await files.attach(document.id, await createFile({ ext: 'png', sizeBytes: 40n }));
+      await hold(document.id, await createFile({ ext: 'jpg', sizeBytes: 300n }));
+      await hold(document.id, await createFile({ ext: 'png', sizeBytes: 40n }));
 
       const page = await documents.listReadable(admin, { limit: 10 });
 
@@ -406,13 +502,13 @@ describe('Files and documents (integration)', () => {
 
     it('is a library document as soon as one of its files sits on a volume', async () => {
       const mixed = await documents.create({ title: 'Absorbed an upload' });
-      await files.attach(mixed.id, await createFile({ origin: 'MANAGED' }));
+      await hold(mixed.id, await createFile({ origin: 'MANAGED' }));
       const onAVolume = await createFile({ origin: 'LIBRARY' });
-      await files.attach(mixed.id, onAVolume);
+      await hold(mixed.id, onAVolume);
       await addRef(libraryId, onAVolume, 'mixed.pdf');
 
       const uploaded = await documents.create({ title: 'Uploaded' });
-      await files.attach(uploaded.id, await createFile({ origin: 'MANAGED' }));
+      await hold(uploaded.id, await createFile({ origin: 'MANAGED' }));
 
       const page = await documents.listReadable(admin, { limit: 10 });
       const byTitle = new Map(page.items.map((item) => [item.document.title, item]));
@@ -425,8 +521,8 @@ describe('Files and documents (integration)', () => {
       const document = await documents.create({ title: 'Half a passport' });
       const here = await createFile();
       const gone = await createFile();
-      await files.attach(document.id, here);
-      await files.attach(document.id, gone);
+      await hold(document.id, here);
+      await hold(document.id, gone);
       await addRef(libraryId, here, 'here.jpg');
       await addRef(libraryId, gone, 'gone.jpg', 'MISSING');
 
@@ -438,20 +534,20 @@ describe('Files and documents (integration)', () => {
     it('filters on availability with the same rule it derives it from', async () => {
       const available = await documents.create({ title: 'Available' });
       const availableFile = await createFile();
-      await files.attach(available.id, availableFile);
+      await hold(available.id, availableFile);
       await addRef(libraryId, availableFile, 'available.pdf');
 
       const partial = await documents.create({ title: 'Partial' });
       const partialHere = await createFile();
       const partialGone = await createFile();
-      await files.attach(partial.id, partialHere);
-      await files.attach(partial.id, partialGone);
+      await hold(partial.id, partialHere);
+      await hold(partial.id, partialGone);
       await addRef(libraryId, partialHere, 'partial-here.pdf');
       await addRef(libraryId, partialGone, 'partial-gone.pdf', 'MISSING');
 
       const unavailable = await documents.create({ title: 'Unavailable' });
       const unavailableFile = await createFile();
-      await files.attach(unavailable.id, unavailableFile);
+      await hold(unavailable.id, unavailableFile);
       await addRef(libraryId, unavailableFile, 'unavailable.pdf', 'MISSING');
 
       const titles = async (availability: 'AVAILABLE' | 'PARTIAL' | 'UNAVAILABLE') =>
@@ -469,7 +565,7 @@ describe('Files and documents (integration)', () => {
       await libraryDocument(libraryId, 'On the shelf', 'shelf.pdf');
       await libraryDocument(other, 'On the other shelf', 'other.pdf');
       const uploaded = await documents.create({ title: 'Uploaded' });
-      await files.attach(uploaded.id, await createFile({ origin: 'MANAGED' }));
+      await hold(uploaded.id, await createFile({ origin: 'MANAGED' }));
 
       const managed = await documents.listReadable(admin, { limit: 10, origin: 'MANAGED' });
       const library = await documents.listReadable(admin, { limit: 10, origin: 'LIBRARY' });
@@ -487,8 +583,8 @@ describe('Files and documents (integration)', () => {
       const document = await documents.create({ title: 'Passport' });
       const here = await createFile({ name: 'page-1.jpg', ext: 'jpg' });
       const gone = await createFile({ name: 'page-2.jpg', ext: 'jpg' });
-      await files.attach(document.id, here);
-      await files.attach(document.id, gone);
+      await hold(document.id, here);
+      await hold(document.id, gone);
       await addRef(libraryId, here, 'passport/page-1.jpg');
       await addRef(libraryId, gone, 'passport/page-2.jpg', 'MISSING');
 
@@ -508,8 +604,8 @@ describe('Files and documents (integration)', () => {
     it('carries the names a page is about, read for the whole page rather than per row', async () => {
       const lease = await documents.create({ title: 'Lease' });
       const service = await documents.create({ title: 'Service book' });
-      await files.attach(lease.id, await createFile());
-      await files.attach(service.id, await createFile());
+      await hold(lease.id, await createFile());
+      await hold(service.id, await createFile());
       const [ana, marko] = await Promise.all([
         prisma.person.create({ data: { name: 'Ana Petrović' } }),
         prisma.person.create({ data: { name: 'Marko Marković' } }),
@@ -552,7 +648,7 @@ describe('Files and documents (integration)', () => {
       const reader = await createUser('reader@legere.local');
       const document = await documents.create({ title: 'In two places' });
       const fileId = await createFile();
-      await files.attach(document.id, fileId);
+      await hold(document.id, fileId);
       await addRef(open, fileId, 'open/copy.pdf');
       await addRef(secret, fileId, 'secret/copy.pdf');
 
@@ -584,12 +680,12 @@ describe('Files and documents (integration)', () => {
       await libraryDocument(restricted, 'invoice locked away', 'locked/invoice.pdf');
       // Readable to its creator: an upload nobody shared.
       const uploaded = await documents.create({ title: 'invoice uploaded', createdById: owner.id });
-      await files.attach(uploaded.id, await createFile({ origin: 'MANAGED' }));
+      await hold(uploaded.id, await createFile({ origin: 'MANAGED' }));
       // Readable through a collection the stranger was given. 🔒 Created by the collection's owner:
       // a share carries the documents its owner made and nothing else (docs/03 §3.3.15), so a
       // document nobody created is not something a collection can pass on.
       const shared = await documents.create({ title: 'invoice shared', createdById: owner.id });
-      await files.attach(shared.id, await createFile({ origin: 'MANAGED' }));
+      await hold(shared.id, await createFile({ origin: 'MANAGED' }));
       const collection = await prisma.collection.create({
         data: { ownerId: owner.id, name: 'Shared' },
       });
@@ -643,7 +739,7 @@ describe('Files and documents (integration)', () => {
       const library = await createLibrary('shelf');
       const document = await documents.create({ title: 'Unplugged' });
       const fileId = await createFile();
-      await files.attach(document.id, fileId);
+      await hold(document.id, fileId);
       await addRef(library, fileId, 'unplugged.pdf', 'MISSING');
 
       const page = await documents.listReadable(reader, { limit: 10 });
@@ -710,7 +806,7 @@ describe('Files and documents (integration)', () => {
       about: { people?: string[]; subjects?: string[]; date?: string; city?: string },
     ): Promise<string> => {
       const document = await documents.create({ title });
-      await files.attach(document.id, await createFile({ origin: 'MANAGED' }));
+      await hold(document.id, await createFile({ origin: 'MANAGED' }));
       await prisma.document.update({
         where: { id: document.id },
         data: {
@@ -842,7 +938,7 @@ describe('Files and documents (integration)', () => {
     // Alice uploads privately: a MANAGED file, a document she created.
     const fileId = await createFile({ origin: 'MANAGED' });
     const hers = await documents.create({ title: 'Her passport', createdById: alice.id });
-    await files.attach(hers.id, fileId);
+    await hold(hers.id, fileId);
     // The same bytes then turn up on the volume, and ingest binds the ref to the row it already has
     // rather than making a second one (docs/05 §5.3).
     await addRef(libraryId, fileId, 'scans/passport.pdf');

@@ -18,6 +18,7 @@ import type { FileStorage } from '../ports/file-storage';
 import type { JobQueue } from '../ports/job-queue';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import { artifactKeys, originalDelivery, originalKeyOf } from '../storage/artifact-keys';
+import { pagesForFile } from '../../domain/entities/document-page';
 
 // The trash (docs/05 §5.7a, docs/07 §7.3, docs/11 §11.13b): every file that has left a document and
 // has not been destroyed yet. An admin's, because everything here either destroys bytes or makes a
@@ -169,7 +170,7 @@ export class RestoreTrashItem {
         { title: titleOf(restored.name), createdById: actorId },
         tx,
       );
-      await this.files.attach(document.id, restored.id, tx);
+      await this.files.appendPages(document.id, pagesForFile(restored), tx);
       await this.queue.enqueueAfterTx(tx, 'document-process', { documentId: document.id });
 
       await this.events.record(

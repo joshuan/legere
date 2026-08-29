@@ -13,6 +13,7 @@ import type { LibraryReader } from '../ports/library-reader';
 import type { MimeDetector } from '../ports/mime-detector';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import { JobHandler } from './job-handler';
+import { pagesForFile } from '../../domain/entities/document-page';
 
 export const fileIngestPayloadSchema = z.object({ fileRefId: z.string().uuid() });
 export type FileIngestPayload = z.infer<typeof fileIngestPayloadSchema>;
@@ -160,7 +161,7 @@ export class HandleFileIngest extends JobHandler {
       // always one the pipeline will run (docs/06 §6.3.4). Step statuses default to PENDING in the
       // schema (docs/05 §5.5).
       const document = await this.documents.create({ title: ref.path.stem }, tx);
-      await this.files.attach(document.id, file.id, tx);
+      await this.files.appendPages(document.id, pagesForFile(file), tx);
       await this.queue.enqueueAfterTx(tx, 'document-process', { documentId: document.id });
 
       await this.events.record(

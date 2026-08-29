@@ -313,6 +313,39 @@ export function withFilePageOrder(
   });
 }
 
+// An entry joining another document is a new entry there: nothing addresses a page across documents,
+// and a row carries the document it belongs to (docs/03 §3.3.17). What it keeps is everything that
+// says what the page *is* — which file, which page of it, which way up, how much of it is paper — so
+// a page that changes hands arrives as the page it was and never as a fresh reading of its file.
+export function withoutId(page: PageEntry): PageEntry {
+  return {
+    fileId: page.fileId,
+    pageIndex: page.pageIndex,
+    turn: page.turn,
+    crop: page.crop,
+    cropSource: page.cropSource,
+  };
+}
+
+// 🔒 A file's entries replaced by another file's, **where the first of them stood** (docs/05 §5.6).
+// The rest of the list does not move: a photograph somebody put between pages two and three is still
+// between pages two and three when it is re-taken, which is exactly what regrouping the list into
+// one block per file — what a reorder by file does — would destroy. The old file's other entries go
+// with it, because what replaced them is one file and it says how many pages it has for itself.
+export function withFileReplaced(
+  pages: readonly PageEntry[],
+  fileId: string,
+  replacement: readonly PageEntry[],
+): PageEntry[] {
+  let planted = false;
+  return pages.flatMap((page): PageEntry[] => {
+    if (page.fileId !== fileId) return [page];
+    if (planted) return [];
+    planted = true;
+    return [...replacement];
+  });
+}
+
 // The end of the one two-level state (ADR-025): where a build has counted the pages of a file this
 // document holds whole, the entry becomes one entry per page, in the file's own order, keeping what
 // was said about the file whole. A file nothing could count keeps the entry it has — a document is
@@ -335,6 +368,21 @@ export function withExpandedPages(
       cropSource: page.cropSource,
     }));
   });
+}
+
+// 🔒 Whether two readings of a document's list are the same reading: the same entries, in the same
+// order, each of them the same row saying the same thing (docs/03 §3.3.17). This is the precondition
+// of every composition edit — a rewrite is computed from a list the caller was shown, and writing it
+// against a list that has moved carries the older list back with it, restoring a page somebody
+// removed and pointing it at a file that is now in the trash.
+//
+// The ids as well as the payload, and for different reasons: the ids catch a page added, removed or
+// moved, and the payload catches a crop or a turn that would otherwise be silently reverted by an
+// edit about some other page entirely.
+export function sameListing(pages: readonly PageEntry[], next: readonly PageEntry[]): boolean {
+  if (pages.length !== next.length) return false;
+  if (!pages.every((page, index) => next[index]?.id === page.id)) return false;
+  return samePages(pages, next);
 }
 
 // Whether a rewrite would change anything at all — asked before writing, because the expansion above

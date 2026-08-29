@@ -166,6 +166,9 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
       useFactory: (
         documents: DocumentRepository,
         files: FileRepository,
+        // The refs of a file that goes to the trash are excluded with it, on the same terms as every
+        // other way in — a superseded library original must not be ingested again (docs/03 §3.3.9).
+        fileRefs: FileRefRepository,
         events: DocumentEventRepository,
         storage: FileStorage,
         mime: MimeDetector,
@@ -173,10 +176,21 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
         unitOfWork: UnitOfWork,
         clock: Clock,
       ): ReplaceDocumentFile =>
-        new ReplaceDocumentFile(documents, files, events, storage, mime, queue, unitOfWork, clock),
+        new ReplaceDocumentFile(
+          documents,
+          files,
+          fileRefs,
+          events,
+          storage,
+          mime,
+          queue,
+          unitOfWork,
+          clock,
+        ),
       inject: [
         DocumentRepository,
         FileRepository,
+        FileRefRepository,
         DocumentEventRepository,
         FileStorage,
         MimeDetector,

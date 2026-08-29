@@ -11,6 +11,7 @@ import {
 } from '../../../../test/helpers/processing-fakes';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
 import {
+  pagesForFile,
   withFileCrop,
   withFilePageOrder,
   withFilePageTurns,
@@ -90,7 +91,7 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
     edit: (pages: PageEntry[]) => PageEntry[],
   ): Promise<void> => {
     const held = await files.listPagesForDocument(documentId);
-    await files.replacePages(documentId, edit(held));
+    await files.replacePages(documentId, { pages: edit(held), expecting: null });
   };
 
   const givenPhotograph = async (
@@ -106,7 +107,7 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
       sizeBytes: 1n,
       name: 'page.jpg',
     });
-    await files.attach(documentId, file.id);
+    await files.appendPages(documentId, pagesForFile(file));
     if (overrides.crop !== undefined) {
       await editPages(documentId, (pages) =>
         withFileCrop(pages, file.id, overrides.crop ?? null, 'MANUAL'),
@@ -330,6 +331,50 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
       expect(held.map((page) => page.position)).toEqual([0, 1, 2, 3]);
     });
 
+    // 🔒 `03 §3.3.17` promises that a `MANUAL` crop is never overwritten by a rebuild, and until now
+    // nothing ran a rebuild to find out: the nearest test asserted only that `cropSource: MANUAL` was
+    // *stored*. That is the very property defect 3 broke — `attach` re-derived a file's pages from
+    // its page count, with no crop and no turn — so this is the test that would have caught it.
+    it('keeps a crop and a turn somebody chose across a rebuild that expands the entry', async () => {
+      pdfs.pageCount = 3;
+      const document = documentFixture();
+      const fileId = await givenPdf(document.id, { pageCount: null });
+      const crop: Crop = {
+        points: [
+          [0.1, 0.1],
+          [0.9, 0.1],
+          [0.9, 0.9],
+          [0.1, 0.9],
+        ],
+      };
+      // Said about the file while it is still held whole — the one entry standing for it — which is
+      // what the crop editor writes before anything has counted its pages.
+      await editPages(document.id, (pages) => withFileCrop(pages, fileId, crop, 'MANUAL'));
+      await editPages(document.id, (pages) =>
+        withFileTurn(pages, fileId, { quarterTurns: 1, mirrored: false }),
+      );
+
+      await build.execute(document);
+
+      // The rebuild counted the pages and expanded the entry — and every page it became still says
+      // what the person said, on the entry it now has.
+      const held = await files.listPagesForDocument(document.id);
+      expect(held.map((page) => page.pageIndex)).toEqual([0, 1, 2]);
+      expect(held.map((page) => page.cropSource)).toEqual(['MANUAL', 'MANUAL', 'MANUAL']);
+      expect(held.map((page) => page.crop)).toEqual([crop, crop, crop]);
+      expect(held.map((page) => page.turn)).toEqual([
+        { quarterTurns: 1, mirrored: false },
+        { quarterTurns: 1, mirrored: false },
+        { quarterTurns: 1, mirrored: false },
+      ]);
+
+      // And a second run changes nothing: the expansion is written down, so it happens once.
+      await build.execute(document);
+      const again = await files.listPagesForDocument(document.id);
+      expect(again.map((page) => page.cropSource)).toEqual(['MANUAL', 'MANUAL', 'MANUAL']);
+      expect(again.map((page) => page.id)).toEqual(held.map((page) => page.id));
+    });
+
     it('renders and warps a page of a PDF somebody cropped', async () => {
       pdfs.pageCount = 3;
       const document = documentFixture();
@@ -497,8 +542,8 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
         crop: null,
         cropSource: 'NONE',
       });
-      await files.replacePages(first.id, [entry(0), entry(1)]);
-      await files.replacePages(second.id, [entry(2), entry(3)]);
+      await files.replacePages(first.id, { pages: [entry(0), entry(1)], expecting: null });
+      await files.replacePages(second.id, { pages: [entry(2), entry(3)], expecting: null });
 
       const picked = (): string[] =>
         pdfs.calls.flatMap((call) =>
@@ -522,7 +567,7 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
       const second = documentFixture({ id: 'doc-second' });
       const fileId = await givenPhotograph(first.id);
       // The same bytes, read by a page of another document as well (ADR-025).
-      await files.attach(second.id, fileId);
+      await files.appendPages(second.id, pagesForFile({ id: fileId, pageCount: null }));
 
       const left: Crop = {
         points: [
@@ -583,7 +628,7 @@ describe('BuildCanonical: the shape of a page and when it is decided', () => {
           sizeBytes: each,
           name: `heavy-${index}.pdf`,
         });
-        await files.attach(documentId, file.id);
+        await files.appendPages(documentId, pagesForFile(file));
         await storage.put(
           `documents/${documentId}/heavy-${index}.pdf`,
           Buffer.from('pdf'),

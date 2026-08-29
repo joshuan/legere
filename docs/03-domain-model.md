@@ -972,6 +972,14 @@ describes the bytes and nothing else.
 - A file in the trash has no `DocumentPage` row anywhere, keeps its bytes, and is what the trash
   screen lists. Restoring it makes a **new** document (`05 §5.7a`); emptying the trash is the one
   place a file row is deleted outright.
+  🔒 **This is a fact nothing asserts and every path asks.** Since ADR-025 no operation can know from
+  its own arithmetic that it removed the last page reading a file — the page it took out was one of
+  many, in one document of several — so every edge that can leave a file unread goes to the trash
+  through the same question, "which of these files has no live page anywhere", and trashes exactly
+  the answer (`05 §5.6`, `05 §5.7a`). A path that trashed a file because it *expected* to be the last
+  reader is how this invariant was broken while the code read as though it held: the file left one
+  document, another still held twelve pages of it, and the retention sweep then met
+  `document_pages_file_id_fkey ON DELETE RESTRICT` on every run for ever.
 - Bytes are never modified. A crop and a turn are numbers written beside a **page** (§3.3.17), not
   changes to a file: the original stays exactly as it arrived and the canonical PDF is rebuilt
   instead (§5.6).
@@ -1023,6 +1031,27 @@ goes before that file or after it, and the moment the first build expands the en
 inside it exist and can be used like any other. This is why every one of those endpoints answers with
 the document's whole page list — what a caller indexes is what it has just been shown, and never a
 guess about a file nothing has opened.
+
+🔒 **And the list a caller was shown is the list they are promised.** Every composition edit is a
+rewrite of the whole list: the endpoint reads what the document holds, answers with what it should
+hold instead, and writes the whole of it back — which is the only shape that cannot be half applied
+(`05 §5.6`). The price of that shape is that a rewrite computed from an older reading of the list
+would carry the older list back with it, undoing whatever happened in between: a crop saved against
+a list that has since lost a page writes the page back, reading a file that is now in the trash. So
+a rewrite names the reading it was computed from, and is **refused** (`409 DOCUMENT_CHANGED`,
+`07 §7.3`) when the document's list is no longer that reading — entry for entry, in order, each
+saying the same thing. Nothing is written, the answer carries the list as it now stands, and the
+caller re-reads and asks again. Merging the two is not on offer: two people cropping one page have a
+last writer whatever anybody does, but a rewrite that silently restores a page somebody removed is a
+different kind of wrong, and this is the boundary that keeps them apart.
+
+Two writes are outside that rule because neither is computed from a reading of the list. **Appending
+pages** — an upload with no position, and the pages a combine moves into its target — goes after
+whatever the document holds at the moment it is written, so several uploads sent at once cannot lose
+each other. And the **canonical build's expansion** of an entry standing for a whole file
+(`05 §5.5` step 1) re-reads the list inside its own transaction and expands what it finds there: the
+build spends minutes opening files, an arrangement made in that window is somebody's work, and a
+build is not an edit that may refuse.
 
 **Why the turn and the crop live here.** They are answers about *this page in this document*, not
 about the bytes. A twenty-page scan has three pages lying sideways and not twenty, so a turn per file
@@ -1157,11 +1186,11 @@ for it in any case, and that is the answer rather than an accident of it.
 | Reorder pages, reorder files | arrange |
 | Page order and turns inside one file | arrange |
 | Crop or turn one page | arrange — four numbers beside a page; `null` puts it back |
-| Split off a file (`DELETE …/files/:fileId`) | arrange — the file becomes a document of its own, never nothing |
+| Split off a file (`DELETE …/files/:fileId`) | arrange — the file becomes a document of its own, never nothing. 🔒 That document takes the **original's owner**, exactly as a split at a page and a move into a new document do (`05 §5.6`) |
 | Split at a page (`POST …/split`) | arrange — the entries divide, no bytes are copied and none are lost |
 | Move pages to another document | arrange, **on both documents** — a page that moved is still read |
 | **Remove a page** (`DELETE …/pages/:pageId`) | **destroy** — the entry goes, and the file behind it goes to the trash with its `FileRef`s `EXCLUDED` when no live page anywhere still reads it (§3.3.9): only an `ADMIN` can reach the trash, and the next scan will not bring the bytes back |
-| **Replace a file** (`POST …/files/:fileId/replacement`) | **destroy** — the bytes a page reads are substituted and the old file goes to the trash |
+| **Replace a file** (`POST …/files/:fileId/replacement`) | **destroy** — the bytes a page reads are substituted and the old file goes to the trash. 🔒 And since a replacement reaches **every** document reading those bytes (ADR-025), the question is asked of every one of them: a caller who may not destroy content in all of them is refused whole (`409 FILE_READ_ELSEWHERE`), on combine's reasoning — editing a paper is not something reading another one entitles anybody to |
 | **Combine**, on each document it absorbs | **destroy** — the source is soft-deleted, which is what `DELETE /api/documents/:id` spends a `@Roles('ADMIN')` on one route above |
 
 Combine's *target* is arranging: it gains pages and loses none, so a reader may combine into a

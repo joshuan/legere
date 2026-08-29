@@ -21,7 +21,7 @@ import {
   updateDocumentPageRequestSchema,
 } from '../../../shared/contracts/files';
 import type { OrderedPair } from '../../domain/entities/document-link';
-import type { DocumentPage } from '../../domain/entities/document-page';
+import { pagesForFile, type DocumentPage } from '../../domain/entities/document-page';
 import type { File } from '../../domain/entities/file';
 import { DomainError } from '../../domain/errors/domain-error';
 import {
@@ -335,7 +335,7 @@ describe('A document worked on by the page', () => {
     it('leaves a file another document still reads exactly where it is', async () => {
       documents.add(documentFixture({ id: OTHER_DOCUMENT, createdById: ADMIN.id }));
       const detail = await given({ id: PHOTO, pageCount: 1 }, { id: SCAN, pageCount: 1 });
-      await files.attach(OTHER_DOCUMENT, PHOTO);
+      await files.appendPages(OTHER_DOCUMENT, pagesForFile({ id: PHOTO, pageCount: 1 }));
       const photo = (await pagesOf()).at(0);
 
       await remove.execute(ADMIN, detail, photo?.id ?? '');
@@ -501,7 +501,7 @@ describe('A document worked on by the page', () => {
     it('crops the page this document reads and not the same file elsewhere', async () => {
       documents.add(documentFixture({ id: OTHER_DOCUMENT, createdById: ADMIN.id }));
       const detail = await givenScan(2);
-      await files.attach(OTHER_DOCUMENT, SCAN);
+      await files.appendPages(OTHER_DOCUMENT, pagesForFile({ id: SCAN, pageCount: 2 }));
       const first = (await pagesOf()).at(0);
 
       await update.execute(ADMIN, detail, first?.id ?? '', { crop: CROP });
@@ -678,16 +678,19 @@ describe('A document worked on by the page', () => {
           [0, 1],
         ],
       };
-      await files.replacePages(DOCUMENT_ID, [
-        {
-          fileId: PHOTO,
-          pageIndex: 0,
-          turn: { quarterTurns: 1, mirrored: false },
-          crop,
-          cropSource: 'MANUAL',
-        },
-        { fileId: SCAN, pageIndex: 0, turn: null, crop: null, cropSource: 'NONE' },
-      ]);
+      await files.replacePages(DOCUMENT_ID, {
+        pages: [
+          {
+            fileId: PHOTO,
+            pageIndex: 0,
+            turn: { quarterTurns: 1, mirrored: false },
+            crop,
+            cropSource: 'MANUAL',
+          },
+          { fileId: SCAN, pageIndex: 0, turn: null, crop: null, cropSource: 'NONE' },
+        ],
+        expecting: null,
+      });
       const current = await detailOf(DOCUMENT_ID);
       const photo = (await pagesOf()).at(0);
 

@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { DocumentDetailDto, Rotation } from '../../../shared/contracts/documents';
-import type { FileOrigin } from '../../../shared/contracts/enums';
+import type { FileOrigin, TrashReason } from '../../../shared/contracts/enums';
 import type {
   CombineDocumentsRequest,
   CropSuggestionResponse,
@@ -21,7 +21,9 @@ import {
   pagesForFile,
   withFilePageOrder,
   withFilePageTurns,
+  withFileReplaced,
   withInsertedAt,
+  withoutId,
   type PageEntry,
 } from '../../domain/entities/document-page';
 import { classifyFormat } from '../../domain/entities/document-format';
@@ -47,7 +49,11 @@ import type {
   DocumentRepository,
   Viewer,
 } from '../../domain/repositories/document.repository';
-import type { FileRepository } from '../../domain/repositories/file.repository';
+import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
+import type {
+  DocumentPageWithFile,
+  FileRepository,
+} from '../../domain/repositories/file.repository';
 import { ContentHash } from '../../domain/value-objects/content-hash';
 import { toBuffer } from '../ports/binary-source';
 import type { Clock } from '../ports/clock';
@@ -56,8 +62,9 @@ import type { ImageTool } from '../ports/image-tool';
 import type { JobQueue } from '../ports/job-queue';
 import type { MimeDetector } from '../ports/mime-detector';
 import type { TransactionHandle, UnitOfWork } from '../ports/unit-of-work';
-import { artifactKeys, originalKeyOf, servableContentType } from '../storage/artifact-keys';
+import { artifactKeys, servableContentType } from '../storage/artifact-keys';
 import type { DocumentFileBytes } from './document-file-bytes';
+import { wholeFileReads } from './whole-file-reads';
 import { originOfDetail, toDetailDto } from './manage-documents';
 
 // Composing a document out of files (docs/05 §5.6, docs/07 §7.3). Every use case here changes only
@@ -118,17 +125,34 @@ export class AddDocumentFile {
     }
     const upload = await describeUpload(this.mime, input);
 
+    // 🔒 SEC-90, the same race `UploadDocument` was fixed for and the same fix: the bytes go into
+    // the bucket **before** the transaction opens (docs/09 §9.2). The rebuild this method enqueues
+    // commits with the rows, pg-boss polls every two seconds, and the run's first act is to open
+    // every file of the document — this one included. An object that is not there yet is `NoSuchKey`,
+    // which is no S3 error's idea of a service being down, so the canonical is recorded FAILED with
+    // no retry (docs/05 §5.4e) and every reader gets `409 CANONICAL_NOT_READY` until an admin
+    // reprocesses. Adding a file to an existing document is the ordinary case, which made this the
+    // ordinary way to break a document.
+    //
+    // The id is minted here because the key contains it, and the row must carry the same one: the
+    // sweep reads `files/{id}/`, finds no row and deletes the object an hour later (docs/09 §9.5).
+    // A rolled-back transaction leaves an orphan, which is exactly what the sweep is for.
+    const fileId = randomUUID();
+    const storageKey = artifactKeys.fileOriginal(fileId, upload.ext);
+    // 🔒 Stored as what it may be served as, not as what it says it is (docs/09 §9.2); the row keeps
+    // the detected MIME for everything that has to understand the file.
+    await this.storage.put(storageKey, input.bytes, servableContentType(upload.mimeType));
+
     const stored = await this.unitOfWork.run(async (tx) => {
       // The same bytes are one file however they arrive (ADR-021), and a file has exactly one home:
       // bytes that already belong somewhere are refused rather than moved, which is what Combine is
       // for (docs/05 §5.6).
       const { file, created } = await this.files.findOrCreateByContentHash(
         {
+          id: fileId,
           contentHash: upload.contentHash,
           origin: 'MANAGED',
-          // The key contains the id the row is about to be given, so it is recorded by whoever
-          // knows it; `originalKeyOf` reads it back or falls back to the layout (docs/09 §9.2).
-          storageKey: null,
+          storageKey,
           mimeType: upload.mimeType,
           ext: upload.ext,
           sizeBytes: BigInt(input.bytes.byteLength),
@@ -151,11 +175,15 @@ export class AddDocumentFile {
       // An append is still computed inside the transaction, from the last position the document
       // actually has, so the several files an upload panel sends at once cannot lose each other. An
       // insert at a chosen position cannot be: it is a rewrite of the whole list against the list the
-      // caller was shown, and two of those race exactly as every other composition edit does
-      // (docs/03 §3.3.17).
-      if (at === undefined) await this.files.attach(documentId, file.id, tx);
-      else
-        await this.files.replacePages(documentId, withInsertedAt(held, at, pagesForFile(file)), tx);
+      // caller was shown, so it names that list and is refused if it has moved (docs/03 §3.3.17).
+      if (at === undefined) await this.files.appendPages(documentId, pagesForFile(file), tx);
+      else {
+        await this.files.replacePages(
+          documentId,
+          { pages: withInsertedAt(held, at, pagesForFile(file)), expecting: held },
+          tx,
+        );
+      }
       await this.events.record(
         {
           documentId,
@@ -175,17 +203,11 @@ export class AddDocumentFile {
       return { file, created };
     });
 
-    if (stored.created) {
-      // After the commit: an object written for a transaction that then rolled back would be an
-      // orphan for maintenance to sweep (docs/09 §9.5).
-      //
-      // 🔒 Stored as what it may be served as, not as what it says it is (docs/09 §9.2); the row
-      // keeps the detected MIME for everything that has to understand the file.
-      await this.storage.put(
-        originalKeyOf(stored.file),
-        input.bytes,
-        servableContentType(upload.mimeType),
-      );
+    if (!stored.created) {
+      // These bytes were already a file under another row — deduplication found it, so the object
+      // written above belongs to nobody. Deleted here, and collected by the sweep if this fails
+      // (docs/09 §9.5).
+      await this.storage.delete(storageKey).catch(() => undefined);
     }
 
     return reload(this.documents, viewer, documentId);
@@ -229,8 +251,20 @@ export class ReorderDocumentFiles {
       }
     }
 
+    // The order is of **files**, each one's pages moving as a block and keeping the order this
+    // document reads them in — the older shape, which is what a screen showing files rather than
+    // pages sends, and it still means what it meant (docs/05 §5.6). Computed here, over the list the
+    // caller was shown, rather than by a repository method that rewrote the list from file ids: that
+    // method was also what a *replacement* called to put a new file "in the old one's place", which
+    // regrouped the whole document into blocks and sent a photograph inserted between pages two and
+    // three to the end.
+    const held = pagesOf(detail);
+    const reordered = input.order.flatMap((fileId) =>
+      held.filter((page) => page.fileId === fileId),
+    );
+
     await this.unitOfWork.run(async (tx) => {
-      await this.files.reorder(documentId, input.order, tx);
+      await this.files.replacePages(documentId, { pages: reordered, expecting: held }, tx);
       await this.events.record(
         {
           documentId,
@@ -317,7 +351,7 @@ export class UpdateDocumentFile {
         };
       }
 
-      await this.files.replacePages(documentId, pages, tx);
+      await this.files.replacePages(documentId, { pages, expecting: held }, tx);
 
       await this.events.record(
         {
@@ -363,24 +397,44 @@ export class SplitDocumentFile {
         'This is the only file of the document; delete the document instead',
       );
     }
+
+    // The list as it stands, and the two lists it becomes. 🔒 The pages that leave are **the pages
+    // this document held** — the same pages of the file, the same turns, the same crops — and never
+    // a fresh reading of the file: a document that was cut at page eight holds twelve pages of that
+    // file and not twenty, and a photograph somebody straightened is straightened where it goes
+    // (docs/03 §3.3.17).
+    const held = pagesOf(detail);
+    const moving = held.filter((page) => page.fileId === fileId);
+    const kept = held.filter((page) => page.fileId !== fileId);
+
     // 🔒 And the file that leaves may not be the one the document is readable through: what stays
-    // behind would be readable to nobody (docs/03 §3.4a). The file itself is fine — it becomes a
-    // document of the caller's own, which they can read.
-    assertKeepsItsReaders(
-      detail.document.createdById,
-      detail.files.flatMap((held) => (held.id === fileId ? [] : [held.origin])),
-    );
+    // behind would be readable to nobody (docs/03 §3.4a).
+    assertKeepsItsReaders(detail.document.createdById, originsOfPages(kept, detail));
+    // 🔒 Nor may the part that leaves be one nobody can read. It takes this document's owner — see
+    // below — so a purely uploaded file split off a document a scan made would become a document
+    // with no library page and no creator: present in the database and absent from every list
+    // (docs/05 §5.6).
+    assertKeepsItsReaders(detail.document.createdById, originsOfPages(moving, detail));
 
     const splitDocumentId = await this.unitOfWork.run(async (tx) => {
-      await this.files.detach(documentId, fileId, tx);
+      await this.files.replacePages(documentId, { pages: kept, expecting: held }, tx);
 
       // Titled after the file and inheriting nothing else: the split is a statement that these were
       // never one document, so carrying the type and people over would be an invention (docs/05 §5.6).
+      //
+      // 🔒 The **original's owner**, not the caller's — the same rule a split at a page and a move
+      // into a new document follow. Whoever may read a library document may arrange it (docs/03
+      // §3.4a), so taking the caller's id here handed a reader a private document of their own made
+      // out of somebody else's uploaded page, which its owner could then no longer read (SEC-47).
       const created = await this.documents.create(
-        { title: titleOf(file.name), createdById: viewer.id },
+        { title: titleOf(file.name), createdById: detail.document.createdById },
         tx,
       );
-      await this.files.attach(created.id, fileId, tx);
+      await this.files.replacePages(
+        created.id,
+        { pages: moving.map(withoutId), expecting: null },
+        tx,
+      );
 
       await this.events.record(
         {
@@ -428,14 +482,27 @@ export class SplitDocumentFile {
 // the place of the one that is there (docs/05 §5.6).
 //
 // The difference from add-then-reorder is the whole point: a page re-photographed is still that
-// page, so the new file inherits the old one's **position** and nothing else about the document
-// moves. The old file is not destroyed either — it goes to the trash marked `REPLACED`, because the
-// judgement "this scan is better" is exactly the kind somebody takes back an hour later
+// page, so the new file stands **where the old file's first page stood** and nothing else about the
+// document moves. The old file is not destroyed either — it goes to the trash marked `REPLACED`,
+// because the judgement "this scan is better" is exactly the kind somebody takes back an hour later
 // (docs/05 §5.7a).
+//
+// 🔒 And since ADR-025 the replacement is not one document's business. A split at a page and a page
+// move both leave one file read in two places, so a replacement is a replacement for **every page
+// that reads those bytes**, in every document reading them — which is what the ADR says and what
+// this route did not do: it rewrote one document, then put the file in the trash unconditionally,
+// leaving the other documents' pages pointing at a trashed file, `03 §3.3.16` false, restore
+// answering `FILE_ALREADY_IN_DOCUMENT` and the retention sweep failing on
+// `document_pages_file_id_fkey` on every run for ever.
+//
+// 🔒 The reach is bounded by the right to **destroy** in every one of those documents — combine's
+// rule for each document it absorbs, for combine's reason (docs/03 §3.4a) — and a replacement that
+// would reach one the caller may not destroy content in, or may not read at all, is refused whole.
 export class ReplaceDocumentFile {
   constructor(
     private readonly documents: DocumentRepository,
     private readonly files: FileRepository,
+    private readonly fileRefs: FileRefRepository,
     private readonly events: DocumentEventRepository,
     private readonly storage: FileStorage,
     private readonly mime: MimeDetector,
@@ -455,14 +522,6 @@ export class ReplaceDocumentFile {
     assertMayDestroy(viewer, detail);
     const documentId = detail.document.id;
     const replaced = fileOf(detail, fileId);
-    // 🔒 And "nothing else about the document changes" (docs/05 §5.6) is checked rather than hoped
-    // for: what arrives is stored MANAGED, so replacing a document's last library file would take
-    // it away from everybody its library reaches — and from everybody at all, a document a scan made
-    // having no creator to fall back on.
-    assertKeepsItsReaders(
-      detail.document.createdById,
-      detail.files.map((held) => (held.id === fileId ? 'MANAGED' : held.origin)),
-    );
     const upload = await describeUpload(this.mime, input);
 
     if (upload.contentHash === replaced.contentHash) {
@@ -474,12 +533,39 @@ export class ReplaceDocumentFile {
       );
     }
 
+    // 🔒 Every document holding a live page of those bytes, and the right to destroy content in each
+    // of them (ADR-025, docs/03 §3.4a). Asked before anything is stored, and refused whole: applying
+    // the replacement only to the documents this caller happens to reach would leave the archive
+    // reading one page out of two different files and call it one replacement.
+    const reached = await this.reach(viewer, detail, fileId);
+
+    // 🔒 And "nothing else about the document changes" (docs/05 §5.6) is checked rather than hoped
+    // for, of **every** document it reaches: what arrives is stored MANAGED, so replacing a
+    // document's last library file would take it away from everybody its library reaches — and from
+    // everybody at all, a document a scan made having no creator to fall back on. The replacement
+    // itself is counted as no library page, which is the safe direction: the one case where it would
+    // be one is bytes that are already a trashed library file coming back.
+    for (const one of reached) {
+      const kept = one.held.filter((page) => page.fileId !== fileId);
+      assertKeepsItsReaders(one.detail.document.createdById, originsOfPages(kept, one.detail));
+    }
+
+    // 🔒 SEC-90 again, and for the third time the same order: bytes into the bucket before the
+    // transaction opens, with the id minted here so the key and the row carry one uuid
+    // (docs/09 §9.2, §9.5). A replacement enqueues a rebuild of every document it touches, and a
+    // rebuild that reaches the bucket before the upload did records the canonical FAILED with no
+    // retry — which on this route would be a document whose page was replaced *and* made unreadable.
+    const newFileId = randomUUID();
+    const storageKey = artifactKeys.fileOriginal(newFileId, upload.ext);
+    await this.storage.put(storageKey, input.bytes, servableContentType(upload.mimeType));
+
     const stored = await this.unitOfWork.run(async (tx) => {
       const { file, created } = await this.files.findOrCreateByContentHash(
         {
+          id: newFileId,
           contentHash: upload.contentHash,
           origin: 'MANAGED',
-          storageKey: null,
+          storageKey,
           mimeType: upload.mimeType,
           ext: upload.ext,
           sizeBytes: BigInt(input.bytes.byteLength),
@@ -501,50 +587,104 @@ export class ReplaceDocumentFile {
       }
       if (file.trashedAt !== null) await this.files.untrash(file.id, tx);
 
-      // Out of the composition and into the trash, then in at the same position: the two are one
-      // move, and a file may not be read by two documents through this route, so the order is forced.
-      await this.files.detach(documentId, fileId, tx);
-      await this.files.trash(
-        {
-          fileIds: [fileId],
-          reason: 'REPLACED',
-          trashedFrom: detail.document.title,
-          replacedById: file.id,
-          at: this.clock.now(),
-        },
+      // 🔒 Every document that reads the old bytes, each of them rewritten the same way: the new
+      // file stands where the first page of the old one stood, the old one's other entries go, and
+      // nothing else in the list moves (docs/05 §5.6). The new entries are its own pages and not the
+      // old file's — different bytes are a different paper — so it arrives as one entry standing for
+      // the file whole, with no turn and no crop, which the next build expands (docs/03 §3.3.17).
+      const arriving = pagesForFile(file);
+      for (const one of reached) {
+        await this.files.replacePages(
+          one.detail.document.id,
+          { pages: withFileReplaced(one.held, fileId, arriving), expecting: one.held },
+          tx,
+        );
+      }
+
+      // 🔒 Only now, and only through the question every destroying edit asks: which of these files
+      // has no live page left anywhere (docs/05 §5.7a). The rewrites above have taken the last one,
+      // so the answer is this file — but it is *asked* rather than assumed, because assuming it is
+      // what put a file other documents were still reading into the trash and broke §3.3.16.
+      await trashFilesNothingReads(
+        { files: this.files, fileRefs: this.fileRefs, clock: this.clock },
+        [fileId],
+        detail.document.title,
         tx,
-      );
-      await this.files.attach(documentId, file.id, tx);
-      await this.files.reorder(
-        documentId,
-        detail.files.map((held) => (held.id === fileId ? file.id : held.id)),
-        tx,
+        { reason: 'REPLACED', replacedById: file.id },
       );
 
-      await this.events.record(
-        {
-          documentId,
-          type: 'FILE_ATTACHED',
-          actorId: viewer.id,
-          payload: { source: 'UPLOAD', path: file.name },
-        },
-        tx,
-      );
-      await enqueueRebuild(this.queue, this.events, tx, documentId, viewer.id);
+      for (const one of reached) {
+        const touched = one.detail.document.id;
+        await this.events.record(
+          {
+            documentId: touched,
+            type: 'FILE_ATTACHED',
+            actorId: viewer.id,
+            payload: {
+              source: 'UPLOAD',
+              path: file.name,
+              // How far the replacement reached, on the document that asked for it: ADR-025 promises
+              // the asker learns how many documents they changed, and this is where they are told.
+              ...(touched === documentId
+                ? { changes: { documents: { from: null, to: String(reached.length) } } }
+                : {}),
+            },
+          },
+          tx,
+        );
+        await enqueueRebuild(this.queue, this.events, tx, touched, viewer.id);
+      }
       return { file, created };
     });
 
-    if (stored.created) {
-      // After the commit, for the reason the upload gives: an object written for a transaction that
-      // rolled back is an orphan (docs/09 §9.5).
-      await this.storage.put(
-        originalKeyOf(stored.file),
-        input.bytes,
-        servableContentType(upload.mimeType),
-      );
+    if (!stored.created) {
+      // The bytes were already a file — an earlier version taken back out of the trash, most often
+      // — so the object written above belongs to nobody and goes; the sweep collects it if this
+      // fails (docs/09 §9.5).
+      await this.storage.delete(storageKey).catch(() => undefined);
     }
 
     return reload(this.documents, viewer, documentId);
+  }
+
+  // 🔒 How far this replacement reaches, and whether the caller is allowed that far. Every document
+  // holding a live page of the old file is in the answer, each with the list it holds now — which is
+  // what the rewrite is computed against and what it will be checked against when it is written.
+  //
+  // A document the caller cannot destroy content in, or cannot read at all, ends the request: the
+  // replacement is refused whole (`FILE_READ_ELSEWHERE`) rather than applied to part of the archive.
+  // The two cases answer the same code on purpose — telling them apart would tell the caller that a
+  // document they cannot see exists, which is the leak `03 §3.3.14` refuses in its own shape.
+  private async reach(
+    viewer: Viewer,
+    detail: DocumentDetail,
+    fileId: string,
+  ): Promise<Array<{ detail: DocumentDetail; held: PageEntry[] }>> {
+    const documentId = detail.document.id;
+    // In id order, the order the repository answers in: two replacements running at once then take
+    // the documents' locks in the same order and queue rather than deadlock.
+    const readers = await this.files.listDocumentIdsForFile(fileId);
+    const reached: Array<{ detail: DocumentDetail; held: PageEntry[] }> = [];
+
+    for (const readerId of readers) {
+      if (readerId === documentId) {
+        reached.push({ detail, held: pagesOf(detail) });
+        continue;
+      }
+      const other = await this.documents.findReadableById(readerId, viewer);
+      if (other === null) throw fileReadElsewhere();
+      if (!canDestroyDocumentContent(viewer, other.document, originOfDetail(other))) {
+        throw fileReadElsewhere();
+      }
+      reached.push({ detail: other, held: pagesOf(other) });
+    }
+
+    // The document the request names always reads the file — `fileOf` said so — but a list built
+    // from another query is not the place to trust that.
+    if (!reached.some((one) => one.detail.document.id === documentId)) {
+      reached.push({ detail, held: pagesOf(detail) });
+    }
+    return reached;
   }
 }
 
@@ -599,12 +739,22 @@ export class CombineDocuments {
     await this.unitOfWork.run(async (tx) => {
       const deletedAt = this.clock.now();
       for (const source of sources) {
-        // In the order the caller chose, and inside one document in its own page order: the files
+        // In the order the caller chose, and inside one document in its own page order: the pages
         // are appended, so the target keeps its own pages first.
-        const moving = await this.files.listForDocument(source.document.id, tx);
-        for (const file of moving) {
-          await this.files.detach(source.document.id, file.id, tx);
-          await this.files.attach(targetId, file.id, tx);
+        //
+        // 🔒 Read under the source's own lock and moved **as entries** — the same file, the same
+        // page of it, the same turn and the same crop (docs/03 §3.3.17). Rebuilding the list from
+        // the files instead handed a hand-cropped, turned photograph over as a raw picture, and gave
+        // a document that had been cut back the pages somebody deliberately cut away. And a file a
+        // third document also reads travels like any other: pages of one file in two documents is
+        // what ADR-025 decided, so combine — which docs/05 §5.6 calls *the* way to move a file
+        // between documents — cannot be the operation that refuses it.
+        const moving = await this.files.lockPagesForDocument(source.document.id, tx);
+        const entries = moving.map((page) => withoutId(entryOf(page)));
+        await this.files.appendPages(targetId, entries, tx);
+        await this.files.replacePages(source.document.id, { pages: [], expecting: null }, tx);
+
+        for (const file of filesNamedBy(moving)) {
           await this.events.record(
             {
               documentId: targetId,
@@ -682,7 +832,12 @@ export class SuggestDocumentFileCrop {
 
     // Read once and held: the detector and the fallback both want the same bytes, and a stream is
     // good for one of them.
-    const source = await toBuffer(await this.bytes.open(file));
+    //
+    // 🔒 And held under the gate, because holding a whole file in memory while somebody waits on the
+    // socket is what the gate counts (docs/05 §5.4a, docs/09 §9.1). This is the fourth such route
+    // and the one the first pass missed: a crop proposal opens the photograph whole, and twenty-five
+    // of them at once is twenty-five photographs resident in a container given 2 GB.
+    const source = await wholeFileReads.run(async () => toBuffer(await this.bytes.open(file)));
 
     const raster = await this.images.grayscaleRaster(source, DETECTION_MAX_DIM);
     const detected = detectPageEdges(raster);
@@ -726,6 +881,64 @@ export function assertKeepsItsReaders(
     'DOCUMENT_WOULD_HAVE_NO_READERS',
     'That would leave a library document with no page from a library, and nobody but an ' +
       'administrator could read it',
+  );
+}
+
+// 🔒 The trash rule of `05 §5.7a`, in **one** place because every edit that can leave a file unread
+// has to honour it and none of them may decide for itself: of the files named, the ones no live page
+// anywhere still reads go to the trash under the title of the document they left **last**, their
+// library refs excluded so the next scan does not ingest the same bytes into a brand-new document
+// (docs/03 §3.3.9). Asked after the pages are written, because that is when the question has an
+// answer.
+//
+// Since ADR-025 no operation can know from its own arithmetic that it took the last page reading a
+// file: the page it removed was one of many, in one document of several. A path that trashed a file
+// because it *expected* to be the last reader is exactly how a file twelve live pages still read
+// ended up in the trash — with `03 §3.3.16` false, restore answering `FILE_ALREADY_IN_DOCUMENT` and
+// the retention sweep meeting `ON DELETE RESTRICT` on every run for ever.
+export async function trashFilesNothingReads(
+  deps: { files: FileRepository; fileRefs: FileRefRepository; clock: Clock },
+  fileIds: readonly string[],
+  trashedFrom: string,
+  tx: TransactionHandle,
+  // Why they left, for the screen that lists them (docs/03 §3.3.16). A replacement says so and names
+  // the file that took the place; everything else is a page that was taken out.
+  why: { reason: TrashReason; replacedById?: string } = { reason: 'PAGE_REMOVED' },
+): Promise<void> {
+  const orphaned = await deps.files.filterFilesWithoutLivePages(fileIds, tx);
+  if (orphaned.length === 0) return;
+  await deps.fileRefs.markExcluded(orphaned, tx);
+  await deps.files.trash(
+    {
+      fileIds: orphaned,
+      reason: why.reason,
+      trashedFrom,
+      ...(why.replacedById === undefined ? {} : { replacedById: why.replacedById }),
+      at: deps.clock.now(),
+    },
+    tx,
+  );
+}
+
+// The files a list of pages names, once each, in the order the pages first name them: what the
+// journal records when a whole document changes hands (docs/03 §3.3.18).
+function filesNamedBy(pages: readonly DocumentPageWithFile[]): File[] {
+  const seen = new Set<string>();
+  return pages.flatMap((page) => {
+    if (seen.has(page.fileId)) return [];
+    seen.add(page.fileId);
+    return [page.file];
+  });
+}
+
+// 🔒 The bytes are read beyond where the caller may reach (ADR-025, docs/03 §3.4a). One code for
+// "you may not destroy content there" and for "you cannot see it at all", deliberately: telling them
+// apart would tell the caller that a document they may not see exists.
+function fileReadElsewhere(): ConflictError {
+  return new ConflictError(
+    'FILE_READ_ELSEWHERE',
+    'These bytes are read by a document you may not take content out of, and a replacement ' +
+      'replaces them everywhere they are read',
   );
 }
 

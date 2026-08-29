@@ -272,7 +272,10 @@ describe('Document processing (integration)', () => {
 
     // What a person dragged into place, written on the document's own list.
     const held = await fileRepo.listPagesForDocument(documentId);
-    await fileRepo.replacePages(documentId, withFilePageOrder(held, file.id, [2, 0, 1]));
+    await fileRepo.replacePages(documentId, {
+      pages: withFilePageOrder(held, file.id, [2, 0, 1]),
+      expecting: null,
+    });
     pdfs.calls.length = 0;
     await handler.handle({ documentId });
     expect(pdfs.calls).toContainEqual({ method: 'rearrangePages', fileName: '2,0,1' });

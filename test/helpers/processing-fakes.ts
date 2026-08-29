@@ -31,7 +31,15 @@ import {
   type FileRefView,
   type TrashedFile,
 } from '../../src/server/domain/repositories/file.repository';
-import type { DocumentPage, PageEntry } from '../../src/server/domain/entities/document-page';
+import {
+  entryOf,
+  samePages,
+  sameListing,
+  withExpandedPages,
+  type DocumentPage,
+  type PageEntry,
+} from '../../src/server/domain/entities/document-page';
+import { ConflictError } from '../../src/server/domain/errors/domain-error';
 import {
   FileRefRepository,
   type CreateFileRefInput,
@@ -432,13 +440,14 @@ export class InMemoryFileRepository extends FileRepository {
   add(file: Partial<File> = {}, documentId: string | null = DOCUMENT_ID): File {
     const full = fileFixture({ id: file.id ?? `file-${this.files.size + 1}`, ...file });
     this.files.set(full.id, full);
-    if (documentId !== null) this.appendPages(documentId, full);
+    if (documentId !== null) this.seedPages(documentId, full);
     return full;
   }
 
-  // Its own pages where a build has counted them, and one entry standing for the file whole where
-  // none has (docs/03 §3.3.17).
-  private appendPages(documentId: string, file: File): void {
+  // The fixture's own shortcut for "a document already reads this file": its own pages where a build
+  // has counted them, and one entry standing for the file whole where none has (docs/03 §3.3.17).
+  // Not what any production path does any more — those hand `appendPages` the entries they mean.
+  private seedPages(documentId: string, file: File): void {
     const held = this.composition.get(documentId) ?? [];
     const count = file.pageCount === null || file.pageCount < 1 ? null : file.pageCount;
     const indices: (number | null)[] =
@@ -634,11 +643,28 @@ export class InMemoryFileRepository extends FileRepository {
     );
   }
 
-  replacePages(documentId: string, pages: readonly PageEntry[]): Promise<void> {
-    this.entries += pages.length;
+  // 🔒 The precondition is honoured here exactly as the database honours it, because a fake that
+  // waved it through would let every test pass over the one bug this guard exists for: an edit
+  // computed from a reading of the list that is no longer the list (docs/03 §3.3.17).
+  replacePages(
+    documentId: string,
+    input: { pages: readonly PageEntry[]; expecting: readonly PageEntry[] | null },
+  ): Promise<void> {
+    if (input.expecting !== null) {
+      const held = (this.composition.get(documentId) ?? []).map(entryOf);
+      if (!sameListing(input.expecting, held)) {
+        return Promise.reject(
+          new ConflictError(
+            'DOCUMENT_CHANGED',
+            'This document has been edited since the list this change was computed from; read it again',
+          ),
+        );
+      }
+    }
+    this.entries += input.pages.length;
     this.composition.set(
       documentId,
-      pages.map((page, position) => ({
+      input.pages.map((page, position) => ({
         id: page.id ?? `page-${this.entries}-${position}`,
         documentId,
         position,
@@ -694,28 +720,56 @@ export class InMemoryFileRepository extends FileRepository {
     return Promise.resolve(fileIds.filter((fileId) => !read.has(fileId)));
   }
 
-  attach(documentId: string, fileId: string): Promise<void> {
-    const file = this.files.get(fileId);
-    if (file !== undefined) this.appendPages(documentId, file);
-    return Promise.resolve();
+  listDocumentIdsForFile(fileId: string): Promise<string[]> {
+    const found = [...this.composition]
+      .filter(([, pages]) => pages.some((page) => page.fileId === fileId))
+      .map(([documentId]) => documentId);
+    return Promise.resolve(found.sort());
   }
 
-  detach(documentId: string, fileId: string): Promise<void> {
-    this.renumber(
-      documentId,
-      (this.composition.get(documentId) ?? []).filter((page) => page.fileId !== fileId),
-    );
-    return Promise.resolve();
-  }
-
-  reorder(documentId: string, fileIdsInOrder: readonly string[]): Promise<void> {
+  // After whatever the document holds now — the one composition write with no precondition, because
+  // appending cannot lose anything (docs/03 §3.3.17). The entries are the caller's: nothing here
+  // re-derives a page list from a file's page count, which is what the method this replaced did.
+  appendPages(documentId: string, pages: readonly PageEntry[]): Promise<void> {
     const held = this.composition.get(documentId) ?? [];
-    const named = new Set(fileIdsInOrder);
-    this.renumber(documentId, [
-      ...fileIdsInOrder.flatMap((fileId) => held.filter((page) => page.fileId === fileId)),
-      ...held.filter((page) => !named.has(page.fileId)),
+    this.composition.set(documentId, [
+      ...held,
+      ...pages.map((page, offset) => {
+        this.entries += 1;
+        return {
+          id: page.id ?? `page-${this.entries}`,
+          documentId,
+          position: held.length + offset,
+          fileId: page.fileId,
+          pageIndex: page.pageIndex,
+          turn: page.turn,
+          crop: page.crop,
+          cropSource: page.cropSource,
+        };
+      }),
     ]);
     return Promise.resolve();
+  }
+
+  // There is one thread here, so "held for the rest of the transaction" is nothing to model — but
+  // the read is the same read, and a caller using this instead of a snapshot is doing the right
+  // thing for the right reason.
+  lockPagesForDocument(documentId: string): Promise<DocumentPageWithFile[]> {
+    return this.listPagesForDocument(documentId);
+  }
+
+  // 🔒 Expanded from the list **as it stands**, not from a snapshot the caller brought: this is the
+  // whole point of the method, and a fake that took the caller's list would prove the opposite of
+  // what the tests are for (docs/05 §5.5 step 1).
+  async expandWholeFileEntries(
+    documentId: string,
+    pageCounts: ReadonlyMap<string, number>,
+  ): Promise<DocumentPageWithFile[]> {
+    const held = await this.listPagesForDocument(documentId);
+    const expanded = withExpandedPages(held.map(entryOf), pageCounts);
+    if (samePages(held, expanded)) return held;
+    await this.replacePages(documentId, { pages: expanded, expecting: null });
+    return this.listPagesForDocument(documentId);
   }
 
   // Positions are contiguous (docs/03 §3.3.17), so whatever is left closes up behind what went.
