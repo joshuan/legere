@@ -191,9 +191,7 @@ describe('loadConfig', () => {
     // leave this host, and refused everywhere else (docs/12 §12.4a).
     describe('the permission to send mail unencrypted', () => {
       it('is refused for a relay somewhere else, and says what to change', () => {
-        expect(() =>
-          loadConfig({ ...PRODUCTION, SMTP_ALLOW_PLAINTEXT: 'true' }),
-        ).toThrowError(
+        expect(() => loadConfig({ ...PRODUCTION, SMTP_ALLOW_PLAINTEXT: 'true' })).toThrowError(
           /Refusing to start in production[\s\S]*SMTP_ALLOW_PLAINTEXT is set and smtp\.legere\.example is not this host/,
         );
         expect(() => loadConfig({ ...PRODUCTION, SMTP_ALLOW_PLAINTEXT: 'true' })).toThrowError(

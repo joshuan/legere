@@ -47,7 +47,11 @@ describe('the SMTP transport (docs/12 §12.8)', () => {
     expect(smtpTransportOptions(configFor({ SMTP_HOST: 'smtp.example.com' })).auth).toBeUndefined();
     expect(
       smtpTransportOptions(
-        configFor({ SMTP_HOST: 'smtp.example.com', SMTP_USER: 'postmaster', SMTP_PASSWORD: 's3cr3t' }),
+        configFor({
+          SMTP_HOST: 'smtp.example.com',
+          SMTP_USER: 'postmaster',
+          SMTP_PASSWORD: 's3cr3t',
+        }),
       ),
     ).toMatchObject({ auth: { user: 'postmaster', pass: 's3cr3t' } });
   });
