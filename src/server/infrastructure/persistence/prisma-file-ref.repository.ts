@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { FileRef as PrismaFileRef } from '@prisma/client';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { FileRef } from '../../domain/entities/file-ref';
+import type { Viewer } from '../../domain/repositories/document.repository';
 import {
   FileRefRepository,
   type CreateFileRefInput,
@@ -12,6 +13,7 @@ import type { FileRefView } from '../../domain/repositories/file.repository';
 import { RelativePath } from '../../domain/value-objects/relative-path';
 import { folderPrefixPattern } from './like';
 import { clientOf } from './prisma-client';
+import { readableSql } from './prisma-document.repository';
 import { PrismaService } from './prisma.service';
 
 function toDomain(row: PrismaFileRef): FileRef {
@@ -197,9 +199,17 @@ export class PrismaFileRefRepository implements FileRefRepository {
   // below `folder`, counted by the documents underneath. A ref points at a file and the file at a
   // document reads the file (docs/03 §3.3.17), so the count travels through `document_pages`. Raw SQL because the
   // shape of the answer is a string operation on the path, which the query builder cannot express.
+  //
+  // 🔒 And the count is a count of readable documents. A number is an answer about the archive as
+  // much as a list is: without the rule of docs/03 §3.4 in here, a subfolder said "3 documents" and
+  // opening it showed two, because the third is somebody else's upload that a scan later found the
+  // same bytes of (docs/05 §5.3) — one `GET /api/documents/:id` refuses and `listInFolder` omits.
+  // A cardinality is not a name, but it is still the archive answering a question about a document
+  // the caller may not read (SEC-71).
   async listFoldersUnder(
     libraryId: string,
     folder: string,
+    viewer: Viewer,
     tx?: TransactionHandle,
   ): Promise<FolderSummary[]> {
     // 🔒 The pattern is escaped, the offset counts the folder itself — see `folderPrefixPattern`.
@@ -213,8 +223,9 @@ export class PrismaFileRefRepository implements FileRefRepository {
                END AS rel
         FROM file_refs f
         JOIN document_pages df ON df.file_id = f.file_id
-        JOIN documents d ON d.id = df.document_id AND d.deleted_at IS NULL
-        WHERE f.library_id = ${libraryId}::uuid
+        JOIN documents d ON d.id = df.document_id
+        WHERE ${readableSql(viewer)}
+          AND f.library_id = ${libraryId}::uuid
           AND (${folder} = '' OR f.path LIKE ${below} ESCAPE '\\')
       )
       SELECT split_part(rel, '/', 1) AS name, count(DISTINCT document_id) AS count

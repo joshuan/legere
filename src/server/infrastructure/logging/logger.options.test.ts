@@ -90,6 +90,58 @@ describe('the request serializer', () => {
       headers: { 'user-agent': 'legere-test' },
     });
   });
+
+  // 🔒 SEC-23 applied to the request half of the line, as SEC-58 applied it to the response half.
+  // The headers were a deny-list of four; the point of the lesson is the fifth.
+  describe('its headers', () => {
+    it('keeps the four that say what kind of request it was and who says they sent it', () => {
+      const req = serialized('/api/documents', {
+        'content-type': 'application/pdf',
+        'content-length': '1024',
+        'user-agent': 'legere-test',
+        origin: 'http://localhost:3000',
+      });
+
+      expect(req.headers).toEqual({
+        'content-type': 'application/pdf',
+        'content-length': '1024',
+        'user-agent': 'legere-test',
+        origin: 'http://localhost:3000',
+      });
+    });
+
+    it('drops the credentials and the document names the old deny-list named', () => {
+      const req = serialized('/api/documents', {
+        cookie: 'sid=a-live-session',
+        authorization: 'Bearer a-read-only-api-token',
+        'x-legere-filename': 'biopsy%20results%202026.pdf',
+        'x-file-name': 'biopsy results 2026.pdf',
+      });
+
+      expect(req.headers).toEqual({});
+      expect(JSON.stringify(req)).not.toContain('a-live-session');
+      expect(JSON.stringify(req)).not.toContain('biopsy');
+    });
+
+    // The one a deny-list would not have thought of. `Referrer-Policy: no-referrer` keeps a browser
+    // from sending it; a client following an invite link out of a chat window is not a browser, and
+    // that link is a bearer credential in a path (docs/08 §8.1.2).
+    it('drops Referer, which is the URL the request side is scrubbed of arriving by another door', () => {
+      const req = serialized('/api/auth/register/start', {
+        referer: `http://localhost:3000/invite/${TOKEN}`,
+        origin: 'http://localhost:3000',
+      });
+
+      expect(JSON.stringify(req)).not.toContain(TOKEN);
+      expect(req.headers).toEqual({ origin: 'http://localhost:3000' });
+    });
+
+    it('drops a header this codebase has never heard of', () => {
+      const req = serialized('/api/documents', { 'x-legere-next-secret': 'whatever it becomes' });
+
+      expect(req.headers).toEqual({});
+    });
+  });
 });
 
 // 🔒 SEC-58 (docs/06 §6.7, docs/09 §9.2). What a download answers with is a credential and a file
@@ -141,16 +193,11 @@ describe('the response serializer', () => {
 });
 
 describe('buildPinoHttpOptions', () => {
-  it('removes the credentials and the document names a request carries in its headers', () => {
-    const paths = buildPinoHttpOptions(loadConfig(ENV)).redact.paths;
-
-    expect(paths).toContain('req.headers.cookie');
-    expect(paths).toContain('req.headers.authorization');
-    expect(paths).toContain('req.headers["x-legere-filename"]');
-    expect(paths).toContain('req.headers["x-file-name"]');
-    // `Set-Cookie` is gone from the deny-list because the response serializer above never lets it
-    // through — a redact path that can never match is a claim about a rule that no longer applies.
-    expect(paths).not.toContain('res.headers["set-cookie"]');
+  // Both serializers are allow-lists now, so there is nothing left for a redact path to match: the
+  // four it used to name are dropped before pino ever sees them. A rule that can never fire is a
+  // claim about a defence standing somewhere it does not stand.
+  it('carries no deny-list of headers at all any more', () => {
+    expect(buildPinoHttpOptions(loadConfig(ENV))).not.toHaveProperty('redact');
   });
 
   it('serializes both halves of a request line, so neither falls back to pino’s own', () => {

@@ -221,6 +221,64 @@ describe('configWarnings', () => {
     expect(configured.join('\n')).not.toMatch(/SMTP_HOST/);
   });
 
+  // 🔒 SEC-77. The CAPTCHA is two switches in two places and only one of them is an environment
+  // variable at runtime: setting the secret turns verification on for every login, registration and
+  // password reset, and the token those requests must carry is minted by a widget that exists only
+  // if the *client bundle* was built with the site key. Get that pair wrong and nobody signs in —
+  // the last administrator included — with nothing anywhere that says why.
+  describe('the CAPTCHA', () => {
+    it('says what a secret key with no widget in front of it does, whenever one is set', () => {
+      const warnings = configWarnings(
+        loadConfig({ ...MINIMAL, TURNSTILE_SECRET_KEY: 'a-real-turnstile-secret' }),
+      );
+
+      expect(warnings.join('\n')).toMatch(/TURNSTILE_SECRET_KEY is set/);
+      // Naming the build argument is the actionable half: no runtime value can supply it.
+      expect(warnings.join('\n')).toMatch(/NEXT_PUBLIC_TURNSTILE_SITE_KEY/);
+      expect(warnings.join('\n')).toMatch(
+        /nobody can sign in, register or finish a password reset/,
+      );
+    });
+
+    // 🔒 Unconditional on purpose. `NEXT_PUBLIC_TURNSTILE_SITE_KEY` in the runtime environment does
+    // nothing at all — Next inlines it at build time — so an operator who copies both keys into
+    // `.env`, which is the natural thing to do, must not thereby buy silence. This is the case the
+    // `/admin/instance` row cannot cover, and the reason this is a warning and not a refusal.
+    it('says it again when the site key is in the runtime environment, where it does nothing', () => {
+      const warnings = configWarnings(
+        loadConfig({
+          ...MINIMAL,
+          TURNSTILE_SECRET_KEY: 'a-real-turnstile-secret',
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: '1x00000000000000000000AA',
+        }),
+      );
+
+      expect(warnings.join('\n')).toMatch(/TURNSTILE_SECRET_KEY is set/);
+    });
+
+    it('says nothing at all on the shipped default, where there is no CAPTCHA to get wrong', () => {
+      const warnings = configWarnings(loadConfig({ ...MINIMAL }));
+
+      expect(warnings.join('\n')).not.toMatch(/TURNSTILE/);
+    });
+
+    // A refusal was the other candidate and it would have been wrong: an image built correctly from
+    // this repository carries the site key in its bundle and not in its environment, so a boot check
+    // on the runtime value refuses exactly the instance that did it right (docs/12 §12.4a).
+    it('does not refuse a production instance over it', () => {
+      const config = loadConfig({
+        ...MINIMAL,
+        NODE_ENV: 'production',
+        APP_BASE_URL: 'https://legere.example',
+        SMTP_HOST: 'smtp.legere.example',
+        TURNSTILE_SECRET_KEY: 'a-real-turnstile-secret',
+      });
+
+      expect(config.isProduction).toBe(true);
+      expect(configWarnings(config).join('\n')).toMatch(/TURNSTILE_SECRET_KEY is set/);
+    });
+  });
+
   it('warns in development about the value production will refuse', () => {
     const warnings = configWarnings(
       loadConfig({ ...MINIMAL, AUTH_SECRET: 'dev-secret-change-me-min-32-chars!!' }),

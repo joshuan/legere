@@ -109,6 +109,26 @@ describe('Request logging (e2e)', () => {
     expect(written).not.toContain(resetToken);
   });
 
+  // 🔒 SEC-23 on the request half of the line (docs/06 §6.7). The headers used to travel whole
+  // behind a deny-list of four names; the header nobody would have added to it is `Referer`, which
+  // a client following an invite link out of a chat window sends — `Referrer-Policy: no-referrer`
+  // (docs/12 §12.8a) is a rule about browsers, and the link is a bearer credential in a path.
+  it('writes no Referer, not even when the Referer is the invite link itself', async () => {
+    const before = log();
+    const preview = await api(app)
+      .get(`/api/invites/${inviteToken}`)
+      .set('Referer', `http://localhost:3000/invite/${inviteToken}`)
+      .set('User-Agent', 'legere-e2e');
+
+    expect(preview.status).toBe(200);
+    const written = log().slice(before.length);
+    expect(written).toContain('"url":"/api/invites/:x"');
+    expect(written).not.toContain(inviteToken);
+    expect(written).not.toContain('referer');
+    // What a request line still says about a caller, so this does not pass by logging nothing.
+    expect(written).toContain('"user-agent":"legere-e2e"');
+  });
+
   it('keeps neither token anywhere in everything the process has emitted', () => {
     expect(log()).not.toContain(inviteToken);
     expect(log()).not.toContain(resetToken);

@@ -20,6 +20,7 @@ import { isRawBodyRoute } from '../src/server/presentation/documents/read-upload
 import { callContextMiddleware } from '../src/server/presentation/http/call-context.middleware';
 import { csrfOriginCheck } from '../src/server/presentation/http/csrf.middleware';
 import { errorEnvelope } from '../src/server/presentation/http/envelope';
+import { forwardedForNotice } from '../src/server/presentation/http/forwarded-for-notice.middleware';
 import { readOnlyBearer } from '../src/server/presentation/http/read-only-bearer.middleware';
 import { securityHeaders } from '../src/server/presentation/http/security-headers.middleware';
 
@@ -46,6 +47,10 @@ export async function wireServer(
   const trustProxy = config.get('TRUST_PROXY');
   if (trustProxy !== '') {
     server.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
+  } else {
+    // The other direction is not free either, and since M47.16 it is not gradual: read the notice.
+    // The logger is resolved per call, not here — the first request is long after Nest is up.
+    server.use(forwardedForNotice((message) => nestApp.get(PinoLogger).warn(message)));
   }
   nestApp.setGlobalPrefix('api');
   // Nothing is served that says what it is built on.

@@ -145,6 +145,27 @@ export function configWarnings(config: AppConfig): readonly string[] {
     );
   }
 
+  // 🔒 The CAPTCHA is two switches thrown in two different places, and only one of them is here
+  // (docs/08 §8.4). Setting this one turns verification on for every login, every registration and
+  // therefore every password reset; the widget that mints the token those requests must carry comes
+  // from `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, which Next inlines into the client bundle at **build**
+  // time. A secret with no widget in front of it refuses everybody, the last administrator
+  // included, and there is no way back in through the UI (SEC-77).
+  //
+  // Warned about unconditionally, and not refused: the published image carries no site key, but an
+  // image built correctly from this repository carries it in the bundle and *not* in the runtime
+  // environment, so a boot check on the runtime value would refuse exactly the instance that had
+  // done it right. Reading the built bundle to find out would make configuration depend on build
+  // output. The weakest signal that is always true beats a strong one that is sometimes wrong — and
+  // it is unconditional for the same reason: an operator who copies both keys into `.env` has done
+  // nothing to the bundle, and a warning that their copy could silence would be silent precisely
+  // for them.
+  if (config.get('TURNSTILE_SECRET_KEY') !== '') {
+    warnings.push(
+      'TURNSTILE_SECRET_KEY is set — every login and every registration must now carry a CAPTCHA token, and only a client bundle built with NEXT_PUBLIC_TURNSTILE_SITE_KEY mints one. That key is a build argument and cannot be supplied at runtime, so open the sign-in page and check that a widget renders before you close this session: with no widget nobody can sign in, register or finish a password reset, the last administrator included (docs/08 §8.4)',
+    );
+  }
+
   if (!config.isProduction) {
     for (const { key, value } of PUBLISHED_EXAMPLES) {
       if (config.get(key) === value) {

@@ -35,12 +35,13 @@ export class BrowseLibrary {
     const folder = RelativePath.tryParse(query.path);
     if (folder === null) throw new NotFoundError('LIBRARY_NOT_FOUND', 'Folder not found');
 
+    // 🔒 The access rule applies to both halves of this answer. Being granted the library says the
+    // *folder* may be browsed; it does not say every document a ref in it reaches may be read,
+    // because the same bytes may have arrived as somebody's private upload first (docs/05 §5.3). A
+    // list never shows what its detail refuses (docs/03 §3.4) — and a subfolder's count is a list
+    // reduced to a number, so it is filtered by the same rule rather than counting the whole shelf.
     const [folders, documents] = await Promise.all([
-      this.fileRefs.listFoldersUnder(libraryId, folder.value),
-      // 🔒 The access rule applies here too. Being granted the library says the *folder* may be
-      // browsed; it does not say every document a ref in it reaches may be read, because the same
-      // bytes may have arrived as somebody's private upload first (docs/05 §5.3). A list never
-      // shows what its detail refuses (docs/03 §3.4).
+      this.fileRefs.listFoldersUnder(libraryId, folder.value, viewer),
       this.documents.listInFolder(libraryId, folder.value, viewer, {
         limit: query.limit,
         cursor: query.cursor,

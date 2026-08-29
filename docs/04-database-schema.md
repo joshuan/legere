@@ -1143,6 +1143,23 @@ lines longer — a foreign key still carrying its pre-rename name and six column
 `schema.prisma` that no longer matched the documentation went unnoticed for a milestone (SEC-81,
 SEC-82).
 
+🔒 **And it is a gate rather than a habit.** `scripts/check-schema.mjs` runs both mechanical proofs —
+this diff against the block above, and the fenced Prisma of §4.1 against `prisma/schema.prisma`
+character for character — and `test/integration/schema-and-docs.integration.test.ts` is what makes
+the suite, and therefore CI, run them. The script **reads the allow-list out of the SQL block above**
+rather than carrying its own copy, so the five statements have one home and no change to the code can
+quietly widen what the documentation says is acceptable; it is anchored on the sentence that
+introduces the block, which is why that sentence is worded to be found. Both directions fail: a
+statement the database emits that is not listed here is drift, and a statement listed here that the
+database has stopped emitting is a note about the database that is no longer true. Run it by hand as
+
+```
+node scripts/check-schema.mjs
+```
+
+from a fully migrated `DATABASE_URL`; without one the diff half reports itself as skipped rather than
+passing quietly, and the block half still runs.
+
 **The catalogue identity fold** (`03 §3.3.19`). The database is created with collation `C`, whose
 `lower()` folds ASCII alone — so the `lower(name)` partial unique indexes on `people`,
 `subjects` and `subject_kinds` never held for Cyrillic, and case-twins of one name lived beside
@@ -1208,8 +1225,10 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
   already-applied migration, dropping/renaming a column without a data backfill in the same migration.
 - Data moves (backfills) are written inside the migration itself (SQL), so a freshly cloned instance
   and a long-lived one converge to identical states.
-- **A migration is finished when `prisma migrate diff` is back to its five known lines** (§4.3), and
-  the fix for anything else in that output is another migration, never an edit to the applied one.
+- **A migration is finished when `prisma migrate diff` is back to its five known lines** (§4.3) and
+  §4.1 quotes `schema.prisma` again — `node scripts/check-schema.mjs` asks both questions at once,
+  and the test suite asks them on every run. The fix for anything else in that output is another
+  migration, never an edit to the applied one.
   This is the whole of what a hand-written chain can offer in place of a generated one, so it is not
   optional: a defaulted foreign-key action and a column default nobody declared are precisely the
   things a person writing SQL by hand does not notice, and precisely the things this command names.

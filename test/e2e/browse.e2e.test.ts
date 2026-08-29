@@ -217,6 +217,59 @@ describe('Browse (e2e)', () => {
     expect(forAdmin.documents.items.map((item) => item.id)).toEqual([uploaded.id]);
   });
 
+  // 🔒 SEC-71, one endpoint over. The list beside it was given the access rule; the folder counts in
+  // the same response were not, so a subfolder said "2" and opening it showed one. A number is a
+  // smaller answer than a title, and it is still the archive answering about a document
+  // `GET /api/documents/:id` refuses (docs/03 §3.4).
+  it('counts only the documents the caller may read in a subfolder', async () => {
+    const libraryId = await givenLibrary();
+    const owner = await inviteUser(`counteruploader${seq}@legere.local`);
+    const other = await inviteUser(`counterbrowser${seq}@legere.local`);
+    // One document of the library, which everybody granted the library may read.
+    await givenFileAt(libraryId, 'scans/lease.pdf', 'Lease');
+    // And one that only looks like it lives here: somebody's private upload that a scan later found
+    // the same bytes of, so a ref in this library points at a MANAGED file (docs/05 §5.3).
+    await seedDocument({
+      document: { title: 'Passport — Ivan Petrov', createdById: owner.id, canonicalStatus: 'DONE' },
+      files: [{ origin: 'MANAGED', libraryId, path: 'scans/passport.pdf' }],
+    });
+
+    const forOther = expectData(await browse(libraryId, other.cookie), browseResponseSchema);
+    const inside = expectData(
+      await browse(libraryId, other.cookie, '?path=scans'),
+      browseResponseSchema,
+    );
+
+    // The count and the listing agree, which is the whole of the finding.
+    expect(forOther.folders).toEqual([{ name: 'scans', documentCount: 1 }]);
+    expect(inside.documents.items.map((item) => item.title)).toEqual(['Lease']);
+
+    // The owner and an admin are told the truth they are entitled to.
+    const forOwner = expectData(await browse(libraryId, owner.cookie), browseResponseSchema);
+    expect(forOwner.folders).toEqual([{ name: 'scans', documentCount: 2 }]);
+    const forAdmin = expectData(await browse(libraryId, adminCookie), browseResponseSchema);
+    expect(forAdmin.folders).toEqual([{ name: 'scans', documentCount: 2 }]);
+  });
+
+  // A folder whose every document is somebody else's is not "a folder with 0 documents" — it is a
+  // folder the caller has no business being told about, which is what the outer WHERE already does
+  // for a folder that holds nothing.
+  it('leaves out a subfolder whose documents are all unreadable', async () => {
+    const libraryId = await givenLibrary();
+    const owner = await inviteUser(`privateuploader${seq}@legere.local`);
+    const other = await inviteUser(`emptybrowser${seq}@legere.local`);
+    await seedDocument({
+      document: { title: 'Medical file', createdById: owner.id, canonicalStatus: 'DONE' },
+      files: [{ origin: 'MANAGED', libraryId, path: 'private/results.pdf' }],
+    });
+
+    const forOther = expectData(await browse(libraryId, other.cookie), browseResponseSchema);
+    const forOwner = expectData(await browse(libraryId, owner.cookie), browseResponseSchema);
+
+    expect(forOther.folders).toEqual([]);
+    expect(forOwner.folders).toEqual([{ name: 'private', documentCount: 1 }]);
+  });
+
   it('reads a path holding LIKE metacharacters literally (🔒)', async () => {
     const libraryId = await givenLibrary();
     // A folder whose name is a wildcard, a sibling that a wildcard would swallow, and a document

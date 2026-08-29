@@ -56,7 +56,7 @@ NODE_ENV=development
 PORT=3000
 APP_BASE_URL=http://localhost:3000          # absolute; used for CSRF origin check and links in emails/invites
 LOG_LEVEL=debug                              # pino level; prod default: info
-TRUST_PROXY=                                 # empty = do not believe X-Forwarded-For; 1 = one ingress in front (12 §12.8)
+TRUST_PROXY=                                 # empty = do not believe X-Forwarded-For; 1 = one ingress in front. Empty *behind* a proxy makes every anonymous caller one rate-limit bucket (12 §12.8)
 
 # --- database ---
 DATABASE_URL=postgresql://legere:legere@localhost:5432/legere?schema=public
@@ -66,8 +66,8 @@ AUTH_SECRET=dev-secret-change-me-min-32-chars!!   # ≥32 chars; HMAC for email 
 SESSION_TTL_DAYS=30
 API_TOKEN_TTL_DAYS=90                        # default lifetime of a read-only API token (08 §8.2a); the owner may choose 1…365
 COOKIE_DOMAIN=                               # empty in dev; set consciously in prod
-TURNSTILE_SECRET_KEY=                        # empty = CAPTCHA disabled; set it only on a build that has the site key below, or nothing can pass it (08 §8.4)
-NEXT_PUBLIC_TURNSTILE_SITE_KEY=              # build-time (baked into the client bundle); the widget is rendered when it is set
+TURNSTILE_SECRET_KEY=                        # empty = CAPTCHA disabled; set it only on a build that has the site key below, or nothing can pass it — warned about at every start (08 §8.4)
+NEXT_PUBLIC_TURNSTILE_SITE_KEY=              # build-time (baked into the client bundle); the widget is rendered when it is set. Setting it here, at runtime, does nothing
 
 # --- email (empty SMTP_HOST = LogEmailSender: the letter is dropped, never printed) ---
 SMTP_HOST=                                   # a local catcher makes registration work on a laptop (§12.5)
@@ -234,7 +234,7 @@ start, which is how a deliberate setting is noticed once it has outlived its rea
 without being set is a credential published in this repository. Every path that runs the app supplies
 them — `.env` in development, the compose file in a deployment, `test/setup.server.ts` in CI.
 
-Three things are warned about at startup rather than refused, because an operator may want them:
+Four things are warned about at startup rather than refused, because an operator may want them:
 
 - `APP_BASE_URL` that is not `https://` — session cookies then travel without the `Secure` attribute
   ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions) explains why that follows the
@@ -243,6 +243,23 @@ Three things are warned about at startup rather than refused, because an operato
   refuse it, so the surprise happens on a laptop and not on a deploy.
 - An empty `SMTP_HOST` — on a laptop that is the normal state and the warning is the early notice
   that the three-step flow cannot complete; in production it can only be reached by asking for it.
+- 🔒 A `TURNSTILE_SECRET_KEY` that is set — **whatever else is set beside it**. The secret turns
+  CAPTCHA verification on for every login and every registration, and the token those requests must
+  carry is minted by a widget that exists only in a client bundle built with
+  `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. Get the pair wrong and nobody can sign in, register or finish a
+  password reset — the last administrator included — so the warning names the build argument and
+  tells the operator to open the sign-in page and see a widget before they close the session. It is
+  not a refusal because the correct case cannot be told from the broken one at boot: an image built
+  from this repository carries the site key inlined in its bundle and *not* in its environment
+  (§12.6), so a boot check on the runtime value would refuse exactly the instance that did it right
+  ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha),
+  [SEC-77](./tasks/security-audit-2026-08-second-pass.md#sec-77)). It is unconditional for the
+  mirror-image reason: putting the site key into the runtime environment as well changes nothing
+  about the bundle, and is exactly what silences the `/admin/instance` row that would otherwise have
+  said so.
+
+One more is written at the moment it can be observed rather than at boot: an unset `TRUST_PROXY` in
+front of a request that carries `X-Forwarded-For` (§12.8).
 
 ## 12.5. Local development
 
@@ -587,6 +604,24 @@ development stack of §12.5, which takes the same name from its directory — us
   request, so the per-IP limits of [`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)
   stop existing. Set it only when something in front of the app rewrites the header. Cookies are
   `Secure` whenever `APP_BASE_URL` is `https://`, so TLS at the ingress remains the expectation.
+- 🔒 **And what forgetting it costs is no longer a matter of degree.** It used to be over-throttling,
+  which is the safe direction to fail. Since the throttle key became **one budget per caller** rather
+  than one per caller per handler ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha),
+  [SEC-57](./tasks/security-audit-2026-08-second-pass.md#sec-57)), an anonymous caller behind a proxy
+  that the app does not trust is `req.ip` = the proxy — **the same caller as everybody else**. All of
+  them then share a single `auth` allowance of 20 per 60 s across page loads, logins, registrations
+  and the two link previews. The sign-in screen spends from it on every load, through
+  `GET /api/auth/onboarding`, so twenty page loads in a minute from anywhere on the internet and the
+  instance answers `429 RATE_LIMITED` to everybody, including whoever is trying to sign in. That is a
+  self-inflicted denial of service from a variable left blank, which is why it is named here and not
+  only in the `.env` comment.
+  **The app says so when it can tell.** There is no boot check — at boot the two topologies are
+  indistinguishable, and a warning on every correctly published instance is how an operator learns to
+  skip warnings. Instead, when `TRUST_PROXY` is empty, the first request that arrives carrying
+  `X-Forwarded-For` writes one `warn` line naming the shared budget, once per process. It is worded
+  to push neither way on purpose: that header is written by whoever sent the request, so anybody can
+  produce the line, and a line that read "set `TRUST_PROXY`" would be an attacker asking an operator
+  to switch the per-IP limits off (SEC-05).
 - **Scaling later:** a second app container is possible (sessions/queue are in Postgres, files in
   S3), but per-IP rate limits become per-instance — acceptable, documented limitation.
 

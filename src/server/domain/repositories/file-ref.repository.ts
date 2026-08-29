@@ -1,5 +1,6 @@
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { FileRef } from '../entities/file-ref';
+import type { Viewer } from './document.repository';
 import type { FileRefView } from './file.repository';
 import type { RelativePath } from '../value-objects/relative-path';
 
@@ -34,9 +35,14 @@ export abstract class FileRefRepository {
 
   // Immediate subfolders of `folder` in a library, with how many documents live anywhere beneath
   // each of them — a folder that only contains folders is still worth showing.
+  //
+  // 🔒 Counted for a viewer, like every other read of documents (docs/03 §3.4). Being granted the
+  // library says the folder may be browsed; it does not say every document a ref in it reaches may
+  // be read, and a count of documents somebody may not open is the archive answering about them.
   abstract listFoldersUnder(
     libraryId: string,
     folder: string,
+    viewer: Viewer,
     tx?: TransactionHandle,
   ): Promise<FolderSummary[]>;
 

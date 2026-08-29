@@ -187,14 +187,36 @@ serializer therefore rewrites the URL into the shape of its route before anythin
 | `/api/invites/<43 chars of base64url>` | `/api/invites/:x` | A path segment survives only when it is plainly part of a route — lower-case letters and hyphens, no longer than a word. It is an allow-list, not two exceptions: the next route to put a secret in a path would not think to add itself to a deny-list |
 | `/api/documents/<uuid>/files` | `/api/documents/:x/files` | Identifiers share the fate of tokens; `requestId` already ties a line to the rest of its request, and handlers log the ids they act on deliberately |
 | `?q=<what somebody searched for>` | dropped whole | A search of one's own archive is as private as the archive. No query parameter is worth keeping at the cost of a rule that has to know which ones are safe |
-| `X-Legere-Filename` / `X-File-Name` | removed | A file's name is often the most sensitive metadata an archive holds — one `biopsy-results.pdf` says what a folder of PDFs does not |
-| `Cookie`, `Authorization` | removed | Session and API-token material |
 
 Express's own `req.route.path` would name the parameters (`:token` rather than `:x`) and is
 deliberately unused: it is empty exactly when a request never reached its handler — throttled,
 refused by the origin check, an unknown route — which is when a URL carrying a token is most likely
 to be the one being logged. `req.query` and `req.params` are dropped from the serialized shape
 entirely, since Express fills both with the same material the URL is scrubbed of.
+
+🔒 **And its headers are an allow-list, exactly like the response's below.** They were a deny-list of
+four names — `Cookie`, `Authorization`, and both spellings of the upload file-name header — with the
+rest of `req.headers` kept whole. That is the shape [SEC-23](./tasks/security-audit-2026-08.md#sec-23)
+is about, and the header nobody would have added to it is `Referer`: invite and reset links carry a
+bearer credential in their path (§8.1.2, §8.1.6), `Referrer-Policy: no-referrer`
+([`12 §12.8a`](./12-build-config-run.md#128a-security-headers)) is a rule about *browsers*, and the
+client that follows such a link out of a chat window or a mail client is not always one. So the
+request keeps four headers and drops everything else by omission:
+
+| In the request | In the log | Why |
+|---|---|---|
+| `Content-Type`, `Content-Length` | kept | What kind of request, and how big — the mirror of the two the response keeps |
+| `User-Agent` | kept | Which client it says it is, which is what an access log is read for |
+| `Origin` | kept | A fail-closed `403` from the CSRF origin check ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)) is unanswerable without it — and an origin is a scheme, a host and a port, so it has no path in which to carry a token |
+| `Referer` | dropped | The URL the request side is already scrubbed of, arriving by another door |
+| `Cookie`, `Authorization` | dropped | Session and API-token material |
+| `X-Legere-Filename` / `X-File-Name` | dropped | A file's name is often the most sensitive metadata an archive holds — one `biopsy-results.pdf` says what a folder of PDFs does not — and an upload carries it in a header, since the body is the file itself ([`07 §7.3`](./07-api-specification.md#73-endpoints)) |
+| `Host`, and every other header | dropped | The address the app answers under is `APP_BASE_URL`, which the operator set; everything else, by omission |
+
+There is therefore **no `redact` block** in the pino options any more. Both serializers now drop what
+it used to name before pino sees the object, so every path in it could only match something that is
+no longer there — and a rule that can never fire is a claim about a defence standing somewhere it
+does not stand.
 
 🔒 **A response line says how it ended, not what it handed over.** `pino-http` serializes the
 response of every completed request, and its standard serializer writes `res.getHeaders()` whole.

@@ -37,6 +37,25 @@ export function routeShapedUrl(url: string): string {
     .join('/');
 }
 
+// 🔒 Which of a request's headers a log line may repeat (docs/06 §6.7).
+//
+// An allow-list, and the same one the response side keeps below, for the same reason. Nothing this
+// application reads today puts a secret in a request header that is not already named — `Cookie`,
+// `Authorization` and the two upload file-name headers were a deny-list of four, and a deny-list
+// has to be told about each secret in advance (SEC-23). The candidate nobody would have added is
+// `Referer`: a browser is kept from sending it by `Referrer-Policy: no-referrer` (docs/12 §12.8a),
+// which is a rule about browsers and not about the next client to follow an invite or reset link
+// out of a chat window — and those links carry a bearer credential in their path (docs/08 §8.1.2,
+// §8.1.6), which is exactly what `routeShapedUrl` exists to keep out of the log.
+//
+// What survives is what the line is read for, and the mirror of the response's three: what kind of
+// request, how big, who says they sent it, and where they say they sent it from. `Origin` is on the
+// list and `Referer` is not, because an origin is a scheme, a host and a port and can hold no path
+// to carry a token — and a fail-closed 403 from `csrfOriginCheck` (docs/08 §8.4) is unanswerable
+// without it. `Host` is off it: the address the app answers under is `APP_BASE_URL`, which the
+// operator already knows.
+const LOGGED_REQUEST_HEADERS = ['content-type', 'content-length', 'user-agent', 'origin'] as const;
+
 // Everything of a request that reaches a log line. Written as what is *kept*, so that the fields
 // dropped from pino's standard shape are dropped by omission and a new one has to be added on
 // purpose: `query` and `params` are the two that matter — Express fills both, and both hold
@@ -49,11 +68,16 @@ export type LoggedRequest = Pick<
 // pino-http wraps a custom `req` serializer around the standard one, so what arrives here is
 // already the serialized shape, and what is returned *is* the `req` of the log line.
 export function serializeRequest(req: LoggedRequest): LoggedRequest {
+  const headers: Record<string, string> = {};
+  for (const name of LOGGED_REQUEST_HEADERS) {
+    const value = req.headers[name];
+    if (value !== undefined) headers[name] = value;
+  }
   return {
     id: req.id,
     method: req.method,
     url: routeShapedUrl(req.url),
-    headers: req.headers,
+    headers,
     remoteAddress: req.remoteAddress,
     remotePort: req.remotePort,
   };
@@ -91,8 +115,15 @@ export function serializeResponse(res: LoggedResponse): LoggedResponse {
 
 // pino-http options (docs/06 §6.7). Every request gets a uuid requestId (echoed as X-Request-Id and
 // attached to logs). Sensitive material is never logged: cookies, auth headers, the name of an
-// uploaded document, anything a URL carries beyond the route it matched, and every response header
-// but the three above — `Set-Cookie` among them, dropped by omission rather than by name.
+// uploaded document, anything a URL carries beyond the route it matched, and every header of either
+// half of the line that is not on one of the two lists above — `Set-Cookie` among them, dropped by
+// omission rather than by name.
+//
+// There is no `redact` block. There used to be one, naming `Cookie`, `Authorization` and the two
+// upload file-name headers, and every path in it is now unreachable: the request serializer no
+// longer copies a header it was not asked for, so a redact path could only ever match something the
+// serializer already dropped. A rule that can never fire is a claim about a defence that is not
+// where it says it is (SEC-58 retired the response half of the same list for the same reason).
 export function buildPinoHttpOptions(config: AppConfig) {
   const base = {
     level: config.get('LOG_LEVEL'),
@@ -102,19 +133,6 @@ export function buildPinoHttpOptions(config: AppConfig) {
       return id;
     },
     serializers: { req: serializeRequest, res: serializeResponse },
-    redact: {
-      paths: [
-        'req.headers.cookie',
-        'req.headers.authorization',
-        // 🔒 The name of a file is often the most sensitive metadata an archive holds — one
-        // "biopsy-results.pdf" says what a folder of PDFs does not — and an upload carries it in a
-        // header, since the body is the file itself (docs/07 §7.3). Both spellings the upload
-        // routes accept.
-        'req.headers["x-legere-filename"]',
-        'req.headers["x-file-name"]',
-      ],
-      remove: true,
-    },
   };
 
   // Pretty transport in development only; production emits JSON to stdout — and so does a test run,

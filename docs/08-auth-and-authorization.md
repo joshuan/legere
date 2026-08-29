@@ -336,6 +336,20 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   ([`12 §12.4`](./12-build-config-run.md#124-envexample)).
   Until the token arrives the form does not submit, so a configured widget is a step in the flow
   rather than a rejection after the fact ([SEC-77](./tasks/security-audit-2026-08-second-pass.md#sec-77)).
+- 🔒 **So setting `TURNSTILE_SECRET_KEY` is warned about at every start, unconditionally**, in the
+  words of the paragraph above: verification is now on for every login and every registration, only
+  a bundle built with the site key mints the token they must carry, and the operator is told to open
+  the sign-in page and see a widget before they close the session. It is a **warning and not a
+  refusal**, and that is a decision rather than a shortfall. A refusal would have to read the runtime
+  environment for `NEXT_PUBLIC_TURNSTILE_SITE_KEY` — and an image built correctly from this
+  repository carries that key inlined in its client bundle and *not* in its environment
+  ([`12 §12.6`](./12-build-config-run.md#126-dockerfile-one-image)), so the check would refuse to
+  start exactly the instance that had done it right. Reading the built bundle back at boot would make
+  configuration depend on build output. The warning fires whenever the secret is set — including when
+  the site key is *also* in the runtime environment, where it does nothing at all — because copying
+  both keys into `.env` is the natural thing to do and is precisely the case that silences the
+  `/admin/instance` row. A weak signal that is always true beats a strong one that is sometimes
+  wrong; and the lockout it warns about is total and has no way back in through the UI.
 
 ### 8.4.1a. The login backoff, and what it may never do
 

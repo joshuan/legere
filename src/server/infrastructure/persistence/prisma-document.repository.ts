@@ -468,7 +468,13 @@ function availabilityFilter(availability: Availability): Prisma.DocumentWhereInp
 // query — a limit of 20 has to mean 20 readable rows — and the query builder cannot express
 // ts_rank or the vector operator, so the rule exists in both dialects. They are tested together by
 // the same e2e cases, which is the only thing keeping them saying the same thing.
-function readableSql(viewer: Viewer): Prisma.Sql {
+//
+// Exported because the browse response counts documents in a second query of its own
+// (`PrismaFileRefRepository.listFoldersUnder`), and a count is an answer about the same rows this
+// clause decides. It stays here rather than moving to a module of its own so that it keeps sitting
+// beside `readableBy`, the query-builder twin it has to say the same thing as. It constrains the
+// alias `d`: whoever uses it joins `documents d`.
+export function readableSql(viewer: Viewer): Prisma.Sql {
   if (viewer.role === 'ADMIN') return Prisma.sql`d.deleted_at IS NULL`;
 
   return Prisma.sql`
