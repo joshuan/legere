@@ -63,7 +63,7 @@ human-readable index and must stay in sync with them.
 | 409 | `DOCUMENT_TYPE_SLUG_TAKEN`, `COLLECTION_NAME_TAKEN` | uniqueness |
 | 409 | `DOCUMENT_LAST_FILE` | removing the only file of a document |
 | 409 | `LINK_EXISTS` | linking two documents that are already linked |
-| 409 | `FILE_ALREADY_IN_DOCUMENT` | attaching a file that already belongs to a document |
+| 409 | `FILE_ALREADY_IN_DOCUMENT` | attaching bytes a page of **this** document already reads — a file itself may be read by several documents since ADR-025, so the endpoint rows below say which document each route means |
 | 409 | `CANONICAL_NOT_READY` | the canonical PDF has not been built yet |
 | 409 | `DOCUMENT_UNAVAILABLE` | source download when all refs MISSING |
 | 409 | `STEPS_PAUSED` | a reprocess whose every requested step is paused ([`05 §5.4d`](./05-library-and-processing.md#54d-a-step-can-be-paused)) — the job would do nothing, so it is refused rather than enqueued |

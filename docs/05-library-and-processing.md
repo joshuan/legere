@@ -97,16 +97,18 @@ A three-level model (ADR-009, ADR-021):
 - **`FileRef`** — a path on a volume: `libraryId`, `path`, `size`, `mtime`, `contentHash`, status
   (`DISCOVERED → HASHED → MISSING?`). A ref is where bytes were seen, not the bytes.
 - **`File`** — the bytes themselves, once: `contentHash` (unique among live files), `mimeType`,
-  `ext`, `sizeBytes`, the name it arrived under, and — for images — the crop somebody chose. The same
-  content on three volumes and in one upload is **one file with four homes**.
-- **`Document`** — what a person reads: an **ordered list of files** plus one **canonical PDF** built
-  from them, and everything anybody said about the whole: title, description, type, people, subjects,
-  Markdown, vectors, collections.
+  `ext`, `sizeBytes`, the name it arrived under, and how many pages a build has counted in it. It
+  says nothing about any document — no crop, no turn, no page order (`03 §3.3.16`, ADR-025). The same
+  content on three volumes and in one upload is **one file with four homes**, and since ADR-025 those
+  homes are pages: several documents may read one file, over disjoint pages or the same ones.
+- **`Document`** — what a person reads: an **ordered list of pages**, each naming a file and which
+  page of it, plus one **canonical PDF** built from them, and everything anybody said about the
+  whole: title, description, type, people, subjects, Markdown, vectors, collections.
 
 The `file-ingest` job computes SHA-256 of the file stream and then asks two questions in order:
 
 1. **Are these bytes already a file?** Yes → attach the `FileRef` to it (**dedup**: nothing is
-   processed twice, and the file keeps the document it already belongs to). No → create the file.
+   processed twice, and the file keeps every page that already reads it). No → create the file.
 2. **Is that file read by any document?** No — it is new — → create a document holding exactly it and
    enqueue `document-process`. Yes → nothing else happens; the bytes turned up in one more place,
    which is a fact about paths and not about documents.

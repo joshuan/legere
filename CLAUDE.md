@@ -77,8 +77,9 @@ push is the point of no return — Ctrl-C after it loses the report, not the rel
 
 Legere is a self-hosted document management system (the Immich external-library model): a read-only
 file storage is attached to the server; Legere scans it, deduplicates **files** by SHA-256, and
-composes them into **documents** — a document is an ordered list of files plus one canonical PDF
-built from them (`02` ADR-021). Each document runs through a pg-boss queue (canonical PDF → JPG
+composes them into **documents** — a document is an ordered list of **pages**, each naming the file
+it is read from, which page of it, which way up it lies and how much of it is paper (`02` ADR-025),
+plus one canonical PDF built from them (`02` ADR-021, half of it superseded by ADR-025). Each document runs through a pg-boss queue (canonical PDF → JPG
 preview → Markdown with OCR → analysis → vectorization into pgvector), and the product provides a
 viewer, hybrid search (FTS + vectors), sharing, and an admin panel. Heavy PDF operations (conversion,
 OCR, page merging) run in an external
