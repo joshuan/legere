@@ -96,10 +96,15 @@ export type CropEditorProps = {
   // where the picture comes from and what decides whether a mirror is on offer.
   page: DocumentPageDto;
   file: DocumentFileDto;
+  // What the edit landing costs the screen around it — the document is rebuilding, so its text, its
+  // journal and every list it appears in are stale. Told apart from `onClose` on purpose: closing
+  // an editor nobody saved changed nothing, and re-reading a whole document for an abandoned edit
+  // is a request that says nothing.
+  onSaved?: () => void;
   onClose: () => void;
 };
 
-export function CropEditor({ open, documentId, page, file, onClose }: CropEditorProps) {
+export function CropEditor({ open, documentId, page, file, onSaved, onClose }: CropEditorProps) {
   const t = useTranslations();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
@@ -220,6 +225,7 @@ export function CropEditor({ open, documentId, page, file, onClose }: CropEditor
       void queryClient.invalidateQueries({ queryKey: ['document', documentId] });
       void queryClient.invalidateQueries({ queryKey: ['documents'] });
       void message.success(t('viewer.crop.saved'));
+      onSaved?.();
       onClose();
     },
     // The modal closes on the answer, not on the click, so a failure is visible where it happened.

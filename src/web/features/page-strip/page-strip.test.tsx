@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -506,6 +506,53 @@ describe('PageStrip', () => {
     expect(await screen.findByText(strings.movedDone)).toBeInTheDocument();
   });
 
+  // 🔒 docs/11 §11.5a says the dialog "says which it will move", and it did not: a tile's own Move
+  // and a Move of twelve ticked pages opened the same generic modal, so there was nothing to check
+  // before pressing the button.
+  it('names the pages it will move, in document order', async () => {
+    open();
+
+    // Ticked back to front, on purpose: the strip reads left to right and so must the sentence.
+    await userEvent.click(screen.getByRole('checkbox', { name: say('select', { position: 3 }) }));
+    await userEvent.click(screen.getByRole('checkbox', { name: say('select', { position: 1 }) }));
+    await userEvent.click(screen.getByRole('button', { name: strings.moveSelection }));
+
+    expect(await screen.findByText('2 pages leave this document: 1, 3.')).toBeInTheDocument();
+  });
+
+  // And a tile's own Move is the same request with one id in it, so it is the same sentence with
+  // one number in it.
+  it('names the single page a tile’s own Move will take', async () => {
+    open();
+
+    await userEvent.click(screen.getByRole('button', { name: say('move', { position: 2 }) }));
+
+    expect(await screen.findByText('Page 2 leaves this document.')).toBeInTheDocument();
+  });
+
+  // 🔒 Every non-text search spends an outbound embeddings call and is metered at 30 per 60 s per
+  // caller (docs/08 §8.4), so a title typed a character at a time used to end in `RATE_LIMITED` and
+  // an empty list. One word, one search — the same debounce the overlay uses (docs/11 §11.1a).
+  it('searches once for a title typed at speed, not once per character', async () => {
+    const asked: string[] = [];
+    server.use(
+      http.get('/api/search', ({ request }) => {
+        asked.push(new URL(request.url).searchParams.get('q') ?? '');
+        return HttpResponse.json(envelope({ items: [], semanticAvailable: true }));
+      }),
+    );
+    open();
+
+    await userEvent.click(screen.getByRole('button', { name: say('move', { position: 1 }) }));
+    await userEvent.click(await screen.findByRole('radio', { name: strings.moveToExisting }));
+    await userEvent.type(screen.getByRole('combobox', { name: strings.moveSearch }), 'lease');
+
+    await waitFor(() => expect(asked).toEqual(['lease']));
+    // And it stays one: nothing lands late for the five keystrokes that were passed over.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(asked).toEqual(['lease']);
+  });
+
   // 🔒 A position is a place in the list the server was last shown, so everything that names one
   // goes quiet while the strip holds an order nobody has sent (docs/11 §11.5a).
   it('takes the controls that name a position away while an order is unsaved', async () => {
@@ -537,6 +584,146 @@ describe('PageStrip', () => {
     });
 
     expect(onInsertFiles).toHaveBeenCalledWith([dropped], 2);
+  });
+
+  // Enters and leaves are counted in pairs, the way the page-wide zone counts them (docs/11 §11.3).
+  // The seam has a child — the picker's own button sits in the middle of it — and `dragleave` fires
+  // the moment a pointer crosses into one, so a highlight that believed the first leave went out
+  // and came back in the next frame, under a pointer that never left the seam.
+  it('keeps a seam lit while the pointer crosses into the control inside it', () => {
+    open();
+
+    const seam = screen.getByTestId('page-seam-1');
+    const files = { dataTransfer: { files: [], types: ['Files'] } };
+    fireEvent.dragEnter(seam, files);
+    const lit = seam.style.outline;
+    expect(lit).not.toBe('none');
+
+    // Into the button: the browser fires an enter for the child and a leave for the seam, in that
+    // order, and the seam is still under the pointer throughout.
+    const inner = within(seam).getByRole('button', { name: say('insert', { position: 2 }) });
+    fireEvent.dragEnter(inner, files);
+    fireEvent.dragLeave(seam, files);
+    expect(seam.style.outline).toBe(lit);
+
+    // And it does go out when the drag really leaves: one leave for each of the two enters.
+    fireEvent.dragLeave(seam, files);
+    expect(seam.style.outline).toBe('none');
+  });
+
+  // 🔒 The browser accepts a drop the strip will refuse — a position is a place in the list the
+  // server was last shown — and it used to be dropped in silence, the file simply gone.
+  it('says why a file dropped at a seam is refused while an order is unsaved', async () => {
+    const { onInsertFiles } = open();
+
+    await userEvent.click(tile(1, 3, source.pdf(1)));
+    await userEvent.keyboard('{ArrowRight}');
+
+    fireEvent.drop(screen.getByTestId('page-seam-1'), {
+      dataTransfer: {
+        files: [new File(['x'], 'between.jpg', { type: 'image/jpeg' })],
+        types: ['Files'],
+      },
+    });
+
+    expect(
+      await screen.findByText(strings.pendingNote, { selector: '.ant-message *' }),
+    ).toBeInTheDocument();
+    expect(onInsertFiles).not.toHaveBeenCalled();
+  });
+
+  // 🔒 The document polls every five seconds while it is processing — which it is after every
+  // composition edit — so the reset key decides whether somebody else's reorder wipes an
+  // arrangement nobody has saved. It is keyed on the **set** of pages: the ids in position order
+  // changed under every reorder too (docs/11 §11.5a).
+  it('keeps an unsaved arrangement when the same pages are reordered underneath it', () => {
+    const { rerender } = open();
+
+    fireEvent.click(tile(1, 3, source.pdf(1)));
+    fireEvent.keyDown(tile(1, 3, source.pdf(1)), { key: 'ArrowRight' });
+    expect(stripOrder()).toEqual([
+      say('tile', { position: 1, total: 3, source: source.pdf(2) }),
+      say('tile', { position: 2, total: 3, source: source.pdf(1) }),
+      say('tile', { position: 3, total: 3, source: source.jpg() }),
+    ]);
+
+    // Somebody else moves the photograph to the front; the poll answers with the same three pages
+    // in a different order.
+    const elsewhere = makeDocument();
+    rerender(
+      <PageStrip
+        document={{
+          ...elsewhere,
+          pages: [
+            makePage({ id: pageId(2), position: 0, fileId: JPG_ID, pageIndex: 0 }),
+            makePage({ id: pageId(0), position: 1, fileId: PDF_ID, pageIndex: 0 }),
+            makePage({ id: pageId(1), position: 2, fileId: PDF_ID, pageIndex: 1 }),
+          ],
+        }}
+        onInsertFiles={vi.fn()}
+      />,
+    );
+
+    // The arrangement is still on the screen, and still the thing Save would send.
+    expect(stripOrder()).toEqual([
+      say('tile', { position: 1, total: 3, source: source.pdf(2) }),
+      say('tile', { position: 2, total: 3, source: source.pdf(1) }),
+      say('tile', { position: 3, total: 3, source: source.jpg() }),
+    ]);
+    expect(screen.getByRole('button', { name: strings.save })).toBeEnabled();
+  });
+
+  // 🔒 And where it genuinely cannot be kept — the set of pages is not the set it was arranged
+  // against — the strip says so instead of dropping the work behind an error toast.
+  it('says so when a page comes or goes under an arrangement nobody had saved', async () => {
+    const { rerender } = open();
+
+    fireEvent.click(tile(1, 3, source.pdf(1)));
+    fireEvent.keyDown(tile(1, 3, source.pdf(1)), { key: 'ArrowRight' });
+
+    const shorter = makeDocument();
+    rerender(
+      <PageStrip
+        document={{
+          ...shorter,
+          pageCount: 2,
+          pages: [
+            makePage({ id: pageId(0), position: 0, fileId: PDF_ID, pageIndex: 0 }),
+            makePage({ id: pageId(1), position: 1, fileId: PDF_ID, pageIndex: 1 }),
+          ],
+        }}
+        onInsertFiles={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText(strings.discarded)).toBeInTheDocument();
+    // Back to what the document says, rather than half of an order about a document that is gone.
+    expect(stripOrder()).toEqual([
+      say('tile', { position: 1, total: 2, source: source.pdf(1) }),
+      say('tile', { position: 2, total: 2, source: source.pdf(2) }),
+    ]);
+  });
+
+  it('says nothing when the pages change and there was nothing to lose', async () => {
+    const { rerender } = open();
+
+    const grown = makeDocument();
+    rerender(
+      <PageStrip
+        document={{
+          ...grown,
+          pages: [
+            ...grown.pages,
+            makePage({ id: pageId(3), position: 3, fileId: JPG_ID, pageIndex: 0 }),
+          ],
+        }}
+        onInsertFiles={vi.fn()}
+      />,
+    );
+
+    expect(stripOrder()).toHaveLength(4);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByText(strings.discarded)).not.toBeInTheDocument();
   });
 
   it('keeps the pending order and localizes the failure when the save is refused', async () => {

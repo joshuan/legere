@@ -32,6 +32,7 @@ import {
   moveDocumentPagesResponseSchema,
   splitDocumentFileResponseSchema,
   splitDocumentResponseSchema,
+  updateDocumentPageRequestSchema,
   type CombineDocumentsRequest,
   type GroupingSuggestionsResponse,
   type MoveDocumentPagesRequest,
@@ -181,10 +182,11 @@ export const documentApi = {
   // (docs/03 §3.3.17). `null` clears either and the page reads as it arrived; neither is ever a
   // change to the bytes.
   //
-  // 🔒 The body is typed here rather than parsed against a contract schema, which every other write
-  // on this client does: the schema arrives with the endpoint's own task and this screen is built
-  // against the shape `07 §7.3` fixes for it. The **answer** is validated like every other, so a
-  // drift still surfaces at the boundary rather than downstream.
+  // 🔒 Parsed on the way out against the contract the server validates with, like every other write
+  // on this client. A corner outside 0…1, or a body naming neither a crop nor a turn, is a bug in
+  // the crop editor and in the strip, and it should fail where it was made rather than come back as
+  // a `422` for somebody to interpret. The **answer** is validated too, so a drift surfaces at the
+  // boundary in both directions.
   updatePage: (
     id: string,
     pageId: string,
@@ -192,7 +194,7 @@ export const documentApi = {
   ): Promise<DocumentDetailDto> =>
     apiClient.patch(`/api/documents/${id}/pages/${pageId}`, {
       schema: documentDetailDtoSchema,
-      body,
+      body: updateDocumentPageRequestSchema.parse(body),
     }),
 
   // One page leaves and the rest close up behind it; the file it was read from goes to the trash

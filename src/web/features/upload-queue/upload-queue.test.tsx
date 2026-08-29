@@ -336,10 +336,41 @@ describe('the upload queue', () => {
     );
 
     mount();
-    send([file('Between.pdf')], { documentId: TARGET_ID, at: 2 });
+    send([file('Between.pdf')], {
+      documentId: TARGET_ID,
+      at: 2,
+      beforePageId: 'ffffffff-3333-4333-8333-333333333333',
+    });
 
     await waitFor(() => expect(rowText(0)).toContain('Between.pdf|done'));
     expect(positions).toEqual(['2']);
+  });
+
+  // 🔒 A target with no page to go before names no position either, and every file of the batch is
+  // an append. That is what the last seam of the strip sends: a position nothing can re-measure
+  // would be the same number on all three, each landing ahead of the last (docs/11 §11.3a).
+  it('appends every file of a batch addressed to a document with no position', async () => {
+    const sent: Array<{ name: string; at: string | null }> = [];
+    server.use(
+      http.post('/api/documents/:id/files', async ({ params, request }) => {
+        sent.push({
+          name: decodeURIComponent(request.headers.get('x-legere-filename') ?? ''),
+          at: new URL(request.url).searchParams.get('at'),
+        });
+        await delay(5);
+        return HttpResponse.json(envelope(detailDto(String(params.id))));
+      }),
+    );
+
+    mount();
+    send([file('One.pdf'), file('Two.pdf'), file('Three.pdf')], { documentId: TARGET_ID });
+
+    await waitFor(() => expect(rowText(2)).toContain('Three.pdf|done'));
+    expect(sent).toEqual([
+      { name: 'One.pdf', at: null },
+      { name: 'Two.pdf', at: null },
+      { name: 'Three.pdf', at: null },
+    ]);
   });
 
   // 🔒 Several files sent to one place keep their order: the second goes in after the pages of the

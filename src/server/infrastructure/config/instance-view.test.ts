@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import en from '../../../../messages/en.json';
+import ru from '../../../../messages/ru.json';
 import { CONSEQUENCES, instanceResponseSchema } from '../../../shared/contracts/instance';
 import { loadConfig } from './app-config';
 import { configSchema } from './config.schema';
@@ -277,6 +279,31 @@ describe('describeInstance', () => {
       const schemaKeys = new Set(Object.keys(configSchema.shape));
 
       expect([...SECRET_KEYS].filter((key) => !schemaKeys.has(key))).toEqual([]);
+    });
+  });
+
+  // 🔒 The same backstop, one layer out. The page draws each row by asking the catalogue for
+  // `admin.instance.keys.<KEY>` (docs/11 §11.13a), so a setting added here and nowhere else reads
+  // as its own key path on the screen — which is how the one row that says how long a file stays
+  // in the trash came to be the only untranslated one of seventy-three. Both catalogues, because
+  // `en` is the reference and `ru` is the one nobody reading this file speaks (docs/10 §10.3).
+  describe('the message catalogues keep up with the view', () => {
+    const served = rowsOf().map((setting) => setting.key);
+    // The catalogues arrive as objects with literal keys; asking one about a runtime string is the
+    // whole point of the test, and a set is how that is done without a type assertion.
+    const translated = (catalogue: Record<string, string>): ReadonlySet<string> =>
+      new Set(Object.keys(catalogue));
+
+    it('names every setting the page will draw, in both locales', () => {
+      expect(served.length).toBeGreaterThan(0);
+      expect(served.filter((key) => !translated(en.admin.instance.keys).has(key))).toEqual([]);
+      expect(served.filter((key) => !translated(ru.admin.instance.keys).has(key))).toEqual([]);
+    });
+
+    it('carries no setting the view stopped serving', () => {
+      const drawn = new Set(served);
+
+      expect([...translated(en.admin.instance.keys)].filter((key) => !drawn.has(key))).toEqual([]);
     });
   });
 });

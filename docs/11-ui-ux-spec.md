@@ -313,6 +313,16 @@ the answer to every upload is the whole document (`07 §7.3`), so the next posit
 against the list the last one produced rather than against the list that was on the screen when they
 were dropped.
 
+🔒 **The position and the page it goes before travel together, or neither does.** What the second
+file of a batch is re-measured against is the **page** the first one had to precede — an id, which
+does not move however far the insert pushed it — and at the **last** insert point there is no such
+page. A batch addressed there therefore carries no position at all and is a plain append, which is
+what the server computes for itself inside the transaction that writes it. Sending the position
+anyway is the bug this rule exists to close: with nothing to re-measure against, every file of the
+batch carries the same number, each lands ahead of the one before it, and three files dropped at the
+end of a document arrive in reverse. It is also the only answer that stays right while somebody else
+is adding pages to the same document.
+
 **One row per file, and the rows never move.** They are listed in the order they were added and stay
 there whatever happens to them; what changes is the state of the row, in place, so somebody who found
 their file in a list of forty goes on looking at the same line. Every row is **one and the same
@@ -807,6 +817,17 @@ document exactly once (`07 §7.3`) — and the turns beside it, and Cancel puts 
 the document says, having sent nothing at all. Both are quiet while the two agree, because a Save
 that would change nothing is a request that says nothing.
 
+🔒 **And what is held is held against the *set* of pages, not against their order.** The document
+polls every five seconds while it is processing — which it is after every composition edit — so a
+strip that started afresh whenever the answer differed would be a strip that lost an arrangement to
+somebody else's reorder, with nothing said. A page arriving or leaving is the one change a pending
+arrangement cannot survive: it is a list of exactly these pages, and it is no longer exactly these
+pages. That, and only that, puts the strip back to what the document says — **and it says so**, in
+the same words wherever it happens, rather than letting the work vanish behind whatever else was on
+screen at the time. The commonest way it happens is a save refused for a reason that also changed
+the composition, where an error message alone would explain the refusal and say nothing about the
+half-hour of arranging that went with it.
+
 **A page is turned where it stands.** Under each tile sit **turn left** and **turn right**, one page
 at a time — because a forty-page scan has three pages lying sideways and not forty — and the
 thumbnail turns with them, so what the strip shows is what the page will be. The picture itself is
@@ -828,7 +849,13 @@ re-rendered.
   is a cut with nothing on one side of it.
 - **Move to…** — the selected pages leave for another document, an existing one or a new one made to
   hold them. The dialog searches documents the way everything is searched (§11.5e) and says which it
-  will move.
+  will move: the pages by their numbers in **this** document, in document order whatever order they
+  were ticked in, because a tile's own **Move** and twelve ticked pages open the same dialog and a
+  confirmation that does not say what it is about is one nobody can check before pressing.
+  🔒 Its search settles before it is sent, the way the overlay's does (§11.1a). That is not only
+  politeness here: every non-text search spends an outbound embeddings call and is metered per
+  caller ([`08 §8.4`](./08-auth-and-authorization.md)), so a title typed a character at a time ends
+  in `RATE_LIMITED` and an empty list — the one moment the picker had to work.
 
 **Pages are selected for the two that act on more than one.** A checkbox on each tile, a count above
 the strip, and **Move to…** beside it; **Clear** empties the selection. Selecting nothing and using a
@@ -846,8 +873,18 @@ control opens the file picker when it is pressed, so the gesture has a keyboard 
 else here. What is chosen goes into the same global queue and is watched in the same panel (§11.3a),
 addressed to this document **at that position** (`POST /api/documents/:id/files?at=`) rather than
 appended; several files dropped at one place go in one after another, in the order they were chosen.
-**Add files** at the head of the tab is the same thing with no position: it appends, which is what it
-always did.
+The **last** insert point is the exception, and it is an append rather than a position — §11.3a says
+why. **Add files** at the head of the tab is the same thing with no position: it appends, which is
+what it always did.
+
+Two details of the insert point are behaviour rather than decoration, and both are §11.3's rules
+applied to a seam instead of to the page. **Enters and leaves are counted in pairs**: the seam holds
+the picker's own button, `dragleave` fires the moment a pointer crosses into a child, and a
+highlight that believed the first leave would go out and come back in the next frame under a pointer
+that never left. And **a drop the strip is going to refuse says so**: while an order is unsaved every
+insert point is closed (above), the browser will hand over the file anyway, and a file that
+disappears without a word is worse than one that was never taken — the cursor says no during the
+drag, and the drop answers with the same sentence the closed controls carry.
 
 ### The file rows
 

@@ -108,17 +108,33 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
   const [cropping, setCropping] = useState<string | null>(null);
   const [moving, setMoving] = useState<readonly string[] | null>(null);
 
-  // 🔒 Keyed by the list itself, exactly as the crop editor is keyed by its file: a background
+  // 🔒 Keyed by the **set** of pages, exactly as the crop editor is keyed by its file: a background
   // refetch while the pipeline works must not wipe out an order somebody is in the middle of
-  // arranging. The key changes when the *set* of pages does — a page removed, a file added — which
-  // is precisely when a pending order stops meaning anything.
-  const key = stored.join('/');
-  const [arranging, setArranging] = useState<string | null>(null);
-  if (arranging !== key) {
-    setArranging(key);
+  // arranging. The set changes when a page is removed or a file lands — precisely when a pending
+  // order stops meaning anything. It does **not** change when the same pages are merely rearranged,
+  // and that is the whole difference: the ids in position order changed under every reorder too, so
+  // somebody else moving one page — or this document's own five-second poll answering after any
+  // composition edit — silently threw away an arrangement nobody had saved (docs/11 §11.5a).
+  const key = useMemo(() => [...stored].sort().join('/'), [stored]);
+  // The order the strip last took from the document, so "is it holding anything" is answerable
+  // without asking the document, which is the thing that moved.
+  const [arranging, setArranging] = useState<{ pages: string; order: readonly string[] } | null>(
+    null,
+  );
+  const holding = arranging !== null && (!sameOrder(order, arranging.order) || turns.size > 0);
+  // Counted rather than flagged: the same thing happening twice is worth saying twice.
+  const [discarded, setDiscarded] = useState(0);
+
+  if (arranging === null || arranging.pages !== key) {
+    setArranging({ pages: key, order: stored });
     setOrder(stored);
     setTurns(new Map());
     setSelected(new Set());
+    // 🔒 An arrangement is about a list of pages, and this is no longer that list — it cannot be
+    // kept. What it must not be is dropped in silence, which is what a save refused for a reason
+    // that also changed the set used to do: an error toast, and the work gone with no word about
+    // it.
+    if (holding) setDiscarded((count) => count + 1);
   }
 
   // The tiles, by the page they show, so a drag can ask which one a pointer is over and a keyboard
@@ -129,7 +145,6 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
   // the page that was just nudged takes it back, or the second arrow key would land on nothing.
   const nudged = useRef<string | null>(null);
   const [moves, setMoves] = useState(0);
-  const [seam, setSeam] = useState<number | null>(null);
 
   useEffect(() => {
     const pageId = nudged.current;
@@ -137,6 +152,12 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
     nudged.current = null;
     tiles.current.get(pageId)?.focus();
   }, [moves]);
+
+  // The one thing the strip cannot keep, said out loud where the person can read it.
+  useEffect(() => {
+    if (discarded === 0) return;
+    void message.warning(t('viewer.pages.discarded'), 6);
+  }, [discarded, message, t]);
 
   const registerTile = useCallback(
     (pageId: string) =>
@@ -188,11 +209,17 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
       if (orderChanged) await documentApi.reorderPages(document.id, { order });
     },
     onSuccess: () => {
+      // Everything the strip was holding has landed: this order is now what the document says, and
+      // the refetch that follows will agree.
+      setArranging({ pages: key, order });
+      setTurns(new Map());
       void message.success(t('viewer.pages.saved'), 2);
       refresh();
     },
     // 🔒 The work is not thrown away by a request that failed: the strip keeps what it was holding,
-    // and the refetch under it re-reads whatever did land.
+    // and the refetch under it re-reads whatever did land. Where that refetch brings a *different
+    // set of pages* — the save was refused because somebody else removed one — the arrangement
+    // cannot survive it, and the strip says so rather than letting it vanish behind the error.
     onError: (error: unknown) => {
       void message.error(describeError(error));
       refresh();
@@ -304,22 +331,19 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
   const dropAt =
     (at: number) =>
     (event: ReactDragEvent<HTMLDivElement>): void => {
+      // The default has to go either way: a file dropped on a page the browser does not consider a
+      // drop target navigates away to it, taking the document with it.
       event.preventDefault();
-      setSeam(null);
-      if (readOnly || sending) return;
+      if (readOnly) return;
+      // 🔒 The browser accepts a drop the strip will refuse, and used to drop it in silence. A
+      // position is a place in the list the server was last shown, so an insert has to wait for
+      // Save or Cancel — and the person is told that instead of watching a file disappear.
+      if (sending) {
+        void message.warning(t('viewer.pages.pendingNote'), 4);
+        return;
+      }
       const files = Array.from(event.dataTransfer.files);
       if (files.length > 0) onInsertFiles(files, at);
-    };
-
-  const dragOverSeam =
-    (at: number) =>
-    (event: ReactDragEvent<HTMLDivElement>): void => {
-      // Without this the drop never happens: the browser reads an un-prevented `dragover` as "this
-      // is not a drop target" and falls back to opening the file in the tab.
-      if (!Array.from(event.dataTransfer.types).includes('Files')) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'copy';
-      if (!readOnly && !sending) setSeam(at);
     };
 
   const total = order.length;
@@ -358,12 +382,9 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
           {/* The seam before the first page: a document's front is a place a page can go too. */}
           <Seam
             at={0}
-            active={seam === 0}
             hidden={readOnly}
             disabled={sending}
             onFiles={(files) => onInsertFiles(files, 0)}
-            onDragOver={dragOverSeam(0)}
-            onDragLeave={() => setSeam(null)}
             onDrop={dropAt(0)}
           />
           {order.map((pageId, position) => {
@@ -398,12 +419,9 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
                 />
                 <Seam
                   at={position + 1}
-                  active={seam === position + 1}
                   hidden={readOnly}
                   disabled={sending}
                   onFiles={(files) => onInsertFiles(files, position + 1)}
-                  onDragOver={dragOverSeam(position + 1)}
-                  onDragLeave={() => setSeam(null)}
                   onDrop={dropAt(position + 1)}
                 />
               </div>
@@ -439,6 +457,8 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
                 onClick={() => {
                   setOrder(stored);
                   setTurns(new Map());
+                  // Back to what the document says, and the strip is holding nothing again.
+                  setArranging({ pages: key, order: stored });
                 }}
               >
                 {t('viewer.pages.cancel')}
@@ -459,10 +479,11 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
               documentId={document.id}
               page={page}
               file={file}
-              onClose={() => {
-                setCropping(null);
-                refresh();
-              }}
+              // The text, the log and the lists are re-read because the document is rebuilding —
+              // and only then. An abandoned edit changed nothing, and refetching a whole document
+              // for it is a request that says nothing.
+              onSaved={refresh}
+              onClose={() => setCropping(null)}
             />
           );
         })()}
@@ -471,7 +492,7 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
         <MovePagesDialog
           open
           documentId={document.id}
-          pageIds={moving}
+          pages={moving.map((pageId) => ({ id: pageId, position: order.indexOf(pageId) + 1 }))}
           onClose={() => setMoving(null)}
           onMoved={() => setSelected(new Set())}
         />
@@ -729,36 +750,63 @@ function Tile({
 // pointer gesture and a gesture only a pointer can make is half a fix (docs/11 §11.3).
 function Seam({
   at,
-  active,
   hidden,
   disabled,
   onFiles,
-  onDragOver,
-  onDragLeave,
   onDrop,
 }: {
   at: number;
-  active: boolean;
   hidden: boolean;
   disabled: boolean;
   onFiles: (files: File[]) => void;
-  onDragOver: (event: ReactDragEvent<HTMLDivElement>) => void;
-  onDragLeave: () => void;
   onDrop: (event: ReactDragEvent<HTMLDivElement>) => void;
 }) {
   const t = useTranslations();
   const { token } = theme.useToken();
+  const [active, setActive] = useState(false);
+  // Enter and leave counted in pairs, exactly as the page-wide zone counts them (docs/11 §11.3).
+  // `dragleave` fires the moment the pointer crosses into a child, and this seam has one — the
+  // picker's own button sits in the middle of it — so a highlight that believed the first leave
+  // went out and came back in the next frame, under a pointer that never left the seam at all.
+  const depth = useRef(0);
 
   if (hidden) return null;
 
   const label = t('viewer.pages.insert', { position: at + 1 });
 
+  const carriesFiles = (event: ReactDragEvent<HTMLDivElement>): boolean =>
+    Array.from(event.dataTransfer.types).includes('Files');
+
   return (
     <div
       data-testid={`page-seam-${at}`}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
+      onDragEnter={(event) => {
+        if (!carriesFiles(event)) return;
+        depth.current += 1;
+        if (!disabled) setActive(true);
+      }}
+      onDragOver={(event) => {
+        // Without this the drop never happens: the browser reads an un-prevented `dragover` as
+        // "this is not a drop target" and falls back to opening the file in the tab. It is
+        // prevented even where the seam is closed, so the drop lands here and can be answered,
+        // rather than navigating the document away.
+        if (!carriesFiles(event)) return;
+        event.preventDefault();
+        // 🔒 And the cursor says which it is before anybody lets go.
+        event.dataTransfer.dropEffect = disabled ? 'none' : 'copy';
+      }}
+      onDragLeave={(event) => {
+        if (!carriesFiles(event)) return;
+        // Never below zero: a drag that began before this tile mounted would otherwise leave a debt
+        // the next one has to pay off before the seam lights up at all.
+        depth.current = Math.max(0, depth.current - 1);
+        if (depth.current === 0) setActive(false);
+      }}
+      onDrop={(event) => {
+        depth.current = 0;
+        setActive(false);
+        onDrop(event);
+      }}
       style={{
         width: SEAM_WIDTH,
         display: 'flex',

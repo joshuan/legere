@@ -350,6 +350,17 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   both keys into `.env` is the natural thing to do and is precisely the case that silences the
   `/admin/instance` row. A weak signal that is always true beats a strong one that is sometimes
   wrong; and the lockout it warns about is total and has no way back in through the UI.
+  🔒 **And a widget whose script never arrives says so in words.** The other half of the same
+  lockout: with the site key baked in but `challenges.cloudflare.com` out of reach — an air-gapped
+  self-host, an extension, a `script-src` that has never heard of that origin — nothing mints a
+  token and nothing reports it either, because `error-callback` belongs to a widget that was never
+  rendered. Sign in would then be disabled for ever with an empty gap where the explanation should
+  be. So the client gives the script a bounded time to load and treats the browser's own refusal of
+  it as the same answer, and both draw a localized message naming the origin that must be reachable
+  and saying that an administrator can rebuild without the site key. **The message is not a way
+  past the check**: no token is minted, the button stays off, and a challenge that loaded and was
+  failed is never submittable — a self-hosted instance being told why nobody can sign in is the
+  whole of what this adds.
 
 ### 8.4.1a. The login backoff, and what it may never do
 

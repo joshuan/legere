@@ -3,7 +3,6 @@
     "appName": "Legere",
     "actions": {
       "cancel": "Cancel",
-      "close": "Close",
       "retry": "Try again",
       "save": "Save",
       "edit": "Edit",
@@ -93,6 +92,10 @@
       "passwordRequired": "Enter your password",
       "forgot": "Forgot password?",
       "forgotHint": "Ask your administrator for a reset link."
+    },
+    "captcha": {
+      "unreachable": "The security check could not load",
+      "unreachableHint": "This instance asks Cloudflare Turnstile to verify you, and the browser could not reach challenges.cloudflare.com. A blocked domain, an extension or a content-security policy will do it. Signing in is not possible until the check loads; an administrator can turn it off by rebuilding without a Turnstile site key."
     },
     "wizard": {
       "title": {
@@ -274,6 +277,7 @@
         "GROUPING_WINDOW_MINUTES": "Scan grouping window, min",
         "SCAN_MAX_FILES": "Files per scan, limit",
         "UPLOAD_MAX_BYTES": "Upload size, limit in bytes",
+        "TRASH_RETENTION_DAYS": "Days a file stays in the trash",
         "STIRLING_URL": "Stirling-PDF",
         "DOCLING_URL": "Docling",
         "DOCLING_PICTURE_DESCRIPTION": "Picture captions",
@@ -441,8 +445,6 @@
     "queue": {
       "title": "Queue",
       "autoRefresh": "Auto-refresh",
-      "live": "Live",
-      "paused": "Paused",
       "queued": "Queued",
       "active": "Active",
       "failedRecent": "Failed (24 h)",
@@ -459,7 +461,6 @@
         "title": "Run this stage",
         "hint": "Paused, the stage keeps taking work and runs none of it: the queue grows where you can see it and nothing is lost. The honest way to stop one misbehaving stage without stopping the instance.",
         "stepSwitch": "Run the {step} step",
-        "stepTitle": "Run this step",
         "stepHint": "Paused, the step is held rather than skipped: the documents queue up at it, nothing is written against it, and resuming sets them going again. The rest of the pipeline keeps running."
       },
       "reprocess": {
@@ -492,7 +493,6 @@
         "actions": "Actions"
       },
       "settings": {
-        "title": "How hard this instance works",
         "saved": "Applied",
         "unitConcurrency": "Units per job",
         "unitConcurrencyHint": "How many independent pieces inside one job run at once — the pages of a scan set being cropped, say.",
@@ -714,8 +714,7 @@
       "columns": {
         "file": "File",
         "from": "Came from",
-        "goes": "Goes",
-        "actions": "Actions"
+        "goes": "Goes"
       },
       "reasons": {
         "REPLACED": "replaced by a newer copy",
@@ -727,7 +726,6 @@
       "goesOnVolume": "Never: it lies on a read-only volume",
       "volumeNote": "Deleting removes only what Legere knows about it. The file stays where it is, and Legere will not read it again.",
       "actions": {
-        "download": "Download",
         "restore": "Restore",
         "delete": "Delete",
         "emptyAll": "Empty the trash"
@@ -739,9 +737,7 @@
       "deleted": "Deleted for good.",
       "emptyTitle": "Delete everything in the trash?",
       "emptyBody": "This deletes {items, plural, one {# file} other {# files}} for good — {size}. Originals on a library volume are not touched; only what Legere knows about them goes.",
-      "emptied": "{count, plural, one {# file} other {# files}} deleted.",
-      "more": "Load more",
-      "unreadable": "The volume no longer has these bytes"
+      "emptied": "{count, plural, one {# file} other {# files}} deleted."
     }
   },
   "documents": {
@@ -931,6 +927,7 @@
       "ocr": "OCR used",
       "auto": "read as {value}",
       "applyRead": "Put it back to what was read",
+      "title": "Title",
       "documentType": "Type",
       "people": "People",
       "peoplePlaceholder": "Nobody yet",
@@ -1134,6 +1131,7 @@
       "heading": "Pages ({count})",
       "hint": "Drag a page into place, or move a focused one with the arrow keys.",
       "pendingNote": "Save or cancel the order first: removing, cutting and moving all name a position.",
+      "discarded": "The pages of this document changed while you were arranging them, so the unsaved order could not be kept. The strip now shows what the document says.",
       "tile": "Page {position} of {total} — {source}",
       "sourcePage": "{file}, page {page}",
       "sourceFile": "{file}",
@@ -1154,6 +1152,7 @@
       "move": "Move page {position} to another document",
       "moveSelection": "Move to…",
       "moveTitle": "Move to another document",
+      "moveWhat": "{count, plural, one {Page {pages} leaves this document.} other {# pages leave this document: {pages}.}}",
       "moveToNew": "A new document, made to hold them",
       "moveToExisting": "An existing document",
       "moveSearch": "Find a document",

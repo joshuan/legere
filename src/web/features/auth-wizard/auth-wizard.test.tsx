@@ -271,24 +271,60 @@ describe('AuthWizard', () => {
 
       expect(bodies).toEqual([{ email: 'admin@legere.local', captchaToken: 'first-token' }]);
     });
+
+    // 🔒 The wizard draws the challenge in two mutually exclusive slots, so stepping from the
+    // address to the code unmounts one widget and mounts another — and `sendCode` has already
+    // bumped the counter by then. A guard that only knew about the very first mount reset that
+    // fresh widget the instant it appeared: two challenges per step change, the second of them
+    // visibly restarting under the person in interactive mode (docs/08 §8.4).
+    it('does not throw away the challenge it draws for the second step', async () => {
+      vi.stubEnv('NEXT_PUBLIC_TURNSTILE_SITE_KEY', '1x00000000000000000000AA');
+      const turnstile = fakeTurnstile();
+      mockHappyPath();
+
+      renderWithProviders(<AuthWizard mode="onboarding" />);
+      await screen.findByTestId('captcha-slot');
+
+      turnstile.solve('first-token');
+      await submitEmail();
+      // The second step is up, with a widget of its own.
+      await screen.findByRole('button', { name: /Resend in \d+s/ });
+      expect(screen.getByTestId('captcha-slot')).toBeInTheDocument();
+
+      // One challenge per step and not two: the widget the second step drew is the one it keeps.
+      expect(turnstile.renders()).toBe(2);
+      expect(turnstile.resets()).toBe(0);
+    });
   });
 });
 
 // The Cloudflare script, as far as this wizard is concerned: something that draws into the element
-// it is given and calls back with a token.
-function fakeTurnstile(): { solve: (token: string) => void } {
+// it is given and calls back with a token. It counts its two expensive gestures, because "how many
+// challenges did this cost" is the whole of what the widget's lifecycle is about.
+function fakeTurnstile(): {
+  solve: (token: string) => void;
+  renders: () => number;
+  resets: () => number;
+} {
   let callback: (token: string) => void = () => {};
+  let renders = 0;
+  let resets = 0;
   window.turnstile = {
     render: (_element, options) => {
+      renders += 1;
       callback = options.callback;
-      return 'widget-1';
+      return `widget-${renders}`;
     },
-    reset: () => {},
+    reset: () => {
+      resets += 1;
+    },
     remove: () => {},
   };
   return {
     solve: (token: string) => {
       act(() => callback(token));
     },
+    renders: () => renders,
+    resets: () => resets,
   };
 }

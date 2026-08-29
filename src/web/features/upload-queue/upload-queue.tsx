@@ -31,11 +31,16 @@ export type UploadQueueItem = {
   settledAt?: number;
 };
 
-// Where a batch of files is addressed. `at` and `beforePageId` are two halves of one answer: the
-// position the first file goes to, and the page it goes before — which is what the ones behind it
-// are measured against once the first has landed and moved everything along (docs/11 §11.3a).
-// `beforePageId` is absent when the insert is at the end, where there is nothing to go before.
-export type UploadTarget = { documentId: string; at?: number; beforePageId?: string };
+// Where a batch of files is addressed. 🔒 `at` and `beforePageId` are two halves of one answer and
+// travel together or not at all: the position the first file goes to, and the page it goes before —
+// which is what the ones behind it are measured against once the first has landed and moved
+// everything along (docs/11 §11.3a). A position with no page to re-measure it against would be the
+// same number on every file of the batch, each landing ahead of the last, so a batch would arrive
+// backwards; at the end of a document, where there is nothing to go before, the target carries no
+// position and the answer is the append the server computes for itself.
+export type UploadTarget =
+  | { documentId: string; at?: undefined; beforePageId?: undefined }
+  | { documentId: string; at: number; beforePageId: string };
 
 export type UploadQueue = {
   items: readonly UploadQueueItem[];

@@ -1409,12 +1409,17 @@ function TextPane({
   // re-read is who that difference is for. 🔒 It decides nothing about whether the warning appears
   // — the three-word verdict above does that, as it always did (docs/11 §11.5).
   const extraction = document.auto.quality?.extraction;
-  const verdict =
-    quality === null || quality === undefined
-      ? ''
-      : extraction === undefined
-        ? t(`viewer.textQuality.${quality}`)
-        : `${t(`viewer.textQuality.${quality}`)} — ${t('viewer.textQuality.mark', { value: extraction })}`;
+  // 🔒 Only the two verdicts that are drawn are put into words. `GOOD` is the third value the
+  // analysis can return (docs/03 §3.3.10) and nothing renders it — a document read properly says
+  // nothing about having been read properly — so asking the catalogue for it was a missing-message
+  // error on every well-read document, and translating it would have been a message no screen
+  // shows. The condition that decides the sentence is the one that decides the warning.
+  const warn = quality === 'PARTIAL' || quality === 'NONE';
+  const verdict = !warn
+    ? ''
+    : extraction === undefined
+      ? t(`viewer.textQuality.${quality}`)
+      : `${t(`viewer.textQuality.${quality}`)} — ${t('viewer.textQuality.mark', { value: extraction })}`;
 
   if (loading) return <Spin />;
 
@@ -1424,7 +1429,7 @@ function TextPane({
           nothing is the case this warning exists for, and it is exactly the case with no text to
           stand under: drawn after the empty state, it would never appear on the one document that
           needs it most (docs/11 §11.5). */}
-      {(quality === 'PARTIAL' || quality === 'NONE') && (
+      {warn && (
         <Alert
           type="warning"
           showIcon
@@ -2597,14 +2602,22 @@ function FilesPane({
   // A file dropped — or chosen — at a seam of the strip goes **there** (docs/11 §11.5a, §11.3a). The
   // page it goes before travels with it, so the second file of a batch is measured against the list
   // the first one produced rather than against the list that was on the screen.
+  //
+  // 🔒 At the **last** seam there is no page to go before, and the position is therefore not sent at
+  // all: the two travel together or neither does. An explicit `at` with nothing to re-measure it
+  // against is the same number on every file of the batch — each one landing ahead of the last, so
+  // three files dropped at the end arrive `c, b, a`. Left off, the request is the append the server
+  // computes inside its own transaction, which is also the only answer that stays right when
+  // somebody else is adding pages at the same time.
   const insertAt = (files: File[], at: number): void => {
     const ordered = [...document.pages].sort((a, b) => a.position - b.position);
     const before = ordered[at]?.id;
-    send(files, {
-      documentId: document.id,
-      at,
-      ...(before === undefined ? {} : { beforePageId: before }),
-    });
+    send(
+      files,
+      before === undefined
+        ? { documentId: document.id }
+        : { documentId: document.id, at, beforePageId: before },
+    );
   };
 
   const busy = replace.isPending;

@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { Alert } from 'antd';
+import { useTranslations } from 'next-intl';
+import { useEffect, useRef, useState } from 'react';
 
 // The Cloudflare script (docs/08 §8.4), fetched once per page and only where a widget is actually
 // wanted: an instance with no site key loads nothing at all, which matters on a self-hosted archive
@@ -11,6 +13,14 @@ import { useEffect, useRef } from 'react';
 // and injecting a hidden input into whatever form it lands in.
 const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const SCRIPT_ID = 'cf-turnstile-script';
+
+// 🔒 How long the challenge is given to arrive before the form says so in words. A self-hosted
+// instance may sit behind a firewall, an extension or a `script-src` that has never heard of
+// `challenges.cloudflare.com`, and then nothing else would ever speak: `error-callback` belongs to a
+// widget that was never rendered, so the token would stay `null`, the button would stay off for
+// ever, and the only thing on the screen would be an empty gap (docs/08 §8.4). Generous, because a
+// slow line is not a blocked one.
+const LOAD_TIMEOUT_MS = 15_000;
 
 type TurnstileOptions = {
   sitekey: string;
@@ -56,16 +66,33 @@ export type TurnstileWidgetProps = {
 };
 
 export function TurnstileWidget({ onToken, resetKey }: TurnstileWidgetProps) {
+  const t = useTranslations();
   const siteKey = turnstileSiteKey();
   const host = useRef<HTMLDivElement | null>(null);
   const widget = useRef<string | undefined>(undefined);
   // The callback the script holds is the one from the render that drew the widget; keeping it in a
   // ref means a parent that re-renders does not cost a redraw and a fresh challenge.
   const latest = useRef(onToken);
+  // 🔒 What `resetKey` said when the widget now on screen was drawn. A widget is reset because the
+  // form spent its token, and a widget drawn *after* the last request holds a challenge nobody has
+  // spent — so only a count that has moved past this one means anything. Comparing against zero
+  // covered the first mount of the first widget and nothing else: the wizard draws the challenge in
+  // two mutually exclusive slots, so stepping from the address to the code unmounts one widget and
+  // mounts another, which the already-bumped counter then reset the instant it appeared — two
+  // challenges per step change, the second of them visibly restarting under the person.
+  const drawnAt = useRef(resetKey);
+  const attempt = useRef(resetKey);
+  // Whether the script could be reached at all. Not a failed challenge — there is no challenge —
+  // and never a way past one: the token stays `null` and the form stays off (docs/08 §8.4).
+  const [unreachable, setUnreachable] = useState(false);
 
   useEffect(() => {
     latest.current = onToken;
   }, [onToken]);
+
+  useEffect(() => {
+    attempt.current = resetKey;
+  }, [resetKey]);
 
   useEffect(() => {
     const element = host.current;
@@ -82,6 +109,10 @@ export function TurnstileWidget({ onToken, resetKey }: TurnstileWidgetProps) {
         'expired-callback': () => latest.current(null),
         'error-callback': () => latest.current(null),
       });
+      if (widget.current === undefined) return;
+      // Drawn now, so it answers for every request made up to now and for none before it.
+      drawnAt.current = attempt.current;
+      setUnreachable(false);
     };
 
     if (window.turnstile !== undefined) {
@@ -92,27 +123,54 @@ export function TurnstileWidget({ onToken, resetKey }: TurnstileWidgetProps) {
       };
     }
 
+    // The two ways the script never arrives: the browser refuses it outright — a blocked domain, an
+    // extension, a `script-src` without that origin — or it simply never answers.
+    const giveUp = (): void => {
+      if (cancelled || widget.current !== undefined) return;
+      setUnreachable(true);
+      latest.current(null);
+    };
+    const timer = setTimeout(giveUp, LOAD_TIMEOUT_MS);
+
     const script = document.getElementById(SCRIPT_ID) ?? appendScript();
     script.addEventListener('load', draw);
+    script.addEventListener('error', giveUp);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
       script.removeEventListener('load', draw);
+      script.removeEventListener('error', giveUp);
       remove(widget);
     };
   }, [siteKey]);
 
   useEffect(() => {
-    // Nothing has been spent before the first request, and resetting a widget that has just been
-    // drawn would throw the challenge away for no reason.
-    if (resetKey === 0) return;
+    // Nothing this widget drew has been spent yet, and resetting a challenge that has just appeared
+    // would throw it away for no reason — and, in interactive mode, in front of the person solving
+    // it.
+    if (resetKey <= drawnAt.current) return;
     const api = window.turnstile;
     const id = widget.current;
     if (api === undefined || id === undefined) return;
     api.reset(id);
+    drawnAt.current = resetKey;
   }, [resetKey]);
 
   if (siteKey === '') return null;
-  return <div ref={host} data-testid="captcha-slot" style={{ marginBottom: 16 }} />;
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div ref={host} data-testid="captcha-slot" />
+      {unreachable && (
+        <Alert
+          type="error"
+          role="alert"
+          showIcon
+          message={t('auth.captcha.unreachable')}
+          description={t('auth.captcha.unreachableHint')}
+        />
+      )}
+    </div>
+  );
 }
 
 function appendScript(): HTMLScriptElement {

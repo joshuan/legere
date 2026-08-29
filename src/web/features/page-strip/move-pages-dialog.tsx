@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { documentApi, documentKeys } from '../../entities/document';
 import { searchApi, searchKeys } from '../../entities/search';
-import { useErrorMessage } from '../../shared/lib';
+import { useDebouncedValue, useErrorMessage } from '../../shared/lib';
 
 // "Move to…" of docs/11 §11.5a: the pages that belong elsewhere go there instead of being scanned
 // again (docs/05 §5.6). Two answers to one question — an existing document, or a new one made to
@@ -16,10 +16,21 @@ import { useErrorMessage } from '../../shared/lib';
 // 🔒 What moves is the **entry**, not the bytes: the same file is simply read by pages in two places
 // (ADR-025). The dialog says so rather than letting "move" sound like a copy.
 
+// 🔒 A word typed at speed costs one search, not six — the same debounce the overlay uses
+// (docs/11 §11.1a). Here it is not only politeness: every non-text search spends an outbound
+// embeddings call and is metered at 30 per 60 s per caller (docs/08 §8.4), so a title typed a
+// character at a time used to end in `RATE_LIMITED` and an empty list.
+const DEBOUNCE_MS = 250;
+
+// One page of the document as the dialog names it: the number the tile it was ticked on carries
+// (docs/11 §11.5a). The dialog "says which it will move", and a page's number in the document is
+// what a person reads off the strip.
+export type MovingPage = { id: string; position: number };
+
 export type MovePagesDialogProps = {
   open: boolean;
   documentId: string;
-  pageIds: readonly string[];
+  pages: readonly MovingPage[];
   onClose: () => void;
   onMoved: () => void;
 };
@@ -29,7 +40,7 @@ type Destination = 'new' | 'existing';
 export function MovePagesDialog({
   open,
   documentId,
-  pageIds,
+  pages,
   onClose,
   onMoved,
 }: MovePagesDialogProps) {
@@ -54,18 +65,20 @@ export function MovePagesDialog({
   }
   if (!open && opened) setOpened(false);
 
-  // The same search everything else is found by (docs/11 §11.5e). Asked only once there is something
-  // to ask about, and only while the caller is actually choosing an existing document.
+  // The same search everything else is found by (docs/11 §11.5e), and settled before it is asked:
+  // typing a title is one search, not one per character.
+  const typed = query.trim();
+  const debounced = useDebouncedValue(typed, DEBOUNCE_MS);
   const found = useQuery({
-    queryKey: searchKeys.query({ q: query, mode: 'hybrid' }),
-    queryFn: () => searchApi.search({ q: query, mode: 'hybrid' }),
-    enabled: open && destination === 'existing' && query.trim().length > 0,
+    queryKey: searchKeys.query({ q: debounced, mode: 'hybrid' }),
+    queryFn: () => searchApi.search({ q: debounced, mode: 'hybrid' }),
+    enabled: open && destination === 'existing' && debounced !== '',
   });
 
   const move = useMutation({
     mutationFn: () =>
       documentApi.movePages(documentId, {
-        pageIds: [...pageIds],
+        pageIds: pages.map((page) => page.id),
         documentId: destination === 'new' ? null : target,
       }),
     onSuccess: (result) => {
@@ -91,6 +104,13 @@ export function MovePagesDialog({
 
   const ready = destination === 'new' || target !== null;
 
+  // In document order, whichever order they were ticked in: the strip reads left to right, and a
+  // list that said "12, 3, 5" would be about a document nobody is looking at.
+  const numbers = pages
+    .map((page) => page.position)
+    .sort((one, other) => one - other)
+    .join(', ');
+
   return (
     <Modal
       open={open}
@@ -102,6 +122,14 @@ export function MovePagesDialog({
       onOk={() => move.mutate()}
     >
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        {/* 🔒 Which pages are leaving, by the numbers the tiles they were ticked on carry
+            (docs/11 §11.5a). A tile's own Move and a Move of twelve ticked pages are the same
+            dialog, and without this it was the same *generic* dialog: a confirmation that does not
+            say what it is about is one nobody can check before pressing it. */}
+        <Typography.Text strong>
+          {t('viewer.pages.moveWhat', { count: pages.length, pages: numbers })}
+        </Typography.Text>
+
         <Radio.Group
           value={destination}
           onChange={(event) =>
@@ -124,7 +152,8 @@ export function MovePagesDialog({
             aria-label={t('viewer.pages.moveSearch')}
             value={target}
             onSearch={setQuery}
-            loading={found.isFetching}
+            // Between the keystroke and the answer the list is neither: it is waiting.
+            loading={found.isFetching || debounced !== typed}
             onChange={(id: string) => setTarget(id)}
             options={options}
             notFoundContent={null}

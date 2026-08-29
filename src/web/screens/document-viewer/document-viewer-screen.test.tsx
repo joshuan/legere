@@ -246,6 +246,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => serve());
 afterEach(() => {
   server.resetHandlers();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 afterAll(() => server.close());
@@ -304,11 +305,19 @@ describe('DocumentViewerScreen', () => {
   });
 
   it('says nothing about the text when the model found nothing wrong with it', async () => {
+    // 🔒 And asks the catalogue for nothing either. `GOOD` is the third verdict the analysis can
+    // return (docs/03 §3.3.10) and no screen draws it, so the sentence used to be *composed* on
+    // every well-read document and thrown away — one missing-message error per render, for a
+    // message that would have had nowhere to appear.
+    const complained = vi.spyOn(console, 'error').mockImplementation(() => {});
     serve({ ...detail, auto: { ...detail.auto, textQuality: 'GOOD' } }, '# Terms\n\nBody');
     renderWithProviders(<DocumentViewerScreen id={ID} tab="text" />, { user: TEST_ADMIN });
 
     await screen.findByText('Terms');
     expect(screen.queryByText(enMessages.viewer.textQuality.PARTIAL)).not.toBeInTheDocument();
+    expect(
+      complained.mock.calls.flat().filter((one) => String(one).includes('MISSING_MESSAGE')),
+    ).toEqual([]);
   });
 
   it('offers the re-read only to somebody who may ask for one', async () => {
@@ -1028,6 +1037,45 @@ describe('DocumentViewerScreen', () => {
     expect(screen.getByText(/contracts\/ticket.pdf/)).toBeInTheDocument();
     // Who did it, where somebody did.
     expect(screen.getByText(/Admin/)).toBeInTheDocument();
+  });
+
+  // 🔒 Renaming a document is the commonest edit there is, and the field the domain writes for it
+  // (`title`) was the one field of the seven with no translation — so the entry that matters most
+  // read `viewer.details.title: Ticket → Lease`, a key path in front of the person.
+  it('names every field a correction can change in words, the title included', async () => {
+    const changed = {
+      title: { from: 'Ticket', to: 'Lease' },
+      documentType: { from: null, to: 'Contract' },
+      languages: { from: 'en', to: 'en, sr' },
+      country: { from: null, to: 'ME' },
+      city: { from: 'Podgorica', to: 'Bar' },
+      documentDate: { from: null, to: '2026-05-12' },
+      pageFormat: { from: 'AUTO', to: 'A4' },
+    };
+    server.use(
+      http.get(`/api/documents/${ID}/events`, () =>
+        HttpResponse.json(
+          envelope({
+            items: [
+              {
+                id: 'eeeeeeee-5555-4555-8555-555555555555',
+                type: 'META_CHANGED',
+                at: '2026-08-03T12:00:00.000Z',
+                actor: 'Admin',
+                payload: { changes: changed },
+              },
+            ],
+            nextCursor: null,
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
+
+    expect(await screen.findByText(/Title: Ticket → Lease/)).toBeInTheDocument();
+    // And not one of the seven left saying its own key path.
+    expect(screen.queryByText(/viewer\.details\./)).not.toBeInTheDocument();
   });
 
   it('reads an entry whose path was withheld as a sentence, not a dangling dash', async () => {
@@ -1791,15 +1839,74 @@ describe('DocumentViewerScreen', () => {
         );
         await openFiles();
 
-        const seam = screen.getByTestId('page-seam-2');
+        const seam = screen.getByTestId('page-seam-1');
         expect(
-          within(seam).getByRole('button', { name: label('insert', { position: '3' }) }),
+          within(seam).getByRole('button', { name: label('insert', { position: '2' }) }),
         ).toBeInTheDocument();
         const picker = seam.querySelector('input[type="file"]');
         if (!(picker instanceof HTMLInputElement)) throw new Error('no picker on the seam');
-        await userEvent.upload(picker, new File(['x'], 'last.jpg', { type: 'image/jpeg' }));
+        await userEvent.upload(picker, new File(['x'], 'middle.jpg', { type: 'image/jpeg' }));
 
-        await waitFor(() => expect(sentTo).toBe('2'));
+        await waitFor(() => expect(sentTo).toBe('1'));
+      });
+
+      // 🔒 The regression this seam was built to prevent, at the one place the design could not
+      // prevent it: the **last** seam has no page to go before, so a batch dropped there had no way
+      // to re-measure itself and every file of it carried the same position — each landing ahead of
+      // the last, so three files arrived `c, b, a` (docs/11 §11.3a, §11.5a). The position is left
+      // off entirely there, which is the append the server computes inside its own transaction.
+      it('appends a batch dropped on the last seam in the order it was chosen', async () => {
+        const sent: Array<{ name: string; at: string | null }> = [];
+        server.use(
+          http.post(`/api/documents/${ID}/files`, ({ request }) => {
+            sent.push({
+              name: decodeURIComponent(request.headers.get('x-legere-filename') ?? ''),
+              at: new URL(request.url).searchParams.get('at'),
+            });
+            return HttpResponse.json(envelope(twoFiles), { status: 201 });
+          }),
+        );
+        await openFiles();
+
+        // The seam past the last page of a two-page document.
+        fireEvent.drop(screen.getByTestId('page-seam-2'), {
+          dataTransfer: {
+            files: ['a.jpg', 'b.jpg', 'c.jpg'].map(
+              (name) => new File(['x'], name, { type: 'image/jpeg' }),
+            ),
+            types: ['Files'],
+          },
+        });
+
+        await waitFor(() => expect(sent).toHaveLength(3));
+        // In the order they were dropped, and not one of them naming a position.
+        expect(sent).toEqual([
+          { name: 'a.jpg', at: null },
+          { name: 'b.jpg', at: null },
+          { name: 'c.jpg', at: null },
+        ]);
+      });
+
+      // The other half of the same rule: a seam that *does* have a page after it still sends the
+      // position, and the page it goes before travels with it.
+      it('keeps sending a position for a seam inside the strip', async () => {
+        const sent: Array<string | null> = [];
+        server.use(
+          http.post(`/api/documents/${ID}/files`, ({ request }) => {
+            sent.push(new URL(request.url).searchParams.get('at'));
+            return HttpResponse.json(envelope(twoFiles), { status: 201 });
+          }),
+        );
+        await openFiles();
+
+        fireEvent.drop(screen.getByTestId('page-seam-0'), {
+          dataTransfer: {
+            files: [new File(['x'], 'first.jpg', { type: 'image/jpeg' })],
+            types: ['Files'],
+          },
+        });
+
+        await waitFor(() => expect(sent).toEqual(['0']));
       });
 
       it('opens the crop editor on a page, and stores what it draws on that page', async () => {
@@ -1822,6 +1929,50 @@ describe('DocumentViewerScreen', () => {
         // The crop is written on the page, not on the file: that is what lets two documents crop
         // one photograph apart (docs/03 §3.3.17).
         await waitFor(() => expect(saved).toEqual({ crop: null, turn: null }));
+      });
+
+      // An abandoned edit changed nothing, so nothing under it is re-read: the whole document, its
+      // text, its journal and every list it appears in used to be refetched because a modal closed.
+      it('re-reads the document when a crop is saved, and not when one is abandoned', async () => {
+        await openFiles();
+
+        // Counted from here: the tab has arrived, so everything after this is a re-read.
+        let reads = 0;
+        const pageId = twoFiles.pages[0]?.id ?? '';
+        server.use(
+          http.get(`/api/documents/${ID}`, () => {
+            reads += 1;
+            return HttpResponse.json(envelope(twoFiles));
+          }),
+          http.patch(`/api/documents/${ID}/pages/${pageId}`, () =>
+            HttpResponse.json(envelope(twoFiles)),
+          ),
+        );
+
+        await userEvent.click(
+          screen.getByRole('button', { name: label('crop', { position: '1' }) }),
+        );
+        expect(await screen.findByText(enMessages.viewer.crop.title)).toBeInTheDocument();
+        // The strip has a Cancel of its own, so this one is asked for inside the modal.
+        await userEvent.click(
+          within(screen.getByRole('dialog')).getByRole('button', {
+            name: enMessages.viewer.crop.cancel,
+          }),
+        );
+        await waitFor(() =>
+          expect(screen.queryByText(enMessages.viewer.crop.title)).not.toBeInTheDocument(),
+        );
+
+        expect(reads).toBe(0);
+
+        // And a crop that landed does re-read it: the document is rebuilding behind it.
+        await userEvent.click(
+          screen.getByRole('button', { name: label('crop', { position: '1' }) }),
+        );
+        await screen.findByText(enMessages.viewer.crop.title);
+        await userEvent.click(screen.getByRole('button', { name: enMessages.viewer.crop.save }));
+
+        await waitFor(() => expect(reads).toBeGreaterThan(0));
       });
 
       // 🔒 A page of a PDF is cropped on the same terms — the crop is on the entry, and the build
