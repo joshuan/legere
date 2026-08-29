@@ -555,6 +555,73 @@ itself (it watches both directories, [`13 §13.1`](./13-ci-cd.md)), and by hand 
 `docker buildx imagetools inspect <image>:latest --format '{{.Manifest.Digest}}'` — the command is in
 the comment above each `FROM`.
 
+🔒 **What the release scan reports today, and why each finding stands** ([`13 §13.3`](./13-ci-cd.md)).
+`v0.26.0` was the first release whose scan read all three images back, and it was red: HIGH findings
+and no CRITICAL — one advisory in the app image, six in Docling, fifty-one in Stirling. Every one of
+them lives in a base an upstream owns, and on the day of that release there was nowhere to move a
+pin to: both parser pins already sat on their upstream's newest build (`stirling-pdf:2.14.3` and
+`docling-serve-cpu:v1.31.0` are what `latest` resolved to, checked 2026-08-29), and the app's base
+is the floating `node:26-alpine`, which clears when upstream rebuilds it and not before. So each
+finding is answered the only way left — recorded here, with which image carries it, why it is not
+reachable in this deployment, and what would make it reachable — and subtracted from the scan by the
+allowlist of `13 §13.3` (`.github/trivyignore/`), so that the next red scan means something new. The
+two lists move together: no allowlist entry without a record here, no record without an entry, and
+both leave when the pin move that clears them lands — Dependabot's, usually.
+
+- **`legere` — `CVE-2026-14456`**, `libcrypto3`/`libssl3` 3.5.7-r0 (fixed in 3.5.8-r0): unbounded
+  memory growth in OpenSSL's QUIC *server*. Nothing in the image listens for QUIC: Node serves HTTP
+  over plain TCP on 8080, and TLS itself is the fronting proxy's job (§12.8). Reachable if Node ever
+  served QUIC/HTTP3 through OpenSSL here. Clears when upstream rebuilds `node:26-alpine` over the
+  fixed Alpine package — still 3.5.7-r0 on 2026-08-29.
+- **`legere-stirling` — `CVE-2026-45447`**, Ubuntu's `libssl3t64`/`openssl` 3.0.13-0ubuntu3.7 (fixed
+  in 3.0.13-0ubuntu3.11): heap use-after-free in `PKCS7_verify()`. PKCS7 verification happens in
+  Stirling's signature routes, which the pipeline never calls — [`05 §5.5`](./05-library-and-processing.md)
+  asks for conversion, OCR and page work, and the only thing that can ask for anything is the app
+  container: Stirling publishes no port and sits on the internal network (ADR-012). Reachable if
+  that port were published or `STIRLING_URL` pointed somewhere shared. Clears when upstream rebuilds
+  on the fixed Ubuntu package.
+- **`legere-stirling` — thirty-six advisories in Stirling's own web stack** (`app/lib/*.jar`), the
+  application half of the base image, replaceable only by a newer Stirling. By library: fifteen in
+  netty 4.2.12.Final (`CVE-2026-42577`, `-42579`, `-42583`, `-42584`, `-42587`, `-44249`, `-45416`,
+  `-45674`, `-47691`, `-50010`, `-55831`, `-55833`, `-56745`, `-56819`, `-59901`), five in Spring
+  (`CVE-2026-41842`, `-41845`, `-41850` in webmvc/expression 7.0.7; `CVE-2026-41695`, `-41716` in
+  spring-data-commons 4.0.5), three in the SAML2 service provider 7.0.5 (`CVE-2026-40988`, `-40993`,
+  `-41003`), three in jackson 2.21.2/3.1.2 (`GHSA-r7wm-3cxj-wff9`, `CVE-2026-54512`, `-54513`), two
+  each in micrometer-core 1.16.5 (`CVE-2026-40983`, `-40984`), the PostgreSQL JDBC driver 42.7.10
+  (`CVE-2026-42198`, `CVE-2026-54291`), httpcore5 5.3.6 (`CVE-2026-54399`, `-54428`) and veraPDF's
+  validation-model 1.28.2 (`CVE-2026-54078`, `-54079`), one each in jetty-security 12.1.8
+  (`CVE-2026-10050`) and the commons-io 2.8.0 inside velocity-engine-core 2.3 (`CVE-2024-47554`).
+  Why they stand: all of this faces whoever can speak HTTP to Stirling, and in this deployment that
+  is the app container alone, making the fixed calls of `05 §5.5`. Some of it is dead configuration
+  outright — the SAML2 provider has no IdP, the JDBC driver has no database, jetty-security guards a
+  login that is off because there is nothing behind it (`SECURITY_ENABLELOGIN=false`). The rest is
+  dominated by crafted-request DoS in the request path, and the two jackson-databind RCEs need an
+  endpoint that deserializes attacker-typed JSON, which those fixed calls do not exercise. The one
+  group a hostile *document* could reach is veraPDF — XXE via rich text and XFA — and it runs in
+  PDF/A validation, which the pipeline never asks for either. What would make any of it reachable:
+  publishing Stirling's port, a shared `STIRLING_URL`, or the pipeline growing a call to one of the
+  routes named — and what bounds a miss in this reasoning is SEC-78 above: uid 1001, no
+  capabilities, a read-only filesystem and a memory limit, so a hole costs a container.
+- **`legere-stirling` — fourteen advisories in the converter venv** (`/opt/venv`): ten in pillow
+  12.2.0 (`CVE-2026-54058`, `-54059`, `-54060`, `-55379`, `-55380`, `-59197`, `-59199`, `-59200`,
+  `-59204`, `-59205`, fixed in 12.3.0), three in cryptography 46.0.6 (`CVE-2026-69247`,
+  `CVE-2026-69249`, `GHSA-537c-gmf6-5ccf`) and one in lxml 6.0.2 (`CVE-2026-41066`). This venv
+  serves Stirling's Python-driven conversions — WeasyPrint's HTML route and the helpers around
+  unoserver — and the pipeline sends PDFs, images and office documents, never HTML; the office route
+  is LibreOffice through the UNO bridge, not these libraries. Reachable the same way as the row
+  above, bounded the same way. Clears with the next upstream Stirling build that refreshes the venv.
+- **`legere-docling` — six advisories, one root: the bundled Ray.** Everything the scan flags in
+  this image ships inside the `ray` 2.55.1 package docling-serve carries for its cluster engine
+  mode: `ray` itself (`CVE-2026-57516`, RCE via unsafe deserialization on a Ray cluster port), the
+  vendored aiohttp 3.13.5 of Ray's runtime-env agent (`CVE-2026-69244` — the image's own aiohttp is
+  3.14.3 and clean), and four advisories inside `ray_dist.jar`, Ray's Java driver bridge
+  (`GHSA-r7wm-3cxj-wff9` in jackson-core 2.18.6, `CVE-2026-54512` and `-54513` in jackson-databind,
+  `CVE-2026-54399` in httpcore5 5.0.2). None of that code starts here: the container runs
+  docling-serve's HTTP API alone, nothing enables the Ray engine, no Ray head or agent listens, and
+  nothing launches the JVM bridge. Reachable if the container were started in Ray engine mode or
+  joined to a Ray cluster — a deliberate reconfiguration, and whoever makes it moves the pin past
+  Ray 2.56.0 first. Clears when upstream docling-serve rebuilds over a fixed Ray.
+
 🔒 **The app is not given the object store's root credentials.** `minio-init` creates a scoped
 service account whose policy reaches the `legere` bucket and nothing else — no other bucket, no user
 administration, no console — and the app is given that. `MINIO_ROOT_PASSWORD` stays for

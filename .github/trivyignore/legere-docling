@@ -1,0 +1,22 @@
+# Recorded findings in ghcr.io/<owner>/legere-docling, subtracted from the release scan so that a
+# red scan means something new (docs/13 §13.3). Every entry has a record in docs/12 §12.7 — which
+# image, why it is not reachable in this deployment, what would make it reachable — and is deleted
+# when the pin move that clears it lands (deploy/docling/Dockerfile; Dependabot watches it). The
+# base is docling-serve-cpu:v1.31.0, upstream's newest build as of 2026-08-29 — there was nowhere
+# to move the pin. Record for everything below: docs/12 §12.7.
+
+# --- All six live inside the bundled ray 2.55.1, shipped for docling-serve's cluster engine mode,
+# which nothing here enables: no Ray head or agent listens, and the JVM driver bridge
+# (ray_dist.jar) is never launched. The container runs docling-serve's HTTP API alone.
+
+# ray itself — RCE via unsafe deserialization on a Ray cluster port; fixed in 2.56.0.
+CVE-2026-57516
+
+# Ray's vendored aiohttp 3.13.5 (runtime-env agent); the image's own aiohttp is 3.14.3 and clean.
+CVE-2026-69244
+
+# Inside ray_dist.jar: jackson-core 2.18.6, jackson-databind, httpcore5 5.0.2.
+GHSA-r7wm-3cxj-wff9
+CVE-2026-54512
+CVE-2026-54513
+CVE-2026-54399

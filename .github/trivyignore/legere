@@ -1,0 +1,9 @@
+# Recorded findings in ghcr.io/<owner>/legere, subtracted from the release scan so that a red scan
+# means something new (docs/13 §13.3). Every entry has a record in docs/12 §12.7 — which image,
+# why it is not reachable in this deployment, what would make it reachable — and is deleted when
+# the pin move (or base rebuild) that clears it lands. No entry without a record.
+
+# openssl: DoS via unbounded memory growth in the QUIC server; libcrypto3/libssl3 3.5.7-r0, fixed
+# in 3.5.8-r0. Nothing in this image listens for QUIC. Clears when upstream rebuilds node:26-alpine
+# over the fixed Alpine package (the base floats — there is no pin to move). Record: docs/12 §12.7.
+CVE-2026-14456

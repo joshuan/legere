@@ -54,6 +54,14 @@ base image: the runtime stage deletes npm and corepack outright (§12.6). It is 
 the fix for this class — a scanner reporting code the image does not need is telling you to remove
 the code, and only a suppression list would let the finding survive as an entry nobody rereads.
 
+The parser images later met the other class: code the image *does* need, fixed upstream, and our pin
+already on upstream's newest build — nothing to delete and nowhere to move (release `v0.26.0`, the
+first whose scan read all three images back). That class does take a list (§13.3), because there the
+entry is the record of a decision rather than a substitute for one: each line points at its record
+in [`12 §12.7`](./12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository) —
+which image, why the finding is not reachable in this deployment, what would make it reachable —
+and the entry is deleted when the pin move that clears it lands.
+
 ### Dependabot
 
 `.github/dependabot.yml` watches three ecosystems weekly — npm at the root, `github-actions` (which
@@ -180,6 +188,22 @@ that what is reported is the artifact deployments pull; it gets neither `package
 `npm run release` (§13.3a) says so in as many words, because a failed `scan` and a failed `build`
 mean opposite things about what is in the registry.
 
+🔒 **Recorded findings are subtracted first, so a red scan means something new.** The `v0.26.0` scan
+— the first over all three images — was red on findings that had been true for weeks and would stay
+true until an upstream published a build to move a pin to: both parser pins already sat on their
+upstream's newest release, and the app's base floats. The alternative decision, letting a red scan
+keep failing on the same recorded set, was considered and refused: a job that is red on every run
+for a known reason stops being read, and the next genuinely new finding arrives unread. So each scan
+entry is handed an allowlist — `.github/trivyignore/legere`, `…/legere-stirling`,
+`…/legere-docling`, one plain `.trivyignore` per image, so a CVE recorded against one image still
+fails the scan when it surfaces in another. Every entry is one advisory id under a comment pointing
+at its record in [`12 §12.7`](./12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository):
+which image carries it, why it is not reachable in this deployment, what would make it reachable.
+The two lists move together — no entry without a record, no record without an entry — and an entry
+is deleted when the pin move that clears it lands, which is Dependabot's edit to review, not a new
+decision. A red scan is then worth stopping for again, and means one of two things: a finding
+nobody has recorded, or a recorded one whose record has stopped being true.
+
 ```yaml
 name: Release
 on:
@@ -296,7 +320,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions: { contents: read, packages: read }
     steps:
-      # …ghcr login…
+      # …checkout (the allowlist lives in the repository), ghcr login…
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         # The parser images exist at a version tag only.
         if: ${{ matrix.suffix == '' || startsWith(github.ref, 'refs/tags/v') }}
@@ -305,6 +329,9 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: '1'
+          # Recorded findings subtracted, one file per image; every entry points at its record
+          # in docs/12 §12.7.
+          trivyignores: .github/trivyignore/legere${{ matrix.suffix }}
 ```
 
 - Images: `ghcr.io/<owner>/legere`, tags `main`, `sha-…`, `X.Y.Z` (the semver of the tag, without its
@@ -395,6 +422,8 @@ setup defines.
 - [ ] `npm audit --omit=dev --audit-level=high` in `build-and-test`, before `npm ci`.
 - [ ] Image scan on release, over all three published images; both parser bases pinned
       `tag@sha256:…`; `.github/dependabot.yml` covers npm, `github-actions` and docker.
+- [ ] Recorded scan findings subtracted via `.github/trivyignore/<image>`, every entry pointing at
+      its record in `12 §12.7`; no entry without a record, no record without an entry.
 
 ## 13.6. Open questions
 

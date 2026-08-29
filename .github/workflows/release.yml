@@ -259,6 +259,10 @@ jobs:
       contents: read
       packages: read
     steps:
+      # The allowlist below lives in the repository, so the scan is the one job past `build` that
+      # checks the tree out.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: ${{ matrix.suffix == '' || startsWith(github.ref, 'refs/tags/v') }}
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         if: ${{ matrix.suffix == '' || startsWith(github.ref, 'refs/tags/v') }}
         with:
@@ -276,3 +280,7 @@ jobs:
           # has no upgrade to take. Fixed ones do, and those fail the job.
           ignore-unfixed: true
           exit-code: '1'
+          # Recorded findings are subtracted so a red scan means something new (docs/13 §13.3). One
+          # file per image — a CVE recorded against one image still fails the scan in another — and
+          # every entry points at its record in docs/12 §12.7.
+          trivyignores: .github/trivyignore/legere${{ matrix.suffix }}
