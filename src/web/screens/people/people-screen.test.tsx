@@ -200,6 +200,17 @@ describe('PeopleScreen', () => {
       await waitFor(() => expect(merged).toMatchObject({ note: raw.slice(0, 500) }));
     });
 
+    it('opens focused on the confirm button, the only sensible next step (docs/11 §11.14)', async () => {
+      const dialog = await openTheMergeDialog([person, twin]);
+
+      // A prefilled dialog focuses its primary action: the hand should not have to travel to press
+      // the one button it came for.
+      const confirm = within(dialog).getByRole('button', {
+        name: enMessages.admin.catalogues.actions.mergeConfirm,
+      });
+      await waitFor(() => expect(confirm).toHaveFocus());
+    });
+
     it('replaces an untouched prefill with the analyst tidier reading, when there is one', async () => {
       server.use(
         http.post('/api/admin/people/merge-preview', () =>
@@ -337,6 +348,18 @@ describe('PeopleScreen', () => {
       expect(screen.queryByText(enMessages.admin.catalogues.suggestions.unavailable)).toBeNull();
       expect(screen.queryByText(enMessages.admin.people.suggestions.title)).toBeNull();
     });
+  });
+
+  it('opens the create dialog focused on the name field (docs/11 §11.14)', async () => {
+    renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
+    await userEvent.click(
+      await screen.findByRole('button', { name: enMessages.admin.people.actions.create }),
+    );
+
+    // A dialog that expects typing focuses its first empty field.
+    const dialog = await screen.findByRole('dialog');
+    const name = within(dialog).getByLabelText(enMessages.admin.catalogues.fields.name);
+    await waitFor(() => expect(name).toHaveFocus());
   });
 
   it('stands its actions at the foot of the screen, Merge arriving with a selection (docs/11 §11.12a)', async () => {

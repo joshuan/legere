@@ -18,7 +18,7 @@ import {
   type TableColumnType,
 } from 'antd';
 import { useTranslations } from 'next-intl';
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CatalogueReadingState } from '../../../shared/contracts/common';
 import { useErrorMessage } from '../../shared/lib';
 import { AnalystUnavailableNotice } from './analyst-unavailable-notice';
@@ -168,6 +168,32 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   // Which opening of the merge dialog is current, so a tidy prefill that arrives after the dialog
   // was closed or reopened lands nowhere.
   const mergeSession = useRef(0);
+
+  // A dialog opens with focus on the control its opener came for (docs/11 §11.14): a form that
+  // arrives prefilled focuses its primary action — the merge dialog's confirm, the edit dialog's
+  // Save — and a form that expects typing focuses its first empty field, the create dialog's name.
+  // Handed over a tick after open, because the dialog focuses its own wrapper on mount and would
+  // otherwise take it straight back.
+  const mergeConfirmRef = useRef<HTMLButtonElement | HTMLAnchorElement | null>(null);
+  const saveRef = useRef<HTMLButtonElement | HTMLAnchorElement | null>(null);
+  const formBodyRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!merging) return;
+    const timer = window.setTimeout(() => mergeConfirmRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [merging]);
+
+  useEffect(() => {
+    if (!open) return;
+    const timer = window.setTimeout(() => {
+      // The name field is the one every catalogue's create dialog asks to be typed into first;
+      // AntD gives the control the field's own name as its id.
+      if (editing === null) formBodyRef.current?.querySelector<HTMLElement>('#name')?.focus();
+      else saveRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [open, editing]);
 
   const chosen = rows.filter((row) => selected.includes(row.id));
 
@@ -478,12 +504,23 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
         <Modal
           open={merging}
           title={t('admin.catalogues.mergeTitle', { count: chosen.length })}
-          okText={t('admin.catalogues.actions.mergeConfirm')}
-          cancelText={t('common.actions.cancel')}
-          confirmLoading={mergeRows.isPending}
           onCancel={() => setMerging(false)}
-          onOk={() => void mergeForm.submit()}
           destroyOnClose
+          // Its own footer, because the confirm button is what the dialog opens focused on
+          // (docs/11 §11.14) and AntD's built-in one offers no handle to reach it by.
+          footer={
+            <>
+              <Button onClick={() => setMerging(false)}>{t('common.actions.cancel')}</Button>
+              <Button
+                type="primary"
+                ref={mergeConfirmRef}
+                loading={mergeRows.isPending}
+                onClick={() => void mergeForm.submit()}
+              >
+                {t('admin.catalogues.actions.mergeConfirm')}
+              </Button>
+            </>
+          }
         >
           <Form
             form={mergeForm}
@@ -539,21 +576,33 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
       <Modal
         open={open}
         title={editing === null ? createTitle : editTitle}
-        okText={t('common.actions.save')}
-        cancelText={t('common.actions.cancel')}
-        confirmLoading={save.isPending}
         onCancel={() => setOpen(false)}
-        onOk={() => void form.submit()}
         destroyOnClose
+        // Same reason as the merge dialog's: the primary action is a focus target (docs/11 §11.14).
+        footer={
+          <>
+            <Button onClick={() => setOpen(false)}>{t('common.actions.cancel')}</Button>
+            <Button
+              type="primary"
+              ref={saveRef}
+              loading={save.isPending}
+              onClick={() => void form.submit()}
+            >
+              {t('common.actions.save')}
+            </Button>
+          </>
+        }
       >
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={initialValues}
-          onFinish={(values: Values) => save.mutate(values)}
-        >
-          {fields(editing)}
-        </Form>
+        <div ref={formBodyRef}>
+          <Form
+            form={form}
+            layout="vertical"
+            initialValues={initialValues}
+            onFinish={(values: Values) => save.mutate(values)}
+          >
+            {fields(editing)}
+          </Form>
+        </div>
       </Modal>
     </div>
   );

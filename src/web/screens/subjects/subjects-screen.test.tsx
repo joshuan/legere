@@ -201,6 +201,18 @@ describe('SubjectsScreen', () => {
     await waitFor(() => expect(merged).toMatchObject({ note: raw.slice(0, 2000) }));
   });
 
+  it('opens the create dialog focused on the name, not the kind above it (docs/11 §11.14)', async () => {
+    renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
+    await userEvent.click(
+      await screen.findByRole('button', { name: enMessages.admin.subjects.actions.create }),
+    );
+
+    // The name field, even where a select stands before it in the form.
+    const dialog = await screen.findByRole('dialog');
+    const name = within(dialog).getByLabelText(enMessages.admin.catalogues.fields.name);
+    await waitFor(() => expect(name).toHaveFocus());
+  });
+
   it('stands its actions at the foot of the screen (docs/11 §11.12a)', async () => {
     renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
     await screen.findByText('Njegoševa 5');
