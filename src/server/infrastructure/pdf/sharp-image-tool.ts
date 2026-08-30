@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { InjectPinoLogger, type PinoLogger } from 'nestjs-pino';
 import sharp from 'sharp';
 import type { Crop, Rotation } from '../../../shared/contracts/documents';
 import { toBuffer, type BinarySource } from '../../application/ports/binary-source';
@@ -8,23 +9,42 @@ import type { GrayscaleRaster } from '../../domain/entities/page-detection';
 
 const DEFAULT_QUALITY = 80;
 
-// 🔒 The most pixels this instance will decode out of one image. sharp's own default (~268 Mpx) is a
-// ceiling on what libvips can address, not a budget anybody can afford: a 16383×16383 single-colour
-// PNG is a few hundred KB — far under `UPLOAD_MAX_BYTES` — and decodes to ~805 MB of raw RGB, with
-// the warp below allocating an output of comparable size. Nest, Next and the queue workers share one
-// process (docs/02 ADR-002), so that OOM is the HTTP surface as well, and the queue's five retries
-// detonate it five times (docs/05 §5.4).
+// 🔒 The most pixels this instance will *work on*: the raster every pipeline below is brought under
+// before anything else touches it. sharp's own default (~268 Mpx) is a ceiling on what libvips can
+// address, not a budget anybody can afford: a 16383×16383 single-colour PNG is a few hundred KB —
+// far under `UPLOAD_MAX_BYTES` — and decodes to ~805 MB of raw RGB, with the warp below allocating
+// an output of comparable size. Nest, Next and the queue workers share one process (docs/02
+// ADR-002), so that OOM is the HTTP surface as well, and the queue's five retries detonate it five
+// times (docs/05 §5.4).
 //
-// 80 Mpx: an A3 sheet scanned at 600 dpi is 69.7 Mpx and a 100-megapixel phone sensor is 100 Mpx
-// after its own crop, so every scan a document archive actually meets fits, while the worst
-// legitimate case peaks at ~240 MB raw plus a warp output of the same order. Past it the step fails
-// with the message sharp gives — "Input image exceeds pixel limit" — which is recorded against the
-// document like any other step failure, and the rest of the archive keeps processing.
+// 80 Mpx: an A3 sheet scanned at 600 dpi is 69.7 Mpx, so every scan a document archive actually
+// meets fits, while the worst legitimate case peaks at ~240 MB raw plus a warp output of the same
+// order.
 const MAX_INPUT_PIXELS = 80_000_000;
+
+// 🔒 And the most this will *read*, on the way down to that bound. A picture past the bound is not
+// refused — a 100-megapixel photograph is a page like any other, and refusing it is how the simplest
+// step in the pipeline became the one that could not render a large scan (docs/05 §5.4a). Its size
+// is read off its header, which decodes no pixels, and the decode is then opened with a `resize`
+// that brings the raster under the working bound before the rest of the pipeline sees it. libvips
+// streams that shrink a scanline at a time, so what is held is the raster being written rather than
+// the one being read: measured here, a 268 Mpx PNG costs 87 MB of resident memory on its way to a
+// preview and 557 MB on its way to a full-bound raster, against 46 MB and 506 MB for a picture
+// already at the bound — the difference is the loader's own scanlines, and the bound above still
+// decides the rest.
+//
+// The ceiling is sharp's own default, 16383² — what libvips can address at all. Past it there is no
+// way down that is worth trying, and the step fails naming the size it was handed rather than
+// repeating the library's words.
+const MAX_DECODE_PIXELS = 268_402_689;
 
 // Options every pipeline in this file opens with. `sequentialRead` lets libvips work a scanline at a
 // time instead of holding a decoded page, which is what makes a large-but-legitimate scan cheap.
 const INPUT = { limitInputPixels: MAX_INPUT_PIXELS, sequentialRead: true } as const;
+
+// The same, for a picture on its way down to the working bound: the decode may read what libvips can
+// address because a `resize` under it is what the pipeline actually holds.
+const OVERSIZE_INPUT = { limitInputPixels: MAX_DECODE_PIXELS, sequentialRead: true } as const;
 
 // 🔒 Process-wide, set once at load. The libvips operation cache holds decoded images between calls
 // for a hit rate of approximately zero here — every document is a different image — so it is pure
@@ -116,36 +136,30 @@ const MAX_INK_SHARE = 0.5;
 
 @Injectable()
 export class SharpImageTool extends ImageTool {
+  constructor(@InjectPinoLogger(SharpImageTool.name) private readonly logger: PinoLogger) {
+    super();
+  }
+
   async dimensions(source: BinarySource): Promise<{ width: number; height: number }> {
-    const {
-      width = 0,
-      height = 0,
-      orientation,
-    } = await sharp(await toBuffer(source), INPUT).metadata();
+    const { width, height, quarterTurned } = await measured(await toBuffer(source));
 
     // 🔒 As it will be *shown*, not as it is stored. A photograph taken sideways carries its
     // rotation in EXIF, and `metadata` reports the stored size: orientations 5 through 8 are the
     // quarter turns, and for those the stored width is the displayed height. Read the wrong way
     // round, a portrait page would be laid out landscape — and every viewer would disagree with us
     // about which way up the document is.
-    const quarterTurned = orientation !== undefined && orientation >= 5 && orientation <= 8;
     return quarterTurned ? { width: height, height: width } : { width, height };
   }
 
   async toJpegPreview(source: BinarySource, options: JpegPreviewOptions): Promise<Buffer> {
+    // The longest side is the caller's own, since a preview is under the working bound whatever the
+    // picture was: one `resize` does both, because sharp keeps only the last.
+    const image = await this.opened(source, options.maxDim);
     return (
-      sharp(await toBuffer(source), INPUT)
+      image
         // A photo taken sideways carries its rotation in EXIF only; without this the preview is
         // rotated while every viewer shows the original upright.
         .rotate()
-        // `inside` keeps the aspect ratio and bounds the longest side; `withoutEnlargement` leaves a
-        // small image at its own size rather than blowing it up into a blurry one.
-        .resize({
-          width: options.maxDim,
-          height: options.maxDim,
-          fit: 'inside',
-          withoutEnlargement: true,
-        })
         // Flatten onto white: a transparent PNG would otherwise get a black background in JPEG.
         .flatten({ background: '#ffffff' })
         .jpeg({ quality: options.quality ?? DEFAULT_QUALITY })
@@ -157,9 +171,10 @@ export class SharpImageTool extends ImageTool {
   // content was, so the offsets are turned back into a quadrilateral over the original
   // (docs/05 §5.6). An image that trims to nothing — a blank page — keeps its whole frame.
   async contentBox(source: BinarySource): Promise<Crop> {
-    const upright = await sharp(await toBuffer(source), INPUT)
-      .rotate()
-      .toBuffer();
+    // Whatever comes back is under the working bound, so the two opens below are the plain ones —
+    // and the answer is a quadrilateral in shares of the frame, which a downscale does not move.
+    const image = await this.opened(source);
+    const upright = await image.rotate().toBuffer();
     const original = await sharp(upright, INPUT).metadata();
     const width = original.width ?? 0;
     const height = original.height ?? 0;
@@ -192,10 +207,11 @@ export class SharpImageTool extends ImageTool {
   // The quadrilateral as a perspective transform over raw pixels: sharp decodes and encodes, the
   // geometry is the domain's (docs/05 §5.6).
   async applyCrop(source: BinarySource, crop: Crop): Promise<Buffer> {
-    // 🔒 The decode is bounded by `MAX_INPUT_PIXELS` like every other pipeline in this file, and
+    // 🔒 The decode is brought under `MAX_INPUT_PIXELS` like every other pipeline in this file, and
     // since `planCrop` will not plan an output larger than its input, that one number now bounds
     // both rasters a crop holds rather than only the first (docs/05 §5.4a).
-    const decoded = await sharp(await toBuffer(source), INPUT)
+    const image = await this.opened(source);
+    const decoded = await image
       .rotate()
       // Transparency has no meaning on a page of a PDF, and raw pixels with an alpha channel would
       // carry it into the warp for nothing.
@@ -233,7 +249,7 @@ export class SharpImageTool extends ImageTool {
   // is EXIF, what every viewer already does to the file — so the stored turn is applied to the
   // picture as anybody would see it rather than to whichever way the sensor wrote the rows.
   async applyRotation(source: BinarySource, rotation: Rotation): Promise<Buffer> {
-    const upright = sharp(await toBuffer(source), INPUT).rotate();
+    const upright = (await this.opened(source)).rotate();
     const mirrored = rotation.mirrored ? upright.flop() : upright;
     const turned =
       rotation.quarterTurns === 0
@@ -250,7 +266,8 @@ export class SharpImageTool extends ImageTool {
   // levelled and not turned, a crooked scan is turned and not levelled, and a scan that is both
   // flat and straight comes back as `null` — its own bytes, unre-encoded.
   async correctPage(source: BinarySource): Promise<Buffer | null> {
-    const decoded = await sharp(await toBuffer(source), INPUT)
+    const image = await this.opened(source);
+    const decoded = await image
       .rotate()
       // Transparency has no meaning on a page of a PDF, and everything below reads brightness as
       // "how much paper is here": sRGB says that in the same numbers for a photograph, a greyscale
@@ -295,9 +312,9 @@ export class SharpImageTool extends ImageTool {
   }
 
   async grayscaleRaster(source: BinarySource, maxDim: number): Promise<GrayscaleRaster> {
-    const decoded = await sharp(await toBuffer(source), INPUT)
+    const image = await this.opened(source, maxDim);
+    const decoded = await image
       .rotate()
-      .resize({ width: maxDim, height: maxDim, fit: 'inside', withoutEnlargement: true })
       .flatten({ background: '#ffffff' })
       .greyscale()
       // One byte per pixel is what the detector reads; anything else would have to be strided over.
@@ -311,6 +328,93 @@ export class SharpImageTool extends ImageTool {
       height: decoded.info.height,
     };
   }
+
+  // 🔒 What every pipeline in this file opens with: the picture, at a size this instance can work on
+  // (docs/05 §5.4a). A raster already under the working bound is opened exactly as this file has
+  // always opened one. One above it is opened at the decode ceiling with a `resize` that brings it
+  // under the bound before anything downstream touches a pixel — the shrink libvips streams rather
+  // than the decode nobody can afford.
+  //
+  // `maxDim` is for the two callers that resize anyway: a preview and the detector's raster are far
+  // under the bound whatever the picture was, so the smaller of the two sides is asked for and the
+  // pipeline carries one `resize`, because sharp keeps only the last.
+  private async opened(source: BinarySource, maxDim: number | null = null): Promise<sharp.Sharp> {
+    const bytes = await toBuffer(source);
+    const { width, height, pixels } = await measured(bytes);
+    const fitSide = fitSideOf(width, height);
+
+    if (fitSide !== null) {
+      // A page that arrived at less than its own resolution is a fact about the archive, not an
+      // implementation detail: the step says so where every other outcome of it is said.
+      this.logger.info(
+        { width, height, pixels, side: fitSide, budget: MAX_INPUT_PIXELS },
+        'An image past the pixel budget was opened smaller rather than refused',
+      );
+    }
+
+    const side = smallerOf(fitSide, maxDim);
+    if (side === null) return sharp(bytes, INPUT);
+    return sharp(bytes, fitSide === null ? INPUT : OVERSIZE_INPUT).resize({
+      // `inside` keeps the aspect ratio and bounds the longest side; `withoutEnlargement` leaves a
+      // small image at its own size rather than blowing it up into a blurry one.
+      width: side,
+      height: side,
+      fit: 'inside',
+      withoutEnlargement: true,
+    });
+  }
+}
+
+// How large the picture is, off its header. 🔒 `metadata` parses the header and decodes no pixels —
+// a few hundred bytes whatever the picture is — so it is the one read that may be made with no limit
+// at all, and it is what turns the limit from a refusal into a decision. What it decides is below.
+async function measured(
+  bytes: Buffer,
+): Promise<{ width: number; height: number; pixels: number; quarterTurned: boolean }> {
+  const {
+    width = 0,
+    height = 0,
+    orientation,
+  } = await sharp(bytes, { limitInputPixels: false }).metadata();
+  const pixels = width * height;
+
+  // Past what libvips can address there is no shrink to stream it through, so the step fails here —
+  // naming the picture it was handed, which is something an operator can act on, rather than
+  // repeating "Input image exceeds pixel limit" at somebody who never chose the limit.
+  if (pixels > MAX_DECODE_PIXELS) {
+    throw new Error(
+      `The image is ${width}×${height} (${megapixels(pixels)} Mpx), past the ` +
+        `${megapixels(MAX_DECODE_PIXELS)} Mpx this instance can open`,
+    );
+  }
+
+  return {
+    width,
+    height,
+    pixels,
+    quarterTurned: orientation !== undefined && orientation >= 5 && orientation <= 8,
+  };
+}
+
+// The longest side a picture may be worked on at, or `null` when it is already small enough to be
+// left alone. At exactly `√(bound · long / short)` the raster is the bound; one pixel comes off it
+// because `fit: 'inside'` rounds the other side to a whole pixel, and a bound a rounding can cross
+// is not a bound.
+function fitSideOf(width: number, height: number): number | null {
+  if (width * height <= MAX_INPUT_PIXELS) return null;
+  const longest = Math.max(width, height);
+  const shortest = Math.min(width, height);
+  return Math.max(1, Math.floor(Math.sqrt((MAX_INPUT_PIXELS * longest) / shortest)) - 1);
+}
+
+function smallerOf(left: number | null, right: number | null): number | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return Math.min(left, right);
+}
+
+function megapixels(pixels: number): string {
+  return (pixels / 1_000_000).toFixed(1);
 }
 
 // sharp types the channel count of a raw buffer as a fixed set; anything outside it never comes out

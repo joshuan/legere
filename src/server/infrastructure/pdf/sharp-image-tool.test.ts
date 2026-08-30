@@ -1,9 +1,38 @@
 import { Readable } from 'node:stream';
+import { crc32, deflateSync } from 'node:zlib';
+import { PinoLogger } from 'nestjs-pino';
 import sharp from 'sharp';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { SharpImageTool } from './sharp-image-tool';
 
-const images = new SharpImageTool();
+// What the tool writes to stdout, captured (docs/06 §6.7): a picture opened smaller than it was
+// says so, and that is an assertion rather than a hope. One root logger per process, so the stream
+// is built once and emptied between tests.
+const logLines: string[] = [];
+const logger = new PinoLogger({
+  pinoHttp: [
+    { level: 'trace' },
+    {
+      write: (line: string) => {
+        logLines.push(line);
+      },
+    },
+  ],
+});
+
+function logged(): Array<Record<string, unknown>> {
+  return logLines.map((line: string): Record<string, unknown> => {
+    const parsed: unknown = JSON.parse(line);
+    if (parsed === null || typeof parsed !== 'object') throw new Error(`Not an object: ${line}`);
+    return { ...parsed };
+  });
+}
+
+beforeEach(() => {
+  logLines.length = 0;
+});
+
+const images = new SharpImageTool(logger);
 
 // A landscape image, so a rotation is visible in the dimensions rather than only in the pixels.
 function landscape(width = 1200, height = 800): Promise<Buffer> {
@@ -467,27 +496,116 @@ describe('SharpImageTool', () => {
 
   // 🔒 SEC-08: the pixel budget. Nest, Next and the queue workers share one process (docs/02
   // ADR-002), so an image bomb that OOMs a processing step takes the HTTP surface with it — and the
-  // queue would then detonate it five more times (docs/05 §5.4).
+  // queue would then detonate it five more times (docs/05 §5.4). What the budget does past its own
+  // edge is where it is *worked on*, not whether it is opened at all: a scan above it is brought
+  // under it and processed, and only a picture no shrink can reach is refused (docs/05 §5.4a).
   describe('the pixel budget', () => {
-    it('refuses an image past the budget in every pipeline, cheaply and by name', async () => {
-      // 100 Mpx of one colour: three megabytes on disk, past the 80 Mpx budget, and ~300 MB of raw
-      // RGB if anything ever decoded it. Nothing does — the limit is checked off the header, before
-      // a pixel is read, which is why this test costs milliseconds instead of a gigabyte.
-      const bomb = await sharp({
-        create: { width: 10000, height: 10000, channels: 3, background: '#3355aa' },
-      })
-        .png({ compressionLevel: 1 })
+    // 108 Mpx: what a 100-megapixel phone produces, and what five documents on a live instance were
+    // refused for. The JPEG weighs a couple of hundred kilobytes and decodes to 324 MB of raw RGB —
+    // which is why nothing decodes it whole.
+    const oversizedScan = (): Promise<Buffer> =>
+      sharp({ create: { width: 12000, height: 9000, channels: 3, background: '#3355aa' } })
+        .jpeg({ quality: 60 })
         .toBuffer();
-      expect(bomb.byteLength).toBeLessThan(8 * 1024 * 1024);
 
-      // Every entry point, because a budget one pipeline forgets is no budget: the step fails with
-      // a message that says what happened, and the process is still here to run the next document.
-      await expect(images.toJpegPreview(bomb, { maxDim: 400 })).rejects.toThrow(/pixel limit/);
-      await expect(images.contentBox(bomb)).rejects.toThrow(/pixel limit/);
-      await expect(images.grayscaleRaster(bomb, 400)).rejects.toThrow(/pixel limit/);
-      await expect(images.correctPage(bomb)).rejects.toThrow(/pixel limit/);
+    // A PNG that is nothing but a header, declaring a picture of whatever size is asked for. What
+    // decides here is the shape the file claims rather than what it weighs, which is exactly why
+    // the size is read off the header before anything opens a pixel.
+    function declaredPng(width: number, height: number): Buffer {
+      const chunk = (type: string, data: Buffer): Buffer => {
+        const length = Buffer.alloc(4);
+        length.writeUInt32BE(data.length);
+        const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+        const checksum = Buffer.alloc(4);
+        checksum.writeUInt32BE(crc32(body) >>> 0);
+        return Buffer.concat([length, body, checksum]);
+      };
+      const header = Buffer.alloc(13);
+      header.writeUInt32BE(width, 0);
+      header.writeUInt32BE(height, 4);
+      // Eight bits, greyscale, no interlace — the smallest picture a PNG can claim to be.
+      header[8] = 8;
+      return Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        chunk('IHDR', header),
+        chunk('IDAT', deflateSync(Buffer.alloc(0))),
+        chunk('IEND', Buffer.alloc(0)),
+      ]);
+    }
+
+    it('renders a scan past the budget in every pipeline, instead of refusing it', async () => {
+      const scan = await oversizedScan();
+      expect(scan.byteLength).toBeLessThan(2 * 1024 * 1024);
+
+      // Every entry point, because a downscale one pipeline forgets is the same document failing at
+      // the next step instead of at this one.
+      expect(
+        (await sharp(await images.toJpegPreview(scan, { maxDim: 400 })).metadata()).width,
+      ).toBe(400);
+      expect((await images.grayscaleRaster(scan, 400)).width).toBe(400);
+      // The honest content box of a picture with no border to trim is the whole frame — measured
+      // over the raster it was brought down to, and answered in shares of it either way.
+      expect((await images.contentBox(scan)).points).toEqual([
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+      ]);
+      // Flat and evenly lit, so it needs no correction; what is being asserted is that it was read.
+      expect(await images.correctPage(scan)).toBeNull();
+
+      const cropped = await images.applyCrop(scan, {
+        points: [
+          [0.1, 0.1],
+          [0.2, 0.1],
+          [0.2, 0.2],
+          [0.1, 0.2],
+        ],
+      });
+      expect((await sharp(cropped).metadata()).format).toBe('jpeg');
+    });
+
+    it('brings the raster under the budget before the rest of the pipeline touches it', async () => {
+      const turned = await images.applyRotation(await oversizedScan(), {
+        quarterTurns: 1,
+        mirrored: false,
+      });
+
+      const meta = await sharp(turned).metadata();
+      // 🔒 Under the working bound: the whole point of the downscale is that the memory the bound
+      // stands for is still not spent (docs/05 §5.4a).
+      expect(meta.width * meta.height).toBeLessThanOrEqual(80_000_000);
+      // And smaller, not squashed: 12000×9000 stood a quarter turn is still three by four.
+      expect(meta.width / meta.height).toBeCloseTo(3 / 4, 3);
+    });
+
+    it('records the picture it opened smaller, and says nothing about one it did not', async () => {
+      await images.toJpegPreview(await oversizedScan(), { maxDim: 400 });
+
+      // A page that arrived at less than the resolution it was photographed at is a fact about the
+      // archive, not an implementation detail: it is said where every other outcome is said.
+      const line = logged().find((entry) => entry['side'] !== undefined);
+      expect(line).toMatchObject({ width: 12000, height: 9000, budget: 80_000_000 });
+      expect(String(line?.['msg'])).toMatch(/opened smaller rather than refused/);
+    });
+
+    it('refuses what no shrink can reach, naming the size rather than the library’s words', async () => {
+      // 900 Mpx declared in 65 bytes: past what libvips can address at all, so there is no shrink to
+      // stream it through and no honest answer but a refusal.
+      const declared = declaredPng(30000, 30000);
+      expect(declared.byteLength).toBeLessThan(1024);
+
+      const refusal = /30000×30000 \(900\.0 Mpx\), past the 268\.4 Mpx this instance can open/;
+      await expect(images.toJpegPreview(declared, { maxDim: 400 })).rejects.toThrow(refusal);
+      await expect(images.dimensions(declared)).rejects.toThrow(refusal);
+      await expect(images.contentBox(declared)).rejects.toThrow(refusal);
+      await expect(images.grayscaleRaster(declared, 400)).rejects.toThrow(refusal);
+      await expect(images.correctPage(declared)).rejects.toThrow(refusal);
       await expect(
-        images.applyCrop(bomb, {
+        images.applyRotation(declared, { quarterTurns: 1, mirrored: false }),
+      ).rejects.toThrow(refusal);
+      await expect(
+        images.applyCrop(declared, {
           points: [
             [0.1, 0.1],
             [0.9, 0.1],
@@ -495,10 +613,7 @@ describe('SharpImageTool', () => {
             [0.1, 0.9],
           ],
         }),
-      ).rejects.toThrow(/pixel limit/);
-      await expect(
-        images.applyRotation(bomb, { quarterTurns: 1, mirrored: false }),
-      ).rejects.toThrow(/pixel limit/);
+      ).rejects.toThrow(refusal);
     });
 
     // 🔒 And the budget binds what a crop *writes*, not only what it reads (docs/05 §5.4a). The
@@ -526,9 +641,9 @@ describe('SharpImageTool', () => {
       expect(Date.now() - startedAt).toBeLessThan(5000);
     });
 
-    it('still processes the largest scan a document archive actually produces', async () => {
+    it('still processes the largest scan a document archive actually produces, untouched', async () => {
       // An A3 sheet at 600 dpi is 69.7 Mpx, which is the worst legitimate case and sits under the
-      // budget: the guard has to refuse bombs without refusing scanners.
+      // budget: a picture that fits is opened exactly as this file has always opened one.
       const a3at600dpi = await sharp({
         create: { width: 9922, height: 7016, channels: 3, background: '#ffffff' },
       })
@@ -537,6 +652,7 @@ describe('SharpImageTool', () => {
 
       const preview = await images.toJpegPreview(a3at600dpi, { maxDim: 400 });
       expect((await sharp(preview).metadata()).width).toBe(400);
+      expect(logged()).toEqual([]);
     });
   });
 });

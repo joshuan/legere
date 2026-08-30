@@ -1,4 +1,5 @@
 import { Test } from '@nestjs/testing';
+import { PinoLogger } from 'nestjs-pino';
 import sharp from 'sharp';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, type TestContext } from 'vitest';
 import type { Crop } from '../../src/shared/contracts/documents';
@@ -102,7 +103,7 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
       // Every file here is managed, so the volume is never opened; a reader is still required.
       new StubLibraryReader(),
       storage,
-      new SharpImageTool(),
+      new SharpImageTool(new PinoLogger({ pinoHttp: { level: 'silent' } })),
       new StirlingPdfToolbox(config, new ServiceGates(new FixedClock())),
       new QueueSettings(moduleRef.get(SettingsRepository), {
         concurrency: {
