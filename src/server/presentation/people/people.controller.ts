@@ -10,10 +10,12 @@ import {
 } from '@nestjs/common';
 import {
   createPersonRequestSchema,
+  listPeopleQuerySchema,
   mergePeopleRequestSchema,
   peopleMergePreviewRequestSchema,
   updatePersonRequestSchema,
   type CreatePersonRequest,
+  type ListPeopleQuery,
   type MergePeopleRequest,
   type ListPeopleResponse,
   type PeopleMergePreviewRequest,
@@ -22,8 +24,11 @@ import {
   type PersonDto,
   type UpdatePersonRequest,
 } from '../../../shared/contracts/people';
-import { paginationQuerySchema, type PaginationQuery } from '../../../shared/contracts/common';
-import type { Envelope } from '../../../shared/contracts/common';
+import {
+  catalogueSuggestionsQuerySchema,
+  type CatalogueSuggestionsQuery,
+  type Envelope,
+} from '../../../shared/contracts/common';
 import type { OkResponse } from '../../../shared/contracts/users';
 import {
   CreatePerson,
@@ -56,7 +61,7 @@ export class PeopleController {
 
   @Get()
   async listPeople(
-    @ZodQuery(paginationQuerySchema) query: PaginationQuery,
+    @ZodQuery(listPeopleQuerySchema) query: ListPeopleQuery,
   ): Promise<Envelope<ListPeopleResponse>> {
     return successEnvelope(await this.list.execute(query));
   }
@@ -96,9 +101,12 @@ export class AdminPeopleController {
 
   // The analyst's reading of the living catalogue (docs/05 §5.6c): which rows are one person.
   // Computed on request and cached in-process; nothing stored, a refusal never remembered.
+  // `?refresh=1` drops the cached reading and asks anew — the recompute of docs/11 §11.12a.
   @Get('merge-suggestions')
-  async mergeSuggestions(): Promise<Envelope<PeopleMergeSuggestionsResponse>> {
-    return successEnvelope(await this.suggestMerges.execute());
+  async mergeSuggestions(
+    @ZodQuery(catalogueSuggestionsQuerySchema) query: CatalogueSuggestionsQuery,
+  ): Promise<Envelope<PeopleMergeSuggestionsResponse>> {
+    return successEnvelope(await this.suggestMerges.execute({ refresh: query.refresh === true }));
   }
 
   // The same reading for rows an admin selected by hand, so the merge dialog opens tidy

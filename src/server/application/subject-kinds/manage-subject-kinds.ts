@@ -1,13 +1,29 @@
 import type {
   CreateSubjectKindRequest,
+  ListSubjectKindsQuery,
   ListSubjectKindsResponse,
   SubjectKindDto,
   UpdateSubjectKindRequest,
 } from '../../../shared/contracts/subject-kinds';
 import { MAX_LIVING_SUBJECT_KINDS } from '../../domain/entities/subject-kind';
 import { ConflictError, NotFoundError, UnprocessableError } from '../../domain/errors/domain-error';
-import type { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
+import type {
+  SubjectKindListRow,
+  SubjectKindRepository,
+} from '../../domain/repositories/subject-kind.repository';
+import { lastDocumentAtIso } from '../catalogues/catalogue-rows';
 import type { Clock } from '../ports/clock';
+
+export function toSubjectKindDto(row: SubjectKindListRow): SubjectKindDto {
+  return {
+    id: row.id,
+    name: row.name,
+    note: row.note,
+    subjectCount: row.subjectCount,
+    documentCount: row.documentCount,
+    lastDocumentAt: lastDocumentAtIso(row.lastDocumentAt),
+  };
+}
 
 // The same access shape as people and subjects (docs/03 §3.3.19–20a): reading and adding are open,
 // because the analysis adds kinds on its own and whoever corrects it must be able to; renaming and
@@ -15,22 +31,11 @@ import type { Clock } from '../ports/clock';
 export class ListSubjectKinds {
   constructor(private readonly kinds: SubjectKindRepository) {}
 
-  // One page at a time (docs/07 §7.1, SEC-56).
-  async execute(query: {
-    limit: number;
-    cursor?: string | undefined;
-  }): Promise<ListSubjectKindsResponse> {
+  // One page at a time (docs/07 §7.1, SEC-56), in the asked-for order — `things` admitted here too
+  // (docs/07 §7.3).
+  async execute(query: ListSubjectKindsQuery): Promise<ListSubjectKindsResponse> {
     const page = await this.kinds.listPage(query);
-    return {
-      items: page.items.map((kind) => ({
-        id: kind.id,
-        name: kind.name,
-        note: kind.note,
-        subjectCount: kind.subjectCount,
-        documentCount: kind.documentCount,
-      })),
-      nextCursor: page.nextCursor,
-    };
+    return { items: page.items.map(toSubjectKindDto), nextCursor: page.nextCursor };
   }
 }
 
@@ -56,12 +61,14 @@ export class CreateSubjectKind {
     }
 
     const created = await this.kinds.create({ name: input.name, note: input.note ?? null });
+    // A fresh shelf: nothing filed under it yet, so every answer is the empty one.
     return {
       id: created.id,
       name: created.name,
       note: created.note,
       subjectCount: 0,
       documentCount: 0,
+      lastDocumentAt: null,
     };
   }
 }
@@ -84,14 +91,11 @@ export class UpdateSubjectKind {
       ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.note === undefined ? {} : { note: input.note }),
     });
-    const counted = (await this.kinds.listActive()).find((row) => row.id === id);
-    return {
-      id: updated.id,
-      name: updated.name,
-      note: updated.note,
-      subjectCount: counted?.subjectCount ?? 0,
-      documentCount: counted?.documentCount ?? 0,
-    };
+    // One row on the list's own terms, rather than the whole catalogue for one count.
+    const row = await this.kinds.findListRow(id);
+    return toSubjectKindDto(
+      row ?? { ...updated, subjectCount: 0, documentCount: 0, lastDocumentAt: null },
+    );
   }
 }
 

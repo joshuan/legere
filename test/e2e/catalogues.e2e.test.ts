@@ -471,18 +471,60 @@ describe('Catalogues (e2e)', () => {
         await api(app).post('/api/people', { name }).set('Cookie', adminCookie);
       }
 
-      const first = await api(app).get('/api/people?limit=2').set('Cookie', adminCookie);
+      // Named explicitly: since M56.3 the catalogue opens on `lastDocumentAt desc`, and a page of
+      // rows no document names is ordered by nothing a name assertion could read (docs/07 §7.3).
+      const first = await api(app)
+        .get('/api/people?limit=2&sort=name&order=asc')
+        .set('Cookie', adminCookie);
       expect(first.status).toBe(200);
       const firstPage = expectData(first, listPeopleResponseSchema);
       expect(firstPage.items.map((person) => person.name)).toEqual(['Anna', 'Boris']);
       expect(firstPage.nextCursor).not.toBeNull();
 
       const second = await api(app)
-        .get(`/api/people?limit=2&cursor=${encodeURIComponent(firstPage.nextCursor ?? '')}`)
+        .get(
+          `/api/people?limit=2&sort=name&order=asc&cursor=${encodeURIComponent(firstPage.nextCursor ?? '')}`,
+        )
         .set('Cookie', adminCookie);
       const secondPage = expectData(second, listPeopleResponseSchema);
       expect(secondPage.items.map((person) => person.name)).toEqual(['Vera']);
       expect(secondPage.nextCursor).toBeNull();
+    });
+
+    // 🔒 M56.3: the cursor names the whole question it was cut from, and a keyset predicate read
+    // off another column answers rather than failing (docs/07 §7.1).
+    it('refuses a cursor cut from one order handed to a request asking for another', async () => {
+      for (const name of ['Anna', 'Boris', 'Vera']) {
+        await api(app).post('/api/people', { name }).set('Cookie', adminCookie);
+      }
+      const first = expectData(
+        await api(app).get('/api/people?limit=1&sort=name&order=asc').set('Cookie', adminCookie),
+        listPeopleResponseSchema,
+      );
+
+      const mismatched = await api(app)
+        .get(
+          `/api/people?limit=1&sort=documents&order=desc&cursor=${encodeURIComponent(first.nextCursor ?? '')}`,
+        )
+        .set('Cookie', adminCookie);
+
+      expect(mismatched.status).toBe(422);
+      expect(expectError(mismatched).code).toBe('CURSOR_SORT_MISMATCH');
+    });
+
+    it('opens on what the archive last spoke of, and refuses a sort the enum does not hold', async () => {
+      await api(app).post('/api/people', { name: 'Anna' }).set('Cookie', adminCookie);
+
+      const answered = expectData(
+        await api(app).get('/api/people').set('Cookie', adminCookie),
+        listPeopleResponseSchema,
+      );
+      // The default order carries the column it sorts by, `null` for a row no dated paper names.
+      expect(answered.items[0]).toMatchObject({ name: 'Anna', lastDocumentAt: null });
+
+      const refused = await api(app).get('/api/people?sort=whenever').set('Cookie', adminCookie);
+      expect(refused.status).toBe(422);
+      expect(expectError(refused).code).toBe('VALIDATION_FAILED');
     });
 
     it('refuses a burst of creates before the namespace fills', async () => {

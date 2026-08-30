@@ -10,9 +10,11 @@ import {
 } from '@nestjs/common';
 import {
   createSubjectKindRequestSchema,
+  listSubjectKindsQuerySchema,
   mergeSubjectKindsRequestSchema,
   updateSubjectKindRequestSchema,
   type CreateSubjectKindRequest,
+  type ListSubjectKindsQuery,
   type ListSubjectKindsResponse,
   subjectKindMergePreviewRequestSchema,
   type MergeSubjectKindsRequest,
@@ -22,8 +24,11 @@ import {
   type SubjectKindMergeSuggestionsResponse,
   type UpdateSubjectKindRequest,
 } from '../../../shared/contracts/subject-kinds';
-import { paginationQuerySchema, type PaginationQuery } from '../../../shared/contracts/common';
-import type { Envelope } from '../../../shared/contracts/common';
+import {
+  catalogueSuggestionsQuerySchema,
+  type CatalogueSuggestionsQuery,
+  type Envelope,
+} from '../../../shared/contracts/common';
 import type { OkResponse } from '../../../shared/contracts/users';
 import {
   CreateSubjectKind,
@@ -56,7 +61,7 @@ export class SubjectKindsController {
 
   @Get()
   async listKinds(
-    @ZodQuery(paginationQuerySchema) query: PaginationQuery,
+    @ZodQuery(listSubjectKindsQuerySchema) query: ListSubjectKindsQuery,
   ): Promise<Envelope<ListSubjectKindsResponse>> {
     return successEnvelope(await this.list.execute(query));
   }
@@ -93,10 +98,13 @@ export class AdminSubjectKindsController {
     return successEnvelope(await this.mergeKinds.execute(body));
   }
 
-  // The analyst's reading of the kinds catalogue (docs/05 §5.6c).
+  // The analyst's reading of the kinds catalogue (docs/05 §5.6c). `?refresh=1` drops the cached
+  // reading and asks anew.
   @Get('merge-suggestions')
-  async mergeSuggestions(): Promise<Envelope<SubjectKindMergeSuggestionsResponse>> {
-    return successEnvelope(await this.suggestMerges.execute());
+  async mergeSuggestions(
+    @ZodQuery(catalogueSuggestionsQuerySchema) query: CatalogueSuggestionsQuery,
+  ): Promise<Envelope<SubjectKindMergeSuggestionsResponse>> {
+    return successEnvelope(await this.suggestMerges.execute({ refresh: query.refresh === true }));
   }
 
   // A POST for the ids in its body, but a question — nothing is created (docs/11 §11.12a).

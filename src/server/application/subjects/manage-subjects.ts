@@ -1,5 +1,6 @@
 import type {
   CreateSubjectRequest,
+  ListSubjectsQuery,
   MergeSubjectsRequest,
   ListSubjectsResponse,
   SubjectDto,
@@ -8,9 +9,25 @@ import type {
 import { MAX_LIVING_SUBJECTS } from '../../domain/entities/subject';
 import { ConflictError, NotFoundError, UnprocessableError } from '../../domain/errors/domain-error';
 import type { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
-import type { SubjectRepository } from '../../domain/repositories/subject.repository';
+import type {
+  SubjectListRow,
+  SubjectRepository,
+} from '../../domain/repositories/subject.repository';
+import { lastDocumentAtIso } from '../catalogues/catalogue-rows';
 import type { Clock } from '../ports/clock';
 import type { UnitOfWork } from '../ports/unit-of-work';
+
+function toSubjectDto(row: SubjectListRow): SubjectDto {
+  return {
+    id: row.id,
+    kindId: row.kindId,
+    kind: row.kind,
+    name: row.name,
+    note: row.note,
+    documentCount: row.documentCount,
+    lastDocumentAt: lastDocumentAtIso(row.lastDocumentAt),
+  };
+}
 
 // The same access shape as people (docs/03 §3.3.19–20): reading and adding are open, because the
 // analysis adds things on its own and whoever corrects it must be able to; renaming and removing are
@@ -18,23 +35,10 @@ import type { UnitOfWork } from '../ports/unit-of-work';
 export class ListSubjects {
   constructor(private readonly subjects: SubjectRepository) {}
 
-  // One page at a time (docs/07 §7.1, SEC-56).
-  async execute(query: {
-    limit: number;
-    cursor?: string | undefined;
-  }): Promise<ListSubjectsResponse> {
+  // One page at a time (docs/07 §7.1, SEC-56), in the asked-for order (docs/07 §7.3).
+  async execute(query: ListSubjectsQuery): Promise<ListSubjectsResponse> {
     const page = await this.subjects.listPage(query);
-    return {
-      items: page.items.map((subject) => ({
-        id: subject.id,
-        kindId: subject.kindId,
-        kind: subject.kind,
-        name: subject.name,
-        note: subject.note,
-        documentCount: subject.documentCount,
-      })),
-      nextCursor: page.nextCursor,
-    };
+    return { items: page.items.map(toSubjectDto), nextCursor: page.nextCursor };
   }
 }
 
@@ -72,6 +76,7 @@ export class CreateSubject {
       name: input.name,
       note: input.note ?? null,
     });
+    // A fresh row: no document is about it yet, so both answers are the empty ones.
     return {
       id: created.id,
       kindId: created.kindId,
@@ -79,6 +84,7 @@ export class CreateSubject {
       name: created.name,
       note: created.note,
       documentCount: 0,
+      lastDocumentAt: null,
     };
   }
 }
@@ -111,15 +117,9 @@ export class UpdateSubject {
       ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.note === undefined ? {} : { note: input.note }),
     });
-    const counted = (await this.subjects.listActive()).find((row) => row.id === id);
-    return {
-      id: updated.id,
-      kindId: updated.kindId,
-      kind: updated.kind,
-      name: updated.name,
-      note: updated.note,
-      documentCount: counted?.documentCount ?? 0,
-    };
+    // One row on the list's own terms, rather than the whole catalogue for one count.
+    const row = await this.subjects.findListRow(id);
+    return toSubjectDto(row ?? { ...updated, documentCount: 0, lastDocumentAt: null });
   }
 }
 
@@ -188,14 +188,17 @@ export class MergeSubjects {
       );
     });
 
-    const counted = (await this.subjects.listActive()).find((row) => row.id === survivor.id);
-    return {
-      id: survivor.id,
-      kindId: kind.id,
-      kind: kind.name,
-      name: input.name,
-      note: counted?.note ?? null,
-      documentCount: counted?.documentCount ?? 0,
-    };
+    const row = await this.subjects.findListRow(survivor.id);
+    return toSubjectDto(
+      row ?? {
+        ...survivor,
+        kindId: kind.id,
+        kind: kind.name,
+        name: input.name,
+        note: input.note ?? survivor.note,
+        documentCount: 0,
+        lastDocumentAt: null,
+      },
+    );
   }
 }

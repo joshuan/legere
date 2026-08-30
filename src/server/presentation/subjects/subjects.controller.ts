@@ -10,10 +10,12 @@ import {
 } from '@nestjs/common';
 import {
   createSubjectRequestSchema,
+  listSubjectsQuerySchema,
   mergeSubjectsRequestSchema,
   subjectMergePreviewRequestSchema,
   updateSubjectRequestSchema,
   type CreateSubjectRequest,
+  type ListSubjectsQuery,
   type MergeSubjectsRequest,
   type ListSubjectsResponse,
   type SubjectDto,
@@ -22,8 +24,11 @@ import {
   type SubjectMergeSuggestionsResponse,
   type UpdateSubjectRequest,
 } from '../../../shared/contracts/subjects';
-import { paginationQuerySchema, type PaginationQuery } from '../../../shared/contracts/common';
-import type { Envelope } from '../../../shared/contracts/common';
+import {
+  catalogueSuggestionsQuerySchema,
+  type CatalogueSuggestionsQuery,
+  type Envelope,
+} from '../../../shared/contracts/common';
 import type { OkResponse } from '../../../shared/contracts/users';
 import {
   CreateSubject,
@@ -56,7 +61,7 @@ export class SubjectsController {
 
   @Get()
   async listSubjects(
-    @ZodQuery(paginationQuerySchema) query: PaginationQuery,
+    @ZodQuery(listSubjectsQuerySchema) query: ListSubjectsQuery,
   ): Promise<Envelope<ListSubjectsResponse>> {
     return successEnvelope(await this.list.execute(query));
   }
@@ -94,10 +99,12 @@ export class AdminSubjectsController {
   }
 
   // The analyst's reading of the things catalogue (docs/05 §5.6c), kind-aware, with the
-  // placeholder rows beside the groups.
+  // placeholder rows beside the groups. `?refresh=1` drops the cached reading and asks anew.
   @Get('merge-suggestions')
-  async mergeSuggestions(): Promise<Envelope<SubjectMergeSuggestionsResponse>> {
-    return successEnvelope(await this.suggestMerges.execute());
+  async mergeSuggestions(
+    @ZodQuery(catalogueSuggestionsQuerySchema) query: CatalogueSuggestionsQuery,
+  ): Promise<Envelope<SubjectMergeSuggestionsResponse>> {
+    return successEnvelope(await this.suggestMerges.execute({ refresh: query.refresh === true }));
   }
 
   // A POST for the ids in its body, but a question — nothing is created (docs/11 §11.12a).

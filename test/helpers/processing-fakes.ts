@@ -105,14 +105,17 @@ import type { Subject } from '../../src/server/domain/entities/subject';
 import type { SubjectKind } from '../../src/server/domain/entities/subject-kind';
 import {
   SubjectKindRepository,
+  type SubjectKindListRow,
   type SubjectKindWithCounts,
 } from '../../src/server/domain/repositories/subject-kind.repository';
 import {
   SubjectRepository,
+  type SubjectListRow,
   type SubjectWithCount,
 } from '../../src/server/domain/repositories/subject.repository';
 import {
   PersonRepository,
+  type PersonListRow,
   type PersonWithCount,
 } from '../../src/server/domain/repositories/person.repository';
 import {
@@ -1382,10 +1385,16 @@ export class InMemoryPersonRepository extends PersonRepository {
   async listPage(query: {
     limit: number;
     cursor?: string | undefined;
-  }): Promise<{ items: PersonWithCount[]; nextCursor: string | null }> {
-    // The fakes serve unit tests that never page: one page holds everything.
+  }): Promise<{ items: PersonListRow[]; nextCursor: string | null }> {
+    // The fakes serve unit tests that never page or sort: one page holds everything, dateless.
     void query;
-    return { items: await this.listActive(), nextCursor: null };
+    const items = await this.listActive();
+    return { items: items.map((row) => ({ ...row, lastDocumentAt: null })), nextCursor: null };
+  }
+
+  async findListRow(id: string): Promise<PersonListRow | null> {
+    const page = await this.listPage({ limit: 1 });
+    return page.items.find((row) => row.id === id) ?? null;
   }
 
   // Living rows only, because that is what the instance ceiling counts (docs/08 §8.4, SEC-56).
@@ -1460,9 +1469,15 @@ export class InMemorySubjectKindRepository extends SubjectKindRepository {
   async listPage(query: {
     limit: number;
     cursor?: string | undefined;
-  }): Promise<{ items: SubjectKindWithCounts[]; nextCursor: string | null }> {
+  }): Promise<{ items: SubjectKindListRow[]; nextCursor: string | null }> {
     void query;
-    return { items: await this.listActive(), nextCursor: null };
+    const items = await this.listActive();
+    return { items: items.map((row) => ({ ...row, lastDocumentAt: null })), nextCursor: null };
+  }
+
+  async findListRow(id: string): Promise<SubjectKindListRow | null> {
+    const page = await this.listPage({ limit: 1 });
+    return page.items.find((row) => row.id === id) ?? null;
   }
 
   // Living rows only, because that is what the instance ceiling counts (docs/08 §8.4, SEC-51).
@@ -1557,9 +1572,15 @@ export class InMemorySubjectRepository extends SubjectRepository {
   async listPage(query: {
     limit: number;
     cursor?: string | undefined;
-  }): Promise<{ items: SubjectWithCount[]; nextCursor: string | null }> {
+  }): Promise<{ items: SubjectListRow[]; nextCursor: string | null }> {
     void query;
-    return { items: await this.listActive(), nextCursor: null };
+    const items = await this.listActive();
+    return { items: items.map((row) => ({ ...row, lastDocumentAt: null })), nextCursor: null };
+  }
+
+  async findListRow(id: string): Promise<SubjectListRow | null> {
+    const page = await this.listPage({ limit: 1 });
+    return page.items.find((row) => row.id === id) ?? null;
   }
 
   // Living rows only, because that is what the instance ceiling counts (docs/08 §8.4, SEC-56).

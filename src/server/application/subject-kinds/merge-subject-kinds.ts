@@ -9,6 +9,7 @@ import type { SubjectRepository } from '../../domain/repositories/subject.reposi
 import { foldName } from '../../domain/value-objects/name-fold';
 import type { Clock } from '../ports/clock';
 import type { UnitOfWork } from '../ports/unit-of-work';
+import { toSubjectKindDto } from './manage-subject-kinds';
 
 // Three spellings of one shelf become one (docs/03 §3.3.20a): the oldest kind survives, takes the
 // name that was chosen, and receives every subject the others held. Where two of the merged kinds
@@ -86,13 +87,16 @@ export class MergeSubjectKinds {
       );
     });
 
-    const counted = (await this.kinds.listActive()).find((row) => row.id === survivor.id);
-    return {
-      id: survivor.id,
-      name: input.name,
-      note: counted?.note ?? null,
-      subjectCount: counted?.subjectCount ?? 0,
-      documentCount: counted?.documentCount ?? 0,
-    };
+    const row = await this.kinds.findListRow(survivor.id);
+    return toSubjectKindDto(
+      row ?? {
+        ...survivor,
+        name: input.name,
+        note: input.note ?? survivor.note,
+        subjectCount: 0,
+        documentCount: 0,
+        lastDocumentAt: null,
+      },
+    );
   }
 }

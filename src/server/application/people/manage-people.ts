@@ -1,5 +1,6 @@
 import type {
   CreatePersonRequest,
+  ListPeopleQuery,
   MergePeopleRequest,
   ListPeopleResponse,
   PersonDto,
@@ -8,8 +9,19 @@ import type {
 import { MAX_LIVING_PEOPLE } from '../../domain/entities/person';
 import { ConflictError, NotFoundError, UnprocessableError } from '../../domain/errors/domain-error';
 import type { UnitOfWork } from '../ports/unit-of-work';
-import type { PersonRepository } from '../../domain/repositories/person.repository';
+import type { PersonListRow, PersonRepository } from '../../domain/repositories/person.repository';
+import { lastDocumentAtIso } from '../catalogues/catalogue-rows';
 import type { Clock } from '../ports/clock';
+
+function toPersonDto(row: PersonListRow): PersonDto {
+  return {
+    id: row.id,
+    name: row.name,
+    note: row.note,
+    documentCount: row.documentCount,
+    lastDocumentAt: lastDocumentAtIso(row.lastDocumentAt),
+  };
+}
 
 // People are a catalogue everybody adds to and only an admin tidies (docs/03 §3.3.19). Reading and
 // adding are open, because the analyst adds names on its own and whoever corrects it must be able to
@@ -18,22 +30,11 @@ import type { Clock } from '../ports/clock';
 export class ListPeople {
   constructor(private readonly people: PersonRepository) {}
 
-  // One page at a time (docs/07 §7.1, SEC-56): the catalogue is instance-wide and user-written, so
-  // no single response is asked to carry the whole of it.
-  async execute(query: {
-    limit: number;
-    cursor?: string | undefined;
-  }): Promise<ListPeopleResponse> {
+  // One page at a time (docs/07 §7.1, SEC-56), in the asked-for order (docs/07 §7.3): the sort and
+  // its direction travel to the repository, whose cursor stays bound to both.
+  async execute(query: ListPeopleQuery): Promise<ListPeopleResponse> {
     const page = await this.people.listPage(query);
-    return {
-      items: page.items.map((person) => ({
-        id: person.id,
-        name: person.name,
-        note: person.note,
-        documentCount: person.documentCount,
-      })),
-      nextCursor: page.nextCursor,
-    };
+    return { items: page.items.map(toPersonDto), nextCursor: page.nextCursor };
   }
 }
 
@@ -59,7 +60,14 @@ export class CreatePerson {
     }
 
     const created = await this.people.create({ name: input.name, note: input.note ?? null });
-    return { id: created.id, name: created.name, note: created.note, documentCount: 0 };
+    // A fresh row: no document names it yet, so both answers are the empty ones.
+    return {
+      id: created.id,
+      name: created.name,
+      note: created.note,
+      documentCount: 0,
+      lastDocumentAt: null,
+    };
   }
 }
 
@@ -81,13 +89,9 @@ export class UpdatePerson {
       ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.note === undefined ? {} : { note: input.note }),
     });
-    const counted = (await this.people.listActive()).find((row) => row.id === id);
-    return {
-      id: updated.id,
-      name: updated.name,
-      note: updated.note,
-      documentCount: counted?.documentCount ?? 0,
-    };
+    // One row on the list's own terms, rather than the whole catalogue for one count.
+    const row = await this.people.findListRow(id);
+    return toPersonDto(row ?? { ...updated, documentCount: 0, lastDocumentAt: null });
   }
 }
 
@@ -151,12 +155,15 @@ export class MergePeople {
       );
     });
 
-    const counted = (await this.people.listActive()).find((row) => row.id === survivor.id);
-    return {
-      id: survivor.id,
-      name: input.name,
-      note: counted?.note ?? null,
-      documentCount: counted?.documentCount ?? 0,
-    };
+    const row = await this.people.findListRow(survivor.id);
+    return toPersonDto(
+      row ?? {
+        ...survivor,
+        name: input.name,
+        note: input.note ?? survivor.note,
+        documentCount: 0,
+        lastDocumentAt: null,
+      },
+    );
   }
 }

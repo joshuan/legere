@@ -87,8 +87,10 @@ describe('Subject kind merge (e2e)', () => {
     );
     expect(kinds.items.map((kind) => kind.name)).toEqual(['автомобиль']);
 
+    // Ordered by name explicitly: since M56.3 the catalogue opens on `lastDocumentAt desc`, which
+    // says nothing about rows no document names (docs/07 §7.3).
     const subjects = expectData(
-      await api(app).get('/api/subjects').set('Cookie', adminCookie),
+      await api(app).get('/api/subjects?sort=name&order=asc').set('Cookie', adminCookie),
       listSubjectsResponseSchema,
     );
     expect(subjects.items.map((subject) => [subject.kind, subject.name])).toEqual([
