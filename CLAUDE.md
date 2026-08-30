@@ -67,7 +67,9 @@ push is the point of no return — Ctrl-C after it loses the report, not the rel
    code; closed registration (first admin + invites). No OAuth/JWT/passport (`docs/08`).
 8. **The DB schema changes only via forward-only Prisma migrations** (auto-applied on container
    start); `prisma db push`/reset against a live instance are forbidden. **Soft delete** instead of
-   physical deletion.
+   physical deletion — with the one deliberate exception `02` ADR-015 (as amended) documents: an
+   admin deleting a document is a real deletion, and the files it leaves with no live page go to the
+   trash (`05 §5.7a`, `03 §3.5`).
 9. **Code style:** TypeScript `strict`; `any`, type assertions `as` (except `as const`), non-null `!`,
    and path aliases are forbidden. Layer boundaries: domain/application are framework-free; the client
    never imports `src/server/*`.
