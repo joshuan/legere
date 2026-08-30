@@ -130,6 +130,52 @@ export function paginatedSchema<T extends z.ZodTypeAny>(
   return z.object({ items: z.array(item), nextCursor: z.string().nullable() });
 }
 
+// How a catalogue page may be arranged (docs/07 §7.3, docs/11 §11.12a). A closed set of named
+// orders on the documents list's terms (documents.ts): every name is spelled out, and one the enum
+// does not hold is a validation failure rather than a sequential scan.
+//
+// - `lastDocumentAt` — the newest `documentDate` among the living documents that name the row: the
+//   catalogue opens on what the archive most recently spoke of, dateless rows last.
+// - `documents` — how many living documents name the row.
+// - `name` — the name itself, the order every catalogue had before this existed.
+export const catalogueSortSchema = z.enum(['lastDocumentAt', 'documents', 'name']);
+export type CatalogueSort = z.infer<typeof catalogueSortSchema>;
+
+// The kinds screen counts two things, so its enum admits one more name: `things` — how many living
+// subjects the kind holds (docs/07 §7.3).
+export const subjectKindSortSchema = z.enum(['lastDocumentAt', 'documents', 'things', 'name']);
+export type SubjectKindSort = z.infer<typeof subjectKindSortSchema>;
+
+export const catalogueOrderSchema = z.enum(['asc', 'desc']);
+export type CatalogueOrder = z.infer<typeof catalogueOrderSchema>;
+
+// The default the docs name (docs/11 §11.12a): `lastDocumentAt desc`, newest first. One definite
+// order whatever the sort, so the server never guesses — a screen sorting by name sends its own
+// `order=asc` out loud.
+export const DEFAULT_CATALOGUE_SORT: CatalogueSort = 'lastDocumentAt';
+export const DEFAULT_CATALOGUE_ORDER: CatalogueOrder = 'desc';
+
+// What the two people-shaped catalogue lists take beside their pagination (docs/07 §7.3); the kinds
+// list widens the sort enum in its own file. The cursor stays bound to the sort and order that
+// minted it, exactly as the documents list's is (docs/07 §7.1).
+export const listCatalogueQuerySchema = paginationQuerySchema.extend({
+  sort: catalogueSortSchema.default(DEFAULT_CATALOGUE_SORT),
+  order: catalogueOrderSchema.default(DEFAULT_CATALOGUE_ORDER),
+});
+export type ListCatalogueQuery = z.infer<typeof listCatalogueQuerySchema>;
+
+// The recompute of the suggestions panel (docs/11 §11.12a, docs/05 §5.6c): `?refresh=1` drops the
+// in-process cached reading and asks the analyst anew. Spelled out like every query boolean
+// (documents.ts): `1` or `0`, so a value the enum does not hold is a validation failure rather than
+// a silent false.
+export const catalogueSuggestionsQuerySchema = z.object({
+  refresh: z
+    .enum(['1', '0'])
+    .transform((value) => value === '1')
+    .optional(),
+});
+export type CatalogueSuggestionsQuery = z.infer<typeof catalogueSuggestionsQuerySchema>;
+
 // How a reading of a catalogue ended (docs/07 §7.3, docs/05 §5.6c). Three states and not a boolean,
 // because two of the silences are not the same silence: an analyst that was asked and proposed
 // nothing is a clean catalogue, while an analyst that could not be asked is a fact about the
