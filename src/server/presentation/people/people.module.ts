@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import {
   CreatePerson,
   DeletePerson,
+  GetPerson,
   ListPeople,
   MergePeople,
   UpdatePerson,
@@ -29,6 +30,11 @@ import { AdminPeopleController, PeopleController } from './people.controller';
     {
       provide: ListPeople,
       useFactory: (people: PersonRepository): ListPeople => new ListPeople(people),
+      inject: [PersonRepository],
+    },
+    {
+      provide: GetPerson,
+      useFactory: (people: PersonRepository): GetPerson => new GetPerson(people),
       inject: [PersonRepository],
     },
     {

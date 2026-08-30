@@ -42,6 +42,18 @@ export class ListSubjects {
   }
 }
 
+// One row, asked for by id (docs/07 §7.3) — the people endpoint's reason: one row is asked for by
+// id, never found by paging (docs/11 §11.4).
+export class GetSubject {
+  constructor(private readonly subjects: SubjectRepository) {}
+
+  async execute(id: string): Promise<SubjectDto> {
+    const row = await this.subjects.findListRow(id);
+    if (row === null) throw new NotFoundError('SUBJECT_NOT_FOUND', 'Subject not found');
+    return toSubjectDto(row);
+  }
+}
+
 export class CreateSubject {
   constructor(
     private readonly subjects: SubjectRepository,

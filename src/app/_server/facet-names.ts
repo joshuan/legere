@@ -1,9 +1,9 @@
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { listDocumentTypesResponseSchema } from '../../shared/contracts/document-types';
-import { listPeopleResponseSchema } from '../../shared/contracts/people';
-import { listSubjectKindsResponseSchema } from '../../shared/contracts/subject-kinds';
-import { listSubjectsResponseSchema } from '../../shared/contracts/subjects';
+import { personDtoSchema } from '../../shared/contracts/people';
+import { subjectKindDtoSchema } from '../../shared/contracts/subject-kinds';
+import { subjectDtoSchema } from '../../shared/contracts/subjects';
 
 // The name of the folder a browse page is showing, resolved on the server so the heading is right in
 // the first paint rather than after a fetch (docs/11 §11.4). The same loopback origin the session
@@ -31,23 +31,24 @@ export async function fetchDocumentTypeName(id: string): Promise<string> {
   return found.name;
 }
 
+// The catalogues are paginated (SEC-56), so these ask for the one row by id rather than reading a
+// page and looking for it there: a row on any page but the first would otherwise be reported as a
+// wrong address (docs/07 §7.3, docs/11 §11.4). A 404 from the endpoint is already a `notFound()`,
+// since `fetchJson` makes one of every response that is not ok.
 export async function fetchPersonName(id: string): Promise<string> {
-  const parsed = listPeopleResponseSchema.safeParse(await fetchJson('/api/people'));
-  const found = parsed.success ? parsed.data.items.find((person) => person.id === id) : undefined;
-  if (found === undefined) notFound();
-  return found.name;
+  const parsed = personDtoSchema.safeParse(await fetchJson(`/api/people/${id}`));
+  if (!parsed.success) notFound();
+  return parsed.data.name;
 }
 
 export async function fetchSubjectName(id: string): Promise<string> {
-  const parsed = listSubjectsResponseSchema.safeParse(await fetchJson('/api/subjects'));
-  const found = parsed.success ? parsed.data.items.find((subject) => subject.id === id) : undefined;
-  if (found === undefined) notFound();
-  return `${found.name} · ${found.kind}`;
+  const parsed = subjectDtoSchema.safeParse(await fetchJson(`/api/subjects/${id}`));
+  if (!parsed.success) notFound();
+  return `${parsed.data.name} · ${parsed.data.kind}`;
 }
 
 export async function fetchSubjectKindName(id: string): Promise<string> {
-  const parsed = listSubjectKindsResponseSchema.safeParse(await fetchJson('/api/subject-kinds'));
-  const found = parsed.success ? parsed.data.items.find((kind) => kind.id === id) : undefined;
-  if (found === undefined) notFound();
-  return found.name;
+  const parsed = subjectKindDtoSchema.safeParse(await fetchJson(`/api/subject-kinds/${id}`));
+  if (!parsed.success) notFound();
+  return parsed.data.name;
 }

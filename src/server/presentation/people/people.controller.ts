@@ -33,6 +33,7 @@ import type { OkResponse } from '../../../shared/contracts/users';
 import {
   CreatePerson,
   DeletePerson,
+  GetPerson,
   ListPeople,
   MergePeople,
   UpdatePerson,
@@ -56,6 +57,7 @@ import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
 export class PeopleController {
   constructor(
     private readonly list: ListPeople,
+    private readonly getPerson: GetPerson,
     private readonly createPerson: CreatePerson,
   ) {}
 
@@ -64,6 +66,15 @@ export class PeopleController {
     @ZodQuery(listPeopleQuerySchema) query: ListPeopleQuery,
   ): Promise<Envelope<ListPeopleResponse>> {
     return successEnvelope(await this.list.execute(query));
+  }
+
+  // One row by id, because a page cannot answer for a row that is on another page
+  // (docs/07 §7.3, docs/11 §11.4).
+  @Get(':id')
+  async person(
+    @UuidParam('id', 'PERSON_NOT_FOUND', 'Person') id: string,
+  ): Promise<Envelope<PersonDto>> {
+    return successEnvelope(await this.getPerson.execute(id));
   }
 
   // 🔒 Rate-limited (SEC-56): every row lands in a namespace every other user reads, so one

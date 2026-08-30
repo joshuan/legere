@@ -398,7 +398,11 @@ documents screen uses, because a document should look the same wherever it is fo
 
 Folders are a list, not cards: a folder is a word, and a word does not need a picture. The heading of
 a contents page is resolved on the server, so it is right in the first paint rather than after a
-fetch; a folder that does not exist answers 404, because a wrong address is not an empty shelf.
+fetch; a folder that does not exist answers 404, because a wrong address is not an empty shelf. It
+is resolved by **asking for that one row by id** (`07 §7.3`), never by reading a page of the
+catalogue and looking for the id in it: the catalogues are paginated (SEC-56), so a row on any page
+but the first would be reported as a wrong address — a shelf holding forty documents answering 404
+because its owner's name sorts late.
 
 A contents page is arranged **by the date on the document**, and asks for that order by name rather
 than taking whatever `GET /api/documents` defaults to (`07 §7.3`): everything about one person is

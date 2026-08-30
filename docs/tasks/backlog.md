@@ -1662,3 +1662,22 @@ land once, in the shared thing.
   **Goal:** the suggestions stop materialising out of nothing — one permanent line that counts, dates itself, folds and recomputes.
   **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types), [`07 §7.3`](../07-api-specification.md#73-endpoints), [`05 §5.6c`](../05-library-and-processing.md#56c-noticing-that-one-person-arrived-many-times)
   **Acceptance:** the suggestions responses carry `computedAt` from the in-process cache and take `?refresh=1` to drop it and ask anew; the banner becomes the permanent panel of `11 §11.12a` on all three screens — the one-line summary with its date, fold/unfold with the fold state kept client-side, Recompute spinning in place, the three states three honest lines (`ANSWERED` counting zero out loud, `UNAVAILABLE` in the warning tone with Recompute as the retry, `UNCONFIGURED` naming the absence), the unfolded groups and subjects' placeholders behaving as before; localized en and ru. Tests: `computedAt` answered from the cache and `refresh` dropping it, at the use case; the panel's three states, the fold, and a recompute shown spinning, at the screens.
+
+---
+
+## M57 — A shelf is found by its id
+
+`/browse/people/<id>` answers 404 for all but thirty people, and has since M47.14 put the catalogues
+behind pages (SEC-56): the heading is resolved by fetching **the first page** of the catalogue and
+looking for the id in it, which was true when the endpoint answered the whole catalogue and has been
+false ever since. Nobody noticed because the rows that still worked were the ones sorted first, and
+M56.3 changed what sorts first — so the same click that worked yesterday for a name early in the
+alphabet works today for a name on a recent document, and fails for everyone else. A shelf with
+eighty documents on it reports itself as a wrong address.
+
+---
+
+- [x] **M57.1 — One row is asked for by id**
+  **Goal:** a browse heading resolves the row it names, wherever that row would fall in a page.
+  **Docs:** [`07 §7.3`](../07-api-specification.md#73-endpoints), [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browse)
+  **Acceptance:** `GET /api/people/:id`, `GET /api/subjects/:id` and `GET /api/subject-kinds/:id` answer one living row on the list's own terms — counts, `lastDocumentAt`, a subject's kind — and `404 <ENTITY>_NOT_FOUND` for an id the catalogue does not hold, deleted rows included; the browse pages' server-side heading resolution asks those endpoints instead of scanning `items` of a first page, for people, for things and for kinds alike (document types keep theirs — that list is not paginated); 🔒 the endpoints are open to any signed-in caller like the lists they belong to, and answer nothing a list would not. Tests: each endpoint answering a living row and 404ing a deleted one, at e2e; 🔒 the regression itself — a row that is **not** on the first page resolves its heading rather than answering 404.

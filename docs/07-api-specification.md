@@ -280,6 +280,7 @@ paginated — an edge set a person curates by hand is bounded the way collection
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `GET /api/people` | 🔒 | one page of the catalogue, each row with its document count and `lastDocumentAt` — the newest `documentDate` among the living documents that name it, `null` when none carries a date. Every count and date on these three lists reads **living documents only**, because the count is a door to the browse (`11 §11.12a`) and the browse shows exactly those. `?sort=lastDocumentAt\|documents\|name` with `?order=asc\|desc`, defaulting to `lastDocumentAt desc` with the dateless rows last: the catalogue opens on who the paper spoke of most recently (11 §11.12a). Paginated like every other list (§7.1, SEC-56), the cursor bound to the sort that minted it |
+| `GET /api/people/:id` | 🔒 | one living row → `PersonDto`, counts and date included; `404 PERSON_NOT_FOUND` for an id the catalogue does not hold. A page of a catalogue cannot answer "who is this id" — the row may be on any page — so anything resolving one name asks for one row (11 §11.4) |
 | `POST /api/people` | 🔒 | `{ name, note? }` → `PersonDto`; `409 PERSON_EXISTS` on a name that already lives, `422 CATALOGUE_FULL` past the instance ceiling (§7.2, `08 §8.4`). Open to any signed-in caller (03 §3.3.19), 🔒 rate-limited and bounded (SEC-56): the row lands in a namespace every user reads |
 | `PATCH /api/admin/people/:id` | 🔒ᴬ | `{ name?, note? }` |
 | `POST /api/admin/people/merge` | 🔒ᴬ | `{ ids[≥2], name, note? }` → the surviving `PersonDto`. The oldest of the rows survives, takes the name, and receives every document link the others had (duplicates collapsed); the rest are soft-deleted, all in one transaction. `409 PERSON_EXISTS` when the chosen name belongs to somebody outside the merge (03 §3.3.19) |
@@ -291,6 +292,7 @@ paginated — an edge set a person curates by hand is bounded the way collection
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `GET /api/subjects` | 🔒 | one page of the catalogue, each row with its document count and `lastDocumentAt`, sorted and paginated on the people endpoint's terms (§7.1, SEC-56). Each row carries `kindId` and the kind's `name`, because every screen that shows a subject shows both halves |
+| `GET /api/subjects/:id` | 🔒 | one living row → `SubjectDto`, its kind included; `404 SUBJECT_NOT_FOUND`. The people endpoint's reason: one row is asked for by id, never found by paging |
 | `POST /api/subjects` | 🔒 | `{ kindId, name, note? }` → `SubjectDto`; `409 SUBJECT_EXISTS` on a living `(kindId, name)`, `404 SUBJECT_KIND_NOT_FOUND` for a kind that is not in the catalogue, `422 CATALOGUE_FULL` past the instance ceiling (§7.2, `08 §8.4`). Open to any signed-in caller (03 §3.3.20) |
 | `PATCH /api/admin/subjects/:id` | 🔒ᴬ | `{ kindId?, name?, note? }` — moving a thing to another kind is an ordinary correction |
 | `POST /api/admin/subjects/merge` | 🔒ᴬ | `{ ids[≥2], kindId, name, note? }` → the surviving `SubjectDto`; same rules as the people merge, plus the kind the survivor is filed under, since the merged rows may disagree about it (03 §3.3.20) |
@@ -302,6 +304,7 @@ paginated — an edge set a person curates by hand is bounded the way collection
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `GET /api/subject-kinds` | 🔒 | one page of the catalogue, each kind with how many things it holds, how many documents they are on, and `lastDocumentAt` across those things — sorted and paginated on the people endpoint's terms, `?sort=` admitting `things` here too (§7.1, SEC-56) |
+| `GET /api/subject-kinds/:id` | 🔒 | one living kind → `SubjectKindDto` with its counts; `404 SUBJECT_KIND_NOT_FOUND`. Same reason as the two above |
 | `POST /api/subject-kinds` | 🔒 | `{ name, note? }` → `SubjectKindDto`; stored as typed, in any language and any case, unique case-insensitively; `409 SUBJECT_KIND_EXISTS`, `422 CATALOGUE_FULL` past the instance ceiling (§7.2, `08 §8.4`). Open to any signed-in caller, like people and subjects (03 §3.3.20a) |
 | `PATCH /api/admin/subject-kinds/:id` | 🔒ᴬ | `{ name?, note? }` — one edit renames every thing filed under it |
 | `POST /api/admin/subject-kinds/merge` | 🔒ᴬ | `{ ids[≥2], name, note? }` → the surviving `SubjectKindDto`. The oldest kind survives, takes the name, and receives every subject the others held; things two merged kinds both held under one folded name are folded too — links moved, duplicates collapsed, latecomers soft-deleted — all in one transaction (03 §3.3.20a). `409 SUBJECT_KIND_EXISTS` when the chosen name belongs to a kind outside the merge |

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import {
   CreateSubjectKind,
+  GetSubjectKind,
   DeleteSubjectKind,
   ListSubjectKinds,
   UpdateSubjectKind,
@@ -30,6 +31,11 @@ import { AdminSubjectKindsController, SubjectKindsController } from './subject-k
     {
       provide: ListSubjectKinds,
       useFactory: (kinds: SubjectKindRepository): ListSubjectKinds => new ListSubjectKinds(kinds),
+      inject: [SubjectKindRepository],
+    },
+    {
+      provide: GetSubjectKind,
+      useFactory: (kinds: SubjectKindRepository): GetSubjectKind => new GetSubjectKind(kinds),
       inject: [SubjectKindRepository],
     },
     {

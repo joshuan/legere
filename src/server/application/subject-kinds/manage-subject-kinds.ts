@@ -39,6 +39,18 @@ export class ListSubjectKinds {
   }
 }
 
+// One row, asked for by id (docs/07 §7.3), for the reason the two other catalogues have
+// (docs/11 §11.4).
+export class GetSubjectKind {
+  constructor(private readonly kinds: SubjectKindRepository) {}
+
+  async execute(id: string): Promise<SubjectKindDto> {
+    const row = await this.kinds.findListRow(id);
+    if (row === null) throw new NotFoundError('SUBJECT_KIND_NOT_FOUND', 'Subject kind not found');
+    return toSubjectKindDto(row);
+  }
+}
+
 export class CreateSubjectKind {
   constructor(private readonly kinds: SubjectKindRepository) {}
 

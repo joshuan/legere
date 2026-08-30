@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import {
   CreateSubject,
+  GetSubject,
   DeleteSubject,
   ListSubjects,
   MergeSubjects,
@@ -30,6 +31,11 @@ import { AdminSubjectsController, SubjectsController } from './subjects.controll
     {
       provide: ListSubjects,
       useFactory: (subjects: SubjectRepository): ListSubjects => new ListSubjects(subjects),
+      inject: [SubjectRepository],
+    },
+    {
+      provide: GetSubject,
+      useFactory: (subjects: SubjectRepository): GetSubject => new GetSubject(subjects),
       inject: [SubjectRepository],
     },
     {

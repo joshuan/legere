@@ -465,6 +465,74 @@ describe('Catalogues (e2e)', () => {
     });
   });
 
+  // A page cannot answer "who is this id" — the row may be on any page (docs/07 §7.3). This is what
+  // a browse heading asks (docs/11 §11.4), and asking a page instead is what made a shelf of forty
+  // documents answer 404 for everybody whose row sorted late (M57.1).
+  describe('one row by id', () => {
+    it('answers a living row of each catalogue, and 404s one that is gone', async () => {
+      const kindId = expectData(
+        await api(app).post('/api/subject-kinds', { name: 'apartment' }).set('Cookie', userCookie),
+        subjectKindDtoSchema,
+      ).id;
+      const subjectId = expectData(
+        await api(app)
+          .post('/api/subjects', { kindId, name: 'Njegoševa 5' })
+          .set('Cookie', userCookie),
+        subjectDtoSchema,
+      ).id;
+      const personId = expectData(
+        await api(app).post('/api/people', { name: 'Ana Petrović' }).set('Cookie', userCookie),
+        personDtoSchema,
+      ).id;
+
+      const person = await api(app).get(`/api/people/${personId}`).set('Cookie', userCookie);
+      expect(person.status).toBe(200);
+      expect(expectData(person, personDtoSchema).name).toBe('Ana Petrović');
+      const subject = await api(app).get(`/api/subjects/${subjectId}`).set('Cookie', userCookie);
+      expect(expectData(subject, subjectDtoSchema).kind).toBe('apartment');
+      const kind = await api(app).get(`/api/subject-kinds/${kindId}`).set('Cookie', userCookie);
+      expect(expectData(kind, subjectKindDtoSchema).subjectCount).toBe(1);
+
+      // A row the catalogue no longer holds is a wrong address, in each catalogue's own words.
+      await api(app).delete(`/api/admin/people/${personId}`).set('Cookie', adminCookie);
+      const gone = await api(app).get(`/api/people/${personId}`).set('Cookie', userCookie);
+      expect(gone.status).toBe(404);
+      expect(expectError(gone).code).toBe('PERSON_NOT_FOUND');
+      const unknownSubject = await api(app)
+        .get('/api/subjects/2f1c4a4e-0a0e-4b3a-9a2e-6d0b5a1c7e11')
+        .set('Cookie', userCookie);
+      expect(expectError(unknownSubject).code).toBe('SUBJECT_NOT_FOUND');
+      const unknownKind = await api(app)
+        .get('/api/subject-kinds/2f1c4a4e-0a0e-4b3a-9a2e-6d0b5a1c7e11')
+        .set('Cookie', userCookie);
+      expect(expectError(unknownKind).code).toBe('SUBJECT_KIND_NOT_FOUND');
+    });
+
+    it('🔒 answers a row that is nowhere near the first page', async () => {
+      // The regression itself (M57.1): thirty-one people, and the one asked for is the last of them
+      // under every order the catalogue offers.
+      for (let index = 0; index < 30; index += 1) {
+        await api(app)
+          .post('/api/people', { name: `Aaa ${String(index).padStart(2, '0')}` })
+          .set('Cookie', userCookie);
+      }
+      const lateId = expectData(
+        await api(app).post('/api/people', { name: 'Zzz Last' }).set('Cookie', userCookie),
+        personDtoSchema,
+      ).id;
+
+      const firstPage = expectData(
+        await api(app).get('/api/people?sort=name&order=asc').set('Cookie', userCookie),
+        listPeopleResponseSchema,
+      );
+      expect(firstPage.items.some((person) => person.id === lateId)).toBe(false);
+
+      const late = await api(app).get(`/api/people/${lateId}`).set('Cookie', userCookie);
+      expect(late.status).toBe(200);
+      expect(expectData(late, personDtoSchema).name).toBe('Zzz Last');
+    });
+  });
+
   describe('a namespace, not a scratchpad (SEC-56)', () => {
     it('answers the catalogue in pages, each cursor continuing the last', async () => {
       for (const name of ['Anna', 'Boris', 'Vera']) {

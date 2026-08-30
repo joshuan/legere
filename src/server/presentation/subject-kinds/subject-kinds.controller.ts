@@ -32,6 +32,7 @@ import {
 import type { OkResponse } from '../../../shared/contracts/users';
 import {
   CreateSubjectKind,
+  GetSubjectKind,
   DeleteSubjectKind,
   ListSubjectKinds,
   UpdateSubjectKind,
@@ -56,6 +57,7 @@ import { ZodBody, ZodQuery } from '../http/zod-validation.pipe';
 export class SubjectKindsController {
   constructor(
     private readonly list: ListSubjectKinds,
+    private readonly getKind: GetSubjectKind,
     private readonly createKind: CreateSubjectKind,
   ) {}
 
@@ -64,6 +66,15 @@ export class SubjectKindsController {
     @ZodQuery(listSubjectKindsQuerySchema) query: ListSubjectKindsQuery,
   ): Promise<Envelope<ListSubjectKindsResponse>> {
     return successEnvelope(await this.list.execute(query));
+  }
+
+  // One row by id, because a page cannot answer for a row that is on another page
+  // (docs/07 §7.3, docs/11 §11.4).
+  @Get(':id')
+  async kind(
+    @UuidParam('id', 'SUBJECT_KIND_NOT_FOUND', 'Subject kind') id: string,
+  ): Promise<Envelope<SubjectKindDto>> {
+    return successEnvelope(await this.getKind.execute(id));
   }
 
   // 🔒 Rate-limited (SEC-56), like the people beside it.

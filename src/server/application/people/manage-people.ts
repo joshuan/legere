@@ -38,6 +38,18 @@ export class ListPeople {
   }
 }
 
+// One row, asked for by id (docs/07 §7.3). A page of a catalogue cannot answer "who is this id" —
+// the row may be on any page — so whatever resolves one name asks for one row (docs/11 §11.4).
+export class GetPerson {
+  constructor(private readonly people: PersonRepository) {}
+
+  async execute(id: string): Promise<PersonDto> {
+    const row = await this.people.findListRow(id);
+    if (row === null) throw new NotFoundError('PERSON_NOT_FOUND', 'Person not found');
+    return toPersonDto(row);
+  }
+}
+
 export class CreatePerson {
   constructor(private readonly people: PersonRepository) {}
 
