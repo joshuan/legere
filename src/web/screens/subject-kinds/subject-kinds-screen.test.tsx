@@ -73,6 +73,18 @@ describe('SubjectKindsScreen', () => {
     await waitFor(() => expect(patched).toMatchObject({ name: 'flat' }));
   });
 
+  it('stands its actions at the foot of the screen (docs/11 §11.12a)', async () => {
+    renderWithProviders(<SubjectKindsScreen />, { user: TEST_ADMIN });
+    await screen.findByText('apartment');
+
+    const bar = screen.getByRole('toolbar', { name: enMessages.admin.catalogues.actionsBar });
+    expect(
+      within(bar).getByRole('button', { name: enMessages.admin.subjectKinds.actions.create }),
+    ).toBeInTheDocument();
+    // Sticky and in flow, not a fixed overlay: the table ends above the bar rather than under it.
+    expect(bar).toHaveStyle({ position: 'sticky' });
+  });
+
   it('says a kind still holding things cannot simply be deleted', async () => {
     renderWithProviders(<SubjectKindsScreen />, { user: TEST_ADMIN });
     await userEvent.click(

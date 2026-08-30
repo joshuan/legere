@@ -201,6 +201,18 @@ describe('SubjectsScreen', () => {
     await waitFor(() => expect(merged).toMatchObject({ note: raw.slice(0, 2000) }));
   });
 
+  it('stands its actions at the foot of the screen (docs/11 §11.12a)', async () => {
+    renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
+    await screen.findByText('Njegoševa 5');
+
+    const bar = screen.getByRole('toolbar', { name: enMessages.admin.catalogues.actionsBar });
+    expect(
+      within(bar).getByRole('button', { name: enMessages.admin.subjects.actions.create }),
+    ).toBeInTheDocument();
+    // Sticky and in flow, not a fixed overlay: the table ends above the bar rather than under it.
+    expect(bar).toHaveStyle({ position: 'sticky' });
+  });
+
   it('says a delete leaves the documents alone rather than implying they change', async () => {
     renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
     await userEvent.click(

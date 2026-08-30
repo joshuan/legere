@@ -241,7 +241,11 @@ describe('PeopleScreen', () => {
         ),
         http.get('/api/admin/people/merge-suggestions', () =>
           HttpResponse.json(
-            envelope({ state: 'ANSWERED', computedAt: '2026-08-30T10:00:00.000Z', groups: [group] }),
+            envelope({
+              state: 'ANSWERED',
+              computedAt: '2026-08-30T10:00:00.000Z',
+              groups: [group],
+            }),
           ),
         ),
       );
@@ -333,6 +337,35 @@ describe('PeopleScreen', () => {
       expect(screen.queryByText(enMessages.admin.catalogues.suggestions.unavailable)).toBeNull();
       expect(screen.queryByText(enMessages.admin.people.suggestions.title)).toBeNull();
     });
+  });
+
+  it('stands its actions at the foot of the screen, Merge arriving with a selection (docs/11 §11.12a)', async () => {
+    server.use(
+      http.get('/api/people', () =>
+        HttpResponse.json(envelope({ nextCursor: null, items: [person, twin] })),
+      ),
+    );
+
+    renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
+    await screen.findAllByText(/Marija Petrovi/);
+
+    const bar = screen.getByRole('toolbar', { name: enMessages.admin.catalogues.actionsBar });
+    // New always; Merge only once there is a selection worth merging.
+    expect(
+      within(bar).getByRole('button', { name: enMessages.admin.people.actions.create }),
+    ).toBeInTheDocument();
+    expect(within(bar).queryByRole('button', { name: /Merge/ })).toBeNull();
+
+    const [selectAll] = screen.getAllByRole('checkbox');
+    if (selectAll === undefined) throw new Error('expected a selection checkbox');
+    await userEvent.click(selectAll);
+
+    // The button names its count, in the bar where the hands already are.
+    expect(await within(bar).findByRole('button', { name: /Merge 2/ })).toBeInTheDocument();
+
+    // Sticky and in flow, not a fixed overlay: the bar keeps its own room in the column, so the
+    // table ends above it rather than under it.
+    expect(bar).toHaveStyle({ position: 'sticky' });
   });
 
   it('shows the catalogue to anyone, and offers the corrections to an admin only', async () => {

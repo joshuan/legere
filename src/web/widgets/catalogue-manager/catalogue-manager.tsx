@@ -14,6 +14,7 @@ import {
   Space,
   Table,
   Typography,
+  theme,
   type TableColumnType,
 } from 'antd';
 import { useTranslations } from 'next-intl';
@@ -156,6 +157,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   const t = useTranslations();
   const describeError = useErrorMessage();
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const [form] = Form.useForm<Values>();
 
   const [editing, setEditing] = useState<Row | null>(null);
@@ -394,16 +396,61 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   };
 
   return (
-    <Card
-      title={title}
-      extra={
+    // A flex column filling the shell's content area, so the action bar below stands at the foot of
+    // the viewport even under a table shorter than the screen.
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <Card title={title}>
+        {/* The screen notices first, where the screen has something to notice (docs/11 §11.12a). */}
+        {canManage && suggestionsPanel()}
+
+        <Table
+          rowKey="id"
+          loading={loading}
+          dataSource={rows}
+          pagination={false}
+          locale={{ emptyText }}
+          {...(merge === undefined || !canManage
+            ? {}
+            : {
+                rowSelection: {
+                  selectedRowKeys: selected,
+                  onChange: (keys: React.Key[]) => setSelected(keys.map(String)),
+                },
+              })}
+          columns={[
+            ...columns.map((column) => ({
+              title: column.title,
+              key: column.key,
+              render: (_: unknown, row: Row) => column.render(row),
+              // Both or neither: a filter list with nothing to filter by is a dropdown that does
+              // nothing.
+              ...(column.filters === undefined || column.onFilter === undefined
+                ? {}
+                : { filters: column.filters, onFilter: column.onFilter }),
+            })),
+            ...(canManage ? [actionsColumn] : []),
+          ]}
+        />
+      </Card>
+
+      {/* The actions stand at the foot of the screen, and stay there (docs/11 §11.12a): New always,
+          Merge the moment two or more rows are selected — a selection made at row three hundred
+          must not cost a scroll back to the top. Sticky and in flow rather than floating fixed:
+          the table ends above the bar, never under it. */}
+      <div
+        role="toolbar"
+        aria-label={t('admin.catalogues.actionsBar')}
+        style={{
+          position: 'sticky',
+          bottom: 0,
+          marginTop: 'auto',
+          padding: '12px 16px',
+          background: token.colorBgContainer,
+          borderTop: `1px solid ${token.colorBorderSecondary}`,
+          zIndex: 10,
+        }}
+      >
         <Space>
-          {/* Only once there is something to fold together: a merge of one row is not a merge. */}
-          {canManage && merge !== undefined && selected.length > 1 && (
-            <Button onClick={openManualMerge}>
-              {t('admin.catalogues.actions.merge', { count: selected.length })}
-            </Button>
-          )}
           {canCreate && (
             <Button
               type="primary"
@@ -416,40 +463,14 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
               {createLabel}
             </Button>
           )}
+          {/* Only once there is something to fold together: a merge of one row is not a merge. */}
+          {canManage && merge !== undefined && selected.length > 1 && (
+            <Button onClick={openManualMerge}>
+              {t('admin.catalogues.actions.merge', { count: selected.length })}
+            </Button>
+          )}
         </Space>
-      }
-    >
-      {/* The screen notices first, where the screen has something to notice (docs/11 §11.12a). */}
-      {canManage && suggestionsPanel()}
-
-      <Table
-        rowKey="id"
-        loading={loading}
-        dataSource={rows}
-        pagination={false}
-        locale={{ emptyText }}
-        {...(merge === undefined || !canManage
-          ? {}
-          : {
-              rowSelection: {
-                selectedRowKeys: selected,
-                onChange: (keys: React.Key[]) => setSelected(keys.map(String)),
-              },
-            })}
-        columns={[
-          ...columns.map((column) => ({
-            title: column.title,
-            key: column.key,
-            render: (_: unknown, row: Row) => column.render(row),
-            // Both or neither: a filter list with nothing to filter by is a dropdown that does
-            // nothing.
-            ...(column.filters === undefined || column.onFilter === undefined
-              ? {}
-              : { filters: column.filters, onFilter: column.onFilter }),
-          })),
-          ...(canManage ? [actionsColumn] : []),
-        ]}
-      />
+      </div>
 
       {/* Which of these is the right name is the whole question a merge asks: the names on the
           selected rows are offered, and anything else can be typed over them (docs/11 §11.12a). */}
@@ -534,6 +555,6 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
           {fields(editing)}
         </Form>
       </Modal>
-    </Card>
+    </div>
   );
 }
