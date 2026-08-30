@@ -23,6 +23,7 @@ import { errorEnvelope } from '../src/server/presentation/http/envelope';
 import { forwardedForNotice } from '../src/server/presentation/http/forwarded-for-notice.middleware';
 import { readOnlyBearer } from '../src/server/presentation/http/read-only-bearer.middleware';
 import { securityHeaders } from '../src/server/presentation/http/security-headers.middleware';
+import { jsonRpcParseError } from '../src/server/presentation/mcp/json-rpc-parse-error.middleware';
 
 // A request handler for everything Nest does not serve (Next pages/assets, or a stub in tests).
 type NextHandle = (req: Request, res: Response) => void;
@@ -94,6 +95,10 @@ export async function wireServer(
   server.use('/api', (req, res, next) =>
     isUpload(req) ? next() : express.urlencoded({ extended: true })(req, res, next),
   );
+  // A body the parsers cannot read fails right here, before any route — an HTTP 400 for an API
+  // whose clients read HTTP, which is every route but one: the MCP client reads JSON-RPC, where the
+  // same failure has the name it was promised (docs/07 §7.3a).
+  server.use('/api', jsonRpcParseError);
   // A bearer token reaches read routes only (docs/08 §8.2a).
   server.use('/api', readOnlyBearer);
 

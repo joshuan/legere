@@ -389,6 +389,35 @@ describe('MCP (e2e)', () => {
       expect(expectRpcError(res).code).toBe(-32602);
     });
 
+    // The one failure that never reaches the controller: a body `express.json` cannot read dies in
+    // the parser, and the error handler mounted behind it keeps the promise (docs/07 §7.3a). The id
+    // is null because it lies inside the very body that could not be read.
+    it('answers unparsable JSON with a parse error rather than a bare HTTP 400', async () => {
+      const res = await request(app.baseUrl)
+        .post('/api/mcp')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('Content-Type', 'application/json')
+        .send('{"jsonrpc": "2.0", "id": 1, "method": ')
+        .expect(200);
+
+      const failed = expectRpcError(res);
+      expect(failed.code).toBe(-32700);
+      expect(failed.id).toBeNull();
+    });
+
+    // And the carve-out is exactly that route: everywhere else the same broken body keeps its
+    // ordinary HTTP 400, with no JSON-RPC envelope on it.
+    it('leaves the plain HTTP 400 on every other route the same broken body reaches', async () => {
+      const res = await request(app.baseUrl)
+        .post('/api/auth/login')
+        .set('Origin', 'http://localhost:3000')
+        .set('Content-Type', 'application/json')
+        .send('{"email": ');
+
+      expect(res.status).toBe(400);
+      expect(res.text).not.toContain('jsonrpc');
+    });
+
     it('answers ping', async () => {
       const res = await rpc({ jsonrpc: '2.0', id: 3, method: 'ping' }).expect(200);
 
