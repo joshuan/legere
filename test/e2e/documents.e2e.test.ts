@@ -400,6 +400,22 @@ describe('Documents (e2e)', () => {
         expect(continued.items).toHaveLength(1);
       });
 
+      it('answers a forged cursor with the first page, as if none had been sent', async () => {
+        const open = await givenLibrary('ALL_USERS');
+        const one = await givenDocument({ libraryId: open, title: 'One' });
+        const two = await givenDocument({ libraryId: open, title: 'Two' });
+
+        // 🔒 Syntactically plausible base64, but nothing this server ever wrote — and the id inside
+        // is not even a UUID, so read credulously it would reach the driver as a filter on a uuid
+        // column and come back as a 500 (SEC-86). The list starts over instead.
+        const forged = Buffer.from('{"id":"\' OR 1=1","v":"x"}').toString('base64url');
+        const res = await listAs(adminCookie, `?limit=10&cursor=${encodeURIComponent(forged)}`);
+
+        expect(res.status).toBe(200);
+        const page = expectData(res, listDocumentsResponseSchema);
+        expect(page.items.map((item) => item.id).sort()).toEqual([one, two].sort());
+      });
+
       it('rejects an order that is not one of the named ones', async () => {
         const refused = await listAs(adminCookie, '?sort=title');
 

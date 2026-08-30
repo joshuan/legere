@@ -419,8 +419,9 @@ export class DocumentsController {
     return successEnvelope(await this.reorderFiles.execute(user, document, body));
   }
 
-  // What one file says about itself: the crop of its content, the order of its own pages, or both
-  // in one edit — and one rebuild either way (docs/07 §7.3).
+  // What one file says about its own pages as a set: their order, one quarter turn per page, or
+  // both in one edit — and one rebuild either way (docs/07 §7.3). A crop and a turn of one page
+  // belong to the page that carries them and are asked of the route that names it (ADR-025).
   @Patch(':id/files/:fileId')
   @UseGuards(DocumentAccessGuard)
   async patchFile(

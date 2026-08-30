@@ -1074,6 +1074,36 @@ describe('Document files (e2e)', () => {
       const plain = /filename="([^"]*)"/.exec(disposition)?.[1] ?? '';
       expect(/^[\x20-\x7e]*$/.test(plain)).toBe(true);
     });
+
+    // The canonical and the preview live in the bucket, and the volume holds only originals
+    // (docs/05 §5.5, §5.7): a document whose disk was unplugged still reads as the assembled PDF,
+    // and only the original answers with the honest refusal.
+    it('still serves the canonical of a document whose volume is gone', async () => {
+      const fixture = await givenLibraryDocument({ title: 'Survivor' });
+      await app.files.put(artifactKeys.canonicalPdf(fixture.documentId), PDF, 'application/pdf');
+      // The whole library folder goes, which is what an unmounted volume looks like from here.
+      await rm(join(libraryRoot, fixture.rootPath), { recursive: true, force: true });
+
+      const saved = await api(app)
+        .get(`/api/documents/${fixture.documentId}/canonical?download=1`)
+        .set('Cookie', adminCookie)
+        .buffer(true);
+      expect(saved.status).toBe(200);
+      expect(bodyOf(saved)).toBe(PDF.toString());
+
+      const preview = await api(app)
+        .get(`/api/documents/${fixture.documentId}/preview`)
+        .set('Cookie', adminCookie)
+        .redirects(0);
+      expect(preview.status).toBe(302);
+      expect(preview.headers.location).toContain(artifactKeys.preview(fixture.documentId));
+
+      const original = await api(app)
+        .get(`/api/documents/${fixture.documentId}/files/${fixture.fileIds[0]}/content`)
+        .set('Cookie', adminCookie);
+      expect(original.status).toBe(409);
+      expect(expectError(original).code).toBe('DOCUMENT_UNAVAILABLE');
+    });
   });
 
   describe('downloading one original', () => {
