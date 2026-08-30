@@ -8,6 +8,17 @@ import {
 import { clientOf } from './prisma-client';
 import { PrismaService } from './prisma.service';
 
+// How many chunks one INSERT carries. The limits this respects are the wire protocol's, not the
+// clock's: Postgres binds at most 65 535 parameters to a statement and every row here spends six of
+// them, so one statement stops working somewhere past ten thousand chunks — and long before that it
+// is a query message of tens of megabytes, a 1024-dimension vector being ~12 KB of text once
+// written out. The longest document in this archive yields 905 chunks, so neither ceiling is near
+// today; batching is what keeps that true of a document ten times longer, at the cost of a few
+// round trips inside a transaction that is already open. 500 rows is ~3 000 bind parameters and a
+// message of single-digit megabytes: two orders of margin under the first limit, and small enough
+// that the second is a buffer rather than an event.
+const INSERT_BATCH_ROWS = 500;
+
 @Injectable()
 export class PrismaDocumentChunkRepository implements DocumentChunkRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -25,7 +36,7 @@ export class PrismaDocumentChunkRepository implements DocumentChunkRepository {
     if (chunks.length === 0) return;
 
     // `embedding` is a pgvector column, which Prisma cannot model (docs/04 §4.4), so the insert is
-    // raw — one statement for the whole set, with every value still bound rather than interpolated.
+    // raw, with every value still bound rather than interpolated.
     const rows = chunks.map(
       (chunk) => Prisma.sql`(
         gen_random_uuid(),
@@ -38,10 +49,15 @@ export class PrismaDocumentChunkRepository implements DocumentChunkRepository {
       )`,
     );
 
-    await client.$executeRaw(
-      Prisma.sql`INSERT INTO document_chunks (id, document_id, "index", content, char_count, embedding, model)
-        VALUES ${Prisma.join(rows)}`,
-    );
+    // In batches, all of them inside the caller's transaction (docs/03 §3.3.11): cutting the insert
+    // changes how the rows travel, never when they become visible — the delete above and every
+    // batch below commit together or not at all.
+    for (let from = 0; from < rows.length; from += INSERT_BATCH_ROWS) {
+      await client.$executeRaw(
+        Prisma.sql`INSERT INTO document_chunks (id, document_id, "index", content, char_count, embedding, model)
+        VALUES ${Prisma.join(rows.slice(from, from + INSERT_BATCH_ROWS))}`,
+      );
+    }
   }
 
   countForDocument(documentId: string, tx?: TransactionHandle): Promise<number> {

@@ -37,7 +37,7 @@ import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
 import { AnalysisSettings } from '../settings/analysis-settings';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import type { ProcessingSettings } from './processing-settings';
-import { HandleDocumentProcess } from './handle-document-process';
+import { CHUNK_WRITE_TIMEOUT_MS, HandleDocumentProcess } from './handle-document-process';
 
 const PREVIEW_MAX_DIM = 1600;
 const THUMB_MAX_DIM = 400;
@@ -77,6 +77,8 @@ describe('HandleDocumentProcess', () => {
   let chunks: InMemoryDocumentChunkRepository;
   let embeddings: FakeEmbeddingProvider;
   let calls: FakeCallContext;
+  // Kept, so a test can read the bound each transaction asked for (docs/06 §6.3.4).
+  let unitOfWork: ImmediateUnitOfWork;
   let handler: HandleDocumentProcess;
   // The one settings row a pause lives in (docs/05 §5.4d), kept where the tests can write to it.
   let queueStore: InMemorySettingsRepository;
@@ -131,6 +133,7 @@ describe('HandleDocumentProcess', () => {
     };
 
     const queueSettings = queueSettingsFixture(4, queueStore);
+    unitOfWork = new ImmediateUnitOfWork();
     handler = new HandleDocumentProcess(
       documents,
       events,
@@ -157,7 +160,7 @@ describe('HandleDocumentProcess', () => {
       subjectKinds,
       chunks,
       embeddings,
-      new ImmediateUnitOfWork(),
+      unitOfWork,
       calls,
       new AnalysisSettings(new InMemorySettingsRepository()),
       queueSettings,
@@ -1903,6 +1906,20 @@ describe('HandleDocumentProcess', () => {
       expect(stored[0]).toMatchObject({ index: 0, charCount: stored[0]?.content.length });
       expect(stored[0]?.embedding).toHaveLength(3);
       expect(embeddings.batches[0]).toEqual([stored[0]?.content]);
+    });
+
+    // 🔒 The write asks for the time it needs (docs/06 §6.3.4). Without this the transaction takes
+    // the driver's five seconds, which is the bound seventy-one documents on the live instance were
+    // refused at — and nothing else in this step would say which bound it ran under.
+    it('gives its transaction the bound the write needs, not the driver default', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      pdfs.defaultMarkdown = 'A body long enough to be worth embedding at all.';
+
+      await run();
+
+      expect(unitOfWork.bounds).toContainEqual({ timeoutMs: CHUNK_WRITE_TIMEOUT_MS });
+      // Three minutes, and stated as such: a bound nobody can read is a magic number again.
+      expect(CHUNK_WRITE_TIMEOUT_MS).toBe(180_000);
     });
 
     it('replaces the whole set on a re-run rather than adding to it', async () => {

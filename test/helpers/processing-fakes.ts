@@ -125,6 +125,7 @@ import {
 } from '../../src/server/domain/repositories/document-event.repository';
 import {
   UnitOfWork,
+  type TransactionBounds,
   type TransactionHandle,
 } from '../../src/server/application/ports/unit-of-work';
 import {
@@ -1340,9 +1341,14 @@ export function queueSettingsFixture(
   });
 }
 
-// Runs the body without a real transaction; the handle is never inspected by the fakes.
+// Runs the body without a real transaction; the handle is never inspected by the fakes. The bound
+// each run asked for is kept, in order, so a test can assert that a caller which needs one says so
+// (docs/06 §6.3.4) — `undefined` is a run that took the adapter's default.
 export class ImmediateUnitOfWork extends UnitOfWork {
-  run<T>(fn: (tx: TransactionHandle) => Promise<T>): Promise<T> {
+  readonly bounds: Array<TransactionBounds | undefined> = [];
+
+  run<T>(fn: (tx: TransactionHandle) => Promise<T>, bounds?: TransactionBounds): Promise<T> {
+    this.bounds.push(bounds);
     return fn({});
   }
 }

@@ -860,7 +860,13 @@ alone: recording that something happened is not itself an edit of the document.
 | embedding | vector(1024) | pgvector; cosine ops. The width is the model's, and it is fixed by the column — see `04 §4.5` for what changing it costs |
 | model | string? | the embedder that produced this vector (`EMBEDDINGS_MODEL`, `12 §12.4`). Null only on a chunk written before this column existed |
 
-Chunks are replaced wholesale on (re)vectorization: delete all → insert all (in one transaction).
+Chunks are replaced wholesale on (re)vectorization: delete all → insert all (in one transaction), so
+no reader ever sees half of one vectorization and half of another. That transaction runs under a
+bound of its own rather than the driver's five-second default, because the document with the most to
+say is exactly the one whose write does not fit it (`06 §6.3.4`), and a large insert is cut into
+batches **inside** it — a single statement carrying thousands of 1024-dimension vectors runs out of
+bind parameters and message before it runs out of time, and cutting it changes how the rows travel,
+not when they become visible.
 
 🔒 **A chunk says which model made it**, because two models in one table is a search that quietly
 lies: cosine distance between vectors from different embedders is a number with no meaning, and a

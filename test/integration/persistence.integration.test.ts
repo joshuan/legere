@@ -81,6 +81,33 @@ describe('Persistence (integration)', () => {
     expect(await prisma.documentType.count()).toBe(0);
   });
 
+  // 🔒 The two halves of M58.1's port change, against the driver that actually enforces them
+  // (docs/06 §6.3.4). The first is the failure seventy-one documents on the live instance are
+  // sitting in; the second is the fix, and neither is visible anywhere but here — a fake unit of
+  // work has no clock and no transaction to expire.
+  it('refuses a run that outlasts the default bound when it asks for none', async () => {
+    await expect(
+      unitOfWork.run(async (tx) => {
+        await asClient(tx).$executeRawUnsafe('SELECT pg_sleep(6)');
+        await asClient(tx).documentType.create({ data: { slug: 'too-slow', name: 'Too slow' } });
+      }),
+    ).rejects.toThrow(/5000 ms/);
+
+    expect(await prisma.documentType.count()).toBe(0);
+  });
+
+  it('commits a run that outlasts the default bound when it asked for the time', async () => {
+    await unitOfWork.run(
+      async (tx) => {
+        await asClient(tx).$executeRawUnsafe('SELECT pg_sleep(6)');
+        await asClient(tx).documentType.create({ data: { slug: 'slow', name: 'Slow but sure' } });
+      },
+      { timeoutMs: 30_000 },
+    );
+
+    expect(await prisma.documentType.count()).toBe(1);
+  });
+
   it('enforces the soft-delete-aware partial unique index on active rows', async () => {
     await prisma.documentType.create({ data: { slug: 'unique-me', name: 'One' } });
 

@@ -82,6 +82,27 @@ export type DocumentProcessPayload = z.infer<typeof documentProcessPayloadSchema
 const PREVIEW_QUALITY = 80;
 const THUMB_QUALITY = 75;
 
+// How long the wholesale chunk replacement of step 6 may take (docs/06 §6.3.4). Prisma bounds an
+// interactive transaction at 5 s and this is the one write in the pipeline that does not fit it:
+// seventy-one documents on the live instance are FAILED here with the commit refused on an expired
+// transaction, and the newest of them is from today.
+//
+// The arithmetic. The size of the work is the document: the longest one this archive holds yields
+// 905 chunks out of 868 000 characters of Markdown (`CHUNK_TARGET_CHARS` is 1000), so a thousand
+// rows is the ceiling in practice, and each row is an insert plus one insertion into an HNSW index
+// over 1024 dimensions (docs/04 §4.4) — single-digit milliseconds against a database with nothing
+// else to do, some ten seconds for the whole set. The row count is *not* what decides the wall
+// clock, though, and the failures say so plainly: the same instance refused a sixteen-chunk write
+// after 94 seconds and a nine-hundred-chunk one after 6, because the process doing this is also
+// converting, OCR-ing and parsing other documents and the database shares their host. So the
+// headroom is bought for the contention rather than for the length — three minutes is the worst
+// observation with a margin over it, and it still fits inside the slack docs/05 §5.4a leaves
+// between the summed step budgets (165 min) and the job's three-hour expiry.
+//
+// And it is still a bound: a chunk write that has not committed in three minutes is stuck on
+// something no document explains, and failing the step is how that gets said.
+export const CHUNK_WRITE_TIMEOUT_MS = 3 * 60 * 1_000;
+
 // What step 1 left behind for every step after it. There is one artifact now, whatever the document
 // was made of, so the later steps have one question to ask: is the canonical there (ADR-021)?
 type Canonical =
@@ -1004,12 +1025,15 @@ export class HandleDocumentProcess extends JobHandler {
   }
 
   // Delete-then-insert in one transaction (docs/03 §3.3.11): a reader never sees a document with
-  // half of one vectorization and half of another.
+  // half of one vectorization and half of another. One transaction, and one that is given the time
+  // the write actually takes rather than the driver's five seconds.
   private async replaceChunks(
     documentId: string,
     chunks: Parameters<DocumentChunkRepository['replaceForDocument']>[1],
   ): Promise<void> {
-    await this.unitOfWork.run((tx) => this.chunks.replaceForDocument(documentId, chunks, tx));
+    await this.unitOfWork.run((tx) => this.chunks.replaceForDocument(documentId, chunks, tx), {
+      timeoutMs: CHUNK_WRITE_TIMEOUT_MS,
+    });
   }
 
   // The one thing every step after the first reads (ADR-021). A fresh stream each time: a stream is

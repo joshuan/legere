@@ -1681,3 +1681,38 @@ eighty documents on it reports itself as a wrong address.
   **Goal:** a browse heading resolves the row it names, wherever that row would fall in a page.
   **Docs:** [`07 §7.3`](../07-api-specification.md#73-endpoints), [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browse)
   **Acceptance:** `GET /api/people/:id`, `GET /api/subjects/:id` and `GET /api/subject-kinds/:id` answer one living row on the list's own terms — counts, `lastDocumentAt`, a subject's kind — and `404 <ENTITY>_NOT_FOUND` for an id the catalogue does not hold, deleted rows included; the browse pages' server-side heading resolution asks those endpoints instead of scanning `items` of a first page, for people, for things and for kinds alike (document types keep theirs — that list is not paginated); 🔒 the endpoints are open to any signed-in caller like the lists they belong to, and answer nothing a list would not. Tests: each endpoint answering a living row and 404ing a deleted one, at e2e; 🔒 the regression itself — a row that is **not** on the first page resolves its heading rather than answering 404.
+
+---
+
+## M58 — What the pipeline could not finish, and why
+
+Seventy-one documents are FAILED at vectorization with `Transaction already closed: … the timeout
+for this transaction was 5000 ms, however 10085 ms passed`, and the newest is today: a long
+document's chunks do not fit inside Prisma's default interactive-transaction bound, so the archive
+loses the vectors of exactly the documents that have the most to say. Seven more are FAILED at
+canonical and preview with sharp's `Input image exceeds pixel limit` — a photograph too big to open
+is refused rather than made smaller, so the simplest step in the pipeline is the one that cannot
+render a large scan. And forty-five markdown failures include one saying `Docling did not finish
+within 0 minutes`, which is a window handed the sliver left of the whole parse's deadline and asked
+to do a page in it: the failure is arithmetic, not the parser's.
+
+(The rest of the markdown failures are an outage, not a defect: the parser host OOM-kills the
+service — nineteen kernel out-of-memory events in a day — and the pipeline handles that exactly as
+`05 §5.4e` says it should. That is a machine to give memory to, not a task here.)
+
+---
+
+- [x] **M58.1 — A transaction is given the time its work takes**
+  **Goal:** the vectors of a long document are written, not lost to a bound nobody chose for them.
+  **Docs:** [`06 §6.3.3`](../06-backend-architecture.md#633-application-ports-non-repository), [`03 §3.3.11`](../03-domain-model.md)
+  **Acceptance:** `UnitOfWork.run` takes an optional bound and the Prisma adapter passes it to `$transaction` (`timeout`, and `maxWait` with it) instead of inheriting the 5 s default everywhere; the chunk replacement asks for a bound that fits the work it actually does — stated as a constant with its arithmetic beside it, not a magic number — and the wholesale delete-then-insert stays one transaction, because `03 §3.3.11`'s promise is that no reader sees half of one vectorization and half of another. Tests: the adapter passes the bound it is given and keeps the default when given none; a vectorization whose write outlasts the old default completes rather than throwing.
+
+- [ ] **M58.2 — An image too large to open is made smaller, not refused**
+  **Goal:** a 100-megapixel scan becomes a page of the canonical PDF like any other.
+  **Docs:** [`05 §5.4a`](../05-library-and-processing.md), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process)
+  **Acceptance:** past `MAX_INPUT_PIXELS` the image tool downscales to fit rather than letting sharp refuse the decode — 🔒 the bound itself stays, because it is what keeps one page from costing a gigabyte of raw pixels: the decode is opened with a limit high enough to read the header and a `resize` that brings the raster under the working bound before anything else touches it, and the step records that it did so; a file so large that even that cannot be done safely still fails, with a message naming the size rather than the library's own words. Tests: an image above the bound renders a page instead of failing; the resulting raster is under the bound; the refusal that remains says what it refused.
+
+- [ ] **M58.3 — A window with no time left says so, and does not spend an upload**
+  **Goal:** the parse's last minutes are not sold to a window that cannot use them.
+  **Docs:** [`05 §5.4a`](../05-library-and-processing.md)
+  **Acceptance:** when what is left of the whole-parse deadline is less than the floor one window needs, the parse ends with a message naming the whole parse's deadline and the pages it did not reach — never `did not finish within 0 minutes`, which is that arithmetic reported as if it were the parser's answer — and no upload is made for a window that cannot finish; the cases that genuinely have their budget are unchanged. Tests: a parse whose remaining time is under the floor fails before uploading and says which deadline it hit; a window with its budget still runs.

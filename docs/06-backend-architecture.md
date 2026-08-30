@@ -104,7 +104,7 @@ re-delivery (pg-boss is at-least-once).
 | `PageTranscriber` | `transcribe(pages[], languages[]): { markdown, usage }`, `isConfigured`, `endpoint` | `OpenAiCompatTranscriber` — the recogniser of last resort (05 §5.5 step 3): a vision model reading the pages of a document that had to be recognised at all |
 | `JobQueue` | `enqueue(name, payload, opts?)`, `enqueueAfterTx(...)`, `scheduleCron(name, cron)` | `PgBossJobQueue` |
 | `QueueMonitor` | `overview()`, `failedJobs(cursor)`, `retry(jobId)` | `PgBossQueueMonitor` (raw SQL over the `pgboss` schema) |
-| `UnitOfWork` | `run<T>(fn: (tx) => Promise<T>)` | `PrismaUnitOfWork` (`$transaction`; repositories accept the tx handle) |
+| `UnitOfWork` | `run<T>(fn: (tx) => Promise<T>, bounds?: { timeoutMs })` | `PrismaUnitOfWork` (`$transaction`; repositories accept the tx handle). The bound is optional and the adapter's default stands without it (§6.3.4) |
 | `MimeDetector` | `detect(streamHead): {mime, ext}` | `FileTypeMimeDetector` (`file-type` package; fallback to extension for text) |
 
 ### 6.3.4. Transactions
@@ -112,6 +112,29 @@ re-delivery (pg-boss is at-least-once).
 `JobQueue.enqueueAfterTx`, implemented via pg-boss's `send` executed on the same Postgres connection
 as the transaction (pg-boss supports passing a client/`db` option) — entity write + job insert commit
 atomically.
+
+**A transaction is given the time its work takes.** Prisma bounds an interactive transaction at 5
+seconds and waits 2 for a connection to open one, and both numbers are the driver's rather than this
+product's: a transaction that outruns them is not rolled back for being wrong, it is refused at the
+commit and everything it wrote is thrown away. That is ample for a use case writing a handful of
+rows, and it is not ample for one of them — the wholesale chunk replacement of
+[`03 §3.3.11`](./03-domain-model.md#3311-documentchunk), which deletes a document's vectors and
+inserts the new set, every row an insertion into an HNSW index over 1024 dimensions
+([`04 §4.4`](./04-database-schema.md#44-query-patterns-the-schema-must-support-index-rationale)).
+Seventy-one documents on the live instance are FAILED at vectorization with exactly that refusal, the
+longest of them after 94 seconds. So `run` takes an optional `{ timeoutMs }`: given none the adapter
+behaves as it always did, and given one it passes it to `$transaction` as `timeout` and raises
+`maxWait` with it — the load that makes a write slow is the same load that keeps the pool busy, so
+raising one bound and not the other only moves the failure. The bound is a **constant beside the work
+it bounds**, its arithmetic written out where it is declared — the same rule as
+[`05 §5.4a`](./05-library-and-processing.md#54a-what-one-document-may-cost) applies to what one
+document may cost — because a number chosen for one caller belongs to that caller, and raising
+Prisma's default for everybody would hide the next transaction that does too much.
+
+What the bound is not is permission to split the write. `03 §3.3.11` promises that no reader sees
+half of one vectorization and half of another, so the delete and the insert stay inside the one
+transaction; where the insert is cut into batches to keep a single statement within what the wire
+protocol can carry, the batches are cut inside that transaction and commit with it.
 
 ## 6.4. Presentation layer
 

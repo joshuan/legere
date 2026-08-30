@@ -6,7 +6,10 @@ import { HandleDocumentProcess } from '../../src/server/application/jobs/handle-
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
 import { QueueSettings, ungatedServices } from '../../src/server/application/queue/queue-settings';
 import { DocumentTypeRepository } from '../../src/server/domain/repositories/document-type.repository';
-import { DocumentChunkRepository } from '../../src/server/domain/repositories/document-chunk.repository';
+import {
+  DocumentChunkRepository,
+  type NewDocumentChunk,
+} from '../../src/server/domain/repositories/document-chunk.repository';
 import { DocumentEventRepository } from '../../src/server/domain/repositories/document-event.repository';
 import { PersonRepository } from '../../src/server/domain/repositories/person.repository';
 import { SubjectKindRepository } from '../../src/server/domain/repositories/subject-kind.repository';
@@ -17,9 +20,13 @@ import { FileRepository } from '../../src/server/domain/repositories/file.reposi
 import { FileRefRepository } from '../../src/server/domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../src/server/domain/repositories/library.repository';
 import { SettingsRepository } from '../../src/server/domain/repositories/settings.repository';
-import { UnitOfWork } from '../../src/server/application/ports/unit-of-work';
+import {
+  UnitOfWork,
+  type TransactionHandle,
+} from '../../src/server/application/ports/unit-of-work';
 import { AnalysisSettings } from '../../src/server/application/settings/analysis-settings';
 import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
+import { isPrismaTx } from '../../src/server/infrastructure/persistence/prisma-client';
 import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
 import { PrismaService } from '../../src/server/infrastructure/persistence/prisma.service';
 import { InMemoryFileStorage } from '../../src/server/infrastructure/storage/in-memory-file-storage';
@@ -38,6 +45,10 @@ import {
 } from '../helpers/processing-fakes';
 
 const SOURCE_PATH = 'a.pdf';
+
+// Past Prisma's own 5 s bound on an interactive transaction — the bound the live instance's
+// vectorization kept hitting (docs/06 §6.3.4).
+const HOLD_PAST_DRIVER_DEFAULT_MS = 6_000;
 
 // What the canonical reads as unless a test says otherwise: comfortably over the per-page threshold,
 // so the default path is "this PDF carries its own text".
@@ -58,6 +69,8 @@ describe('Document processing (integration)', () => {
   let analyst: FakeAnalyst;
   let embeddings: FakeEmbeddingProvider;
   let reader: StubLibraryReader;
+  // The real chunk repository, with a tap that can hold its transaction open (see the class below).
+  let chunks: SlowChunkRepository;
   let close: () => Promise<void>;
 
   beforeAll(async () => {
@@ -96,6 +109,7 @@ describe('Document processing (integration)', () => {
     };
 
     fileRepo = moduleRef.get(FileRepository);
+    chunks = new SlowChunkRepository(moduleRef.get(DocumentChunkRepository));
     handler = new HandleDocumentProcess(
       moduleRef.get(DocumentRepository),
       moduleRef.get(DocumentEventRepository),
@@ -129,7 +143,7 @@ describe('Document processing (integration)', () => {
       moduleRef.get(PersonRepository),
       moduleRef.get(SubjectRepository),
       moduleRef.get(SubjectKindRepository),
-      moduleRef.get(DocumentChunkRepository),
+      chunks,
       embeddings,
       moduleRef.get(UnitOfWork),
       new FakeCallContext(),
@@ -164,6 +178,7 @@ describe('Document processing (integration)', () => {
     analyst.failing = false;
     embeddings.configured = true;
     embeddings.failing = false;
+    chunks.holdMs = 0;
   });
 
   afterAll(async () => {
@@ -361,6 +376,47 @@ describe('Document processing (integration)', () => {
     expect(second[0]?.content).toContain('completely different');
   });
 
+  // 🔒 The regression of M58.1. Seventy-one documents on the live instance are FAILED here with
+  // "the timeout for this transaction was 5000 ms, however 10085 ms passed": the write inherited
+  // Prisma's default because nobody had chosen one for it. What the failures show is that the row
+  // count is not what decides the wall clock — a sixteen-chunk write was refused after 94 seconds
+  // while a nine-hundred-chunk one committed in 6 — so the test buys the same wall clock with a
+  // sleep inside the transaction rather than by writing an unreproducible number of rows.
+  it('writes the vectors of a document whose write outlasts the driver default', async () => {
+    const documentId = await givenLibraryDocument('text/plain');
+    pdfs.defaultMarkdown = 'A body worth embedding, held open longer than five seconds.';
+    chunks.holdMs = HOLD_PAST_DRIVER_DEFAULT_MS;
+
+    await handler.handle({ documentId });
+
+    const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    expect(row.vectorizationStatus).toBe('DONE');
+    expect(row.processingError).toBeNull();
+    expect(await prisma.documentChunk.count({ where: { documentId } })).toBe(1);
+  });
+
+  // The insert is cut into batches (docs/03 §3.3.11) — a document long enough to need more than one
+  // of them must land whole and in order, which is the only thing a reader can tell about the cut.
+  it('writes every chunk of a document that outgrows one insert, in order', async () => {
+    const documentId = await givenLibraryDocument('text/plain');
+    // Over 500 chunks at this suite's 200-character target: more than one statement carries.
+    pdfs.defaultMarkdown = 'Paragraph about the archive and what it holds. '.repeat(2_800);
+
+    await handler.handle({ documentId });
+
+    const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
+    expect(row.vectorizationStatus).toBe('DONE');
+    expect(row.processingError).toBeNull();
+
+    const written = await prisma.$queryRawUnsafe<{ index: number }[]>(
+      `SELECT index FROM document_chunks WHERE document_id = $1::uuid ORDER BY index`,
+      documentId,
+    );
+    expect(written.length).toBeGreaterThan(500);
+    // No gap and no duplicate: every batch landed, and each landed once.
+    expect(written.map((chunk) => chunk.index)).toEqual(written.map((_, index) => index));
+  });
+
   it('finds a chunk by cosine distance, which is what semantic search will do', async () => {
     const documentId = await givenLibraryDocument('text/plain');
     pdfs.defaultMarkdown = 'Searchable body text, long enough to survive the text-layer threshold.';
@@ -484,3 +540,38 @@ describe('Document processing (integration)', () => {
     );
   });
 });
+
+// The real chunk repository with a tap on it: `holdMs` keeps the transaction the write runs in open
+// for that long before any row is written. A dev container cannot reproduce what makes this write
+// slow on the live instance — the same process converting, OCR-ing and parsing other documents
+// against a database on its own host — and a test that tried to buy the time with rows would be a
+// test about how fast the machine running it is. The sleep runs on the handle the caller was given,
+// so it is genuinely inside the transaction and not beside it.
+class SlowChunkRepository extends DocumentChunkRepository {
+  holdMs = 0;
+
+  constructor(private readonly inner: DocumentChunkRepository) {
+    super();
+  }
+
+  async replaceForDocument(
+    documentId: string,
+    chunks: readonly NewDocumentChunk[],
+    tx?: TransactionHandle,
+  ): Promise<void> {
+    if (this.holdMs > 0) {
+      if (!isPrismaTx(tx))
+        throw new Error('The chunk write is expected to run inside a transaction');
+      await tx.$executeRawUnsafe(`SELECT pg_sleep(${(this.holdMs / 1000).toFixed(3)})`);
+    }
+    await this.inner.replaceForDocument(documentId, chunks, tx);
+  }
+
+  countForDocument(documentId: string, tx?: TransactionHandle): Promise<number> {
+    return this.inner.countForDocument(documentId, tx);
+  }
+
+  countByModel(tx?: TransactionHandle): Promise<Array<{ model: string | null; chunks: number }>> {
+    return this.inner.countByModel(tx);
+  }
+}
