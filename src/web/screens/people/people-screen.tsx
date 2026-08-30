@@ -127,7 +127,7 @@ export function PeopleScreen() {
             .mergePreview({ ids: rows.map((person) => person.id) })
             .catch(() => null);
           if (preview === null || !preview.available || preview.name === null) return null;
-          return { values: { name: preview.name }, aka: preview.aka ?? [] };
+          return { values: { name: preview.name }, aka: preview.aka ?? [], note: preview.note };
         },
       }}
       // The analyst's proposals (docs/05 §5.6c), on the manager's terms; this screen only says
@@ -135,9 +135,13 @@ export function PeopleScreen() {
       suggestions={{
         title: t('admin.people.suggestions.title'),
         queryKey: personKeys.mergeSuggestions,
-        fetch: async (): Promise<CatalogueSuggestionsReading> => {
-          const reading = await personApi.mergeSuggestions();
-          return { state: reading.state, groups: reading.groups };
+        fetch: async ({ refresh }): Promise<CatalogueSuggestionsReading> => {
+          const reading = await personApi.mergeSuggestions({ refresh });
+          return {
+            state: reading.state,
+            computedAt: reading.computedAt,
+            groups: reading.groups,
+          };
         },
       }}
       fields={() => (

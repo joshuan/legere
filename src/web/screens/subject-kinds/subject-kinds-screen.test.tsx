@@ -34,6 +34,8 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  // The panel's fold lasts the tab (docs/11 §11.12a), so it must not last past a test.
+  window.sessionStorage.clear();
   server.resetHandlers();
   vi.clearAllMocks();
 });

@@ -1,6 +1,7 @@
 'use client';
 
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { DownOutlined, RightOutlined } from '@ant-design/icons';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   App,
@@ -27,7 +28,6 @@ import {
   type CatalogueReadingState,
 } from '../../../shared/contracts/common';
 import { useErrorMessage } from '../../shared/lib';
-import { AnalystUnavailableNotice } from './analyst-unavailable-notice';
 
 // The arrangement a catalogue screen is read in (docs/11 §11.12a): the sort name the API knows it
 // by, the direction, and the one way to change both. Held by the screen because the screen's query
@@ -67,6 +67,27 @@ export function useCatalogueSort<Sort extends string>(
   return { ...arrangement, apply };
 }
 
+// The fold state of the duplicates panel, kept the way §11.3's group folds are: one entry in
+// `window.sessionStorage`, lasting the tab and nothing longer, deliberately not in the URL.
+function readFolded(key: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.sessionStorage.getItem(key) === '1';
+  } catch {
+    // A store that cannot be read is a panel that opens — the harmless way to be wrong about this.
+    return false;
+  }
+}
+
+function writeFolded(key: string, folded: boolean): void {
+  try {
+    if (folded) window.sessionStorage.setItem(key, '1');
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    // A full store is not a reason folding should break.
+  }
+}
+
 export type CatalogueColumn<Row> = {
   title: string;
   key: string;
@@ -96,11 +117,14 @@ export type CatalogueColumn<Row> = {
 export type MergeValues = Record<string, string>;
 
 // The analyst's tidier reading of what a hand-picked merge dialog should open with
-// (docs/11 §11.12a): the name (and any extra values, like a subject's kind), and the distinct other
-// spellings the note's "also known as" line is composed from.
+// (docs/11 §11.12a): the name (and any extra values, like a subject's kind), the distinct other
+// spellings, and the composed note itself where the analyst wrote one — its fold of everything the
+// merged rows held, written for the analysis that will read it when the next document arrives
+// (docs/05 §5.6c). Without one, the aka line and the rows' own notes are composed here as before.
 export type MergePrefill = {
   values: MergeValues;
   aka: readonly string[];
+  note?: string | null | undefined;
 };
 
 // One group the analyst proposes folding (docs/05 §5.6c), as every catalogue's contract answers it:
@@ -110,6 +134,9 @@ export type CatalogueSuggestionGroup = {
   ids: string[];
   name: string;
   aka: string[];
+  // The analyst's composed note for the survivor (docs/05 §5.6c); `null` when it offered none and
+  // the raw concatenation stands in its place.
+  note?: string | null | undefined;
   extraValues?: MergeValues;
 };
 
@@ -117,6 +144,9 @@ export type CatalogueSuggestionGroup = {
 // too), no analyst configured, or asked and could not answer — which is not an answer of none.
 export type CatalogueSuggestionsReading = {
   state: CatalogueReadingState;
+  // When this reading was computed, from the server's in-process cache (docs/07 §7.3): a screen
+  // that shows an answer owes its reader the answer's age. `null` in the states carrying none.
+  computedAt: string | null;
   groups: CatalogueSuggestionGroup[];
   // Subjects only: living rows whose name is a kind rather than a thing, offered for deletion
   // (docs/11 §11.12a).
@@ -198,7 +228,8 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     // The screen's own words above the groups.
     title: string;
     queryKey: readonly unknown[];
-    fetch: () => Promise<CatalogueSuggestionsReading>;
+    // `refresh` drops the server's cached reading and asks the analyst anew (docs/07 §7.3).
+    fetch: (options: { refresh: boolean }) => Promise<CatalogueSuggestionsReading>;
     // The line naming a group's (or a placeholder's) row — subjects prefix each name with its kind.
     // Defaults to the merge label.
     rowLabel?: (row: Row) => string;
@@ -213,6 +244,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   const describeError = useErrorMessage();
   const { message } = App.useApp();
   const { token } = theme.useToken();
+  const queryClient = useQueryClient();
   const [form] = Form.useForm<Values>();
 
   const [editing, setEditing] = useState<Row | null>(null);
@@ -322,6 +354,16 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     return composeNote(vanishing, rows);
   };
 
+  // What the dialog's note field should hold when the analyst has been heard from: its own composed
+  // note where it wrote one — each distinct spelling once, the misreadings dropped, the identifying
+  // details kept, written for the analysis that will read it (docs/05 §5.6c) — and the raw
+  // composition of the aka line and the rows' notes where it did not, which is the same degradation
+  // `available: false` gets.
+  const analystNote = (note: string | null | undefined, aka: readonly string[], rows: Row[]) =>
+    note === null || note === undefined || note.trim() === ''
+      ? composeNote(aka, rows)
+      : clampNote(note);
+
   // One door for every way the dialog opens — the Merge button over a hand-picked selection, and a
   // suggestion's own button (docs/11 §11.12a).
   const openMerge = (rows: Row[], values: MergeValues): void => {
@@ -346,22 +388,48 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     void merge.prefill?.(rows).then((tidied) => {
       if (tidied === null || tidied === undefined) return;
       if (session !== mergeSession.current || mergeForm.isFieldsTouched()) return;
-      mergeForm.setFieldsValue({ ...tidied.values, note: composeNote(tidied.aka, rows) });
+      mergeForm.setFieldsValue({
+        ...tidied.values,
+        note: analystNote(tidied.note, tidied.aka, rows),
+      });
     });
   };
 
   // The analyst's proposals (docs/05 §5.6c), asked by the manager because every catalogue asks the
-  // same way; only an admin can act on them, so only an admin's visit asks.
+  // same way; only an admin can act on them, so only an admin's visit asks. Asked once per visit
+  // and kept: the server never remembers being refused, so re-asking is re-proposing.
+  const suggestionsKey = suggestions?.queryKey ?? ['catalogue-suggestions', 'unconfigured'];
   const suggested = useQuery({
-    queryKey: suggestions?.queryKey ?? ['catalogue-suggestions', 'unconfigured'],
+    queryKey: suggestionsKey,
     queryFn: () => {
       if (suggestions === undefined) return Promise.reject(new Error('no suggestions source'));
-      return suggestions.fetch();
+      return suggestions.fetch({ refresh: false });
     },
     enabled: suggestions !== undefined && canManage,
     staleTime: Infinity,
   });
-  const [panelClosed, setPanelClosed] = useState(false);
+
+  // Recompute (docs/11 §11.12a): the reader who distrusts the answer asks afresh, which drops the
+  // server's cached reading (`?refresh=1`) — and it spins in place rather than emptying the panel,
+  // because a panel that vanishes while it thinks is the banner this one replaced.
+  const recompute = useMutation({
+    mutationFn: () => {
+      if (suggestions === undefined) return Promise.reject(new Error('no suggestions source'));
+      return suggestions.fetch({ refresh: true });
+    },
+    onSuccess: (reading) => queryClient.setQueryData(suggestionsKey, reading),
+    onError,
+  });
+
+  // Folding is the screen's own memory and lasts the tab, the way §11.3's group folds are kept:
+  // `window.sessionStorage`, never the URL, and never a filter — a folded panel hides nothing from
+  // the table below it.
+  const foldKey = `legere:catalogue-panel-folded:${suggestionsKey.join(':')}`;
+  const [folded, setFolded] = useState(() => readFolded(foldKey));
+  const fold = (next: boolean): void => {
+    setFolded(next);
+    writeFolded(foldKey, next);
+  };
 
   const alive = new Map(rows.map((row) => [row.id, row]));
   const reading = suggested.data;
@@ -387,62 +455,126 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
 
   // The analyst's answer, prefilled: its spelling as the name, its extras (the kind), its tidy aka
   // line over everything the rows carried (docs/11 §11.12a).
+  // A suggested merge opens tidy from the start, the answer having come with the suggestion
+  // (docs/11 §11.12a).
   const suggestedValues = (group: CatalogueSuggestionGroup): MergeValues => ({
     name: group.name,
     ...group.extraValues,
-    note: composeNote(group.aka, groupRows(group)),
+    note: analystNote(group.note, group.aka, groupRows(group)),
   });
 
   const rowLabel = (row: Row): string =>
     suggestions?.rowLabel?.(row) ?? merge?.label(row) ?? row.id;
 
+  // The one line the panel always shows, in the three honest states of docs/05 §5.6c — never an
+  // empty space, because an empty space used to mean "no duplicates" and "the provider answered
+  // 500" alike, which is how the feature stayed dead on a live instance.
+  const summaryLine = (): ReactNode => {
+    if (suggested.isPending || recompute.isPending)
+      return <Typography.Text>{t('admin.catalogues.suggestions.computing')}</Typography.Text>;
+    if (reading === undefined || reading.state === 'UNCONFIGURED')
+      return (
+        <Typography.Text type="secondary">
+          {t('admin.catalogues.suggestions.unconfigured')}
+        </Typography.Text>
+      );
+    if (reading.state === 'UNAVAILABLE')
+      return <Typography.Text>{t('admin.catalogues.suggestions.unavailable')}</Typography.Text>;
+    return (
+      <Typography.Text>
+        {t('admin.catalogues.suggestions.summary', { count: groups.length })}
+        {reading.computedAt !== null && reading.computedAt !== undefined && (
+          <Typography.Text type="secondary" title={reading.computedAt}>
+            {' · '}
+            {t('admin.catalogues.suggestions.computedAt', {
+              time: new Date(reading.computedAt).toLocaleString(),
+            })}
+          </Typography.Text>
+        )}
+      </Typography.Text>
+    );
+  };
+
+  // Above the table on each of the three screens, permanently: how many duplicate groups the
+  // analyst knows of, when it looked, a fold control and Recompute (docs/11 §11.12a). An admin
+  // arriving at a catalogue of a hundred and thirty names should not be startled by a banner that
+  // materialises out of nothing and vanishes back into it.
   const suggestionsPanel = (): ReactNode => {
-    if (suggestions === undefined || panelClosed) return null;
-    if (unavailable) return <AnalystUnavailableNotice onClose={() => setPanelClosed(true)} />;
-    if (groups.length === 0 && placeholders.length === 0) return null;
+    if (suggestions === undefined) return null;
+    const showsGroups = groups.length > 0 || placeholders.length > 0;
     return (
       <Alert
-        type="info"
+        // The warning tone for the one state that is a fact about the instance rather than about
+        // the catalogue; no provider error text, which an admin cannot act on (docs/06 §6.7).
+        type={unavailable ? 'warning' : 'info'}
         showIcon
-        closable
         style={{ marginBottom: 16 }}
-        onClose={() => setPanelClosed(true)}
-        message={suggestions.title}
-        description={
-          <Space direction="vertical" size="small">
-            {groups.map((group) => (
-              <Space key={group.ids.join(':')} wrap>
-                <Typography.Text>{groupRows(group).map(rowLabel).join(', ')}</Typography.Text>
-                <Button
-                  size="small"
-                  onClick={() => openMerge(groupRows(group), suggestedValues(group))}
-                >
-                  {t('admin.catalogues.actions.merge', { count: group.ids.length })}
-                </Button>
-              </Space>
-            ))}
-            {/* Analysis noise is deleted one confirmed row at a time, not swept
-                (docs/11 §11.12a). */}
-            {placeholders.length > 0 && (
-              <Typography.Text strong>{suggestions.placeholdersTitle}</Typography.Text>
+        message={
+          <Space wrap>
+            {showsGroups && (
+              <Button
+                type="text"
+                size="small"
+                aria-expanded={!folded}
+                aria-label={
+                  folded
+                    ? t('admin.catalogues.suggestions.unfold')
+                    : t('admin.catalogues.suggestions.fold')
+                }
+                icon={folded ? <RightOutlined /> : <DownOutlined />}
+                onClick={() => fold(!folded)}
+              />
             )}
-            {placeholders.map((row) => (
-              <Space key={row.id} wrap>
-                <Typography.Text>{rowLabel(row)}</Typography.Text>
-                <Popconfirm
-                  title={confirmDelete(row)}
-                  okText={t('common.yes')}
-                  cancelText={t('common.actions.cancel')}
-                  onConfirm={() => remove.mutate(row)}
-                >
-                  <Button size="small" danger>
-                    {t('common.actions.delete')}
-                  </Button>
-                </Popconfirm>
-              </Space>
-            ))}
+            {summaryLine()}
+            {/* Nothing to press where there is no analyst to ask (docs/11 §11.12a); everywhere
+                else Recompute is also the retry the unavailable state offers. */}
+            {reading?.state !== 'UNCONFIGURED' && (
+              <Button size="small" loading={recompute.isPending} onClick={() => recompute.mutate()}>
+                {t('admin.catalogues.actions.recompute')}
+              </Button>
+            )}
           </Space>
         }
+        {...(folded || !showsGroups
+          ? {}
+          : {
+              description: (
+                <Space direction="vertical" size="small">
+                  <Typography.Text strong>{suggestions.title}</Typography.Text>
+                  {groups.map((group) => (
+                    <Space key={group.ids.join(':')} wrap>
+                      <Typography.Text>{groupRows(group).map(rowLabel).join(', ')}</Typography.Text>
+                      <Button
+                        size="small"
+                        onClick={() => openMerge(groupRows(group), suggestedValues(group))}
+                      >
+                        {t('admin.catalogues.actions.merge', { count: group.ids.length })}
+                      </Button>
+                    </Space>
+                  ))}
+                  {/* Analysis noise is deleted one confirmed row at a time, not swept
+                      (docs/11 §11.12a). */}
+                  {placeholders.length > 0 && (
+                    <Typography.Text strong>{suggestions.placeholdersTitle}</Typography.Text>
+                  )}
+                  {placeholders.map((row) => (
+                    <Space key={row.id} wrap>
+                      <Typography.Text>{rowLabel(row)}</Typography.Text>
+                      <Popconfirm
+                        title={confirmDelete(row)}
+                        okText={t('common.yes')}
+                        cancelText={t('common.actions.cancel')}
+                        onConfirm={() => remove.mutate(row)}
+                      >
+                        <Button size="small" danger>
+                          {t('common.actions.delete')}
+                        </Button>
+                      </Popconfirm>
+                    </Space>
+                  ))}
+                </Space>
+              ),
+            })}
       />
     );
   };

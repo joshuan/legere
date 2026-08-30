@@ -188,6 +188,9 @@ export function SubjectsScreen() {
               ...(preview.kindId === null ? {} : { kindId: preview.kindId }),
             },
             aka: preview.aka ?? [],
+            // The analyst's own fold of everything the rows held (docs/05 §5.6c), where it wrote
+            // one; without it the raw composition stands.
+            note: preview.note,
           };
         },
       }}
@@ -197,14 +200,16 @@ export function SubjectsScreen() {
       suggestions={{
         title: t('admin.subjects.suggestions.title'),
         queryKey: subjectKeys.mergeSuggestions,
-        fetch: async (): Promise<CatalogueSuggestionsReading> => {
-          const reading = await subjectApi.mergeSuggestions();
+        fetch: async ({ refresh }): Promise<CatalogueSuggestionsReading> => {
+          const reading = await subjectApi.mergeSuggestions({ refresh });
           return {
             state: reading.state,
+            computedAt: reading.computedAt,
             groups: reading.groups.map((group) => ({
               ids: group.ids,
               name: group.name,
               aka: group.aka,
+              note: group.note,
               extraValues: { kindId: group.kindId },
             })),
             placeholderIds: reading.placeholders,

@@ -77,6 +77,8 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  // The panel's fold lasts the tab (docs/11 §11.12a), so it must not last past a test.
+  window.sessionStorage.clear();
   server.resetHandlers();
   vi.clearAllMocks();
 });
@@ -391,7 +393,27 @@ describe('SubjectsScreen', () => {
       expect(
         await screen.findByText(enMessages.admin.catalogues.suggestions.unavailable),
       ).toBeInTheDocument();
-      // Neither half of the ordinary banner: no groups, and no placeholder list either.
+      // Neither half of the ordinary panel: no groups, and no placeholder list either.
+      expect(screen.queryByText(enMessages.admin.subjects.suggestions.title)).toBeNull();
+      expect(
+        screen.queryByText(enMessages.admin.subjects.suggestions.placeholdersTitle),
+      ).toBeNull();
+    });
+
+    it('folds the groups and the placeholders together, keeping the count (M56.7)', async () => {
+      renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
+
+      expect(await screen.findByText(/1 possible duplicate group/)).toBeInTheDocument();
+      expect(
+        screen.getByText(enMessages.admin.subjects.suggestions.placeholdersTitle),
+      ).toBeInTheDocument();
+
+      await userEvent.click(
+        screen.getByRole('button', { name: enMessages.admin.catalogues.suggestions.fold }),
+      );
+
+      // The line stays and counts; both halves of the unfolded panel go.
+      expect(screen.getByText(/1 possible duplicate group/)).toBeInTheDocument();
       expect(screen.queryByText(enMessages.admin.subjects.suggestions.title)).toBeNull();
       expect(
         screen.queryByText(enMessages.admin.subjects.suggestions.placeholdersTitle),

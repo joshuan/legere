@@ -641,10 +641,17 @@
       "mergeTitle": "Merge {count} rows into one",
       "actions": {
         "merge": "Merge {count}",
-        "mergeConfirm": "Merge"
+        "mergeConfirm": "Merge",
+        "recompute": "Recompute"
       },
       "suggestions": {
-        "unavailable": "The analyst could not be asked just now, so there are no duplicate suggestions on this visit. Nothing is wrong with the catalogue — the next visit asks again."
+        "unavailable": "The analyst could not be asked just now, so there are no duplicate suggestions on this visit. Nothing is wrong with the catalogue — the next visit asks again.",
+        "summary": "{count, plural, =0 {No duplicates known} one {# possible duplicate group} other {# possible duplicate groups}}",
+        "computedAt": "checked {time}",
+        "computing": "Looking for duplicates…",
+        "unconfigured": "No analyst is configured on this instance, so duplicates are never looked for.",
+        "fold": "Hide the duplicate groups",
+        "unfold": "Show the duplicate groups"
       },
       "actionsBar": "Catalogue actions"
     },

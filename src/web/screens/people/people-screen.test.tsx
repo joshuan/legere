@@ -45,6 +45,8 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
+  // The panel's fold lasts the tab (docs/11 §11.12a), so it must not last past a test.
+  window.sessionStorage.clear();
   server.resetHandlers();
   vi.clearAllMocks();
 });
@@ -211,6 +213,56 @@ describe('PeopleScreen', () => {
       await waitFor(() => expect(confirm).toHaveFocus());
     });
 
+    it('takes the analyst composed note over the raw concatenation (docs/05 §5.6c)', async () => {
+      server.use(
+        http.post('/api/admin/people/merge-preview', () =>
+          HttpResponse.json(
+            envelope({
+              available: true,
+              name: 'Marija Petrović',
+              aka: ['Marija Petrovic'],
+              // The whole note, folded by the analyst rather than stapled end to end: one line
+              // where the raw prefill would repeat the landlady and the lease.
+              note: 'Also known as: Marija Petrovic. The landlady; signs the lease.',
+            }),
+          ),
+        ),
+      );
+
+      const dialog = await openTheMergeDialog([person, twin]);
+      const note = within(dialog).getByLabelText(enMessages.admin.catalogues.fields.note);
+
+      await waitFor(() =>
+        expect(note).toHaveValue('Also known as: Marija Petrovic. The landlady; signs the lease.'),
+      );
+    });
+
+    it('does not fight a person who has started editing the note (M48.4)', async () => {
+      server.use(
+        http.post('/api/admin/people/merge-preview', async () => {
+          // Slow enough that the typing lands first, which is the whole point of the rule.
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          return HttpResponse.json(
+            envelope({
+              available: true,
+              name: 'Marija Petrović',
+              aka: ['Marija Petrovic'],
+              note: 'The analyst tidy note',
+            }),
+          );
+        }),
+      );
+
+      const dialog = await openTheMergeDialog([person, twin]);
+      const note = within(dialog).getByLabelText(enMessages.admin.catalogues.fields.note);
+      await userEvent.clear(note);
+      await userEvent.type(note, 'What the person wrote');
+
+      // The tidy reading lands only on an untouched form: a form must never fight its user.
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      expect(note).toHaveValue('What the person wrote');
+    });
+
     it('replaces an untouched prefill with the analyst tidier reading, when there is one', async () => {
       server.use(
         http.post('/api/admin/people/merge-preview', () =>
@@ -322,18 +374,19 @@ describe('PeopleScreen', () => {
 
       // 🔒 M52.2: an empty banner area used to mean this and "no duplicates" alike, which is how
       // the feature stayed dead for months (docs/11 §11.12a).
-      const notice = await screen.findByText(enMessages.admin.catalogues.suggestions.unavailable);
-      expect(notice).toBeInTheDocument();
+      expect(
+        await screen.findByText(enMessages.admin.catalogues.suggestions.unavailable),
+      ).toBeInTheDocument();
       expect(screen.queryByText(enMessages.admin.people.suggestions.title)).toBeNull();
 
-      // Quiet and dismissible, like the banner it stands in for.
-      await userEvent.click(screen.getByRole('button', { name: /close/i }));
-      await waitFor(() =>
-        expect(screen.queryByText(enMessages.admin.catalogues.suggestions.unavailable)).toBeNull(),
-      );
+      // Permanent rather than dismissible now (M56.7), with Recompute standing as the retry — and
+      // no provider error text, which an admin cannot act on.
+      expect(
+        screen.getByRole('button', { name: enMessages.admin.catalogues.actions.recompute }),
+      ).toBeInTheDocument();
     });
 
-    it('says nothing at all when the analyst was asked and proposed nothing', async () => {
+    it('counts zero out loud, still a line and still dated (docs/11 §11.12a)', async () => {
       server.use(
         http.get('/api/admin/people/merge-suggestions', () =>
           HttpResponse.json(
@@ -344,9 +397,84 @@ describe('PeopleScreen', () => {
 
       renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
 
-      expect(await screen.findByText('Marija Petrović')).toBeInTheDocument();
-      expect(screen.queryByText(enMessages.admin.catalogues.suggestions.unavailable)).toBeNull();
+      // Not an absence: "no duplicates known", with the date of the reading that says so.
+      expect(await screen.findByText(/No duplicates known/)).toBeInTheDocument();
+      expect(screen.getByText(/checked /)).toBeInTheDocument();
+      // Nothing to unfold, so no group heading and no fold control.
       expect(screen.queryByText(enMessages.admin.people.suggestions.title)).toBeNull();
+      expect(
+        screen.queryByRole('button', { name: enMessages.admin.catalogues.suggestions.fold }),
+      ).toBeNull();
+    });
+
+    it('names the absence where there is no analyst, and offers nothing to press', async () => {
+      server.use(
+        http.get('/api/admin/people/merge-suggestions', () =>
+          HttpResponse.json(envelope({ state: 'UNCONFIGURED', computedAt: null, groups: [] })),
+        ),
+      );
+
+      renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
+
+      expect(
+        await screen.findByText(enMessages.admin.catalogues.suggestions.unconfigured),
+      ).toBeInTheDocument();
+      // 🔒 No dark-pattern button: recomputing an analyst that does not exist is a lie
+      // (docs/11 §11.14).
+      expect(
+        screen.queryByRole('button', { name: enMessages.admin.catalogues.actions.recompute }),
+      ).toBeNull();
+    });
+
+    it('counts the groups, folds them away and remembers the fold for the tab', async () => {
+      const { unmount } = renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
+
+      // The summary line counts what the analyst knows of, and the groups stand under it.
+      expect(await screen.findByText(/1 possible duplicate group/)).toBeInTheDocument();
+      expect(screen.getByText(enMessages.admin.people.suggestions.title)).toBeInTheDocument();
+
+      await userEvent.click(
+        screen.getByRole('button', { name: enMessages.admin.catalogues.suggestions.fold }),
+      );
+      // Folded is an index line, not a hidden one: the count stays, the groups go.
+      expect(screen.getByText(/1 possible duplicate group/)).toBeInTheDocument();
+      expect(screen.queryByText(enMessages.admin.people.suggestions.title)).toBeNull();
+
+      // Client-side and lasting the tab, the way §11.3's group folds are kept.
+      unmount();
+      renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
+      expect(await screen.findByText(/1 possible duplicate group/)).toBeInTheDocument();
+      expect(screen.queryByText(enMessages.admin.people.suggestions.title)).toBeNull();
+    });
+
+    it('recomputes in place, asking the server to drop its cached reading', async () => {
+      const asked: string[] = [];
+      server.use(
+        http.get('/api/admin/people/merge-suggestions', ({ request }) => {
+          asked.push(new URL(request.url).search);
+          return HttpResponse.json(
+            envelope({
+              state: 'ANSWERED',
+              computedAt: '2026-08-30T10:00:00.000Z',
+              groups: asked.length > 1 ? [] : [group],
+            }),
+          );
+        }),
+      );
+
+      renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
+      expect(await screen.findByText(/1 possible duplicate group/)).toBeInTheDocument();
+      // The first ask takes whatever the cache holds.
+      expect(asked[0]).toBe('');
+
+      await userEvent.click(
+        screen.getByRole('button', { name: enMessages.admin.catalogues.actions.recompute }),
+      );
+
+      // ?refresh=1 drops the cached reading and asks anew (docs/07 §7.3) — and the panel updates
+      // in place rather than emptying while it thinks.
+      await waitFor(() => expect(asked[1]).toBe('?refresh=1'));
+      expect(await screen.findByText(/No duplicates known/)).toBeInTheDocument();
     });
   });
 

@@ -146,16 +146,20 @@ export function SubjectKindsScreen() {
             .mergePreview({ ids: rows.map((kind) => kind.id) })
             .catch(() => null);
           if (preview === null || !preview.available || preview.name === null) return null;
-          return { values: { name: preview.name }, aka: preview.aka ?? [] };
+          return { values: { name: preview.name }, aka: preview.aka ?? [], note: preview.note };
         },
       }}
       // The analyst's proposals (docs/05 §5.6c), on the manager's terms.
       suggestions={{
         title: t('admin.subjectKinds.suggestions.title'),
         queryKey: subjectKindKeys.mergeSuggestions,
-        fetch: async (): Promise<CatalogueSuggestionsReading> => {
-          const reading = await subjectKindApi.mergeSuggestions();
-          return { state: reading.state, groups: reading.groups };
+        fetch: async ({ refresh }): Promise<CatalogueSuggestionsReading> => {
+          const reading = await subjectKindApi.mergeSuggestions({ refresh });
+          return {
+            state: reading.state,
+            computedAt: reading.computedAt,
+            groups: reading.groups,
+          };
         },
       }}
       fields={() => (
