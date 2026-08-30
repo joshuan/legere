@@ -11,3 +11,9 @@ export type Subject = {
   createdAt: Date;
   deletedAt: Date | null;
 };
+
+// 🔒 The instance ceiling behind the catalogue throttle (docs/08 §8.4, SEC-51, SEC-56): how many
+// living subjects the catalogue holds at most — twice the people's, because things accumulate
+// faster than people do: every flat, car, company and country a document ever named. Living rows,
+// deliberately: merges and soft deletes make room again.
+export const MAX_LIVING_SUBJECTS = 20_000;

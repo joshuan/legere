@@ -597,7 +597,11 @@ analysis step adds names on its own and whoever corrects it must be able to add 
 without waiting for an admin. Renaming and removing are an admin's: both reach across every document
 that names the person. 🔒 Open is not unbounded (SEC-56): the creates are rate-limited — a person
 corrects a few rows a minute, and a namespace every user reads is not one account's to fill by
-script — and the list endpoints answer pages like every other list (`07 §7.1`).
+script — the list endpoints answer pages like every other list (`07 §7.1`), and each catalogue has
+a fixed instance ceiling of living rows past which a create is refused with `CATALOGUE_FULL`; the
+numbers and the reasoning live with the other abuse bounds in
+[`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha). The same rule holds for
+subjects and their kinds (§3.3.20, §3.3.20a).
 
 **Merging.** The analysis reads a name as each document spells it, so one person arrives as three
 rows. Merging folds them together: the **oldest row survives** — the one the archive has been calling

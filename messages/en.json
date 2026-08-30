@@ -60,6 +60,7 @@
       "SUBJECT_KIND_EXISTS": "This kind is already in the list.",
       "SUBJECT_KIND_NOT_FOUND": "This kind is no longer in the list.",
       "SUBJECT_KIND_IN_USE": "This kind still holds things. Remove or move them first.",
+      "CATALOGUE_FULL": "This list is as large as one instance may hold. An administrator can merge or remove entries to make room.",
       "API_TOKEN_NOT_FOUND": "This API token no longer exists.",
       "SESSION_NOT_FOUND": "This session no longer exists.",
       "READ_ONLY_TOKEN": "An API token may only read; use the app to make changes.",

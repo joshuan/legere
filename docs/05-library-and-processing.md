@@ -865,6 +865,13 @@ because a run that told us nothing new happened to it.
    when nothing matches, not what it creates by default — and being unsure is allowed: a name copied
    off the page is a row the merge suggester (§5.6c) can fold later, a wrong recognition is a link
    somebody has to notice and unpick.
+   🔒 **A full catalogue is never a reason a document fails.** The step honours the same instance
+   ceilings the open `POST`s refuse past ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha),
+   SEC-51, SEC-56): at the ceiling it still links every name that matches a living row and simply
+   stops creating new ones — the skipped names stay readable in `autoValues.people` and
+   `autoValues.subjects`, where the whole reading is recorded either way, and the analysis completes
+   `DONE`. A ceiling only ever reached by a flood must not decide the fate of an honest scan that
+   arrives during one.
    **Each list is the most-used head of its catalogue, not an alphabetical slice**: entries ordered
    by how many documents name them, capped (60 things, 200 people) so an archive of a thousand rows
    does not push the document out of the context window — the cap falls on the tail nobody files by,

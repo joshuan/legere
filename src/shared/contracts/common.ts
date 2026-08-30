@@ -35,6 +35,10 @@ export const ERROR_CODES = [
   // 🔒 A subject with no kind is not a thing anybody can file by, so the subjects go first
   // (docs/03 §3.3.20a).
   'SUBJECT_KIND_IN_USE',
+  // 🔒 The instance ceiling behind the catalogue throttle (docs/08 §8.4, SEC-51, SEC-56): a create
+  // that would push a catalogue past its fixed count of living rows. Merges and deletes make room
+  // again, so recovery is the admin's ordinary tidying tools.
+  'CATALOGUE_FULL',
   'DOCUMENT_DUPLICATE',
   // 🔒 An upload the pipeline could never render is refused at the door (docs/05 §5.1a); a library
   // file of the same kind is merely registered, because a scan has nobody to answer.

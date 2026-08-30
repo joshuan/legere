@@ -1388,6 +1388,13 @@ export class InMemoryPersonRepository extends PersonRepository {
     return { items: await this.listActive(), nextCursor: null };
   }
 
+  // Living rows only, because that is what the instance ceiling counts (docs/08 §8.4, SEC-56).
+  countActive(): Promise<number> {
+    return Promise.resolve(
+      [...this.people.values()].filter((person) => person.deletedAt === null).length,
+    );
+  }
+
   findById(id: string): Promise<Person | null> {
     return Promise.resolve(this.people.get(id) ?? null);
   }
@@ -1456,6 +1463,13 @@ export class InMemorySubjectKindRepository extends SubjectKindRepository {
   }): Promise<{ items: SubjectKindWithCounts[]; nextCursor: string | null }> {
     void query;
     return { items: await this.listActive(), nextCursor: null };
+  }
+
+  // Living rows only, because that is what the instance ceiling counts (docs/08 §8.4, SEC-51).
+  countActive(): Promise<number> {
+    return Promise.resolve(
+      [...this.kinds.values()].filter((kind) => kind.deletedAt === null).length,
+    );
   }
 
   findById(id: string): Promise<SubjectKind | null> {
@@ -1546,6 +1560,13 @@ export class InMemorySubjectRepository extends SubjectRepository {
   }): Promise<{ items: SubjectWithCount[]; nextCursor: string | null }> {
     void query;
     return { items: await this.listActive(), nextCursor: null };
+  }
+
+  // Living rows only, because that is what the instance ceiling counts (docs/08 §8.4, SEC-56).
+  countActive(): Promise<number> {
+    return Promise.resolve(
+      [...this.subjects.values()].filter((subject) => subject.deletedAt === null).length,
+    );
   }
 
   findById(id: string): Promise<Subject | null> {

@@ -299,7 +299,18 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
 
   `auth` is the Argon2-flooding brake the login path leans on (§8.4.1a). `catalogue` is fast enough
   for a person correcting an archive and far too slow to fill by script a namespace every other user
-  reads (SEC-56). 🔒 `password` exists because that route verifies an Argon2 hash before it can
+  reads (SEC-56). 🔒 **And behind the throttle stands a ceiling**, because a throttle bounds a rate
+  and not a total — 30 rows a minute is still ~43 000 rows a day, every one of them permanent until
+  an admin removes it. Each catalogue refuses to grow past a fixed instance-wide count of **living**
+  rows: **10 000 people, 20 000 subjects, 500 subject kinds**. The numbers are one to two orders of
+  magnitude past what an honest archive accumulates — a family archive has hundreds of people, not
+  millions (SEC-56) — and they bound what SEC-51 measured in money: every row of these tables is
+  text the analysis carries on every document it reads. The three open `POST`s refuse the row past
+  the ceiling with `422 CATALOGUE_FULL` (`07 §7.2`); the analysis step, which writes into the same
+  tables, links what already exists and quietly stops creating instead — a full catalogue is never a
+  reason a document fails ([`05 §5.5`](./05-library-and-processing.md#55-document-processing-pipeline-document-process) step 4).
+  Living rows, deliberately: merges and soft deletes make room again, so recovery from a flood is
+  the admin's ordinary tidying tools and no new lever. 🔒 `password` exists because that route verifies an Argon2 hash before it can
   fail, and does it behind the same concurrency gate of two that login queues at: with no budget in
   front of it one signed-in account could fill that queue from a route no throttler covered, and
   nobody on the instance could sign in or finish registering (SEC-54). 🔒 `search` exists because

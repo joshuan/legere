@@ -12,6 +12,10 @@ export abstract class SubjectRepository {
     cursor?: string | undefined;
   }): Promise<{ items: SubjectWithCount[]; nextCursor: string | null }>;
 
+  // How many living rows the catalogue holds — what every create measures against the instance
+  // ceiling (docs/08 §8.4, SEC-56).
+  abstract countActive(tx?: TransactionHandle): Promise<number>;
+
   abstract findById(id: string, tx?: TransactionHandle): Promise<Subject | null>;
 
   // Living rows only, as for people: what comes back is what may still be chosen, so a caller can

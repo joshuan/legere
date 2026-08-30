@@ -4,7 +4,8 @@ import type {
   SubjectKindDto,
   UpdateSubjectKindRequest,
 } from '../../../shared/contracts/subject-kinds';
-import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
+import { MAX_LIVING_SUBJECT_KINDS } from '../../domain/entities/subject-kind';
+import { ConflictError, NotFoundError, UnprocessableError } from '../../domain/errors/domain-error';
 import type { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
 import type { Clock } from '../ports/clock';
 
@@ -42,6 +43,16 @@ export class CreateSubjectKind {
     const existing = await this.kinds.findByName(input.name);
     if (existing !== null) {
       throw new ConflictError('SUBJECT_KIND_EXISTS', 'This kind is already in the list');
+    }
+
+    // 🔒 The instance ceiling behind the throttle (docs/08 §8.4, SEC-51, SEC-56): a rate bounds how
+    // fast a namespace fills, only a count bounds whether it can. Asked after the duplicate check,
+    // because a caller whose kind already lives is better told so than told the list is full.
+    if ((await this.kinds.countActive()) >= MAX_LIVING_SUBJECT_KINDS) {
+      throw new UnprocessableError(
+        'CATALOGUE_FULL',
+        `The kinds catalogue already holds ${MAX_LIVING_SUBJECT_KINDS} living rows`,
+      );
     }
 
     const created = await this.kinds.create({ name: input.name, note: input.note ?? null });

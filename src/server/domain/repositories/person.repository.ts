@@ -16,6 +16,10 @@ export abstract class PersonRepository {
     cursor?: string | undefined;
   }): Promise<CataloguePage<PersonWithCount>>;
 
+  // How many living rows the catalogue holds — what every create measures against the instance
+  // ceiling (docs/08 §8.4, SEC-56).
+  abstract countActive(tx?: TransactionHandle): Promise<number>;
+
   abstract findById(id: string, tx?: TransactionHandle): Promise<Person | null>;
 
   abstract findByIds(ids: string[], tx?: TransactionHandle): Promise<Person[]>;

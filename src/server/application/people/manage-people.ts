@@ -5,7 +5,8 @@ import type {
   PersonDto,
   UpdatePersonRequest,
 } from '../../../shared/contracts/people';
-import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
+import { MAX_LIVING_PEOPLE } from '../../domain/entities/person';
+import { ConflictError, NotFoundError, UnprocessableError } from '../../domain/errors/domain-error';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import type { PersonRepository } from '../../domain/repositories/person.repository';
 import type { Clock } from '../ports/clock';
@@ -45,6 +46,16 @@ export class CreatePerson {
     const existing = await this.people.findByName(input.name);
     if (existing !== null) {
       throw new ConflictError('PERSON_EXISTS', 'A person with this name already exists');
+    }
+
+    // 🔒 The instance ceiling behind the throttle (docs/08 §8.4, SEC-56): a rate bounds how fast a
+    // namespace fills, only a count bounds whether it can. Asked after the duplicate check, because
+    // a caller whose row already lives is better told so than told the list is full.
+    if ((await this.people.countActive()) >= MAX_LIVING_PEOPLE) {
+      throw new UnprocessableError(
+        'CATALOGUE_FULL',
+        `The people catalogue already holds ${MAX_LIVING_PEOPLE} living rows`,
+      );
     }
 
     const created = await this.people.create({ name: input.name, note: input.note ?? null });

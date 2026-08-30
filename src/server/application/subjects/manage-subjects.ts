@@ -5,7 +5,8 @@ import type {
   SubjectDto,
   UpdateSubjectRequest,
 } from '../../../shared/contracts/subjects';
-import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
+import { MAX_LIVING_SUBJECTS } from '../../domain/entities/subject';
+import { ConflictError, NotFoundError, UnprocessableError } from '../../domain/errors/domain-error';
 import type { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
 import type { SubjectRepository } from '../../domain/repositories/subject.repository';
 import type { Clock } from '../ports/clock';
@@ -54,6 +55,16 @@ export class CreateSubject {
     const existing = await this.subjects.findByKindAndName(kind.id, input.name);
     if (existing !== null) {
       throw new ConflictError('SUBJECT_EXISTS', 'This thing is already in the list');
+    }
+
+    // 🔒 The instance ceiling behind the throttle (docs/08 §8.4, SEC-56): a rate bounds how fast a
+    // namespace fills, only a count bounds whether it can. Asked after the duplicate check, because
+    // a caller whose row already lives is better told so than told the list is full.
+    if ((await this.subjects.countActive()) >= MAX_LIVING_SUBJECTS) {
+      throw new UnprocessableError(
+        'CATALOGUE_FULL',
+        `The subjects catalogue already holds ${MAX_LIVING_SUBJECTS} living rows`,
+      );
     }
 
     const created = await this.subjects.create({

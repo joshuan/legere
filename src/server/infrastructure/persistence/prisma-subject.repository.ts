@@ -79,6 +79,10 @@ export class PrismaSubjectRepository extends SubjectRepository {
     };
   }
 
+  countActive(tx?: TransactionHandle): Promise<number> {
+    return clientOf(this.prisma, tx).subject.count({ where: { deletedAt: null } });
+  }
+
   async findById(id: string, tx?: TransactionHandle): Promise<Subject | null> {
     const row = await clientOf(this.prisma, tx).subject.findFirst({
       where: { id, deletedAt: null },

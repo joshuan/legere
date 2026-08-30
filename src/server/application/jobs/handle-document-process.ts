@@ -22,6 +22,9 @@ import {
   type DocumentSteps,
 } from '../../domain/entities/document';
 import { heldSteps } from '../../domain/entities/pipeline-pause';
+import { MAX_LIVING_PEOPLE } from '../../domain/entities/person';
+import { MAX_LIVING_SUBJECTS } from '../../domain/entities/subject';
+import { MAX_LIVING_SUBJECT_KINDS } from '../../domain/entities/subject-kind';
 import { chunkMarkdown } from '../../domain/entities/document-chunks';
 import { detectLanguages, ocrLanguagesOf } from '../../domain/entities/document-language';
 import {
@@ -775,10 +778,22 @@ export class HandleDocumentProcess extends JobHandler {
     const already = await this.people.listForDocument(document.id);
     if (already.length > 0) return;
 
+    // 🔒 The instance ceiling of docs/08 §8.4 (SEC-51, SEC-56), honoured without failing anyone: a
+    // full catalogue still links every name that matches a living row and only stops creating new
+    // ones. The skipped names are not lost — the whole reading is already recorded in
+    // `autoValues.people` — and the document completes, because a ceiling only ever reached by a
+    // flood must not decide the fate of an honest scan (docs/05 §5.5 step 4).
+    let room = MAX_LIVING_PEOPLE - (await this.people.countActive());
     const ids: string[] = [];
     for (const name of names) {
       const existing = await this.people.findByName(name);
-      ids.push(existing?.id ?? (await this.people.create({ name })).id);
+      if (existing !== null) {
+        ids.push(existing.id);
+        continue;
+      }
+      if (room <= 0) continue;
+      room -= 1;
+      ids.push((await this.people.create({ name })).id);
     }
     await this.people.setForDocument(document.id, ids);
   }
@@ -794,18 +809,30 @@ export class HandleDocumentProcess extends JobHandler {
     const already = await this.subjects.listForDocument(document.id);
     if (already.length > 0) return;
 
+    // 🔒 Both ceilings of docs/08 §8.4 (SEC-51, SEC-56), honoured the way `linkPeople` honours its
+    // one: link what lives, skip what would need a new row past the ceiling, complete the document.
+    // The skipped readings stay visible in `autoValues.subjects`.
+    let kindRoom = MAX_LIVING_SUBJECT_KINDS - (await this.subjectKinds.countActive());
+    let subjectRoom = MAX_LIVING_SUBJECTS - (await this.subjects.countActive());
     const ids: string[] = [];
     for (const subject of subjects) {
       // The kind is a catalogue row now (docs/03 §3.3.20a), and the analysis creates the one it
       // meets for the same reason it creates a person: an archive where the machine may only pick
       // from what somebody already typed would need somebody to type everything first.
-      const kind =
-        (await this.subjectKinds.findByName(subject.kind)) ??
-        (await this.subjectKinds.create({ name: subject.kind }));
+      const foundKind = await this.subjectKinds.findByName(subject.kind);
+      // A new kind is only worth its row if the thing it would hold fits too: a kind created for a
+      // subject the other ceiling refuses would be an empty shelf.
+      if (foundKind === null && (kindRoom <= 0 || subjectRoom <= 0)) continue;
+      if (foundKind === null) kindRoom -= 1;
+      const kind = foundKind ?? (await this.subjectKinds.create({ name: subject.kind }));
       const existing = await this.subjects.findByKindAndName(kind.id, subject.name);
-      ids.push(
-        existing?.id ?? (await this.subjects.create({ kindId: kind.id, name: subject.name })).id,
-      );
+      if (existing !== null) {
+        ids.push(existing.id);
+        continue;
+      }
+      if (subjectRoom <= 0) continue;
+      subjectRoom -= 1;
+      ids.push((await this.subjects.create({ kindId: kind.id, name: subject.name })).id);
     }
     await this.subjects.setForDocument(document.id, ids);
   }

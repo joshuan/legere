@@ -75,6 +75,10 @@ export class PrismaPersonRepository extends PersonRepository {
     };
   }
 
+  countActive(tx?: TransactionHandle): Promise<number> {
+    return clientOf(this.prisma, tx).person.count({ where: { deletedAt: null } });
+  }
+
   async findById(id: string, tx?: TransactionHandle): Promise<Person | null> {
     const row = await clientOf(this.prisma, tx).person.findFirst({
       where: { id, deletedAt: null },
