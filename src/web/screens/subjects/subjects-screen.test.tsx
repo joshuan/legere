@@ -10,6 +10,14 @@ import { SubjectsScreen } from './subjects-screen';
 const APARTMENT = 'aaaaaaaa-1111-4111-8111-111111111111';
 const BOAT = 'bbbbbbbb-2222-4222-8222-222222222222';
 
+// The screen reads the kind filter out of its URL (docs/11 §11.12a): the kinds screen's things
+// count links here already narrowed.
+let currentSearch = '';
+
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(currentSearch),
+}));
+
 const subject = {
   id: 'cccccccc-3333-4333-8333-333333333333',
   kindId: APARTMENT,
@@ -24,6 +32,7 @@ const server = createApiMock();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
+  currentSearch = '';
   // The analyst is absent unless a test says otherwise: no banner, and a hand-picked merge keeps
   // its raw prefill (docs/11 §11.12a).
   server.use(
@@ -211,6 +220,35 @@ describe('SubjectsScreen', () => {
     const dialog = await screen.findByRole('dialog');
     const name = within(dialog).getByLabelText(enMessages.admin.catalogues.fields.name);
     await waitFor(() => expect(name).toHaveFocus());
+  });
+
+  it('honours the kind filter arriving in its URL (docs/11 §11.12a)', async () => {
+    currentSearch = `kindId=${BOAT}`;
+    server.use(
+      http.get('/api/subjects', () =>
+        HttpResponse.json(
+          envelope({
+            nextCursor: null,
+            items: [
+              subject,
+              {
+                ...subject,
+                id: 'dddddddd-4444-4444-8444-444444444444',
+                kindId: BOAT,
+                kind: 'boat',
+                name: 'Sea Fox',
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<SubjectsScreen />, { user: TEST_ADMIN });
+
+    // Only the boat: a link that dropped its filter on arrival would be a link that does not work.
+    expect(await screen.findByText('Sea Fox')).toBeInTheDocument();
+    expect(screen.queryByText('Njegoševa 5')).toBeNull();
   });
 
   it('stands its actions at the foot of the screen (docs/11 §11.12a)', async () => {

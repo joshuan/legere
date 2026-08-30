@@ -73,6 +73,40 @@ describe('SubjectKindsScreen', () => {
     await waitFor(() => expect(patched).toMatchObject({ name: 'flat' }));
   });
 
+  it('turns its counts into doors, zero staying plain text (docs/11 §11.12a)', async () => {
+    server.use(
+      http.get('/api/subject-kinds', () =>
+        HttpResponse.json(
+          envelope({
+            nextCursor: null,
+            items: [
+              kind,
+              {
+                id: 'cccccccc-3333-4333-8333-333333333333',
+                name: 'boat',
+                note: null,
+                subjectCount: 0,
+                documentCount: 0,
+                lastDocumentAt: null,
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    renderWithProviders(<SubjectKindsScreen />, { user: TEST_ADMIN });
+
+    // The things count answers "which three?" on /subjects, filtered to this kind…
+    const things = await screen.findByRole('link', { name: '3' });
+    expect(things).toHaveAttribute('href', `/subjects?kindId=${kind.id}`);
+    // …and the documents count on the browse, by the filter the API already has (docs/07 §7.3).
+    const documents = screen.getByRole('link', { name: '11' });
+    expect(documents).toHaveAttribute('href', `/documents?subjectKindId=${kind.id}`);
+    // A count of zero is a door to nowhere, so it is not one.
+    expect(screen.queryByRole('link', { name: '0' })).toBeNull();
+  });
+
   it('stands its actions at the foot of the screen (docs/11 §11.12a)', async () => {
     renderWithProviders(<SubjectKindsScreen />, { user: TEST_ADMIN });
     await screen.findByText('apartment');

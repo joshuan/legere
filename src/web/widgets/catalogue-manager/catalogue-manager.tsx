@@ -32,6 +32,9 @@ export type CatalogueColumn<Row> = {
   // Taken from the table's own column type rather than restated: AntD's filter value is wider than
   // it looks, and a hand-written signature here would only be wrong in a new version.
   onFilter?: TableColumnType<Row>['onFilter'];
+  // A filter already in force when the screen opens — the kind a link into /subjects carries
+  // (docs/11 §11.12a).
+  defaultFilteredValue?: string[];
 };
 
 // The shape every catalogue screen has: a table of rows, one modal that both creates and edits, and
@@ -453,6 +456,9 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
               ...(column.filters === undefined || column.onFilter === undefined
                 ? {}
                 : { filters: column.filters, onFilter: column.onFilter }),
+              ...(column.defaultFilteredValue === undefined
+                ? {}
+                : { defaultFilteredValue: column.defaultFilteredValue }),
             })),
             ...(canManage ? [actionsColumn] : []),
           ]}

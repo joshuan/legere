@@ -3,13 +3,17 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Form, Input, Select, Tag, Typography } from 'antd';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useCallback } from 'react';
 import type { SubjectDto } from '../../../shared/contracts/subjects';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { useIsAdmin } from '../../entities/user';
-import { CatalogueManager, type CatalogueSuggestionsReading } from '../../widgets/catalogue-manager';
+import {
+  CatalogueManager,
+  type CatalogueSuggestionsReading,
+} from '../../widgets/catalogue-manager';
 
 type FormValues = { kindId: string; name: string; note: string };
 
@@ -28,6 +32,11 @@ export function SubjectsScreen() {
   const queryClient = useQueryClient();
   const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });
   const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: subjectKindApi.list });
+
+  // The kind filter arriving in the URL is honoured (docs/11 §11.12a): the kinds screen's things
+  // count links here as `/subjects?kindId=`, and a link that drops its filter on arrival is a link
+  // that does not work.
+  const kindFilter = useSearchParams().get('kindId');
 
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: subjectKeys.all });
@@ -73,6 +82,7 @@ export function SubjectsScreen() {
             value: kind.id,
           })),
           onFilter: (value, subject) => subject.kindId === String(value),
+          ...(kindFilter === null ? {} : { defaultFilteredValue: [kindFilter] }),
         },
         { title: t('admin.catalogues.columns.name'), key: 'name', render: (s) => s.name },
         {

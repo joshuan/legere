@@ -2,13 +2,17 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Form, Input, Typography } from 'antd';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useCallback } from 'react';
 import type { SubjectKindDto } from '../../../shared/contracts/subject-kinds';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { subjectKeys } from '../../entities/subject';
 import { useIsAdmin } from '../../entities/user';
-import { CatalogueManager, type CatalogueSuggestionsReading } from '../../widgets/catalogue-manager';
+import {
+  CatalogueManager,
+  type CatalogueSuggestionsReading,
+} from '../../widgets/catalogue-manager';
 
 type FormValues = { name: string; note: string };
 
@@ -52,12 +56,27 @@ export function SubjectKindsScreen() {
         {
           title: t('admin.subjectKinds.columns.subjects'),
           key: 'subjects',
-          render: (kind) => kind.subjectCount,
+          // Every count on these screens is a question, and the answer is one click away
+          // (docs/11 §11.12a): the things count opens /subjects filtered to this kind. Zero stays
+          // plain text — there is nothing to go to.
+          render: (kind) =>
+            kind.subjectCount === 0 ? (
+              0
+            ) : (
+              <Link href={`/subjects?kindId=${kind.id}`}>{kind.subjectCount}</Link>
+            ),
         },
         {
           title: t('admin.catalogues.columns.documents'),
           key: 'documents',
-          render: (kind) => kind.documentCount,
+          // ...and the documents count the browse, filtered by the same kind — the filter the API
+          // already has (`?subjectKindId=`, docs/07 §7.3).
+          render: (kind) =>
+            kind.documentCount === 0 ? (
+              0
+            ) : (
+              <Link href={`/documents?subjectKindId=${kind.id}`}>{kind.documentCount}</Link>
+            ),
         },
       ]}
       initialValues={{ name: '', note: '' }}
