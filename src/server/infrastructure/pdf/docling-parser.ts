@@ -143,7 +143,9 @@ export class DoclingParser extends DocumentParser {
     window: PageWindow,
     parseDeadline: number,
   ): Promise<string> {
-    const budgetMs = this.windowBudgetMs(windowPageCount(window, options.pageCount), parseDeadline);
+    // Before the upload, because a window that cannot finish must not be paid for: this throws
+    // rather than returning a budget when there is no budget left to hand out.
+    const budgetMs = this.windowBudgetMs(window, options.pageCount, parseDeadline);
     const taskId = await this.submit(this.buildForm(bytes, options, window));
     await this.awaitTask(taskId, budgetMs);
 
@@ -158,16 +160,24 @@ export class DoclingParser extends DocumentParser {
   // What this window may spend: its pages at the per-page rate, floored, capped by what is left of
   // the whole parse's deadline. A parse that has overstayed is cut before the next upload, not
   // after it.
-  private windowBudgetMs(pages: number, parseDeadline: number): number {
+  //
+  // 🔒 And a sliver of the deadline is not a budget. `Math.min` handed the remainder over whatever
+  // it was, so a window whose share had run out was uploaded anyway, polled once and failed as
+  // "Docling did not finish within 0 minutes" — arithmetic reported as if it were the parser's
+  // answer, over an upload of the whole canonical PDF that could never have been read in time.
+  // Below the floor one window needs, the parse ends here instead, saying which deadline it hit and
+  // which pages it never reached (docs/05 §5.4a).
+  private windowBudgetMs(window: PageWindow, pageCount: number, parseDeadline: number): number {
     const remaining = parseDeadline - Date.now();
-    if (remaining <= 0) {
+    if (remaining < BUDGET_FLOOR_MS) {
       throw new Error(
-        `Docling did not finish within ${Math.round(PARSE_DEADLINE_MS / 60_000)} minutes`,
+        `Docling ran out of the parse's ${minutesOf(PARSE_DEADLINE_MS)}-minute deadline ` +
+          `with ${unreachedPages(window, pageCount)} unread`,
       );
     }
     const budget = this.describePictures
       ? BUDGET_WITH_CAPTIONS_MS
-      : Math.max(BUDGET_FLOOR_MS, pages * BUDGET_PER_PAGE_MS);
+      : Math.max(BUDGET_FLOOR_MS, windowPageCount(window, pageCount) * BUDGET_PER_PAGE_MS);
     return Math.min(budget, remaining);
   }
 
@@ -265,7 +275,7 @@ export class DoclingParser extends DocumentParser {
       }
       if (Date.now() >= deadline) {
         throw new Error(
-          `Docling did not finish within ${Math.round(budgetMs / 60_000)} minutes (task ${taskId})`,
+          `Docling did not finish within ${minutesOf(budgetMs)} minutes (task ${taskId})`,
         );
       }
     }
@@ -299,6 +309,21 @@ type PageWindow = readonly [number, number] | null;
 function windowPageCount(window: PageWindow, pageCount: number): number {
   if (window !== null) return window[1] - window[0] + 1;
   return pageCount > 0 ? pageCount : DOCLING_PAGE_WINDOW;
+}
+
+// The pages a parse that has run out of time never reached: this window's first page and everything
+// after it, since the windows behind it are queued on the same spent deadline. Named in the failure
+// because "the parse timed out" says nothing about what is missing from the document.
+function unreachedPages(window: PageWindow, pageCount: number): string {
+  if (window === null) return pageCount > 0 ? `all ${pageCount} pages` : 'the document';
+  const last = Math.max(pageCount, window[1]);
+  return window[0] === last ? `page ${last}` : `pages ${window[0]}–${last}`;
+}
+
+// Minutes, for a message a person reads. Budgets here are whole minutes by construction, and the
+// floor above is what keeps this from rounding a sliver down to "0 minutes".
+function minutesOf(milliseconds: number): number {
+  return Math.round(milliseconds / 60_000);
 }
 
 // The ranges a document is fetched in (docs/05 §5.5 step 3), clamped to the page count because a

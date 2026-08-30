@@ -366,25 +366,74 @@ describe('DoclingParser', () => {
       );
     });
 
+    // The first window spends `minutes` of the shared deadline and succeeds; whether the next one
+    // runs at all is the question each test below asks.
+    function firstWindowSpends(minutes: number): FetchSpy {
+      return vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+        const url = urlOf(input);
+        if (url.includes('/v1/convert')) {
+          return Promise.resolve(Response.json({ task_id: TASK, task_status: 'pending' }));
+        }
+        if (url.includes('/v1/status/poll')) {
+          vi.setSystemTime(Date.now() + minutes * 60_000);
+          return Promise.resolve(Response.json({ task_id: TASK, task_status: 'success' }));
+        }
+        return Promise.resolve(Response.json({ document: { md_content: 'part' } }));
+      });
+    }
+
+    function submits(spy: FetchSpy): unknown[] {
+      return spy.mock.calls.filter(([input]) => urlOf(input).includes('/v1/convert'));
+    }
+
     it('cuts a parse that overstays the shared deadline before the next upload', async () => {
       vi.useFakeTimers();
       try {
-        vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
-          const url = urlOf(input);
-          if (url.includes('/v1/convert')) {
-            return Promise.resolve(Response.json({ task_id: TASK, task_status: 'pending' }));
-          }
-          if (url.includes('/v1/status/poll')) {
-            // The first window alone eats the whole 55-minute deadline.
-            vi.setSystemTime(Date.now() + 56 * 60_000);
-            return Promise.resolve(Response.json({ task_id: TASK, task_status: 'success' }));
-          }
-          return Promise.resolve(Response.json({ document: { md_content: 'part' } }));
-        });
+        // The first window alone eats the whole 55-minute deadline.
+        const spy = firstWindowSpends(56);
 
         await expect(parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 30 })).rejects.toThrow(
-          /did not finish within 55 minutes/,
+          /ran out of the parse's 55-minute deadline/,
         );
+        expect(submits(spy)).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // 🔒 The failure this exists for: a sliver of the deadline is not a budget. `Math.min` used to
+    // hand the remainder over whatever it was, so a window with a minute left was uploaded anyway —
+    // the whole canonical PDF — polled once and failed as "Docling did not finish within 0
+    // minutes", which is arithmetic reported as if it were the parser's answer (docs/05 §5.4a).
+    it('ends the parse without an upload when less is left than a window needs', async () => {
+      vi.useFakeTimers();
+      try {
+        // Six seconds left of the 55 minutes: the sliver that used to be handed over as a budget
+        // and rounded, in the failure a live instance recorded, to "0 minutes".
+        const spy = firstWindowSpends(54.9);
+
+        await expect(parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 30 })).rejects.toThrow(
+          /Docling ran out of the parse's 55-minute deadline with pages 13–30 unread/,
+        );
+        // The deadline it hit and the pages nobody will find in the document, and no second upload:
+        // the failure is named before the minutes are spent on a request that cannot be answered.
+        expect(submits(spy)).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('runs a window that still has its budget, on what is left of the deadline', async () => {
+      vi.useFakeTimers();
+      try {
+        // 51 minutes gone leaves four — under the twelve a full window would ask for and over the
+        // two it needs, so the window runs on the remainder rather than being cut.
+        const spy = firstWindowSpends(51);
+
+        expect(await parser().toMarkdown(PDF, { ocrLanguages: [], pageCount: 24 })).toBe(
+          'part\n\npart',
+        );
+        expect(submits(spy)).toHaveLength(2);
       } finally {
         vi.useRealTimers();
       }
