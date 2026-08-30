@@ -24,12 +24,15 @@ export type CatalogueRow = {
 // One entry the model believes it recognised: which rows, the spelling worth keeping, the distinct
 // other spellings worth remembering in the survivor's note — and, when the rows carried kinds, the
 // kind the survivor keeps, as a *name* the caller resolves against the kinds the merged rows
-// already have (docs/06 §6.3.3).
+// already have (docs/06 §6.3.3). `note` is the survivor's whole note, composed (docs/05 §5.6c):
+// each distinct spelling once, misreadings dropped, identifying details kept — absent when the
+// model offered none, and the dialog then falls back to the raw concatenation.
 export type MergeSuggestion = {
   ids: string[];
   name: string;
   aka: string[];
   kind?: string;
+  note?: string;
 };
 
 // What one reading of a catalogue answers (docs/05 §5.6c): the groups, and — on the kind-aware
@@ -41,11 +44,13 @@ export type CatalogueSuggestions = {
 };
 
 // What the merge dialog opens with when the rows were picked by hand: the same reading, for a
-// selection that is already decided (docs/11 §11.12a).
+// selection that is already decided (docs/11 §11.12a) — the composed note included, when the model
+// offered one (docs/05 §5.6c).
 export type MergePreview = {
   name: string;
   aka: string[];
   kind?: string;
+  note?: string;
 };
 
 // The adapter owns the answer's shape — schema-parsed, lengths capped, a parse failure an empty

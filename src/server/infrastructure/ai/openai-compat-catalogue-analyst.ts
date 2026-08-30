@@ -2,6 +2,9 @@ import { randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { InjectPinoLogger, type PinoLogger } from 'nestjs-pino';
 import { z } from 'zod';
+import { PERSON_NOTE_LIMIT } from '../../../shared/contracts/people';
+import { SUBJECT_KIND_NOTE_LIMIT } from '../../../shared/contracts/subject-kinds';
+import { SUBJECT_NOTE_LIMIT } from '../../../shared/contracts/subjects';
 import { chunkCatalogue } from '../../application/catalogues/catalogue-chunks';
 import { readBoundedJson, readBoundedText } from '../../application/ports/binary-source';
 import {
@@ -38,11 +41,13 @@ const groupSchema = z.object({
   name: z.string(),
   aka: z.array(z.string()).nullish(),
   kind: z.string().nullish(),
+  note: z.string().nullish(),
 });
 const previewAnswerSchema = z.object({
   name: z.string().nullish(),
   aka: z.array(z.string()).nullish(),
   kind: z.string().nullish(),
+  note: z.string().nullish(),
 });
 
 const TEMPERATURE = 0;
@@ -53,6 +58,15 @@ const TEMPERATURE = 0;
 const MAX_NAME_CHARS = 200;
 const MAX_AKA = 20;
 const MAX_PLACEHOLDERS = 20;
+
+// The note each catalogue's contract admits (docs/07 §7.3): the prompt states the real bound, so
+// the model composes to fit rather than being cut mid-sentence afterwards — the use case still cuts
+// whatever comes back over it (docs/11 §11.12a).
+const NOTE_LIMITS: Record<CatalogueName, number> = {
+  people: PERSON_NOTE_LIMIT,
+  subjects: SUBJECT_NOTE_LIMIT,
+  'subject-kinds': SUBJECT_KIND_NOTE_LIMIT,
+};
 
 // 🔒 The bytes behind the delimiter the catalogue is fenced with, drawn fresh for every call — the
 // same discipline as the document fence (docs/05 §5.5 step 4): every signed-in user writes these
@@ -126,10 +140,13 @@ export class OpenAiCompatCatalogueAnalyst extends CatalogueAnalyst {
       const answer = await this.gates.run('classifier', async () => {
         const nonce = newNonce();
         const content = await this.completion(catalogue, chunk.length, [
-          { role: 'system', content: suggestionsSystemMessage(nonce, withKinds) },
+          {
+            role: 'system',
+            content: suggestionsSystemMessage(nonce, withKinds, NOTE_LIMITS[catalogue]),
+          },
           { role: 'user', content: fenceCatalogue(chunk, nonce) },
         ]);
-        return readSuggestions(content);
+        return readSuggestions(content, NOTE_LIMITS[catalogue]);
       });
       groups.push(...answer.groups);
       placeholders.push(...answer.placeholders);
@@ -149,10 +166,13 @@ export class OpenAiCompatCatalogueAnalyst extends CatalogueAnalyst {
     return this.gates.run('classifier', async () => {
       const nonce = newNonce();
       const content = await this.completion(catalogue, rows.length, [
-        { role: 'system', content: previewSystemMessage(nonce, kindAware(rows)) },
+        {
+          role: 'system',
+          content: previewSystemMessage(nonce, kindAware(rows), NOTE_LIMITS[catalogue]),
+        },
         { role: 'user', content: fenceCatalogue(rows, nonce) },
       ]);
-      return readPreview(content);
+      return readPreview(content, NOTE_LIMITS[catalogue]);
     });
   }
 
@@ -269,6 +289,22 @@ const KIND_ANSWER_RULE = [
   'mostly uses. Never invent a kind that no grouped row carries.',
 ].join(' ');
 
+// The note a merge keeps, written for its real reader (docs/05 §5.6c): the analysis that files the
+// next arriving document, shown the note beside the name and told to prefer what the catalogue
+// already holds. What it needs is what tells this entry apart — not three copies of one spelling.
+function noteRule(limit: number): string {
+  return [
+    'Also answer "note": the whole note the surviving entry should keep, composed from everything',
+    'the merged rows carry — their notes, and however many "also known as" lines earlier merges',
+    'left in them. Composed means: each distinct spelling appears once; obvious misreadings and',
+    'format artifacts are dropped rather than kept; and the details that genuinely tell this entry',
+    'apart — identifiers, plates, account numbers, an address in its one canonical form — are kept',
+    'and stated plainly. Its reader is the archive analysis that files the next document, so write',
+    'what lets it recognise this entry. Plain text of at most',
+    `${limit} characters. When the rows carry nothing worth keeping, answer "note": null.`,
+  ].join(' ');
+}
+
 // The second list only the kind-aware call answers (docs/05 §5.6c): analysis noise, offered for
 // deletion.
 const PLACEHOLDER_RULE = [
@@ -288,7 +324,7 @@ const DIRECT_ANSWER_RULE = [
   'rows in the next message and reply with the JSON described above.',
 ].join(' ');
 
-function suggestionsSystemMessage(nonce: string, withKinds: boolean): string {
+function suggestionsSystemMessage(nonce: string, withKinds: boolean, noteLimit: number): string {
   return [
     CLERK_PREAMBLE,
     ...(withKinds ? [KIND_PREAMBLE] : []),
@@ -297,20 +333,22 @@ function suggestionsSystemMessage(nonce: string, withKinds: boolean): string {
     'entries stay apart. Rows that belong to no group are simply absent from your answer.',
     SPELLING_RULES,
     ...(withKinds ? [KIND_ANSWER_RULE, PLACEHOLDER_RULE] : []),
+    noteRule(noteLimit).replace('Also answer', 'For each group also answer'),
     'Answer with JSON of exactly this shape and nothing else:',
     withKinds
       ? '{"groups": [{"ids": ["<id of every row in the group>"], "name": "<the spelling to keep>",' +
-        ' "kind": "<the kind to keep>", "aka": ["<each distinct other spelling>"]}],' +
+        ' "kind": "<the kind to keep>", "aka": ["<each distinct other spelling>"],' +
+        ' "note": "<the composed note or null>"}],' +
         ' "placeholders": ["<id of each row that names a kind rather than a thing>"]}.'
       : '{"groups": [{"ids": ["<id of every row in the group>"], "name": "<the spelling to keep>",' +
-        ' "aka": ["<each distinct other spelling>"]}]}.',
+        ' "aka": ["<each distinct other spelling>"], "note": "<the composed note or null>"}]}.',
     'No duplicates found means an empty "groups".',
     DIRECT_ANSWER_RULE,
     dataChannelNotice(nonce),
   ].join(' ');
 }
 
-function previewSystemMessage(nonce: string, withKinds: boolean): string {
+function previewSystemMessage(nonce: string, withKinds: boolean, noteLimit: number): string {
   return [
     CLERK_PREAMBLE,
     ...(withKinds ? [KIND_PREAMBLE] : []),
@@ -319,11 +357,13 @@ function previewSystemMessage(nonce: string, withKinds: boolean): string {
     'tidy the result.',
     SPELLING_RULES,
     ...(withKinds ? [KIND_ANSWER_RULE.replace('For each group also answer', 'Also answer')] : []),
+    noteRule(noteLimit),
     'Answer with JSON of exactly this shape and nothing else:',
     withKinds
       ? '{"name": "<the spelling to keep>", "kind": "<the kind to keep>",' +
-        ' "aka": ["<each distinct other spelling>"]}.'
-      : '{"name": "<the spelling to keep>", "aka": ["<each distinct other spelling>"]}.',
+        ' "aka": ["<each distinct other spelling>"], "note": "<the composed note or null>"}.'
+      : '{"name": "<the spelling to keep>", "aka": ["<each distinct other spelling>"],' +
+        ' "note": "<the composed note or null>"}.',
     DIRECT_ANSWER_RULE,
     dataChannelNotice(nonce),
   ].join(' ');
@@ -381,7 +421,7 @@ function newNonce(): string {
 
 // A parse failure is an empty answer, not an error (docs/05 §5.6c): a model that answered prose
 // proposed nothing.
-function readSuggestions(content: string): CatalogueSuggestions {
+function readSuggestions(content: string, noteLimit: number): CatalogueSuggestions {
   const parsed = suggestionsAnswerSchema.safeParse(safeJson(extractJson(content)));
   if (!parsed.success) return { groups: [], placeholders: [] };
 
@@ -392,11 +432,13 @@ function readSuggestions(content: string): CatalogueSuggestions {
     const name = tidy(group.data.name);
     if (name === '') continue;
     const kind = tidy(group.data.kind ?? '');
+    const note = tidyNote(group.data.note ?? '', noteLimit);
     groups.push({
       ids: group.data.ids,
       name,
       aka: tidyAka(group.data.aka ?? [], name),
       ...(kind === '' ? {} : { kind }),
+      ...(note === '' ? {} : { note }),
     });
   }
 
@@ -406,22 +448,37 @@ function readSuggestions(content: string): CatalogueSuggestions {
   };
 }
 
-function readPreview(content: string): MergePreview | null {
+function readPreview(content: string, noteLimit: number): MergePreview | null {
   const parsed = previewAnswerSchema.safeParse(safeJson(extractJson(content)));
   if (!parsed.success) return null;
   const name = tidy(parsed.data.name ?? '');
   if (name === '') return null;
   const kind = tidy(parsed.data.kind ?? '');
+  const note = tidyNote(parsed.data.note ?? '', noteLimit);
   return {
     name,
     aka: tidyAka(parsed.data.aka ?? [], name),
     ...(kind === '' ? {} : { kind }),
+    ...(note === '' ? {} : { note }),
   };
 }
 
 // One line, trimmed, no longer than a name may be — the shape half of the checking (docs/06 §6.3.3).
 function tidy(value: string): string {
   return value.replace(/\s+/g, ' ').trim().slice(0, MAX_NAME_CHARS);
+}
+
+// A note keeps its lines — "one per line" is the shape the dialog and the analysis both read
+// (docs/11 §11.12a) — but not its walls of blank ones, and never more than its catalogue's contract
+// admits. A model that answered the literal string "null" answered nothing.
+function tidyNote(value: string, limit: number): string {
+  if (value.trim().toLowerCase() === 'null') return '';
+  return value
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, limit)
+    .trim();
 }
 
 function tidyAka(values: readonly string[], name: string): string[] {
