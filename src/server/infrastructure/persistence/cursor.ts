@@ -1,3 +1,9 @@
+import {
+  catalogueOrderSchema,
+  subjectKindSortSchema,
+  type CatalogueOrder,
+  type SubjectKindSort,
+} from '../../../shared/contracts/common';
 import { documentSortSchema, type DocumentSort } from '../../../shared/contracts/documents';
 import { UnprocessableError } from '../../domain/errors/domain-error';
 
@@ -112,6 +118,74 @@ export function decodeDocumentCursor(
     return ISO_DATE.test(key) ? { sort, key, id } : null;
   }
   return Number.isNaN(new Date(key).getTime()) ? null : { sort, key, id };
+}
+
+// The cursor of a catalogue list (docs/07 §7.3): the documents cursor's discipline over the
+// people-shaped tables. Beyond the version it names the whole question it was cut from — the sort
+// *and* the direction, because a keyset predicate read under the other direction answers just as
+// quietly wrong — and a key whose shape follows the sort: `yyyy-mm-dd` for `lastDocumentAt` with
+// **null** for a row no dated document names (a place in the order of its own, since the dateless
+// sort behind everything under either direction), a decimal count for the two counted orders, and
+// the name itself for `name`. The widest sort enum covers all three catalogues: a people cursor can
+// never legitimately say `things`, and one that does simply names an order the request did not ask
+// for.
+export type CatalogueCursor = {
+  sort: SubjectKindSort;
+  order: CatalogueOrder;
+  key: string | null;
+  id: string;
+};
+
+// `\u0000` separators rather than `|`: the name order's key is a catalogue name, and a name may
+// hold anything a person can type (Postgres text never holds NUL, so the separator is safe).
+export function encodeCatalogueCursor(cursor: CatalogueCursor): string {
+  return Buffer.from(
+    [CURSOR_VERSION, cursor.sort, cursor.order, cursor.key ?? '', cursor.id].join('\u0000'),
+  ).toString('base64url');
+}
+
+const COUNT_KEY = /^\d+$/;
+
+// 🔒 Throws `CURSOR_SORT_MISMATCH` when the cursor names a sort or a direction other than the one
+// being asked for — the documents list's rule, for the documents list's reason (docs/07 §7.1).
+// Everything else unreadable — a stale version, a key that does not fit its order — is null, and
+// the list starts over.
+export function decodeCatalogueCursor(
+  value: string | undefined,
+  sort: SubjectKindSort,
+  order: CatalogueOrder,
+): CatalogueCursor | null {
+  if (value === undefined || value === '') return null;
+  const fields = Buffer.from(value, 'base64url').toString('utf8').split('\u0000');
+  if (fields.length !== 5 || fields[0] !== CURSOR_VERSION) return null;
+  const [, name, direction, key, id] = fields;
+  if (name === undefined || direction === undefined || key === undefined || id === undefined) {
+    return null;
+  }
+  if (!UUID.test(id)) return null;
+
+  const parsedSort = subjectKindSortSchema.safeParse(name);
+  const parsedOrder = catalogueOrderSchema.safeParse(direction);
+  if (!parsedSort.success || !parsedOrder.success) return null;
+  if (parsedSort.data !== sort || parsedOrder.data !== order) {
+    throw new UnprocessableError(
+      'CURSOR_SORT_MISMATCH',
+      `This cursor was cut from the "${parsedSort.data} ${parsedOrder.data}" order and cannot continue a "${sort} ${order}" one`,
+    );
+  }
+
+  if (key === '') {
+    // Only the date order has rows without a key; a count is 0 where nothing counts, and a name is
+    // never empty.
+    return sort === 'lastDocumentAt' ? { sort, order, key: null, id } : null;
+  }
+  if (sort === 'lastDocumentAt') {
+    return ISO_DATE.test(key) ? { sort, order, key, id } : null;
+  }
+  if (sort === 'documents' || sort === 'things') {
+    return COUNT_KEY.test(key) ? { sort, order, key, id } : null;
+  }
+  return { sort, order, key, id };
 }
 
 function encode(fields: readonly string[]): string {

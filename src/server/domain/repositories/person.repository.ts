@@ -1,20 +1,36 @@
+import type { CatalogueOrder, CatalogueSort } from '../../../shared/contracts/common';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Person } from '../entities/person';
 
 export type PersonWithCount = Person & { documentCount: number };
 
+// A row as the list answers it (docs/07 §7.3): the count, and the newest `documentDate` among the
+// living documents that name the row — `null` when none carries a date.
+export type PersonListRow = PersonWithCount & { lastDocumentAt: Date | null };
+
 export type CataloguePage<T> = { items: T[]; nextCursor: string | null };
+
+// One page's question (docs/07 §7.3): the closed sort enum, the direction, and a cursor bound to
+// both exactly as the documents list's is (docs/07 §7.1).
+export type CataloguePageQuery = {
+  limit: number;
+  cursor?: string | undefined;
+  sort: CatalogueSort;
+  order: CatalogueOrder;
+};
 
 export abstract class PersonRepository {
   // The whole living catalogue, for the callers that genuinely need all of it — the analysis, the
   // merge suggesters. The API reads pages (docs/07 §7.1, SEC-56).
   abstract listActive(tx?: TransactionHandle): Promise<PersonWithCount[]>;
 
-  // One page by name then id, keyset-cursored like every other list (docs/07 §7.1).
-  abstract listPage(query: {
-    limit: number;
-    cursor?: string | undefined;
-  }): Promise<CataloguePage<PersonWithCount>>;
+  // One page in the asked-for order, keyset-cursored like every other list (docs/07 §7.1). Refuses
+  // a cursor cut from another sort or direction (`CURSOR_SORT_MISMATCH`, docs/07 §7.3).
+  abstract listPage(query: CataloguePageQuery): Promise<CataloguePage<PersonListRow>>;
+
+  // One row on the list's own terms — count and `lastDocumentAt` included — for the answers a
+  // create, an update or a merge owes (docs/07 §7.3). Living rows only.
+  abstract findListRow(id: string, tx?: TransactionHandle): Promise<PersonListRow | null>;
 
   // How many living rows the catalogue holds — what every create measures against the instance
   // ceiling (docs/08 §8.4, SEC-56).

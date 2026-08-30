@@ -4,11 +4,21 @@ import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Subject } from '../../domain/entities/subject';
 import { ConflictError } from '../../domain/errors/domain-error';
 import { foldName } from '../../domain/value-objects/name-fold';
+import type {
+  CataloguePage,
+  CataloguePageQuery,
+} from '../../domain/repositories/person.repository';
 import {
   SubjectRepository,
+  type SubjectListRow,
   type SubjectWithCount,
 } from '../../domain/repositories/subject.repository';
-import { decodeTextCursor, encodeTextCursor } from './cursor';
+import {
+  catalogueCursorKeyOf,
+  catalogueKeysetSql,
+  catalogueOrderBySql,
+} from './catalogue-list-sql';
+import { decodeCatalogueCursor, encodeCatalogueCursor } from './cursor';
 import { clientOf } from './prisma-client';
 import { PrismaService } from './prisma.service';
 
@@ -31,6 +41,34 @@ function toSubject(row: SubjectRow): Subject {
     note: row.note,
     createdAt: row.createdAt,
     deletedAt: row.deletedAt,
+  };
+}
+
+// What the list SQL answers per row (docs/07 §7.3): the living row with its kind, its count of
+// living documents, and the newest `documentDate` among them. Deleted rows never reach the page,
+// so `deletedAt` is null by construction.
+type SubjectPageRow = {
+  id: string;
+  kindId: string;
+  kind: string;
+  name: string;
+  note: string | null;
+  createdAt: Date;
+  documentCount: number;
+  lastDocumentAt: Date | null;
+};
+
+function toSubjectListRow(row: SubjectPageRow): SubjectListRow {
+  return {
+    id: row.id,
+    kindId: row.kindId,
+    kind: row.kind,
+    name: row.name,
+    note: row.note,
+    createdAt: row.createdAt,
+    deletedAt: null,
+    documentCount: row.documentCount,
+    lastDocumentAt: row.lastDocumentAt,
   };
 }
 
@@ -60,34 +98,59 @@ export class PrismaSubjectRepository extends SubjectRepository {
     return rows.map((row) => ({ ...toSubject(row), documentCount: row._count.documents }));
   }
 
-  async listPage(query: {
-    limit: number;
-    cursor?: string | undefined;
-  }): Promise<{ items: SubjectWithCount[]; nextCursor: string | null }> {
-    // Keyset over (name, id), the shape every other list uses (docs/07 §7.1).
-    const cursor = decodeTextCursor(query.cursor);
-    const rows = await this.prisma.subject.findMany({
-      where: {
-        deletedAt: null,
-        ...(cursor === null
-          ? {}
-          : {
-              OR: [{ name: { gt: cursor.key } }, { name: cursor.key, id: { gt: cursor.id } }],
-            }),
-      },
-      orderBy: [{ name: 'asc' }, { id: 'asc' }],
-      take: query.limit + 1,
-      include: { kind: true, _count: { select: { documents: true } } },
-    });
+  async listPage(query: CataloguePageQuery): Promise<CataloguePage<SubjectListRow>> {
+    // Keyset in the asked-for order, on the people repository's terms (docs/07 §7.3): raw SQL
+    // because two of the named orders are aggregates no object orderBy can keyset over.
+    const cursor = decodeCatalogueCursor(query.cursor, query.sort, query.order);
+    const rows = await this.prisma.$queryRaw<SubjectPageRow[]>`
+      WITH page AS (
+        SELECT s.id, s.kind_id AS "kindId", k.name AS kind, s.name, s.note,
+               s.created_at AS "createdAt",
+               count(d.id)::int AS "documentCount",
+               max(d.document_date) AS "lastDocumentAt"
+        FROM subjects s
+        JOIN subject_kinds k ON k.id = s.kind_id
+        LEFT JOIN document_subjects ds ON ds.subject_id = s.id
+        LEFT JOIN documents d ON d.id = ds.document_id AND d.deleted_at IS NULL
+        WHERE s.deleted_at IS NULL
+        GROUP BY s.id, k.name
+      )
+      SELECT * FROM page
+      WHERE ${catalogueKeysetSql(cursor)}
+      ORDER BY ${catalogueOrderBySql(query.sort, query.order)}
+      LIMIT ${query.limit + 1}
+    `;
     const page = rows.slice(0, query.limit);
     const last = page[page.length - 1];
     return {
-      items: page.map((row) => ({ ...toSubject(row), documentCount: row._count.documents })),
+      items: page.map(toSubjectListRow),
       nextCursor:
         rows.length > page.length && last !== undefined
-          ? encodeTextCursor({ key: last.name, id: last.id })
+          ? encodeCatalogueCursor({
+              sort: query.sort,
+              order: query.order,
+              key: catalogueCursorKeyOf(query.sort, toSubjectListRow(last)),
+              id: last.id,
+            })
           : null,
     };
+  }
+
+  async findListRow(id: string, tx?: TransactionHandle): Promise<SubjectListRow | null> {
+    const rows = await clientOf(this.prisma, tx).$queryRaw<SubjectPageRow[]>`
+      SELECT s.id, s.kind_id AS "kindId", k.name AS kind, s.name, s.note,
+             s.created_at AS "createdAt",
+             count(d.id)::int AS "documentCount",
+             max(d.document_date) AS "lastDocumentAt"
+      FROM subjects s
+      JOIN subject_kinds k ON k.id = s.kind_id
+      LEFT JOIN document_subjects ds ON ds.subject_id = s.id
+      LEFT JOIN documents d ON d.id = ds.document_id AND d.deleted_at IS NULL
+      WHERE s.deleted_at IS NULL AND s.id = ${id}::uuid
+      GROUP BY s.id, k.name
+    `;
+    const row = rows[0];
+    return row === undefined ? null : toSubjectListRow(row);
   }
 
   countActive(tx?: TransactionHandle): Promise<number> {

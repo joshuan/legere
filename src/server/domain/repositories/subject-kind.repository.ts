@@ -1,5 +1,7 @@
+import type { CatalogueOrder, SubjectKindSort } from '../../../shared/contracts/common';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { SubjectKind } from '../entities/subject-kind';
+import type { CataloguePage } from './person.repository';
 
 // A kind is worth keeping for what hangs off it, so both counts travel with it: how many things of
 // this kind exist, and how many documents they are on between them (docs/03 §3.3.20a).
@@ -8,14 +10,28 @@ export type SubjectKindWithCounts = SubjectKind & {
   documentCount: number;
 };
 
+// A row as the list answers it (docs/07 §7.3): the counts, and the newest `documentDate` across
+// the living documents about this kind's living things — `null` when none carries a date.
+export type SubjectKindListRow = SubjectKindWithCounts & { lastDocumentAt: Date | null };
+
+// The kinds page's question widens the sort enum by `things` (docs/07 §7.3).
+export type SubjectKindPageQuery = {
+  limit: number;
+  cursor?: string | undefined;
+  sort: SubjectKindSort;
+  order: CatalogueOrder;
+};
+
 export abstract class SubjectKindRepository {
   abstract listActive(tx?: TransactionHandle): Promise<SubjectKindWithCounts[]>;
 
-  // One page by name then id (docs/07 §7.1, SEC-56); the whole catalogue stays `listActive`'s.
-  abstract listPage(query: {
-    limit: number;
-    cursor?: string | undefined;
-  }): Promise<{ items: SubjectKindWithCounts[]; nextCursor: string | null }>;
+  // One page in the asked-for order (docs/07 §7.1, SEC-56), on the people repository's terms; the
+  // whole catalogue stays `listActive`'s.
+  abstract listPage(query: SubjectKindPageQuery): Promise<CataloguePage<SubjectKindListRow>>;
+
+  // One row on the list's own terms, for the answers a create, an update or a merge owes
+  // (docs/07 §7.3). Living rows only.
+  abstract findListRow(id: string, tx?: TransactionHandle): Promise<SubjectKindListRow | null>;
 
   // How many living rows the catalogue holds — what every create measures against the instance
   // ceiling (docs/08 §8.4, SEC-51, SEC-56).

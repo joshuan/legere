@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { DomainError, UnprocessableError } from '../../domain/errors/domain-error';
 import {
+  decodeCatalogueCursor,
   decodeCursor,
   decodeDocumentCursor,
   decodeTextCursor,
+  encodeCatalogueCursor,
   encodeCursor,
   encodeDocumentCursor,
   encodeTextCursor,
@@ -113,6 +115,71 @@ describe('cursor', () => {
     expect(
       decodeTextCursor(Buffer.from('1\u0000A title\u0000not-a-uuid').toString('base64url')),
     ).toBeNull();
+  });
+});
+
+// The catalogue lists' cursor (docs/07 §7.3): the documents cursor's discipline, with the
+// direction in the question too.
+describe('catalogue cursor', () => {
+  const ID = 'bbbbbbbb-2222-4222-8222-222222222222';
+
+  it('round-trips each named order, the direction included', () => {
+    const cursors = [
+      { sort: 'lastDocumentAt', order: 'desc', key: '2019-07-04', id: ID },
+      { sort: 'lastDocumentAt', order: 'asc', key: null, id: ID },
+      { sort: 'documents', order: 'desc', key: '42', id: ID },
+      { sort: 'things', order: 'asc', key: '0', id: ID },
+      // A name may hold anything a person can type, the other encodings' delimiter included.
+      { sort: 'name', order: 'asc', key: 'Njegoševa 5 | стан 12', id: ID },
+    ] as const;
+    for (const cursor of cursors) {
+      expect(
+        decodeCatalogueCursor(encodeCatalogueCursor(cursor), cursor.sort, cursor.order),
+      ).toEqual(cursor);
+    }
+  });
+
+  it('refuses a cursor cut from another sort, and one cut in the other direction', () => {
+    const cut = encodeCatalogueCursor({ sort: 'lastDocumentAt', order: 'desc', key: null, id: ID });
+
+    // 🔒 The documents list's rule (docs/07 §7.1): a keyset predicate read off the wrong column —
+    // or under the wrong direction — answers instead of failing.
+    for (const [sort, order] of [
+      ['documents', 'desc'],
+      ['lastDocumentAt', 'asc'],
+    ] as const) {
+      expect(() => decodeCatalogueCursor(cut, sort, order)).toThrow(UnprocessableError);
+      const refusal = thrownBy(() => decodeCatalogueCursor(cut, sort, order));
+      expect(refusal?.code).toBe('CURSOR_SORT_MISMATCH');
+      expect(refusal?.httpStatus).toBe(422);
+    }
+  });
+
+  it('starts the list over on a cursor it cannot read, rather than erroring', () => {
+    const raw = (fields: string[]): string =>
+      Buffer.from(fields.join('\u0000')).toString('base64url');
+
+    const unreadable: Array<[string | undefined, 'lastDocumentAt' | 'documents' | 'name']> = [
+      [undefined, 'lastDocumentAt'],
+      ['', 'lastDocumentAt'],
+      // A version this build does not know.
+      [raw(['2', 'lastDocumentAt', 'desc', '2019-07-04', ID]), 'lastDocumentAt'],
+      // A sort or a direction this build does not know is unreadable, not a mismatch.
+      [raw(['1', 'whenever', 'desc', '2019-07-04', ID]), 'lastDocumentAt'],
+      [raw(['1', 'lastDocumentAt', 'sideways', '2019-07-04', ID]), 'lastDocumentAt'],
+      // A key that does not fit the order it names.
+      [raw(['1', 'lastDocumentAt', 'desc', 'not-a-date', ID]), 'lastDocumentAt'],
+      [raw(['1', 'documents', 'desc', 'many', ID]), 'documents'],
+      // Only the date order has rows without a key; a count is 0 where nothing counts.
+      [raw(['1', 'documents', 'desc', '', ID]), 'documents'],
+      // No row to continue from.
+      [raw(['1', 'name', 'asc', 'Anna', '']), 'name'],
+      // 🔒 An id that is not a UUID starts the list over instead of reaching the driver (SEC-86).
+      [raw(['1', 'name', 'asc', 'Anna', 'not-a-uuid']), 'name'],
+    ];
+    for (const [value, sort] of unreadable) {
+      expect(decodeCatalogueCursor(value, sort, 'desc')).toBeNull();
+    }
   });
 });
 

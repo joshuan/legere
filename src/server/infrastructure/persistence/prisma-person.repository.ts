@@ -7,9 +7,16 @@ import { foldName } from '../../domain/value-objects/name-fold';
 import {
   PersonRepository,
   type CataloguePage,
+  type CataloguePageQuery,
+  type PersonListRow,
   type PersonWithCount,
 } from '../../domain/repositories/person.repository';
-import { decodeTextCursor, encodeTextCursor } from './cursor';
+import {
+  catalogueCursorKeyOf,
+  catalogueKeysetSql,
+  catalogueOrderBySql,
+} from './catalogue-list-sql';
+import { decodeCatalogueCursor, encodeCatalogueCursor } from './cursor';
 import { clientOf } from './prisma-client';
 import { PrismaService } from './prisma.service';
 
@@ -28,6 +35,30 @@ function toPerson(row: PersonRow): Person {
     note: row.note,
     createdAt: row.createdAt,
     deletedAt: row.deletedAt,
+  };
+}
+
+// What the list SQL answers per row (docs/07 §7.3): the living row, its count of living documents,
+// and the newest `documentDate` among them. Deleted rows never reach the page, so `deletedAt` is
+// null by construction rather than carried through the aggregation.
+type PersonPageRow = {
+  id: string;
+  name: string;
+  note: string | null;
+  createdAt: Date;
+  documentCount: number;
+  lastDocumentAt: Date | null;
+};
+
+function toPersonListRow(row: PersonPageRow): PersonListRow {
+  return {
+    id: row.id,
+    name: row.name,
+    note: row.note,
+    createdAt: row.createdAt,
+    deletedAt: null,
+    documentCount: row.documentCount,
+    lastDocumentAt: row.lastDocumentAt,
   };
 }
 
@@ -55,35 +86,59 @@ export class PrismaPersonRepository extends PersonRepository {
     return rows.map((row) => ({ ...toPerson(row), documentCount: row._count.documents }));
   }
 
-  async listPage(query: {
-    limit: number;
-    cursor?: string | undefined;
-  }): Promise<CataloguePage<PersonWithCount>> {
-    // Keyset over (name, id), the shape every other list uses (docs/07 §7.1): a forged cursor
-    // decodes to null and the page starts over.
-    const cursor = decodeTextCursor(query.cursor);
-    const rows = await this.prisma.person.findMany({
-      where: {
-        deletedAt: null,
-        ...(cursor === null
-          ? {}
-          : {
-              OR: [{ name: { gt: cursor.key } }, { name: cursor.key, id: { gt: cursor.id } }],
-            }),
-      },
-      orderBy: [{ name: 'asc' }, { id: 'asc' }],
-      take: query.limit + 1,
-      include: { _count: { select: { documents: true } } },
-    });
+  async listPage(query: CataloguePageQuery): Promise<CataloguePage<PersonListRow>> {
+    // Keyset in the asked-for order (docs/07 §7.3): a forged cursor decodes to null and the page
+    // starts over; one cut from another sort or direction is refused (`CURSOR_SORT_MISMATCH`).
+    const cursor = decodeCatalogueCursor(query.cursor, query.sort, query.order);
+    // Raw SQL because two of the named orders are aggregates — the document count and the newest
+    // `documentDate` among the living documents naming the row — which Prisma's object orderBy can
+    // neither compute with a soft-delete filter nor keyset over. One aggregation over the living
+    // catalogue and a top-N sort, bounded by the catalogue ceiling (docs/04 §4.4).
+    const rows = await this.prisma.$queryRaw<PersonPageRow[]>`
+      WITH page AS (
+        SELECT p.id, p.name, p.note, p.created_at AS "createdAt",
+               count(d.id)::int AS "documentCount",
+               max(d.document_date) AS "lastDocumentAt"
+        FROM people p
+        LEFT JOIN document_people dp ON dp.person_id = p.id
+        LEFT JOIN documents d ON d.id = dp.document_id AND d.deleted_at IS NULL
+        WHERE p.deleted_at IS NULL
+        GROUP BY p.id
+      )
+      SELECT * FROM page
+      WHERE ${catalogueKeysetSql(cursor)}
+      ORDER BY ${catalogueOrderBySql(query.sort, query.order)}
+      LIMIT ${query.limit + 1}
+    `;
     const page = rows.slice(0, query.limit);
     const last = page[page.length - 1];
     return {
-      items: page.map((row) => ({ ...toPerson(row), documentCount: row._count.documents })),
+      items: page.map(toPersonListRow),
       nextCursor:
         rows.length > page.length && last !== undefined
-          ? encodeTextCursor({ key: last.name, id: last.id })
+          ? encodeCatalogueCursor({
+              sort: query.sort,
+              order: query.order,
+              key: catalogueCursorKeyOf(query.sort, toPersonListRow(last)),
+              id: last.id,
+            })
           : null,
     };
+  }
+
+  async findListRow(id: string, tx?: TransactionHandle): Promise<PersonListRow | null> {
+    const rows = await clientOf(this.prisma, tx).$queryRaw<PersonPageRow[]>`
+      SELECT p.id, p.name, p.note, p.created_at AS "createdAt",
+             count(d.id)::int AS "documentCount",
+             max(d.document_date) AS "lastDocumentAt"
+      FROM people p
+      LEFT JOIN document_people dp ON dp.person_id = p.id
+      LEFT JOIN documents d ON d.id = dp.document_id AND d.deleted_at IS NULL
+      WHERE p.deleted_at IS NULL AND p.id = ${id}::uuid
+      GROUP BY p.id
+    `;
+    const row = rows[0];
+    return row === undefined ? null : toPersonListRow(row);
   }
 
   countActive(tx?: TransactionHandle): Promise<number> {
