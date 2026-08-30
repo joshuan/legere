@@ -58,9 +58,12 @@ import { AdminSubjectsController, SubjectsController } from './subjects.controll
     // cost (docs/05 §5.6c).
     {
       provide: SuggestSubjectMerges,
-      useFactory: (subjects: SubjectRepository, analyst: CatalogueAnalyst): SuggestSubjectMerges =>
-        new SuggestSubjectMerges(subjects, analyst),
-      inject: [SubjectRepository, CatalogueAnalyst],
+      useFactory: (
+        subjects: SubjectRepository,
+        analyst: CatalogueAnalyst,
+        clock: Clock,
+      ): SuggestSubjectMerges => new SuggestSubjectMerges(subjects, analyst, clock),
+      inject: [SubjectRepository, CatalogueAnalyst, Clock],
     },
     {
       provide: PreviewSubjectMerge,

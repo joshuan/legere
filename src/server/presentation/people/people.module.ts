@@ -54,12 +54,15 @@ import { AdminPeopleController, PeopleController } from './people.controller';
       inject: [PersonRepository, Clock],
     },
     // A singleton on purpose: its in-process cache is the one concession the suggester makes to
-    // cost (docs/05 §5.6c).
+    // cost (docs/05 §5.6c). The clock dates each cached reading (`computedAt`, docs/07 §7.3).
     {
       provide: SuggestPeopleMerges,
-      useFactory: (people: PersonRepository, analyst: CatalogueAnalyst): SuggestPeopleMerges =>
-        new SuggestPeopleMerges(people, analyst),
-      inject: [PersonRepository, CatalogueAnalyst],
+      useFactory: (
+        people: PersonRepository,
+        analyst: CatalogueAnalyst,
+        clock: Clock,
+      ): SuggestPeopleMerges => new SuggestPeopleMerges(people, analyst, clock),
+      inject: [PersonRepository, CatalogueAnalyst, Clock],
     },
     {
       provide: PreviewPeopleMerge,

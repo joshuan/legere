@@ -1,14 +1,16 @@
-import type {
-  SubjectMergePreviewRequest,
-  SubjectMergePreviewResponse,
-  SubjectMergeSuggestionsResponse,
+import {
+  SUBJECT_NOTE_LIMIT,
+  type SubjectMergePreviewRequest,
+  type SubjectMergePreviewResponse,
+  type SubjectMergeSuggestionsResponse,
 } from '../../../shared/contracts/subjects';
 import type { Subject } from '../../domain/entities/subject';
 import { NotFoundError } from '../../domain/errors/domain-error';
 import type { SubjectRepository } from '../../domain/repositories/subject.repository';
 import { foldName } from '../../domain/value-objects/name-fold';
-import { SuggestionCache, sanitizeGroups } from '../catalogues/catalogue-suggestions';
+import { SuggestionCache, cutNote, sanitizeGroups } from '../catalogues/catalogue-suggestions';
 import type { CatalogueAnalyst, CatalogueRow } from '../ports/catalogue-analyst';
+import type { Clock } from '../ports/clock';
 
 const MAX_NAME = 200;
 const MAX_PLACEHOLDERS = 20;
@@ -26,17 +28,23 @@ function resolveKindId(kind: string | undefined, members: readonly Subject[]): s
 }
 
 // Which things are one thing (docs/05 §5.6c), kind-aware: the duplicates worth finding sit across
-// duplicate kinds as often as inside one.
+// duplicate kinds as often as inside one. `computedAt` dates the cached reading, and `refresh`
+// drops it and asks anew — the recompute of docs/11 §11.12a.
 export class SuggestSubjectMerges {
-  private readonly cache = new SuggestionCache<Answer>();
+  private readonly cache: SuggestionCache<Answer>;
 
   constructor(
     private readonly subjects: SubjectRepository,
     private readonly analyst: CatalogueAnalyst,
-  ) {}
+    clock: Clock,
+  ) {
+    this.cache = new SuggestionCache(() => clock.now());
+  }
 
-  async execute(): Promise<SubjectMergeSuggestionsResponse> {
-    if (!this.analyst.isConfigured) return { state: 'UNCONFIGURED', groups: [], placeholders: [] };
+  async execute(options?: { refresh?: boolean }): Promise<SubjectMergeSuggestionsResponse> {
+    if (!this.analyst.isConfigured) {
+      return { state: 'UNCONFIGURED', computedAt: null, groups: [], placeholders: [] };
+    }
 
     const living = await this.subjects.listActive();
     const byId = new Map(living.map((subject) => [subject.id, subject]));
@@ -47,32 +55,41 @@ export class SuggestSubjectMerges {
       kind: subject.kind,
     }));
 
-    const reading = await this.cache.answer(JSON.stringify(rows), async () => {
-      const suggested = await this.analyst.suggestMerges('subjects', rows);
-      const groups = sanitizeGroups(suggested.groups, rows, MAX_NAME).flatMap((group) => {
-        const members = group.ids.flatMap((id) => {
-          const member = byId.get(id);
-          return member === undefined ? [] : [member];
-        });
-        // A group whose kind the merged rows do not carry is dropped whole: a suggestion the
-        // merge endpoint would refuse is not a suggestion (docs/03 §3.3.20).
-        const kindId = resolveKindId(group.kind, members);
-        if (kindId === null) return [];
-        return [{ ids: group.ids, name: group.name, kindId, aka: group.aka }];
-      });
-      // The placeholders pass the same living check as the groups: an id the model made up names
-      // nothing (docs/05 §5.6c).
-      const placeholders = [...new Set(suggested.placeholders)]
-        .filter((id) => byId.has(id))
-        .slice(0, MAX_PLACEHOLDERS);
-      return { groups, placeholders };
-    });
-    if (!reading.answered) return { state: 'UNAVAILABLE', groups: [], placeholders: [] };
-    return { state: 'ANSWERED', ...reading.value };
+    const reading = await this.cache.answer(
+      JSON.stringify(rows),
+      async () => {
+        const suggested = await this.analyst.suggestMerges('subjects', rows);
+        const groups = sanitizeGroups(suggested.groups, rows, MAX_NAME, SUBJECT_NOTE_LIMIT).flatMap(
+          (group) => {
+            const members = group.ids.flatMap((id) => {
+              const member = byId.get(id);
+              return member === undefined ? [] : [member];
+            });
+            // A group whose kind the merged rows do not carry is dropped whole: a suggestion the
+            // merge endpoint would refuse is not a suggestion (docs/03 §3.3.20).
+            const kindId = resolveKindId(group.kind, members);
+            if (kindId === null) return [];
+            return [{ ids: group.ids, name: group.name, kindId, aka: group.aka, note: group.note }];
+          },
+        );
+        // The placeholders pass the same living check as the groups: an id the model made up names
+        // nothing (docs/05 §5.6c).
+        const placeholders = [...new Set(suggested.placeholders)]
+          .filter((id) => byId.has(id))
+          .slice(0, MAX_PLACEHOLDERS);
+        return { groups, placeholders };
+      },
+      options,
+    );
+    if (!reading.answered) {
+      return { state: 'UNAVAILABLE', computedAt: null, groups: [], placeholders: [] };
+    }
+    return { state: 'ANSWERED', computedAt: reading.computedAt.toISOString(), ...reading.value };
   }
 }
 
-// The tidy reading for a hand-picked selection, the kind included (docs/11 §11.12a).
+// The tidy reading for a hand-picked selection, the kind and the composed note included
+// (docs/11 §11.12a, docs/05 §5.6c).
 export class PreviewSubjectMerge {
   constructor(
     private readonly subjects: SubjectRepository,
@@ -86,7 +103,7 @@ export class PreviewSubjectMerge {
     }
 
     if (!this.analyst.isConfigured) {
-      return { available: false, name: null, kindId: null, aka: null };
+      return { available: false, name: null, kindId: null, aka: null, note: null };
     }
 
     try {
@@ -99,17 +116,20 @@ export class PreviewSubjectMerge {
           kind: subject.kind,
         })),
       );
-      if (preview === null) return { available: false, name: null, kindId: null, aka: null };
+      if (preview === null) {
+        return { available: false, name: null, kindId: null, aka: null, note: null };
+      }
       // An unresolvable kind costs the kind, not the preview: the dialog keeps the kind it opened
-      // with (docs/07 §7.3).
+      // with (docs/07 §7.3). The note is cut to its own contract limit (docs/11 §11.12a).
       return {
         available: true,
         name: preview.name,
         kindId: resolveKindId(preview.kind, rows),
         aka: preview.aka,
+        note: cutNote(preview.note, SUBJECT_NOTE_LIMIT),
       };
     } catch {
-      return { available: false, name: null, kindId: null, aka: null };
+      return { available: false, name: null, kindId: null, aka: null, note: null };
     }
   }
 }

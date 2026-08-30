@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { FixedClock } from '../../../../test/helpers/fakes';
 import { InMemorySubjectKindRepository } from '../../../../test/helpers/processing-fakes';
 import { NotFoundError } from '../../domain/errors/domain-error';
 import type {
@@ -58,12 +59,13 @@ describe('SuggestSubjectKindMerges', () => {
       groups: [{ ids: ['kind-1', 'kind-2'], name: 'жильё', aka: ['Жильё'] }],
       placeholders: [],
     };
-    const suggest = new SuggestSubjectKindMerges(kinds, analyst);
+    const suggest = new SuggestSubjectKindMerges(kinds, analyst, new FixedClock());
 
     const first = await suggest.execute();
     expect(first).toEqual({
       state: 'ANSWERED',
-      groups: [{ ids: ['kind-1', 'kind-2'], name: 'жильё', aka: ['Жильё'] }],
+      computedAt: '2026-01-01T12:00:00.000Z',
+      groups: [{ ids: ['kind-1', 'kind-2'], name: 'жильё', aka: ['Жильё'], note: null }],
     });
     expect(analyst.asked).toEqual(['subject-kinds']);
     await suggest.execute();
@@ -82,8 +84,11 @@ describe('SuggestSubjectKindMerges', () => {
       placeholders: [],
     };
 
-    await expect(new SuggestSubjectKindMerges(kinds, analyst).execute()).resolves.toEqual({
+    await expect(
+      new SuggestSubjectKindMerges(kinds, analyst, new FixedClock()).execute(),
+    ).resolves.toEqual({
       state: 'ANSWERED',
+      computedAt: '2026-01-01T12:00:00.000Z',
       groups: [],
     });
   });
@@ -92,8 +97,11 @@ describe('SuggestSubjectKindMerges', () => {
     const analyst = new ScriptedAnalyst();
     analyst.configured = false;
 
-    await expect(new SuggestSubjectKindMerges(await seeded(), analyst).execute()).resolves.toEqual({
+    await expect(
+      new SuggestSubjectKindMerges(await seeded(), analyst, new FixedClock()).execute(),
+    ).resolves.toEqual({
       state: 'UNCONFIGURED',
+      computedAt: null,
       groups: [],
     });
     expect(analyst.calls).toBe(0);
@@ -103,10 +111,18 @@ describe('SuggestSubjectKindMerges', () => {
     const kinds = await seeded();
     const analyst = new ScriptedAnalyst();
     analyst.failure = new Error('provider is away');
-    const suggest = new SuggestSubjectKindMerges(kinds, analyst);
+    const suggest = new SuggestSubjectKindMerges(kinds, analyst, new FixedClock());
 
-    await expect(suggest.execute()).resolves.toEqual({ state: 'UNAVAILABLE', groups: [] });
-    await expect(suggest.execute()).resolves.toEqual({ state: 'UNAVAILABLE', groups: [] });
+    await expect(suggest.execute()).resolves.toEqual({
+      state: 'UNAVAILABLE',
+      computedAt: null,
+      groups: [],
+    });
+    await expect(suggest.execute()).resolves.toEqual({
+      state: 'UNAVAILABLE',
+      computedAt: null,
+      groups: [],
+    });
     // A failure is not cached (docs/05 §5.4e): the same catalogue was asked about twice.
     expect(analyst.calls).toBe(2);
   });
@@ -123,6 +139,7 @@ describe('PreviewSubjectKindMerge', () => {
       available: true,
       name: 'жильё',
       aka: ['Жильё'],
+      note: null,
     });
 
     // A 41-character kind is one the merge endpoint would refuse (docs/07 §7.3).
@@ -131,6 +148,7 @@ describe('PreviewSubjectKindMerge', () => {
       available: false,
       name: null,
       aka: null,
+      note: null,
     });
   });
 

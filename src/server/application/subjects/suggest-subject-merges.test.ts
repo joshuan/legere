@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { FixedClock } from '../../../../test/helpers/fakes';
 import {
   InMemorySubjectKindRepository,
   InMemorySubjectRepository,
@@ -80,7 +81,7 @@ describe('SuggestSubjectMerges', () => {
       placeholders: [],
     };
 
-    const response = await new SuggestSubjectMerges(subjects, analyst).execute();
+    const response = await new SuggestSubjectMerges(subjects, analyst, new FixedClock()).execute();
 
     expect(response.groups).toEqual([
       {
@@ -88,6 +89,7 @@ describe('SuggestSubjectMerges', () => {
         name: 'Chevrolet Lacetti',
         kindId: avto.id,
         aka: ['CHEVROLET LACETTI'],
+        note: null,
       },
     ]);
     // The rows travelled with their kinds, or the model could not have judged the shelf.
@@ -99,7 +101,7 @@ describe('SuggestSubjectMerges', () => {
     const analyst = new ScriptedAnalyst();
     analyst.answer = { groups: [], placeholders: [placeholder.id, 'made-up'] };
 
-    const response = await new SuggestSubjectMerges(subjects, analyst).execute();
+    const response = await new SuggestSubjectMerges(subjects, analyst, new FixedClock()).execute();
 
     expect(response.placeholders).toEqual([placeholder.id]);
   });
@@ -108,9 +110,12 @@ describe('SuggestSubjectMerges', () => {
     const { subjects } = await seeded();
     const analyst = new ScriptedAnalyst();
 
-    // Asked, and had nothing to propose.
-    await expect(new SuggestSubjectMerges(subjects, analyst).execute()).resolves.toEqual({
+    // Asked, and had nothing to propose — a dated reading (docs/07 §7.3).
+    await expect(
+      new SuggestSubjectMerges(subjects, analyst, new FixedClock()).execute(),
+    ).resolves.toEqual({
       state: 'ANSWERED',
+      computedAt: '2026-01-01T12:00:00.000Z',
       groups: [],
       placeholders: [],
     });
@@ -119,9 +124,10 @@ describe('SuggestSubjectMerges', () => {
     // Asked, and could not answer — a state of its own, and nothing cached (docs/05 §5.6c).
     const away = new ScriptedAnalyst();
     away.failure = new Error('provider is away');
-    const suggest = new SuggestSubjectMerges(subjects, away);
+    const suggest = new SuggestSubjectMerges(subjects, away, new FixedClock());
     await expect(suggest.execute()).resolves.toEqual({
       state: 'UNAVAILABLE',
+      computedAt: null,
       groups: [],
       placeholders: [],
     });
@@ -131,8 +137,11 @@ describe('SuggestSubjectMerges', () => {
     // Nobody to ask.
     const unconfigured = new ScriptedAnalyst();
     unconfigured.configured = false;
-    await expect(new SuggestSubjectMerges(subjects, unconfigured).execute()).resolves.toEqual({
+    await expect(
+      new SuggestSubjectMerges(subjects, unconfigured, new FixedClock()).execute(),
+    ).resolves.toEqual({
       state: 'UNCONFIGURED',
+      computedAt: null,
       groups: [],
       placeholders: [],
     });
@@ -156,6 +165,7 @@ describe('PreviewSubjectMerge', () => {
       name: 'Chevrolet Lacetti',
       kindId: avto.id,
       aka: ['CHEVROLET LACETTI'],
+      note: null,
     });
 
     // An unresolvable kind costs the kind, not the preview (docs/07 §7.3).
@@ -165,6 +175,25 @@ describe('PreviewSubjectMerge', () => {
       name: 'Chevrolet Lacetti',
       kindId: null,
       aka: [],
+      note: null,
     });
+  });
+
+  it('answers the composed note within the subject note limit', async () => {
+    const { subjects, lacettiCar, lacettiAvto } = await seeded();
+    const analyst = new ScriptedAnalyst();
+    analyst.preview = {
+      name: 'Chevrolet Lacetti',
+      kind: 'автомобиль',
+      aka: ['CHEVROLET LACETTI'],
+      note: `Plate BG-123-XY. ${'x'.repeat(2100)}`,
+    };
+    const preview = new PreviewSubjectMerge(subjects, analyst);
+
+    const response = await preview.execute({ ids: [lacettiCar.id, lacettiAvto.id] });
+
+    expect(response.note?.startsWith('Plate BG-123-XY.')).toBe(true);
+    // The subject note is a paragraph, and its limit is the subject contract's own (docs/07 §7.3).
+    expect(response.note).toHaveLength(2000);
   });
 });

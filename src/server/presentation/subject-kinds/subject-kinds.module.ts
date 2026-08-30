@@ -59,8 +59,9 @@ import { AdminSubjectKindsController, SubjectKindsController } from './subject-k
       useFactory: (
         kinds: SubjectKindRepository,
         analyst: CatalogueAnalyst,
-      ): SuggestSubjectKindMerges => new SuggestSubjectKindMerges(kinds, analyst),
-      inject: [SubjectKindRepository, CatalogueAnalyst],
+        clock: Clock,
+      ): SuggestSubjectKindMerges => new SuggestSubjectKindMerges(kinds, analyst, clock),
+      inject: [SubjectKindRepository, CatalogueAnalyst, Clock],
     },
     {
       provide: PreviewSubjectKindMerge,

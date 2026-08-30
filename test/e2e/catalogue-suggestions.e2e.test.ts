@@ -118,6 +118,8 @@ describe('Catalogue suggestions (e2e)', () => {
     expect(subjects.status).toBe(200);
     expect(expectData(subjects, subjectMergeSuggestionsResponseSchema)).toEqual({
       state: 'UNCONFIGURED',
+      // No reading, so nothing to date (docs/07 §7.3).
+      computedAt: null,
       groups: [],
       placeholders: [],
     });
@@ -128,6 +130,7 @@ describe('Catalogue suggestions (e2e)', () => {
     expect(kinds.status).toBe(200);
     expect(expectData(kinds, subjectKindMergeSuggestionsResponseSchema)).toEqual({
       state: 'UNCONFIGURED',
+      computedAt: null,
       groups: [],
     });
   });
@@ -156,6 +159,7 @@ describe('Catalogue suggestions (e2e)', () => {
       name: null,
       kindId: null,
       aka: null,
+      note: null,
     });
 
     const dead = await api(app)
@@ -175,6 +179,7 @@ describe('Catalogue suggestions (e2e)', () => {
       available: false,
       name: null,
       aka: null,
+      note: null,
     });
 
     const deadKind = await api(app)

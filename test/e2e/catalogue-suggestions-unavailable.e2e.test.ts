@@ -121,6 +121,8 @@ describe('Catalogue suggestions when the analyst cannot be asked (e2e)', () => {
     expect(people.status).toBe(200);
     expect(expectData(people, peopleMergeSuggestionsResponseSchema)).toEqual({
       state: 'UNAVAILABLE',
+      // A reading that failed is not one the screen may date (docs/07 §7.3).
+      computedAt: null,
       groups: [],
     });
 
@@ -130,6 +132,7 @@ describe('Catalogue suggestions when the analyst cannot be asked (e2e)', () => {
     expect(subjects.status).toBe(200);
     expect(expectData(subjects, subjectMergeSuggestionsResponseSchema)).toEqual({
       state: 'UNAVAILABLE',
+      computedAt: null,
       groups: [],
       placeholders: [],
     });
@@ -140,6 +143,7 @@ describe('Catalogue suggestions when the analyst cannot be asked (e2e)', () => {
     expect(kinds.status).toBe(200);
     expect(expectData(kinds, subjectKindMergeSuggestionsResponseSchema)).toEqual({
       state: 'UNAVAILABLE',
+      computedAt: null,
       groups: [],
     });
 

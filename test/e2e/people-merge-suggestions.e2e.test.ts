@@ -113,6 +113,8 @@ describe('People merge suggestions (e2e)', () => {
     expect(response.status).toBe(200);
     expect(expectData(response, peopleMergeSuggestionsResponseSchema)).toEqual({
       state: 'UNCONFIGURED',
+      // No reading, so nothing to date (docs/07 §7.3).
+      computedAt: null,
       groups: [],
     });
   });
@@ -129,6 +131,7 @@ describe('People merge suggestions (e2e)', () => {
       available: false,
       name: null,
       aka: null,
+      note: null,
     });
   });
 
