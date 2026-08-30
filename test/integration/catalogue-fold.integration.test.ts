@@ -1,5 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { CreatePerson } from '../../src/server/application/people/manage-people';
+import { ConflictError } from '../../src/server/domain/errors/domain-error';
 import { PersonRepository } from '../../src/server/domain/repositories/person.repository';
 import { SubjectKindRepository } from '../../src/server/domain/repositories/subject-kind.repository';
 import { SubjectRepository } from '../../src/server/domain/repositories/subject.repository';
@@ -66,5 +68,33 @@ describe('Catalogue identity fold (integration)', () => {
 
     expect((await people.findByName('асянина виктория'))?.id).toBe(person.id);
     expect(await people.findByName('ASIANINA VIKTORIA')).toBeNull();
+  });
+
+  // The other half of the fold's honesty (docs/03 §3.3.19, M47.14/SEC-76): a `%` or `_` in a name
+  // is a letter, because the uniqueness check is `nameFolded` equality. Under the old ILIKE
+  // predicate the user's characters compiled into a pattern, and '100% Ltd' — whose `%` swallows
+  // anything — "found" a stranger and answered a duplicate that was not one.
+  it('matches a wildcard-carrying name as letters, not as a pattern', async () => {
+    const create = new CreatePerson(people);
+    // The stranger a wildcard reading would swallow: '100% Ltd' matches it as a pattern ('%' takes
+    // the X), and so does '100_ Ltd' ('_' takes exactly one character).
+    const letters = await create.execute({ name: '100X Ltd' });
+
+    // (b) Both wildcard-carrying names create their own rows: the wildcard did not wildcard, so the
+    // duplicate check found nothing where only a pattern match would have.
+    const percent = await create.execute({ name: '100% Ltd' });
+    const underscore = await create.execute({ name: '100_ Ltd' });
+    expect(percent.id).not.toBe(letters.id);
+    expect(underscore.id).not.toBe(letters.id);
+
+    // (a) The name itself, again, is a duplicate — the ConflictError the API answers as 409: the
+    // wildcard character is matched as the letter it is, equal to itself and to nothing else.
+    await expect(create.execute({ name: '100% Ltd' })).rejects.toThrow(ConflictError);
+    await expect(create.execute({ name: '100_ Ltd' })).rejects.toThrow(ConflictError);
+
+    // 🔒 And the exact lookup every write path asks answers each row only under its own letters.
+    expect((await people.findByName('100% LTD'))?.id).toBe(percent.id);
+    expect((await people.findByName('100_ ltd'))?.id).toBe(underscore.id);
+    expect(await people.findByName('100? Ltd')).toBeNull();
   });
 });
