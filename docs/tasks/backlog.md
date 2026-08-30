@@ -31,7 +31,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 - [x] **M0.4 — One-process bootstrap (Express + Nest + Next), config, logging, health**
   **Goal:** the single process serves a Next placeholder page and `/api/health`; all integration invariants hold.
-  **Docs:** [`02 §2.2`](../02-architecture-overview.md#22-entry-point-servermaints), [`06 §6.6–6.10`](../06-backend-architecture.md), [`07 §7.1`](../07-api-specification.md#71-conventions)
+  **Docs:** [`02 §2.2`](../02-architecture-overview.md#22-entry-point-servermaints-integration-contract), [`06 §6.6–6.10`](../06-backend-architecture.md), [`07 §7.1`](../07-api-specification.md#71-conventions)
   **Acceptance:**
   - `server/main.ts` implements the bootstrap contract (dispatcher before `init`, `/api`-scoped parsers, no Nest `listen`, trust proxy).
   - Zod-validated config module (fails fast with readable error on bad env); `nestjs-pino` logging with requestId.
@@ -184,12 +184,12 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 - [x] **M5.3 — Browse API (virtual folders)**
   **Goal:** navigate the mounted folder structure of any nesting.
-  **Docs:** [`07`](../07-api-specification.md) (browse), [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browselibraryidpath)
+  **Docs:** [`07`](../07-api-specification.md) (browse), [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browse)
   **Acceptance (e2e):** folders derived from FileRef paths with document counts; nested paths of arbitrary depth; documents of the exact folder paginated; path validated (no traversal); RESTRICTED enforcement.
 
 - [x] **M5.4 — Document types: API + admin UI**
   **Goal:** the reference list is manageable.
-  **Docs:** [`07`](../07-api-specification.md) (document types), [`03 §3.3.12`](../03-domain-model.md#3312-document type), [`11 §11.12`](../11-ui-ux-spec.md#1112-admin-document types-admincategories)
+  **Docs:** [`07`](../07-api-specification.md) (document types), [`03 §3.3.12`](../03-domain-model.md#3312-document-type), [`11 §11.12`](../11-ui-ux-spec.md#1112-document-types-document-types)
   **Acceptance:** CRUD with slug immutability + `DOCUMENT_TYPE_SLUG_TAKEN`; delete resets documents to NONE in one transaction (e2e); admin table UI with counts and confirms.
 
 - [x] **M5.5 — UI: documents grid**
@@ -199,12 +199,12 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 - [x] **M5.6 — UI: document viewer**
   **Goal:** read and manage a single document.
-  **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsid), [`10 §10.8`](../10-frontend-architecture.md#108-media-in-the-ui)
+  **Docs:** [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`10 §10.8`](../10-frontend-architecture.md#108-media-in-the-ui)
   **Acceptance:** Preview/Text/Details tabs per spec (PDF `<object>`, sanitized markdown render, metadata incl. copyable hash and file locations with MISSING badges); sidebar: inline title edit, document type select with auto tag, download (disabled tooltip when unavailable), add-to-collection stub until M7, processing panel with per-step states + admin Reprocess with step checkboxes.
 
 - [x] **M5.7 — UI: browse**
   **Goal:** folder navigation UI.
-  **Docs:** [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browselibraryidpath)
+  **Docs:** [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browse)
   **Acceptance:** sidebar submenu of visible libraries; breadcrumb + folder list + document grid; URL-driven (`?path=`); works on deep nesting.
 
 ## M6 — Search
@@ -235,12 +235,12 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 - [x] **M8.1 — Scan sets API + merge handler**
   **Goal:** the passport scenario end to end on the backend.
-  **Docs:** [`05 §5.6`](../05-library-and-processing.md#56-scan-sets-merging-into-a-pdf-on-explicit-request), [`03 §3.3.16–3.3.17`](../03-domain-model.md), [`07`](../07-api-specification.md) (scan sets)
+  **Docs:** `05 §5.6` (scan sets — the section was removed by M13.9), [`03 §3.3.16–3.3.17`](../03-domain-model.md), [`07`](../07-api-specification.md) (scan sets)
   **Acceptance (e2e + integration):** CRUD with the DRAFT/FAILED-only edit rule (`SCANSET_INVALID_STATE`); non-image item → `SCANSET_ITEM_NOT_IMAGE`; merge: TRIM crops via sharp, NONE doesn't; result = DERIVED document (owner, provenance, `source.pdf` in S3) enqueued into the standard pipeline; identical result content → existing document reused; failure records error, retry after edit works; handler idempotent.
 
 - [x] **M8.2 — UI: scan-set builder + grid multi-select**
   **Goal:** the flow is usable.
-  **Docs:** [`11 §11.8`](../11-ui-ux-spec.md#118-scan-sets-scan-sets-scan-setsid)
+  **Docs:** `11 §11.8` (scan sets — the section was removed by M13.9)
   **Acceptance:** list with status tags; builder: drag-reorder strip, image picker, crop toggle, merge button, live status, failure panel, result link; documents-grid multi-select → "Create scan set from selection" (non-images skipped with notice).
 
 ## M9 — Hardening & release
@@ -300,7 +300,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 - [x] **M10.8 — Manage people, subjects and kinds outside a document**
   **Goal:** the catalogues have screens of their own, so correcting one is not an edit of some document that happens to name it.
-  **Docs:** [`11 §11.12`](../11-ui-ux-spec.md#1112-admin-document-types-admindocument-types)
+  **Docs:** [`11 §11.12`](../11-ui-ux-spec.md#1112-document-types-document-types)
   **Acceptance:** `/admin/people`, `/admin/subjects` and `/admin/subject-kinds` are tables in the pattern of the document types — create, rename, delete behind a confirmation that says how many documents it reaches — reachable from the admin menu and closed to everyone else.
 
 - [x] **M10.9 — The text tab is typeset, not just rendered**
@@ -310,7 +310,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 - [x] **M10.10 — Merge what the analysis saw twice**
   **Goal:** four rows for one flat — or one person spelled three ways — become one row, without losing a single document.
-  **Docs:** [`03 §3.3.19–20`](../03-domain-model.md), [`07`](../07-api-specification.md), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-admin-catalogues-adminpeople-adminsubjects-adminsubject-kinds)
+  **Docs:** [`03 §3.3.19–20`](../03-domain-model.md), [`07`](../07-api-specification.md), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
   **Acceptance:** rows are selectable on `/admin/people` and `/admin/subjects`; **Merge** asks for the surviving name — offered as a choice among the selected ones, or typed — and, for subjects, for the kind when the selected rows disagree; every document link moves to the survivor with duplicates collapsed, the others are soft-deleted, and no document loses the person or the thing it named; an admin's, and refused when the result would collide with a row that was not selected.
 
 - [x] **M10.11 — A kind is named in the owner's own words**
@@ -320,7 +320,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 - [x] **M10.12 — The count is the way to the documents**
   **Goal:** "40" in a catalogue row is a question, and clicking it should answer it.
-  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-admin-catalogues-adminpeople-adminsubjects-adminsubject-kinds), [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browse)
+  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types), [`11 §11.4`](../11-ui-ux-spec.md#114-browse-browse)
   **Acceptance:** the documents count on `/admin/people` and `/admin/subjects` links to that person's or that thing's browse page; a count of zero is plain text, since there is nothing to go to.
 
 ## M11 — Uploading, throughput, and knowing a thing again
@@ -347,7 +347,7 @@ Execution rules — [`README.md`](./README.md). Take the first unchecked task. O
 
 - [x] **M11.5 — The catalogues are content, not administration**
   **Goal:** people, things, kinds and document types stop living behind an admin door.
-  **Docs:** [`11 §11.1`](../11-ui-ux-spec.md#111-shell--navigation), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-admin-catalogues-adminpeople-adminsubjects-adminsubject-kinds)
+  **Docs:** [`11 §11.1`](../11-ui-ux-spec.md#111-shell--navigation), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
   **Acceptance:** they move out of `Administration` to their own places in the menu, beside Documents and Browse, and off the `/admin` routes; anyone signed in may read them and add to them, exactly as the API has always allowed; renaming, deleting and merging stay an admin's and simply are not offered to anyone else, rather than the whole screen being hidden.
 
 ## M12 — Reading the instance from outside
@@ -424,7 +424,7 @@ build on it.
 
 - [x] **M14.2 — A merge keeps what the rows carried**
   **Goal:** the note nobody wants to lose is offered rather than dropped.
-  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-admin-catalogues-adminpeople-adminsubjects-adminsubject-kinds)
+  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
   **Acceptance:** the merge dialog's note arrives prefilled with the names about to disappear and every note the selected rows had, editable before confirming, and empty when there was nothing to keep.
 
 - [x] **M14.3 — Saving a person, and a date**
@@ -615,7 +615,7 @@ changes the work by an order of magnitude:
 
 - [x] **M16.2 — A name that is gone says so**
   **Goal:** a person or subject that was deleted from the catalogue stops looking like one that was not.
-  **Docs:** [`03 §3.3.19–3.3.20`](../03-domain-model.md), [`07 §7.3`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-admin-catalogues-adminpeople-adminsubjects-adminsubject-kinds)
+  **Docs:** [`03 §3.3.19–3.3.20`](../03-domain-model.md), [`07 §7.3`](../07-api-specification.md), [`11 §11.5`](../11-ui-ux-spec.md#115-document-viewer-documentsidtab), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
   **They stay, and that is not the bug.** `03 §3.3.19`, `07 §7.3` and `11 §11.12a` all say the links survive a deletion, and the confirmation dialog says it to the operator's face — "they stay on the N documents that name them". Removing them would make a shipped sentence a lie. What is missing is any way to *tell*, and the DTO carries nothing to tell it with.
   **Acceptance:** the document detail says, per person and per subject, whether the catalogue still holds it; the viewer strikes such a name through and says why on hover, in both the reading pane and the editor, where it is present but cannot be chosen again; `PATCH /api/documents/:id` refuses an id that has been deleted rather than silently re-linking it — which is what `03 §3.3.19` already promises when it says only new documents stop being able to name them; people and subjects behave identically, and a test proves each.
 
@@ -1298,6 +1298,7 @@ probes survived refutation, which is a better yield than the reviews themselves 
   **Goal:** the instance-wide catalogues stop being an unbounded, unpaginated, wildcard-matched write surface open to every user.
   **Docs:** [`03 §3.3.19`](../03-domain-model.md), [`07 §7.3`](../07-api-specification.md)
   **Acceptance:** closes [SEC-51](./security-audit-2026-08-second-pass.md#sec-51), [SEC-56](./security-audit-2026-08-second-pass.md#sec-56), [SEC-69](./security-audit-2026-08-second-pass.md#sec-69), [SEC-76](./security-audit-2026-08-second-pass.md#sec-76). `POST /api/people`, `/api/subjects` and `/api/subject-kinds` are rate-limited and bounded, so one account cannot fill a namespace every other user reads; the catalogue read endpoints paginate like every other list; `subjectKindList` is capped the way the subject list beside it already is; and the uniqueness check stops compiling a user's `%`, `_` and `\` into an `ILIKE` pattern — it is a different predicate from the `lower(name)` unique index the database actually enforces, which is its own bug. Tests: a name containing a wildcard is matched as letters; the check and the index agree.
+  *Since revised: "the check and the index agree" fully lands with M49.4 (the fold indexes) — M49.1 moved the uniqueness check onto `name_folded` while the indexes still enforce `lower(name)`, a divergence the fold migration deliberately deferred until the operator has merged the duplicates the old indexes admitted.*
 
 - [x] **M47.15 — A composition cannot orphan what it touches**
   **Goal:** no sequence of composition operations leaves a document nobody but an admin can see, or bytes nobody can delete.
@@ -1567,12 +1568,12 @@ name — and stops carrying instructions about documents it has never heard of.
 
 - [x] **M55.1 — The page is the unit, written down as a decision**
   **Goal:** the model changes on purpose and in the documentation first, not as a consequence discovered in a migration.
-  **Docs:** [`02` ADR-025](../02-architecture-overview.md#adr-021-a-file-is-not-a-document), [`03 §3.3.10`](../03-domain-model.md#3310-document), [`03 §3.3.16`](../03-domain-model.md#3316-file), [`03 §3.3.17`](../03-domain-model.md#3317-documentfile), [`05 §5.6`](../05-library-and-processing.md#56-composing-a-document-out-of-files), [`05 §5.7a`](../05-library-and-processing.md#57a-the-trash)
+  **Docs:** [`02` ADR-025](../02-architecture-overview.md#adr-021-a-file-is-not-a-document), [`03 §3.3.10`](../03-domain-model.md#3310-document), [`03 §3.3.16`](../03-domain-model.md#3316-file), [`03 §3.3.17`](../03-domain-model.md#3317-documentpage), [`05 §5.6`](../05-library-and-processing.md#56-composing-a-document-out-of-files), [`05 §5.7a`](../05-library-and-processing.md#57a-the-trash)
   **Acceptance:** **ADR-025 — a document is an ordered list of pages** in the voice of its neighbours, superseding the half of [ADR-021](../02-architecture-overview.md#adr-021-a-file-is-not-a-document) that made it a list of files and leaving the other half exactly as it stands — the canonical PDF is still built for every document, always, and the originals are still never touched (ADR-007); it records what a page is (a file, one of its pages, a turn, a crop), what a file goes back to being, and why extracting bytes was refused; 🔒 the invariant "a file belongs to exactly one live document" is **retired in the same breath**, because pages of one file living in two documents is the point — and the rules that leaned on it are re-stated rather than dropped: a file with no live page is in the trash (`05 §5.7a`) and `trashedFrom` still names the document it left **last**, since leaving the last one is when it enters; a replacement replaces the bytes for **every** page that reads them, a better scan being better wherever the page is read, and the screen says how many documents it touches before it does it; ingest is unchanged, deduplication by hash having never implied one document, only one row. No code in this task.
 
 - [x] **M55.2 — The composition becomes a list of pages**
   **Goal:** the schema says what the model says, and the canonical is built from the list.
-  **Docs:** [`03 §3.3.17`](../03-domain-model.md#3317-documentfile), [`04 §4.3`](../04-database-schema.md#43-raw-sql-in-migrations-required-steps), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`07 §7.3`](../07-api-specification.md#73-endpoints)
+  **Docs:** [`03 §3.3.17`](../03-domain-model.md#3317-documentpage), [`04 §4.3`](../04-database-schema.md#43-raw-sql-in-migrations-required-steps), [`05 §5.5`](../05-library-and-processing.md#55-document-processing-pipeline-document-process), [`07 §7.3`](../07-api-specification.md#73-endpoints)
   **Acceptance:** `DocumentPage` — `(documentId, position)` unique and contiguous, `fileId`, `pageIndex`, `turn`, `crop`, `cropSource` — replaces `DocumentFile` as the thing that is ordered, and `File` loses `crop`, `cropSource`, `pageOrder` and the turn M53 wrote on it, keeping only what describes bytes: hash, mime, size, name, `pageCount`, the trash fields; **a file whose pages nobody has counted is held as one entry with `pageIndex` `NULL`** — "this file, whole, in the order it arrived" — which the first canonical build expands into one entry per page the moment it knows how many there are (`File.pageCount`, `05 §5.5` step 1.1), and that is the only two-level state left, a transitional one with a written end; a hand-written forward-only migration turns every existing row into pages — a stored `pageOrder` into that many entries in that order, a file with a known `pageCount` into its pages, anything uncounted into the `NULL` entry — carrying each file's crop onto the page it belonged to, and drops the unique index on `document_files.file_id`; a crop on a page of a PDF is honoured exactly as a crop on an image is, the page rendered and warped, because **a scanned page is already raster and loses nothing by it** and a vector page cropped becomes raster, which is what somebody who dragged its corners asked for; the canonical build reads the list, in order, each page turned and cropped as its entry says. Tests: the migration over each of the three shapes; a document whose pages come from two files; the expansion of a `NULL` entry on first build; two documents cropping one photograph apart; the rebuild enqueued by every composition change as before.
 
 - [x] **M55.3 — A page goes anywhere in the order**
@@ -1589,6 +1590,7 @@ name — and stops carrying instructions about documents it has never heard of.
   **Goal:** the page that belongs elsewhere goes there instead of being scanned again.
   **Docs:** [`05 §5.6`](../05-library-and-processing.md#56-composing-a-document-out-of-files), [`07 §7.3`](../07-api-specification.md#73-endpoints)
   **Acceptance:** pages picked in one document move into another — an existing one, at a chosen position, or a new one made to hold them — the entries leaving one list and joining the other, and a file with no live page anywhere going to the trash; both documents rebuild; 🔒 the mover must be allowed to edit **both** documents, and a move into one they may not edit is refused whole rather than done by halves. Tests: a page moved between two documents and both canonicals afterwards; a move that empties a file into the trash; the access refusal; a move into a new document.
+  *Since revised: "a move that empties a file into the trash" is unreachable by construction — a move takes the pages into the target, where they stay live, so no move can leave a file without a live page anywhere; the trash rule is proven where a page is removed (`05 §5.7a`), and the clause stands here as the record of what was accepted.*
 
 - [x] **M55.6 — The pages are the screen**
   **Goal:** the composition is worked on as pages, with a hand, because that is how somebody puts twenty scans in order.
@@ -1597,7 +1599,7 @@ name — and stops carrying instructions about documents it has never heard of.
 
 - [x] **M55.7 — A page is cropped and turned as a page**
   **Goal:** the crop `03 §3.3.17` promises a page of a PDF can actually be asked for.
-  **Docs:** [`03 §3.3.17`](../03-domain-model.md#3317-documentfile), [`05 §5.6`](../05-library-and-processing.md#56-composing-a-document-out-of-files), [`07 §7.3`](../07-api-specification.md#73-endpoints)
+  **Docs:** [`03 §3.3.17`](../03-domain-model.md#3317-documentpage), [`05 §5.6`](../05-library-and-processing.md#56-composing-a-document-out-of-files), [`07 §7.3`](../07-api-specification.md#73-endpoints)
   **Acceptance:** M55.2 moved the crop and the turn onto the page and M55.2 says the build honours a crop on a page of a PDF by rendering and warping it — but the only route that sets either still addresses a **file** and answers `422 FILE_NOT_IMAGE` to anything that is not one, so the promise is unreachable; **`PATCH /api/documents/:id/pages/:pageId`** takes `{ crop?, turn? }`, `null` for either clearing it, and answers the whole `DocumentDetailDto` like every other page route, `404 PAGE_NOT_FOUND` for a page this document has not got; a crop is accepted on **any** page, an image's or a PDF's, because that is what the model already says the build does; `mirrored` stays an image's own — a page of a PDF turns in quarters — and asking for it elsewhere is `422 FILE_NOT_IMAGE`, which is now the only thing that error means; the file route keeps setting what is still genuinely per file and stops being the way a crop is set. Tests: a crop set on a page of a PDF and honoured by the build; a turn set on a page; both cleared; the refusals; the file route's remaining shape.
 
 - [x] **M55.8 — The page order is proven against the real thing**
@@ -1609,3 +1611,4 @@ name — and stops carrying instructions about documents it has never heard of.
   **Goal:** the eight HIGH findings the first scan of all three images returned are answered or written down as answered by somebody else.
   **Docs:** [`13`](../13-ci-cd.md), [`12 §12.7`](../12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)
   **Acceptance:** M47.11 put Stirling and Docling under the same Trivy job as the app, and `v0.26.0` is the first release where that job ran: it came back red with **eight HIGH and no CRITICAL** — the app's `libcrypto3` `CVE-2026-14456` (fixed in `3.5.8-r0`, and the app's base is the floating `node:26-alpine`, so this clears when upstream Node rebuilds and not before); Docling's four, including `jackson-core` `GHSA-r7wm-3cxj-wff9` inside `ray_dist.jar` (fixed in 2.18.8 / 2.21.4); Stirling's two Ubuntu ones, `CVE-2026-45447` and `CVE-2026-69244`/`CVE-2026-69247`. 🔒 **The image was published and `latest` moved** — a red `scan` is a report about bytes that already exist, which is exactly the difference `13 §13.3a` draws between a failed build and a failed scan, and the release command said so on the line above the failure. What this task owes: for each finding, either the pinned digest moved to an upstream build that fixes it, or a line in `12 §12.7` naming the CVE, saying which of the three images carries it, why it is not reachable in this deployment, and what would make it reachable — a scan nobody answers becomes a scan nobody reads. And a decision recorded in `13`: whether a red scan on findings already recorded should keep failing the release run, or whether the recorded set is subtracted first, so the next red one means something new.
+  *Since revised: the "eight HIGH" were only the report's first tables — the run held 58 distinct HIGH advisories (one in the app image, six in Docling, fifty-one in Stirling), and the register of `12 §12.7` carries the full set.*

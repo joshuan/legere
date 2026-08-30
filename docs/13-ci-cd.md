@@ -178,7 +178,7 @@ compare link, assembled in the job itself: GitHub's own `--generate-notes` reads
 a repository in its direct-commit mode has none to read, so it would produce a bare compare link.
 Commit subjects are Conventional Commits either way — under squash-merge they *are* the PR titles —
 so the same notes read correctly in both modes. The job waits for both merges on purpose: a release
-page that exists is a promise that `ghcr.io/<owner>/legere:vX.Y.Z` — and the two parser images that
+page that exists is a promise that `ghcr.io/<owner>/legere:X.Y.Z` — and the two parser images that
 version names — can be pulled.
 
 A further job, `scan`, reads the published tags back and fails on a fixed HIGH or CRITICAL finding
