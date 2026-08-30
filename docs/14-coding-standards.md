@@ -115,7 +115,8 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
   re-attach by hash); missing → unavailable → return restores.
 - Dedup: two paths, one content → one Document, two FileRefs, pipeline ran once.
 - Pipeline: per-format step matrix (pdf-with-text no OCR; scanned pdf → OCR; office → canonical;
-  image → trim/preview; txt/md passthrough; unsupported → SKIPPED); step failure isolates
+  image → a page of the canonical PDF; txt/md → converted into the canonical; unsupported →
+  SKIPPED); step failure isolates
   (preview FAILED but markdown DONE); reprocess subset only re-runs requested steps; vectorization
   SKIPPED without provider and `semanticAvailable=false` in search.
 - Jobs: handler idempotency (double delivery of every job type), singleton scan per library,
@@ -167,7 +168,8 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
   and never a rewrite of the file, applied after the crop; a document with a missing original still
   serves its canonical.
 - API: unknown `/api/*` → JSON `NOT_FOUND` (not HTML); envelope shape on success and error; BigInt as
-  string; soft-deleted → 404 everywhere.
+  string; a deleted document → 404 everywhere (the deletion is real — `02` ADR-015 as amended — and
+  its files go to the trash).
 
 Each scenario above is mapped to the test that proves it in
 [`tasks/scenario-coverage.md`](./tasks/scenario-coverage.md); renaming or deleting one of those tests
