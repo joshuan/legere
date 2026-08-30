@@ -13,6 +13,7 @@ const kind = {
   note: null,
   subjectCount: 3,
   documentCount: 11,
+  lastDocumentAt: '2026-03-01',
 };
 
 const server = createApiMock();
@@ -25,10 +26,10 @@ beforeEach(() => {
       HttpResponse.json(envelope({ nextCursor: null, items: [kind] })),
     ),
     http.get('/api/admin/subject-kinds/merge-suggestions', () =>
-      HttpResponse.json(envelope({ state: 'UNCONFIGURED', groups: [] })),
+      HttpResponse.json(envelope({ state: 'UNCONFIGURED', computedAt: null, groups: [] })),
     ),
     http.post('/api/admin/subject-kinds/merge-preview', () =>
-      HttpResponse.json(envelope({ available: false, name: null, aka: null })),
+      HttpResponse.json(envelope({ available: false, name: null, aka: null, note: null })),
     ),
   );
 });
@@ -90,6 +91,7 @@ describe('SubjectKindsScreen', () => {
       note: null,
       subjectCount: 1,
       documentCount: 2,
+      lastDocumentAt: null,
     };
 
     it('folds the selected kinds into one, asking which name is the right one', async () => {
@@ -141,7 +143,10 @@ describe('SubjectKindsScreen', () => {
           HttpResponse.json(
             envelope({
               state: 'ANSWERED',
-              groups: [{ ids: [kind.id, twin.id], name: 'apartment', aka: ['Apartment'] }],
+              computedAt: '2026-08-30T10:00:00.000Z',
+              groups: [
+                { ids: [kind.id, twin.id], name: 'apartment', aka: ['Apartment'], note: null },
+              ],
             }),
           ),
         ),
@@ -174,7 +179,7 @@ describe('SubjectKindsScreen', () => {
     it('says the analyst could not be asked, instead of showing nothing', async () => {
       server.use(
         http.get('/api/admin/subject-kinds/merge-suggestions', () =>
-          HttpResponse.json(envelope({ state: 'UNAVAILABLE', groups: [] })),
+          HttpResponse.json(envelope({ state: 'UNAVAILABLE', computedAt: null, groups: [] })),
         ),
       );
 

@@ -1,35 +1,24 @@
 'use client';
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Form, Input, Space, Typography } from 'antd';
+import { Form, Input, Typography } from 'antd';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { useCallback, useState } from 'react';
-import type { MergeSuggestionGroup, PersonDto } from '../../../shared/contracts/people';
+import { useCallback } from 'react';
+import type { PersonDto } from '../../../shared/contracts/people';
 import { personApi, personKeys } from '../../entities/person';
 import { useIsAdmin } from '../../entities/user';
-import {
-  AnalystUnavailableNotice,
-  CatalogueManager,
-  type MergeValues,
-} from '../../widgets/catalogue-manager';
+import { CatalogueManager, type CatalogueSuggestionsReading } from '../../widgets/catalogue-manager';
 
 type FormValues = { name: string; note: string };
 
 // As much as `mergePeopleRequestSchema` accepts.
 const NOTE_MAX = 500;
 
-// The survivor's note, composed the way the raw prefill composes it (docs/11 §11.12a) — the "also
-// known as" line first, then every note the rows carried — only with the analyst's tidy spellings
-// in place of the raw dump. Clamped where it is composed rather than where it is displayed.
-function composedNote(akaLine: string | null, rows: readonly PersonDto[]): string {
-  const notes = rows.map((person) => (person.note ?? '').trim()).filter((note) => note !== '');
-  return [...(akaLine === null ? [] : [akaLine]), ...notes].join('\n').slice(0, NOTE_MAX);
-}
-
 // /people (docs/11 §11.12a): the catalogue the analysis writes into and a person corrects.
 // Correcting it here rather than on a document is the point — a name spelled wrong on forty
-// documents is one row, not forty edits (docs/03 §3.3.19).
+// documents is one row, not forty edits (docs/03 §3.3.19). The screen is a configuration of the
+// shared manager: its columns, its words, its API — the behavior lands once, in the widget (M56.1).
 export function PeopleScreen() {
   const t = useTranslations();
   // The role comes from the layout's own answer, through context (docs/10 §10.2).
@@ -40,42 +29,6 @@ export function PeopleScreen() {
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: personKeys.all });
   }, [queryClient]);
-
-  // The analyst's proposals (docs/05 §5.6c). Asked once per visit and kept: a merged group leaves
-  // the banner because its rows leave the catalogue, not because the server is asked again — the
-  // server never remembers being refused, so re-asking is re-proposing.
-  const suggestions = useQuery({
-    queryKey: personKeys.mergeSuggestions,
-    queryFn: personApi.mergeSuggestions,
-    enabled: isAdmin,
-    staleTime: Infinity,
-  });
-  const [bannerClosed, setBannerClosed] = useState(false);
-
-  const alive = new Map((people.data?.items ?? []).map((person) => [person.id, person]));
-  // A group survives only whole: a row merged or deleted since the answer takes its group with it.
-  const groups = (suggestions.data?.state === 'ANSWERED' ? suggestions.data.groups : []).filter(
-    (group) => group.ids.every((id) => alive.has(id)),
-  );
-  // The third state (docs/05 §5.6c): the analyst was asked and could not answer. Said out loud,
-  // because an empty banner area used to mean this and "no duplicates" alike (docs/11 §11.12a).
-  const unavailable = suggestions.data?.state === 'UNAVAILABLE';
-
-  const groupRows = (group: MergeSuggestionGroup): PersonDto[] =>
-    group.ids.flatMap((id) => {
-      const person = alive.get(id);
-      return person === undefined ? [] : [person];
-    });
-
-  // The suggestion's aka line is the analyst's; a hand-picked merge asks for its own when the
-  // dialog opens (docs/11 §11.12a).
-  const akaLine = (aka: readonly string[]): string | null =>
-    aka.length === 0 ? null : t('admin.catalogues.fields.alsoKnownAs', { names: aka.join(', ') });
-
-  const suggestedValues = (group: MergeSuggestionGroup): MergeValues => ({
-    name: group.name,
-    note: composedNote(akaLine(group.aka), groupRows(group)),
-  });
 
   return (
     <CatalogueManager<PersonDto, FormValues>
@@ -151,47 +104,17 @@ export function PeopleScreen() {
             .mergePreview({ ids: rows.map((person) => person.id) })
             .catch(() => null);
           if (preview === null || !preview.available || preview.name === null) return null;
-          return {
-            name: preview.name,
-            note: composedNote(akaLine(preview.aka ?? []), rows),
-          };
+          return { values: { name: preview.name }, aka: preview.aka ?? [] };
         },
-        // The screen notices first (docs/11 §11.12a): one row per group, and the same dialog — or,
-        // when the analyst could not be asked at all, says that instead of showing nothing.
-        banner: (openMerge) => {
-          if (bannerClosed) return null;
-          if (unavailable)
-            return <AnalystUnavailableNotice onClose={() => setBannerClosed(true)} />;
-          if (groups.length === 0) return null;
-          return (
-            <Alert
-              type="info"
-              showIcon
-              closable
-              style={{ marginBottom: 16 }}
-              onClose={() => setBannerClosed(true)}
-              message={t('admin.people.suggestions.title')}
-              description={
-                <Space direction="vertical" size="small">
-                  {groups.map((group) => (
-                    <Space key={group.ids.join(':')} wrap>
-                      <Typography.Text>
-                        {groupRows(group)
-                          .map((person) => person.name)
-                          .join(', ')}
-                      </Typography.Text>
-                      <Button
-                        size="small"
-                        onClick={() => openMerge(groupRows(group), suggestedValues(group))}
-                      >
-                        {t('admin.catalogues.actions.merge', { count: group.ids.length })}
-                      </Button>
-                    </Space>
-                  ))}
-                </Space>
-              }
-            />
-          );
+      }}
+      // The analyst's proposals (docs/05 §5.6c), on the manager's terms; this screen only says
+      // where to ask and what to call the panel.
+      suggestions={{
+        title: t('admin.people.suggestions.title'),
+        queryKey: personKeys.mergeSuggestions,
+        fetch: async (): Promise<CatalogueSuggestionsReading> => {
+          const reading = await personApi.mergeSuggestions();
+          return { state: reading.state, groups: reading.groups };
         },
       }}
       fields={() => (

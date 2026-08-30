@@ -12,6 +12,7 @@ const person = {
   name: 'Marija Petrović',
   note: 'The landlady',
   documentCount: 40,
+  lastDocumentAt: '2026-03-01',
 };
 
 // The same person, as another document spells her (docs/03 §3.3.19).
@@ -20,6 +21,7 @@ const twin = {
   name: 'Marija Petrovic',
   note: 'Signs the lease',
   documentCount: 3,
+  lastDocumentAt: null,
 };
 
 const server = createApiMock();
@@ -35,10 +37,10 @@ beforeEach(() => {
   // its raw prefill (docs/11 §11.12a) — which is exactly what the older merge tests assert.
   server.use(
     http.get('/api/admin/people/merge-suggestions', () =>
-      HttpResponse.json(envelope({ state: 'UNCONFIGURED', groups: [] })),
+      HttpResponse.json(envelope({ state: 'UNCONFIGURED', computedAt: null, groups: [] })),
     ),
     http.post('/api/admin/people/merge-preview', () =>
-      HttpResponse.json(envelope({ available: false, name: null, aka: null })),
+      HttpResponse.json(envelope({ available: false, name: null, aka: null, note: null })),
     ),
   );
 });
@@ -206,6 +208,7 @@ describe('PeopleScreen', () => {
               available: true,
               name: 'Marija Petrović',
               aka: ['Marija Petrovic', 'PETROVIC/MARIJA'],
+              note: null,
             }),
           ),
         ),
@@ -228,6 +231,7 @@ describe('PeopleScreen', () => {
       ids: [person.id, twin.id],
       name: 'Marija Petrović',
       aka: ['Marija Petrovic'],
+      note: null,
     };
 
     beforeEach(() => {
@@ -236,7 +240,9 @@ describe('PeopleScreen', () => {
           HttpResponse.json(envelope({ nextCursor: null, items: [person, twin] })),
         ),
         http.get('/api/admin/people/merge-suggestions', () =>
-          HttpResponse.json(envelope({ state: 'ANSWERED', groups: [group] })),
+          HttpResponse.json(
+            envelope({ state: 'ANSWERED', computedAt: '2026-08-30T10:00:00.000Z', groups: [group] }),
+          ),
         ),
       );
     });
@@ -293,7 +299,7 @@ describe('PeopleScreen', () => {
     it('says the analyst could not be asked, instead of showing nothing', async () => {
       server.use(
         http.get('/api/admin/people/merge-suggestions', () =>
-          HttpResponse.json(envelope({ state: 'UNAVAILABLE', groups: [] })),
+          HttpResponse.json(envelope({ state: 'UNAVAILABLE', computedAt: null, groups: [] })),
         ),
       );
 
@@ -315,7 +321,9 @@ describe('PeopleScreen', () => {
     it('says nothing at all when the analyst was asked and proposed nothing', async () => {
       server.use(
         http.get('/api/admin/people/merge-suggestions', () =>
-          HttpResponse.json(envelope({ state: 'ANSWERED', groups: [] })),
+          HttpResponse.json(
+            envelope({ state: 'ANSWERED', computedAt: '2026-08-30T10:00:00.000Z', groups: [] }),
+          ),
         ),
       );
 

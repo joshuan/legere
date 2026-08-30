@@ -196,7 +196,15 @@ function serve(
       HttpResponse.json(
         envelope({
           nextCursor: null,
-          items: [{ id: PERSON_ID, name: 'Marija Petrović', note: null, documentCount: 1 }],
+          items: [
+            {
+              id: PERSON_ID,
+              name: 'Marija Petrović',
+              note: null,
+              documentCount: 1,
+              lastDocumentAt: null,
+            },
+          ],
         }),
       ),
     ),
@@ -212,6 +220,7 @@ function serve(
               name: 'Njegoševa 5',
               note: null,
               documentCount: 1,
+              lastDocumentAt: null,
             },
           ],
         }),
@@ -222,7 +231,14 @@ function serve(
         envelope({
           nextCursor: null,
           items: [
-            { id: KIND_ID, name: 'apartment', note: null, subjectCount: 1, documentCount: 1 },
+            {
+              id: KIND_ID,
+              name: 'apartment',
+              note: null,
+              subjectCount: 1,
+              documentCount: 1,
+              lastDocumentAt: null,
+            },
           ],
         }),
       ),

@@ -1,7 +1,8 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
+  Alert,
   App,
   AutoComplete,
   Button,
@@ -12,11 +13,14 @@ import {
   Popconfirm,
   Space,
   Table,
+  Typography,
   type TableColumnType,
 } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useRef, useState, type ReactNode } from 'react';
+import type { CatalogueReadingState } from '../../../shared/contracts/common';
 import { useErrorMessage } from '../../shared/lib';
+import { AnalystUnavailableNotice } from './analyst-unavailable-notice';
 
 export type CatalogueColumn<Row> = {
   title: string;
@@ -30,7 +34,7 @@ export type CatalogueColumn<Row> = {
 };
 
 // The shape every catalogue screen has: a table of rows, one modal that both creates and edits, and
-// a delete behind a confirmation that says how far it reaches (docs/11 §11.12). Written once because
+// a delete behind a confirmation that says how far it reaches (docs/11 §11.12a). Written once because
 // people, subjects and their kinds differ only in their columns and their fields — and a catalogue
 // that behaves differently from the catalogue next to it is a catalogue nobody trusts.
 // What a merge always asks for, whatever is being merged: which of these is the right name. Any
@@ -38,6 +42,34 @@ export type CatalogueColumn<Row> = {
 // Every field a merge asks about is a name or an id, so one string map covers them; a screen that
 // needs more shape than that is a screen with a form of its own.
 export type MergeValues = Record<string, string>;
+
+// The analyst's tidier reading of what a hand-picked merge dialog should open with
+// (docs/11 §11.12a): the name (and any extra values, like a subject's kind), and the distinct other
+// spellings the note's "also known as" line is composed from.
+export type MergePrefill = {
+  values: MergeValues;
+  aka: readonly string[];
+};
+
+// One group the analyst proposes folding (docs/05 §5.6c), as every catalogue's contract answers it:
+// the rows, the spelling worth keeping, the distinct other spellings — plus whatever else the
+// dialog's extra fields want decided, the kind for subjects.
+export type CatalogueSuggestionGroup = {
+  ids: string[];
+  name: string;
+  aka: string[];
+  extraValues?: MergeValues;
+};
+
+// The whole reading, in the three states of docs/05 §5.6c: answered (groups included, empty ones
+// too), no analyst configured, or asked and could not answer — which is not an answer of none.
+export type CatalogueSuggestionsReading = {
+  state: CatalogueReadingState;
+  groups: CatalogueSuggestionGroup[];
+  // Subjects only: living rows whose name is a kind rather than a thing, offered for deletion
+  // (docs/11 §11.12a).
+  placeholderIds?: string[];
+};
 
 export function CatalogueManager<Row extends { id: string }, Values extends object>({
   title,
@@ -59,6 +91,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   canManage,
   canCreate,
   merge,
+  suggestions,
 }: {
   title: string;
   createLabel: string;
@@ -101,11 +134,23 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     // A tidier reading of what the dialog should open with, fetched while the raw prefill is
     // already on screen; it lands only while the person has not started editing, because a form
     // must never fight its user (docs/11 §11.12a). `null` means "keep the raw prefill".
-    prefill?: (rows: Row[]) => Promise<MergeValues | null>;
-    // The screen's own banner above the table — duplicate suggestions, on the catalogues that have
-    // them (docs/11 §11.12a). It is handed the same door the Merge button uses, so a suggested
-    // merge and a hand-picked one are one dialog.
-    banner?: (openMerge: (rows: Row[], values: MergeValues) => void) => ReactNode;
+    prefill?: (rows: Row[]) => Promise<MergePrefill | null>;
+  };
+  // The duplicates the analyst knows of, above the table (docs/11 §11.12a, docs/05 §5.6c). The
+  // manager owns the asking and the drawing; the screen says only where to ask and what to call
+  // things. Asked once per visit and kept: a merged group leaves the panel because its rows leave
+  // the catalogue, not because the server is asked again — it never remembers being refused, so
+  // re-asking is re-proposing.
+  suggestions?: {
+    // The screen's own words above the groups.
+    title: string;
+    queryKey: readonly unknown[];
+    fetch: () => Promise<CatalogueSuggestionsReading>;
+    // The line naming a group's (or a placeholder's) row — subjects prefix each name with its kind.
+    // Defaults to the merge label.
+    rowLabel?: (row: Row) => string;
+    // Subjects only: the heading over the placeholder rows offered for deletion.
+    placeholdersTitle?: string;
   };
 }) {
   const t = useTranslations();
@@ -159,36 +204,40 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     onError,
   });
 
-  // Nothing written on the merged rows is thrown away (docs/11 §11.12a): the names that are about to
-  // disappear, and then every note any of the selected rows carried, one per line. The person editing
-  // it deletes what is noise — but the default is "keep everything", because the alternative is a
-  // merge that quietly destroys the one line somebody wrote a year ago to explain which flat this is.
-  const keptNote = (rows: Row[], survivor: string): string => {
-    if (merge === undefined) return '';
-
-    const vanishing = [...new Set(rows.map((row) => merge.label(row)))].filter(
-      (name) => name !== survivor,
-    );
-    const notes = rows
-      .map((row) => merge.note?.(row) ?? '')
-      .map((note) => note.trim())
-      .filter((note) => note !== '');
-
-    return clampNote(
-      [
-        ...(vanishing.length === 0
-          ? []
-          : [t('admin.catalogues.fields.alsoKnownAs', { names: vanishing.join(', ') })]),
-        ...notes,
-      ].join('\n'),
-    );
-  };
-
   // Cut to the contract's limit from the end: `maxLength` on the field stops typing, not a value
   // set by code, and a prefill past the limit used to throw a client-side parse before any request
   // was made (M48.1).
   const clampNote = (note: string): string =>
     merge?.noteMaxLength === undefined ? note : note.slice(0, merge.noteMaxLength);
+
+  // Nothing written on the merged rows is thrown away (docs/11 §11.12a): the spellings that are
+  // about to disappear, and then every note any of the selected rows carried, one per line. The
+  // person editing it deletes what is noise — but the default is "keep everything", because the
+  // alternative is a merge that quietly destroys the one line somebody wrote a year ago to explain
+  // which flat this is.
+  const composeNote = (aka: readonly string[], rows: Row[]): string => {
+    const notes = rows
+      .map((row) => merge?.note?.(row) ?? '')
+      .map((note) => note.trim())
+      .filter((note) => note !== '');
+    return clampNote(
+      [
+        ...(aka.length === 0
+          ? []
+          : [t('admin.catalogues.fields.alsoKnownAs', { names: aka.join(', ') })]),
+        ...notes,
+      ].join('\n'),
+    );
+  };
+
+  // The raw prefill's aka line: every distinct selected name except the survivor's.
+  const keptNote = (rows: Row[], survivor: string): string => {
+    if (merge === undefined) return '';
+    const vanishing = [...new Set(rows.map((row) => merge.label(row)))].filter(
+      (name) => name !== survivor,
+    );
+    return composeNote(vanishing, rows);
+  };
 
   // One door for every way the dialog opens — the Merge button over a hand-picked selection, and a
   // suggestion's own button (docs/11 §11.12a).
@@ -214,8 +263,105 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     void merge.prefill?.(rows).then((tidied) => {
       if (tidied === null || tidied === undefined) return;
       if (session !== mergeSession.current || mergeForm.isFieldsTouched()) return;
-      mergeForm.setFieldsValue({ ...tidied, note: clampNote(tidied.note ?? '') });
+      mergeForm.setFieldsValue({ ...tidied.values, note: composeNote(tidied.aka, rows) });
     });
+  };
+
+  // The analyst's proposals (docs/05 §5.6c), asked by the manager because every catalogue asks the
+  // same way; only an admin can act on them, so only an admin's visit asks.
+  const suggested = useQuery({
+    queryKey: suggestions?.queryKey ?? ['catalogue-suggestions', 'unconfigured'],
+    queryFn: () => {
+      if (suggestions === undefined) return Promise.reject(new Error('no suggestions source'));
+      return suggestions.fetch();
+    },
+    enabled: suggestions !== undefined && canManage,
+    staleTime: Infinity,
+  });
+  const [panelClosed, setPanelClosed] = useState(false);
+
+  const alive = new Map(rows.map((row) => [row.id, row]));
+  const reading = suggested.data;
+  // A group survives only whole: a row merged or deleted since the answer takes its group with it.
+  const groups = (reading?.state === 'ANSWERED' ? reading.groups : []).filter((group) =>
+    group.ids.every((id) => alive.has(id)),
+  );
+  const placeholders = (
+    reading?.state === 'ANSWERED' ? (reading.placeholderIds ?? []) : []
+  ).flatMap((id) => {
+    const row = alive.get(id);
+    return row === undefined ? [] : [row];
+  });
+  // The third state (docs/05 §5.6c): the analyst was asked and could not answer. Said out loud,
+  // because an empty panel area used to mean this and "no duplicates" alike (docs/11 §11.12a).
+  const unavailable = reading?.state === 'UNAVAILABLE';
+
+  const groupRows = (group: CatalogueSuggestionGroup): Row[] =>
+    group.ids.flatMap((id) => {
+      const row = alive.get(id);
+      return row === undefined ? [] : [row];
+    });
+
+  // The analyst's answer, prefilled: its spelling as the name, its extras (the kind), its tidy aka
+  // line over everything the rows carried (docs/11 §11.12a).
+  const suggestedValues = (group: CatalogueSuggestionGroup): MergeValues => ({
+    name: group.name,
+    ...group.extraValues,
+    note: composeNote(group.aka, groupRows(group)),
+  });
+
+  const rowLabel = (row: Row): string =>
+    suggestions?.rowLabel?.(row) ?? merge?.label(row) ?? row.id;
+
+  const suggestionsPanel = (): ReactNode => {
+    if (suggestions === undefined || panelClosed) return null;
+    if (unavailable) return <AnalystUnavailableNotice onClose={() => setPanelClosed(true)} />;
+    if (groups.length === 0 && placeholders.length === 0) return null;
+    return (
+      <Alert
+        type="info"
+        showIcon
+        closable
+        style={{ marginBottom: 16 }}
+        onClose={() => setPanelClosed(true)}
+        message={suggestions.title}
+        description={
+          <Space direction="vertical" size="small">
+            {groups.map((group) => (
+              <Space key={group.ids.join(':')} wrap>
+                <Typography.Text>{groupRows(group).map(rowLabel).join(', ')}</Typography.Text>
+                <Button
+                  size="small"
+                  onClick={() => openMerge(groupRows(group), suggestedValues(group))}
+                >
+                  {t('admin.catalogues.actions.merge', { count: group.ids.length })}
+                </Button>
+              </Space>
+            ))}
+            {/* Analysis noise is deleted one confirmed row at a time, not swept
+                (docs/11 §11.12a). */}
+            {placeholders.length > 0 && (
+              <Typography.Text strong>{suggestions.placeholdersTitle}</Typography.Text>
+            )}
+            {placeholders.map((row) => (
+              <Space key={row.id} wrap>
+                <Typography.Text>{rowLabel(row)}</Typography.Text>
+                <Popconfirm
+                  title={confirmDelete(row)}
+                  okText={t('common.yes')}
+                  cancelText={t('common.actions.cancel')}
+                  onConfirm={() => remove.mutate(row)}
+                >
+                  <Button size="small" danger>
+                    {t('common.actions.delete')}
+                  </Button>
+                </Popconfirm>
+              </Space>
+            ))}
+          </Space>
+        }
+      />
+    );
   };
 
   const actionsColumn = {
@@ -274,7 +420,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
       }
     >
       {/* The screen notices first, where the screen has something to notice (docs/11 §11.12a). */}
-      {canManage && merge?.banner !== undefined && merge.banner(openMerge)}
+      {canManage && suggestionsPanel()}
 
       <Table
         rowKey="id"

@@ -17,6 +17,7 @@ const subject = {
   name: 'Njegoševa 5',
   note: null,
   documentCount: 4,
+  lastDocumentAt: '2026-03-01',
 };
 
 const server = createApiMock();
@@ -27,10 +28,14 @@ beforeEach(() => {
   // its raw prefill (docs/11 §11.12a).
   server.use(
     http.get('/api/admin/subjects/merge-suggestions', () =>
-      HttpResponse.json(envelope({ state: 'UNCONFIGURED', groups: [], placeholders: [] })),
+      HttpResponse.json(
+        envelope({ state: 'UNCONFIGURED', computedAt: null, groups: [], placeholders: [] }),
+      ),
     ),
     http.post('/api/admin/subjects/merge-preview', () =>
-      HttpResponse.json(envelope({ available: false, name: null, kindId: null, aka: null })),
+      HttpResponse.json(
+        envelope({ available: false, name: null, kindId: null, aka: null, note: null }),
+      ),
     ),
     http.get('/api/subjects', () =>
       HttpResponse.json(envelope({ nextCursor: null, items: [subject] })),
@@ -40,8 +45,22 @@ beforeEach(() => {
         envelope({
           nextCursor: null,
           items: [
-            { id: APARTMENT, name: 'apartment', note: null, subjectCount: 1, documentCount: 4 },
-            { id: BOAT, name: 'boat', note: null, subjectCount: 0, documentCount: 0 },
+            {
+              id: APARTMENT,
+              name: 'apartment',
+              note: null,
+              subjectCount: 1,
+              documentCount: 4,
+              lastDocumentAt: '2026-03-01',
+            },
+            {
+              id: BOAT,
+              name: 'boat',
+              note: null,
+              subjectCount: 0,
+              documentCount: 0,
+              lastDocumentAt: null,
+            },
           ],
         }),
       ),
@@ -217,12 +236,14 @@ describe('SubjectsScreen', () => {
           HttpResponse.json(
             envelope({
               state: 'ANSWERED',
+              computedAt: '2026-08-30T10:00:00.000Z',
               groups: [
                 {
                   ids: [subject.id, twin.id],
                   name: 'Njegoševa 5',
                   kindId: APARTMENT,
                   aka: ['NJEGOSEVA 5'],
+                  note: null,
                 },
               ],
               placeholders: [placeholder.id],
@@ -297,7 +318,9 @@ describe('SubjectsScreen', () => {
     it('says the analyst could not be asked, instead of showing nothing', async () => {
       server.use(
         http.get('/api/admin/subjects/merge-suggestions', () =>
-          HttpResponse.json(envelope({ state: 'UNAVAILABLE', groups: [], placeholders: [] })),
+          HttpResponse.json(
+            envelope({ state: 'UNAVAILABLE', computedAt: null, groups: [], placeholders: [] }),
+          ),
         ),
       );
 
