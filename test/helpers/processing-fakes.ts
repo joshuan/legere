@@ -1655,6 +1655,11 @@ export class FakeAnalyst extends DocumentAnalyst {
   readonly calls: Array<{
     excerpt: string;
     documentTypes: readonly DocumentTypeOption[];
+    // The catalogues as they travelled (docs/03 §3.3.19–20): what the model was told the archive
+    // already holds, in the order it was told it — the order matters, because the adapter caps the
+    // list and the cap must fall on the tail (docs/05 §5.5 step 4).
+    knownSubjects: readonly KnownSubject[];
+    knownPeople: readonly KnownPerson[];
     // How many pages travelled with the text: a document is a picture before it is a string, and
     // a test that cares about step 4's input cares about this (docs/05 §5.5 step 4).
     pages: number;
@@ -1674,14 +1679,21 @@ export class FakeAnalyst extends DocumentAnalyst {
   analyze(
     excerpt: string,
     documentTypes: readonly DocumentTypeOption[],
-    _subjectKinds?: readonly string[],
-    _knownSubjects?: readonly KnownSubject[],
-    _knownPeople?: readonly KnownPerson[],
+    _subjectKinds: readonly string[] = [],
+    knownSubjects: readonly KnownSubject[] = [],
+    knownPeople: readonly KnownPerson[] = [],
     _language?: string,
     pages: readonly PageImage[] = [],
     confirmed: ConfirmedValues = {},
   ): Promise<DocumentAnalysis> {
-    this.calls.push({ excerpt, documentTypes, pages: pages.length, confirmed });
+    this.calls.push({
+      excerpt,
+      documentTypes,
+      knownSubjects,
+      knownPeople,
+      pages: pages.length,
+      confirmed,
+    });
     if (this.unavailable) {
       return Promise.reject(new ServiceUnavailableError('classifier', 'fetch failed'));
     }

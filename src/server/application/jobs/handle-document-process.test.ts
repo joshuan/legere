@@ -1110,6 +1110,59 @@ describe('HandleDocumentProcess', () => {
       expect(call?.excerpt).toBe('March invoice\n\nRecognized text from the scan');
     });
 
+    it('shows it the people and the things the catalogue already holds, notes and all', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      // A note whose "also known as" line a merge wrote: it travels verbatim, because it is the
+      // recognition data that files a boarding-pass spelling under somebody already here
+      // (docs/03 §3.3.19).
+      await people.create({
+        name: 'Evgenii Shershnev',
+        note: 'The owner. Also known as: Шершнев Евгений Константинович.',
+      });
+      const kind = await subjectKinds.create({ name: 'apartment' });
+      await subjects.create({
+        kindId: kind.id,
+        name: 'Njegoševa 5, ap. 12',
+        note: 'The rented flat.',
+      });
+
+      await run();
+
+      // The catalogues travel with the request (docs/03 §3.3.19–20): most documents are about
+      // something already here, and the model can only know that if it is shown the lists.
+      expect(analyst.calls[0]?.knownPeople).toEqual([
+        {
+          name: 'Evgenii Shershnev',
+          note: 'The owner. Also known as: Шершнев Евгений Константинович.',
+        },
+      ]);
+      expect(analyst.calls[0]?.knownSubjects).toEqual([
+        { kind: 'apartment', name: 'Njegoševa 5, ap. 12', note: 'The rented flat.' },
+      ]);
+    });
+
+    it('hands both catalogues over most-filed-first, so the adapter cap falls on the tail', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      // Insertion and alphabetical order both say Anna first; the documents say otherwise. The
+      // adapter caps the lists (docs/05 §5.5 step 4, its own suite), so the order decides who
+      // survives the cap — and it must be the entries the archive actually files by.
+      await people.create({ name: 'Anna' });
+      const boris = await people.create({ name: 'Boris' });
+      const vera = await people.create({ name: 'Vera' });
+      people.links.set('doc-one', [vera.id, boris.id]);
+      people.links.set('doc-two', [vera.id]);
+      const kind = await subjectKinds.create({ name: 'apartment' });
+      await subjects.create({ kindId: kind.id, name: 'Attic' });
+      const basement = await subjects.create({ kindId: kind.id, name: 'Basement' });
+      subjects.links.set('doc-one', [basement.id]);
+
+      await run();
+
+      const call = analyst.calls[0];
+      expect(call?.knownPeople.map((person) => person.name)).toEqual(['Vera', 'Boris', 'Anna']);
+      expect(call?.knownSubjects.map((subject) => subject.name)).toEqual(['Basement', 'Attic']);
+    });
+
     it('shows the analyst the whole text, not the opening of it', async () => {
       // Four thousand characters used to be the cap, and the opening of a document is its
       // letterhead: enough to tell a bank from a landlord, nowhere near enough to tell one contract
