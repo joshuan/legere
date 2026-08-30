@@ -1336,7 +1336,22 @@ refused. A model that has no tools loses nothing by being told it has none.
 **Nothing is stored, and a refusal is not remembered** — the doctrine of §5.6a verbatim. The one
 concession to cost is an in-process cache keyed by the catalogue's current content, with concurrent
 requests deduplicated: the same question is not asked twice while nothing changed, and a changed
-catalogue is a new question. A restart forgets the cache, and recomputing is the price of honesty.
+catalogue is a new question. The cached reading remembers when it was computed (`computedAt`,
+`07 §7.3`), because a screen that shows an answer owes its reader the answer's age; and the reader
+who distrusts it recomputes on demand (`?refresh=1`), which drops the cache and asks anew. A
+restart forgets the cache, and recomputing is the price of honesty.
+
+**The note a merge keeps is written for its real reader.** The preview's tidy answer carries the
+survivor's whole note, composed by the analyst from everything the merged rows held — their names,
+their notes, however many concatenated "also known as" lines earlier merges left behind. Composed
+means: each distinct spelling once, the obvious misreadings dropped rather than enshrined, and the
+details that genuinely tell this entity apart — identifiers, plates, account numbers, the address's
+one canonical form — kept and stated plainly. The note's reader is not a person browsing the
+catalogue but the analysis of §5.5, which is shown the note beside the name and told to prefer what
+the catalogue already holds: a well-composed note is what makes the next document file under this
+row instead of founding a twenty-third spelling. The answer respects the note's contract limit, and
+it travels the same fenced, scrubbed channel as every other catalogue reading (SEC-55) — the note
+proposes, the person in the dialog disposes.
 
 **An outage is not a verdict, and it is not an answer either.** A reading therefore ends in one of
 three states rather than two (`07 §7.3`): the analyst answered, there is no analyst to ask

@@ -1612,3 +1612,53 @@ name — and stops carrying instructions about documents it has never heard of.
   **Docs:** [`13`](../13-ci-cd.md), [`12 §12.7`](../12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)
   **Acceptance:** M47.11 put Stirling and Docling under the same Trivy job as the app, and `v0.26.0` is the first release where that job ran: it came back red with **eight HIGH and no CRITICAL** — the app's `libcrypto3` `CVE-2026-14456` (fixed in `3.5.8-r0`, and the app's base is the floating `node:26-alpine`, so this clears when upstream Node rebuilds and not before); Docling's four, including `jackson-core` `GHSA-r7wm-3cxj-wff9` inside `ray_dist.jar` (fixed in 2.18.8 / 2.21.4); Stirling's two Ubuntu ones, `CVE-2026-45447` and `CVE-2026-69244`/`CVE-2026-69247`. 🔒 **The image was published and `latest` moved** — a red `scan` is a report about bytes that already exist, which is exactly the difference `13 §13.3a` draws between a failed build and a failed scan, and the release command said so on the line above the failure. What this task owes: for each finding, either the pinned digest moved to an upstream build that fixes it, or a line in `12 §12.7` naming the CVE, saying which of the three images carries it, why it is not reachable in this deployment, and what would make it reachable — a scan nobody answers becomes a scan nobody reads. And a decision recorded in `13`: whether a red scan on findings already recorded should keep failing the release run, or whether the recorded set is subtracted first, so the next red one means something new.
   *Since revised: the "eight HIGH" were only the report's first tables — the run held 58 distinct HIGH advisories (one in the app image, six in Docling, fifty-one in Stirling), and the register of `12 §12.7` carries the full set.*
+
+---
+
+## M56 — Three catalogues, one screen
+
+The people, things and kinds screens grew apart while doing the same job: three tables, three
+selection models, three merge dialogs, three banners — the same interface written three times, each
+copy missing something the others have. Meanwhile the screens answer the wrong questions first: a
+catalogue sorted by name says nothing about what the archive last spoke of, a Merge button at the
+top of the table punishes a selection made at the bottom, a banner that appears from nowhere cannot
+be recomputed and does not say when it looked, and a merge stitches notes end to end until somebody
+hand-prunes the seam. The interface is one; its code should be too, and the missing pieces should
+land once, in the shared thing.
+
+---
+
+- [ ] **M56.1 — One manager under three screens**
+  **Goal:** the three catalogue screens become three configurations of one component, so a fix or a feature lands once.
+  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types), [`10 §10.3`](../10-frontend-architecture.md)
+  **Acceptance:** one widget owns what the three screens share — the table with selection, the create/edit dialog, the delete confirmation, the merge dialog with its preview prefill, the suggestions panel — and `/people`, `/subjects`, `/subject-kinds` each become a thin configuration of it: their columns, their entity words, their API hooks, their extras (the kind select and placeholder rows for subjects), with no screen keeping a private copy of shared behavior; FSD intact — the widget does not know the screens, the screens do not know each other. Tests: the existing three screens' suites keep passing against the shared component, asserting through the screens as before.
+
+- [ ] **M56.2 — The actions stand at the foot of the screen**
+  **Goal:** acting on a selection never costs a scroll.
+  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
+  **Acceptance:** one bar fixed to the bottom of the viewport on all three screens, holding **New** always and **Merge (N)** when two or more rows are selected; the table ends above the bar rather than under it; localized en and ru. Tests: the bar renders on each screen, Merge appears with a selection and names its count, the last table row is not covered.
+
+- [ ] **M56.3 — The column that says when the paper last named it**
+  **Goal:** the catalogue opens on what the archive most recently spoke of.
+  **Docs:** [`07 §7.3`](../07-api-specification.md#73-endpoints), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types), [`04 §4.4`](../04-database-schema.md#44-query-patterns-the-schema-must-support-index-rationale)
+  **Acceptance:** the three list endpoints answer `lastDocumentAt` — the newest `documentDate` among the living documents that name the row (for a kind, across its things), `null` when none carries a date — and take `?sort=lastDocumentAt|documents|name` (`things` too on kinds) with `?order=`, defaulting to `lastDocumentAt desc` with dateless rows last, the cursor bound to the sort that minted it exactly as the documents list's is; the three screens draw the column, default to it, and sort the count and name columns on click, the sort travelling to the server. Tests: the ordering and the null placement at the repository against real data; a cursor minted under one sort refused under another; the screens' default order and a click-sort asserted through the API they call.
+
+- [ ] **M56.4 — The counts are doors on the kinds screen too**
+  **Goal:** every count on the catalogue screens answers "which ones?" with a click.
+  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types), [`07 §7.3`](../07-api-specification.md#73-endpoints)
+  **Acceptance:** on `/subject-kinds` the things count links to `/subjects` filtered to that kind and the documents count links to the documents browse filtered by `?subjectKindId=` (the filter the API already has); `/subjects` honours the kind filter arriving in its URL; zero stays plain text. Tests: the links' targets on the kinds screen, the subjects screen picking the filter out of the URL.
+
+- [ ] **M56.5 — The analyst writes the note a merge keeps**
+  **Goal:** a merge's note is composed for the reader it will actually have — the analysis that files the next document.
+  **Docs:** [`05 §5.6c`](../05-library-and-processing.md#56c-noticing-that-one-person-arrived-many-times), [`07 §7.3`](../07-api-specification.md#73-endpoints), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
+  **Acceptance:** the three merge-preview answers (and the suggestions' prefills) carry `note` — the analyst's fold of everything the merged rows held: each distinct spelling once, obvious misreadings dropped, identifying details kept, within the note's contract limit; 🔒 composed and delivered inside the same fenced, scrubbed channel as every catalogue reading (SEC-55), and the dialog's replace-unless-edited rule of M48.4 governs the note field too; `available: false` still degrades to the raw concatenation. Tests: the adapter's composition asked and fenced; the preview answering the note; the dialog prefilling and not fighting an editing user.
+
+- [ ] **M56.6 — Focus lands on the button you came for**
+  **Goal:** a dialog whose only sensible next step is one press does not make the hand travel.
+  **Docs:** [`11 §11.14`](../11-ui-ux-spec.md#1114-cross-cutting-ui-rules), [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types)
+  **Acceptance:** the rule stands in `11 §11.14` — a prefilled dialog focuses its primary action, a typing dialog its first empty field — and every catalogue dialog obeys it: merge dialogs open on the confirm button, create dialogs on the name field, edit dialogs on the primary action. Tests: focus asserted on open for the merge and create dialogs of the shared manager.
+
+- [ ] **M56.7 — The duplicates panel is always there, and says when it looked**
+  **Goal:** the suggestions stop materialising out of nothing — one permanent line that counts, dates itself, folds and recomputes.
+  **Docs:** [`11 §11.12a`](../11-ui-ux-spec.md#1112a-catalogues-people-subjects-subject-kinds-document-types), [`07 §7.3`](../07-api-specification.md#73-endpoints), [`05 §5.6c`](../05-library-and-processing.md#56c-noticing-that-one-person-arrived-many-times)
+  **Acceptance:** the suggestions responses carry `computedAt` from the in-process cache and take `?refresh=1` to drop it and ask anew; the banner becomes the permanent panel of `11 §11.12a` on all three screens — the one-line summary with its date, fold/unfold with the fold state kept client-side, Recompute spinning in place, the three states three honest lines (`ANSWERED` counting zero out loud, `UNAVAILABLE` in the warning tone with Recompute as the retry, `UNCONFIGURED` naming the absence), the unfolded groups and subjects' placeholders behaving as before; localized en and ru. Tests: `computedAt` answered from the cache and `refresh` dropping it, at the use case; the panel's three states, the fold, and a recompute shown spinning, at the screens.

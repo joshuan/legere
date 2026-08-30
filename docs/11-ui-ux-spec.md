@@ -1201,9 +1201,15 @@ one row is the screen where it gets fixed.
 
 | Screen | Rows | Columns |
 |---|---|---|
-| `/people` | the people catalogue | name, note, documents |
-| `/subjects` | the things documents are about | kind (filterable), name, note, documents |
-| `/subject-kinds` | what sort of thing a subject may be | name, note, things, documents |
+| `/people` | the people catalogue | name, note, documents, last document |
+| `/subjects` | the things documents are about | kind (filterable), name, note, documents, last document |
+| `/subject-kinds` | what sort of thing a subject may be | name, note, things, documents, last document |
+
+**Last document** is the newest `documentDate` among the living documents that name the row — the
+paper's own date, not the day it was uploaded — and the default order, newest first with the
+dateless rows last: a catalogue opens on what the archive most recently spoke of. The counts (and
+the name) sort on click like any table's columns, and the sort travels to the server with its
+cursor (`07 §7.3`), because a page of a ten-thousand-row catalogue sorted in the browser is a lie.
 
 A subject's kind is a select over the catalogue, never a typed word: kinds are created where kinds
 are managed (03 §3.3.20a). Moving a thing to another kind is an ordinary edit of that select — a boat
@@ -1219,33 +1225,34 @@ A kinds merge folds shelves: the surviving kind receives every thing the others 
 both sides held under one name is folded along the way rather than left to violate the catalogue's
 own identity (03 §3.3.20a).
 
-**The screens notice the duplicates first.** An admin arriving at a catalogue of a hundred and
-thirty names should not have to read it like a proofreader. On each of the three screens, when the
-analyst has proposals (`05 §5.6c`), a banner above the table says so — *these look like the same
-person*, the same thing, the same kind — one row per group, each showing what it would fold together
-(for subjects, with the kind beside each name) and a **Merge** button that opens the ordinary merge
-dialog with exactly those rows selected and the analyst's answer prefilled: its spelling as the
-name, its kind for a subject, its tidy "also known as" line in the note. The dialog is the same
-dialog — everything editable, nothing merged until confirmed — because the suggestion is a question,
-not an act. On `/subjects` the banner has a second part when the analyst found any: **rows that name
-a kind rather than a thing** — "жильё" filed under жильё — each with a Delete behind the ordinary
-confirmation, because analysis noise is deleted one confirmed row at a time, not swept. The banner
-closes like any banner and is proposed afresh next visit (the server never remembers being refused,
-`05 §5.6a`); while suggestions are being computed the table simply has no banner yet, and without a
-configured analyst there is none at all — the screens work as they always did.
+**The actions stand at the foot of the screen, and stay there.** One bar, fixed to the bottom of
+the viewport, the same component on all three screens: **New** always, and **Merge (N)** the moment
+two or more rows are selected. A selection made at row three hundred must not cost a scroll back to
+the top to act on it — the bar is where the hands already are, and it never leaves. The table ends
+above the bar rather than under it: fixed means always visible, not covering the last row.
 
-**And when the analyst could not be asked, the screen says so instead of showing nothing.** An empty
-banner area used to mean two different things — a catalogue with no duplicates, and a provider that
-answered `500` — and an admin had no way to tell them apart, which is how the feature stayed dead
-for months (`05 §5.6c`). So the `UNAVAILABLE` reading draws a notice of its own in the banner's
-place and in the banner's language: the same one-line, closable strip above the table, in the
-warning tone rather than the informational one, saying that the analyst could not be asked, that
-nothing is wrong with the catalogue, and that the next visit asks again. It carries no group, no
-button and no provider error text — an admin cannot act on a stack trace, and the operator who can
-has the log line (`06 §6.7`). It closes like the suggestions banner and is proposed afresh next
-visit, for the same reason. The two other readings are unchanged: `UNCONFIGURED` draws nothing at
-all, and an analyst that was asked and proposed nothing draws nothing either — that silence is now
-the only silence that means "there is nothing here".
+**The duplicates panel is always there, and says when it looked.** An admin arriving at a catalogue
+of a hundred and thirty names should not have to read it like a proofreader — and should not be
+startled by a banner that materialises out of nothing and vanishes back into it. Above the table on
+each of the three screens stands one permanent line: how many duplicate groups the analyst knows
+of, when that reading was computed (`computedAt`, `07 §7.3`), a fold/unfold control, and
+**Recompute**, which asks afresh (`?refresh=1`) and spins in place while the analyst reads — as the
+line also does on first load, while the first reading is being computed. Unfolded, the panel shows
+the groups — one row per group, what it would fold together (for subjects, with the kind beside
+each name), each with a **Merge** button that opens the ordinary merge dialog with exactly those
+rows selected and the analyst's answer prefilled: its spelling as the name, its kind for a subject,
+its composed note (`05 §5.6c`). The dialog is the same dialog — everything editable, nothing merged
+until confirmed — because the suggestion is a question, not an act. On `/subjects` the unfolded
+panel keeps its second part when the analyst found any: **rows that name a kind rather than a
+thing** — "жильё" filed under жильё — each with a Delete behind the ordinary confirmation, because
+analysis noise is deleted one confirmed row at a time, not swept. The three readings are three
+honest lines, never an empty space: `ANSWERED` counts its groups, and zero is *no duplicates known*
+— still a line, still dated; `UNAVAILABLE` says the analyst could not be asked, in the warning tone,
+with Recompute standing as the retry and no provider error text — an admin cannot act on a stack
+trace, and the operator who can has the log line (`06 §6.7`); `UNCONFIGURED` says there is no
+analyst on this instance and offers nothing to press. The fold state is the screen's own memory
+(like §11.3's group folds); the server still stores nothing and never remembers a refusal
+(`05 §5.6a`).
 
 **Nothing written on the merged rows is thrown away.** The dialog's note field arrives prefilled with
 what the rows carried: the names that are about to disappear ("Also known as: …") and every note any
@@ -1253,19 +1260,24 @@ of them had, one per line. It is an ordinary editable field — a person deletes
 keeps what is not — but the default is "keep everything", because the alternative is a merge that
 quietly destroys the one line somebody wrote a year ago to explain which flat this is.
 
-**The "also known as" line is tidied when the analyst can read it.** A raw dump of every selected
-spelling repeats the survivor in three cases and keeps the airline's `/MR`; the analyst's line keeps
-each *distinct* spelling once (`05 §5.6c`). On every catalogue screen a hand-selected merge asks for
-that reading when the dialog opens — the raw prefill appears at once and is replaced by the tidy one
-when it arrives (for a subject, the kind select with it), unless the person has already started
-editing, because a form must never fight its user. A suggested merge opens tidy from the start, the
-answer having come with the suggestion. Either way the prefill respects the note's own limit: what
-does not fit is cut from the end, and the field validates the limit like any other — a prefill the
-server would refuse is a bug, not a default (M48.1).
+**The note is tidied when the analyst can read it — the whole note, not just the aka line.** A raw
+dump of every selected spelling repeats the survivor in three cases, keeps the airline's `/MR`, and
+staples three earlier merges' "also known as" lines end to end; the analyst's answer is the
+composed note of `05 §5.6c` — each distinct spelling once, misreadings dropped, the identifying
+details kept — written for the analysis that will read it when the next document arrives. On every
+catalogue screen a hand-selected merge asks for that reading when the dialog opens — the raw
+prefill appears at once and is replaced by the tidy one when it arrives (for a subject, the kind
+select with it), unless the person has already started editing, because a form must never fight its
+user. A suggested merge opens tidy from the start, the answer having come with the suggestion.
+Either way the prefill respects the note's own limit: what does not fit is cut from the end, and
+the field validates the limit like any other — a prefill the server would refuse is a bug, not a
+default (M48.1).
 
-**The documents count is a link**, to that person's or that thing's browse page: "40" is the question
-"which forty?", and the answer is one click away. A count of zero is plain text — there is nothing to
-go to.
+**The counts are links** — every count on these screens is a question, and the answer is one click
+away. A person's or a thing's documents count leads to its browse page; on `/subject-kinds` the
+things count leads to `/subjects` filtered to that kind, and the documents count to the browse
+filtered the same way (`?subjectKindId=`, `07 §7.3`). A count of zero is plain text — there is
+nothing to go to.
 
 **Deleting says what it costs.** A person or a subject stays on the documents that name it, and the
 confirmation says so rather than implying the documents change. A kind that still holds things cannot
@@ -1471,6 +1483,11 @@ An empty trash says so plainly rather than showing an empty table: nothing here 
 - Toasts for imperative successes are quiet (2 s); errors persist until dismissed.
 - Keyboard: dialogs close on Esc; wizard advances on Enter; grid supports arrow-key focus (antd
   defaults suffice — no custom hotkey system in MVP).
+- A dialog opens with focus on the control its opener came for: a form that arrives prefilled (a
+  merge dialog with the analyst's answer in place, a confirmation) focuses its primary action, a
+  form that expects typing focuses its first empty field. A dialog that makes its user reach for
+  the mouse to press the only sensible button is fighting them (§11.12a's merge dialogs are the
+  canonical case).
 - No dark-pattern empty states: when something is admin-gated, tell the user who can fix it.
 - Arriving at a screen draws a skeleton of that screen and not a spinner (§11.1); a skeleton is
   never drawn over a screen somebody is already on, and what the route-level one is allowed to cover
