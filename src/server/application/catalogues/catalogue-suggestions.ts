@@ -61,8 +61,7 @@ export function sanitizeGroups(
 // in the same words for as long as this existed. An answered reading remembers when it was
 // computed: a screen that shows an answer owes its reader the answer's age (docs/07 §7.3).
 export type CatalogueReading<T> =
-  | { answered: true; value: T; computedAt: Date }
-  | { answered: false };
+  { answered: true; value: T; computedAt: Date } | { answered: false };
 
 // Nothing is stored and a refusal is not remembered (docs/05 §5.6c) — the one concession to cost is
 // this in-process cache, keyed by the catalogue's content, gone with the process. 🔒 Concurrent
