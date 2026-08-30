@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { SubjectKind } from '../../domain/entities/subject-kind';
+import { ConflictError } from '../../domain/errors/domain-error';
 import { foldName } from '../../domain/value-objects/name-fold';
 import {
   SubjectKindRepository,
@@ -26,6 +28,15 @@ function toSubjectKind(row: SubjectKindRow): SubjectKind {
     createdAt: row.createdAt,
     deletedAt: row.deletedAt,
   };
+}
+
+// P2002 here can only come from subject_kinds_name_folded_uq: two writers raced the application's
+// uniqueness check and the index picked a winner (docs/04 §4.3).
+function asSubjectKindExists(error: unknown): unknown {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    return new ConflictError('SUBJECT_KIND_EXISTS', 'This kind is already in the list');
+  }
+  return error;
 }
 
 @Injectable()
@@ -125,12 +136,20 @@ export class PrismaSubjectKindRepository extends SubjectKindRepository {
     input: { name: string; note?: string | null },
     tx?: TransactionHandle,
   ): Promise<SubjectKind> {
-    const row = await clientOf(this.prisma, tx).subjectKind.create({
-      // As typed: the case is the owner's, and only the uniqueness check ignores it
-      // (docs/03 §3.3.20a).
-      data: { name: input.name.trim(), nameFolded: foldName(input.name), note: input.note ?? null },
-    });
-    return toSubjectKind(row);
+    try {
+      const row = await clientOf(this.prisma, tx).subjectKind.create({
+        // As typed: the case is the owner's, and only the uniqueness check ignores it
+        // (docs/03 §3.3.20a).
+        data: {
+          name: input.name.trim(),
+          nameFolded: foldName(input.name),
+          note: input.note ?? null,
+        },
+      });
+      return toSubjectKind(row);
+    } catch (error) {
+      throw asSubjectKindExists(error);
+    }
   }
 
   async update(
@@ -138,16 +157,20 @@ export class PrismaSubjectKindRepository extends SubjectKindRepository {
     input: { name?: string; note?: string | null },
     tx?: TransactionHandle,
   ): Promise<SubjectKind> {
-    const row = await clientOf(this.prisma, tx).subjectKind.update({
-      where: { id },
-      data: {
-        ...(input.name === undefined
-          ? {}
-          : { name: input.name.trim(), nameFolded: foldName(input.name) }),
-        ...(input.note === undefined ? {} : { note: input.note }),
-      },
-    });
-    return toSubjectKind(row);
+    try {
+      const row = await clientOf(this.prisma, tx).subjectKind.update({
+        where: { id },
+        data: {
+          ...(input.name === undefined
+            ? {}
+            : { name: input.name.trim(), nameFolded: foldName(input.name) }),
+          ...(input.note === undefined ? {} : { note: input.note }),
+        },
+      });
+      return toSubjectKind(row);
+    } catch (error) {
+      throw asSubjectKindExists(error);
+    }
   }
 
   async softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void> {

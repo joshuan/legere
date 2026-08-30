@@ -7,7 +7,7 @@ import { SubjectKindRepository } from '../../src/server/domain/repositories/subj
 import { SubjectRepository } from '../../src/server/domain/repositories/subject.repository';
 import { ConfigModule } from '../../src/server/infrastructure/config/config.module';
 import { PersistenceModule } from '../../src/server/infrastructure/persistence/persistence.module';
-import { disconnectTestPrisma, truncateAll } from '../helpers/db';
+import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 
 // The identity fold against the real database (docs/03 §3.3.19, docs/04 §4.3): the C-collation
 // `lower()` never folded Cyrillic, which is exactly why these assertions run against Postgres and
@@ -96,5 +96,55 @@ describe('Catalogue identity fold (integration)', () => {
     expect((await people.findByName('100% LTD'))?.id).toBe(percent.id);
     expect((await people.findByName('100_ ltd'))?.id).toBe(underscore.id);
     expect(await people.findByName('100? Ltd')).toBeNull();
+  });
+
+  // Since M49.4 the fold's uniqueness is the database's too (docs/04 §4.3): the migration replaced
+  // the ASCII-blind lower(name) indexes with partial unique indexes over the fold. These tests go
+  // straight to the repositories — past the application's check, the way the loser of a race
+  // arrives — and expect the same named 409, not a 500.
+  it('carries the unique fold indexes, and no lower(name) ones', async () => {
+    const rows = await testPrisma().$queryRaw<{ indexname: string }[]>`
+      SELECT indexname FROM pg_indexes
+       WHERE tablename IN ('people', 'subjects', 'subject_kinds')`;
+    const names = rows.map((row) => row.indexname);
+    expect(names).toContain('people_name_folded_uq');
+    expect(names).toContain('subjects_kind_name_folded_uq');
+    expect(names).toContain('subject_kinds_name_folded_uq');
+    expect(names).not.toContain('people_name_active_uq');
+    expect(names).not.toContain('subjects_kind_name_active_uq');
+    expect(names).not.toContain('subject_kinds_name_active_uq');
+  });
+
+  it('🔒 refuses the case-twin a raced write slips past the check, as the named conflict', async () => {
+    await people.create({ name: 'Шершнев Евгений' });
+    await expect(people.create({ name: 'ШЕРШНЕВ ЕВГЕНИЙ' })).rejects.toMatchObject({
+      code: 'PERSON_EXISTS',
+    });
+
+    const kind = await kinds.create({ name: 'жильё' });
+    await expect(kinds.create({ name: 'ЖИЛЬЁ' })).rejects.toMatchObject({
+      code: 'SUBJECT_KIND_EXISTS',
+    });
+
+    await subjects.create({ kindId: kind.id, name: 'Красноармейская 11а' });
+    await expect(
+      subjects.create({ kindId: kind.id, name: 'КРАСНОАРМЕЙСКАЯ 11А' }),
+    ).rejects.toMatchObject({ code: 'SUBJECT_EXISTS' });
+
+    // A rename can lose the same race: the index answers for updates too.
+    const other = await people.create({ name: 'Другой Человек' });
+    await expect(people.update(other.id, { name: 'шершнев евгений' })).rejects.toMatchObject({
+      code: 'PERSON_EXISTS',
+    });
+  });
+
+  it('leaves soft-deleted twins outside the namespace, as the partial index promises', async () => {
+    // The shape every merge leaves behind (docs/04 §4.3): the losers are soft-deleted rows whose
+    // folds collide with the survivor's — exactly what the index must tolerate to have applied on
+    // a just-cleaned instance at all.
+    const first = await people.create({ name: 'Рончевић Нада' });
+    await people.softDelete(first.id, new Date());
+    const second = await people.create({ name: 'РОНЧЕВИЋ НАДА' });
+    expect(second.id).not.toBe(first.id);
   });
 });

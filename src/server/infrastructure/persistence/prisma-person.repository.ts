@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Person } from '../../domain/entities/person';
+import { ConflictError } from '../../domain/errors/domain-error';
 import { foldName } from '../../domain/value-objects/name-fold';
 import {
   PersonRepository,
@@ -27,6 +29,15 @@ function toPerson(row: PersonRow): Person {
     createdAt: row.createdAt,
     deletedAt: row.deletedAt,
   };
+}
+
+// P2002 here can only come from people_name_folded_uq: two writers raced the application's
+// uniqueness check and the index picked a winner (docs/04 §4.3).
+function asPersonExists(error: unknown): unknown {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    return new ConflictError('PERSON_EXISTS', 'A person with this name already exists');
+  }
+  return error;
 }
 
 @Injectable()
@@ -108,10 +119,18 @@ export class PrismaPersonRepository extends PersonRepository {
     input: { name: string; note?: string | null },
     tx?: TransactionHandle,
   ): Promise<Person> {
-    const row = await clientOf(this.prisma, tx).person.create({
-      data: { name: input.name.trim(), nameFolded: foldName(input.name), note: input.note ?? null },
-    });
-    return toPerson(row);
+    try {
+      const row = await clientOf(this.prisma, tx).person.create({
+        data: {
+          name: input.name.trim(),
+          nameFolded: foldName(input.name),
+          note: input.note ?? null,
+        },
+      });
+      return toPerson(row);
+    } catch (error) {
+      throw asPersonExists(error);
+    }
   }
 
   async update(
@@ -119,16 +138,20 @@ export class PrismaPersonRepository extends PersonRepository {
     input: { name?: string; note?: string | null },
     tx?: TransactionHandle,
   ): Promise<Person> {
-    const row = await clientOf(this.prisma, tx).person.update({
-      where: { id },
-      data: {
-        ...(input.name === undefined
-          ? {}
-          : { name: input.name.trim(), nameFolded: foldName(input.name) }),
-        ...(input.note === undefined ? {} : { note: input.note }),
-      },
-    });
-    return toPerson(row);
+    try {
+      const row = await clientOf(this.prisma, tx).person.update({
+        where: { id },
+        data: {
+          ...(input.name === undefined
+            ? {}
+            : { name: input.name.trim(), nameFolded: foldName(input.name) }),
+          ...(input.note === undefined ? {} : { note: input.note }),
+        },
+      });
+      return toPerson(row);
+    } catch (error) {
+      throw asPersonExists(error);
+    }
   }
 
   async softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void> {

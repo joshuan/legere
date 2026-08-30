@@ -430,7 +430,8 @@ model Person {
   id         String    @id @default(uuid()) @db.Uuid
   name       String
   // The identity fold (docs/03 §3.3.19): written by the application on every create and
-  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  // rename; the C-collation database cannot compute it, but since M49.4 it enforces uniqueness
+  // over it with a partial unique index on living rows (docs/04 §4.3).
   nameFolded String    @default("") @map("name_folded")
   // Anything that tells two people with the same name apart, in whatever words the owner likes.
   note       String?
@@ -465,7 +466,8 @@ model SubjectKind {
   id         String    @id @default(uuid()) @db.Uuid
   name       String
   // The identity fold (docs/03 §3.3.19): written by the application on every create and
-  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  // rename; the C-collation database cannot compute it, but since M49.4 it enforces uniqueness
+  // over it with a partial unique index on living rows (docs/04 §4.3).
   nameFolded String    @default("") @map("name_folded")
   note       String?
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -482,7 +484,8 @@ model Subject {
   kindId     String    @map("kind_id") @db.Uuid
   name       String
   // The identity fold (docs/03 §3.3.19): written by the application on every create and
-  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  // rename; the C-collation database cannot compute it, but since M49.4 it enforces uniqueness
+  // over it with a partial unique index on living rows (docs/04 §4.3).
   nameFolded String    @default("") @map("name_folded")
   note       String?
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

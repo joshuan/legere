@@ -448,7 +448,8 @@ model Person {
   id         String    @id @default(uuid()) @db.Uuid
   name       String
   // The identity fold (docs/03 §3.3.19): written by the application on every create and
-  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  // rename; the C-collation database cannot compute it, but since M49.4 it enforces uniqueness
+  // over it with a partial unique index on living rows (docs/04 §4.3).
   nameFolded String    @default("") @map("name_folded")
   // Anything that tells two people with the same name apart, in whatever words the owner likes.
   note       String?
@@ -483,7 +484,8 @@ model SubjectKind {
   id         String    @id @default(uuid()) @db.Uuid
   name       String
   // The identity fold (docs/03 §3.3.19): written by the application on every create and
-  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  // rename; the C-collation database cannot compute it, but since M49.4 it enforces uniqueness
+  // over it with a partial unique index on living rows (docs/04 §4.3).
   nameFolded String    @default("") @map("name_folded")
   note       String?
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -500,7 +502,8 @@ model Subject {
   kindId     String    @map("kind_id") @db.Uuid
   name       String
   // The identity fold (docs/03 §3.3.19): written by the application on every create and
-  // rename; the C-collation database cannot compute it (docs/04 §4.3).
+  // rename; the C-collation database cannot compute it, but since M49.4 it enforces uniqueness
+  // over it with a partial unique index on living rows (docs/04 §4.3).
   nameFolded String    @default("") @map("name_folded")
   note       String?
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1174,11 +1177,16 @@ CREATE INDEX people_name_folded_idx ON people (name_folded) WHERE deleted_at IS 
 -- likewise subjects (kind_id, name_folded) and subject_kinds (name_folded)
 ```
 
-The indexes are **plain, not unique, on purpose**: the old ASCII-blind indexes admitted duplicates
-that live in real instances, and a unique index cannot be built over rows that already violate it.
-Uniqueness on the fold is enforced by the application on every write path meanwhile, and the unique
-indexes land in a later migration once the duplicates are merged away (backlog M49) — at which
-point the old `lower(name)` indexes retire with them.
+The indexes shipped **plain, not unique, on purpose**: the old ASCII-blind indexes admitted
+duplicates that lived in real instances, and a unique index cannot be built over rows that already
+violate it. Uniqueness on the fold was the application's alone until the operator had merged those
+duplicates away; then a later migration (backlog M49.4) replaced the plain fold indexes **and** the
+old `lower(name)` unique indexes with partial unique indexes over the fold — `people
+(name_folded)`, `subjects (kind_id, name_folded)`, `subject_kinds (name_folded)`, each `WHERE
+deleted_at IS NULL`, so the soft-deleted twins every merge leaves behind stay out of the
+namespace. The application's check still answers first with its named `409`; when two writers race
+past it, the index picks a winner and the loser's `P2002` is mapped in the repositories to the same
+`PERSON_EXISTS` / `SUBJECT_EXISTS` / `SUBJECT_KIND_EXISTS` rather than surfacing as a `500`.
 
 ## 4.4. Query patterns the schema must support (index rationale)
 

@@ -1,3 +1,4 @@
+import { foldName } from '../../src/server/domain/value-objects/name-fold';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
 import {
@@ -576,10 +577,14 @@ describe('Documents (e2e)', () => {
     it('carries the date, the names, the place and the languages of every row', async () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open, title: 'Lease' });
-      const person = await testPrisma().person.create({ data: { name: 'Marija Petrović' } });
-      const kind = await testPrisma().subjectKind.create({ data: { name: 'apartment' } });
+      const person = await testPrisma().person.create({
+        data: { name: 'Marija Petrović', nameFolded: foldName('Marija Petrović') },
+      });
+      const kind = await testPrisma().subjectKind.create({
+        data: { name: 'apartment', nameFolded: foldName('apartment') },
+      });
       const subject = await testPrisma().subject.create({
-        data: { kindId: kind.id, name: 'Njegoševa 5' },
+        data: { kindId: kind.id, name: 'Njegoševa 5', nameFolded: foldName('Njegoševa 5') },
       });
       await api(app)
         .patch(`/api/documents/${documentId}`, {
@@ -620,8 +625,12 @@ describe('Documents (e2e)', () => {
       const open = await givenLibrary('ALL_USERS');
       const lease = await givenDocument({ libraryId: open, title: 'Lease' });
       const letter = await givenDocument({ libraryId: open, title: 'Letter' });
-      const ana = await testPrisma().person.create({ data: { name: 'Ana Petrović' } });
-      const marko = await testPrisma().person.create({ data: { name: 'Marko Marković' } });
+      const ana = await testPrisma().person.create({
+        data: { name: 'Ana Petrović', nameFolded: foldName('Ana Petrović') },
+      });
+      const marko = await testPrisma().person.create({
+        data: { name: 'Marko Marković', nameFolded: foldName('Marko Marković') },
+      });
       await nameOn(lease, [ana.id, marko.id]);
       await nameOn(letter, [marko.id]);
 
@@ -649,7 +658,9 @@ describe('Documents (e2e)', () => {
     it('counts the archive under the filters in force, not the page on screen', async () => {
       const open = await givenLibrary('ALL_USERS');
       const other = await givenLibrary('ALL_USERS');
-      const ana = await testPrisma().person.create({ data: { name: 'Ana Petrović' } });
+      const ana = await testPrisma().person.create({
+        data: { name: 'Ana Petrović', nameFolded: foldName('Ana Petrović') },
+      });
       for (const libraryId of [open, open, other]) {
         await nameOn(await givenDocument({ libraryId, title: 'Paper' }), [ana.id]);
       }
@@ -675,8 +686,12 @@ describe('Documents (e2e)', () => {
       const user = await inviteUser(`grouper${seq}@legere.local`);
       const open = await givenLibrary('ALL_USERS');
       const restricted = await givenLibrary('RESTRICTED');
-      const ana = await testPrisma().person.create({ data: { name: 'Ana Petrović' } });
-      const marko = await testPrisma().person.create({ data: { name: 'Marko Marković' } });
+      const ana = await testPrisma().person.create({
+        data: { name: 'Ana Petrović', nameFolded: foldName('Ana Petrović') },
+      });
+      const marko = await testPrisma().person.create({
+        data: { name: 'Marko Marković', nameFolded: foldName('Marko Marković') },
+      });
       await nameOn(await givenDocument({ libraryId: open, title: 'Open' }), [ana.id]);
       await nameOn(await givenDocument({ libraryId: restricted, title: 'Behind a library' }), [
         ana.id,
@@ -1403,7 +1418,9 @@ describe('Documents (e2e)', () => {
       const open = await givenLibrary('ALL_USERS');
       const named = await givenDocument({ libraryId: open, title: 'Named' });
       const other = await givenDocument({ libraryId: open, title: 'Other' });
-      const person = await testPrisma().person.create({ data: { name: 'Petar Petrović' } });
+      const person = await testPrisma().person.create({
+        data: { name: 'Petar Petrović', nameFolded: foldName('Petar Petrović') },
+      });
 
       await api(app)
         .patch(`/api/documents/${named}`, { peopleIds: [person.id] })
@@ -1427,10 +1444,14 @@ describe('Documents (e2e)', () => {
     it('finds a document by who and what it is about, and by the year it carries', async () => {
       const open = await givenLibrary('ALL_USERS');
       const documentId = await givenDocument({ libraryId: open, title: 'Lease' });
-      const person = await testPrisma().person.create({ data: { name: 'Marija Petrović' } });
-      const subjectKind = await testPrisma().subjectKind.create({ data: { name: 'apartment' } });
+      const person = await testPrisma().person.create({
+        data: { name: 'Marija Petrović', nameFolded: foldName('Marija Petrović') },
+      });
+      const subjectKind = await testPrisma().subjectKind.create({
+        data: { name: 'apartment', nameFolded: foldName('apartment') },
+      });
       const subject = await testPrisma().subject.create({
-        data: { kindId: subjectKind.id, name: 'Njegoševa 5' },
+        data: { kindId: subjectKind.id, name: 'Njegoševa 5', nameFolded: foldName('Njegoševa 5') },
       });
 
       await api(app)
@@ -1461,13 +1482,17 @@ describe('Documents (e2e)', () => {
       const open = await givenLibrary('ALL_USERS');
       const lease = await givenDocument({ libraryId: open, title: 'Lease' });
       const other = await givenDocument({ libraryId: open, title: 'Service book' });
-      const flats = await testPrisma().subjectKind.create({ data: { name: 'apartment' } });
-      const cars = await testPrisma().subjectKind.create({ data: { name: 'car' } });
+      const flats = await testPrisma().subjectKind.create({
+        data: { name: 'apartment', nameFolded: foldName('apartment') },
+      });
+      const cars = await testPrisma().subjectKind.create({
+        data: { name: 'car', nameFolded: foldName('car') },
+      });
       const flat = await testPrisma().subject.create({
-        data: { kindId: flats.id, name: 'Njegoševa 5' },
+        data: { kindId: flats.id, name: 'Njegoševa 5', nameFolded: foldName('Njegoševa 5') },
       });
       const car = await testPrisma().subject.create({
-        data: { kindId: cars.id, name: 'Zastava 750' },
+        data: { kindId: cars.id, name: 'Zastava 750', nameFolded: foldName('Zastava 750') },
       });
 
       await api(app)

@@ -1,3 +1,4 @@
+import { foldName } from '../../src/server/domain/value-objects/name-fold';
 import { Test } from '@nestjs/testing';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Crop } from '../../src/shared/contracts/documents';
@@ -607,11 +608,19 @@ describe('Files and documents (integration)', () => {
       await hold(lease.id, await createFile());
       await hold(service.id, await createFile());
       const [ana, marko] = await Promise.all([
-        prisma.person.create({ data: { name: 'Ana Petrović' } }),
-        prisma.person.create({ data: { name: 'Marko Marković' } }),
+        prisma.person.create({
+          data: { name: 'Ana Petrović', nameFolded: foldName('Ana Petrović') },
+        }),
+        prisma.person.create({
+          data: { name: 'Marko Marković', nameFolded: foldName('Marko Marković') },
+        }),
       ]);
-      const kind = await prisma.subjectKind.create({ data: { name: 'apartment' } });
-      const flat = await prisma.subject.create({ data: { kindId: kind.id, name: 'Njegoševa 5' } });
+      const kind = await prisma.subjectKind.create({
+        data: { name: 'apartment', nameFolded: foldName('apartment') },
+      });
+      const flat = await prisma.subject.create({
+        data: { kindId: kind.id, name: 'Njegoševa 5', nameFolded: foldName('Njegoševa 5') },
+      });
       await prisma.documentPerson.createMany({
         data: [
           { documentId: lease.id, personId: ana.id },
@@ -772,7 +781,9 @@ describe('Files and documents (integration)', () => {
       const open = await createLibrary('open', 'ALL_USERS');
       const mine = await libraryDocument(open, 'Mine', 'mine.pdf');
       const hidden = await libraryDocument(restricted, 'Hidden', 'hidden.pdf');
-      const person = await prisma.person.create({ data: { name: 'Ana Petrović' } });
+      const person = await prisma.person.create({
+        data: { name: 'Ana Petrović', nameFolded: foldName('Ana Petrović') },
+      });
       await prisma.documentPerson.createMany({
         data: [
           { documentId: mine.documentId, personId: person.id },
@@ -829,8 +840,12 @@ describe('Files and documents (integration)', () => {
     };
 
     it('puts a document that belongs to two shelves on both of them', async () => {
-      const ana = await prisma.person.create({ data: { name: 'Ana Petrović' } });
-      const marko = await prisma.person.create({ data: { name: 'Marko Marković' } });
+      const ana = await prisma.person.create({
+        data: { name: 'Ana Petrović', nameFolded: foldName('Ana Petrović') },
+      });
+      const marko = await prisma.person.create({
+        data: { name: 'Marko Marković', nameFolded: foldName('Marko Marković') },
+      });
       await documentAbout('Lease', { people: [ana.id, marko.id] });
       await documentAbout('Service book', { people: [marko.id] });
 
@@ -854,9 +869,15 @@ describe('Files and documents (integration)', () => {
     });
 
     it('counts the archive under the filters in force, not the whole of it', async () => {
-      const kind = await prisma.subjectKind.create({ data: { name: 'apartment' } });
-      const flat = await prisma.subject.create({ data: { kindId: kind.id, name: 'Njegoševa 5' } });
-      const ana = await prisma.person.create({ data: { name: 'Ana Petrović' } });
+      const kind = await prisma.subjectKind.create({
+        data: { name: 'apartment', nameFolded: foldName('apartment') },
+      });
+      const flat = await prisma.subject.create({
+        data: { kindId: kind.id, name: 'Njegoševa 5', nameFolded: foldName('Njegoševa 5') },
+      });
+      const ana = await prisma.person.create({
+        data: { name: 'Ana Petrović', nameFolded: foldName('Ana Petrović') },
+      });
       await documentAbout('Lease', { people: [ana.id], subjects: [flat.id] });
       await documentAbout('Letter', { people: [ana.id] });
 

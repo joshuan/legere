@@ -1,3 +1,4 @@
+import { foldName } from '../../src/server/domain/value-objects/name-fold';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
 import { searchResponseSchema } from '../../src/shared/contracts/search';
@@ -402,7 +403,9 @@ describe('Search (e2e)', () => {
 
     it('finds a document by a name it is about, the moment that name changes', async () => {
       const libraryId = await givenLibrary();
-      const person = await testPrisma().person.create({ data: { name: 'Marija Petrovic' } });
+      const person = await testPrisma().person.create({
+        data: { name: 'Marija Petrovic', nameFolded: foldName('Marija Petrovic') },
+      });
       const document = await givenDocument(libraryId, 'Untitled', 'Nothing about anybody.');
       await testPrisma().documentPerson.create({
         data: { documentId: document, personId: person.id },
@@ -435,9 +438,11 @@ describe('Search (e2e)', () => {
 
     it('finds a document by the thing it is about', async () => {
       const libraryId = await givenLibrary();
-      const kind = await testPrisma().subjectKind.create({ data: { name: 'apartment' } });
+      const kind = await testPrisma().subjectKind.create({
+        data: { name: 'apartment', nameFolded: foldName('apartment') },
+      });
       const subject = await testPrisma().subject.create({
-        data: { kindId: kind.id, name: 'Njegoseva 5' },
+        data: { kindId: kind.id, name: 'Njegoseva 5', nameFolded: foldName('Njegoseva 5') },
       });
       const document = await givenDocument(libraryId, 'Untitled', 'Nothing about anything.');
       await testPrisma().documentSubject.create({

@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Subject } from '../../domain/entities/subject';
+import { ConflictError } from '../../domain/errors/domain-error';
 import { foldName } from '../../domain/value-objects/name-fold';
 import {
   SubjectRepository,
@@ -30,6 +32,15 @@ function toSubject(row: SubjectRow): Subject {
     createdAt: row.createdAt,
     deletedAt: row.deletedAt,
   };
+}
+
+// P2002 here can only come from subjects_kind_name_folded_uq: two writers raced the application's
+// uniqueness check and the index picked a winner (docs/04 §4.3).
+function asSubjectExists(error: unknown): unknown {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    return new ConflictError('SUBJECT_EXISTS', 'This thing is already in the list');
+  }
+  return error;
 }
 
 @Injectable()
@@ -123,16 +134,20 @@ export class PrismaSubjectRepository extends SubjectRepository {
     input: { kindId: string; name: string; note?: string | null },
     tx?: TransactionHandle,
   ): Promise<Subject> {
-    const row = await clientOf(this.prisma, tx).subject.create({
-      data: {
-        kindId: input.kindId,
-        name: input.name.trim(),
-        nameFolded: foldName(input.name),
-        note: input.note ?? null,
-      },
-      include: { kind: true },
-    });
-    return toSubject(row);
+    try {
+      const row = await clientOf(this.prisma, tx).subject.create({
+        data: {
+          kindId: input.kindId,
+          name: input.name.trim(),
+          nameFolded: foldName(input.name),
+          note: input.note ?? null,
+        },
+        include: { kind: true },
+      });
+      return toSubject(row);
+    } catch (error) {
+      throw asSubjectExists(error);
+    }
   }
 
   async update(
@@ -140,18 +155,22 @@ export class PrismaSubjectRepository extends SubjectRepository {
     input: { kindId?: string; name?: string; note?: string | null },
     tx?: TransactionHandle,
   ): Promise<Subject> {
-    const row = await clientOf(this.prisma, tx).subject.update({
-      where: { id },
-      data: {
-        ...(input.kindId === undefined ? {} : { kindId: input.kindId }),
-        ...(input.name === undefined
-          ? {}
-          : { name: input.name.trim(), nameFolded: foldName(input.name) }),
-        ...(input.note === undefined ? {} : { note: input.note }),
-      },
-      include: { kind: true },
-    });
-    return toSubject(row);
+    try {
+      const row = await clientOf(this.prisma, tx).subject.update({
+        where: { id },
+        data: {
+          ...(input.kindId === undefined ? {} : { kindId: input.kindId }),
+          ...(input.name === undefined
+            ? {}
+            : { name: input.name.trim(), nameFolded: foldName(input.name) }),
+          ...(input.note === undefined ? {} : { note: input.note }),
+        },
+        include: { kind: true },
+      });
+      return toSubject(row);
+    } catch (error) {
+      throw asSubjectExists(error);
+    }
   }
 
   async softDelete(id: string, deletedAt: Date, tx?: TransactionHandle): Promise<void> {
