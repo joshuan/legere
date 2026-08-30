@@ -103,7 +103,7 @@ export function DocumentTypesFacetScreen() {
 
 export function PeopleFacetScreen() {
   const t = useTranslations();
-  const people = useQuery({ queryKey: personKeys.all, queryFn: personApi.list });
+  const people = useQuery({ queryKey: personKeys.all, queryFn: () => personApi.list() });
   if (people.isPending) return <Spin />;
 
   return (
@@ -127,7 +127,7 @@ export function SubjectKindsFacetScreen() {
   const t = useTranslations();
   // The catalogue itself, not the kinds that happen to be in use: an empty folder is a shelf with
   // nothing on it yet, which is different from a shelf that does not exist (docs/03 §3.3.20a).
-  const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: subjectKindApi.list });
+  const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: () => subjectKindApi.list() });
   if (kinds.isPending) return <Spin />;
 
   return (
@@ -147,7 +147,7 @@ export function SubjectKindsFacetScreen() {
 
 export function SubjectsOfKindFacetScreen({ kindId, title }: { kindId: string; title: string }) {
   const t = useTranslations();
-  const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });
+  const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: () => subjectApi.list() });
   if (subjects.isPending) return <Spin />;
 
   const items = (subjects.data?.items ?? []).filter((subject) => subject.kindId === kindId);

@@ -15,12 +15,16 @@ import {
   type PersonDto,
   type UpdatePersonRequest,
 } from '../../../shared/contracts/people';
+import type { CatalogueOrder, CatalogueSort } from '../../../shared/contracts/common';
 import { okResponseSchema, type OkResponse } from '../../../shared/contracts/users';
-import type { ZodType } from 'zod';
-import { apiClient } from '../../shared/api';
+import { apiClient, listAllPages, type CatalogueArrangement } from '../../shared/api';
 
 export const personApi = {
-  list: (): Promise<{ items: PersonDto[] }> => listAll('/api/people', listPeopleResponseSchema),
+  // The arrangement travels to the server with every page (docs/07 §7.3): a page of a ten-thousand
+  // row catalogue sorted in the browser is a lie, and the cursor is bound to the sort that minted
+  // it.
+  list: (arrangement: CatalogueArrangement = {}): Promise<{ items: PersonDto[] }> =>
+    listAllPages('/api/people', listPeopleResponseSchema, arrangement),
 
   // Open to anyone signed in: the analyst adds names on its own, and whoever corrects it must be
   // able to add the one it missed (docs/03 §3.3.19).
@@ -49,9 +53,10 @@ export const personApi = {
     apiClient.delete(`/api/admin/people/${id}`, { schema: okResponseSchema }),
 
   // The analyst's reading of the catalogue: which rows are one person (docs/05 §5.6c). Nothing is
-  // stored server-side; the answer is computed on request and cached against the catalogue's state.
-  mergeSuggestions: (): Promise<PeopleMergeSuggestionsResponse> =>
-    apiClient.get('/api/admin/people/merge-suggestions', {
+  // stored server-side; the answer is computed on request and cached against the catalogue's state,
+  // and `refresh` drops that cached reading and asks anew — the Recompute of docs/11 §11.12a.
+  mergeSuggestions: ({ refresh = false } = {}): Promise<PeopleMergeSuggestionsResponse> =>
+    apiClient.get(`/api/admin/people/merge-suggestions${refresh ? '?refresh=1' : ''}`, {
       schema: peopleMergeSuggestionsResponseSchema,
     }),
 
@@ -65,25 +70,7 @@ export const personApi = {
 
 export const personKeys = {
   all: ['people'] as const,
+  // Under `all`, so invalidating the catalogue invalidates every arrangement of it.
+  list: (sort: CatalogueSort, order: CatalogueOrder) => ['people', 'list', sort, order] as const,
   mergeSuggestions: ['people', 'merge-suggestions'] as const,
 };
-
-// The endpoint answers bounded pages (docs/07 §7.1, SEC-56); the screens want the whole catalogue,
-// so the client walks the pages. A hundred rows per ask keeps it to one round trip for years.
-async function listAll<T>(
-  path: string,
-  schema: ZodType<{ items: T[]; nextCursor: string | null }>,
-): Promise<{ items: T[] }> {
-  const items: T[] = [];
-  let cursor: string | null = null;
-  do {
-    const query: string =
-      cursor === null ? '?limit=100' : `?limit=100&cursor=${encodeURIComponent(cursor)}`;
-    const page: { items: T[]; nextCursor: string | null } = await apiClient.get(`${path}${query}`, {
-      schema,
-    });
-    items.push(...page.items);
-    cursor = page.nextCursor;
-  } while (cursor !== null);
-  return { items };
-}

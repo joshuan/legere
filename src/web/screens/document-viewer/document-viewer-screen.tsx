@@ -161,9 +161,12 @@ export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?
 
   const documentTypes = useQuery({ queryKey: documentTypeKeys.all, queryFn: documentTypeApi.list });
   const collections = useQuery({ queryKey: collectionKeys.all, queryFn: collectionApi.list });
-  const people = useQuery({ queryKey: personKeys.all, queryFn: personApi.list });
-  const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });
-  const subjectKinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: subjectKindApi.list });
+  const people = useQuery({ queryKey: personKeys.all, queryFn: () => personApi.list() });
+  const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: () => subjectApi.list() });
+  const subjectKinds = useQuery({
+    queryKey: subjectKindKeys.all,
+    queryFn: () => subjectKindApi.list(),
+  });
 
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.detail(id) });

@@ -350,6 +350,46 @@ describe('PeopleScreen', () => {
     });
   });
 
+  describe('the column that says when the paper last named them (docs/11 §11.12a)', () => {
+    it('draws the last document, opens on it, and sends a click-sort to the server', async () => {
+      const seen: string[] = [];
+      server.use(
+        http.get('/api/people', ({ request }) => {
+          seen.push(new URL(request.url).search);
+          return HttpResponse.json(envelope({ nextCursor: null, items: [person] }));
+        }),
+      );
+
+      renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
+
+      // The paper's own date, drawn in its own column.
+      expect(await screen.findByText('2026-03-01')).toBeInTheDocument();
+      // The catalogue opens on what the archive most recently spoke of, and says so to the server:
+      // sorting a page of a ten-thousand-row catalogue in the browser would be a lie.
+      expect(seen[0]).toContain('sort=lastDocumentAt');
+      expect(seen[0]).toContain('order=desc');
+
+      // A click on a count column asks the server the new question rather than reordering the page.
+      await userEvent.click(screen.getByText(enMessages.admin.catalogues.columns.documents));
+      await waitFor(() => expect(seen.length).toBeGreaterThan(1));
+      expect(seen[seen.length - 1]).toContain('sort=documents');
+      expect(seen[seen.length - 1]).toContain('order=asc');
+    });
+
+    it('says nothing rather than a date for a row no dated document names', async () => {
+      server.use(
+        http.get('/api/people', () =>
+          HttpResponse.json(envelope({ nextCursor: null, items: [twin] })),
+        ),
+      );
+
+      renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
+
+      expect(await screen.findByText('Marija Petrovic')).toBeInTheDocument();
+      expect(screen.queryByText('2026-03-01')).toBeNull();
+    });
+  });
+
   it('opens the create dialog focused on the name field (docs/11 §11.14)', async () => {
     renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
     await userEvent.click(

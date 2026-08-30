@@ -16,17 +16,65 @@ import {
   Typography,
   theme,
   type TableColumnType,
+  type TableProps,
 } from 'antd';
 import { useTranslations } from 'next-intl';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { CatalogueReadingState } from '../../../shared/contracts/common';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import type { ZodType } from 'zod';
+import {
+  DEFAULT_CATALOGUE_ORDER,
+  type CatalogueOrder,
+  type CatalogueReadingState,
+} from '../../../shared/contracts/common';
 import { useErrorMessage } from '../../shared/lib';
 import { AnalystUnavailableNotice } from './analyst-unavailable-notice';
+
+// The arrangement a catalogue screen is read in (docs/11 §11.12a): the sort name the API knows it
+// by, the direction, and the one way to change both. Held by the screen because the screen's query
+// carries it to the server — a page of a ten-thousand-row catalogue sorted in the browser is a lie
+// — and living in the widget because all three screens hold it identically.
+export type CatalogueSortState<Sort extends string = string> = {
+  sort: Sort;
+  order: CatalogueOrder;
+  // Takes the column's own sort name, which is a plain string where the table hands it over, and
+  // `null` for the click that turns sorting off — which puts the catalogue back in the order it
+  // opened in rather than in no order at all.
+  apply: (sort: string, order: CatalogueOrder | null) => void;
+};
+
+export function useCatalogueSort<Sort extends string>(
+  // The catalogue's own closed sort enum: a name it does not hold is ignored here rather than sent
+  // to an API that would refuse it (docs/07 §7.3).
+  sortSchema: ZodType<Sort>,
+  initialSort: Sort,
+  initialOrder: CatalogueOrder = DEFAULT_CATALOGUE_ORDER,
+): CatalogueSortState<Sort> {
+  const [arrangement, setArrangement] = useState<{ sort: Sort; order: CatalogueOrder }>({
+    sort: initialSort,
+    order: initialOrder,
+  });
+  const apply = useCallback(
+    (sort: string, order: CatalogueOrder | null) => {
+      if (order === null) {
+        setArrangement({ sort: initialSort, order: initialOrder });
+        return;
+      }
+      const parsed = sortSchema.safeParse(sort);
+      if (parsed.success) setArrangement({ sort: parsed.data, order });
+    },
+    [sortSchema, initialSort, initialOrder],
+  );
+  return { ...arrangement, apply };
+}
 
 export type CatalogueColumn<Row> = {
   title: string;
   key: string;
   render: (row: Row) => ReactNode;
+  // The name this column travels to the server as, on the columns that sort: a click sends the
+  // whole question back to the API rather than reordering the page in the browser
+  // (docs/11 §11.12a).
+  sortKey?: string;
   // AntD's own column extras, for the few columns that want them — a filter over the kinds, say.
   filters?: Array<{ text: string; value: string }>;
   // Taken from the table's own column type rather than restated: AntD's filter value is wider than
@@ -96,6 +144,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   canCreate,
   merge,
   suggestions,
+  sorting,
 }: {
   title: string;
   createLabel: string;
@@ -156,6 +205,9 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     // Subjects only: the heading over the placeholder rows offered for deletion.
     placeholdersTitle?: string;
   };
+  // How the catalogue is arranged and how a header click changes it; the screen's query carries it
+  // to the server (docs/11 §11.12a). A catalogue with no sortable column simply omits it.
+  sorting?: CatalogueSortState<string>;
 }) {
   const t = useTranslations();
   const describeError = useErrorMessage();
@@ -395,6 +447,28 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     );
   };
 
+  // AntD's own vocabulary for the two directions, taken from the column type rather than spelled as
+  // bare strings, which would widen to `string` in the object below.
+  const ascend: TableColumnType<Row>['sortOrder'] = 'ascend';
+  const descend: TableColumnType<Row>['sortOrder'] = 'descend';
+
+  // What the table reports when a header is clicked, turned into the arrangement the screen's query
+  // carries to the server (docs/11 §11.12a). Multi-column sorting is not offered, so the first
+  // result is the whole answer.
+  type Sorter = Parameters<NonNullable<TableProps<Row>['onChange']>>[2];
+  const applySorter = (sorter: Sorter): void => {
+    if (sorting === undefined) return;
+    const clicked = Array.isArray(sorter) ? sorter[0] : sorter;
+    if (clicked === undefined) return;
+    const column = columns.find((candidate) => candidate.key === clicked.columnKey);
+    if (column?.sortKey === undefined) return;
+    // The third click takes the sort off; the catalogue then goes back to the order it opened in.
+    sorting.apply(
+      column.sortKey,
+      clicked.order === ascend ? 'asc' : clicked.order === descend ? 'desc' : null,
+    );
+  };
+
   const actionsColumn = {
     title: t('admin.catalogues.columns.actions'),
     key: 'actions',
@@ -438,6 +512,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
           dataSource={rows}
           pagination={false}
           locale={{ emptyText }}
+          onChange={(_pagination, _filters, sorter) => applySorter(sorter)}
           {...(merge === undefined || !canManage
             ? {}
             : {
@@ -459,6 +534,19 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
               ...(column.defaultFilteredValue === undefined
                 ? {}
                 : { defaultFilteredValue: column.defaultFilteredValue }),
+              // `sorter: true` is AntD's way of saying "the server sorts this": the table draws the
+              // control and reports the click, and reorders nothing itself (docs/11 §11.12a).
+              ...(column.sortKey === undefined || sorting === undefined
+                ? {}
+                : {
+                    sorter: true,
+                    sortOrder:
+                      sorting.sort === column.sortKey
+                        ? sorting.order === 'asc'
+                          ? ascend
+                          : descend
+                        : null,
+                  }),
             })),
             ...(canManage ? [actionsColumn] : []),
           ]}

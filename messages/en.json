@@ -624,6 +624,7 @@
         "name": "Name",
         "note": "Note",
         "documents": "Documents",
+        "lastDocument": "Last document",
         "actions": "Actions"
       },
       "fields": {

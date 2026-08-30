@@ -15,13 +15,15 @@ import {
   type SubjectKindMergeSuggestionsResponse,
   type UpdateSubjectKindRequest,
 } from '../../../shared/contracts/subject-kinds';
+import type { CatalogueOrder, SubjectKindSort } from '../../../shared/contracts/common';
 import { okResponseSchema } from '../../../shared/contracts/users';
-import type { ZodType } from 'zod';
-import { apiClient } from '../../shared/api';
+import { apiClient, listAllPages, type CatalogueArrangement } from '../../shared/api';
 
 export const subjectKindApi = {
-  list: (): Promise<{ items: SubjectKindDto[] }> =>
-    listAll('/api/subject-kinds', listSubjectKindsResponseSchema),
+  // Sorted by the server on the people endpoint's terms, its `?sort=` admitting `things` too
+  // (docs/07 §7.3).
+  list: (arrangement: CatalogueArrangement = {}): Promise<{ items: SubjectKindDto[] }> =>
+    listAllPages('/api/subject-kinds', listSubjectKindsResponseSchema, arrangement),
 
   // Open to anyone signed in, like people and subjects: the analysis adds a kind it meets, and
   // whoever files a boat must not wait for an admin to invent "boat" (docs/03 §3.3.20a).
@@ -47,9 +49,10 @@ export const subjectKindApi = {
       body: mergeSubjectKindsRequestSchema.parse(body),
     }),
 
-  // The analyst's reading of the kinds catalogue (docs/05 §5.6c).
-  mergeSuggestions: (): Promise<SubjectKindMergeSuggestionsResponse> =>
-    apiClient.get('/api/admin/subject-kinds/merge-suggestions', {
+  // The analyst's reading of the kinds catalogue (docs/05 §5.6c), `refresh` dropping the cached one
+  // and asking anew (docs/11 §11.12a).
+  mergeSuggestions: ({ refresh = false } = {}): Promise<SubjectKindMergeSuggestionsResponse> =>
+    apiClient.get(`/api/admin/subject-kinds/merge-suggestions${refresh ? '?refresh=1' : ''}`, {
       schema: subjectKindMergeSuggestionsResponseSchema,
     }),
 
@@ -62,25 +65,8 @@ export const subjectKindApi = {
 
 export const subjectKindKeys = {
   all: ['subject-kinds'] as const,
+  // Under `all`, so invalidating the catalogue invalidates every arrangement of it.
+  list: (sort: SubjectKindSort, order: CatalogueOrder) =>
+    ['subject-kinds', 'list', sort, order] as const,
   mergeSuggestions: ['subject-kinds', 'merge-suggestions'] as const,
 };
-
-// The endpoint answers bounded pages (docs/07 §7.1, SEC-56); the screens want the whole catalogue,
-// so the client walks the pages. A hundred rows per ask keeps it to one round trip for years.
-async function listAll<T>(
-  path: string,
-  schema: ZodType<{ items: T[]; nextCursor: string | null }>,
-): Promise<{ items: T[] }> {
-  const items: T[] = [];
-  let cursor: string | null = null;
-  do {
-    const query: string =
-      cursor === null ? '?limit=100' : `?limit=100&cursor=${encodeURIComponent(cursor)}`;
-    const page: { items: T[]; nextCursor: string | null } = await apiClient.get(`${path}${query}`, {
-      schema,
-    });
-    items.push(...page.items);
-    cursor = page.nextCursor;
-  } while (cursor !== null);
-  return { items };
-}

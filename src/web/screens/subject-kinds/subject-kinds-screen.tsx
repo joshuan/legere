@@ -5,12 +5,14 @@ import { Form, Input, Typography } from 'antd';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useCallback } from 'react';
+import { DEFAULT_CATALOGUE_SORT, subjectKindSortSchema } from '../../../shared/contracts/common';
 import type { SubjectKindDto } from '../../../shared/contracts/subject-kinds';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { subjectKeys } from '../../entities/subject';
 import { useIsAdmin } from '../../entities/user';
 import {
   CatalogueManager,
+  useCatalogueSort,
   type CatalogueSuggestionsReading,
 } from '../../widgets/catalogue-manager';
 
@@ -28,7 +30,12 @@ export function SubjectKindsScreen() {
   // The role comes from the layout's own answer, through context (docs/10 §10.2).
   const isAdmin = useIsAdmin();
   const queryClient = useQueryClient();
-  const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: subjectKindApi.list });
+  // The order the catalogue opens in; this one's sort enum admits `things` too (docs/07 §7.3).
+  const sorting = useCatalogueSort(subjectKindSortSchema, DEFAULT_CATALOGUE_SORT);
+  const kinds = useQuery({
+    queryKey: subjectKindKeys.list(sorting.sort, sorting.order),
+    queryFn: () => subjectKindApi.list({ sort: sorting.sort, order: sorting.order }),
+  });
 
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: subjectKindKeys.all });
@@ -47,7 +54,12 @@ export function SubjectKindsScreen() {
       rows={kinds.data?.items ?? []}
       loading={kinds.isPending}
       columns={[
-        { title: t('admin.catalogues.columns.name'), key: 'name', render: (kind) => kind.name },
+        {
+          title: t('admin.catalogues.columns.name'),
+          key: 'name',
+          sortKey: 'name',
+          render: (kind) => kind.name,
+        },
         {
           title: t('admin.catalogues.columns.note'),
           key: 'note',
@@ -56,6 +68,7 @@ export function SubjectKindsScreen() {
         {
           title: t('admin.subjectKinds.columns.subjects'),
           key: 'subjects',
+          sortKey: 'things',
           // Every count on these screens is a question, and the answer is one click away
           // (docs/11 §11.12a): the things count opens /subjects filtered to this kind. Zero stays
           // plain text — there is nothing to go to.
@@ -69,6 +82,7 @@ export function SubjectKindsScreen() {
         {
           title: t('admin.catalogues.columns.documents'),
           key: 'documents',
+          sortKey: 'documents',
           // ...and the documents count the browse, filtered by the same kind — the filter the API
           // already has (`?subjectKindId=`, docs/07 §7.3).
           render: (kind) =>
@@ -78,7 +92,16 @@ export function SubjectKindsScreen() {
               <Link href={`/documents?subjectKindId=${kind.id}`}>{kind.documentCount}</Link>
             ),
         },
+        {
+          // Across this kind's things (docs/07 §7.3), and the order the catalogue opens in.
+          title: t('admin.catalogues.columns.lastDocument'),
+          key: 'lastDocumentAt',
+          sortKey: 'lastDocumentAt',
+          render: (kind) =>
+            kind.lastDocumentAt ?? <Typography.Text type="secondary">—</Typography.Text>,
+        },
       ]}
+      sorting={sorting}
       initialValues={{ name: '', note: '' }}
       valuesOf={(kind) => ({ name: kind.name, note: kind.note ?? '' })}
       // A kind still holding something cannot be removed at all, so the confirmation says what it

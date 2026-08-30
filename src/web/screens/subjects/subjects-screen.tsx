@@ -6,12 +6,14 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useCallback } from 'react';
+import { catalogueSortSchema, DEFAULT_CATALOGUE_SORT } from '../../../shared/contracts/common';
 import type { SubjectDto } from '../../../shared/contracts/subjects';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { useIsAdmin } from '../../entities/user';
 import {
   CatalogueManager,
+  useCatalogueSort,
   type CatalogueSuggestionsReading,
 } from '../../widgets/catalogue-manager';
 
@@ -30,8 +32,14 @@ export function SubjectsScreen() {
   // The role comes from the layout's own answer, through context (docs/10 §10.2).
   const isAdmin = useIsAdmin();
   const queryClient = useQueryClient();
-  const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: subjectApi.list });
-  const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: subjectKindApi.list });
+  // The order the catalogue opens in, and the one a header click changes (docs/11 §11.12a).
+  const sorting = useCatalogueSort(catalogueSortSchema, DEFAULT_CATALOGUE_SORT);
+  const subjects = useQuery({
+    queryKey: subjectKeys.list(sorting.sort, sorting.order),
+    queryFn: () => subjectApi.list({ sort: sorting.sort, order: sorting.order }),
+  });
+  // The kinds are read here only to fill the select and the filter, so they keep their own order.
+  const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: () => subjectKindApi.list() });
 
   // The kind filter arriving in the URL is honoured (docs/11 §11.12a): the kinds screen's things
   // count links here as `/subjects?kindId=`, and a link that drops its filter on arrival is a link
@@ -84,7 +92,12 @@ export function SubjectsScreen() {
           onFilter: (value, subject) => subject.kindId === String(value),
           ...(kindFilter === null ? {} : { defaultFilteredValue: [kindFilter] }),
         },
-        { title: t('admin.catalogues.columns.name'), key: 'name', render: (s) => s.name },
+        {
+          title: t('admin.catalogues.columns.name'),
+          key: 'name',
+          sortKey: 'name',
+          render: (s) => s.name,
+        },
         {
           title: t('admin.catalogues.columns.note'),
           key: 'note',
@@ -94,6 +107,7 @@ export function SubjectsScreen() {
         {
           title: t('admin.catalogues.columns.documents'),
           key: 'documents',
+          sortKey: 'documents',
           // The number is the question "which four?"; the link answers it (docs/11 §11.12a).
           render: (subject) =>
             subject.documentCount === 0 ? (
@@ -104,7 +118,16 @@ export function SubjectsScreen() {
               </Link>
             ),
         },
+        {
+          // The paper's own date, and the order the catalogue opens in (docs/11 §11.12a).
+          title: t('admin.catalogues.columns.lastDocument'),
+          key: 'lastDocumentAt',
+          sortKey: 'lastDocumentAt',
+          render: (subject) =>
+            subject.lastDocumentAt ?? <Typography.Text type="secondary">—</Typography.Text>,
+        },
       ]}
+      sorting={sorting}
       initialValues={{ kindId: '', name: '', note: '' }}
       valuesOf={(subject) => ({
         kindId: subject.kindId,

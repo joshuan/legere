@@ -73,6 +73,26 @@ describe('SubjectKindsScreen', () => {
     await waitFor(() => expect(patched).toMatchObject({ name: 'flat' }));
   });
 
+  it('sorts by the things count on the server, the name this list alone knows (docs/07 §7.3)', async () => {
+    const seen: string[] = [];
+    server.use(
+      http.get('/api/subject-kinds', ({ request }) => {
+        seen.push(new URL(request.url).search);
+        return HttpResponse.json(envelope({ nextCursor: null, items: [kind] }));
+      }),
+    );
+
+    renderWithProviders(<SubjectKindsScreen />, { user: TEST_ADMIN });
+
+    expect(await screen.findByText('2026-03-01')).toBeInTheDocument();
+    expect(seen[0]).toContain('sort=lastDocumentAt');
+
+    await userEvent.click(screen.getByText(enMessages.admin.subjectKinds.columns.subjects));
+    await waitFor(() => expect(seen.length).toBeGreaterThan(1));
+    // `things` is the kinds list's own sort name — the other two catalogues do not have it.
+    expect(seen[seen.length - 1]).toContain('sort=things');
+  });
+
   it('turns its counts into doors, zero staying plain text (docs/11 §11.12a)', async () => {
     server.use(
       http.get('/api/subject-kinds', () =>

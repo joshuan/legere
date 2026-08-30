@@ -5,10 +5,15 @@ import { Form, Input, Typography } from 'antd';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { useCallback } from 'react';
+import { catalogueSortSchema, DEFAULT_CATALOGUE_SORT } from '../../../shared/contracts/common';
 import type { PersonDto } from '../../../shared/contracts/people';
 import { personApi, personKeys } from '../../entities/person';
 import { useIsAdmin } from '../../entities/user';
-import { CatalogueManager, type CatalogueSuggestionsReading } from '../../widgets/catalogue-manager';
+import {
+  CatalogueManager,
+  useCatalogueSort,
+  type CatalogueSuggestionsReading,
+} from '../../widgets/catalogue-manager';
 
 type FormValues = { name: string; note: string };
 
@@ -24,7 +29,13 @@ export function PeopleScreen() {
   // The role comes from the layout's own answer, through context (docs/10 §10.2).
   const isAdmin = useIsAdmin();
   const queryClient = useQueryClient();
-  const people = useQuery({ queryKey: personKeys.all, queryFn: personApi.list });
+  // The catalogue opens on who the paper spoke of most recently, and a header click sends the whole
+  // question back to the server (docs/11 §11.12a).
+  const sorting = useCatalogueSort(catalogueSortSchema, DEFAULT_CATALOGUE_SORT);
+  const people = useQuery({
+    queryKey: personKeys.list(sorting.sort, sorting.order),
+    queryFn: () => personApi.list({ sort: sorting.sort, order: sorting.order }),
+  });
 
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: personKeys.all });
@@ -44,6 +55,7 @@ export function PeopleScreen() {
         {
           title: t('admin.catalogues.columns.name'),
           key: 'name',
+          sortKey: 'name',
           render: (person) => person.name,
         },
         {
@@ -54,6 +66,7 @@ export function PeopleScreen() {
         {
           title: t('admin.catalogues.columns.documents'),
           key: 'documents',
+          sortKey: 'documents',
           // The number is the question "which forty?"; the link answers it (docs/11 §11.12a).
           render: (person) =>
             person.documentCount === 0 ? (
@@ -62,7 +75,17 @@ export function PeopleScreen() {
               <Link href={`/browse/people/${person.id}`}>{person.documentCount}</Link>
             ),
         },
+        {
+          // The paper's own date, not the day it was uploaded, and the order the catalogue opens in
+          // (docs/11 §11.12a).
+          title: t('admin.catalogues.columns.lastDocument'),
+          key: 'lastDocumentAt',
+          sortKey: 'lastDocumentAt',
+          render: (person) =>
+            person.lastDocumentAt ?? <Typography.Text type="secondary">—</Typography.Text>,
+        },
       ]}
+      sorting={sorting}
       initialValues={{ name: '', note: '' }}
       valuesOf={(person) => ({ name: person.name, note: person.note ?? '' })}
       confirmDelete={(person) =>
