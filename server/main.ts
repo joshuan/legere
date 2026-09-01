@@ -1,7 +1,14 @@
 import 'reflect-metadata';
 import cookieParser from 'cookie-parser';
-import express, { type Express, type Request, type Response } from 'express';
+import express, {
+  type ErrorRequestHandler,
+  type Express,
+  type Request,
+  type RequestHandler,
+  type Response,
+} from 'express';
 import { type INestApplication } from '@nestjs/common';
+import { wireNextNestStack } from '@joshuan/next-nest';
 import { NestFactory } from '@nestjs/core';
 import { ExpressAdapter } from '@nestjs/platform-express';
 import { Logger as PinoLogger } from 'nestjs-pino';
@@ -53,60 +60,63 @@ export async function wireServer(
     // The logger is resolved per call, not here — the first request is long after Nest is up.
     server.use(forwardedForNotice((message) => nestApp.get(PinoLogger).warn(message)));
   }
-  nestApp.setGlobalPrefix('api');
-  // Nothing is served that says what it is built on.
-  server.disable('x-powered-by');
-
-  // Before the dispatcher, so pages carry them too (docs/12 §12.8a) — and now load-bearing rather
-  // than tidy: the page policy carries a per-request nonce, and Next reads it off the *request*
-  // headers this middleware writes before `nextHandle` is ever called (docs/10 §10.4). Mounted
-  // below the dispatcher it would set a header on a response Next had already started.
-  server.use(securityHeaders({ usesHttps: config.usesHttps, bucketOrigin: config.bucketOrigin }));
-  // 🔒 And the origin check with them, above the dispatcher rather than on `/api`: a rule about
-  // which requests may change state should not depend on where a route happens to be mounted. The
-  // product has no Next route handler and no server action today, so this changes nothing now —
-  // which is the moment to move it, rather than the day somebody adds one and inherits the session
-  // cookie without the check (docs/08 §8.4).
-  server.use(csrfOriginCheck(config.get('APP_BASE_URL')));
-
-  server.use((req, res, forward) => {
+  const pageDispatcher: RequestHandler = (req, res, forward) => {
     if (isApiPath(req.path)) {
       forward();
       return;
     }
     nextHandle(req, res);
-  });
-  // Request logging + requestId for every /api request (docs/06 §6.7). Mounted explicitly rather than
-  // via nestjs-pino's Nest middleware, which does not run reliably behind the shared Express instance
-  // + global prefix + dispatcher; nestjs-pino remains the Nest application logger.
-  server.use('/api', pinoHttp(buildPinoHttpOptions(loadConfig())));
-  // Immediately after it, so everything the request goes on to do can be tied back to the id the
-  // line above just minted — the account journal of docs/06 §6.7 reads it from here.
-  server.use('/api', callContextMiddleware(nestApp.get(CallContext)));
-  server.use('/api', cookieParser());
+  };
+
   // 🔒 The upload routes take the file as the body itself (docs/07 §7.3), so no parser may touch
   // them. Which routes those are is declared once, beside the function that reads them, rather than
   // matched by a path equality here that a second route can silently miss — which is exactly what
   // happened to `POST /documents/:id/files`.
   const isUpload = (req: Request): boolean => isRawBodyRoute(req.method, req.path);
-  server.use('/api', (req, res, next) =>
-    isUpload(req) ? next() : express.json({ limit: '1mb' })(req, res, next),
-  );
-  server.use('/api', (req, res, next) =>
-    isUpload(req) ? next() : express.urlencoded({ extended: true })(req, res, next),
-  );
-  // A body the parsers cannot read fails right here, before any route — an HTTP 400 for an API
-  // whose clients read HTTP, which is every route but one: the MCP client reads JSON-RPC, where the
-  // same failure has the name it was promised (docs/07 §7.3a).
-  server.use('/api', jsonRpcParseError);
-  // A bearer token reaches read routes only (docs/08 §8.2a).
-  server.use('/api', readOnlyBearer);
-
-  await nestApp.init();
-
-  server.use('/api', (_req: Request, res: Response) => {
+  const jsonBody: RequestHandler = (req, res, next) =>
+    isUpload(req) ? next() : express.json({ limit: '1mb' })(req, res, next);
+  const formBody: RequestHandler = (req, res, next) =>
+    isUpload(req) ? next() : express.urlencoded({ extended: true })(req, res, next);
+  const unknownRoute: RequestHandler = (_req, res) => {
     res.status(404).json(errorEnvelope('NOT_FOUND', 'Unknown API route'));
-  });
+  };
+
+  await wireNextNestStack<RequestHandler, ErrorRequestHandler>(
+    nestApp,
+    {
+      disablePoweredBy: () => {
+        server.disable('x-powered-by');
+      },
+      root: (middleware) => {
+        server.use(middleware);
+      },
+      api: (prefix, middleware) => {
+        server.use(prefix, middleware);
+      },
+      apiError: (prefix, middleware) => {
+        server.use(prefix, middleware);
+      },
+      error: (middleware) => {
+        server.use(middleware);
+      },
+    },
+    {
+      rootMiddleware: [
+        securityHeaders({ usesHttps: config.usesHttps, bucketOrigin: config.bucketOrigin }),
+        csrfOriginCheck(config.get('APP_BASE_URL')),
+      ],
+      pageDispatcher,
+      apiMiddleware: [
+        pinoHttp(buildPinoHttpOptions(loadConfig())),
+        callContextMiddleware(nestApp.get(CallContext)),
+        cookieParser(),
+      ],
+      bodyMiddleware: [jsonBody, formBody],
+      afterBodyErrorMiddleware: [jsonRpcParseError],
+      afterBodyMiddleware: [readOnlyBearer],
+      unknownRoute,
+    },
+  );
 }
 
 export async function bootstrap({ dev }: { dev: boolean }): Promise<void> {

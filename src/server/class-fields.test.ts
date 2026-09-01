@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
@@ -38,13 +39,28 @@ const swcrcSetting = z
   .transform((swcrc) => swcrc.jsc.transform.useDefineForClassFields);
 
 const tsconfigSetting = z
-  .object({ compilerOptions: z.object({ useDefineForClassFields: z.boolean() }) })
-  .transform((tsconfig) => tsconfig.compilerOptions.useDefineForClassFields);
+  .boolean()
+  .describe('the resolved TypeScript useDefineForClassFields option');
+
+function resolvedClassFieldSetting(file: string): boolean {
+  const path = join(ROOT, file);
+  const loaded = ts.readConfigFile(path, (fileName) => ts.sys.readFile(fileName));
+  if (loaded.error)
+    throw new Error(ts.flattenDiagnosticMessageText(loaded.error.messageText, '\n'));
+  const parsed = ts.parseJsonConfigFileContent(loaded.config, ts.sys, ROOT, undefined, path);
+  if (parsed.errors.length > 0)
+    throw new Error(
+      parsed.errors
+        .map((error) => ts.flattenDiagnosticMessageText(error.messageText, '\n'))
+        .join('\n'),
+    );
+  return tsconfigSetting.parse(parsed.options.useDefineForClassFields);
+}
 
 describe('class fields', () => {
   it('are emitted the same way by the build and by the test transform', () => {
     const tests = classFieldSetting('.swcrc', swcrcSetting);
-    const build = classFieldSetting('tsconfig.server.json', tsconfigSetting);
+    const build = resolvedClassFieldSetting('tsconfig.server.json');
 
     // Explicit on both sides: a default that changes with the target is a default that changes under
     // somebody who is not looking at it.

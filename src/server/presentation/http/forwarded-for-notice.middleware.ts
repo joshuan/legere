@@ -1,4 +1,4 @@
-import type { NextFunction, Request, Response } from 'express';
+import { forwardedForNotice as sharedForwardedForNotice } from '@joshuan/http/express';
 
 // 🔒 What an unset `TRUST_PROXY` costs, said where it can be observed rather than guessed
 // (docs/12 §12.8).
@@ -26,13 +26,5 @@ const MESSAGE =
   'If the app port is published directly, that header was written by the caller and TRUST_PROXY must stay empty. Said once per process.';
 
 export function forwardedForNotice(warn: (message: string) => void) {
-  let said = false;
-
-  return (req: Request, _res: Response, next: NextFunction): void => {
-    if (!said && req.headers['x-forwarded-for'] !== undefined) {
-      said = true;
-      warn(MESSAGE);
-    }
-    next();
-  };
+  return sharedForwardedForNotice(warn, MESSAGE);
 }

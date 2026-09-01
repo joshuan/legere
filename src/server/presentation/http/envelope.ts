@@ -1,8 +1,12 @@
 import type { Envelope, ErrorBody, ErrorCode } from '../../../shared/contracts/common';
+import {
+  errorEnvelope as sharedErrorEnvelope,
+  successEnvelope as sharedSuccessEnvelope,
+} from '@joshuan/http';
 
 // Response envelope helpers (docs/07 §7.1).
 export function successEnvelope<T>(data: T): Envelope<T> {
-  return { data };
+  return sharedSuccessEnvelope(data);
 }
 
 export function errorEnvelope(
@@ -10,5 +14,5 @@ export function errorEnvelope(
   message: string,
   details: unknown = null,
 ): ErrorBody {
-  return { error: { code, message, details } };
+  return sharedErrorEnvelope(code, message, details);
 }

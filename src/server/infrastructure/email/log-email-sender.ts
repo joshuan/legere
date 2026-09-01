@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { SafeLogEmailSender } from '@joshuan/auth-adapters';
 import { InjectPinoLogger, type PinoLogger } from 'nestjs-pino';
 import { EmailSender, type EmailMessage } from '../../application/ports/email-sender';
 
@@ -14,15 +15,19 @@ import { EmailSender, type EmailMessage } from '../../application/ports/email-se
 // on, in any environment, because there is no level of log at which a credential is safe.
 @Injectable()
 export class LogEmailSender extends EmailSender {
+  private readonly shared: SafeLogEmailSender;
+
   constructor(@InjectPinoLogger(LogEmailSender.name) private readonly logger: PinoLogger) {
     super();
+    this.shared = new SafeLogEmailSender((record) =>
+      this.logger.warn(
+        record,
+        'Email not sent: SMTP is not configured, and the message body is never logged',
+      ),
+    );
   }
 
   send(message: EmailMessage): Promise<void> {
-    this.logger.warn(
-      { to: message.to, subject: message.subject },
-      'Email not sent: SMTP is not configured, and the message body is never logged',
-    );
-    return Promise.resolve();
+    return this.shared.send(message);
   }
 }

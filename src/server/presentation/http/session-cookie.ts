@@ -1,4 +1,8 @@
-import type { CookieOptions } from 'express';
+import {
+  clearSessionCookie as sharedClearSessionCookie,
+  setSessionCookie as sharedSetSessionCookie,
+  type CookieSink,
+} from '@joshuan/http/express';
 import type { AppConfig } from '../../infrastructure/config/app-config';
 
 // Session cookie attributes (docs/08 §8.2): HttpOnly, Secure when APP_BASE_URL is https, SameSite=Lax,
@@ -7,34 +11,24 @@ export const SESSION_COOKIE_NAME = 'sid';
 
 // What these helpers need of a response — express satisfies it, and so can a test double without
 // pretending to be the other ninety methods. The return value is ignored: nothing here chains.
-export type CookieSink = {
-  cookie(name: string, value: string, options?: CookieOptions): unknown;
-  clearCookie(name: string, options?: CookieOptions): unknown;
-};
+export type { CookieSink };
 
 // The locale cookie next-intl reads for SSR (docs/10 §10.3). Not HttpOnly: the client reads it too.
 export const LOCALE_COOKIE_NAME = 'NEXT_LOCALE';
 
-function baseOptions(config: AppConfig): CookieOptions {
-  const domain = config.get('COOKIE_DOMAIN');
-  return {
-    httpOnly: true,
-    secure: config.usesHttps,
-    sameSite: 'lax',
-    path: '/',
-    ...(domain === '' ? {} : { domain }),
-  };
-}
-
 export function setSessionCookie(res: CookieSink, config: AppConfig, token: string): void {
-  res.cookie(SESSION_COOKIE_NAME, token, {
-    ...baseOptions(config),
-    maxAge: config.get('SESSION_TTL_DAYS') * 24 * 60 * 60 * 1000,
+  sharedSetSessionCookie(res, SESSION_COOKIE_NAME, token, {
+    secure: config.usesHttps,
+    domain: config.get('COOKIE_DOMAIN'),
+    maxAgeMs: config.get('SESSION_TTL_DAYS') * 24 * 60 * 60 * 1000,
   });
 }
 
 export function clearSessionCookie(res: CookieSink, config: AppConfig): void {
-  res.clearCookie(SESSION_COOKIE_NAME, baseOptions(config));
+  sharedClearSessionCookie(res, SESSION_COOKIE_NAME, {
+    secure: config.usesHttps,
+    domain: config.get('COOKIE_DOMAIN'),
+  });
 }
 
 // Keeps SSR rendering in the user's language after login or a profile change (docs/10 §10.3).

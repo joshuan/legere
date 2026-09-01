@@ -1,28 +1,27 @@
+import { defineConfig, TypedConfig, type ParseResult } from '@joshuan/config';
 import { configSchema, RENAMED_KEYS, type ConfigValues } from './config.schema';
 
 // Typed, validated configuration exposed to DI (docs/06 §6.6). Injected via its class token;
 // `process.env` is read nowhere else in the codebase.
-export class AppConfig {
+export class AppConfig extends TypedConfig<ConfigValues> {
   constructor(
-    private readonly values: ConfigValues,
+    values: ConfigValues,
     // Which of the schema's keys the environment actually carried, remembered at parse time because
     // it is the only moment anything sees the raw environment. `/admin/instance` needs it to tell a
     // value somebody set from a default nobody overrode (docs/07 §7.3).
-    private readonly fromEnv: ReadonlySet<string> = new Set(),
-  ) {}
-
-  get<K extends keyof ConfigValues>(key: K): ConfigValues[K] {
-    return this.values[key];
+    fromEnv: ReadonlySet<PropertyKey> = new Set(),
+  ) {
+    super(values, fromEnv);
   }
 
   // Did the environment set this key, or is what we hold the schema's default? An empty value counts
   // as unset: `SMTP_HOST=` in a .env file and no SMTP_HOST at all mean the same thing to the app.
   isFromEnv(key: keyof ConfigValues): boolean {
-    return this.fromEnv.has(key);
+    return this.isFromEnvironment(key);
   }
 
   get isProduction(): boolean {
-    return this.values.NODE_ENV === 'production';
+    return this.get('NODE_ENV') === 'production';
   }
 
   // Whether the app is served over TLS, read from the address it is served under (docs/08 §8.2).
@@ -30,7 +29,7 @@ export class AppConfig {
   // cookie over plain HTTP, so a self-hosted instance on `http://192.168.x.x` could never keep a
   // session — while an HTTPS deployment gets the attribute whatever NODE_ENV says.
   get usesHttps(): boolean {
-    return this.values.APP_BASE_URL.startsWith('https://');
+    return this.get('APP_BASE_URL').startsWith('https://');
   }
 
   // The origin a browser is sent to for a presigned URL: the public endpoint when one is configured,
@@ -41,8 +40,8 @@ export class AppConfig {
   // the bucket share an origin with the app (SEC-39), and the page CSP, which has to name the host a
   // preview or a canonical PDF redirects to (docs/12 §12.8a).
   get bucketOrigin(): string | null {
-    const configured = this.values.S3_PUBLIC_ENDPOINT;
-    return originOf(configured === '' ? this.values.S3_ENDPOINT : configured);
+    const configured = this.get('S3_PUBLIC_ENDPOINT');
+    return originOf(configured === '' ? this.get('S3_ENDPOINT') : configured);
   }
 
   // 🔒 Whether the SMTP transport must insist on the `STARTTLS` upgrade rather than accept whatever
@@ -50,7 +49,7 @@ export class AppConfig {
   // upgrade to insist on; otherwise the answer is yes unless the operator has said otherwise in
   // writing. Read by the transport, which is built once at boot.
   get requiresSmtpTls(): boolean {
-    return !this.values.SMTP_SECURE && !this.values.SMTP_ALLOW_PLAINTEXT;
+    return !this.get('SMTP_SECURE') && !this.get('SMTP_ALLOW_PLAINTEXT');
   }
 
   // 🔒 And whether that permission is actually doing something: a relay is configured, the session
@@ -59,12 +58,12 @@ export class AppConfig {
   // on a setting that changes nothing — the CAPTCHA reasoning in reverse (docs/12 §12.4a).
   get sendsMailInPlaintext(): boolean {
     return (
-      this.values.SMTP_HOST !== '' && !this.values.SMTP_SECURE && this.values.SMTP_ALLOW_PLAINTEXT
+      this.get('SMTP_HOST') !== '' && !this.get('SMTP_SECURE') && this.get('SMTP_ALLOW_PLAINTEXT')
     );
   }
 
   get smtpHost(): string {
-    return this.values.SMTP_HOST;
+    return this.get('SMTP_HOST');
   }
 }
 
@@ -97,27 +96,30 @@ const PUBLISHED_EXAMPLES: ReadonlyArray<{
 // more than the schema's shape (docs/12 §12.4a) — the same collected-error format, because an
 // operator fixing three things wants to be told three things once.
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
-  // What a key used to be called is read before the schema sees anything, so the rest of the
-  // process only ever knows the name a key has now (docs/12 §12.4).
-  const resolved = withRenamedKeys(env);
-  const result = configSchema.safeParse(resolved);
-  if (!result.success) {
-    const issues = result.error.issues
-      .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
-      .join('\n');
-    throw new Error(`Invalid environment configuration:\n${issues}`);
-  }
+  const parsed = configLoader.load(env);
+  return new AppConfig(parsed.snapshot(), parsed.environmentKeys);
+}
 
-  // Over the resolved environment, not the raw one: a value inherited from a pre-rename name was
-  // still set by an operator, and `/admin/instance` must not report it as a default nobody chose.
-  const config = new AppConfig(result.data, providedKeys(resolved));
-  const refusals = productionRefusals(config);
-  if (refusals.length > 0) {
-    throw new Error(
-      `Refusing to start in production:\n${refusals.map((line) => `  - ${line}`).join('\n')}`,
-    );
-  }
-  return config;
+const configLoader = defineConfig<ConfigValues>({
+  parse: parseEnvironment,
+  renamedKeys: RENAMED_KEYS,
+  isProduction: (values) => values.NODE_ENV === 'production',
+  productionChecks: [(values) => productionRefusals(new AppConfig(values))],
+  invalidHeading: 'Invalid environment configuration',
+  refusalHeading: 'Refusing to start in production',
+});
+
+function parseEnvironment(input: Readonly<Record<string, unknown>>): ParseResult<ConfigValues> {
+  const result = configSchema.safeParse(input);
+  return result.success
+    ? { success: true, data: result.data }
+    : {
+        success: false,
+        issues: result.error.issues.map((issue) => ({
+          path: issue.path,
+          message: issue.message,
+        })),
+      };
 }
 
 // What a production instance may not run on. Empty in development and test, where the published
@@ -243,23 +245,4 @@ function originOf(value: string): string | null {
   } catch {
     return null;
   }
-}
-
-// The schema's own keys that the environment carried with something in them.
-function providedKeys(env: Record<string, string | undefined>): ReadonlySet<string> {
-  return new Set(Object.keys(configSchema.shape).filter((key) => (env[key] ?? '') !== ''));
-}
-
-// The current name wins wherever it is set; where it is not, the name the key used to carry is read
-// in its place (`RENAMED_KEYS`, docs/12 §12.4). An upgrade must not turn a cap somebody set into the
-// default, and an operator who has moved to the new name must not be second-guessed by an old one
-// still sitting in the same environment.
-function withRenamedKeys(
-  env: Record<string, string | undefined>,
-): Record<string, string | undefined> {
-  const resolved = { ...env };
-  for (const { now, before } of RENAMED_KEYS) {
-    if ((resolved[now] ?? '') === '' && (env[before] ?? '') !== '') resolved[now] = env[before];
-  }
-  return resolved;
 }
