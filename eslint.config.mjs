@@ -18,47 +18,96 @@ export default createApplicationEslintConfig({
       settings: {
         'boundaries/include': ['src/web/**/*', 'src/app/**/*', 'src/server/**/*', 'src/i18n/**/*'],
         'boundaries/elements': [
-          { type: 'server', pattern: 'src/server/**/*', mode: 'full' },
-          { type: 'contracts', pattern: 'src/shared/contracts/**/*', mode: 'full' },
-          { type: 'i18n', pattern: 'src/i18n/**/*', mode: 'full' },
-          { type: 'app', pattern: 'src/app/**/*', mode: 'full' },
-          { type: 'screens', pattern: 'src/web/screens/**/*', mode: 'full' },
-          { type: 'widgets', pattern: 'src/web/widgets/**/*', mode: 'full' },
-          { type: 'features', pattern: 'src/web/features/**/*', mode: 'full' },
-          { type: 'entities', pattern: 'src/web/entities/**/*', mode: 'full' },
-          { type: 'shared', pattern: 'src/web/shared/**/*', mode: 'full' },
+          { type: 'server', pattern: 'src/server/**/*', partialMatch: false },
+          { type: 'contracts', pattern: 'src/shared/contracts/**/*', partialMatch: false },
+          { type: 'i18n', pattern: 'src/i18n/**/*', partialMatch: false },
+          { type: 'app', pattern: 'src/app/**/*', partialMatch: false },
+          { type: 'screens', pattern: 'src/web/screens/**/*', partialMatch: false },
+          { type: 'widgets', pattern: 'src/web/widgets/**/*', partialMatch: false },
+          { type: 'features', pattern: 'src/web/features/**/*', partialMatch: false },
+          { type: 'entities', pattern: 'src/web/entities/**/*', partialMatch: false },
+          { type: 'shared', pattern: 'src/web/shared/**/*', partialMatch: false },
         ],
       },
       rules: {
-        'boundaries/element-types': [
+        'boundaries/dependencies': [
           'error',
           {
             default: 'disallow',
-            message: '${file.type} is not allowed to import ${dependency.type} (docs/10 §10.1).',
-            rules: [
+            message:
+              '{{ from.element.type }} is not allowed to import {{ to.element.type }} (docs/10 §10.1).',
+            policies: [
               {
-                from: ['app'],
-                allow: [
-                  'screens',
-                  'widgets',
-                  'features',
-                  'entities',
-                  'shared',
-                  'contracts',
-                  'i18n',
-                ],
+                from: { element: { type: 'app' } },
+                allow: {
+                  to: {
+                    element: {
+                      types: {
+                        anyOf: [
+                          'screens',
+                          'widgets',
+                          'features',
+                          'entities',
+                          'shared',
+                          'contracts',
+                          'i18n',
+                        ],
+                      },
+                    },
+                  },
+                },
               },
               {
-                from: ['screens'],
-                allow: ['screens', 'widgets', 'features', 'entities', 'shared', 'contracts'],
+                from: { element: { type: 'screens' } },
+                allow: {
+                  to: {
+                    element: {
+                      types: {
+                        anyOf: [
+                          'screens',
+                          'widgets',
+                          'features',
+                          'entities',
+                          'shared',
+                          'contracts',
+                        ],
+                      },
+                    },
+                  },
+                },
               },
               {
-                from: ['widgets'],
-                allow: ['widgets', 'features', 'entities', 'shared', 'contracts'],
+                from: { element: { type: 'widgets' } },
+                allow: {
+                  to: {
+                    element: {
+                      types: { anyOf: ['widgets', 'features', 'entities', 'shared', 'contracts'] },
+                    },
+                  },
+                },
               },
-              { from: ['features'], allow: ['features', 'entities', 'shared', 'contracts'] },
-              { from: ['entities'], allow: ['entities', 'shared', 'contracts'] },
-              { from: ['shared'], allow: ['shared', 'contracts'] },
+              {
+                from: { element: { type: 'features' } },
+                allow: {
+                  to: {
+                    element: {
+                      types: { anyOf: ['features', 'entities', 'shared', 'contracts'] },
+                    },
+                  },
+                },
+              },
+              {
+                from: { element: { type: 'entities' } },
+                allow: {
+                  to: { element: { types: { anyOf: ['entities', 'shared', 'contracts'] } } },
+                },
+              },
+              {
+                from: { element: { type: 'shared' } },
+                allow: {
+                  to: { element: { types: { anyOf: ['shared', 'contracts'] } } },
+                },
+              },
             ],
           },
         ],
