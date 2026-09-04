@@ -1716,3 +1716,18 @@ service — nineteen kernel out-of-memory events in a day — and the pipeline h
   **Goal:** the parse's last minutes are not sold to a window that cannot use them.
   **Docs:** [`05 §5.4a`](../05-library-and-processing.md)
   **Acceptance:** when what is left of the whole-parse deadline is less than the floor one window needs, the parse ends with a message naming the whole parse's deadline and the pages it did not reach — never `did not finish within 0 minutes`, which is that arithmetic reported as if it were the parser's answer — and no upload is made for a window that cannot finish; the cases that genuinely have their budget are unchanged. Tests: a parse whose remaining time is under the floor fails before uploading and says which deadline it hit; a window with its budget still runs.
+
+## M59 — When an AI endpoint says to wait
+
+An OpenAI-compatible AI endpoint can answer `429` while explicitly telling the client when it will
+accept work again. Treating that response like an ordinary retry makes every waiting document knock
+again, and turns the provider's own protection into a queue of synchronized retries. The service gate
+already owns the boundary between work and a provider; it should also be able to close that boundary
+for the duration the provider requested.
+
+---
+
+- [ ] **M59.1 — A `Retry-After` response stops the service gate**
+  **Goal:** when an AI service returns `429` with `Retry-After`, no further work is sent to that service until a safe time before the provider's announced recovery window.
+  **Docs:** [`05 §5.4b`](../05-library-and-processing.md#54b-per-service-gates), [`05 §5.4e`](../05-library-and-processing.md#54e-an-outage-is-not-a-verdict), [`06 §6.3.3`](../06-backend-architecture.md#633-application-ports-non-repository)
+  **Acceptance:** the classifier, transcriber and embeddings clients preserve a typed `429` response together with a parsed `Retry-After` deadline (both delta-seconds and HTTP-date forms); a valid value closes that service's gate and **stops its waiting queue**, so queued units are not started and no request is made while the hold is active; the hold is instance-wide and covers all pipeline entry points using that service, not only the job that observed the response; the gate reopens automatically at the chosen safe time and queued work resumes FIFO, without marking documents `FAILED` and without consuming another retry for every skipped unit; the chosen time is never earlier than one hour before the provider's deadline (use the midpoint when that is later, otherwise resume one hour before the deadline), and a deadline already inside that one-hour safety window is respected as-is; missing, malformed or unreasonably distant `Retry-After` falls back to the ordinary typed service-unavailable/backoff path and never creates an unbounded in-memory timer; a later `Retry-After` extends the hold, while an earlier one never shortens it; non-AI clients and ordinary `5xx` handling keep their existing semantics; `/admin/queue` exposes the service as paused/throttled with the hold-until time and waiting count. Tests: delta-seconds and HTTP-date parsing; a `429` prevents every subsequent call during the hold; the hold is shared by concurrent callers and by all AI entry points; FIFO resumes at the safe time; extension cannot be shortened; invalid and expired headers use the fallback path; the response does not turn a document step `FAILED`.
