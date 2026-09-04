@@ -371,7 +371,7 @@ the most sensitive metadata a DMS holds) and `req.query` on `/api/search` (what 
 
 **Fix.** A custom `req` serializer that logs a route-shaped URL (`/api/invites/:token`), plus the two
 filename headers on the redact list. Moving the tokens out of the URL entirely
-([SEC-38](#sec-38)) is the better end state and needs a `07` change first.
+([SEC-38](#sec-38)) is the better end state and is now implemented by the fixed preview routes.
 
 ---
 

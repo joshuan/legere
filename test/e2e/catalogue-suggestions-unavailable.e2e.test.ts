@@ -69,7 +69,7 @@ describe('Catalogue suggestions when the analyst cannot be asked (e2e)', () => {
 
   beforeEach(async () => {
     await truncateAll();
-    await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+    await testPrisma().$executeRawUnsafe('DELETE FROM pgboss.job');
     app.emails.reset();
     analyst.asked.length = 0;
     seq += 1;

@@ -35,7 +35,7 @@ describe('Reprocess and queue administration (e2e)', () => {
 
   beforeEach(async () => {
     await truncateAll();
-    await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+    await testPrisma().$executeRawUnsafe('DELETE FROM pgboss.job');
     app.emails.reset();
     seq += 1;
     adminCookie = await onboard(`queueadmin${seq}@legere.local`);
@@ -643,7 +643,7 @@ describe('Reprocess and queue administration (e2e)', () => {
 
     // Resuming re-registers the worker; the job goes first so a real pipeline run does not start
     // underneath the rest of the suite.
-    await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+    await testPrisma().$executeRawUnsafe('DELETE FROM pgboss.job');
     const resumed = await api(app)
       .patch('/api/admin/queue/settings', {
         concurrency: {},
@@ -681,7 +681,7 @@ describe('Reprocess and queue administration (e2e)', () => {
       expect(expectData(published, pausedStepsResponseSchema).pausedSteps).toEqual(['analysis']);
 
       const documentId = await givenProcessedDocument();
-      await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+      await testPrisma().$executeRawUnsafe('DELETE FROM pgboss.job');
 
       // One document, one step, and it is the held one: nothing to enqueue, so the answer is the
       // reason rather than a job that would do nothing.
@@ -722,14 +722,14 @@ describe('Reprocess and queue administration (e2e)', () => {
         },
         files: [{ sizeBytes: 100n }],
       });
-      await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+      await testPrisma().$executeRawUnsafe('DELETE FROM pgboss.job');
 
       await pause([]);
 
       // Released, so it is enqueued at once rather than waiting up to two hours for the sweep — and
       // for that step alone (docs/05 §5.4d).
       expect(await processJobs()).toEqual([{ data: { documentId: id, steps: ['vectorization'] } }]);
-      await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+      await testPrisma().$executeRawUnsafe('DELETE FROM pgboss.job');
     });
   });
 

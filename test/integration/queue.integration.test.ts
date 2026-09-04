@@ -65,12 +65,12 @@ describe('Queue (integration)', () => {
 
   afterEach(async () => {
     // Leave no jobs behind for the next test.
-    await prisma.$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+    await prisma.$executeRawUnsafe('DELETE FROM pgboss.job');
     handler.received.length = 0;
   });
 
   afterAll(async () => {
-    await prisma.$executeRawUnsafe('TRUNCATE TABLE pgboss.job').catch(() => undefined);
+    await prisma.$executeRawUnsafe('DELETE FROM pgboss.job').catch(() => undefined);
     await close();
     await disconnectTestPrisma();
   });

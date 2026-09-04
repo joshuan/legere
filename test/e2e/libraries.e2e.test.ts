@@ -51,7 +51,7 @@ describe('Libraries (e2e)', () => {
   beforeEach(async () => {
     await truncateAll();
     // Jobs and schedules live in pg-boss's own schema, which truncateAll leaves alone.
-    await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+    await testPrisma().$executeRawUnsafe('DELETE FROM pgboss.job');
     await testPrisma().$executeRawUnsafe('DELETE FROM pgboss.schedule');
     app.emails.reset();
     seq += 1;

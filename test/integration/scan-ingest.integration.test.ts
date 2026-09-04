@@ -89,7 +89,7 @@ describe('Scan and ingest (integration)', () => {
 
   beforeEach(async () => {
     await truncateAll();
-    await prisma.$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+    await prisma.$executeRawUnsafe('DELETE FROM pgboss.job');
     await rm(root, { recursive: true, force: true });
     await mkdir(root, { recursive: true });
   });

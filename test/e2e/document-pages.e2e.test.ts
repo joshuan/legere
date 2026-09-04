@@ -55,7 +55,7 @@ describe('Document pages (e2e)', () => {
 
   beforeEach(async () => {
     await truncateAll();
-    await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+    await testPrisma().$executeRawUnsafe('DELETE FROM pgboss.job');
     app.emails.reset();
     app.files.clear();
     seq += 1;

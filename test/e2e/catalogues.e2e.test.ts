@@ -29,7 +29,7 @@ describe('Catalogues (e2e)', () => {
 
   beforeEach(async () => {
     await truncateAll();
-    await testPrisma().$executeRawUnsafe('TRUNCATE TABLE pgboss.job');
+    await testPrisma().$executeRawUnsafe('DELETE FROM pgboss.job');
     app.emails.reset();
     seq += 1;
     adminCookie = await onboard(`catalogueadmin${seq}@legere.local`);
