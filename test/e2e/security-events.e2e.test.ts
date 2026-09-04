@@ -6,7 +6,7 @@ import {
   listSessionsResponseSchema,
   createApiTokenResponseSchema,
 } from '../../src/shared/contracts/users';
-import { api, createTestApp, type TestApp } from '../helpers/app';
+import { api, createTestApp, tokenFromFragmentUrl, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 import { cookieNamed, expectData } from '../helpers/http';
 
@@ -73,8 +73,7 @@ describe('Security events (e2e)', () => {
   }
 
   function tokenFrom(url: string): string {
-    const token = url.split('/').pop();
-    if (token === undefined || token === '') throw new Error(`No token in ${url}`);
+    const token = tokenFromFragmentUrl(url);
     credentials.push(token);
     return token;
   }

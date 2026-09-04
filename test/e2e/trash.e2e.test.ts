@@ -14,7 +14,7 @@ import {
 } from '../../src/shared/contracts/trash';
 import { createInviteResponseSchema, okResponseSchema } from '../../src/shared/contracts/users';
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
-import { api, createTestApp, type TestApp } from '../helpers/app';
+import { api, createTestApp, tokenFromFragmentUrl, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
 
@@ -74,7 +74,7 @@ describe('Trash (e2e)', () => {
     const created = await api(app)
       .post('/api/admin/invites', { role: 'USER' })
       .set('Cookie', adminCookie);
-    const token = expectData(created, createInviteResponseSchema).url.split('/').pop() ?? '';
+    const token = tokenFromFragmentUrl(expectData(created, createInviteResponseSchema).url);
 
     await api(app).post('/api/auth/register/start', { email, inviteToken: token });
     const verified = await api(app).post('/api/auth/register/verify', {

@@ -181,6 +181,15 @@ function listen(app: Express): Promise<Server> {
 // fail-closed CSRF check accepts (docs/08 §8.4).
 export const APP_ORIGIN = 'http://localhost:3000';
 
+// Invite and password-reset secrets live in the fragment so browsers never send them in an HTTP
+// request target (SEC-38). Keep e2e callers on the same parsing rule as the web client: the old
+// pathname split silently turned `/invite#token=...` into an invalid credential.
+export function tokenFromFragmentUrl(url: string): string {
+  const token = new URLSearchParams(new URL(url).hash.slice(1)).get('token');
+  if (token === null || token === '') throw new Error(`No token in ${url}`);
+  return token;
+}
+
 // Every mutation carries a same-origin header, the way a browser on the app's own page would.
 // Tests that exercise CSRF itself call supertest directly instead.
 export function api(app: TestApp) {

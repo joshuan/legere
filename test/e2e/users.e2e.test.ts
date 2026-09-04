@@ -6,7 +6,7 @@ import {
   listUsersResponseSchema,
   revokeSessionsResponseSchema,
 } from '../../src/shared/contracts/users';
-import { api, createTestApp, type TestApp } from '../helpers/app';
+import { api, createTestApp, tokenFromFragmentUrl, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
 
@@ -59,7 +59,7 @@ describe('Me and admin user management (e2e)', () => {
   ): Promise<{ id: string; cookie: string }> {
     const created = await api(app).post('/api/admin/invites', { role }).set('Cookie', adminCookie);
     const url = expectData(created, createInviteResponseSchema).url;
-    const token = url.split('/').pop() ?? '';
+    const token = tokenFromFragmentUrl(url);
 
     await api(app).post('/api/auth/register/start', { email, inviteToken: token });
     const verified = await api(app).post('/api/auth/register/verify', {

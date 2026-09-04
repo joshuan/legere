@@ -16,7 +16,7 @@ import {
 } from '../../src/shared/contracts/queue';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import { HandleMaintenance } from '../../src/server/application/jobs/handle-maintenance';
-import { api, createTestApp, type TestApp } from '../helpers/app';
+import { api, createTestApp, tokenFromFragmentUrl, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, embeddingOf, testPrisma, truncateAll } from '../helpers/db';
 import { seedDocument } from '../helpers/documents';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
@@ -65,7 +65,7 @@ describe('Reprocess and queue administration (e2e)', () => {
     const created = await api(app)
       .post('/api/admin/invites', { role: 'USER' })
       .set('Cookie', adminCookie);
-    const token = expectData(created, createInviteResponseSchema).url.split('/').pop() ?? '';
+    const token = tokenFromFragmentUrl(expectData(created, createInviteResponseSchema).url);
 
     await api(app).post('/api/auth/register/start', { email, inviteToken: token });
     const verified = await api(app).post('/api/auth/register/verify', {

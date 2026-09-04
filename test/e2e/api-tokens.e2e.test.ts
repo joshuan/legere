@@ -7,7 +7,7 @@ import {
   listApiTokensResponseSchema,
   listUsersResponseSchema,
 } from '../../src/shared/contracts/users';
-import { api, createTestApp, type TestApp } from '../helpers/app';
+import { api, createTestApp, tokenFromFragmentUrl, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
 
@@ -54,7 +54,7 @@ describe('API tokens (e2e)', () => {
     const created = await api(app)
       .post('/api/admin/invites', { role: 'USER' })
       .set('Cookie', adminCookie);
-    const token = expectData(created, createInviteResponseSchema).url.split('/').pop() ?? '';
+    const token = tokenFromFragmentUrl(expectData(created, createInviteResponseSchema).url);
     await api(app).post('/api/auth/register/start', { email, inviteToken: token });
     const verified = await api(app).post('/api/auth/register/verify', {
       inviteToken: token,
@@ -206,7 +206,9 @@ describe('API tokens (e2e)', () => {
       .post(`/api/admin/users/${target?.id ?? ''}/password-reset`)
       .set('Cookie', adminCookie)
       .expect(201);
-    const resetToken = expectData(created, createPasswordResetResponseSchema).url.split('/').pop();
+    const resetToken = tokenFromFragmentUrl(
+      expectData(created, createPasswordResetResponseSchema).url,
+    );
 
     app.emails.reset();
     await api(app).post('/api/auth/register/start', { email, resetToken });
