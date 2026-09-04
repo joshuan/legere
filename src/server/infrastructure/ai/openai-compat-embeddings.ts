@@ -6,6 +6,7 @@ import {
   ServiceUnavailableError,
   isUnavailableStatus,
   reachService,
+  throttledOrUnavailable,
 } from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
@@ -94,6 +95,9 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
+    if (response.status === 429) {
+      throw throttledOrUnavailable('embeddings', response.headers.get('retry-after'));
+    }
     if (isUnavailableStatus(response.status)) {
       // A proxy answering for a provider that is not there (docs/05 §5.4e).
       throw new ServiceUnavailableError('embeddings', `/embeddings answered ${response.status}`);

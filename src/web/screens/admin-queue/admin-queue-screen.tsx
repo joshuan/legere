@@ -881,14 +881,22 @@ function GateState({
   if (state === undefined) {
     return pending ? <Spin size="small" /> : <Typography.Text type="secondary">—</Typography.Text>;
   }
-  if (!state.gated) {
+  if (!state.gated && state.throttledUntil === null) {
     return <Typography.Text type="secondary">{t('admin.queue.services.ungated')}</Typography.Text>;
   }
   return (
     <Space direction="vertical" size={0}>
-      <Typography.Text>
-        {t('admin.queue.services.inFlight', { count: state.inFlight })}
-      </Typography.Text>
+      {state.throttledUntil === null ? (
+        <Typography.Text>
+          {t('admin.queue.services.inFlight', { count: state.inFlight })}
+        </Typography.Text>
+      ) : (
+        <Typography.Text type="warning">
+          {t('admin.queue.services.throttledUntil', {
+            time: new Date(state.throttledUntil).toLocaleString(),
+          })}
+        </Typography.Text>
+      )}
       {state.waiting > 0 && (
         <Typography.Text type="warning">
           {t('admin.queue.services.waiting', {
@@ -1014,7 +1022,9 @@ function WaitingForService({
   const t = useTranslations();
   const service = serviceOfStep(step, doclingConfigured);
   const gate = gates.find((row) => row.service === service);
-  if (gate === undefined || !gate.gated || gate.waiting === 0) return null;
+  if (gate === undefined || (!gate.gated && gate.throttledUntil === null) || gate.waiting === 0) {
+    return null;
+  }
   return (
     <Tag color="gold">
       {t('admin.queue.pipeline.waitingFor', {

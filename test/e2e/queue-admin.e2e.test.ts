@@ -287,6 +287,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         waiting: 0,
         longestWaitMs: 0,
         gated: true,
+        throttledUntil: null,
       });
     });
 

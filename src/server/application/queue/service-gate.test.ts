@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { QueueSettingsDto } from '../../../shared/contracts/queue';
-import { ServiceUnavailableError } from '../ports/service-unavailable';
-import { ServiceGates } from './service-gate';
+import {
+  MAX_RETRY_AFTER_MS,
+  ServiceThrottledError,
+  ServiceUnavailableError,
+} from '../ports/service-unavailable';
+import { safeRetryAfterResumeAt, ServiceGates } from './service-gate';
 import { FixedClock } from '../../../../test/helpers/fakes';
 
 // The per-service gates of docs/05 §5.4b: how many units of one service's work may be in flight, and
@@ -42,6 +46,158 @@ afterEach(() => {
 });
 
 describe('ServiceGates', () => {
+  describe('a provider Retry-After hold', () => {
+    it('chooses the provider deadline inside an hour, then the later midpoint or last hour', () => {
+      const now = new Date('2026-09-05T12:00:00.000Z');
+
+      expect(safeRetryAfterResumeAt(new Date('2026-09-05T12:30:00.000Z'), now)).toEqual(
+        new Date('2026-09-05T12:30:00.000Z'),
+      );
+      // Ninety minutes: the midpoint (45 min) is later than one hour before the deadline (30 min).
+      expect(safeRetryAfterResumeAt(new Date('2026-09-05T13:30:00.000Z'), now)).toEqual(
+        new Date('2026-09-05T12:45:00.000Z'),
+      );
+      // Three hours: one hour before the deadline is later than the midpoint.
+      expect(safeRetryAfterResumeAt(new Date('2026-09-05T15:00:00.000Z'), now)).toEqual(
+        new Date('2026-09-05T14:00:00.000Z'),
+      );
+    });
+
+    it('stops the FIFO without dialing or rejecting each waiter, then resumes automatically', async () => {
+      vi.useFakeTimers();
+      const clock = new FixedClock();
+      const gates = new ServiceGates(clock);
+      gates.configure({ classifier: { concurrency: 1, cooldownSeconds: 0 } });
+      const firstAnswer = deferred();
+      const started: string[] = [];
+      const first = gates.run('classifier', async () => {
+        started.push('first');
+        await firstAnswer.promise;
+        throw new ServiceThrottledError('classifier', new Date(clock.now().getTime() + 60_000));
+      });
+      const second = gates.run('classifier', marks(started, 'second'));
+      const third = gates.run('classifier', marks(started, 'third'));
+      await flush();
+
+      firstAnswer.resolve();
+      await expect(first).rejects.toBeInstanceOf(ServiceThrottledError);
+      await flush();
+      // The response cost the unit that received it one retry. Everyone behind it remains pending:
+      // no work was dialed, and no second error was manufactured for either waiter.
+      expect(started).toEqual(['first']);
+      expect(gates.snapshot().find((row) => row.service === 'classifier')).toMatchObject({
+        waiting: 2,
+        throttledUntil: '2026-01-01T12:01:00.000Z',
+      });
+
+      clock.advance(60_000);
+      await vi.advanceTimersByTimeAsync(60_000);
+      await Promise.all([second, third]);
+      expect(started).toEqual(['first', 'second', 'third']);
+      expect(gates.snapshot().find((row) => row.service === 'classifier')).toMatchObject({
+        waiting: 0,
+        throttledUntil: null,
+      });
+    });
+
+    it('holds an operator-ungated service too', async () => {
+      vi.useFakeTimers();
+      const clock = new FixedClock();
+      const gates = new ServiceGates(clock);
+      gates.configure({ embeddings: { concurrency: 0, cooldownSeconds: 600 } });
+      const started: string[] = [];
+
+      await expect(
+        gates.run('embeddings', () =>
+          Promise.reject(
+            new ServiceThrottledError('embeddings', new Date(clock.now().getTime() + 10_000)),
+          ),
+        ),
+      ).rejects.toBeInstanceOf(ServiceThrottledError);
+      const waiting = gates.run('embeddings', marks(started, 'after hold'));
+      await flush();
+
+      expect(started).toEqual([]);
+      expect(gates.snapshot().find((row) => row.service === 'embeddings')).toMatchObject({
+        gated: false,
+        waiting: 1,
+        throttledUntil: '2026-01-01T12:00:10.000Z',
+      });
+
+      clock.advance(10_000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await waiting;
+      expect(started).toEqual(['after hold']);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('lets a later response extend the hold and never lets an earlier one shorten it', async () => {
+      vi.useFakeTimers();
+      const clock = new FixedClock();
+      const gates = new ServiceGates(clock);
+      gates.configure({ classifier: { concurrency: 3, cooldownSeconds: 0 } });
+      const replies = [deferred(), deferred(), deferred()];
+      const deadlines = [30, 180, 10].map(
+        (minutes) => new Date(clock.now().getTime() + minutes * 60_000),
+      );
+      const calls = replies.map((reply, index) =>
+        gates.run('classifier', async () => {
+          await reply.promise;
+          const deadline = deadlines[index];
+          if (deadline === undefined) throw new Error('missing test deadline');
+          throw new ServiceThrottledError('classifier', deadline);
+        }),
+      );
+      await flush();
+
+      replies[0]?.resolve();
+      await expect(calls[0]).rejects.toBeInstanceOf(ServiceThrottledError);
+      expect(gates.snapshot().find((row) => row.service === 'classifier')?.throttledUntil).toBe(
+        '2026-01-01T12:30:00.000Z',
+      );
+
+      replies[1]?.resolve();
+      await expect(calls[1]).rejects.toBeInstanceOf(ServiceThrottledError);
+      // Three hours uses one hour before the provider deadline: two hours from now.
+      expect(gates.snapshot().find((row) => row.service === 'classifier')?.throttledUntil).toBe(
+        '2026-01-01T14:00:00.000Z',
+      );
+
+      replies[2]?.resolve();
+      await expect(calls[2]).rejects.toBeInstanceOf(ServiceThrottledError);
+      expect(gates.snapshot().find((row) => row.service === 'classifier')?.throttledUntil).toBe(
+        '2026-01-01T14:00:00.000Z',
+      );
+    });
+
+    it('turns an out-of-bound typed deadline back into the ordinary short breaker', async () => {
+      vi.useFakeTimers();
+      const clock = new FixedClock();
+      const gates = new ServiceGates(clock);
+      const started: string[] = [];
+
+      await expect(
+        gates.run('classifier', () =>
+          Promise.reject(
+            new ServiceThrottledError(
+              'classifier',
+              new Date(clock.now().getTime() + MAX_RETRY_AFTER_MS + 1),
+            ),
+          ),
+        ),
+      ).rejects.toBeInstanceOf(ServiceThrottledError);
+      await expect(gates.run('classifier', marks(started, 'too early'))).rejects.toBeInstanceOf(
+        ServiceUnavailableError,
+      );
+      expect(started).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+
+      clock.advance(30_000);
+      await gates.run('classifier', marks(started, 'probe'));
+      expect(started).toEqual(['probe']);
+    });
+  });
+
   it('admits one caller at a time and lets the next in in the order it arrived', async () => {
     const gates = gatesFor({ stirling: { concurrency: 1, cooldownSeconds: 0 } });
     const started: string[] = [];
@@ -366,6 +522,7 @@ describe('ServiceGates', () => {
         // in the same millisecond, and it is the front that is reported.
         longestWaitMs: 4_000,
         gated: true,
+        throttledUntil: null,
       });
 
       hold.resolve();
@@ -377,6 +534,7 @@ describe('ServiceGates', () => {
         waiting: 0,
         longestWaitMs: 0,
         gated: true,
+        throttledUntil: null,
       });
     });
 
@@ -428,6 +586,7 @@ describe('ServiceGates', () => {
         waiting: 0,
         longestWaitMs: 0,
         gated: false,
+        throttledUntil: null,
       });
     });
   });

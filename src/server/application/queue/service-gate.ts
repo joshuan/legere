@@ -6,7 +6,11 @@ import {
   type ServiceName,
 } from '../../../shared/contracts/queue';
 import type { Clock } from '../ports/clock';
-import { ServiceUnavailableError } from '../ports/service-unavailable';
+import {
+  MAX_RETRY_AFTER_MS,
+  ServiceThrottledError,
+  ServiceUnavailableError,
+} from '../ports/service-unavailable';
 
 // One gate's state with the service it belongs to, which is how the overview lists them.
 type ServiceGateStateSnapshot = ServiceGateStateDto & { service: ServiceName };
@@ -16,6 +20,19 @@ type ServiceGateStateSnapshot = ServiceGateStateDto & { service: ServiceName };
 // timeout at a time, and the host behind it — possibly thrashing its way back to life — must not
 // spend its first breath on a backlog arriving at full rate.
 const UNAVAILABLE_HOLD_MS = 30_000;
+
+// A provider whose deadline is already inside the last hour is taken literally. Further out, the
+// midpoint is a useful early probe only while it remains inside that last hour; otherwise the last
+// hour is the earliest safe probe (docs/05 §5.4b).
+const RETRY_AFTER_SAFETY_MS = 60 * 60_000;
+
+export function safeRetryAfterResumeAt(providerDeadline: Date, now: Date): Date {
+  const distance = providerDeadline.getTime() - now.getTime();
+  if (distance <= RETRY_AFTER_SAFETY_MS) return providerDeadline;
+  const midpoint = now.getTime() + Math.floor(distance / 2);
+  const lastSafeHour = providerDeadline.getTime() - RETRY_AFTER_SAFETY_MS;
+  return new Date(Math.max(midpoint, lastSafeHour));
+}
 
 // The per-service gates of docs/05 §5.4b. The two knobs of §5.4 count jobs and units; this counts
 // the thing that is actually scarce on a self-hosted box — calls to one container — so an operator
@@ -44,6 +61,11 @@ class ServiceGate {
   // (docs/05 §5.4e). Kept on the gate and published nowhere: §5.4c already answers "is it there"
   // on the screen an operator is looking at, live and per service.
   private unavailableUntil = 0;
+  // A valid AI Retry-After stops the FIFO instead of refusing everyone in it. Unlike the short
+  // unavailable breaker this state is published, because the admin needs to know when work will
+  // resume and how many units the provider is holding (docs/05 §5.4b, docs/11 §11.13).
+  private throttledUntil = 0;
+  private throttleTimer: ReturnType<typeof setTimeout> | null = null;
   // In arrival order, and served from the front: the document that arrived first is not starved by
   // the ones behind it. Each carries the moment it began waiting, which is the only number on this
   // screen an operator cannot infer from the others (docs/05 §5.4b).
@@ -65,8 +87,11 @@ class ServiceGate {
     this.refuseWhileUnavailable();
 
     // Read once: a caller that got in ungated must not start decrementing a counter it never
-    // incremented because the gate closed while it was working.
-    if (this.concurrency === 0) return this.watch(work);
+    // incremented because the gate closed while it was working. A provider hold is a gate in its
+    // own right, however, and applies at 0/0 too; a pre-existing FIFO must not be overtaken just as
+    // its timer fires.
+    const acquired = this.concurrency !== 0 || this.isThrottled() || this.waiting.length > 0;
+    if (!acquired) return this.watch(work);
 
     await this.acquire();
     try {
@@ -86,7 +111,17 @@ class ServiceGate {
     try {
       return await work();
     } catch (error) {
-      if (error instanceof ServiceUnavailableError) {
+      if (error instanceof ServiceThrottledError) {
+        const now = this.clock.now();
+        const distance = error.retryAfter.getTime() - now.getTime();
+        if (distance > 0 && distance <= MAX_RETRY_AFTER_MS) {
+          this.holdUntil(safeRetryAfterResumeAt(error.retryAfter, now));
+        } else {
+          // Defensive at the receiving boundary too: no future adapter (or hand-built port in a
+          // test) can smuggle an unbounded timer into the singleton gate.
+          this.unavailableUntil = now.getTime() + UNAVAILABLE_HOLD_MS;
+        }
+      } else if (error instanceof ServiceUnavailableError) {
         this.unavailableUntil = this.clock.now().getTime() + UNAVAILABLE_HOLD_MS;
       }
       throw error;
@@ -103,19 +138,33 @@ class ServiceGate {
   // doing the work, so these three numbers are the only honest witness. Ungated says so with nulls
   // rather than with zeroes: nothing is being metered there, which is not the same as nothing waiting.
   snapshot(): ServiceGateStateDto {
-    if (this.concurrency === 0) return { inFlight: 0, waiting: 0, longestWaitMs: 0, gated: false };
     const front = this.waiting[0];
+    const throttled = this.isThrottled();
+    if (this.concurrency === 0 && !throttled) {
+      return {
+        inFlight: 0,
+        waiting: 0,
+        longestWaitMs: 0,
+        gated: false,
+        throttledUntil: null,
+      };
+    }
     return {
       inFlight: this.inFlight,
       waiting: this.waiting.length,
       longestWaitMs: front === undefined ? 0 : this.clock.now().getTime() - front.since,
-      gated: true,
+      gated: this.concurrency !== 0,
+      throttledUntil: throttled ? new Date(this.throttledUntil).toISOString() : null,
     };
   }
 
   private acquire(): Promise<void> {
     // Nobody may overtake a queue that has already formed, however free the gate looks.
-    if (this.waiting.length === 0 && this.inFlight < this.concurrency) {
+    if (
+      !this.isThrottled() &&
+      this.waiting.length === 0 &&
+      (this.concurrency === 0 || this.inFlight < this.concurrency)
+    ) {
       this.inFlight += 1;
       return Promise.resolve();
     }
@@ -125,7 +174,9 @@ class ServiceGate {
   }
 
   private release(): void {
-    if (this.cooldownMs === 0) {
+    // A caller admitted only because a provider hold ended is counted long enough to preserve FIFO,
+    // but an operator concurrency of zero still gives its configured cooldown no slot to hold.
+    if (this.concurrency === 0 || this.cooldownMs === 0) {
       this.free();
       return;
     }
@@ -144,6 +195,7 @@ class ServiceGate {
   // Everyone the gate can now hold, in the order they arrived. The slot is taken here rather than
   // in the resumed caller, so a newcomer arriving before that caller wakes up cannot take it first.
   private admit(): void {
+    if (this.isThrottled()) return;
     while (
       this.waiting.length > 0 &&
       (this.concurrency === 0 || this.inFlight < this.concurrency)
@@ -153,6 +205,39 @@ class ServiceGate {
       this.inFlight += 1;
       next.admit();
     }
+  }
+
+  private isThrottled(): boolean {
+    return this.clock.now().getTime() < this.throttledUntil;
+  }
+
+  // Only a later answer changes an existing hold. Each accepted header is at most three hours out
+  // and the chosen safe instant is earlier still, so this is always a bounded timer.
+  private holdUntil(resumeAt: Date): void {
+    const resumeAtMs = resumeAt.getTime();
+    if (resumeAtMs <= this.clock.now().getTime() || resumeAtMs <= this.throttledUntil) return;
+
+    this.throttledUntil = resumeAtMs;
+    if (this.throttleTimer !== null) clearTimeout(this.throttleTimer);
+    this.scheduleResume();
+  }
+
+  private scheduleResume(): void {
+    const remaining = Math.max(0, this.throttledUntil - this.clock.now().getTime());
+    this.throttleTimer = setTimeout(() => {
+      this.throttleTimer = null;
+      // A controllable test clock may not have moved with the platform timer; production's
+      // SystemClock does. Re-arm for what remains instead of letting the FIFO through early.
+      if (this.isThrottled()) {
+        this.scheduleResume();
+        return;
+      }
+      this.throttledUntil = 0;
+      this.admit();
+    }, remaining);
+    const timer = this.throttleTimer;
+    // A provider pause is not work and must not keep a shutting-down process alive.
+    if (typeof timer === 'object' && timer !== null && 'unref' in timer) timer.unref();
   }
 }
 
@@ -200,6 +285,7 @@ export class ServiceGates {
         waiting: 0,
         longestWaitMs: 0,
         gated: false,
+        throttledUntil: null,
       }),
     }));
   }

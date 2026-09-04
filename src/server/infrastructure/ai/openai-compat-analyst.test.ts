@@ -3,7 +3,10 @@ import { z } from 'zod';
 import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helpers/outbound';
 import type { DocumentFieldSchema } from '../../../shared/contracts/document-fields';
 import type { DocumentTypeOption, KnownSubject } from '../../application/ports/document-analyst';
-import { ServiceUnavailableError } from '../../application/ports/service-unavailable';
+import {
+  ServiceThrottledError,
+  ServiceUnavailableError,
+} from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
@@ -100,6 +103,7 @@ const HOSTILE = [
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('OpenAiCompatAnalyst', () => {
@@ -699,12 +703,36 @@ describe('OpenAiCompatAnalyst', () => {
     });
   });
 
-  it('reports an HTTP failure with what the provider said', async () => {
+  it('treats a 429 without Retry-After as ordinary typed unavailability', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('rate limited, retry later', { status: 429 }),
     );
 
-    await expect(analyst().analyze('text', CATEGORIES)).rejects.toThrow(/429.*rate limited/s);
+    const call = analyst().analyze('text', CATEGORIES);
+    await expect(call).rejects.toBeInstanceOf(ServiceUnavailableError);
+    await expect(call).rejects.not.toBeInstanceOf(ServiceThrottledError);
+  });
+
+  it('shares a valid Retry-After hold between analysis and fields calls', async () => {
+    const now = new Date('2026-09-05T12:00:00.000Z');
+    vi.useFakeTimers({ now });
+    const clock = new FixedClock(now);
+    const gates = new ServiceGates(clock);
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('', { status: 429, headers: { 'retry-after': '2' } }))
+      .mockResolvedValueOnce(answers('{"vendor":"Voli"}'));
+    const shared = analyst({}, gates);
+
+    await expect(shared.analyze('text', CATEGORIES)).rejects.toBeInstanceOf(ServiceThrottledError);
+    const fields = shared.extractFields(RECEIPT_SCHEMA, 'text');
+    await Promise.resolve();
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    clock.advance(2_000);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect((await fields).values).toEqual({ vendor: 'Voli' });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it('classifies a 502 as the provider being away, not this document failing (docs/05 §5.4e)', async () => {

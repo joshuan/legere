@@ -347,8 +347,29 @@ whole of this instance
 ([ADR-002](./02-architecture-overview.md#adr-002-one-processport-expressexpressadapter--nestjs--next)),
 so instance-wide is what in-process means here and there is no second one to disagree with it.
 
-🔒 **Time spent waiting at a gate is time inside the job.** A `document-process` job has an hour
-before pg-boss decides its worker has gone ([`06 §6.8`](./06-backend-architecture.md)), and that hour
+**A provider may close its own gate.** The three OpenAI-compatible clients — classifier,
+transcriber and embeddings — preserve a `429` as a typed service interruption and, when
+`Retry-After` is either delta-seconds or an HTTP date, carry its absolute deadline to the gate. The
+unit that received the response returns that interruption to its step, on the same `QUEUED` rather
+than `FAILED` path as §5.4e; every caller already standing behind it, and every caller that arrives
+afterwards, stays in the gate's FIFO queue without dialing the provider or spending a job retry of
+its own. This hold applies even when the operator's concurrency is `0`: zero disables the healthy
+traffic limit, not a provider's explicit refusal. Since all calls to a named service share the one
+in-process gate, a classifier refusal observed by analysis also holds the fields and catalogue
+readings, for example; it does not hold the transcriber or embeddings, which are different services.
+
+The gate resumes automatically at a conservative point. When the provider's deadline is at most an
+hour away, it is respected exactly. Past an hour, resume at the later of the interval's midpoint and
+one hour before the deadline: the call is never made earlier than one hour before the provider said
+it was ready, while a very long interval does not keep a job asleep until its last minute. Another
+`429` may extend that hold and can never shorten it. A missing or malformed value, an already passed
+deadline, or one more than **three hours** away is not kept in process: three hours is the job expiry
+of `06 §6.8`, so waiting longer could not preserve that job. It follows the ordinary typed
+service-unavailable/backoff path instead. Thus no remote header can create an unbounded timer or an
+in-memory wait that outlives the queue's own bound.
+
+🔒 **Time spent waiting at a gate is time inside the job.** A `document-process` job has three hours
+before pg-boss decides its worker has gone ([`06 §6.8`](./06-backend-architecture.md)), and that time
 covers the queueing as much as the work: a service throttled to a trickle does not show up as a quick
 job that waited, it shows up as a **slow job**, on `/admin/queue`, which is the screen where it ought
 to show up as anything at all. That is what the knob costs and why it is an operator's rather than a
@@ -502,6 +523,14 @@ wrong: that reads as an endless outage, which is honest, is named `DOWN` on `/ad
 and drains by itself the moment the address is fixed, rather than leaving a thousand documents
 waiting for a thousand Retries. The transcriber keeps its own rule (§5.5 step 3): best-effort by
 design, its outage leaves the recognised text and interrupts nothing.
+
+A valid OpenAI-compatible `429 Retry-After` is the deliberate, longer form of that interruption,
+but it **holds** subsequent callers instead of failing them fast: the provider has supplied the
+probe time, so making every waiting document consume a retry would only turn one refusal into a
+synchronized retry storm. Its bounded parsing, conservative resume time and instance-wide FIFO hold
+are specified in §5.4b. Without a usable deadline it is an ordinary typed unavailability and gets
+the 30-second fail-fast/backoff behavior here; ordinary `5xx` classification and non-AI clients are
+unchanged.
 
 **The gate slams shut behind the failure.** For 30 seconds after a unit dies of unavailability, the
 service's gate refuses the units that follow with the same error — instantly, before they wait and

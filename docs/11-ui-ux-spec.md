@@ -1424,6 +1424,11 @@ settings, with a line under it saying which work it serves, for a reader who has
   with one call in flight and three waiting is a throttle doing its job, and the same row with three
   in flight is a setting that never took. It is live, in-process and stored nowhere — a snapshot of
   this instant, refreshed with the counters rather than with the probes.
+- A valid provider `429 Retry-After` makes that same state read **Throttled until _time_**, in amber,
+  with the number of callers waiting under it. It does so even when the operator set concurrency to
+  `0`: the row is not “Not throttled” while the provider has explicitly paused it. The time is the
+  conservative automatic resume instant chosen by `05 §5.4b`, not the later raw provider deadline,
+  so the panel says exactly when this process will let the FIFO move again.
 
 ### Failures
 

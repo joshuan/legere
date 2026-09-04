@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ServiceUnavailableError } from '../../application/ports/service-unavailable';
+import {
+  ServiceThrottledError,
+  ServiceUnavailableError,
+} from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
@@ -14,6 +17,7 @@ function transcriberWith(
   answer: unknown,
   status = 200,
   gates: ServiceGates = new ServiceGates(new FixedClock()),
+  retryAfter?: string,
 ): OpenAiCompatTranscriber {
   const config = loadConfig({
     DATABASE_URL: 'postgresql://legere:legere@localhost:5432/legere',
@@ -28,7 +32,10 @@ function transcriberWith(
     Promise.resolve(
       new Response(JSON.stringify(answer), {
         status,
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...(retryAfter === undefined ? {} : { 'retry-after': retryAfter }),
+        },
       }),
     );
   return new OpenAiCompatTranscriber(config, gates);
@@ -99,6 +106,25 @@ describe('OpenAiCompatTranscriber', () => {
     await expect(transcriber.transcribe([PAGE], ['ru'])).rejects.toBeInstanceOf(
       ServiceUnavailableError,
     );
+  });
+
+  it('preserves a 429 delta-seconds Retry-After as a typed deadline', async () => {
+    const now = new Date();
+    const gates = new ServiceGates(new FixedClock(now));
+    const transcriber = transcriberWith({ error: 'slow down' }, 429, gates, '60');
+    let thrown: unknown;
+
+    try {
+      await transcriber.transcribe([PAGE], ['ru']);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ServiceThrottledError);
+    if (!(thrown instanceof ServiceThrottledError)) throw new Error('expected a throttled error');
+    expect(thrown.service).toBe('transcriber');
+    expect(thrown.retryAfter.getTime() - now.getTime()).toBeGreaterThanOrEqual(59_000);
+    expect(thrown.retryAfter.getTime() - now.getTime()).toBeLessThanOrEqual(61_000);
   });
 
   it('asks for nothing when there are no pages to read', async () => {

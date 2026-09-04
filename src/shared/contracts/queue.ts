@@ -51,6 +51,9 @@ export const serviceGateStateSchema = z.object({
   // How long the caller at the front has been standing there; `0` when nobody has.
   longestWaitMs: z.number().int().nonnegative(),
   gated: z.boolean(),
+  // The conservative instant at which a valid provider Retry-After lets the FIFO move again. It is
+  // independent of `gated`: an operator concurrency of zero does not overrule a provider pause.
+  throttledUntil: z.string().datetime().nullable(),
 });
 export type ServiceGateStateDto = z.infer<typeof serviceGateStateSchema>;
 

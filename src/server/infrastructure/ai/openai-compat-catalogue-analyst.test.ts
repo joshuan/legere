@@ -4,7 +4,10 @@ import { z } from 'zod';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import { stubTimeouts } from '../../../../test/helpers/outbound';
 import type { CatalogueRow } from '../../application/ports/catalogue-analyst';
-import { ServiceUnavailableError } from '../../application/ports/service-unavailable';
+import {
+  ServiceThrottledError,
+  ServiceUnavailableError,
+} from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { loadConfig } from '../config/app-config';
 import { fenceCatalogue, OpenAiCompatCatalogueAnalyst } from './openai-compat-catalogue-analyst';
@@ -255,6 +258,26 @@ describe('OpenAiCompatCatalogueAnalyst', () => {
     );
     // 🔒 Two minutes, not the pipeline's five: somebody's browser is waiting (docs/05 §5.6c).
     expect(timeouts.requested()).toEqual([2 * 60_000]);
+  });
+
+  it('preserves a valid classifier Retry-After on a catalogue reading too', async () => {
+    const now = new Date();
+    const gates = new ServiceGates(new FixedClock(now));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('', { status: 429, headers: { 'retry-after': '30' } }),
+    );
+
+    await expect(analyst({}, gates).suggestMerges('people', ROWS)).rejects.toBeInstanceOf(
+      ServiceThrottledError,
+    );
+    const throttledUntil = gates
+      .snapshot()
+      .find((row) => row.service === 'classifier')?.throttledUntil;
+    if (throttledUntil === undefined || throttledUntil === null) {
+      throw new Error('expected the classifier hold to be visible');
+    }
+    expect(new Date(throttledUntil).getTime() - now.getTime()).toBeGreaterThanOrEqual(30_000);
+    expect(new Date(throttledUntil).getTime() - now.getTime()).toBeLessThanOrEqual(31_000);
   });
 
   it('reports a refusal with its detail, for the operator', async () => {

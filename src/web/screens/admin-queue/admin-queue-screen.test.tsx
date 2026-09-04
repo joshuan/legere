@@ -39,11 +39,46 @@ const overview = {
   // What each gate is doing this instant (docs/05 §5.4b): Stirling throttled to one with two waiting,
   // and everything else ungated — which is what an instance nobody has gated answers with.
   gates: [
-    { service: 'stirling', inFlight: 1, waiting: 2, longestWaitMs: 7_400, gated: true },
-    { service: 'docling', inFlight: 0, waiting: 0, longestWaitMs: 0, gated: false },
-    { service: 'classifier', inFlight: 0, waiting: 0, longestWaitMs: 0, gated: false },
-    { service: 'transcriber', inFlight: 0, waiting: 0, longestWaitMs: 0, gated: false },
-    { service: 'embeddings', inFlight: 0, waiting: 0, longestWaitMs: 0, gated: false },
+    {
+      service: 'stirling',
+      inFlight: 1,
+      waiting: 2,
+      longestWaitMs: 7_400,
+      gated: true,
+      throttledUntil: null,
+    },
+    {
+      service: 'docling',
+      inFlight: 0,
+      waiting: 0,
+      longestWaitMs: 0,
+      gated: false,
+      throttledUntil: null,
+    },
+    {
+      service: 'classifier',
+      inFlight: 0,
+      waiting: 0,
+      longestWaitMs: 0,
+      gated: false,
+      throttledUntil: null,
+    },
+    {
+      service: 'transcriber',
+      inFlight: 0,
+      waiting: 0,
+      longestWaitMs: 0,
+      gated: false,
+      throttledUntil: null,
+    },
+    {
+      service: 'embeddings',
+      inFlight: 0,
+      waiting: 0,
+      longestWaitMs: 0,
+      gated: false,
+      throttledUntil: null,
+    },
   ],
   storage: { objects: 34, bytes: '1932735283', measuredAt: '2026-01-02T09:00:00.000Z' },
 };
@@ -863,6 +898,54 @@ describe('AdminQueueScreen', () => {
       expect(
         within(docling).getByText(enMessages.admin.queue.services.ungated),
       ).toBeInTheDocument();
+    });
+
+    it('shows a provider hold and its waiting count even when operator throttling is off', async () => {
+      const throttledUntil = '2026-01-02T10:05:00.000Z';
+      server.use(
+        http.get('/api/admin/queue/overview', () =>
+          HttpResponse.json(
+            envelope({
+              ...overview,
+              gates: overview.gates.map((gate) =>
+                gate.service === 'classifier'
+                  ? {
+                      ...gate,
+                      waiting: 3,
+                      longestWaitMs: 12_400,
+                      throttledUntil,
+                    }
+                  : gate,
+              ),
+            }),
+          ),
+        ),
+      );
+
+      renderWithProviders(<AdminQueueScreen tab="services" />);
+
+      const classifier = (
+        await screen.findByText(enMessages.admin.queue.services.names.classifier)
+      ).closest('tr');
+      if (!(classifier instanceof HTMLElement)) throw new Error('expected the classifier row');
+      expect(
+        within(classifier).getByText(
+          enMessages.admin.queue.services.throttledUntil.replace(
+            '{time}',
+            new Date(throttledUntil).toLocaleString(),
+          ),
+        ),
+      ).toBeInTheDocument();
+      expect(
+        within(classifier).getByText(
+          enMessages.admin.queue.services.waiting
+            .replace('{count}', '3')
+            .replace('{seconds}', '12'),
+        ),
+      ).toBeInTheDocument();
+      expect(
+        within(classifier).queryByText(enMessages.admin.queue.services.ungated),
+      ).not.toBeInTheDocument();
     });
 
     it('tags the step whose service has callers waiting, and only that step', async () => {

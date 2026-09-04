@@ -555,6 +555,7 @@
         "gateStateHint": "What the gate is doing this instant: how many calls are in flight, and how many are waiting for a slot. One in flight with others waiting is a throttle doing its job; several in flight is a limit that never took effect.",
         "ungated": "Not throttled",
         "inFlight": "{count} in flight",
+        "throttledUntil": "Throttled until {time}",
         "waiting": "{count} waiting, longest {seconds} s"
       },
       "names": {

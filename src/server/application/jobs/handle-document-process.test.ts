@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DOCUMENT_ID,
   documentFixture,
@@ -36,6 +36,7 @@ import { BuildCanonical } from '../documents/build-canonical';
 import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
 import { AnalysisSettings } from '../settings/analysis-settings';
 import { FixedClock } from '../../../../test/helpers/fakes';
+import { ServiceThrottledError } from '../ports/service-unavailable';
 import type { ProcessingSettings } from './processing-settings';
 import { CHUNK_WRITE_TIMEOUT_MS, HandleDocumentProcess } from './handle-document-process';
 
@@ -1743,6 +1744,20 @@ describe('HandleDocumentProcess', () => {
       // The steps behind the interrupted one never started this attempt.
       expect(document.steps.vectorization).not.toBe('DONE');
       expect(document.processingError).toBeNull();
+    });
+
+    it('keeps analysis queued rather than failed when the provider asks it to wait', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      vi.spyOn(analyst, 'analyze').mockRejectedValue(
+        new ServiceThrottledError('classifier', new Date(clock.now().getTime() + 60_000)),
+      );
+
+      await expect(run()).rejects.toBeInstanceOf(ServiceThrottledError);
+
+      const document = stateOf();
+      expect(document.steps.analysis).toBe('QUEUED');
+      expect(document.processingError).toBeNull();
+      expect(document.failedStep).toBeNull();
     });
 
     it('does the same for the vectorization', async () => {

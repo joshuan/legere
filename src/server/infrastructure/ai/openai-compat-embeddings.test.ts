@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { endlessBody, neverAnswers, stubTimeouts } from '../../../../test/helpers/outbound';
-import { ServiceUnavailableError } from '../../application/ports/service-unavailable';
+import {
+  ServiceThrottledError,
+  ServiceUnavailableError,
+} from '../../application/ports/service-unavailable';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import { loadConfig } from '../config/app-config';
@@ -125,6 +128,23 @@ describe('OpenAiCompatEmbeddings', () => {
     );
 
     await expect(provider().embed(['x'])).rejects.toBeInstanceOf(ServiceUnavailableError);
+  });
+
+  it('preserves a 429 HTTP-date Retry-After as a typed deadline', async () => {
+    const deadline = new Date(Date.now() + 60_000);
+    const header = deadline.toUTCString();
+    const gates = new ServiceGates(new FixedClock(new Date()));
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('', { status: 429, headers: { 'retry-after': header } }),
+    );
+
+    const call = provider({}, gates).embed(['x']);
+    await expect(call).rejects.toMatchObject({
+      name: 'ServiceThrottledError',
+      service: 'embeddings',
+      retryAfter: new Date(header),
+    });
+    await expect(call).rejects.toBeInstanceOf(ServiceThrottledError);
   });
 
   it('refuses to pretend when nothing is configured', async () => {
