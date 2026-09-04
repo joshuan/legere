@@ -7,8 +7,9 @@ that runs them is.
 
 ## 13.1. Principles
 
-- Every PR must be green: `typecheck` + `lint` + `test` + `build`. `main` is protected: PRs only,
-  required status check `CI / build-and-test` (ADR-014).
+- Every PR must be green: `typecheck` + `lint` + `test` + `build`. In the current single-author mode,
+  direct `main` commits are allowed and the same checks run immediately after the push. The PR-only
+  required check becomes mandatory at the transition defined by ADR-014.
 - Node from `.nvmrc` (`actions/setup-node` with `node-version-file`), npm cache.
 - Integration tests run against a PostgreSQL **pgvector** service container.
 - External services are not needed in CI: `FileStorage`, `PdfToolbox`, `EmailSender`,
@@ -401,10 +402,14 @@ fact like on any push. While the repository is in its single-author mode (commit
 protection of §13.4 the release script's push would need the maintainer exemption that protection
 setup defines.
 
-## 13.4. Branch protection (required)
+## 13.4. Branch protection (deferred during single-author mode)
 
-- `main`: require PR, require `CI / build-and-test`, forbid force-push. Direct pushes — disabled for
-  everyone including admins.
+- **Current state:** `main` is intentionally unprotected for one author and no dependent users;
+  direct Conventional Commits are allowed and CI validates them after the push. Force-push is not a
+  normal development action and should only be used for an explicitly understood history recovery.
+- **Transition trigger:** before a second contributor starts work or anybody relies on the deployed
+  instance, require PR, require `CI / build-and-test`, forbid force-push, and disable direct pushes
+  for everyone including admins.
 - PR titles follow Conventional Commits (squash-merge takes the PR title as the commit subject).
 
 ## 13.5. Checklist
@@ -416,7 +421,8 @@ setup defines.
       the tag, never by hand; the command returns when `latest` points at the image it just cut.
 - [ ] Secrets only in GitHub Secrets; `deploy/` ships a compose file and a `.env.example` of
       placeholders, never a real secret ([`12 §12.7`](./12-build-config-run.md)).
-- [ ] Branch protection active before the first feature PR.
+- [ ] Branch protection activated at the ADR-014 transition trigger; until then the repository is
+      explicitly in the single-author direct-commit mode above.
 - [ ] Every workflow declares `permissions:`; no file grants more than the job that needs it.
 - [ ] Every third-party action pinned to a commit SHA, version in the trailing comment.
 - [ ] `npm audit --omit=dev --audit-level=high` in `build-and-test`, before `npm ci`.

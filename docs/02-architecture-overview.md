@@ -499,10 +499,17 @@ until the new ones land.
   ([`SEC-79`](./tasks/security-audit-2026-08-second-pass.md#sec-79)).
 
 ### ADR-014. Pull-request-based development
-- **Decision:** direct pushes to `main` are forbidden (branch protection); every change goes branch
-  (`feat/*`, `fix/*`, `docs/*`) → PR → green CI → merge. Conventional Commits.
-- **Why:** change discipline and a mandatory CI check before anything lands on `main`.
-- **Consequences:** required status check `CI / build-and-test`; PRs reference a backlog task.
+- **Target decision:** once the repository has a second contributor or a user depends on the
+  deployed instance, direct pushes to `main` are forbidden (branch protection); every change goes
+  branch (`feat/*`, `fix/*`, `docs/*`) → PR → green CI → merge. Conventional Commits.
+- **Current amendment — single-author mode:** while there is one author and no dependent users,
+  commits may land directly on an unprotected `main`; the same CI runs after each push. A force-push
+  is reserved for explicit history recovery and is not part of the development loop.
+- **Why:** the current mode keeps a one-person iteration loop small without pretending the
+  post-push check is a pre-merge gate. The trigger above makes the stronger guarantee mandatory as
+  soon as another person or a deployed dependency can be affected.
+- **Consequences:** current commits still reference backlog/security work where applicable and must
+  leave CI green; the target mode requires status check `CI / build-and-test` before merge.
 
 ### ADR-015. Soft delete
 No physical deletion of user data — a `deletedAt` field, partial unique indexes

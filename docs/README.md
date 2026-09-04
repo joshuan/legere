@@ -64,8 +64,10 @@ Take the first unchecked task; one task = one PR; tick it off in the same PR.
   invite links from an admin only. No external OAuth providers.
 - **Authorization:** `ADMIN`/`USER` roles; document access — via library visibility and explicit sharing
   of folders/collections (details in 03).
-- **Pull-request-based development:** direct pushes to `main` are forbidden; a PR must be green
-  (`typecheck` + `lint` + `test` + `build`).
+- **Single-author development (temporary):** commits currently land directly on `main` and CI
+  validates them after the push (`typecheck` + `lint` + `test` + `build`). Branch protection and the
+  PR-only gate return before a second contributor joins or anybody relies on the deployed instance.
+  Force-pushes remain an emergency recovery tool, not the normal workflow.
 - **CI/CD:** GitHub Actions; on `main`/tag a **single** Docker image is built → GHCR. Deployment is not
   described in the repository (only an example in 12).
 - **DB migrations are mandatory and automatic:** forward-only Prisma migrations, applied on container
