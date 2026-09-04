@@ -896,18 +896,19 @@ because a run that told us nothing new happened to it.
    The rule is said outright, for all three: **answer with the catalogue's own spelling when the
    document is genuinely about an entry already there, and write the document's spelling only for
    somebody or something new.** A boarding pass reading `SHERSHNEV/EVGENII MR` is about the person
-   the catalogue calls `Шершнев Евгений Константинович`, and the answer that creates a twenty-third
-   spelling of him is the answer this list exists to prevent. A new row is what the step creates
-   when nothing matches, not what it creates by default — and being unsure is allowed: a name copied
-   off the page is a row the merge suggester (§5.6c) can fold later, a wrong recognition is a link
-   somebody has to notice and unpick.
-   🔒 **A full catalogue is never a reason a document fails.** The step honours the same instance
-   ceilings the open `POST`s refuse past ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha),
-   SEC-51, SEC-56): at the ceiling it still links every name that matches a living row and simply
-   stops creating new ones — the skipped names stay readable in `autoValues.people` and
-   `autoValues.subjects`, where the whole reading is recorded either way, and the analysis completes
-   `DONE`. A ceiling only ever reached by a flood must not decide the fate of an honest scan that
-   arrives during one.
+   the catalogue calls `Шершнев Евгений Константинович`, and the answer that proposes a twenty-third
+   spelling of him is the answer this list exists to prevent. A new row is what the step
+   **proposes** when nothing matches, never what it creates. A living exact match may be linked where
+   the document has no confirmed value; an unknown person, subject or kind stays only in
+   `autoValues.people` / `autoValues.subjects`, where the whole reading is recorded. The viewer
+   shows that proposal beside the applied value. A person confirms it by entering Edit and choosing
+   the explicit Add action, which creates the row; Save links it to the document. Those
+   user-initiated catalogue and metadata writes are the only path from model output to a new
+   instance-wide row (SEC-11).
+   🔒 **A full catalogue is never a reason a document fails.** Existing living matches are still
+   linked and proposed unknown names remain readable in `autoValues`; the analysis completes `DONE`.
+   The ordinary confirmed create enforces the catalogue ceilings
+   ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha), SEC-51, SEC-56).
    **Each list is the most-used head of its catalogue, not an alphabetical slice**: entries ordered
    by how many documents name them, capped (60 things, 200 people) so an archive of a thousand rows
    does not push the document out of the context window — the cap falls on the tail nobody files by,

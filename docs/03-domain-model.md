@@ -611,16 +611,17 @@ the rest are soft-deleted. All of it in one transaction: a half-moved merge woul
 pointing at somebody nobody can see. The surviving name may not collide with a person who was not
 part of the merge — that would be two people becoming one by accident.
 
-**The analysis step fills it in — and recognises before it creates.** The model is shown the people
+**The analysis step recognises; a person creates.** The model is shown the people
 already in the catalogue, each with its note and the spellings merges folded into it, and told to
 answer with the catalogue's own spelling when the document is genuinely about one of them —
 `SHERSHNEV/EVGENII MR` on a boarding pass is the person the catalogue already calls by his full
 Cyrillic name — and to write the document's spelling only for somebody new (`05 §5.5` step 4).
-Each answered name is then matched against the catalogue on the fold and created when it is
-missing. Creating is still the point — an archive where the machine may only pick from what
-somebody already typed would need somebody to type everything first. Fill-blanks-only, like the
-rest of the analysis: a document that already names people is one where somebody has decided, so
-the answer is recorded in `autoValues.people` and not applied.
+Each answered name is matched against the catalogue on the fold: a living match may be linked to a
+document that has no confirmed people, while an unknown name stays only in `autoValues.people` as a
+proposal. The model never creates an instance-wide row. In the viewer the proposal is visible beside
+the applied names; opening Edit and choosing **Add «name»** is the explicit confirmation that creates
+it, and Save links it to the document. Fill-blanks-only still applies: a document that already names people is
+one where somebody has decided, so the whole answer is recorded and none of it is applied.
 
 **The catalogue notices its own duplicates.** What arrives as three rows is *recognisably* three
 rows — a case change, a missing diacritic, a transliteration, a typo in a patronymic, an airline's
@@ -675,15 +676,15 @@ screen has something to list, and the same kind cannot exist twice under two spe
 deciding how somebody's archive is spelled. The name is stored as typed and only the uniqueness check
 ignores case. The analysis is shown the kinds already in use and told to reuse one where it fits —
 two spellings of one kind split a shelf in half — and to name a new one in the document's own
-language when none does.
+language when none does. The new name is a proposal in `autoValues`, not a catalogue row.
 
 It was free text until the catalogue existed, on the argument that the list of kinds a household
 files by is not knowable in advance. That argument was for the *list*, not for the *storage*: the
-list is still open — anyone signed in may add a kind, and the analysis adds the ones it meets — but
-now it is a list, with rows that can be corrected.
+list is still open — anyone signed in may add a kind, including while confirming an analysis
+proposal — but now it is a list, with rows that can be corrected.
 
 **Who may do what**, exactly as for people (§3.3.19): reading and adding are open to anyone signed
-in, because the analysis adds kinds on its own and whoever corrects it must be able to; renaming and
+in, because whoever confirms or corrects analysis must be able to add one; renaming and
 removing are an admin's. 🔒 **A kind still used by a living subject cannot be removed**
 (`SUBJECT_KIND_IN_USE`): a subject with no kind is not a thing anybody can file by, so the subjects
 go first.
@@ -704,17 +705,17 @@ groups the way it proposes people.
 document arriving is about a flat, a car or a company that is already in the catalogue. So the
 analysis is given the catalogue — each thing with its kind, its name and its note — and told to
 answer with one of them, spelled exactly as it is there, when the document is about it. A new row is
-what it does when nothing matches, not what it does by default. The note is what makes that possible:
+what it proposes when nothing matches, not what it creates. The note is what makes recognition possible:
 "Njegoševa 5, ap. 12, cadastral 1234, landlady Marija Petrović" is how a lease, a bill and an
 insurance policy are all recognised as being about one flat, none of which spell it the same way.
 
 **Merging** works exactly as it does for people (§3.3.19), with one addition: the rows being folded
 together may disagree about their kind, so the merge is told which kind the survivor is filed under.
 
-Same access and the same fill-blanks-only rule as people (§3.3.19): the analysis names things and
-creates the ones the catalogue has never seen, matching on `(kind, name)` on the fold (§3.3.19); a
-document that already says what it is about is left alone and the answer recorded in
-`autoValues.subjects`.
+Same access and the same fill-blanks-only rule as people (§3.3.19): the analysis links living
+`(kind, name)` matches on the fold and keeps every unknown pair in `autoValues.subjects`; a document
+that already says what it is about is left alone and the answer is still recorded. Creating the
+missing kind/subject pair happens only after a person chooses Add in Edit; Save links it.
 
 **Measured limitation.** A 12B local model answers this field with the document itself — a train
 ticket "about" that ticket's number — even when the prompt says in as many words not to. The prompt

@@ -787,6 +787,103 @@ describe('DocumentViewerScreen', () => {
     await waitFor(() => expect(patched).toEqual({ peopleIds: [PERSON_ID] }));
   });
 
+  it('shows a novel person as a proposal and creates it only after an explicit Add action', async () => {
+    const createdPersonId = 'dddddddd-4444-4444-8444-444444444444';
+    let createdPerson: unknown = null;
+    let patched: unknown = null;
+    serve({ ...detail, auto: { people: ['Novel Person'] } });
+    server.use(
+      http.post('/api/people', async ({ request }) => {
+        createdPerson = await request.json();
+        return HttpResponse.json(
+          envelope({
+            id: createdPersonId,
+            name: 'Novel Person',
+            note: null,
+            documentCount: 0,
+            lastDocumentAt: null,
+          }),
+        );
+      }),
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    expect(await details.findByText(/read as Novel Person/)).toBeInTheDocument();
+    expect(createdPerson).toBeNull();
+
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+    const people = details.getByRole('combobox', { name: enMessages.viewer.details.people });
+    await userEvent.click(people);
+    await userEvent.type(people, 'Novel Person');
+    await userEvent.click(await screen.findByRole('button', { name: 'Add “Novel Person”' }));
+    await waitFor(() => expect(createdPerson).toEqual({ name: 'Novel Person' }));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
+
+    await waitFor(() => expect(patched).toEqual({ peopleIds: [createdPersonId] }));
+  });
+
+  it('shows a novel subject as a proposal and creates it only after an explicit Add action', async () => {
+    const createdSubjectId = 'dddddddd-5555-4555-8555-555555555555';
+    let createdSubject: unknown = null;
+    let patched: unknown = null;
+    serve({
+      ...detail,
+      auto: { subjects: [{ kind: 'apartment', name: 'Novel Flat' }] },
+    });
+    server.use(
+      http.post('/api/subjects', async ({ request }) => {
+        createdSubject = await request.json();
+        return HttpResponse.json(
+          envelope({
+            id: createdSubjectId,
+            kindId: KIND_ID,
+            kind: 'apartment',
+            name: 'Novel Flat',
+            note: null,
+            documentCount: 0,
+            lastDocumentAt: null,
+          }),
+        );
+      }),
+      http.patch(`/api/documents/${ID}`, async ({ request }) => {
+        patched = await request.json();
+        return HttpResponse.json(envelope(detail));
+      }),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('tab', { name: enMessages.viewer.tabs.details }));
+    const details = within(screen.getByRole('tabpanel'));
+    expect(await details.findByText(/read as Novel Flat/)).toBeInTheDocument();
+    expect(createdSubject).toBeNull();
+
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.edit }));
+    const subjects = details.getByRole('combobox', { name: enMessages.viewer.details.subjects });
+    await userEvent.click(subjects);
+    await userEvent.type(subjects, 'Novel Flat');
+    expect(subjects).toHaveValue('Novel Flat');
+    expect(subjects).toHaveAttribute('aria-expanded', 'true');
+    const addSubject = await screen.findByRole('button', { name: 'Add “Novel Flat”' });
+    const addSubjectRow = addSubject.parentElement;
+    if (addSubjectRow === null) throw new Error('The subject proposal footer has no container');
+    expect(
+      within(addSubjectRow).getByText(enMessages.viewer.details.subjectKind),
+    ).toBeInTheDocument();
+    const kind = within(addSubjectRow).getByRole('combobox');
+    await userEvent.type(kind, 'apartment');
+    await userEvent.click(addSubject);
+    await waitFor(() => expect(createdSubject).toEqual({ kindId: KIND_ID, name: 'Novel Flat' }));
+    await userEvent.click(details.getByRole('button', { name: enMessages.common.actions.save }));
+
+    await waitFor(() => expect(patched).toEqual({ subjectIds: [createdSubjectId] }));
+  });
+
   it('saves the thing the document is about, on its own', async () => {
     let patched: unknown = null;
     server.use(

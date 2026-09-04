@@ -32,8 +32,8 @@ src/app/
 ├── (public)/
 │   ├── login/page.tsx
 │   ├── onboarding/page.tsx          # first-admin setup (404 when already onboarded)
-│   ├── invite/[token]/page.tsx      # invite landing → 3-step wizard
-│   └── reset/[token]/page.tsx       # password-reset landing → wizard
+│   ├── invite/page.tsx              # fragment-token invite landing → 3-step wizard
+│   └── reset/page.tsx               # fragment-token password-reset landing → wizard
 ├── (app)/                           # session-guarded
 │   ├── layout.tsx                   # sidebar shell; fetches /api/me server-side
 │   ├── loading.tsx                  # the authenticated area's skeleton — the only boundary here

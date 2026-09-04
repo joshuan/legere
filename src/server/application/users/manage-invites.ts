@@ -52,9 +52,11 @@ export class CreateInvite {
       detail: { role: invite.role },
     });
 
+    const url = new URL('/invite', this.appBaseUrl);
+    url.hash = new URLSearchParams({ token }).toString();
     return {
       id: invite.id,
-      url: new URL(`/invite/${token}`, this.appBaseUrl).toString(),
+      url: url.toString(),
       role: invite.role,
       expiresAt: expiresAt.toISOString(),
     };
@@ -95,8 +97,8 @@ export class RevokeInvite {
   }
 }
 
-// GET /api/invites/:token — public landing page data. Reports validity rather than 404-ing, so the
-// UI can explain why a link no longer works; it exposes no token material.
+// POST /api/invites/preview — public landing page data. Reports validity rather than 404-ing, so
+// the UI can explain why a link no longer works; the token arrives in JSON, never in the URL.
 export class PreviewInvite {
   constructor(
     private readonly invites: UserInviteRepository,

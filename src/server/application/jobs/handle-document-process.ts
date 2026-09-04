@@ -22,9 +22,6 @@ import {
   type DocumentSteps,
 } from '../../domain/entities/document';
 import { heldSteps } from '../../domain/entities/pipeline-pause';
-import { MAX_LIVING_PEOPLE } from '../../domain/entities/person';
-import { MAX_LIVING_SUBJECTS } from '../../domain/entities/subject';
-import { MAX_LIVING_SUBJECT_KINDS } from '../../domain/entities/subject-kind';
 import { chunkMarkdown } from '../../domain/entities/document-chunks';
 import { detectLanguages, ocrLanguagesOf } from '../../domain/entities/document-language';
 import {
@@ -787,10 +784,9 @@ export class HandleDocumentProcess extends JobHandler {
     }
   }
 
-  // Names the analyst read become links, and a name the catalogue has never seen becomes a row.
-  // Creating is the point: an archive where the machine may only pick from what somebody already
-  // typed would need somebody to type everything first (docs/03 §3.3.19). Matching is by name,
-  // case-insensitively — the only identity a document offers.
+  // A living name the analyst recognised may become a link; model output never becomes a shared
+  // catalogue row by itself (docs/03 §3.3.19, SEC-11). Unknown names are retained in
+  // `autoValues.people`, and the explicit viewer Edit → Add → Save flow is their confirmation.
   //
   // Fill-blanks-only, like the rest of the analysis: a document that already names people is one
   // where somebody has decided, so the answer is recorded and not applied.
@@ -799,29 +795,16 @@ export class HandleDocumentProcess extends JobHandler {
     const already = await this.people.listForDocument(document.id);
     if (already.length > 0) return;
 
-    // 🔒 The instance ceiling of docs/08 §8.4 (SEC-51, SEC-56), honoured without failing anyone: a
-    // full catalogue still links every name that matches a living row and only stops creating new
-    // ones. The skipped names are not lost — the whole reading is already recorded in
-    // `autoValues.people` — and the document completes, because a ceiling only ever reached by a
-    // flood must not decide the fate of an honest scan (docs/05 §5.5 step 4).
-    let room = MAX_LIVING_PEOPLE - (await this.people.countActive());
     const ids: string[] = [];
     for (const name of names) {
       const existing = await this.people.findByName(name);
-      if (existing !== null) {
-        ids.push(existing.id);
-        continue;
-      }
-      if (room <= 0) continue;
-      room -= 1;
-      ids.push((await this.people.create({ name })).id);
+      if (existing !== null) ids.push(existing.id);
     }
-    await this.people.setForDocument(document.id, ids);
+    if (ids.length > 0) await this.people.setForDocument(document.id, ids);
   }
 
-  // The same rule as people: what the analysis read becomes rows and links when the document has
-  // none, and is only recorded when somebody has already decided (docs/03 §3.3.20). Matching is on
-  // (kind, name) case-insensitively, because that pair is what identifies a thing.
+  // The same rule as people: only living `(kind, name)` matches may be linked. Unknown kinds and
+  // subjects remain proposals in `autoValues.subjects` until a person confirms them in the viewer.
   private async linkSubjects(
     document: Document,
     subjects: readonly { kind: string; name: string }[],
@@ -830,32 +813,14 @@ export class HandleDocumentProcess extends JobHandler {
     const already = await this.subjects.listForDocument(document.id);
     if (already.length > 0) return;
 
-    // 🔒 Both ceilings of docs/08 §8.4 (SEC-51, SEC-56), honoured the way `linkPeople` honours its
-    // one: link what lives, skip what would need a new row past the ceiling, complete the document.
-    // The skipped readings stay visible in `autoValues.subjects`.
-    let kindRoom = MAX_LIVING_SUBJECT_KINDS - (await this.subjectKinds.countActive());
-    let subjectRoom = MAX_LIVING_SUBJECTS - (await this.subjects.countActive());
     const ids: string[] = [];
     for (const subject of subjects) {
-      // The kind is a catalogue row now (docs/03 §3.3.20a), and the analysis creates the one it
-      // meets for the same reason it creates a person: an archive where the machine may only pick
-      // from what somebody already typed would need somebody to type everything first.
-      const foundKind = await this.subjectKinds.findByName(subject.kind);
-      // A new kind is only worth its row if the thing it would hold fits too: a kind created for a
-      // subject the other ceiling refuses would be an empty shelf.
-      if (foundKind === null && (kindRoom <= 0 || subjectRoom <= 0)) continue;
-      if (foundKind === null) kindRoom -= 1;
-      const kind = foundKind ?? (await this.subjectKinds.create({ name: subject.kind }));
+      const kind = await this.subjectKinds.findByName(subject.kind);
+      if (kind === null) continue;
       const existing = await this.subjects.findByKindAndName(kind.id, subject.name);
-      if (existing !== null) {
-        ids.push(existing.id);
-        continue;
-      }
-      if (subjectRoom <= 0) continue;
-      subjectRoom -= 1;
-      ids.push((await this.subjects.create({ kindId: kind.id, name: subject.name })).id);
+      if (existing !== null) ids.push(existing.id);
     }
-    await this.subjects.setForDocument(document.id, ids);
+    if (ids.length > 0) await this.subjects.setForDocument(document.id, ids);
   }
 
   // Step 5. The one step that differs by document type, and it differs by data (ADR-022): the

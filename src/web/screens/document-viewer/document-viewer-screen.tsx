@@ -156,9 +156,9 @@ export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?
   useEffect(() => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.markdown(id) });
     void queryClient.invalidateQueries({ queryKey: documentKeys.events(id) });
-    // The catalogues belong on this list for the same reason and were missing from it: the analysis
-    // writes people and subjects (05 §5.5), so a list fetched when the screen mounted has never
-    // heard of the names the step just created — and the editor would offer no label for them.
+    // Existing catalogue matches can be linked by analysis (05 §5.5), so a list fetched when the
+    // screen mounted may not yet reflect which labels the document now uses. Novel model answers
+    // remain proposals and create nothing until the viewer's explicit Add action (SEC-11).
     void queryClient.invalidateQueries({ queryKey: personKeys.all });
     void queryClient.invalidateQueries({ queryKey: subjectKeys.all });
   }, [stepsKey, id, queryClient]);

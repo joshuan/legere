@@ -30,9 +30,10 @@ function serialized(url: string, headers: Record<string, string> = {}) {
   });
 }
 
-// 🔒 SEC-10 (docs/06 §6.7, docs/08 §8.1.2).
+// 🔒 SEC-10 defense in depth (docs/06 §6.7). Recovery links no longer put tokens in paths, but the
+// generic serializer must still hide any opaque segment a caller sends.
 describe('routeShapedUrl', () => {
-  it('keeps a route and replaces the token an invite or reset link carries in its path', () => {
+  it('keeps route literals and replaces opaque path segments', () => {
     expect(routeShapedUrl(`/api/invites/${TOKEN}`)).toBe('/api/invites/:x');
     expect(routeShapedUrl(`/api/password-resets/${TOKEN}`)).toBe('/api/password-resets/:x');
   });
@@ -56,7 +57,7 @@ describe('routeShapedUrl', () => {
     expect(routeShapedUrl('/api/search?q=divorce%20papers&limit=20')).toBe('/api/search');
   });
 
-  it('shapes a page URL as well, since a link lands on one before it reaches the API', () => {
+  it('shapes an arbitrary page URL as well', () => {
     expect(routeShapedUrl(`/invite/${TOKEN}`)).toBe('/invite/:x');
     expect(routeShapedUrl(`/reset/${TOKEN}`)).toBe('/reset/:x');
   });
@@ -123,12 +124,11 @@ describe('the request serializer', () => {
       expect(JSON.stringify(req)).not.toContain('biopsy');
     });
 
-    // The one a deny-list would not have thought of. `Referrer-Policy: no-referrer` keeps a browser
-    // from sending it; a client following an invite link out of a chat window is not a browser, and
-    // that link is a bearer credential in a path (docs/08 §8.1.2).
+    // The one a deny-list would not have thought of. A browser never sends a fragment in Referer,
+    // but a synthetic client can put any URL there, so the logger still omits it by construction.
     it('drops Referer, which is the URL the request side is scrubbed of arriving by another door', () => {
       const req = serialized('/api/auth/register/start', {
-        referer: `http://localhost:3000/invite/${TOKEN}`,
+        referer: `http://localhost:3000/invite#token=${TOKEN}`,
         origin: 'http://localhost:3000',
       });
 

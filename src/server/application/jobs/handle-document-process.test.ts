@@ -1482,7 +1482,7 @@ describe('HandleDocumentProcess', () => {
       expect(document.languages).toEqual(['sr-Latn']);
     });
 
-    it('adds the people it read, creating the ones the catalogue has never seen', async () => {
+    it('links a person it recognises and keeps an unknown name as a proposal', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       await people.create({ name: 'Evgenii Shershnev' });
       analyst.answer = {
@@ -1503,19 +1503,18 @@ describe('HandleDocumentProcess', () => {
 
       await run();
 
-      // 🔒 Matched case-insensitively, so a document does not double the catalogue every time the
-      // model changes its capitalisation (docs/03 §3.3.19).
-      expect(people.people.size).toBe(2);
+      // 🔒 Matched case-insensitively, while the unknown model answer creates no instance-wide row
+      // and survives in autoValues for explicit confirmation (docs/03 §3.3.19, SEC-11).
+      expect(people.people.size).toBe(1);
       const linked = await people.listForDocument(DOCUMENT_ID);
-      expect(linked.map((person) => person.name).sort()).toEqual([
-        'Evgenii Shershnev',
-        'Marija Petrović',
-      ]);
+      expect(linked.map((person) => person.name)).toEqual(['Evgenii Shershnev']);
       expect(stateOf().auto.people).toEqual(['evgenii shershnev', 'Marija Petrović']);
     });
 
-    it('files the document under what it is about, creating the thing when it is new', async () => {
+    it('files under an existing subject but never creates one from model output', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      const kind = await subjectKinds.create({ name: 'apartment' });
+      await subjects.create({ kindId: kind.id, name: 'Njegoševa 5, ap. 12' });
       analyst.answer = {
         title: null,
         description: null,
@@ -1526,9 +1525,8 @@ describe('HandleDocumentProcess', () => {
         people: [],
         date: null,
         subjects: [
-          { kind: 'apartment', name: 'Njegoševa 5, ap. 12' },
-          // The same thing said twice, differently cased: one row, not two.
           { kind: 'Apartment', name: 'njegoševa 5, AP. 12' },
+          { kind: 'apartment', name: 'A flat never seen' },
         ],
         textQuality: null,
         legibility: null,
@@ -1540,6 +1538,10 @@ describe('HandleDocumentProcess', () => {
       expect(subjects.subjects.size).toBe(1);
       const linked = await subjects.listForDocument(DOCUMENT_ID);
       expect(linked[0]).toMatchObject({ kind: 'apartment', name: 'Njegoševa 5, ap. 12' });
+      expect(stateOf().auto.subjects).toEqual([
+        { kind: 'Apartment', name: 'njegoševa 5, AP. 12' },
+        { kind: 'apartment', name: 'A flat never seen' },
+      ]);
     });
 
     it('takes the date the document carries, and leaves one that was set by hand', async () => {

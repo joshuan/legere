@@ -27,9 +27,6 @@ import {
 } from '../../../../test/helpers/processing-fakes';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import type { Document, DocumentSteps } from '../../domain/entities/document';
-import { MAX_LIVING_PEOPLE } from '../../domain/entities/person';
-import { MAX_LIVING_SUBJECTS } from '../../domain/entities/subject';
-import { MAX_LIVING_SUBJECT_KINDS } from '../../domain/entities/subject-kind';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
 import { BuildCanonical } from '../documents/build-canonical';
 import { AnalysisSettings } from '../settings/analysis-settings';
@@ -47,13 +44,9 @@ const EXTRACTED_STEPS: DocumentSteps = {
   vectorization: 'PENDING',
 };
 
-// 🔒 The instance ceilings of docs/08 §8.4 as the pipeline honours them (docs/05 §5.5 step 4,
-// SEC-51, SEC-56): a full catalogue is never a reason a document fails. The analysis links every
-// name that matches a living row, quietly stops creating new ones, and completes — the skipped
-// readings stay recorded in `autoValues`, where the whole answer is written either way. Kept apart
-// from the main HandleDocumentProcess suite on purpose: these tests seed catalogues to their
-// ceilings, and the harness they need is the analysis step alone.
-describe('HandleDocumentProcess at the catalogue ceilings', () => {
+// 🔒 SEC-11: the analyst can recognise a living row, but it cannot create an instance-wide one.
+// Novel names survive as proposals in `autoValues` for the explicit viewer Edit → Add → Save flow.
+describe('HandleDocumentProcess catalogue proposals', () => {
   let documents: InMemoryDocumentRepository;
   let analyst: FakeAnalyst;
   let people: InMemoryPersonRepository;
@@ -144,36 +137,28 @@ describe('HandleDocumentProcess at the catalogue ceilings', () => {
     return document;
   }
 
-  it('links the living person and skips the new one when the people catalogue is full, and the document completes', async () => {
+  it('links a living person, keeps a novel name as a proposal, and creates no row', async () => {
     const known = await people.create({ name: 'Person 1' });
-    for (let index = 2; index <= MAX_LIVING_PEOPLE; index += 1) {
-      await people.create({ name: `Person ${index}` });
-    }
     analyst.answer = { ...analyst.answer, people: ['Person 1', 'Somebody Never Seen'] };
     givenExtractedDocument();
 
     const document = await analyse();
 
-    // The step settled rather than failed: a ceiling only a flood reaches must not decide the fate
-    // of an honest scan that arrives during one (docs/05 §5.5 step 4).
     expect(document.processingError).toBeNull();
     expect(document.steps.analysis).toBe('DONE');
-    // What lives is linked; what would need a new row is not created.
     expect(people.links.get(DOCUMENT_ID)).toEqual([known.id]);
-    expect(await people.countActive()).toBe(MAX_LIVING_PEOPLE);
-    // And nothing is lost: the whole reading is recorded, skipped names included.
+    expect(await people.countActive()).toBe(1);
     expect(document.auto.people).toEqual(['Person 1', 'Somebody Never Seen']);
   });
 
-  it('creates no kind past the kinds ceiling but still files a thing under a kind that lives', async () => {
+  it('links a living subject and keeps novel subjects and kinds only as proposals', async () => {
     const car = await subjectKinds.create({ name: 'kind 1' });
-    for (let index = 2; index <= MAX_LIVING_SUBJECT_KINDS; index += 1) {
-      await subjectKinds.create({ name: `kind ${index}` });
-    }
+    const known = await subjects.create({ kindId: car.id, name: 'Lacetti' });
     analyst.answer = {
       ...analyst.answer,
       subjects: [
         { kind: 'kind 1', name: 'Lacetti' },
+        { kind: 'kind 1', name: 'A Thing Never Seen' },
         { kind: 'a kind never seen', name: 'Montenegro' },
       ],
     };
@@ -182,43 +167,26 @@ describe('HandleDocumentProcess at the catalogue ceilings', () => {
     const document = await analyse();
 
     expect(document.steps.analysis).toBe('DONE');
-    // The living kind still takes its new thing — the subjects catalogue has room.
     const filed = await subjects.listForDocument(DOCUMENT_ID);
-    expect(filed.map((subject) => ({ kindId: subject.kindId, name: subject.name }))).toEqual([
-      { kindId: car.id, name: 'Lacetti' },
-    ]);
-    // The unknown kind was not created: no row, and no empty shelf either.
-    expect(await subjectKinds.countActive()).toBe(MAX_LIVING_SUBJECT_KINDS);
+    expect(filed.map((subject) => subject.id)).toEqual([known.id]);
+    expect(await subjects.countActive()).toBe(1);
+    expect(await subjectKinds.countActive()).toBe(1);
     expect(document.auto.subjects).toEqual([
       { kind: 'kind 1', name: 'Lacetti' },
+      { kind: 'kind 1', name: 'A Thing Never Seen' },
       { kind: 'a kind never seen', name: 'Montenegro' },
     ]);
   });
 
-  it('links the existing thing and creates neither subject nor kind when the subjects catalogue is full', async () => {
-    const car = await subjectKinds.create({ name: 'car' });
-    await subjects.create({ kindId: car.id, name: 'Lacetti' });
-    for (let index = 2; index <= MAX_LIVING_SUBJECTS; index += 1) {
-      await subjects.create({ kindId: car.id, name: `Thing ${index}` });
-    }
-    analyst.answer = {
-      ...analyst.answer,
-      subjects: [
-        { kind: 'car', name: 'Lacetti' },
-        { kind: 'car', name: 'A Thing Never Seen' },
-        // A new kind whose only thing may not be filed: the kind is not created for it.
-        { kind: 'plane', name: 'Cessna' },
-      ],
-    };
+  it('does not write an empty link set when every answer is novel', async () => {
+    analyst.answer = { ...analyst.answer, people: ['Novel Person'] };
     givenExtractedDocument();
 
     const document = await analyse();
 
-    expect(document.processingError).toBeNull();
     expect(document.steps.analysis).toBe('DONE');
-    const filed = await subjects.listForDocument(DOCUMENT_ID);
-    expect(filed.map((subject) => subject.name)).toEqual(['Lacetti']);
-    expect(await subjects.countActive()).toBe(MAX_LIVING_SUBJECTS);
-    expect(await subjectKinds.countActive()).toBe(1);
+    expect(people.links.has(DOCUMENT_ID)).toBe(false);
+    expect(await people.countActive()).toBe(0);
+    expect(document.auto.people).toEqual(['Novel Person']);
   });
 });

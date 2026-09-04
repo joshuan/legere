@@ -117,7 +117,12 @@ export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export const logoutResponseSchema = z.object({ ok: z.literal(true) });
 export type LogoutResponse = z.infer<typeof logoutResponseSchema>;
 
-// GET /api/invites/:token — public preview, exposes no token material.
+// POST /api/invites/preview and /api/password-resets/preview — the bearer secret stays in JSON and
+// never enters an HTTP request URL (docs/07 §7.3, SEC-38).
+export const credentialPreviewRequestSchema = z.object({ token: opaqueTokenSchema });
+export type CredentialPreviewRequest = z.infer<typeof credentialPreviewRequestSchema>;
+
+// Public invite preview, exposes no token material.
 export const invitePreviewSchema = z.object({
   role: userRoleSchema,
   emailHint: z.string().nullable(),
@@ -126,7 +131,7 @@ export const invitePreviewSchema = z.object({
 });
 export type InvitePreview = z.infer<typeof invitePreviewSchema>;
 
-// GET /api/password-resets/:token — email is masked.
+// Public password-reset preview — email is masked.
 export const passwordResetPreviewSchema = z.object({
   email: z.string(),
   expiresAt: z.string().datetime(),

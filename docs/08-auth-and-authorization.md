@@ -23,15 +23,15 @@ permanently answers 404/redirect (a race between two onboardings is resolved by 
   optionally an email hint. 🔒 The hint is **binding where it is given**: a registration started
   with that link for any other address is refused. It stays optional — an invite without one is an
   invitation to whoever holds the link — but an invite that names somebody is an invitation to them,
-  not a licence to send this instance's letters wherever the holder likes. They get a **single-use link** `APP_BASE_URL/invite/<token>` (an opaque
-  token; only its `tokenHash` is stored in the DB; TTL 7 days by default; revocable).
+  not a licence to send this instance's letters wherever the holder likes. They get a **single-use
+  link** `APP_BASE_URL/invite#token=<token>` (an opaque token; only its `tokenHash` is stored in the
+  DB; TTL 7 days by default; revocable). The fragment is not part of an HTTP request URL. The client
+  reads it once, removes it from the current history entry, and sends it only in JSON request bodies:
+  preview, code start and code verification. The same hand-off applies to the reset link of §8.1.6.
 - The invitee opens the link → goes through the 3-step registration (§8.1.3) → the account is created
   with the role from the invite, the invite is marked used (`acceptedById/acceptedAt`).
 - Token properties: high-entropy, single-use, stored only as a hash, with a TTL, revocable; it is a
-  bearer secret — never logged. 🔒 It travels in a path segment, which is the one place a URL is
-  written down by default, so the request serializer logs the *shape* of a route and never its
-  values ([`06 §6.7`](./06-backend-architecture.md#67-logging)): `GET /api/invites/:x`. The same
-  holds for the reset link of §8.1.6.
+  bearer secret — never logged and never carried in an HTTP request URL.
 
 ### 8.1.3. The three account-setup steps (shared by onboarding, invites, and password resets)
 A `User` is not created until email ownership is proven and a password is set. The intermediate state
@@ -306,8 +306,8 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   magnitude past what an honest archive accumulates — a family archive has hundreds of people, not
   millions (SEC-56) — and they bound what SEC-51 measured in money: every row of these tables is
   text the analysis carries on every document it reads. The three open `POST`s refuse the row past
-  the ceiling with `422 CATALOGUE_FULL` (`07 §7.2`); the analysis step, which writes into the same
-  tables, links what already exists and quietly stops creating instead — a full catalogue is never a
+  the ceiling with `422 CATALOGUE_FULL` (`07 §7.2`); the analysis step never creates catalogue rows,
+  links only what already exists and keeps unknown names as proposals — a full catalogue is never a
   reason a document fails ([`05 §5.5`](./05-library-and-processing.md#55-document-processing-pipeline-document-process) step 4).
   Living rows, deliberately: merges and soft deletes make room again, so recovery from a flood is
   the admin's ordinary tidying tools and no new lever. 🔒 `password` exists because that route verifies an Argon2 hash before it can
@@ -539,7 +539,8 @@ fixed; the habit that let them sit here unnoticed is what
       admin-issued reset that takes the account back (§8.1.6); a mutating request carrying one is
       refused before routing (§8.2a).
 - [x] `passwordHash`/`tokenHash`/codes/tickets and email bodies are never serialized or logged —
-      including by the request log, which writes the shape of a route and not the token in it, drops
+      including by the request log; invite/reset tokens never enter request URLs, while the logger
+      writes the shape of every other route, drops
       the query string, removes the filename headers, and keeps a response to an allow-list of
       headers, so a download's presigned `Location` and its `Content-Disposition` are not written
       either ([`06 §6.7`](./06-backend-architecture.md#67-logging));

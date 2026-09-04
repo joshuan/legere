@@ -1731,3 +1731,24 @@ for the duration the provider requested.
   **Goal:** when an AI service returns `429` with `Retry-After`, no further work is sent to that service until a safe time before the provider's announced recovery window.
   **Docs:** [`05 §5.4b`](../05-library-and-processing.md#54b-per-service-gates), [`05 §5.4e`](../05-library-and-processing.md#54e-an-outage-is-not-a-verdict), [`06 §6.3.3`](../06-backend-architecture.md#633-application-ports-non-repository)
   **Acceptance:** the classifier, transcriber and embeddings clients preserve a typed `429` response together with a parsed `Retry-After` deadline (both delta-seconds and HTTP-date forms); a valid value closes that service's gate and **stops its waiting queue**, so queued units are not started and no request is made while the hold is active; the hold is instance-wide and covers all pipeline entry points using that service, not only the job that observed the response; the gate reopens automatically at the chosen safe time and queued work resumes FIFO, without marking documents `FAILED` and without consuming another retry for every skipped unit; the chosen time is never earlier than one hour before the provider's deadline (use the midpoint when that is later, otherwise resume one hour before the deadline), and a deadline already inside that one-hour safety window is respected as-is; missing, malformed or unreasonably distant `Retry-After` falls back to the ordinary typed service-unavailable/backoff path and never creates an unbounded in-memory timer; a later `Retry-After` extends the hold, while an earlier one never shortens it; non-AI clients and ordinary `5xx` handling keep their existing semantics; `/admin/queue` exposes the service as paused/throttled with the hold-until time and waiting count. Tests: delta-seconds and HTTP-date parsing; a `429` prevents every subsequent call during the hold; the hold is shared by concurrent callers and by all AI entry points; FIFO resumes at the safe time; extension cannot be shortened; invalid and expired headers use the fallback path; the response does not turn a document step `FAILED`.
+
+## M60 — The two security findings left open
+
+The first audit closed the disclosure side of prompt injection and kept credentials out of logs, but
+left two bearer boundaries soft: model output could still create instance-wide catalogue rows, and
+invite/reset secrets still lived in URLs. This follow-up removes both paths rather than documenting
+their mitigations as conclusions.
+
+---
+
+- [x] **M60.1 — Analysis proposes; a person creates**
+  **Goal:** untrusted model output cannot write a new shared catalogue row.
+  **Closes:** SEC-11
+  **Docs:** [`03 §3.3.19–3.3.20`](../03-domain-model.md), [`05 §5.5`](../05-library-and-processing.md), [`11 §11.5`](../11-ui-ux-spec.md)
+  **Acceptance:** analysis may link an exact living person/subject match into an otherwise blank document, but unknown people, subjects and kinds remain only in `autoValues`; the viewer shows those proposals, the existing explicit Edit → Add action creates one and Save links it; tests prove a novel model answer creates no catalogue row, an existing match is linked, and the proposal survives for review.
+
+- [x] **M60.2 — Recovery credentials never enter a request URL**
+  **Goal:** invite and reset bearer tokens do not reach browser history, proxy request lines or referrers.
+  **Closes:** SEC-38
+  **Docs:** [`07 §7.3`](../07-api-specification.md), [`08 §8.1.2, §8.1.6`](../08-auth-and-authorization.md), [`11 §11.2`](../11-ui-ux-spec.md)
+  **Acceptance:** generated links use a URL fragment; `/invite` and `/reset` read the fragment once and immediately replace the current history entry without it; preview endpoints accept `{ token }` only in a POST JSON body, the wizard keeps sending the token only in JSON, and the old token-bearing GET routes no longer exist; server, client and e2e tests prove the request URL and emitted request log never contain either token.

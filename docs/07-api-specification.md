@@ -96,8 +96,8 @@ human-readable index and must stay in sync with them.
 | `POST /api/auth/register/complete` | — | `{ ticket, password }` → `UserDto` + sets `sid` (creates the user: first user → ADMIN; via invite → invite.role; via reset → updates password, revokes sessions **and API tokens**, [`08 §8.1.6`](./08-auth-and-authorization.md#816-password-reset-admin-initiated)) |
 | `POST /api/auth/login` | — | `{ email, password, captchaToken? }` → `UserDto` + sets `sid` |
 | `POST /api/auth/logout` | 🔒 | `{}` → `{ ok: true }` + clears `sid` |
-| `GET /api/invites/:token` | — | → `{ role, emailHint, expiresAt, valid: boolean }` |
-| `GET /api/password-resets/:token` | — | → `{ email(masked), expiresAt, valid: boolean }` |
+| `POST /api/invites/preview` | — | `{ token }` → `{ role, emailHint, expiresAt, valid: boolean }`. The bearer secret is sent in JSON, never in the request URL |
+| `POST /api/password-resets/preview` | — | `{ token }` → `{ email(masked), expiresAt, valid: boolean }`. The bearer secret is sent in JSON, never in the request URL |
 | `GET /api/me` | 🔒 | → `UserDto` |
 | `PATCH /api/me` | 🔒 | `{ displayName?, language?, theme? }` → `UserDto` (also refreshes `NEXT_LOCALE` cookie) |
 | `POST /api/me/password` | 🔒 session | `{ currentPassword, newPassword }` → `{ revoked }` — an authenticated rotation ([`08 §8.1.6a`](./08-auth-and-authorization.md)); wrong current → `401 INVALID_CREDENTIALS`; revokes every **other** session of the caller and keeps this one, `revoked` counting them. 🔒 Throttled at 5/60 s per caller: it verifies an Argon2 hash before it can fail, behind the gate login queues at ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha), SEC-54) |

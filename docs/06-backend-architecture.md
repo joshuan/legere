@@ -200,31 +200,29 @@ log: they are a catalogue every signed-in user writes into, and a log line is no
 A caught failure with no line is how a feature stays dead for months.
 
 🔒 **A request line says the route, not the request.** `pino-http` logs the URL of everything it
-serves, and two links this product hands out carry a bearer credential in a path segment
-([`08 §8.1.2`](./08-auth-and-authorization.md#812-admin-invite),
+serves. Invite and reset credentials never enter one — their links hand them to the browser in a
+fragment, and every API call carries them in JSON ([`08 §8.1.2`](./08-auth-and-authorization.md#812-admin-invite),
 [`08 §8.1.6`](./08-auth-and-authorization.md#816-password-reset-admin-initiated)). The `req`
-serializer therefore rewrites the URL into the shape of its route before anything is written:
+serializer still rewrites every URL into the shape of its route, because identifiers and query
+values are private too:
 
 | In the request | In the log | Why |
 |---|---|---|
-| `/api/invites/<43 chars of base64url>` | `/api/invites/:x` | A path segment survives only when it is plainly part of a route — lower-case letters and hyphens, no longer than a word. It is an allow-list, not two exceptions: the next route to put a secret in a path would not think to add itself to a deny-list |
+| `/api/invites/preview` with `{ token }` | `/api/invites/preview` | The token is absent from the URL by construction, and request bodies are never logged |
 | `/api/documents/<uuid>/files` | `/api/documents/:x/files` | Identifiers share the fate of tokens; `requestId` already ties a line to the rest of its request, and handlers log the ids they act on deliberately |
 | `?q=<what somebody searched for>` | dropped whole | A search of one's own archive is as private as the archive. No query parameter is worth keeping at the cost of a rule that has to know which ones are safe |
 
-Express's own `req.route.path` would name the parameters (`:token` rather than `:x`) and is
+Express's own `req.route.path` would name the parameters (`:id` rather than `:x`) and is
 deliberately unused: it is empty exactly when a request never reached its handler — throttled,
-refused by the origin check, an unknown route — which is when a URL carrying a token is most likely
-to be the one being logged. `req.query` and `req.params` are dropped from the serialized shape
-entirely, since Express fills both with the same material the URL is scrubbed of.
+refused by the origin check, or an unknown route. `req.query` and `req.params` are dropped from the
+serialized shape entirely, since Express fills both with the same material the URL is scrubbed of.
 
 🔒 **And its headers are an allow-list, exactly like the response's below.** They were a deny-list of
 four names — `Cookie`, `Authorization`, and both spellings of the upload file-name header — with the
 rest of `req.headers` kept whole. That is the shape [SEC-23](./tasks/security-audit-2026-08.md#sec-23)
-is about, and the header nobody would have added to it is `Referer`: invite and reset links carry a
-bearer credential in their path (§8.1.2, §8.1.6), `Referrer-Policy: no-referrer`
-([`12 §12.8a`](./12-build-config-run.md#128a-security-headers)) is a rule about *browsers*, and the
-client that follows such a link out of a chat window or a mail client is not always one. So the
-request keeps four headers and drops everything else by omission:
+is about. A `Referer` no longer carries invite/reset credentials because fragments are not sent, but
+it remains a private URL and a non-browser client need not obey `Referrer-Policy`. So the request
+keeps four headers and drops everything else by omission:
 
 | In the request | In the log | Why |
 |---|---|---|

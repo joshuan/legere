@@ -40,7 +40,7 @@ excluded from the Docker build context.
 
 Unchanged from the first register, plus one position that did not exist then:
 
-- **Anonymous** — can reach `/api/auth/*`, `/api/invites/:token`, `/api/password-resets/:token` and
+- **Anonymous** — can reach `/api/auth/*`, the fixed-URL invite/password-reset preview endpoints and
   `/api/health`, plus every Next page.
 - **`USER`** — a signed-in account. Can upload documents, so **can put arbitrary bytes into the
   processing pipeline** (sharp, Stirling, Docling, the analyst, the Markdown the viewer renders).
@@ -1352,4 +1352,3 @@ Mechanical diff: the dev stack was already up (legere-db-1, 8 days), so nothing 
 Read end to end: src/server/application/jobs/handle-document-process.ts (all 1195 lines), src/server/application/jobs/handle-maintenance.ts, src/server/application/documents/compose-document.ts (all 708 lines, every mutator), src/server/application/documents/build-canonical.ts, src/server/application/documents/download-document.ts (canonical/preview/page-thumb paths), src/server/application/trash/manage-trash.ts, src/server/application/documents/upload-document.ts, src/server/application/documents/reprocess-document.ts, src/server/application/queue/reprocess-by-step.ts, src/server/application/storage/artifact-keys.ts, src/server/infrastructure/persistence/prisma-document-chunk.repository.ts, […]
 
 **Not covered:** Inside this dimension I did not get to: (1) `handle-library-scan`/`handle-file-ingest` interleaving with request-path mutations — concurrent uploads of identical bytes through `findOrCreateByContentHash` + `attach`, and a scan re-hashing a ref while `ReplaceDocumentFile` untrashes the same file; (2) `RestoreTrashItem` racing `purge`/`EmptyTrash` (restore reads the row outside the transaction at manage-trash.ts:147 and only re-checks the home inside it); (3) collection and share mutations racing  […]
-

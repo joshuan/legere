@@ -16,11 +16,9 @@ const PDF = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntraile
 // it (docs/05 §5.1a), which would hand the download tests below the name from the upload test above.
 const OTHER_PDF = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 >>\nendobj\n%%EOF\n');
 
-// 🔒 SEC-10 (docs/06 §6.7, docs/08 §8.1.2, §8.1.6). Two links this application hands out are bearer
-// credentials living in a path segment, and `pino-http` writes the URL of every request it serves.
-// The suite therefore reads what the process actually emitted rather than what a serializer returns
-// in isolation: the request log runs through Express, Nest, a guard and a throttler first, and the
-// question is what comes out the far end.
+// 🔒 SEC-10/SEC-38 (docs/06 §6.7, docs/08 §8.1.2, §8.1.6). Link credentials reach the browser in a
+// URL fragment, then only JSON bodies. The suite reads what the process actually emits after an
+// Express/Nest request and proves neither the request URL nor the log carries either secret.
 describe('Request logging (e2e)', () => {
   let app: TestApp;
   let adminCookie: string;
@@ -81,48 +79,46 @@ describe('Request logging (e2e)', () => {
   }
 
   function tokenFrom(url: string): string {
-    const token = url.split('/').pop();
-    if (token === undefined || token === '') throw new Error(`No token in ${url}`);
+    const token = new URLSearchParams(new URL(url).hash.slice(1)).get('token');
+    if (token === null || token === '') throw new Error(`No token in ${url}`);
     return token;
   }
 
   const log = () => emitted.join('');
 
-  it('writes the route and not the token when an invite link is previewed', async () => {
+  it('keeps an invite token out of the request URL and emitted log', async () => {
     const before = log();
-    const preview = await api(app).get(`/api/invites/${inviteToken}`);
+    const preview = await api(app).post('/api/invites/preview', { token: inviteToken });
 
     expect(preview.status).toBe(200);
     const written = log().slice(before.length);
     // The request was logged — otherwise "the token is absent" would pass for the wrong reason.
-    expect(written).toContain('"url":"/api/invites/:x"');
+    expect(written).toContain('"url":"/api/invites/preview"');
     expect(written).not.toContain(inviteToken);
   });
 
-  it('writes the route and not the token when a reset link is previewed', async () => {
+  it('keeps a reset token out of the request URL and emitted log', async () => {
     const before = log();
-    const preview = await api(app).get(`/api/password-resets/${resetToken}`);
+    const preview = await api(app).post('/api/password-resets/preview', { token: resetToken });
 
     expect(preview.status).toBe(200);
     const written = log().slice(before.length);
-    expect(written).toContain('"url":"/api/password-resets/:x"');
+    expect(written).toContain('"url":"/api/password-resets/preview"');
     expect(written).not.toContain(resetToken);
   });
 
-  // 🔒 SEC-23 on the request half of the line (docs/06 §6.7). The headers used to travel whole
-  // behind a deny-list of four names; the header nobody would have added to it is `Referer`, which
-  // a client following an invite link out of a chat window sends — `Referrer-Policy: no-referrer`
-  // (docs/12 §12.8a) is a rule about browsers, and the link is a bearer credential in a path.
-  it('writes no Referer, not even when the Referer is the invite link itself', async () => {
+  // 🔒 SEC-23 remains defense in depth: headers are allow-listed even though a real browser strips
+  // the fragment from Referer before sending it.
+  it('writes no Referer, even when a synthetic caller puts a fragment secret in it', async () => {
     const before = log();
     const preview = await api(app)
-      .get(`/api/invites/${inviteToken}`)
-      .set('Referer', `http://localhost:3000/invite/${inviteToken}`)
+      .post('/api/invites/preview', { token: inviteToken })
+      .set('Referer', `http://localhost:3000/invite#token=${inviteToken}`)
       .set('User-Agent', 'legere-e2e');
 
     expect(preview.status).toBe(200);
     const written = log().slice(before.length);
-    expect(written).toContain('"url":"/api/invites/:x"');
+    expect(written).toContain('"url":"/api/invites/preview"');
     expect(written).not.toContain(inviteToken);
     expect(written).not.toContain('referer');
     // What a request line still says about a caller, so this does not pass by logging nothing.

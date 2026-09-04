@@ -118,7 +118,7 @@ Centered card: email, password, Turnstile widget (when configured — see below)
 "Forgot password?" opens a static hint: "Ask your administrator for a reset link." If
 `GET /api/auth/onboarding` says `required` → redirect to `/onboarding`.
 
-### Onboarding (`/onboarding`), Invite (`/invite/[token]`), Reset (`/reset/[token]`)
+### Onboarding (`/onboarding`), Invite (`/invite#token=…`), Reset (`/reset#token=…`)
 The same **3-step wizard** (antd `Steps`):
 1. **Email** — input (invite: pre-filled from `emailHint`, editable; reset: fixed masked email) +
    Turnstile → `register/start`. Always advances; shows "code sent" with a TTL countdown and a
@@ -130,6 +130,11 @@ The same **3-step wizard** (antd `Steps`):
 
 Invalid/expired token pages show a dedicated state ("This invitation is no longer valid") — no wizard.
 Onboarding when already onboarded → 404 page.
+
+🔒 Invite and reset pages read the token from the URL fragment on first mount and immediately replace
+the current history entry with the fragment-free `/invite` or `/reset`. The fragment never reaches
+the server, a proxy request line or a referrer; previews use `POST` with `{ token }`, and the existing
+wizard carries the token only in its JSON bodies.
 
 **The Turnstile widget, when configured.** Both screens render it themselves: the Cloudflare script
 is loaded once per page, the widget draws in the space the two forms leave for it, and the token it
@@ -541,8 +546,10 @@ document pinned to the height of a phone would be a worse read, not a better one
   nobody asked for, and reprocessing is asked for with the **Reprocess** button in the processing panel
   below. Shown only once the choice actually differs from what the document holds, so opening the form
   to change the city does not lecture about page shapes. **People** is a multi-select over the catalogue with
-  "Add «name»" for anything typed that is not in it yet — the analysis step creates people on its
-  own, so a person correcting it must be able to do the same without an admin (03 §3.3.19).
+  "Add «name»" for anything typed that is not in it yet. Analysis only links a living catalogue
+  match and shows an unknown name as the grey "read as …" proposal; pressing Add is the explicit
+  confirmation that lets the proposal become a shared catalogue row, and Save links it to the
+  document (03 §3.3.19).
   **Subject** works the same way, except that adding one takes both halves — the dropdown footer asks
   for the kind before it offers to add, because a name with no kind is not a thing anybody can file
   by (03 §3.3.20).

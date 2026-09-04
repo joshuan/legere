@@ -380,6 +380,18 @@ filename headers on the redact list. Moving the tokens out of the URL entirely
 ### SEC-11
 **Prompt injection into the analyst exfiltrates and poisons shared catalogues**
 
+**Status: CLOSED.** The earlier disclosure hardening remains in place. The poisoning path is now
+closed too: `HandleDocumentProcess` only resolves exact, living catalogue matches and never calls a
+person, subject or subject-kind create operation. Unknown model answers remain in `autoValues`, and
+the viewer renders them as "read as …" proposals. Creating a shared row requires the user-visible
+Edit → type the proposed value → Add flow; Save is a separate explicit action that links the new
+row. `handle-document-process.catalogue-ceiling.test.ts` proves unknown people, subjects and kinds
+produce no rows while existing matches may be linked. The two `DocumentViewerScreen` proposal tests
+prove that an unknown person and subject are visible before creation and reach the document only
+through Add followed by Save.
+
+The text below records the original finding and remediation choices.
+
 `src/server/infrastructure/ai/openai-compat-analyst.ts:236` interpolates the document excerpt into a
 fixed, guessable `"""` fence with no escaping and no delimiter randomization. The excerpt is the
 document's own OCR'd Markdown — fully controlled by anyone who can upload.
@@ -673,6 +685,19 @@ Neither `server.disable('x-powered-by')` nor `poweredByHeader: false` is set; bo
 themselves. Fingerprinting only, one line each.
 
 ### SEC-38
+
+**Status: CLOSED.** New email hand-off links are `/invite#token=…` and `/reset#token=…`; fragments
+do not enter HTTP request targets. The public pages read the fragment once, immediately remove it
+from browser history, and send the credential only in JSON bodies to fixed preview, start, verify
+and completion endpoints. Preview is now `POST /api/invites/preview` or
+`POST /api/password-resets/preview`; the token-bearing GET routes no longer exist. The fragment hook
+test proves valid and malformed fragments are scrubbed. `invites-resets.e2e.test.ts` proves generated
+links contain no token-bearing path/query, preview request URLs are fixed, and legacy GET paths are
+404; `request-logging.e2e.test.ts` proves request logs contain the fixed preview URL and not the
+credential.
+
+The text below records the original finding.
+
 Invite and reset links put a single-use account-takeover credential in a path segment
 (`manage-invites.ts:43`, `manage-password-resets.ts:41`), so it reaches browser history, proxy access
 logs and the `Referer` of every subresource. Two things keep it contained and **both are accidental**:
@@ -847,14 +872,14 @@ product *is* rather than how it is built, `docs/` moved first and the commit say
 serious thing in the register, and it is the argument for reading a fix's neighbourhood rather than
 its diff.
 
-### Fixed in part
+### Fixed or fixed in part
 
-- **[SEC-11](#sec-11) — prompt injection.** The disclosure half is closed: the fence is drawn per
+- **[SEC-11](#sec-11) — prompt injection.** Closed. The disclosure half is closed: the fence is drawn per
   call from `randomBytes` and the excerpt is stripped of it, the catalogue and the instructions moved
   into the system message, and the document travels alone as data (`2e67b83`, [`05 §5.5`](../05-library-and-processing.md)).
-  The **poisoning** half stands: analysis still creates people and subjects straight from the model's
-  answer, so a document can still put a row in everybody's catalogue. Closing it means a confirmation
-  step with a schema and a screen behind it, which is a feature, not a patch.
+  The **poisoning** half is now closed as well: the analysis job resolves existing rows but creates
+  none, while the existing Details proposal UI is backed by executable person and subject tests for
+  the explicit Edit → type → Add → Save flow.
 - **[SEC-43](#sec-43) — DDL rights at runtime.** Migrations now run in a one-shot container with no
   `npx` in the start path (`d562b37`). The **second Postgres role** is not shipped: both services
   still carry the owner's URL, so the application can still change the schema — which is also what
@@ -891,12 +916,6 @@ that owns the behaviour — so the next reader meets a choice, not an oversight.
   acceptance item of that task — surviving a restart — was answered the other way, deliberately, in
   [`08 §8.4.1b`](../08-auth-and-authorization.md#841b-what-the-throttles-forget-when-the-process-restarts).
   This needs a task of its own.
-- **[SEC-38](#sec-38) — tokens in a URL path segment.** Still true of
-  `GET /api/invites/:token` and `GET /api/password-resets/:token`
-  ([`07 §7.3`](../07-api-specification.md)). Two of the three things that made it dangerous are gone:
-  the request log now writes a route shape rather than the token (`7181cbb`), and `Referrer-Policy`
-  is now sent deliberately instead of being left to a browser default (`bff7132`). Moving the
-  credential out of the URL entirely is the end state and needs a `docs/07` change first.
 
 ### What replaces this document
 
@@ -921,3 +940,25 @@ Worth recording because it was nearly a second finding: the first attempt chose 
 series by comparing the presented code against each. That would have let a guess be tested without
 being counted, moving the attempt cap out of the way of the very brute force it exists to stop. The
 existing concurrency tests caught it, which is the argument for having written them.
+
+### Addendum — SEC-11 and SEC-38
+
+Both findings the M15 closing note left incomplete are now **closed**, in
+`fix(security): close catalogue poisoning and URL credential gaps`.
+
+- **[SEC-11](#sec-11) — catalogue poisoning.** Analysis may still recognise and link an exact
+  living person or subject, but model output can no longer create a person, subject or kind. Every
+  unknown answer stays in the document's `autoValues`, where the Details pane shows it as the grey
+  "read as …" proposal. Only a person entering Edit and pressing the explicit Add action creates a
+  shared row; Save then links it. The application test
+  `HandleDocumentProcess catalogue proposals` proves novel model answers create nothing while living
+  matches are linked and all proposals survive; the viewer test proves the proposed name is shown
+  before the explicit create/link flow.
+- **[SEC-38](#sec-38) — recovery credentials in URLs.** Generated invite and reset links now carry
+  the token in a URL fragment (`/invite#token=…`, `/reset#token=…`), which HTTP does not transmit.
+  The client consumes the fragment once and immediately replaces the current history entry without
+  it. Preview moved from token-bearing GET paths to `POST /api/invites/preview` and
+  `POST /api/password-resets/preview`, with `{ token }` in JSON; the old routes no longer exist, and
+  start/verify already used JSON. The fragment-hook test proves the browser URL is scrubbed, while
+  the invite/reset and request-logging e2e suites prove generated URLs have no token-bearing path or
+  query and neither API request URLs nor emitted logs contain the credential.

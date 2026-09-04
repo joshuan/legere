@@ -67,11 +67,12 @@ export const sessionApi = {
     apiClient.delete(`/api/me/sessions/${id}`, { schema: okResponseSchema }),
 
   previewInvite: (token: string): Promise<InvitePreview> =>
-    apiClient.get(`/api/invites/${encodeURIComponent(token)}`, { schema: invitePreviewSchema }),
+    apiClient.post('/api/invites/preview', { schema: invitePreviewSchema, body: { token } }),
 
   previewPasswordReset: (token: string): Promise<PasswordResetPreview> =>
-    apiClient.get(`/api/password-resets/${encodeURIComponent(token)}`, {
+    apiClient.post('/api/password-resets/preview', {
       schema: passwordResetPreviewSchema,
+      body: { token },
     }),
 };
 

@@ -91,8 +91,8 @@ describe('Invites and password resets (e2e)', () => {
     api(app).post('/api/auth/register/complete', { ticket, password: PASSWORD });
 
   function tokenFrom(url: string): string {
-    const token = url.split('/').pop();
-    if (token === undefined || token === '') throw new Error(`No token in ${url}`);
+    const token = new URLSearchParams(new URL(url).hash.slice(1)).get('token');
+    if (token === null || token === '') throw new Error(`No token in ${url}`);
     return token;
   }
 
@@ -102,7 +102,9 @@ describe('Invites and password resets (e2e)', () => {
 
       expect(created.status).toBe(201);
       const invite = expectData(created, createInviteResponseSchema);
-      expect(invite.url).toContain('/invite/');
+      expect(new URL(invite.url).pathname).toBe('/invite');
+      expect(new URL(invite.url).search).toBe('');
+      expect(new URL(invite.url).hash).toMatch(/^#token=/);
       expect(invite.role).toBe('USER');
 
       // The listing never repeats the token, and the database holds only its hash.
@@ -120,29 +122,30 @@ describe('Invites and password resets (e2e)', () => {
       const invite = expectData(await createInvite(), createInviteResponseSchema);
       const token = tokenFrom(invite.url);
 
-      const fresh = await api(app).get(`/api/invites/${token}`);
+      const fresh = await api(app).post('/api/invites/preview', { token });
       expect(fresh.status).toBe(200);
       expect(expectData(fresh, invitePreviewSchema)).toMatchObject({ role: 'USER', valid: true });
+      expect((await api(app).get(`/api/invites/${token}`)).status).toBe(404);
 
       // Expired.
       await testPrisma().userInvite.updateMany({
         data: { expiresAt: new Date(Date.now() - 1000) },
       });
-      const expired = await api(app).get(`/api/invites/${token}`);
+      const expired = await api(app).post('/api/invites/preview', { token });
       expect(expectData(expired, invitePreviewSchema).valid).toBe(false);
 
       // Revoked.
       await testPrisma().userInvite.updateMany({
         data: { expiresAt: new Date(Date.now() + 60_000), revokedAt: new Date() },
       });
-      const revoked = await api(app).get(`/api/invites/${token}`);
+      const revoked = await api(app).post('/api/invites/preview', { token });
       expect(expectData(revoked, invitePreviewSchema).valid).toBe(false);
 
       // Accepted.
       await testPrisma().userInvite.updateMany({
         data: { revokedAt: null, acceptedAt: new Date() },
       });
-      const accepted = await api(app).get(`/api/invites/${token}`);
+      const accepted = await api(app).post('/api/invites/preview', { token });
       expect(expectData(accepted, invitePreviewSchema).valid).toBe(false);
     });
 
@@ -299,11 +302,16 @@ describe('Invites and password resets (e2e)', () => {
 
       expect(created.status).toBe(201);
       const reset = expectData(created, createPasswordResetResponseSchema);
-      expect(reset.url).toContain('/reset/');
+      expect(new URL(reset.url).pathname).toBe('/reset');
+      expect(new URL(reset.url).search).toBe('');
+      expect(new URL(reset.url).hash).toMatch(/^#token=/);
 
-      const preview = await api(app).get(`/api/password-resets/${tokenFrom(reset.url)}`);
+      const preview = await api(app).post('/api/password-resets/preview', {
+        token: tokenFrom(reset.url),
+      });
       const previewed = expectData(preview, passwordResetPreviewSchema);
       expect(previewed.valid).toBe(true);
+      expect((await api(app).get(`/api/password-resets/${tokenFrom(reset.url)}`)).status).toBe(404);
       // Masked: recognisable to its owner, useless for harvesting.
       expect(previewed.email).not.toBe(target.email);
       expect(previewed.email).toMatch(/^.\*\*\*.@legere\.local$/);

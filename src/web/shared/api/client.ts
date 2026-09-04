@@ -17,7 +17,7 @@ type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 // Where an unauthenticated caller is sent. Public routes render their own 401 handling instead.
 const LOGIN_PATH = '/login';
-const PUBLIC_PATH_PREFIXES = ['/login', '/onboarding', '/invite/', '/reset/'];
+const PUBLIC_PATHS = new Set(['/login', '/onboarding', '/invite', '/reset']);
 
 function buildUrl(path: string, query: RequestOptions<unknown>['query']): string {
   if (query === undefined) return path;
@@ -34,7 +34,7 @@ function buildUrl(path: string, query: RequestOptions<unknown>['query']): string
 function redirectToLogin(): void {
   if (typeof window === 'undefined') return;
   const { pathname, search } = window.location;
-  if (PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return;
+  if (PUBLIC_PATHS.has(pathname)) return;
 
   const returnTo = encodeURIComponent(`${pathname}${search}`);
   window.location.assign(new URL(`${LOGIN_PATH}?returnTo=${returnTo}`, window.location.origin));

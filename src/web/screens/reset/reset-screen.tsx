@@ -5,11 +5,19 @@ import { Result, Spin } from 'antd';
 import { useTranslations } from 'next-intl';
 import { sessionApi, sessionKeys } from '../../entities/session';
 import { AuthWizard } from '../../features/auth-wizard';
+import { useFragmentToken } from '../../shared/lib';
 
-// /reset/[token] (docs/11 §11.2). The preview only ever reveals a masked address, so it is shown as
+// /reset#token=… (docs/11 §11.2). The preview only ever reveals a masked address, so it is shown as
 // guidance rather than pre-filled: the server derives the real recipient from the link itself, and a
 // typo here still delivers the code to the right mailbox.
-export function ResetScreen({ token }: { token: string }) {
+export function ResetScreen() {
+  const token = useFragmentToken();
+  if (token === undefined) return <Spin fullscreen />;
+  if (token === null) return <InvalidReset />;
+  return <ResetWithToken token={token} />;
+}
+
+function ResetWithToken({ token }: { token: string }) {
   const t = useTranslations();
   const { data, isPending, isError } = useQuery({
     queryKey: sessionKeys.passwordReset(token),
@@ -19,21 +27,24 @@ export function ResetScreen({ token }: { token: string }) {
 
   if (isPending) return <Spin fullscreen />;
 
-  if (isError || !data.valid) {
-    return (
-      <Result
-        status="warning"
-        title={t('auth.reset.invalidTitle')}
-        subTitle={t('auth.reset.invalidDescription')}
-      />
-    );
-  }
+  if (isError || !data.valid) return <InvalidReset />;
 
   return (
     <AuthWizard
       mode="reset"
       token={token}
       emailHint={t('auth.reset.emailHint', { masked: data.email })}
+    />
+  );
+}
+
+function InvalidReset() {
+  const t = useTranslations();
+  return (
+    <Result
+      status="warning"
+      title={t('auth.reset.invalidTitle')}
+      subTitle={t('auth.reset.invalidDescription')}
     />
   );
 }

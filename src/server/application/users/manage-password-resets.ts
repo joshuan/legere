@@ -47,15 +47,17 @@ export class CreatePasswordReset {
       target: { userId, id: reset.id },
     });
 
+    const url = new URL('/reset', this.appBaseUrl);
+    url.hash = new URLSearchParams({ token }).toString();
     return {
-      url: new URL(`/reset/${token}`, this.appBaseUrl).toString(),
+      url: url.toString(),
       expiresAt: expiresAt.toISOString(),
     };
   }
 }
 
-// GET /api/password-resets/:token — public landing page data. The address is masked: enough for the
-// holder of the link to recognise their own account, not enough to harvest addresses.
+// POST /api/password-resets/preview — public landing page data. The token arrives in JSON rather
+// than the URL; the address is masked, enough to recognise the account but not to harvest it.
 export class PreviewPasswordReset {
   constructor(
     private readonly resets: PasswordResetRepository,

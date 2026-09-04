@@ -4,3 +4,4 @@ export { formatBytes } from './format-bytes';
 export { safeReturnTo } from './safe-return-to';
 export { useDebouncedValue } from './use-debounced-value';
 export { useErrorMessage } from './use-error-message';
+export { useFragmentToken } from './use-fragment-token';

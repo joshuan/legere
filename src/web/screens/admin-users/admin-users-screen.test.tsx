@@ -54,7 +54,7 @@ describe('AdminUsersScreen', () => {
         HttpResponse.json(
           envelope({
             id: 'cccccccc-3333-4333-8333-333333333333',
-            url: 'http://localhost:3000/invite/secret-token',
+            url: 'http://localhost:3000/invite#token=secret-token',
             role: 'USER',
             expiresAt: '2026-02-01T00:00:00.000Z',
           }),
@@ -74,7 +74,9 @@ describe('AdminUsersScreen', () => {
     );
 
     expect(await screen.findByText(enMessages.admin.oneTimeLink.warning)).toBeInTheDocument();
-    const shown = await screen.findAllByDisplayValue('http://localhost:3000/invite/secret-token');
+    const shown = await screen.findAllByDisplayValue(
+      'http://localhost:3000/invite#token=secret-token',
+    );
     expect(shown.length).toBeGreaterThan(0);
   });
 
@@ -139,7 +141,7 @@ describe('AdminUsersScreen', () => {
       http.post('/api/admin/users/:id/password-reset', () =>
         HttpResponse.json(
           envelope({
-            url: 'http://localhost:3000/reset/reset-token',
+            url: 'http://localhost:3000/reset#token=reset-token',
             expiresAt: '2026-01-02T00:00:00.000Z',
           }),
           { status: 201 },
@@ -156,7 +158,9 @@ describe('AdminUsersScreen', () => {
     if (resetLink === undefined) throw new Error('reset button not rendered');
     await userEvent.click(resetLink);
 
-    const shown = await screen.findAllByDisplayValue('http://localhost:3000/reset/reset-token');
+    const shown = await screen.findAllByDisplayValue(
+      'http://localhost:3000/reset#token=reset-token',
+    );
     expect(shown.length).toBeGreaterThan(0);
   });
 });
