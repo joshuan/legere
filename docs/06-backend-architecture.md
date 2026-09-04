@@ -338,7 +338,11 @@ history from a log already written.
 ## 6.8. Queue integration (pg-boss)
 
 - One `PgBoss` instance per process, started in bootstrap step 5 (§2.2) with `schema: 'pgboss'` on
-  `DATABASE_URL`.
+  `DATABASE_URL` and `migrate: false`: the owner-only `queue-migrate` process has already applied
+  pg-boss's schema version and creates/updates all fixed queue partitions. Production's `legere_app`
+  role receives queue DML only; the migrator retains ownership and runtime has no schema DDL or
+  execution rights on pg-boss's create/delete helpers
+  ([`12 §12.7`](./12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)).
 - Worker registration maps queue names to application handlers with per-queue concurrency from config
   (defaults in [`05 §5.4`](./05-library-and-processing.md#54-job-queue-pg-boss)); handlers are
   resolved from the Nest DI container (`app.get(HandleFileIngest)`).

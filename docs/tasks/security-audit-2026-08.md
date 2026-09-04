@@ -742,6 +742,20 @@ rollback path, and the app then connects with the same role that just performed 
 injection or process compromise gets `DROP TABLE`, not just `SELECT`. Fix: a one-shot migration
 service with a privileged role, and a runtime role restricted to DML.
 
+**Status: CLOSED (2026-09-05).** The image starts only the server; the shipped compose runs Prisma
+and pg-boss migrations with the owner credential, then `deploy/postgres-runtime-role.sh`, then the
+application as `legere_app` with pg-boss schema migrations disabled. That runtime role has DML but
+no DDL or `TRUNCATE` in `public`, no access to
+`_prisma_migrations`, no database/schema creation, a 30-second role-level `statement_timeout`, and
+scoped DML access to the isolated, migrator-owned `pgboss` schema. The owner-only queue migration
+also creates/updates every fixed queue partition; runtime cannot execute either DDL helper, so
+unbounded partition creation, queue deletion and arbitrary runtime DDL are denied. Existing pg-boss
+relations, sequences, views, materialized views, foreign tables,
+routines, enums and domains are preserved and converged to migrator ownership. CI provisions the
+same role, runs the complete application suite on it, and `runtime-database-role.integration.test.ts`
+proves the privilege matrix and both real DDL denials against PostgreSQL; `queue.integration.test.ts`
+proves pg-boss starts and operates with that same `DATABASE_URL`.
+
 ### SEC-44
 `pg-boss-queue-monitor.ts:70` does `new Date(cursor)` on a `z.string().min(1)`, so
 `?cursor=x` answers 500 instead of 422. Admin-only, no data impact.
@@ -867,12 +881,19 @@ product *is* rather than how it is built, `docs/` moved first and the commit say
 | M15.17 — a user can look after their own account | SEC-35 | `2270fe7` |
 | M15.18 — the second layers the documentation promises | SEC-27, SEC-42 | `bff7132` |
 | M15.20 — the checklist stops being decoration | SEC-45 | this commit |
+| M15 follow-up — the server is not the schema owner | SEC-25 (database backstop), SEC-43 | this commit |
 
 [SEC-46](#sec-46) is the one nobody looked for: it was found *while* fixing SEC-01, it was the most
 serious thing in the register, and it is the argument for reading a fix's neighbourhood rather than
 its diff.
 
-### Fixed or fixed in part
+**September 2026 dependency follow-up.** Two production `qs` denial-of-service advisories
+(`GHSA-x5fp-wj9c-mxmx`, `GHSA-4mjr-xmp4-gh2g`) arrived through Express 4 after this register was
+written. Express's compatible range now resolves to patched `qs@6.16.0` through an explicit root
+override, `npm audit --omit=dev` reports zero findings, and CI's production threshold is `moderate`
+rather than `high`, so an availability advisory at this severity cannot accumulate unnoticed again.
+
+### Fixed after M15
 
 - **[SEC-11](#sec-11) — prompt injection.** Closed. The disclosure half is closed: the fence is drawn per
   call from `randomBytes` and the excerpt is stripped of it, the catalogue and the instructions moved
@@ -880,12 +901,6 @@ its diff.
   The **poisoning** half is now closed as well: the analysis job resolves existing rows but creates
   none, while the existing Details proposal UI is backed by executable person and subject tests for
   the explicit Edit → type → Add → Save flow.
-- **[SEC-43](#sec-43) — DDL rights at runtime.** Migrations now run in a one-shot container with no
-  `npx` in the start path (`d562b37`). The **second Postgres role** is not shipped: both services
-  still carry the owner's URL, so the application can still change the schema — which is also what
-  keeps `statement_timeout` unset. [`12 §12.7`](../12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)
-  and [`12 §12.8`](../12-build-config-run.md#128-production-notes) say so rather than leaving it to
-  be discovered.
 
 ### Accepted, not fixed
 

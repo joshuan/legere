@@ -3,9 +3,10 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/init.sh | bash
 #
-# It fetches docker-compose.yaml, writes a .env with freshly generated secrets, and offers to start.
-# Nothing is sent anywhere and nothing is installed outside this directory. Reading it before running
-# it is the sensible habit: `curl -fsSL … -o init.sh && less init.sh && bash init.sh`.
+# It fetches docker-compose.yaml and the database-role provisioner, writes a .env with freshly
+# generated secrets, and offers to start. Nothing is sent anywhere and nothing is installed outside
+# this directory. Reading it before running it is the sensible habit:
+# `curl -fsSL … -o init.sh && less init.sh && bash init.sh`.
 set -euo pipefail
 
 REF="${LEGERE_REF:-main}"
@@ -163,6 +164,9 @@ fi
 printf 'Fetching docker-compose.yaml…\n'
 curl -fsSL "${BASE_URL}/docker-compose.yaml" -o docker-compose.yaml ||
   die "could not download docker-compose.yaml from ${BASE_URL}"
+curl -fsSL "${BASE_URL}/postgres-runtime-role.sh" -o postgres-runtime-role.sh ||
+  die "could not download postgres-runtime-role.sh from ${BASE_URL}"
+chmod 700 postgres-runtime-role.sh
 
 printf 'Writing .env with generated secrets…\n'
 curl -fsSL "${BASE_URL}/.env.example" -o .env.tmp ||
@@ -175,6 +179,7 @@ sed \
   -e "s|^S3_PUBLIC_ENDPOINT=.*|S3_PUBLIC_ENDPOINT=http://${host}:9000|" \
   -e "s|^AUTH_SECRET=.*|AUTH_SECRET=$(random_hex)|" \
   -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(random_hex)|" \
+  -e "s|^POSTGRES_APP_PASSWORD=.*|POSTGRES_APP_PASSWORD=$(random_hex)|" \
   -e "s|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=$(random_hex)|" \
   `# 20 bytes, not 24: MinIO refuses a *service account* secret longer than 40 characters, and 24` \
   `# bytes of hex is 48. The root password above has no such ceiling, which is why this one is the` \
@@ -197,10 +202,11 @@ app_url=$(grep -E '^APP_BASE_URL=' .env | cut -d= -f2-)
 
 cat <<EOF
 
-Done. Two files are here:
+Done. Three files are here:
 
   docker-compose.yaml   the stack: Legere, PostgreSQL, Stirling-PDF, MinIO
-  .env                  your settings; the four secrets are generated, keep this file
+  postgres-runtime-role.sh  the idempotent least-privilege database role setup
+  .env                  your settings; the five secrets are generated, keep this file
 
 Library:  ${library_path}  (read-only — Legere never writes there)
 Address:  ${app_url}

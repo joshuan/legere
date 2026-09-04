@@ -99,7 +99,8 @@ nvm use && npm install
 cp .env.example .env
 mkdir -p dev-library && cp -r <some documents> dev-library/   # LIBRARY_ROOT points here
 npm run dev:up          # PostgreSQL + Stirling-PDF + Docling + ollama + MinIO (bucket included)
-npm run db:migrate      # forward-only, same command the container runs on start
+npm run db:migrate      # forward-only; production runs it in its owner-only one-shot service
+npm run queue:migrate   # pg-boss schema + fixed queues; production runs an owner-only one-shot
 npm run db:seed         # admin@legere.local / password, and a library over dev-library/
 npm run dev             # http://localhost:3000
 ```
@@ -112,7 +113,8 @@ npm run dev             # http://localhost:3000
 | `npm run lint` | ESLint (layer boundaries included) + Prettier check; `npm run lint:fix` writes |
 | `npm test` | the whole suite — unit, integration and e2e (needs `npm run dev:up`) |
 | `npm run test:coverage` | the same, with the ≥90% floor on `domain` + `application` that CI enforces |
-| `npm run db:migrate` | apply migrations forward (what the container does on start) |
+| `npm run db:migrate` | apply migrations forward (the production one-shot migrate service) |
+| `npm run queue:migrate` | owner-only: migrate pg-boss and create/update the fixed queues |
 | `npm run db:migrate:dev` | author a *new* migration from a schema change |
 
 Integration suites that need MinIO or Stirling skip themselves when those are not running, so

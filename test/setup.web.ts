@@ -1,4 +1,5 @@
 // jsdom test setup: register jest-dom matchers (toBeInTheDocument, etc.) for the `web` project.
+import '@ant-design/v5-patch-for-react-19';
 import '@testing-library/jest-dom/vitest';
 
 // jsdom reports every standards-valid pseudo-element argument as a noisy "not implemented" error.

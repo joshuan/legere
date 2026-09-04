@@ -269,8 +269,8 @@ than a knob to turn. A bound that fires is a step that fails, with its reason re
 document like any other failure (§5.5) — loudly, on one document, which is the direction this is
 meant to fail in.
 
-The one bound that is *not* in the application's gift is a `statement_timeout` on the database role;
-it belongs to the deployment and is written up in
+The one bound that is *not* in the application's gift is the 30-second `statement_timeout` on the
+production application database role; the shipped deployment sets it and its proof is written up in
 [`12 §12.8`](./12-build-config-run.md#128-production-notes).
 
 ## 5.4b. Per-service gates

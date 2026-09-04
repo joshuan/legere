@@ -46,11 +46,7 @@ RUN mkdir -p .next/cache && chown node:node .next/cache
 # `deploy/docling/Dockerfile` drops privileges the same way.
 USER node
 EXPOSE 8080
-# `./node_modules/.bin/prisma`, not `npx prisma`: npx would go to the registry if resolution inside
-# the image ever failed, which is a network call in the start path of an offline deployment.
-#
-# The shipped compose runs the migration as its own one-shot service and overrides this command with
-# the server alone (docs/12 §12.7). Run the image without compose and it still migrates itself
-# first, so `docker run` stays a working deployment — at the cost of the application connecting with
-# whatever role just performed the DDL.
-CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/server/main.js"]
+# Migrations require an owner credential and are always an explicit one-shot operation. The server
+# starts with the DML-only runtime credential; combining both in this command would put public-schema
+# DDL back into the application container (SEC-43, docs/12 §12.6–12.7).
+CMD ["node", "dist/server/main.js"]

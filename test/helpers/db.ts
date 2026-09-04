@@ -14,16 +14,35 @@ export function embeddingOf(head: readonly number[]): number[] {
 // Integration-test harness (docs/14 §14.8): one client for the whole run, plus a truncate helper
 // used between tests so each one starts from a known-empty database.
 let client: PrismaClient | null = null;
+let migrationClient: PrismaClient | null = null;
 
 export function testPrisma(): PrismaClient {
   client ??= new PrismaClient();
   return client;
 }
 
+// The test application deliberately runs as the production DML-only role in CI (SEC-43). Cleanup
+// and migration-fixture DDL are test-runner operations, so they use the same separate owner URL as
+// `prisma migrate deploy`; locally it falls back to DATABASE_URL and changes nothing.
+export function migrationPrisma(): PrismaClient {
+  const url = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
+  if (url === undefined) throw new Error('MIGRATION_DATABASE_URL or DATABASE_URL is required');
+  migrationClient ??= new PrismaClient({
+    datasources: {
+      db: { url },
+    },
+  });
+  return migrationClient;
+}
+
 export async function disconnectTestPrisma(): Promise<void> {
   if (client) {
     await client.$disconnect();
     client = null;
+  }
+  if (migrationClient) {
+    await migrationClient.$disconnect();
+    migrationClient = null;
   }
 }
 
@@ -32,7 +51,7 @@ export async function disconnectTestPrisma(): Promise<void> {
 // (the schema itself must survive) and pg-boss owns a separate schema, so it is untouched.
 // RESTART IDENTITY CASCADE clears dependent rows regardless of FK order.
 export async function truncateAll(): Promise<void> {
-  const prisma = testPrisma();
+  const prisma = migrationPrisma();
   const rows = await prisma.$queryRaw<Array<{ tablename: string }>>`
     SELECT tablename FROM pg_tables
     WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'

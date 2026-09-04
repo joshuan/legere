@@ -1,7 +1,9 @@
 # Legere — a self-contained deployment (docs/12 §12.7).
 #
-#   curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/{docker-compose.yaml,.env.example} -o docker-compose.yaml -o .env
-#   $EDITOR .env          # LIBRARY_PATH and the four secrets, at least
+#   curl -fsSLO https://raw.githubusercontent.com/joshuan/legere/main/deploy/docker-compose.yaml
+#   curl -fsSLO https://raw.githubusercontent.com/joshuan/legere/main/deploy/postgres-runtime-role.sh
+#   curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/.env.example -o .env
+#   $EDITOR .env          # LIBRARY_PATH and the five secrets, at least
 #   docker compose up -d
 #
 # Everything the app needs runs here: PostgreSQL with pgvector, Stirling-PDF for the heavy PDF work,
@@ -27,6 +29,8 @@ services:
     depends_on:
       db: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
+      queue-migrate: { condition: service_completed_successfully }
+      database-permissions: { condition: service_completed_successfully }
       minio-init: { condition: service_completed_successfully }
       stirling: { condition: service_started }
       docling: { condition: service_started }
@@ -53,7 +57,9 @@ services:
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TRUST_PROXY: ${TRUST_PROXY:-}
-      DATABASE_URL: postgresql://legere:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/legere?schema=public
+      # 🔒 The application never receives the owner password. `database-permissions` grants this
+      # role DML in public and scoped pg-boss access, but no schema DDL (docs/12 §12.7).
+      DATABASE_URL: postgresql://legere_app:${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}@db:5432/legere?schema=public
       LIBRARY_ROOT: /library
       STIRLING_URL: http://stirling:8080
       DOCLING_URL: ${DOCLING_URL-http://docling:5001}
@@ -114,10 +120,8 @@ services:
         max-size: ${LOG_MAX_SIZE:-10m}
         max-file: '${LOG_MAX_FILES:-5}'
 
-  # The schema, applied once per `up` by a container that exits. Two things follow: a second app
-  # replica cannot race a first one on the migration advisory lock, and the role that performs DDL
-  # is named in one place, so a deployment that gives the app a DML-only role changes `DATABASE_URL`
-  # here and nowhere else (docs/12 §12.6).
+  # The application schema, applied once per `up` by a container that exits. This is the only
+  # service that receives the owner credential; the server above never can perform public DDL.
   migrate:
     image: ghcr.io/joshuan/legere:${LEGERE_VERSION:-latest}
     command: ['./node_modules/.bin/prisma', 'migrate', 'deploy']
@@ -133,6 +137,51 @@ services:
     mem_limit: 512m
     environment:
       DATABASE_URL: postgresql://legere:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/legere?schema=public
+
+  # pg-boss carries versioned DDL outside Prisma. This owner-only step migrates it and creates or
+  # updates every fixed application queue; the server starts with `migrate: false` and needs neither
+  # database CREATE nor execution rights on the queue-partition DDL helpers (docs/12 §12.7).
+  queue-migrate:
+    image: ghcr.io/joshuan/legere:${LEGERE_VERSION:-latest}
+    command: ['node', 'dist/server/migrate-queue.js']
+    restart: 'no'
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    user: '1000:1000'
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    mem_limit: 512m
+    environment:
+      DATABASE_URL: postgresql://legere:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/legere?schema=public
+
+  # Converges the least-privilege runtime role after migrations and before the app starts. It grants
+  # row operations in `public`, retains existing `pgboss` objects under migrator ownership without
+  # dropping queued work, hardens its queue helpers, and puts the 30 s statement timeout on the
+  # runtime role only (SEC-43, docs/12 §12.7).
+  database-permissions:
+    image: pgvector/pgvector:pg16
+    command: ['/bin/sh', '/postgres-runtime-role.sh']
+    restart: 'no'
+    depends_on:
+      db: { condition: service_healthy }
+      queue-migrate: { condition: service_completed_successfully }
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=8m
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: legere
+      POSTGRES_USER: legere
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?set POSTGRES_APP_PASSWORD}
+    volumes:
+      - ./postgres-runtime-role.sh:/postgres-runtime-role.sh:ro
 
   db:
     image: pgvector/pgvector:pg16

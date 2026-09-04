@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { disconnectTestPrisma, testPrisma } from '../helpers/db';
+import { disconnectTestPrisma, migrationPrisma } from '../helpers/db';
 
 // The migration that turned every row of `document_files` into pages (ADR-025, docs/04 §4.5). What
 // is under test is the statement itself — read out of the migration file rather than copied, so a
@@ -42,7 +42,7 @@ type Entry = {
 };
 
 describe('A document is pages: the migration (integration)', () => {
-  const prisma = testPrisma();
+  const prisma = migrationPrisma();
 
   beforeEach(async () => {
     await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);

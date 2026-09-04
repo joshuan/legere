@@ -725,8 +725,12 @@ model Setting {
   tables answer the question the same way. Five of them carried the default and five did not — an
   accident of which migration wrote the table, and one of the seven differences that kept
   `prisma migrate diff` from being usable as a gate (§4.3).
-- pg-boss creates and owns its objects in a separate `pgboss` schema at first start; Prisma does not
-  manage them. The admin queue view reads them through the `QueueMonitor` port (raw SQL), never via
+- pg-boss creates and evolves its objects in a separate `pgboss` schema; Prisma does not manage
+  them. The owner-only `queue-migrate` one-shot applies those revisions. In the shipped deployment
+  that same step creates/updates the four fixed queues and their partitions. The application role
+  then operates them through table grants while the migrator retains ownership; runtime has no DDL
+  or DDL-helper execution in either schema (SEC-43, [`12 §12.7`](./12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)).
+  The admin queue view reads those objects through the `QueueMonitor` port (raw SQL), never via
   Prisma models.
 
 ## 4.3. Raw SQL in migrations (required steps)

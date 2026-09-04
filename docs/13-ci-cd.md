@@ -31,7 +31,7 @@ repository keeps all four (SEC-21):
 - **Third-party actions pinned to a commit SHA**, with the version in a trailing comment. A major tag
   is mutable: `@v4` is whatever its owner last moved it to. The comment is what a person reads and
   what Dependabot rewrites together with the SHA.
-- **A dependency audit that can fail the build.** `npm audit --omit=dev --audit-level=high` runs in
+- **A dependency audit that can fail the build.** `npm audit --omit=dev --audit-level=moderate` runs in
   `build-and-test` *before* `npm ci`, so an advisory is reported before the packages it concerns get
   to run their install scripts. `npm audit` reads the lockfile and needs no `node_modules`.
 - **An image scan on release, over every image this repository publishes.** The audit sees the
@@ -42,10 +42,11 @@ repository keeps all four (SEC-21):
   built, tagged and scanned here now, and their bases are pinned by digest so that a fixed CVE in
   one of them is an edit somebody can make.
 
-The threshold is deliberate. `--omit=dev` is what ships in the image and `high` is the severity that
-warrants stopping a merge; a moderate advisory in a linter is a Dependabot pull request, not a red
-`main`. The image scan reports `HIGH,CRITICAL` and skips findings with no fix available, because a
-finding nobody can act on is a broken build nobody can fix.
+The threshold is deliberate. `--omit=dev` is what ships in the image, and **moderate is included**:
+the two `qs` denial-of-service advisories found in September 2026 were production-reachable without
+being high severity. A moderate advisory in dev-only tooling is still a Dependabot pull request,
+not a red `main`. The image scan reports `HIGH,CRITICAL` and skips findings with no fix available,
+because a finding nobody can act on is a broken build nobody can fix.
 
 `ignore-unfixed` sorts findings by whether *someone* has a patch, which is not the same question as
 whether *we* can apply one. Release 0.7.0 failed the scan on two advisories against npm's own bundled
@@ -104,7 +105,9 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       NODE_ENV: test
-      DATABASE_URL: postgresql://legere:legere@localhost:5432/legere_test?schema=public
+      DATABASE_URL: postgresql://legere_app:legere_app@localhost:5432/legere_test?schema=public
+      MIGRATION_DATABASE_URL: postgresql://legere:legere@localhost:5432/legere_test?schema=public
+      RUNTIME_DATABASE_ROLE_TEST: 'true'
       APP_BASE_URL: http://localhost:3000
       AUTH_SECRET: test-secret-minimum-32-characters!!
       LIBRARY_ROOT: /tmp/test-library
@@ -119,10 +122,20 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version-file: .nvmrc, cache: npm }
-      - run: npm audit --omit=dev --audit-level=high   # before install: no lifecycle script has run yet
+      - run: npm audit --omit=dev --audit-level=moderate # before install: no lifecycle script has run yet
       - run: npm ci
       - run: npm run db:generate
-      - run: npm run db:migrate          # apply migrations to the test DB
+      - run: npm run db:migrate          # owner applies migrations to the test DB
+        env: { DATABASE_URL: '${{ env.MIGRATION_DATABASE_URL }}' }
+      - run: npm run queue:migrate       # owner applies pg-boss schema and fixed queues
+        env: { DATABASE_URL: '${{ env.MIGRATION_DATABASE_URL }}' }
+      - run: deploy/postgres-runtime-role.sh
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_DB: legere_test
+          POSTGRES_USER: legere
+          POSTGRES_PASSWORD: legere
+          POSTGRES_APP_PASSWORD: legere_app
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test:coverage       # domain+application floor of 14 §14.8, enforced
@@ -134,6 +147,14 @@ jobs:
 > (`docker run -d -p 9000:9000 minio/minio server /data` + bucket creation) can enable the real
 > `S3FileStorage` integration suite; by default it is skipped in CI and runs locally against the dev
 > compose (service containers cannot override `command`, hence a step, not a `service`).
+
+The split URLs are another production assertion, not test ceremony. Migrations and fixture cleanup
+use `MIGRATION_DATABASE_URL`; the owner also applies pg-boss's own schema before the same role
+provisioner shipped in `deploy/` transfers it. The application, repositories and pg-boss then use
+`DATABASE_URL`, and pg-boss starts with migrations disabled. The SEC-43 integration test asks
+PostgreSQL itself that the latter role has DML but no DDL in `public`, cannot alter migration
+history, cannot own or create objects in `pgboss`, cannot execute its DDL helpers, and receives the
+role-level 30-second statement timeout.
 
 ## 13.3. `.github/workflows/release.yml`
 
@@ -425,7 +446,7 @@ setup defines.
       explicitly in the single-author direct-commit mode above.
 - [ ] Every workflow declares `permissions:`; no file grants more than the job that needs it.
 - [ ] Every third-party action pinned to a commit SHA, version in the trailing comment.
-- [ ] `npm audit --omit=dev --audit-level=high` in `build-and-test`, before `npm ci`.
+- [ ] `npm audit --omit=dev --audit-level=moderate` in `build-and-test`, before `npm ci`.
 - [ ] Image scan on release, over all three published images; both parser bases pinned
       `tag@sha256:…`; `.github/dependabot.yml` covers npm, `github-actions` and docker.
 - [ ] Recorded scan findings subtracted via `.github/trivyignore/<image>`, every entry pointing at

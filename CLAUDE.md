@@ -21,13 +21,15 @@ commit, and where a task changes what the docs say, the doc moves first (golden 
 | `npm run lint` / `lint:fix` | ESLint (layer boundaries included) + Prettier |
 | `npm test` | the whole suite (unit + integration + e2e) against the dev PostgreSQL |
 | `npm run test:coverage` | the same with the ≥90% line floor on `domain` + `application`; this is what CI runs |
-| `npm run db:migrate` | apply migrations forward (also what the container does on start) |
+| `npm run db:migrate` | apply Prisma migrations forward (the production owner-only one-shot) |
+| `npm run queue:migrate` | owner-only: apply pg-boss's schema and fixed queues before starting the app |
 | `npm run db:migrate:dev` | author a new migration from a schema change — **but see below** |
 | `npm run db:seed` | idempotent dev seed: `admin@legere.local` / `password` |
 | `npm run release` | cut a release (`docs/13 §13.3a`); `-- patch` / `-- major` for other bumps |
 
 A single test file: `npx vitest run --project server <path>` (`--project web` for `src/web`). The
 MinIO- and Stirling-backed integration suites skip themselves when those containers are not up.
+On a fresh database the required order is Prisma migration, `queue:migrate`, seed, then `dev`.
 
 **Migrations are written by hand, not generated.** `db:migrate:dev` reads the raw SQL of `04 §4.3`
 — the generated `search_vector` column, the pgvector indexes — as drift it must "fix", and fails

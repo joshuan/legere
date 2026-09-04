@@ -27,7 +27,11 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       NODE_ENV: test
-      DATABASE_URL: postgresql://legere:legere@localhost:5432/legere_test?schema=public
+      # The complete app/test suite runs with the same DML-only role as production. Only migration
+      # setup and test cleanup receive the owner URL (SEC-43, docs/13 §13.2).
+      DATABASE_URL: postgresql://legere_app:legere_app@localhost:5432/legere_test?schema=public
+      MIGRATION_DATABASE_URL: postgresql://legere:legere@localhost:5432/legere_test?schema=public
+      RUNTIME_DATABASE_ROLE_TEST: 'true'
       APP_BASE_URL: http://localhost:3000
       AUTH_SECRET: test-secret-minimum-32-characters!!
       LIBRARY_ROOT: /tmp/test-library
@@ -47,12 +51,24 @@ jobs:
         with: { node-version-file: .nvmrc, cache: npm }
       # 🔒 SEC-07/SEC-21. The audit runs before anything is installed or built, so an advisory
       # published overnight is reported as a failed build rather than as a finding in the next audit.
-      # `--omit=dev` and `high` are the threshold: what ships in the image, at the severity that
-      # warrants stopping a merge. Moderate findings in dev-only tooling arrive as Dependabot PRs.
-      - run: npm audit --omit=dev --audit-level=high
+      # Every known production vulnerability stops the build, including moderate availability
+      # findings. Dev-only tooling remains outside this gate and arrives through Dependabot.
+      - run: npm audit --omit=dev --audit-level=moderate
       - run: npm ci
       - run: npm run db:generate
-      - run: npm run db:migrate # apply migrations to the test DB
+      - run: npm run db:migrate # apply migrations with the owner role
+        env:
+          DATABASE_URL: ${{ env.MIGRATION_DATABASE_URL }}
+      - run: npm run queue:migrate # apply pg-boss schema and fixed queues with the owner role
+        env:
+          DATABASE_URL: ${{ env.MIGRATION_DATABASE_URL }}
+      - run: deploy/postgres-runtime-role.sh
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_DB: legere_test
+          POSTGRES_USER: legere
+          POSTGRES_PASSWORD: legere
+          POSTGRES_APP_PASSWORD: legere_app
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test:coverage # domain+application floor of docs/14 §14.8, enforced

@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { JobQueue, type EnqueueOptions, type QueueName } from '../../application/ports/job-queue';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import { isPrismaTx } from '../persistence/prisma-client';
-import { EXPIRE_IN_SECONDS, PgBossProvider, RETRY_LIMIT } from './pg-boss.provider';
+import { PgBossProvider } from './pg-boss.provider';
+import { EXPIRE_IN_SECONDS, RETRY_LIMIT } from './pg-boss-policy';
 
 @Injectable()
 export class PgBossJobQueue extends JobQueue {
