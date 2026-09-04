@@ -1,8 +1,11 @@
 import { Tag } from 'antd';
 import { useTranslations } from 'next-intl';
-import type { ReactNode } from 'react';
+import type { Key, ReactNode } from 'react';
 
 export type Definition = {
+  // Required only when the visible label is not a string. It keeps React's identity tied to the
+  // setting itself rather than to its current position in the list.
+  key?: Key;
   label: ReactNode;
   value: ReactNode;
   // The values worth reading first — a title, a page count — carry the weight; the rest stay plain.
@@ -22,11 +25,8 @@ export function DefinitionList({ items }: { items: Definition[] }) {
   const t = useTranslations();
   return (
     <dl className="legere-definitions">
-      {items.map((item, index) => (
-        <div
-          className="legere-definition"
-          key={typeof item.label === 'string' ? item.label : index}
-        >
+      {items.map((item) => (
+        <div className="legere-definition" key={definitionKey(item)}>
           <dt className="legere-definition-label">{item.label}</dt>
           <span className="legere-definition-leader" aria-hidden />
           <dd className={`legere-definition-value${item.emphasis === true ? ' is-emphasis' : ''}`}>
@@ -48,6 +48,12 @@ export function DefinitionList({ items }: { items: Definition[] }) {
       ))}
     </dl>
   );
+}
+
+function definitionKey(item: Definition): Key {
+  if (item.key !== undefined) return item.key;
+  if (typeof item.label === 'string' || typeof item.label === 'number') return item.label;
+  throw new Error('A definition with a non-text label requires an explicit key.');
 }
 
 // An em dash says "nothing here" out loud; an empty cell just looks like a rendering bug. A field

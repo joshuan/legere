@@ -21,7 +21,6 @@ const overview = {
     { name: 'library-scan', queued: 0, active: 0, failedRecent: 0 },
     { name: 'file-ingest', queued: 3, active: 1, failedRecent: 0 },
     { name: 'document-process', queued: 2, active: 1, failedRecent: 4 },
-    { name: 'scanset-merge', queued: 0, active: 0, failedRecent: 0 },
     { name: 'maintenance', queued: 0, active: 0, failedRecent: 0 },
   ],
   documents: {
@@ -55,7 +54,6 @@ const settings: QueueSettingsDto = {
     'library-scan': 1,
     'file-ingest': 4,
     'document-process': 2,
-    'scanset-merge': 1,
     maintenance: 1,
   },
   unitConcurrency: 2,
@@ -160,7 +158,7 @@ describe('AdminQueueScreen', () => {
   it('shows one row per stage with its depths, quiet stages included', async () => {
     renderWithProviders(<AdminQueueScreen />);
 
-    // One row per stage rather than a card per stage: five stages read as five lines, and each
+    // One row per stage rather than a card per stage: four stages read as four lines, and each
     // column heading is written once (docs/11 §11.13).
     expect(await screen.findByText(enMessages.admin.queue.failedRecent)).toBeInTheDocument();
     const ingest = screen.getByText('file-ingest').closest('tr');

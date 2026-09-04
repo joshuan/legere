@@ -67,7 +67,7 @@ export function CollectionsScreen() {
         confirmLoading={create.isPending}
         onCancel={() => setOpen(false)}
         onOk={() => void form.submit()}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={form}

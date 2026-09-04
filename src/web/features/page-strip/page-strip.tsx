@@ -139,18 +139,18 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
 
   // The tiles, by the page they show, so a drag can ask which one a pointer is over and a keyboard
   // move can give the page its focus back afterwards.
-  const tiles = useRef(new Map<string, HTMLButtonElement>());
-  const dragging = useRef<string | null>(null);
+  const tilesRef = useRef(new Map<string, HTMLButtonElement>());
+  const draggingRef = useRef<string | null>(null);
   // 🔒 React moves the DOM node when a keyed child changes place, and a moved node loses focus — so
   // the page that was just nudged takes it back, or the second arrow key would land on nothing.
-  const nudged = useRef<string | null>(null);
+  const nudgedRef = useRef<string | null>(null);
   const [moves, setMoves] = useState(0);
 
   useEffect(() => {
-    const pageId = nudged.current;
+    const pageId = nudgedRef.current;
     if (pageId === null) return;
-    nudged.current = null;
-    tiles.current.get(pageId)?.focus();
+    nudgedRef.current = null;
+    tilesRef.current.get(pageId)?.focus();
   }, [moves]);
 
   // The one thing the strip cannot keep, said out loud where the person can read it.
@@ -162,8 +162,8 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
   const registerTile = useCallback(
     (pageId: string) =>
       (element: HTMLButtonElement | null): void => {
-        if (element === null) tiles.current.delete(pageId);
-        else tiles.current.set(pageId, element);
+        if (element === null) tilesRef.current.delete(pageId);
+        else tilesRef.current.set(pageId, element);
       },
     [],
   );
@@ -175,7 +175,7 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
       for (let position = 0; position < order.length; position += 1) {
         const pageId = order[position];
         if (pageId === undefined) continue;
-        const tile = tiles.current.get(pageId);
+        const tile = tilesRef.current.get(pageId);
         if (tile === undefined) continue;
         const rect = tile.getBoundingClientRect();
         if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return position;
@@ -260,7 +260,7 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
     (pageId: string) =>
     (event: ReactPointerEvent<HTMLButtonElement>): void => {
       if (readOnly) return;
-      dragging.current = pageId;
+      draggingRef.current = pageId;
       const tile = event.currentTarget;
       // Capture keeps the page following a pointer that has left the tile — a finger included, which
       // is the whole reason this is a pointer gesture and not a mouse one (docs/11 §11.5a). Not every
@@ -269,7 +269,7 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
     };
 
   const drag = (event: ReactPointerEvent<HTMLButtonElement>): void => {
-    const pageId = dragging.current;
+    const pageId = draggingRef.current;
     if (pageId === null) return;
     const target = positionUnder(event.clientX, event.clientY);
     if (target === null) return;
@@ -280,8 +280,8 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
   };
 
   const endDrag = (event: ReactPointerEvent<HTMLButtonElement>): void => {
-    if (dragging.current === null) return;
-    dragging.current = null;
+    if (draggingRef.current === null) return;
+    draggingRef.current = null;
     const tile = event.currentTarget;
     if (
       typeof tile.hasPointerCapture === 'function' &&
@@ -304,7 +304,7 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
         const from = current.indexOf(pageId);
         return from < 0 ? current : movePage(current, from, from + step);
       });
-      nudged.current = pageId;
+      nudgedRef.current = pageId;
       setMoves((count) => count + 1);
     };
 
@@ -768,7 +768,7 @@ function Seam({
   // `dragleave` fires the moment the pointer crosses into a child, and this seam has one — the
   // picker's own button sits in the middle of it — so a highlight that believed the first leave
   // went out and came back in the next frame, under a pointer that never left the seam at all.
-  const depth = useRef(0);
+  const depthRef = useRef(0);
 
   if (hidden) return null;
 
@@ -782,7 +782,7 @@ function Seam({
       data-testid={`page-seam-${at}`}
       onDragEnter={(event) => {
         if (!carriesFiles(event)) return;
-        depth.current += 1;
+        depthRef.current += 1;
         if (!disabled) setActive(true);
       }}
       onDragOver={(event) => {
@@ -799,11 +799,11 @@ function Seam({
         if (!carriesFiles(event)) return;
         // Never below zero: a drag that began before this tile mounted would otherwise leave a debt
         // the next one has to pay off before the seam lights up at all.
-        depth.current = Math.max(0, depth.current - 1);
-        if (depth.current === 0) setActive(false);
+        depthRef.current = Math.max(0, depthRef.current - 1);
+        if (depthRef.current === 0) setActive(false);
       }}
       onDrop={(event) => {
-        depth.current = 0;
+        depthRef.current = 0;
         setActive(false);
         onDrop(event);
       }}

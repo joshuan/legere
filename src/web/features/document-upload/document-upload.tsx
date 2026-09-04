@@ -74,17 +74,17 @@ export function UploadDropZone({
   // The other cure — ignoring a leave whose `relatedTarget` is inside the zone — has to reason about
   // a target that is `null` both when the pointer leaves the window (clear) and when it crosses into
   // some browsers' shadow content (do not clear); the counter needs no such special case.
-  const depth = useRef(0);
+  const depthRef = useRef(0);
 
   useEffect(() => {
     const clear = () => {
-      depth.current = 0;
+      depthRef.current = 0;
       setDragging(false);
     };
 
     const enter = (event: DragEvent) => {
       if (!carriesFiles(event.dataTransfer)) return;
-      depth.current += 1;
+      depthRef.current += 1;
       setDragging(true);
     };
 
@@ -100,8 +100,8 @@ export function UploadDropZone({
       if (!carriesFiles(event.dataTransfer)) return;
       // Never below zero: a drag that began before this screen mounted would otherwise leave a debt
       // that the next one has to pay off before anything appears.
-      depth.current = Math.max(0, depth.current - 1);
-      if (depth.current === 0) setDragging(false);
+      depthRef.current = Math.max(0, depthRef.current - 1);
+      if (depthRef.current === 0) setDragging(false);
     };
 
     const drop = (event: DragEvent) => {

@@ -254,7 +254,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   const [mergeForm] = Form.useForm<MergeValues>();
   // Which opening of the merge dialog is current, so a tidy prefill that arrives after the dialog
   // was closed or reopened lands nowhere.
-  const mergeSession = useRef(0);
+  const mergeSessionRef = useRef(0);
 
   // A dialog opens with focus on the control its opener came for (docs/11 §11.14): a form that
   // arrives prefilled focuses its primary action — the merge dialog's confirm, the edit dialog's
@@ -367,7 +367,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   // One door for every way the dialog opens — the Merge button over a hand-picked selection, and a
   // suggestion's own button (docs/11 §11.12a).
   const openMerge = (rows: Row[], values: MergeValues): void => {
-    mergeSession.current += 1;
+    mergeSessionRef.current += 1;
     setSelected(rows.map((row) => row.id));
     mergeForm.resetFields();
     mergeForm.setFieldsValue({ ...values, note: clampNote(values.note ?? '') });
@@ -384,10 +384,10 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
 
     // The raw prefill is already on screen; the tidy reading replaces it only if this is still the
     // same dialog and the person has not touched it (docs/11 §11.12a).
-    const session = mergeSession.current;
+    const session = mergeSessionRef.current;
     void merge.prefill?.(rows).then((tidied) => {
       if (tidied === null || tidied === undefined) return;
-      if (session !== mergeSession.current || mergeForm.isFieldsTouched()) return;
+      if (session !== mergeSessionRef.current || mergeForm.isFieldsTouched()) return;
       mergeForm.setFieldsValue({
         ...tidied.values,
         note: analystNote(tidied.note, tidied.aka, rows),
@@ -731,7 +731,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
           open={merging}
           title={t('admin.catalogues.mergeTitle', { count: chosen.length })}
           onCancel={() => setMerging(false)}
-          destroyOnClose
+          destroyOnHidden
           // Its own footer, because the confirm button is what the dialog opens focused on
           // (docs/11 §11.14) and AntD's built-in one offers no handle to reach it by.
           footer={
@@ -803,7 +803,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
         open={open}
         title={editing === null ? createTitle : editTitle}
         onCancel={() => setOpen(false)}
-        destroyOnClose
+        destroyOnHidden
         // Same reason as the merge dialog's: the primary action is a focus target (docs/11 §11.14).
         footer={
           <>

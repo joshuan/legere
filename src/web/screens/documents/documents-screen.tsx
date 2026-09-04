@@ -162,9 +162,9 @@ export function DocumentsScreen() {
   });
 
   // Infinite scroll: a sentinel below the grid asks for the next page as it comes into view.
-  const sentinel = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const target = sentinel.current;
+    const target = sentinelRef.current;
     if (target === null || typeof IntersectionObserver === 'undefined') return;
 
     const observer = new IntersectionObserver((entries) => {
@@ -333,7 +333,7 @@ export function DocumentsScreen() {
                 </div>
               ))}
             </div>
-            <div ref={sentinel} style={{ height: 1 }} />
+            <div ref={sentinelRef} style={{ height: 1 }} />
             {documents.isFetchingNextPage && <Spin />}
           </>
         )}

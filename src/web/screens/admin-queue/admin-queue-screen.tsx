@@ -25,7 +25,7 @@ import { QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { stepStatusSchema, type StepStatus } from '../../../shared/contracts/enums';
 import type { DocumentStep } from '../../../shared/contracts/documents';
 import type { GlobalToken } from 'antd';
@@ -73,8 +73,11 @@ export function AdminQueueScreen({ tab = 'overview' }: { tab?: AdminQueueTab }) 
 
   // The address is the source of truth, but the tab switches on the click rather than after the
   // navigation: a tab that waits for the router to come back feels broken (docs/10 §10.2).
-  const [active, setActive] = useState<AdminQueueTab>(tab);
-  useEffect(() => setActive(tab), [tab]);
+  const [pendingTab, setPendingTab] = useState<{
+    from: AdminQueueTab;
+    to: AdminQueueTab;
+  } | null>(null);
+  const active = pendingTab?.from === tab ? pendingTab.to : tab;
 
   const [live, setLive] = useState(true);
 
@@ -83,35 +86,37 @@ export function AdminQueueScreen({ tab = 'overview' }: { tab?: AdminQueueTab }) 
   // The knobs are held here rather than in a form, because they now live one per stage block instead
   // of in one row of inputs. Filled from the server's answer once it arrives and never fought with
   // afterwards: a number somebody is typing into must not jump under them on a refetch.
-  const [draft, setDraft] = useState<{
+  type SettingsDraft = {
     concurrency: Record<string, number>;
     unitConcurrency: number;
     services: Record<string, ServiceGateDto>;
-  } | null>(null);
-
-  useEffect(() => {
-    if (settings.data !== undefined && draft === null) {
-      setDraft({
-        concurrency: { ...settings.data.concurrency },
-        unitConcurrency: settings.data.unitConcurrency,
-        services: { ...settings.data.services },
-      });
-    }
-  }, [settings.data, draft]);
+  };
+  const [editedDraft, setEditedDraft] = useState<SettingsDraft | null>(null);
+  const serverDraft: SettingsDraft | null =
+    settings.data === undefined
+      ? null
+      : {
+          concurrency: { ...settings.data.concurrency },
+          unitConcurrency: settings.data.unitConcurrency,
+          services: { ...settings.data.services },
+        };
+  const draft = editedDraft ?? serverDraft;
+  const updateDraft = (change: (current: SettingsDraft) => SettingsDraft): void =>
+    setEditedDraft((current) => {
+      const base = current ?? serverDraft;
+      return base === null ? null : change(base);
+    });
 
   const analysis = useQuery({ queryKey: queueKeys.analysis, queryFn: analysisSettingsApi.read });
-  const [language, setLanguage] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    // Once, like the throughput above: a select nobody has touched follows the server, and one
-    // somebody has opened does not close under them on a refetch.
-    if (analysis.data !== undefined) {
-      setLanguage(
-        (current) =>
-          current ?? (analysis.data.language === '' ? undefined : analysis.data.language),
-      );
-    }
-  }, [analysis.data]);
+  const [languageDraft, setLanguageDraft] = useState<{ value: string | undefined } | null>(null);
+  // Until the select is touched it follows the server. The wrapper distinguishes an intentional
+  // clear (`undefined`) from "no local edit", without synchronising props into state in an effect.
+  const language =
+    languageDraft === null
+      ? analysis.data?.language === ''
+        ? undefined
+        : analysis.data?.language
+      : languageDraft.value;
 
   const saveAnalysis = useMutation({
     mutationFn: analysisSettingsApi.save,
@@ -124,29 +129,24 @@ export function AdminQueueScreen({ tab = 'overview' }: { tab?: AdminQueueTab }) 
 
   // What the stage blocks write into, and what tells the save button there is anything to save.
   const setConcurrency = (queue: string, value: number): void =>
-    setDraft((current) =>
-      current === null
-        ? current
-        : { ...current, concurrency: { ...current.concurrency, [queue]: value } },
-    );
+    updateDraft((current) => ({
+      ...current,
+      concurrency: { ...current.concurrency, [queue]: value },
+    }));
 
   // One gate of one service (docs/05 §5.4b), edited knob by knob into the same draft the stage
   // blocks write into — the payload is sent whole either way.
   const setGate = (service: string, gate: Partial<ServiceGateDto>): void =>
-    setDraft((current) =>
-      current === null
-        ? current
-        : {
-            ...current,
-            services: {
-              ...current.services,
-              [service]: {
-                ...(current.services[service] ?? { concurrency: 0, cooldownSeconds: 0 }),
-                ...gate,
-              },
-            },
-          },
-    );
+    updateDraft((current) => ({
+      ...current,
+      services: {
+        ...current.services,
+        [service]: {
+          ...(current.services[service] ?? { concurrency: 0, cooldownSeconds: 0 }),
+          ...gate,
+        },
+      },
+    }));
 
   const saveDraft = (): void => {
     if (draft === null) return;
@@ -508,9 +508,7 @@ export function AdminQueueScreen({ tab = 'overview' }: { tab?: AdminQueueTab }) 
               value={draft?.unitConcurrency ?? 1}
               disabled={draft === null}
               onChange={(value) =>
-                setDraft((current) =>
-                  current === null ? current : { ...current, unitConcurrency: value ?? 1 },
-                )
+                updateDraft((current) => ({ ...current, unitConcurrency: value ?? 1 }))
               }
             />
           )}
@@ -542,7 +540,7 @@ export function AdminQueueScreen({ tab = 'overview' }: { tab?: AdminQueueTab }) 
               style={{ minWidth: 220 }}
               placeholder={t('admin.queue.settings.analysisLanguageAuto')}
               value={language}
-              onChange={setLanguage}
+              onChange={(value) => setLanguageDraft({ value })}
               options={LANGUAGE_OPTIONS}
             />
           )}
@@ -819,7 +817,7 @@ export function AdminQueueScreen({ tab = 'overview' }: { tab?: AdminQueueTab }) 
         activeKey={active}
         onChange={(key) => {
           if (!isAdminQueueTab(key)) return;
-          setActive(key);
+          setPendingTab({ from: tab, to: key });
           router.replace(adminQueueHref(key));
         }}
         items={[

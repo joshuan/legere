@@ -50,9 +50,11 @@ export function useImageFrame(
     // the next opening measures again before anything can be converted through it.
     if (!active) return undefined;
 
-    measure();
+    const initialMeasure = window.requestAnimationFrame(measure);
     const element = target.current;
-    if (element === null || typeof ResizeObserver === 'undefined') return undefined;
+    if (element === null || typeof ResizeObserver === 'undefined') {
+      return () => window.cancelAnimationFrame(initialMeasure);
+    }
 
     const observer = new ResizeObserver(() => measure());
     observer.observe(element);
@@ -61,6 +63,7 @@ export function useImageFrame(
     window.addEventListener('scroll', measure, true);
 
     return () => {
+      window.cancelAnimationFrame(initialMeasure);
       observer.disconnect();
       window.removeEventListener('resize', measure);
       window.removeEventListener('scroll', measure, true);

@@ -238,10 +238,12 @@ describe('PeopleScreen', () => {
     });
 
     it('does not fight a person who has started editing the note (M48.4)', async () => {
+      let previewAnswered = false;
       server.use(
         http.post('/api/admin/people/merge-preview', async () => {
           // Slow enough that the typing lands first, which is the whole point of the rule.
           await new Promise((resolve) => setTimeout(resolve, 50));
+          previewAnswered = true;
           return HttpResponse.json(
             envelope({
               available: true,
@@ -259,8 +261,10 @@ describe('PeopleScreen', () => {
       await userEvent.type(note, 'What the person wrote');
 
       // The tidy reading lands only on an untouched form: a form must never fight its user.
-      await new Promise((resolve) => setTimeout(resolve, 120));
-      expect(note).toHaveValue('What the person wrote');
+      await waitFor(() => {
+        expect(previewAnswered).toBe(true);
+        expect(note).toHaveValue('What the person wrote');
+      });
     });
 
     it('replaces an untouched prefill with the analyst tidier reading, when there is one', async () => {

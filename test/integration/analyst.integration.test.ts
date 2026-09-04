@@ -41,9 +41,6 @@ describe.runIf(configured)('OpenAiCompatAnalyst against a live model', () => {
 
     const analysis = await analyst.analyze(TICKET, CATEGORIES);
 
-    // Reported so a run tells you what the model you configured actually said.
-    console.info(`[analyst] ${config.get('CLASSIFIER_MODEL')} → ${JSON.stringify(analysis)}`);
-
     if (analysis.typeSlug !== null) {
       expect(CATEGORIES.map((documentType) => documentType.slug)).toContain(analysis.typeSlug);
     }

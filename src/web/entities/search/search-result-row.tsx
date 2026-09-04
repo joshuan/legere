@@ -2,6 +2,7 @@
 
 import { List, Space, Tag, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
+import Image from 'next/image';
 import Link from 'next/link';
 import type { DocumentListDto } from '../../../shared/contracts/documents';
 import type { SearchMatchField } from '../../../shared/contracts/search';
@@ -32,10 +33,14 @@ export function SearchResultRow({
     <List.Item.Meta
       avatar={
         item.hasPreview ? (
-          // to a signed URL (docs/10 §10.8).
-          <img
+          // Kept unoptimized so the authenticated browser request reaches our API route, which
+          // redirects it to a short-lived signed URL (docs/10 §10.8).
+          <Image
             src={documentFiles.thumb(item.id)}
             alt=""
+            width={48}
+            height={64}
+            unoptimized
             style={{ width: 48, height: 64, objectFit: 'cover' }}
           />
         ) : undefined

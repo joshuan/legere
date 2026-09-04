@@ -96,6 +96,7 @@ type Translate = (key: string) => string;
 
 function row(setting: InstanceSettingDto, t: Translate): Definition {
   return {
+    key: setting.key,
     label: (
       <>
         {t(`admin.instance.keys.${setting.key}`)}{' '}

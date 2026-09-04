@@ -27,18 +27,18 @@ export function SearchOverlayProvider({ children }: { children: ReactNode }) {
   // 🔒 Whatever had the focus when the overlay went up — the card, the menu item, the tab — gets it
   // back when it comes down: an overlay that dissolves and drops the focus ring on the document
   // body has silently ended a keyboard session that had not finished (docs/11 §11.1a).
-  const opener = useRef<HTMLElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
 
   const show = useCallback(() => {
     const active = document.activeElement;
-    opener.current = active instanceof HTMLElement ? active : null;
+    openerRef.current = active instanceof HTMLElement ? active : null;
     setOpen(true);
   }, []);
 
   const hide = useCallback(() => {
     setOpen(false);
-    const element = opener.current;
-    opener.current = null;
+    const element = openerRef.current;
+    openerRef.current = null;
     // Gone from the page while the overlay was up — a row that was re-rendered, say — is the one
     // case where there is nothing to give the focus back to.
     if (element !== null && element.isConnected) element.focus();

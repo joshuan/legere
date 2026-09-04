@@ -37,7 +37,7 @@ function redirectToLogin(): void {
   if (PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return;
 
   const returnTo = encodeURIComponent(`${pathname}${search}`);
-  window.location.assign(`${LOGIN_PATH}?returnTo=${returnTo}`);
+  window.location.assign(new URL(`${LOGIN_PATH}?returnTo=${returnTo}`, window.location.origin));
 }
 
 export async function request<T>(

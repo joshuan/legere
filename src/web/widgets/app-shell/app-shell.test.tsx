@@ -88,13 +88,14 @@ describe('AppShell', () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it('offers every section, and the admin area only to an admin', () => {
+  it('offers every section, and the admin area only to an admin', async () => {
     renderWithProviders(
       <AppShell user={USER} version="9.9.9">
         <p>content</p>
       </AppShell>,
     );
 
+    await screen.findByText('content');
     for (const label of [
       enMessages.nav.documents,
       enMessages.nav.search,
@@ -218,13 +219,14 @@ describe('AppShell', () => {
     expect(screen.queryByText(enMessages.nav.administration)).not.toBeInTheDocument();
   });
 
-  it('every navigable item points at a route the app actually has', () => {
+  it('every navigable item points at a route the app actually has', async () => {
     renderWithProviders(
       <AppShell user={USER} version="9.9.9">
         <p>content</p>
       </AppShell>,
     );
 
+    await screen.findByText('content');
     // The routes under src/app; anything the shell links to has to be one of them.
     const routes = [
       '/documents',

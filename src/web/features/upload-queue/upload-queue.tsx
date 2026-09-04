@@ -86,15 +86,15 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
 
   // The ref is the queue; the state is what the panel renders from it. One source of truth, so the
   // pump never reads a stale closure while React catches up.
-  const entries = useRef<QueueEntry[]>([]);
+  const entriesRef = useRef<QueueEntry[]>([]);
   const [items, setItems] = useState<readonly QueueEntry[]>([]);
-  const running = useRef(false);
-  const inFlight = useRef<AbortController | null>(null);
-  const nextKey = useRef(0);
+  const runningRef = useRef(false);
+  const inFlightRef = useRef<AbortController | null>(null);
+  const nextKeyRef = useRef(0);
 
   const update = useCallback((change: (current: QueueEntry[]) => QueueEntry[]) => {
-    entries.current = change(entries.current);
-    setItems(entries.current);
+    entriesRef.current = change(entriesRef.current);
+    setItems(entriesRef.current);
   }, []);
 
   const patch = useCallback(
@@ -105,16 +105,16 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
   );
 
   const pump = useCallback(async () => {
-    if (running.current) return;
-    running.current = true;
+    if (runningRef.current) return;
+    runningRef.current = true;
     try {
       for (;;) {
-        const next = entries.current.find((entry) => entry.status === 'waiting');
+        const next = entriesRef.current.find((entry) => entry.status === 'waiting');
         if (next === undefined) return;
         patch(next.key, (entry) => ({ ...entry, status: 'uploading', loadedBytes: 0 }));
 
         const controller = new AbortController();
-        inFlight.current = controller;
+        inFlightRef.current = controller;
 
         // Redrawn only when the whole percent moves: a hundred-megabyte scan fires progress events
         // by the hundred, and a row that re-renders on every one of them costs more than it says.
@@ -137,12 +137,12 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
           // take the other thirty-nine with it.
           settlement = { status: 'failed', error: describeError(error) };
         } finally {
-          inFlight.current = null;
+          inFlightRef.current = null;
         }
 
         // A queue emptied mid-flight has no row left to settle and nothing to refresh: that upload
         // was abandoned on purpose, and its abort must not write anything back.
-        if (!entries.current.some((entry) => entry.key === next.key)) continue;
+        if (!entriesRef.current.some((entry) => entry.key === next.key)) continue;
         patch(next.key, (entry) => ({ ...entry, ...settlement, settledAt: Date.now() }));
 
         // The file that just went in moved every position after it along, so the ones behind it in
@@ -173,7 +173,7 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
         }
       }
     } finally {
-      running.current = false;
+      runningRef.current = false;
     }
   }, [describeError, patch, queryClient, update]);
 
@@ -183,9 +183,9 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
       update((current) => [
         ...current,
         ...files.map((file): QueueEntry => {
-          nextKey.current += 1;
+          nextKeyRef.current += 1;
           return {
-            key: `upload-${nextKey.current}`,
+            key: `upload-${nextKeyRef.current}`,
             file,
             fileName: file.name,
             size: file.size,
@@ -222,8 +222,8 @@ export function UploadQueueProvider({ children }: { children: ReactNode }) {
   }, [pump, update]);
 
   const clearAll = useCallback(() => {
-    inFlight.current?.abort();
-    inFlight.current = null;
+    inFlightRef.current?.abort();
+    inFlightRef.current = null;
     update(() => []);
   }, [update]);
 

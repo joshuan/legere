@@ -125,8 +125,12 @@ export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?
   const router = useRouter();
   // The address is the source of truth, but the tab switches on the click rather than after the
   // navigation: a tab that waits for the router to come back feels broken.
-  const [active, setActive] = useState<ViewerTab>(tab);
-  useEffect(() => setActive(tab), [tab]);
+  const [pendingTab, setPendingTab] = useState<{
+    documentId: string;
+    from: ViewerTab;
+    to: ViewerTab;
+  } | null>(null);
+  const active = pendingTab?.documentId === id && pendingTab.from === tab ? pendingTab.to : tab;
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();
@@ -227,7 +231,7 @@ export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?
           // three presses of the browser's back button to leave.
           onChange={(key) => {
             if (!isViewerTab(key)) return;
-            setActive(key);
+            setPendingTab({ documentId: id, from: tab, to: key });
             router.replace(`/documents/${id}/${key}`);
           }}
           items={[
@@ -2157,7 +2161,7 @@ function DetailsPane({
                     }
                     // A name the catalogue does not have yet is added to it: the analyst does exactly
                     // that on its own, and whoever corrects it must not need an admin (03 §3.3.19).
-                    dropdownRender={(menu) => (
+                    popupRender={(menu) => (
                       <>
                         {menu}
                         {isNewName(search, people) && (
@@ -2250,7 +2254,7 @@ function DetailsPane({
                     }
                     // Adding one takes both halves — a name with no kind is not a thing anybody can
                     // file by — so the footer asks for the kind before it offers to add (03 §3.3.20).
-                    dropdownRender={(menu) => (
+                    popupRender={(menu) => (
                       <>
                         {menu}
                         {subjectSearch.trim() !== '' && (

@@ -29,7 +29,7 @@ export function UploadPanel() {
   const { token } = theme.useToken();
   const { items, busy, retry, retryFailed, clearAll } = useUploadQueue();
 
-  const list = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const activeKey = items.find((item) => item.status === 'uploading')?.key ?? null;
 
   const total = items.length;
@@ -48,7 +48,7 @@ export function UploadPanel() {
   // The file being sent stays in view while the list grows past the panel.
   useEffect(() => {
     if (activeKey === null) return;
-    const row = list.current?.querySelector(`[data-upload-key="${activeKey}"]`);
+    const row = listRef.current?.querySelector(`[data-upload-key="${activeKey}"]`);
     // jsdom has no scrollIntoView, and a panel that throws while trying to scroll is worse than one
     // that does not scroll.
     if (row instanceof HTMLElement && typeof row.scrollIntoView === 'function') {
@@ -127,7 +127,7 @@ export function UploadPanel() {
       </div>
 
       <div
-        ref={list}
+        ref={listRef}
         style={{
           overflowY: 'auto',
           flex: '1 1 auto',

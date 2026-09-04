@@ -45,11 +45,18 @@ describe('the admin queue tab segment', () => {
   });
 
   it('answers 404 for a tab this screen does not have', async () => {
-    await drawn('storage', (node) => <Boundary>{node}</Boundary>);
+    // React reports caught render errors to stderr in development. This one is the behavior under
+    // test, so keep the expected diagnostic local to the assertion instead of flooding the run.
+    const report = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await drawn('storage', (node) => <Boundary>{node}</Boundary>);
 
-    // The throw travels to the boundary Next puts above every segment; here it is this one.
-    expect(screen.getByText('NEXT_NOT_FOUND')).toBeInTheDocument();
-    expect(notFound).toHaveBeenCalled();
+      // The throw travels to the boundary Next puts above every segment; here it is this one.
+      expect(screen.getByText('NEXT_NOT_FOUND')).toBeInTheDocument();
+      expect(notFound).toHaveBeenCalled();
+    } finally {
+      report.mockRestore();
+    }
   });
 });
 

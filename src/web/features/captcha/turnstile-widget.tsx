@@ -2,7 +2,7 @@
 
 import { Alert } from 'antd';
 import { useTranslations } from 'next-intl';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef } from 'react';
 
 // The Cloudflare script (docs/08 §8.4), fetched once per page and only where a widget is actually
 // wanted: an instance with no site key loads nothing at all, which matters on a self-hosted archive
@@ -68,11 +68,11 @@ export type TurnstileWidgetProps = {
 export function TurnstileWidget({ onToken, resetKey }: TurnstileWidgetProps) {
   const t = useTranslations();
   const siteKey = turnstileSiteKey();
-  const host = useRef<HTMLDivElement | null>(null);
-  const widget = useRef<string | undefined>(undefined);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const widgetRef = useRef<string | undefined>(undefined);
   // The callback the script holds is the one from the render that drew the widget; keeping it in a
   // ref means a parent that re-renders does not cost a redraw and a fresh challenge.
-  const latest = useRef(onToken);
+  const latestRef = useRef(onToken);
   // 🔒 What `resetKey` said when the widget now on screen was drawn. A widget is reset because the
   // form spent its token, and a widget drawn *after* the last request holds a challenge nobody has
   // spent — so only a count that has moved past this one means anything. Comparing against zero
@@ -80,38 +80,41 @@ export function TurnstileWidget({ onToken, resetKey }: TurnstileWidgetProps) {
   // two mutually exclusive slots, so stepping from the address to the code unmounts one widget and
   // mounts another, which the already-bumped counter then reset the instant it appeared — two
   // challenges per step change, the second of them visibly restarting under the person.
-  const drawnAt = useRef(resetKey);
-  const attempt = useRef(resetKey);
+  const drawnAtRef = useRef(resetKey);
+  const attemptRef = useRef(resetKey);
   // Whether the script could be reached at all. Not a failed challenge — there is no challenge —
   // and never a way past one: the token stays `null` and the form stays off (docs/08 §8.4).
-  const [unreachable, setUnreachable] = useState(false);
+  const [unreachable, setUnreachable] = useReducer(
+    (_current: boolean, next: boolean) => next,
+    false,
+  );
 
   useEffect(() => {
-    latest.current = onToken;
+    latestRef.current = onToken;
   }, [onToken]);
 
   useEffect(() => {
-    attempt.current = resetKey;
+    attemptRef.current = resetKey;
   }, [resetKey]);
 
   useEffect(() => {
-    const element = host.current;
+    const element = hostRef.current;
     if (siteKey === '' || element === null) return;
 
     let cancelled = false;
 
     const draw = (): void => {
       const api = window.turnstile;
-      if (cancelled || api === undefined || widget.current !== undefined) return;
-      widget.current = api.render(element, {
+      if (cancelled || api === undefined || widgetRef.current !== undefined) return;
+      widgetRef.current = api.render(element, {
         sitekey: siteKey,
-        callback: (token: string) => latest.current(token),
-        'expired-callback': () => latest.current(null),
-        'error-callback': () => latest.current(null),
+        callback: (token: string) => latestRef.current(token),
+        'expired-callback': () => latestRef.current(null),
+        'error-callback': () => latestRef.current(null),
       });
-      if (widget.current === undefined) return;
+      if (widgetRef.current === undefined) return;
       // Drawn now, so it answers for every request made up to now and for none before it.
-      drawnAt.current = attempt.current;
+      drawnAtRef.current = attemptRef.current;
       setUnreachable(false);
     };
 
@@ -119,16 +122,16 @@ export function TurnstileWidget({ onToken, resetKey }: TurnstileWidgetProps) {
       draw();
       return () => {
         cancelled = true;
-        remove(widget);
+        remove(widgetRef);
       };
     }
 
     // The two ways the script never arrives: the browser refuses it outright — a blocked domain, an
     // extension, a `script-src` without that origin — or it simply never answers.
     const giveUp = (): void => {
-      if (cancelled || widget.current !== undefined) return;
+      if (cancelled || widgetRef.current !== undefined) return;
       setUnreachable(true);
-      latest.current(null);
+      latestRef.current(null);
     };
     const timer = setTimeout(giveUp, LOAD_TIMEOUT_MS);
 
@@ -140,7 +143,7 @@ export function TurnstileWidget({ onToken, resetKey }: TurnstileWidgetProps) {
       clearTimeout(timer);
       script.removeEventListener('load', draw);
       script.removeEventListener('error', giveUp);
-      remove(widget);
+      remove(widgetRef);
     };
   }, [siteKey]);
 
@@ -148,18 +151,18 @@ export function TurnstileWidget({ onToken, resetKey }: TurnstileWidgetProps) {
     // Nothing this widget drew has been spent yet, and resetting a challenge that has just appeared
     // would throw it away for no reason — and, in interactive mode, in front of the person solving
     // it.
-    if (resetKey <= drawnAt.current) return;
+    if (resetKey <= drawnAtRef.current) return;
     const api = window.turnstile;
-    const id = widget.current;
+    const id = widgetRef.current;
     if (api === undefined || id === undefined) return;
     api.reset(id);
-    drawnAt.current = resetKey;
+    drawnAtRef.current = resetKey;
   }, [resetKey]);
 
   if (siteKey === '') return null;
   return (
     <div style={{ marginBottom: 16 }}>
-      <div ref={host} data-testid="captcha-slot" />
+      <div ref={hostRef} data-testid="captcha-slot" />
       {unreachable && (
         <Alert
           type="error"

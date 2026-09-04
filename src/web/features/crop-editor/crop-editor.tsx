@@ -124,7 +124,7 @@ export function CropEditor({ open, documentId, page, file, onSaved, onClose }: C
   // Which way up the page is being read. Sent with the crop — one edit, one rebuild.
   const [rotation, setRotation] = useState<Rotation | null>(null);
   const [proposal, setProposal] = useState<CropSuggestionResponse['method'] | null>(null);
-  const dragging = useRef<number | null>(null);
+  const draggingRef = useRef<number | null>(null);
 
   // What the loupe is watching, and what it magnifies against (docs/11 §11.5c). The corner is state
   // rather than the drag ref because a loupe that appears has to be rendered; the image's own size
@@ -255,7 +255,7 @@ export function CropEditor({ open, documentId, page, file, onSaved, onClose }: C
   const startDrag =
     (index: number) =>
     (event: ReactPointerEvent<HTMLButtonElement>): void => {
-      dragging.current = index;
+      draggingRef.current = index;
       watch(index);
       const handle = event.currentTarget;
       // Capture keeps the corner following a pointer that has left the handle — and not every
@@ -266,7 +266,7 @@ export function CropEditor({ open, documentId, page, file, onSaved, onClose }: C
   const drag =
     (index: number) =>
     (event: ReactPointerEvent<HTMLButtonElement>): void => {
-      if (dragging.current !== index) return;
+      if (draggingRef.current !== index) return;
       if (frame.width <= 0 || frame.height <= 0) return;
       moveTo(
         index,
@@ -278,8 +278,8 @@ export function CropEditor({ open, documentId, page, file, onSaved, onClose }: C
   const endDrag =
     (index: number) =>
     (event: ReactPointerEvent<HTMLButtonElement>): void => {
-      if (dragging.current !== index) return;
-      dragging.current = null;
+      if (draggingRef.current !== index) return;
+      draggingRef.current = null;
       // The corner has been let go, and the loupe goes with it (docs/11 §11.5c).
       unwatch(index);
       const handle = event.currentTarget;
