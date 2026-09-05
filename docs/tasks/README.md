@@ -66,7 +66,7 @@ disagree, the doc wins — and report the discrepancy.
 | M20 | Work that waits for what it needs | step dependencies honoured; a gate per external service |
 | M21 | The screen gives its height to the document | one strip of viewer chrome; the search overlay replaces the top bar |
 | M22 | The paper knows its fields, and its neighbours | typed fields per document type; document links |
-| M23 | The panel says where a service is, and whether it answers | external-service health on `/admin/queue` |
+| M23 | The panel says where a service is, and whether it answers | external-service health, now surfaced on `/admin/processing/services` |
 | M24 | The panel beside the document stops being a second screen | every viewer action moves to the tab that owns its subject |
 | M25 | The pages come back in the order the paper meant | a per-file page order, obeyed by the canonical, arranged by hand |
 | M26 | A loupe over the corner being dragged | pixel-accurate cropping on small screens |
@@ -74,6 +74,8 @@ disagree, the doc wins — and report the discrepancy.
 | M28 | The pane about the document, in three sections | what it says / what it is / what it cost |
 | M29 | The pipeline grades its own work | 0–100 marks for legibility, extraction and field confidence |
 | M30 | Schemas for the papers this archive actually holds | `flight`, `invoice`, `lab-report`, `civil-certificate`; `receipt`, `passport`, `id-card` revised |
+| M31–M60 | Completed refinements and audit closure | see the authoritative ordered history in [`backlog.md`](./backlog.md) |
+| M61 | One place to understand and control processing | one topology and control plane over queues, document steps and services, without merging their runtime semantics |
 
 Milestones are strictly sequential; tasks within a milestone are ordered by dependency.
 

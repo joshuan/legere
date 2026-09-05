@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { LoggerModule } from 'nestjs-pino';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { JobHandler } from '../../src/server/application/jobs/job-handler';
+import { RetryFailedJob } from '../../src/server/application/queue/inspect-queue';
 import { JobQueue } from '../../src/server/application/ports/job-queue';
 import { QueueMonitor } from '../../src/server/application/ports/queue-monitor';
 import {
@@ -75,11 +76,22 @@ describe('Queue (integration)', () => {
     await disconnectTestPrisma();
   });
 
-  type JobRow = { name: string; state: string; singletonkey: string | null; data: unknown };
+  type JobRow = {
+    name: string;
+    state: string;
+    singletonkey: string | null;
+    data: unknown;
+    retrylimit: number;
+    retrybackoff: boolean;
+    expireseconds: number;
+  };
 
   const jobs = (): Promise<JobRow[]> =>
     prisma.$queryRawUnsafe<JobRow[]>(
-      'SELECT name, state, singleton_key AS singletonkey, data FROM pgboss.job ORDER BY created_on',
+      `SELECT name, state, singleton_key AS singletonkey, data,
+       retry_limit AS retrylimit, retry_backoff AS retrybackoff,
+       EXTRACT(epoch FROM expire_in)::int AS expireseconds
+       FROM pgboss.job ORDER BY created_on`,
     );
 
   it('starts pg-boss in its own schema with every queue created', async () => {
@@ -289,16 +301,44 @@ describe('Queue (integration)', () => {
   });
 
   it('reports per-queue depths and a healthy queue', async () => {
-    await queue.enqueue('file-ingest', { fileRefId: 'x' });
-    await queue.enqueue('file-ingest', { fileRefId: 'y' });
-    await queue.enqueue('document-process', { documentId: 'z' });
+    const completedOld = await queue.enqueue('file-ingest', { fileRefId: 'old' });
+    const completedRecent = await queue.enqueue('file-ingest', { fileRefId: 'recent' });
+    await queue.enqueue('file-ingest', { fileRefId: 'waiting' });
+    const retrying = await queue.enqueue('document-process', { documentId: 'z' });
+    await prisma.$executeRawUnsafe(
+      "UPDATE pgboss.job SET state = 'completed', completed_on = now() - interval '2 hours' WHERE id = $1::uuid",
+      completedOld,
+    );
+    await prisma.$executeRawUnsafe(
+      "UPDATE pgboss.job SET state = 'completed', completed_on = now() - interval '30 minutes' WHERE id = $1::uuid",
+      completedRecent,
+    );
+    await prisma.$executeRawUnsafe(
+      "UPDATE pgboss.job SET state = 'retry' WHERE id = $1::uuid",
+      retrying,
+    );
 
     const depths = await monitor.depths();
     const ingest = depths.find((depth) => depth.name === 'file-ingest');
     const process = depths.find((depth) => depth.name === 'document-process');
+    const scan = depths.find((depth) => depth.name === 'library-scan');
 
-    expect(ingest?.queued).toBe(2);
+    expect(ingest?.queued).toBe(1);
+    expect(ingest?.completedLastHour).toBe(1);
+    expect(ingest?.lastCompletedAt).not.toBeNull();
+    expect(ingest?.oldestQueuedAt).not.toBeNull();
     expect(process?.queued).toBe(1);
+    expect(process?.completedLastHour).toBe(0);
+    expect(process?.lastCompletedAt).toBeNull();
+    // A queue with no retained rows is represented explicitly rather than disappearing.
+    expect(scan).toMatchObject({
+      queued: 0,
+      active: 0,
+      failedRecent: 0,
+      oldestQueuedAt: null,
+      lastCompletedAt: null,
+      completedLastHour: 0,
+    });
     // Every known queue appears, even with nothing in it.
     expect(depths).toHaveLength(4);
     expect(await monitor.isHealthy()).toBe(true);
@@ -321,13 +361,26 @@ describe('Queue (integration)', () => {
       payload: { documentId: 'fails' },
     });
 
-    // Retrying re-enqueues a copy and leaves the original failure in the journal.
-    expect(await monitor.retry(page.items[0]?.jobId ?? '')).toBe(true);
+    const retry = new RetryFailedJob(monitor, queue);
+    // Retrying re-enqueues a copy and leaves the original failure in the journal. A second click is
+    // accepted idempotently: the `short` singleton key sees that the requested work already waits.
+    await expect(retry.execute(page.items[0]?.jobId ?? '')).resolves.toEqual({ ok: true });
+    await expect(retry.execute(page.items[0]?.jobId ?? '')).resolves.toEqual({ ok: true });
     const rows = await jobs();
     expect(rows.filter((row) => row.state === 'failed')).toHaveLength(1);
-    expect(rows.filter((row) => row.state === 'created')).toHaveLength(1);
+    const retried = rows.filter((row) => row.state === 'created');
+    expect(retried).toHaveLength(1);
+    expect(retried[0]).toMatchObject({
+      singletonkey: 'fails',
+      retrylimit: 5,
+      retrybackoff: true,
+      expireseconds: 3 * 60 * 60,
+    });
 
-    expect(await monitor.retry('11111111-1111-4111-8111-111111111111')).toBe(false);
+    await expect(retry.execute('11111111-1111-4111-8111-111111111111')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      httpStatus: 404,
+    });
   });
 });
 

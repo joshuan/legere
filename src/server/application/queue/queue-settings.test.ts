@@ -230,4 +230,77 @@ describe('QueueSettings', () => {
       expect([...(await settings.heldSteps())]).toEqual([]);
     });
   });
+
+  describe('resolved, versioned controls', () => {
+    it('distinguishes inherited defaults from legacy overrides', async () => {
+      await store.write(QUEUE_SETTINGS_KEY, {
+        concurrency: { 'document-process': 5 },
+        services: { stirling: { cooldownSeconds: 9 } },
+      });
+
+      const controls = await settings.readResolved();
+
+      expect(controls.revision).toBe(0);
+      expect(controls.queues.find(({ name }) => name === 'document-process')?.concurrency).toEqual({
+        effective: 5,
+        default: 2,
+        source: 'OVERRIDE',
+      });
+      expect(controls.queues.find(({ name }) => name === 'file-ingest')?.concurrency.source).toBe(
+        'DEFAULT',
+      );
+      expect(
+        controls.services.find(({ service }) => service === 'stirling')?.cooldownSeconds,
+      ).toEqual({ effective: 9, default: 5, source: 'OVERRIDE' });
+      expect(
+        controls.services.find(({ service }) => service === 'stirling')?.concurrency.source,
+      ).toBe('DEFAULT');
+    });
+
+    it('writes version two on the first scoped change and can reset a number to its default', async () => {
+      await store.write(QUEUE_SETTINGS_KEY, { concurrency: { 'document-process': 5 } });
+
+      const changed = await settings.apply({
+        kind: 'queue',
+        queue: 'document-process',
+        expectedRevision: 0,
+        concurrency: 7,
+      });
+      expect(changed.after.revision).toBe(1);
+      expect(changed.after.controls.queues[2]?.concurrency.source).toBe('OVERRIDE');
+
+      const reset = await settings.apply({
+        kind: 'queue',
+        queue: 'document-process',
+        expectedRevision: 1,
+        concurrency: null,
+      });
+      expect(reset.after.revision).toBe(2);
+      expect(reset.after.controls.queues[2]?.concurrency).toEqual({
+        effective: 2,
+        default: 2,
+        source: 'DEFAULT',
+      });
+      expect(await store.read(QUEUE_SETTINGS_KEY)).toMatchObject({ schemaVersion: 2, revision: 2 });
+    });
+
+    it('restores both a value and its source with a new monotonic revision', async () => {
+      const before = await settings.readState();
+      await settings.apply({
+        kind: 'service',
+        service: 'docling',
+        expectedRevision: 0,
+        concurrency: 3,
+      });
+
+      const restored = await settings.restore(before);
+
+      expect(restored.revision).toBe(2);
+      expect(restored.controls.services[1]?.concurrency).toEqual({
+        effective: 0,
+        default: 0,
+        source: 'DEFAULT',
+      });
+    });
+  });
 });

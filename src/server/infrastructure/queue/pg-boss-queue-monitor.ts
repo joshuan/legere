@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { QUEUE_NAMES, type QueueName } from '../../application/ports/job-queue';
+import { Prisma } from '@prisma/client';
+import { QUEUE_NAMES } from '../../application/ports/job-queue';
 import {
   QueueMonitor,
+  type FailedJobWork,
   type FailedJobPage,
   type QueueDepth,
 } from '../../application/ports/queue-monitor';
@@ -9,9 +11,18 @@ import { PrismaService } from '../persistence/prisma.service';
 import { PgBossProvider } from './pg-boss.provider';
 
 const FAILED_WINDOW = '24 hours';
+const COMPLETED_WINDOW = '1 hour';
 const DEFAULT_PAGE_SIZE = 30;
 
-type StateRow = { name: string; state: string; count: bigint };
+type DepthRow = {
+  name: string;
+  queued: bigint;
+  active: bigint;
+  failed_recent: bigint;
+  oldest_queued_at: Date | null;
+  last_completed_at: Date | null;
+  completed_last_hour: bigint;
+};
 type FailedRow = {
   id: string;
   name: string;
@@ -33,35 +44,37 @@ export class PgBossQueueMonitor extends QueueMonitor {
   }
 
   async depths(): Promise<QueueDepth[]> {
-    const rows = await this.prisma.$queryRaw<StateRow[]>`
-      SELECT name, state, count(*) AS count
+    // One scan and one row per application queue. Completed rows are deliberately retained in the
+    // input: they are the evidence for liveness, while each FILTER keeps them out of queue depth.
+    const rows = await this.prisma.$queryRaw<DepthRow[]>`
+      SELECT name,
+        count(*) FILTER (WHERE state IN ('created', 'retry')) AS queued,
+        count(*) FILTER (WHERE state = 'active') AS active,
+        count(*) FILTER (
+          WHERE state = 'failed' AND completed_on > now() - ${FAILED_WINDOW}::interval
+        ) AS failed_recent,
+        min(created_on) FILTER (WHERE state IN ('created', 'retry')) AS oldest_queued_at,
+        max(completed_on) FILTER (WHERE state = 'completed') AS last_completed_at,
+        count(*) FILTER (
+          WHERE state = 'completed' AND completed_on > now() - ${COMPLETED_WINDOW}::interval
+        ) AS completed_last_hour
       FROM pgboss.job
-      WHERE state IN ('created', 'retry', 'active', 'failed')
-        AND (state <> 'failed' OR completed_on > now() - ${FAILED_WINDOW}::interval)
-      GROUP BY name, state
+      WHERE name IN (${Prisma.join(QUEUE_NAMES)})
+      GROUP BY name
     `;
 
-    const byQueue = new Map<string, { queued: number; active: number; failedRecent: number }>();
-    for (const name of QUEUE_NAMES) {
-      byQueue.set(name, { queued: 0, active: 0, failedRecent: 0 });
-    }
-
-    for (const row of rows) {
-      const bucket = byQueue.get(row.name);
-      if (bucket === undefined) continue;
-      const count = Number(row.count);
-      if (row.state === 'created' || row.state === 'retry') bucket.queued += count;
-      else if (row.state === 'active') bucket.active += count;
-      else bucket.failedRecent += count;
-    }
+    const byQueue = new Map(rows.map((row) => [row.name, row]));
 
     return QUEUE_NAMES.map((name) => {
-      const bucket = byQueue.get(name);
+      const row = byQueue.get(name);
       return {
         name,
-        queued: bucket?.queued ?? 0,
-        active: bucket?.active ?? 0,
-        failedRecent: bucket?.failedRecent ?? 0,
+        queued: Number(row?.queued ?? 0),
+        active: Number(row?.active ?? 0),
+        failedRecent: Number(row?.failed_recent ?? 0),
+        oldestQueuedAt: row?.oldest_queued_at?.toISOString() ?? null,
+        lastCompletedAt: row?.last_completed_at?.toISOString() ?? null,
+        completedLastHour: Number(row?.completed_last_hour ?? 0),
       };
     });
   }
@@ -99,18 +112,14 @@ export class PgBossQueueMonitor extends QueueMonitor {
     };
   }
 
-  // Re-enqueues a copy rather than reviving the row, so the original failure stays in the journal.
-  async retry(jobId: string): Promise<boolean> {
+  // A point read of the immutable journal row. This adapter never revives or copies it; the
+  // application layer validates its queue and sends a new job through the policy-aware JobQueue.
+  async failedJob(jobId: string): Promise<FailedJobWork | null> {
     const rows = await this.prisma.$queryRaw<{ name: string; data: unknown }[]>`
       SELECT name, data FROM pgboss.job WHERE id = ${jobId}::uuid AND state = 'failed'
     `;
     const job = rows[0];
-    if (job === undefined) return false;
-    if (!isQueueName(job.name)) return false;
-
-    const boss = await this.provider.start();
-    await boss.send(job.name, asPayload(job.data));
-    return true;
+    return job === undefined ? null : { queue: job.name, payload: job.data };
   }
 
   async isHealthy(): Promise<boolean> {
@@ -132,14 +141,6 @@ function parseCursor(cursor: string | undefined): Date | null {
   if (cursor === undefined) return null;
   const at = new Date(cursor);
   return Number.isNaN(at.getTime()) ? null : at;
-}
-
-function isQueueName(name: string): name is QueueName {
-  return QUEUE_NAMES.some((candidate) => candidate === name);
-}
-
-function asPayload(data: unknown): object {
-  return typeof data === 'object' && data !== null ? data : {};
 }
 
 // pg-boss stores the thrown value in `output`; surface a readable message without leaking a stack.

@@ -383,9 +383,9 @@ everything settled there is nothing to cancel and the ✕ simply clears the list
 **The panel's responsibility ends at delivery.** It says whether the bytes arrived and nothing about
 what happens to them next: the canonical, the preview, the text, the analysis and the vectors belong
 to the pipeline, and they are already reported where they belong — the `processing` tag on the card
-(§11.3) and the step panel in the viewer (§11.5). A panel that followed forty documents through five
-steps each would be a second queue screen down the side of every page, and it would still be there an
-hour later.
+(§11.3) and the step panel in the viewer (§11.5). A panel that followed forty documents through six
+steps each would be a second processing screen down the side of every page, and it would still be
+there an hour later.
 
 ## 11.4. Browse (`/browse/…`)
 
@@ -646,10 +646,12 @@ document pinned to the height of a phone would be a worse read, not a better one
   rather than pooled at the bottom where it names nothing. An error the server could not attribute
   to any step still renders under the list. A step the instance has **paused** (`05 §5.4d`) says so
   on its own row — a tag beside the name and, under it, the line that a step held by a pause is
-  waiting on purpose and nothing is coming for it until somebody lifts it. Every reader sees all of
-  this, not only an admin: "this document has been half processed for two days" is asked by
-  whoever opened the document, and the honest answer is that a step was switched off rather than
-  that the queue is slow.
+  waiting on purpose and nothing is coming for it until somebody lifts it. A downstream step held
+  by that pause says **which upstream step** it needs instead of looking merely pending; the
+  document-scoped processing-state response has already evaluated whether this document owns an old
+  artifact which lets it proceed (`05 §5.4f`, `07 §7.3`). Every reader sees all of this, not only an
+  admin: "this document has been half processed for two days" is asked by whoever opened the
+  document, and the honest answer is that a step was switched off rather than that the queue is slow.
   **The remedy stands beside the complaint it answers**, and only an admin is offered one, because
   each is a request to spend the pipeline: a `FAILED` step carries **Retry this step** under its
   own error; an analysis skipped for length alone carries **Analyse the whole document** beside
@@ -662,8 +664,10 @@ document pinned to the height of a phone would be a worse read, not a better one
   made the panel read as a form, when almost every visit is a
   glance at six states; a control drawn only while it is being used costs nothing the rest of the
   time. The step names are already on screen, so choosing ticks the rows themselves rather than a
-  second list of the same six words — with a paused step **not selectable**, since a re-run of it
-  is refused (`07 §7.3`) and a checkbox that buys a `409` is a checkbox that lies.
+  second list of the same six words — with any effectively blocked `PENDING` step **not selectable**,
+  whether the reason is its own pause, its parent queue or a paused dependency. The viewer uses the
+  document-scoped blocker answer rather than the compatibility paused-step list, so a checkbox is
+  still available where an existing artifact or type lets this document proceed.
   **History** is the document's journal, newest first (03 §3.3.18), under **day headings** — today
   and yesterday by name, any other day by its date — each entry keeping a short time of its own in
   a gutter the eye can run down, and the full ISO timestamp on hover (§11.14): added, queued, what
@@ -1311,28 +1315,54 @@ rename a thing still needs to see the list and add to it. Document types are the
 other direction: reading is everybody's, but defining a type is an admin's, since the classifier and
 saved filters are built on the list.
 
-## 11.13. Admin: Queue (`/admin/queue`)
+## 11.13. Admin: Processing (`/admin/processing`)
 
 **Four tabs, because four different questions are asked of this screen** — and one page holding all
-four answered none of them at a glance. It held five stage cards, a table of steps inside one of them,
+four answered none of them at a glance. It held stage cards, a table of steps inside one of them,
 a block of external services, a table of failures and a storage figure, in one column a metre long:
 everything was there, and finding any of it meant scrolling past the rest.
 
 | Tab | The question it answers | What is on it |
 |---|---|---|
-| **Overview** | is anything moving? | one row per stage, and what the bucket holds |
+| **Overview** | is anything moving, and how is it connected? | the topology, one row per stage, and what the bucket holds |
 | **Pipeline** | where are the documents stuck? | the six steps of `05 §5.5`, their counters and their switches |
 | **Services** | is the thing we call answering, and how hard are we asking? | one row per external service |
 | **Failures** | what broke, and can it be run again? | the failed-jobs table |
 
-The open tab is **part of the address** (`/admin/queue/:tab`, `overview` at the bare path), the way the
+The open tab is **part of the address** (`/admin/processing/:tab`, `overview` at the bare path), the way the
 viewer's tabs are (`§11.5`): a link to this screen can be a link to the failures. And, for the same
 reason as there, **the tab switches on the click** rather than after the navigation.
+
+`/admin/queue` and each of its old tab addresses redirect to the matching Processing address. This
+keeps bookmarks useful while leaving one canonical UI route and one control-plane implementation;
+the queue-era API remains as a compatibility delegate during M61. Navigation calls the screen
+**Processing**, because queues are only its outer delivery stages; document steps and service
+resources are first-class parts of the same management view.
+
+Overview, Pipeline and Services are three projections of the **same** `ProcessingSnapshot`
+(`05 §5.4f`, `07 §7.3`). Opening another tab does not issue a different settings request or join a
+second service map on the client. Failures remain a paginated query because an unbounded journal is
+not a snapshot. The fast snapshot refreshes every five seconds; service health uses its explicit
+`POST …/services/check` on the existing slower cadence and leaves the previous sample visible while
+it waits.
 
 **Every control lives beside the numbers it governs**, which is the rule the one-page version was
 built on and the tabs keep — one level down each: a stage's concurrency and its pause on the stage's
 own row in **Overview**, a step's pause on the step's own row in **Pipeline**, a service's gate on the
 service's row in **Services**. Nothing has to be looked for in another tab to be understood.
+
+Each editable numeric row owns its own draft and calls its own scoped endpoint with the snapshot
+revision it was edited from; pause switches send their single boolean immediately. Saving a service
+never sends a queue, another service or a pipeline field; a successful command is contract-validated,
+clears that row's draft and revalidates the operational snapshot. A stale revision keeps the draft,
+refreshes the snapshot and asks the admin to review it rather than retrying
+blindly. Beside every editable value, muted secondary text says **Default: N** or **Override** from
+the server's `default`/`source`. **Use default** clears that one numeric override by sending `null`;
+it does not copy the shown default into storage. Turning a pause off removes that stored pause. A
+`DEGRADED` apply state is a red banner showing the server's detail and that the applied
+revision is unknown; no optimistic success toast is shown for a command that answered
+`PROCESSING_APPLY_FAILED`. `APPLIED_WITH_WARNINGS` is amber: the setting is in force, but released
+documents remain for maintenance to enqueue.
 
 🔒 **The auto-refresh switch is not called a pause.** It sits in the header, applies to whichever tab
 is open, and reads *Refresh automatically* — because this screen already has two pauses that stop real
@@ -1341,16 +1371,22 @@ difference between reading this page and misreading it.
 
 ### Overview
 
-- **A summary line** across the top: what is *not* in order, in one sentence — queues paused, steps
-  held, failures in the last day, a service that did not answer — each naming the tab that deals with
-  it. When everything is in order it says so in as many words, because the absence of a warning is
-  otherwise indistinguishable from a page that has not finished loading.
+- **One apply-state banner** above the tabs: desired/applied revision, snapshot time and the number of
+  typed blockers, with the server detail for `DEGRADED` or `APPLIED_WITH_WARNINGS`. It is built only
+  from the snapshot and never turns failed health or gate capacity into a pause.
+- **One compact topology strip** above the Overview rows: every queue with what it produces, followed
+  by the six ordered pipeline steps and their immediate dependencies. Detailed resource roles and
+  conditions stay on the Pipeline rows, where their translated tooltips come directly from the same
+  topology. This is an orientation map, not a live node editor and not a claim that a service is
+  another queue.
 - **One row per stage** rather than a card per stage: the stage **named twice** (what it does, over
   what the queue calls it — the technical name is what the failures table and the container's logs
-  say), one line saying what it actually does, its depth as **queued / active / failed in 24 h**, the
+  say), one line saying what it actually does, its depth as **queued / active / failed in 24 h**, its
+  **oldest queued** age, **last completed** time and **completed in the last hour**, the
   **concurrency** that decides how fast the depth falls, and the switch that says whether the stage
   runs at all. A paused stage is tagged as paused on its own row, so a growing queue is never mistaken
-  for a stuck one. A zero failure count is not drawn as a zero.
+  for a stuck one. A zero failure count is not drawn as a zero. Timestamps which are `null` say
+  *No queued work* / *No retained completion*, not epoch zero.
 - **What the bucket holds**, as of the last `maintenance` run, and `null` until the first one.
 
 ### Pipeline
@@ -1373,9 +1409,10 @@ Everything about the inside of `document-process`, which is the only stage that 
   every document. 🔒 Every status carries it, not only the two that look broken — a step is re-run
   because something *about it* changed, a container gained a language, a model was configured, a bug
   was fixed, and by then the documents that need redoing are precisely the ones marked `DONE`.
-  Asking for a `QUEUED` one is not a mistake either: the job is keyed by the document, so a second
-  request collapses into the first rather than doubling it. Each says how many it enqueued and each
-  is capped per call, so a huge archive drains in batches rather than in one indigestible push.
+  Asking for a `QUEUED` one is not a mistake either: a matching request may debounce while both jobs
+  are waiting, while one which reaches a document already running is serialized as its own whole
+  delivery and is never acknowledged away (`05 §5.4f`). Each says how many it enqueued and each is
+  capped per call, so a huge archive drains in batches rather than in one indigestible push.
   It is an **icon**, repeated once per status per step: a worded button was the widest thing in the
   row and pushed the counts off the card, and what it does is said on hover and to a screen reader,
   where a repeated label belongs (`§11.15`). A **paused** step offers none of them: a re-run of it is
@@ -1389,13 +1426,23 @@ Everything about the inside of `document-process`, which is the only stage that 
   never the problem. A paused step is **held, not skipped** (`05 §5.4d`): the documents queue up at
   it, nothing is written against it, and resuming sets them going again — which the switch says in a
   line under it, since "paused" alone leaves a reader to guess whether the work was dropped. It takes
-  effect on the next document with no restart and no re-registered worker.
+  effect on the next document with no restart and no re-registered worker. A resumed row reports how
+  many held documents were enqueued immediately; the text says the hourly sweep takes any remainder.
+- **Why it is held** comes from the row's `blockers`, immediately under the step name. A direct pause names
+  this switch; a paused `document-process` names the stage on Overview; an inherited pause names the
+  upstream step and says *when its input has not already been built*. The conditional analysis →
+  fields edge says that it applies only to documents without a type. Direct and inherited reasons
+  are shown separately, so the operator is never invited to toggle the downstream row to repair an
+  upstream pause.
 - 🔒 **A step that is waiting for its service says so**, on its own row: *waiting for Stirling: 2*,
   read from the gate's own counters (`05 §5.4b`). Without it the table is honestly unreadable at the
   one moment it matters — two documents both show `RUNNING` at the same step while one of them is
   standing at a gate, because waiting at a gate is time inside the job and the step is marked
   `RUNNING` before the wait begins. That reads exactly like a gate that does nothing, and it cost an
-  operator an afternoon of looking for a bug that was not there.
+  operator an afternoon of looking for a bug that was not there. The service chips and links come
+  from the snapshot topology, including every conditional Markdown resource; there is no client
+  `serviceOfStep` mapping. A shared gate count remains labelled as a service-wide count rather than
+  pretending every waiter belongs to this one step.
 - **How many units inside one job** run at once, and **the language the analysis writes in**: both
   belong to this tab because both are about what happens inside one document's run.
 
@@ -1404,7 +1451,9 @@ Everything about the inside of `document-process`, which is the only stage that 
 One row per external service of `05 §5.4b` — Stirling, Docling, the analyst, the transcriber, the
 embeddings — **named twice** the way the stages are, what it is over what it is called in the
 settings, with a line under it saying which work it serves, for a reader who has never opened
-`05 §5.4b`.
+`05 §5.4b`. The “serves” line is the reverse of the topology's service edges and includes role and
+condition (primary, fallback, optional or auxiliary); it is not maintained in translations or
+component code.
 
 - **Where it is, and whether it answers** (`05 §5.4c`). The **address** sits under the line saying
   what the service does, as code and truncated rather than wrapped — it is read to be recognised, not
@@ -1418,7 +1467,8 @@ settings, with a line under it saying which work it serves, for a reader who has
   own auto-refresh is running, at a **slower cadence than the counters**, since a probe leaves the
   instance and a counter does not. 🔒 It never blocks the rest of the row: gates and their inputs draw
   and save while every probe is still out, because a page that waits for a dead container to time out
-  is the page an operator cannot use at exactly the moment they need it.
+  is the page an operator cannot use at exactly the moment they need it. Before the process has any
+  cached sample, `health: { freshness: UNKNOWN, value: null }` draws *Not checked yet*, not `DOWN`.
 - **How hard it may be asked**: two inputs — **how many calls it may be doing at once**, where `0`
   reads as "as many as the queues ask for", and **how long to wait after one before starting the
   next**. Both are `0` until somebody changes them, so a block of zeroes is an instance whose services
@@ -1441,7 +1491,9 @@ settings, with a line under it saying which work it serves, for a reader who has
 
 The failed-jobs table: queue, payload summary, error, when, retry count, and a per-row **Retry**. The
 tab's own label carries how many there are, so a failure is visible from the other three tabs without
-opening this one.
+opening this one. Retry makes a new job through the normal queue policy and leaves this row as
+history; the UI removes nothing optimistically and refreshes both the page and the snapshot after the
+command succeeds.
 
 ## 11.13a. Admin: Instance (`/admin/instance`)
 

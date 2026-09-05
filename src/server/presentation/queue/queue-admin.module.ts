@@ -5,6 +5,7 @@ import { CheckExternalServices } from '../../application/health/check-external-s
 import { ExternalServiceProbe } from '../../application/health/ports';
 import { Clock } from '../../application/ports/clock';
 import { JobQueue } from '../../application/ports/job-queue';
+import { ProcessingWorkerRuntime } from '../../application/ports/processing-worker-runtime';
 import { MetricsCache } from '../../application/ports/metrics-cache';
 import { QueueMonitor } from '../../application/ports/queue-monitor';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
@@ -14,7 +15,9 @@ import {
   RetryFailedJob,
 } from '../../application/queue/inspect-queue';
 import { ReprocessDocumentsByStep } from '../../application/queue/reprocess-by-step';
+import { ResumeReleasedPipelineWork } from '../../application/queue/resume-released-pipeline-work';
 import { ServiceGates } from '../../application/queue/service-gate';
+import { ProcessingControlPlane } from '../../application/processing/processing-control-plane';
 import { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import { DocumentRepository } from '../../domain/repositories/document.repository';
@@ -24,11 +27,12 @@ import { QueueSettings } from '../../application/queue/queue-settings';
 import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { AdminQueueController } from './admin-queue.controller';
 import { PipelineController } from './pipeline.controller';
+import { ProcessingAdminController } from './processing-admin.controller';
 
 // Admin queue observability (docs/06 §6.5), and the one route beside it that is not an admin's: which
 // steps the pipeline is holding, which every reader of a document is owed (docs/05 §5.4d).
 @Module({
-  controllers: [AdminQueueController, PipelineController],
+  controllers: [AdminQueueController, ProcessingAdminController, PipelineController],
   providers: [
     // The analysis language lives with the queue knobs: same kind of setting, same screen
     // (docs/05 §5.5).
@@ -73,8 +77,9 @@ import { PipelineController } from './pipeline.controller';
     },
     {
       provide: RetryFailedJob,
-      useFactory: (monitor: QueueMonitor): RetryFailedJob => new RetryFailedJob(monitor),
-      inject: [QueueMonitor],
+      useFactory: (monitor: QueueMonitor, queue: JobQueue): RetryFailedJob =>
+        new RetryFailedJob(monitor, queue),
+      inject: [QueueMonitor, JobQueue],
     },
     // Running a step again for everything in one status is the per-document reprocess applied in a
     // loop — so it is built from the same use case, and leaves the same trace (docs/11 §11.13).
@@ -94,6 +99,61 @@ import { PipelineController } from './pipeline.controller';
           config.get('QUEUE_REPROCESS_MAX'),
         ),
       inject: [DocumentRepository, DocumentEventRepository, JobQueue, QueueSettings, AppConfig],
+    },
+    {
+      provide: ResumeReleasedPipelineWork,
+      useFactory: (
+        documents: DocumentRepository,
+        events: DocumentEventRepository,
+        queue: JobQueue,
+        queueSettings: QueueSettings,
+        config: AppConfig,
+      ): ResumeReleasedPipelineWork =>
+        new ResumeReleasedPipelineWork(
+          documents,
+          new ReprocessDocument(documents, events, queue, queueSettings),
+          config.get('QUEUE_REPROCESS_MAX'),
+        ),
+      inject: [DocumentRepository, DocumentEventRepository, JobQueue, QueueSettings, AppConfig],
+    },
+    {
+      provide: ProcessingControlPlane,
+      useFactory: (
+        settings: QueueSettings,
+        workers: ProcessingWorkerRuntime,
+        gates: ServiceGates,
+        overview: GetQueueOverview,
+        services: CheckExternalServices,
+        resume: ResumeReleasedPipelineWork,
+        failures: ListQueueFailures,
+        retry: RetryFailedJob,
+        reprocess: ReprocessDocumentsByStep,
+        clock: Clock,
+      ): ProcessingControlPlane =>
+        new ProcessingControlPlane(
+          settings,
+          workers,
+          gates,
+          overview,
+          services,
+          resume,
+          failures,
+          retry,
+          reprocess,
+          clock,
+        ),
+      inject: [
+        QueueSettings,
+        ProcessingWorkerRuntime,
+        ServiceGates,
+        GetQueueOverview,
+        CheckExternalServices,
+        ResumeReleasedPipelineWork,
+        ListQueueFailures,
+        RetryFailedJob,
+        ReprocessDocumentsByStep,
+        Clock,
+      ],
     },
   ],
 })

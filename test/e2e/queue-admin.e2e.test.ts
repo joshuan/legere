@@ -5,6 +5,10 @@ import {
   reprocessResponseSchema,
 } from '../../src/shared/contracts/documents';
 import {
+  processingCommandResultSchema,
+  processingSnapshotSchema,
+} from '../../src/shared/contracts/processing';
+import {
   listQueueFailuresResponseSchema,
   pausedStepsResponseSchema,
   queueOverviewResponseSchema,
@@ -189,6 +193,48 @@ describe('Reprocess and queue administration (e2e)', () => {
   });
 
   describe('the queue overview', () => {
+    it('publishes one processing snapshot and applies only a revision-scoped queue command', async () => {
+      const before = expectData(
+        await api(app).get('/api/admin/processing').set('Cookie', adminCookie),
+        processingSnapshotSchema,
+      );
+      const ingestBefore = before.queues.find(({ name }) => name === 'file-ingest');
+      const processBefore = before.queues.find(({ name }) => name === 'document-process');
+
+      const changed = expectData(
+        await api(app)
+          .patch('/api/admin/processing/queues/file-ingest', {
+            expectedRevision: before.revision,
+            concurrency: 3,
+          })
+          .set('Cookie', adminCookie),
+        processingCommandResultSchema,
+      );
+      expect(changed).toMatchObject({ revision: before.revision + 1, changed: true });
+
+      const after = expectData(
+        await api(app).get('/api/admin/processing').set('Cookie', adminCookie),
+        processingSnapshotSchema,
+      );
+      expect(after.queues.find(({ name }) => name === 'file-ingest')?.control.concurrency).toEqual({
+        effective: 3,
+        default: ingestBefore?.control.concurrency.default,
+        source: 'OVERRIDE',
+      });
+      expect(after.queues.find(({ name }) => name === 'document-process')?.control).toEqual(
+        processBefore?.control,
+      );
+
+      const stale = await api(app)
+        .patch('/api/admin/processing/queues/maintenance', {
+          expectedRevision: before.revision,
+          paused: true,
+        })
+        .set('Cookie', adminCookie);
+      expect(stale.status).toBe(409);
+      expect(expectError(stale).code).toBe('PROCESSING_SETTINGS_CHANGED');
+    });
+
     // What the vectorization step has actually produced, and by which model (docs/03 §3.3.11).
     // 🔒 Two models in one answer is a switch that has not finished — the one state where a cosine
     // distance between two chunks means nothing at all (docs/04 §4.5) — so the panel has to be able
@@ -389,6 +435,23 @@ describe('Reprocess and queue administration (e2e)', () => {
         retryCount: 2,
       });
       expect(page.items[0]?.payload).toMatchObject({ documentId });
+    });
+
+    it('keeps the legacy and processing failure reads as equivalent aliases', async () => {
+      const documentId = await givenProcessedDocument();
+      await api(app).post(`/api/documents/${documentId}/reprocess`).set('Cookie', adminCookie);
+      await givenFailedJob();
+
+      const legacy = expectData(
+        await api(app).get('/api/admin/queue/failures').set('Cookie', adminCookie),
+        listQueueFailuresResponseSchema,
+      );
+      const processing = expectData(
+        await api(app).get('/api/admin/processing/failures').set('Cookie', adminCookie),
+        listQueueFailuresResponseSchema,
+      );
+
+      expect(processing).toEqual(legacy);
     });
 
     it('retries a failure by re-enqueueing it, leaving the original in the journal', async () => {

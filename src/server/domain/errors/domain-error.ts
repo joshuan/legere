@@ -103,6 +103,17 @@ export class ConflictError extends DomainError {
   }
 }
 
+// A desired processing setting was stored but could not be applied to the live workers. The use
+// case attempts compensation before this reaches HTTP and describes whether that recovery worked.
+export class ProcessingApplyError extends DomainError {
+  readonly code = 'PROCESSING_APPLY_FAILED';
+  readonly httpStatus = 503;
+
+  constructor(message = 'Processing settings could not be applied', details: unknown = null) {
+    super(message, details);
+  }
+}
+
 // 410 ONBOARDING_CLOSED — onboarding attempted after the first user exists.
 export class OnboardingClosedError extends DomainError {
   readonly code = 'ONBOARDING_CLOSED';

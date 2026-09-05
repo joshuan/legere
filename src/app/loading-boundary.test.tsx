@@ -37,10 +37,11 @@ describe('the loading boundaries of the routing tree', () => {
     expect(loadingBoundaries(viewer)).toEqual([]);
   });
 
-  it('🔒 has none at or below admin/queue, which moves its own slot for the same reason', () => {
-    // The queue panel switches its four tabs with router.replace between /admin/queue and
-    // /admin/queue/:tab (docs/11 §11.13); a boundary here would be re-mounted on every press and
+  it('🔒 has none below processing or its legacy queue redirect', () => {
+    // The processing panel switches its four tabs with router.replace between /admin/processing and
+    // /admin/processing/:tab; a boundary here would be re-mounted on every press and
     // blank the table an operator is reading (docs/10 §10.2).
+    expect(loadingBoundaries(join(APP_DIR, '(app)', 'admin', 'processing'))).toEqual([]);
     expect(loadingBoundaries(join(APP_DIR, '(app)', 'admin', 'queue'))).toEqual([]);
   });
 

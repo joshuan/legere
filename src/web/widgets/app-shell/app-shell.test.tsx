@@ -239,7 +239,7 @@ describe('AppShell', () => {
       '/document-types',
       '/admin/libraries',
       '/admin/users',
-      '/admin/queue',
+      '/admin/processing',
     ];
     for (const link of screen.getAllByRole('link')) {
       const href = link.getAttribute('href') ?? '';

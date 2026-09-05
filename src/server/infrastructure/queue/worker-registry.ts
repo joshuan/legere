@@ -3,8 +3,13 @@ import { ModuleRef } from '@nestjs/core';
 import { InjectPinoLogger, type PinoLogger } from 'nestjs-pino';
 import type PgBoss from 'pg-boss';
 import type { Job } from 'pg-boss';
+import type { QueueSettingsDto } from '../../../shared/contracts/queue';
 import type { JobHandler } from '../../application/jobs/job-handler';
-import type { QueueName } from '../../application/ports/job-queue';
+import { QUEUE_NAMES, type QueueName } from '../../application/ports/job-queue';
+import {
+  ProcessingWorkerRuntime,
+  type ProcessingWorkerState,
+} from '../../application/ports/processing-worker-runtime';
 import { QueueSettings } from '../../application/queue/queue-settings';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { AppConfig } from '../config/app-config';
@@ -24,8 +29,9 @@ export type WorkerBinding = {
 const MAINTENANCE_CRON = '0 * * * *';
 
 @Injectable()
-export class WorkerRegistry {
+export class WorkerRegistry extends ProcessingWorkerRuntime {
   private readonly bindings: WorkerBinding[] = [];
+  private readonly applied = new Map<QueueName, number>();
 
   constructor(
     private readonly provider: PgBossProvider,
@@ -34,7 +40,9 @@ export class WorkerRegistry {
     private readonly settings: QueueSettings,
     private readonly gates: ServiceGates,
     @InjectPinoLogger(WorkerRegistry.name) private readonly logger: PinoLogger,
-  ) {}
+  ) {
+    super();
+  }
 
   // Feature modules register their handlers; bootstrap starts them all in one place.
   register(...bindings: WorkerBinding[]): void {
@@ -44,38 +52,12 @@ export class WorkerRegistry {
   async start(): Promise<void> {
     const boss = await this.provider.start();
     const settings = await this.settings.read();
-    const paused = new Set(settings.paused);
     // The same read that decides how many workers each queue gets also decides how many calls each
     // external service may be doing at once (docs/05 §5.4b): both are "how hard this instance
     // works", and both are stored in the one settings row.
     this.gates.configure(settings.services);
 
-    for (const binding of this.bindings) {
-      // 🔒 A paused queue gets no worker at all (docs/05 §5.4): jobs keep arriving and wait where
-      // an admin can watch the depth grow, and nothing consumes them until it is resumed. Stopping
-      // one misbehaving step must not mean stopping the instance.
-      if (paused.has(binding.queue)) {
-        this.logger.info({ queue: binding.queue }, 'Queue is paused, no worker started');
-        continue;
-      }
-
-      const concurrency = binding.concurrency ?? settings.concurrency[binding.queue] ?? 1;
-      // strict: false — handlers live in feature modules, not in this one.
-      const handler = this.moduleRef.get<JobHandler>(binding.handler, { strict: false });
-
-      await boss.work(
-        binding.queue,
-        { batchSize: concurrency },
-        // 🔒 In parallel, which is what a concurrency of four has always claimed to mean: the batch
-        // used to be awaited one job at a time, so the setting fetched four jobs and then ran them
-        // in a queue of its own (docs/05 §5.4).
-        async (jobs: Job<object>[]): Promise<void> => {
-          await Promise.all(jobs.map((job) => this.runOne(boss, binding.queue, job, handler)));
-        },
-      );
-
-      this.logger.info({ queue: binding.queue, concurrency }, 'Queue worker started');
-    }
+    for (const binding of this.bindings) await this.startOne(boss, binding, settings);
   }
 
   // Applying a new setting without a restart: pg-boss is told to stop serving each queue, and the
@@ -83,16 +65,71 @@ export class WorkerRegistry {
   // changing a knob should not have to bounce the container to see it take effect. This is also
   // what pausing and resuming are: a queue that is now paused simply gets no worker back.
   async restart(): Promise<void> {
+    const settings = await this.settings.read();
+    this.gates.configure(settings.services);
+    await this.reconfigure(
+      this.bindings.map(({ queue }) => queue),
+      settings,
+    );
+  }
+
+  // Apply only the queues whose controls changed. If this throws, ProcessingControlPlane invokes it
+  // again with the previous desired settings as compensation; calling it is therefore idempotent.
+  async reconfigure(
+    queues: readonly QueueName[],
+    settings: Pick<QueueSettingsDto, 'concurrency' | 'paused'>,
+  ): Promise<void> {
+    const selected = new Set(queues);
+    if (selected.size === 0) return;
     const boss = await this.provider.start();
+
     for (const binding of this.bindings) {
+      if (!selected.has(binding.queue)) continue;
       await boss.offWork(binding.queue);
+      this.applied.delete(binding.queue);
     }
-    await this.start();
+    for (const binding of this.bindings) {
+      if (selected.has(binding.queue)) await this.startOne(boss, binding, settings);
+    }
+  }
+
+  snapshot(): ProcessingWorkerState[] {
+    return QUEUE_NAMES.map((queue) => ({
+      queue,
+      registered: this.applied.has(queue),
+      appliedConcurrency: this.applied.get(queue) ?? null,
+    }));
   }
 
   async scheduleSystemCrons(): Promise<void> {
     const boss = await this.provider.start();
     await boss.schedule('maintenance', MAINTENANCE_CRON, {});
+  }
+
+  private async startOne(
+    boss: PgBoss,
+    binding: WorkerBinding,
+    settings: Pick<QueueSettingsDto, 'concurrency' | 'paused'>,
+  ): Promise<void> {
+    if (settings.paused.includes(binding.queue)) {
+      this.applied.delete(binding.queue);
+      this.logger.info({ queue: binding.queue }, 'Queue is paused, no worker started');
+      return;
+    }
+
+    // The resolved settings are the control plane's truth for every queue. A binding-level value is
+    // retained only as a fallback for a deliberately partial test double.
+    const concurrency = settings.concurrency[binding.queue] ?? binding.concurrency ?? 1;
+    const handler = this.moduleRef.get<JobHandler>(binding.handler, { strict: false });
+    await boss.work(
+      binding.queue,
+      { batchSize: concurrency },
+      async (jobs: Job<object>[]): Promise<void> => {
+        await Promise.all(jobs.map((job) => this.runOne(boss, binding.queue, job, handler)));
+      },
+    );
+    this.applied.set(binding.queue, concurrency);
+    this.logger.info({ queue: binding.queue, concurrency }, 'Queue worker started');
   }
 
   // One job at a time inside a batch, with the outcome logged per docs/06 §6.7.

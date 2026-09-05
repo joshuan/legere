@@ -52,6 +52,14 @@ const GONE_ID = '44444444-4444-4444-8444-444444444444';
 // ADR-025 — what the page itself says about how it is read (docs/03 §3.3.17).
 type PageSpec = { file?: Partial<File>; bytes?: string; crop?: Crop; turn?: Rotation };
 
+function pending(): { promise: Promise<void>; finish: () => void } {
+  let finish = (): void => undefined;
+  const promise = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  return { promise, finish: () => finish() };
+}
+
 // The whole pipeline of docs/05 §5.5 with the containers and the bucket replaced by in-memory
 // doubles: what is asserted here is the assembly, the artifacts and the statuses — the ports
 // themselves are covered by their own suites.
@@ -2354,19 +2362,99 @@ describe('HandleDocumentProcess', () => {
     });
 
     // 🔒 One thing per document at a time (docs/05 §5.4, §5.5). pg-boss enforces a job's expiry by
-    // racing the handler against a timer and, on losing, failing the job and delivering another copy
-    // — it does not cancel the handler. A run that outlives its expiry is therefore still holding
-    // buffers, still calling Stirling and still writing step statuses when its replacement starts
-    // from the top, and the two write the same rows and the same artifacts in an order nobody chose.
-    it('refuses a second delivery of a document it is already running', async () => {
+    // racing the handler against a timer and, on losing, delivering another copy without cancelling
+    // the first handler. A second delivery waits, then executes: the same payload could instead be a
+    // new composition edit made after the first run had already read its inputs.
+    it('serializes a matching second delivery behind the run already in progress', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      const held = pending();
+      let renders = 0;
+      vi.spyOn(pdfs, 'pdfPageJpg').mockImplementation(async () => {
+        renders += 1;
+        if (renders === 1) await held.promise;
+        return Buffer.from('rendered-page');
+      });
 
-      const [, second] = await Promise.all([run(), run()]);
+      const first = run();
+      await vi.waitFor(() => expect(renders).toBe(1));
+      // The first run has already built its canonical. This is the same `{ documentId }` request,
+      // but it now represents an appended page that only a later run can observe.
+      const appended = fileRepo.add(
+        {
+          id: 'file-appended',
+          name: 'appended.pdf',
+          origin: 'MANAGED',
+          storageKey: null,
+        },
+        DOCUMENT_ID,
+      );
+      await storage.put(originalKeyOf(appended), Buffer.from('appended'), appended.mimeType);
+      let secondSettled = false;
+      const second = run().then(() => {
+        secondSettled = true;
+      });
+      await Promise.resolve();
 
-      expect(second).toBeUndefined();
-      // One run's worth of work, not two, from two deliveries of the same document.
-      expect(pdfs.calls.filter((call) => call.method === 'pdfPageJpg')).toHaveLength(1);
+      expect(secondSettled).toBe(false);
+      expect(renders).toBe(1);
+
+      held.finish();
+      await Promise.all([first, second]);
+      expect(renders).toBe(2);
+      expect(canonicalOf()).toBe('merged(a-pdf,appended)');
       expect(stateOf().steps.markdown).toBe('DONE');
+    });
+
+    // `short` deliberately permits new work while matching queued jobs are debounced. A crop may
+    // therefore enqueue a full rebuild while a one-step repair is active (or vice versa), and that
+    // distinct request must wait its turn rather than being mistaken for an expiry duplicate.
+    it('runs changed requested work after the active delivery of the same document', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      const held = pending();
+      let renders = 0;
+      vi.spyOn(pdfs, 'pdfPageJpg').mockImplementation(async () => {
+        renders += 1;
+        if (renders === 1) await held.promise;
+        return Buffer.from('rendered-page');
+      });
+
+      const fullPipeline = run();
+      await vi.waitFor(() => expect(renders).toBe(1));
+      const changedWork = handler.handle({ documentId: DOCUMENT_ID, steps: ['preview'] });
+      await Promise.resolve();
+
+      // The requested preview is durable in its own delivery, but cannot overwrite the active run.
+      expect(renders).toBe(1);
+
+      held.finish();
+      await Promise.all([fullPipeline, changedWork]);
+
+      expect(renders).toBe(2);
+      expect(stateOf().steps.preview).toBe('DONE');
+    });
+
+    it('runs a queued successor after its predecessor fails and releases the chain', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      const findById = documents.findById.bind(documents);
+      let reads = 0;
+      vi.spyOn(documents, 'findById').mockImplementation(async (documentId) => {
+        reads += 1;
+        if (reads === 1) throw new Error('the first delivery failed before processing');
+        return findById(documentId);
+      });
+
+      const failed = run();
+      const successor = run();
+
+      await expect(failed).rejects.toThrow('the first delivery failed before processing');
+      await expect(successor).resolves.toBeUndefined();
+      expect(stateOf().steps.preview).toBe('DONE');
+
+      // The settled tail was removed rather than left as a rejected lock for later deliveries.
+      await expect(
+        handler.handle({ documentId: DOCUMENT_ID, steps: ['preview'] }),
+      ).resolves.toBeUndefined();
+      expect(pdfs.calls.filter((call) => call.method === 'pdfPageJpg')).toHaveLength(2);
     });
 
     it('takes the document again once the run that held it has finished', async () => {

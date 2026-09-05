@@ -1,6 +1,5 @@
 import { Controller, Get, Patch, Post, UseGuards } from '@nestjs/common';
 import { type Envelope } from '../../../shared/contracts/common';
-import { DOCUMENT_STEPS } from '../../../shared/contracts/documents';
 import {
   listQueueFailuresQuerySchema,
   reprocessByStepRequestSchema,
@@ -16,17 +15,10 @@ import {
   type UpdateQueueSettingsRequest,
 } from '../../../shared/contracts/queue';
 import type { User } from '../../domain/entities/user';
-import { CheckExternalServices } from '../../application/health/check-external-services';
-import {
-  GetQueueOverview,
-  ListQueueFailures,
-  RetryFailedJob,
-} from '../../application/queue/inspect-queue';
+import { GetQueueOverview } from '../../application/queue/inspect-queue';
 import { QueueSettings } from '../../application/queue/queue-settings';
-import { ServiceGates } from '../../application/queue/service-gate';
-import { ReprocessDocumentsByStep } from '../../application/queue/reprocess-by-step';
+import { ProcessingControlPlane } from '../../application/processing/processing-control-plane';
 import { AnalysisSettings } from '../../application/settings/analysis-settings';
-import { WorkerRegistry } from '../../infrastructure/queue/worker-registry';
 import {
   updateAnalysisLanguageRequestSchema,
   type AnalysisLanguageDto,
@@ -46,14 +38,9 @@ import { UuidParam } from '../http/uuid-param.pipe';
 export class AdminQueueController {
   constructor(
     private readonly overview: GetQueueOverview,
-    private readonly failures: ListQueueFailures,
-    private readonly retryJob: RetryFailedJob,
     private readonly settings: QueueSettings,
-    private readonly workers: WorkerRegistry,
+    private readonly controlPlane: ProcessingControlPlane,
     private readonly analysis: AnalysisSettings,
-    private readonly reprocessByStep: ReprocessDocumentsByStep,
-    private readonly gates: ServiceGates,
-    private readonly services: CheckExternalServices,
   ) {}
 
   @Get('settings')
@@ -66,7 +53,7 @@ export class AdminQueueController {
   // published without its userinfo and an API key is not published at all.
   @Get('services')
   async getServices(): Promise<Envelope<ServicesHealthResponse>> {
-    return successEnvelope(await this.services.execute());
+    return successEnvelope(await this.controlPlane.checkServices());
   }
 
   // What the analysis writes in (docs/05 §5.5). It lives beside the queue knobs because it is the
@@ -93,29 +80,8 @@ export class AdminQueueController {
     @CurrentUser() user: User,
     @ZodBody(updateQueueSettingsRequestSchema) body: UpdateQueueSettingsRequest,
   ): Promise<Envelope<QueueSettingsDto>> {
-    // Read before the write, because releasing a step means enqueueing what it was holding and only
-    // the previous row says which steps those are (docs/05 §5.4d).
-    const before = await this.settings.read();
-    const saved = await this.settings.write(body);
-    // The gates first, and in their own right: a widened gate releases the callers standing at it
-    // straight away, and it must do so even if re-registering the workers goes wrong (docs/05
-    // §5.4b). Starting the workers configures them again from the same row, which costs nothing.
-    this.gates.configure(saved.services);
-    await this.workers.restart();
-    await this.resume(before.pausedSteps, saved.pausedSteps, user.id);
-    return successEnvelope(saved);
-  }
-
-  // What a released step was holding, set going (docs/05 §5.4d): that step for the documents whose it
-  // is `PENDING`, through the same use case a repair from this screen uses, bounded the same way and
-  // recorded in each document's history under whoever lifted the pause. What the bound leaves behind
-  // the hourly sweep takes, because nothing is holding those steps any more.
-  private async resume(before: string[], after: string[], actorId: string): Promise<void> {
-    const held = new Set(after);
-    for (const step of DOCUMENT_STEPS) {
-      if (!before.includes(step) || held.has(step)) continue;
-      await this.reprocessByStep.execute({ step, status: 'PENDING' }, actorId);
-    }
+    await this.controlPlane.replaceLegacy(body, user.id);
+    return successEnvelope(await this.settings.read());
   }
 
   // "The previews failed, run them again" (docs/07 §7.3, docs/11 §11.13): every document whose named
@@ -126,7 +92,7 @@ export class AdminQueueController {
     @CurrentUser() user: User,
     @ZodBody(reprocessByStepRequestSchema) body: ReprocessByStepRequest,
   ): Promise<Envelope<ReprocessByStepResponse>> {
-    return successEnvelope(await this.reprocessByStep.execute(body, user.id));
+    return successEnvelope(await this.controlPlane.reprocess(body, user.id));
   }
 
   @Get('overview')
@@ -140,13 +106,13 @@ export class AdminQueueController {
   async listFailures(
     @ZodQuery(listQueueFailuresQuerySchema) query: ListQueueFailuresQuery,
   ): Promise<Envelope<ListQueueFailuresResponse>> {
-    return successEnvelope(await this.failures.execute(query));
+    return successEnvelope(await this.controlPlane.listFailures(query));
   }
 
   @Post('failures/:jobId/retry')
   async retry(
     @UuidParam('jobId', 'NOT_FOUND', 'Job') jobId: string,
   ): Promise<Envelope<RetryJobResponse>> {
-    return successEnvelope(await this.retryJob.execute(jobId));
+    return successEnvelope(await this.controlPlane.retry(jobId));
   }
 }

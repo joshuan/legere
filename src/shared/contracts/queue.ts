@@ -10,6 +10,9 @@ export const queueDepthSchema = z.object({
   queued: z.number().int().nonnegative(),
   active: z.number().int().nonnegative(),
   failedRecent: z.number().int().nonnegative(),
+  oldestQueuedAt: z.string().datetime().nullable(),
+  lastCompletedAt: z.string().datetime().nullable(),
+  completedLastHour: z.number().int().nonnegative(),
 });
 export type QueueDepthDto = z.infer<typeof queueDepthSchema>;
 

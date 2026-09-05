@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { JobQueue } from '../../application/ports/job-queue';
 import { QueueMonitor } from '../../application/ports/queue-monitor';
+import { ProcessingWorkerRuntime } from '../../application/ports/processing-worker-runtime';
 import { QueueSettings, type QueueDefaults } from '../../application/queue/queue-settings';
 import { ServiceGates } from '../../application/queue/service-gate';
 import { SettingsRepository } from '../../domain/repositories/settings.repository';
@@ -55,6 +56,7 @@ function queueDefaults(config: AppConfig): QueueDefaults {
   providers: [
     PgBossProvider,
     WorkerRegistry,
+    { provide: ProcessingWorkerRuntime, useExisting: WorkerRegistry },
     {
       provide: QueueSettings,
       useFactory: (settings: SettingsRepository, config: AppConfig): QueueSettings =>
@@ -76,6 +78,14 @@ function queueDefaults(config: AppConfig): QueueDefaults {
       useFactory: (): ServiceGates => new ServiceGates(new SystemClock()),
     },
   ],
-  exports: [PgBossProvider, WorkerRegistry, JobQueue, QueueMonitor, QueueSettings, ServiceGates],
+  exports: [
+    PgBossProvider,
+    WorkerRegistry,
+    ProcessingWorkerRuntime,
+    JobQueue,
+    QueueMonitor,
+    QueueSettings,
+    ServiceGates,
+  ],
 })
 export class QueueModule {}

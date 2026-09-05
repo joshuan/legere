@@ -38,7 +38,7 @@ import { LibraryRepository } from '../../domain/repositories/library.repository'
 import { FileRepository } from '../../domain/repositories/file.repository';
 import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
-import { WorkerRegistry } from '../../infrastructure/queue/worker-registry';
+import { WorkerRegistry, type WorkerBinding } from '../../infrastructure/queue/worker-registry';
 
 function processingSettings(config: AppConfig): ProcessingSettings {
   return {
@@ -67,6 +67,13 @@ function processingSettings(config: AppConfig): ProcessingSettings {
 // Binds the job handlers and tells the worker registry which queue each one serves (docs/06 §6.8).
 // Registration happens on module init; the workers themselves start in bootstrap step 5, after the
 // whole container is ready.
+export const PROCESSING_WORKER_BINDINGS = [
+  { queue: 'library-scan', handler: HandleLibraryScan, concurrency: 1 },
+  { queue: 'file-ingest', handler: HandleFileIngest },
+  { queue: 'document-process', handler: HandleDocumentProcess },
+  { queue: 'maintenance', handler: HandleMaintenance, concurrency: 1 },
+] satisfies readonly WorkerBinding[];
+
 @Module({
   // The correlation id a pipeline step is run under (docs/03 §3.3.18) comes from here, and so does
   // the account journal; a job and an HTTP request open the same kind of context (docs/06 §6.7).
@@ -314,16 +321,6 @@ export class JobsModule implements OnModuleInit {
   constructor(private readonly workers: WorkerRegistry) {}
 
   onModuleInit(): void {
-    this.workers.register(
-      // One scan at a time per library, enforced by the queue's stately policy (docs/05 §5.2).
-      { queue: 'library-scan', handler: HandleLibraryScan, concurrency: 1 },
-      // Concurrency from QUEUE_CONCURRENCY_INGEST (docs/12 §12.4).
-      { queue: 'file-ingest', handler: HandleFileIngest },
-      // Concurrency from QUEUE_CONCURRENCY_PROCESS: these jobs hold whole documents in memory and
-      // lean on the Stirling container, so they are deliberately the least parallel of the three.
-      { queue: 'document-process', handler: HandleDocumentProcess },
-      // Hourly housekeeping (docs/06 §6.8): expired credentials out, bucket usage measured.
-      { queue: 'maintenance', handler: HandleMaintenance, concurrency: 1 },
-    );
+    this.workers.register(...PROCESSING_WORKER_BINDINGS);
   }
 }

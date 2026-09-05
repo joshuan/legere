@@ -3,12 +3,18 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  DocumentDetailDto,
-  DocumentFileDto,
-  DocumentFileVersionDto,
-  DocumentListDto,
+import {
+  DOCUMENT_STEPS,
+  type DocumentDetailDto,
+  type DocumentFileDto,
+  type DocumentFileVersionDto,
+  type DocumentListDto,
+  type DocumentStep,
 } from '../../../shared/contracts/documents';
+import type {
+  DocumentProcessingBlockerDto,
+  DocumentProcessingStateResponse,
+} from '../../../shared/contracts/processing';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
 import { TEST_ADMIN, enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { DocumentViewerScreen } from './document-viewer-screen';
@@ -166,15 +172,29 @@ const twoFiles: DocumentDetailDto = {
 
 const server = createApiMock();
 
+function processingState(
+  blockers: Partial<Record<DocumentStep, DocumentProcessingBlockerDto[]>> = {},
+  pausedSteps: DocumentStep[] = [],
+): DocumentProcessingStateResponse {
+  return {
+    pausedSteps,
+    steps: DOCUMENT_STEPS.map((step) => ({ step, blockers: blockers[step] ?? [] })),
+  };
+}
+
 function serve(
   document: DocumentDetailDto = detail,
   markdown: string | null = '# Terms\n\nBody',
-  // Which steps the instance is holding (docs/05 §5.4d): none, unless a test is about that.
-  pausedSteps: string[] = [],
+  // Which pending steps this document is actually held at (docs/05 §5.4f): none, unless a test is
+  // about that. This is deliberately document-scoped; a global paused list cannot account for
+  // artifacts and type which already let this document proceed.
+  state: DocumentProcessingStateResponse = processingState(),
 ): void {
   server.use(
     http.get(`/api/documents/${ID}`, () => HttpResponse.json(envelope(document))),
-    http.get('/api/pipeline/paused-steps', () => HttpResponse.json(envelope({ pausedSteps }))),
+    http.get('/api/documents/:documentId/processing-state', () =>
+      HttpResponse.json(envelope(state)),
+    ),
     http.get(`/api/documents/${ID}/markdown`, () => HttpResponse.json(envelope({ markdown }))),
     http.get('/api/document-types', () =>
       HttpResponse.json(
@@ -1616,10 +1636,14 @@ describe('DocumentViewerScreen', () => {
     await waitFor(() => expect(body).toEqual({ steps: ['preview'] }));
   });
 
-  // A step the instance is holding (docs/05 §5.4d): PENDING on purpose, which is a different answer
-  // from "the queue is slow" and is owed to whoever opened the document (docs/11 §11.5).
-  it('says a step is paused, to every reader, and lets nobody select it for a re-run', async () => {
-    serve({ ...detail, steps: { ...detail.steps, analysis: 'PENDING' } }, null, ['analysis']);
+  // A step the instance is holding (docs/05 §5.4f): PENDING on purpose, with the server-evaluated
+  // cause owed to every reader rather than inferred from a global switch in the browser.
+  it('names a directly paused step and lets nobody select it for a re-run', async () => {
+    serve(
+      { ...detail, steps: { ...detail.steps, analysis: 'PENDING' } },
+      null,
+      processingState({ analysis: [{ kind: 'STEP_PAUSED', step: 'analysis' }] }, ['analysis']),
+    );
 
     const asUser = renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
     await screen.findByText(enMessages.viewer.processing.title);
@@ -1643,6 +1667,201 @@ describe('DocumentViewerScreen', () => {
       ).toBeDisabled(),
     );
     expect(panel.getByRole('checkbox', { name: enMessages.viewer.steps.preview })).toBeEnabled();
+  });
+
+  it('names the paused canonical path which holds preview and text', async () => {
+    serve(
+      {
+        ...detail,
+        steps: {
+          ...detail.steps,
+          canonical: 'PENDING',
+          preview: 'PENDING',
+          markdown: 'PENDING',
+        },
+      },
+      null,
+      processingState(
+        {
+          canonical: [{ kind: 'STEP_PAUSED', step: 'canonical' }],
+          preview: [
+            {
+              kind: 'DEPENDENCY_PAUSED',
+              step: 'canonical',
+              path: ['canonical', 'preview'],
+              condition: 'UPSTREAM_UNSETTLED',
+            },
+          ],
+          markdown: [
+            {
+              kind: 'DEPENDENCY_PAUSED',
+              step: 'canonical',
+              path: ['canonical', 'markdown'],
+              condition: 'UPSTREAM_UNSETTLED',
+            },
+          ],
+        },
+        ['canonical'],
+      ),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />, { user: TEST_ADMIN });
+    await screen.findByText(enMessages.viewer.processing.title);
+    expect(
+      screen.getByText(/Held by the paused Canonical PDF step through Canonical PDF → Preview/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Held by the paused Canonical PDF step through Canonical PDF → Text/),
+    ).toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole('button', { name: enMessages.viewer.processing.chooseSteps }),
+    );
+    expect(
+      screen.getByRole('checkbox', { name: enMessages.viewer.steps.canonical }),
+    ).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: enMessages.viewer.steps.preview })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: enMessages.viewer.steps.markdown })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: enMessages.viewer.steps.analysis })).toBeEnabled();
+  });
+
+  it('names every downstream path held by a paused Markdown step', async () => {
+    serve(
+      {
+        ...detail,
+        steps: {
+          ...detail.steps,
+          markdown: 'PENDING',
+          analysis: 'PENDING',
+          fields: 'PENDING',
+          vectorization: 'PENDING',
+        },
+      },
+      null,
+      processingState(
+        {
+          markdown: [{ kind: 'STEP_PAUSED', step: 'markdown' }],
+          analysis: [
+            {
+              kind: 'DEPENDENCY_PAUSED',
+              step: 'markdown',
+              path: ['markdown', 'analysis'],
+              condition: 'UPSTREAM_UNSETTLED',
+            },
+          ],
+          fields: [
+            {
+              kind: 'DEPENDENCY_PAUSED',
+              step: 'markdown',
+              path: ['markdown', 'fields'],
+              condition: 'UPSTREAM_UNSETTLED',
+            },
+          ],
+          vectorization: [
+            {
+              kind: 'DEPENDENCY_PAUSED',
+              step: 'markdown',
+              path: ['markdown', 'vectorization'],
+              condition: 'UPSTREAM_UNSETTLED',
+            },
+          ],
+        },
+        ['markdown'],
+      ),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
+    await screen.findByText(enMessages.viewer.processing.title);
+    expect(screen.getByText(/Text → Analysis/)).toBeInTheDocument();
+    expect(screen.getByText(/Text → Fields/)).toBeInTheDocument();
+    expect(screen.getByText(/Text → Vectors/)).toBeInTheDocument();
+  });
+
+  it('renders the conditional analysis blocker only when the server returns it', async () => {
+    const pendingFields = { ...detail, steps: { ...detail.steps, fields: 'PENDING' as const } };
+    serve(
+      pendingFields,
+      null,
+      processingState({
+        fields: [
+          {
+            kind: 'DEPENDENCY_PAUSED',
+            step: 'analysis',
+            path: ['analysis', 'fields'],
+            condition: 'UPSTREAM_UNSETTLED_AND_TYPE_MISSING',
+          },
+        ],
+      }),
+    );
+
+    const untyped = renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />, {
+      user: TEST_ADMIN,
+    });
+    expect(
+      await screen.findByText(/upstream analysis is unsettled and this document has no type/),
+    ).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: enMessages.viewer.processing.chooseSteps }),
+    );
+    expect(screen.getByRole('checkbox', { name: enMessages.viewer.steps.fields })).toBeDisabled();
+    untyped.unmount();
+
+    serve(
+      {
+        ...pendingFields,
+        documentType: { id: CATEGORY_ID, slug: 'contract', name: 'Contract' },
+      },
+      null,
+      processingState(),
+    );
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />, { user: TEST_ADMIN });
+    await screen.findByText(enMessages.viewer.processing.title);
+    expect(screen.queryByText(/Held by the paused Analysis step/)).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: enMessages.viewer.processing.chooseSteps }),
+    );
+    expect(screen.getByRole('checkbox', { name: enMessages.viewer.steps.fields })).toBeEnabled();
+  });
+
+  it('names a parent queue pause and never calls the legacy global pause endpoint', async () => {
+    let legacyCalls = 0;
+    server.use(
+      http.get('/api/pipeline/paused-steps', () => {
+        legacyCalls += 1;
+        return HttpResponse.json(envelope({ pausedSteps: ['analysis'] }));
+      }),
+    );
+    serve(
+      { ...detail, steps: { ...detail.steps, analysis: 'PENDING' } },
+      null,
+      processingState({
+        analysis: [{ kind: 'QUEUE_PAUSED', queue: 'document-process' }],
+      }),
+    );
+
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />, { user: TEST_ADMIN });
+    expect(
+      await screen.findByText(enMessages.viewer.processing.queuePausedTag),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/document-process queue is paused/)).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: enMessages.viewer.processing.chooseSteps }),
+    );
+    expect(screen.getByRole('checkbox', { name: enMessages.viewer.steps.analysis })).toBeDisabled();
+    expect(legacyCalls).toBe(0);
+  });
+
+  it('leaves an unblocked pending step selectable', async () => {
+    serve({ ...detail, steps: { ...detail.steps, analysis: 'PENDING' } }, null, processingState());
+
+    renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />, { user: TEST_ADMIN });
+    await screen.findByText(enMessages.viewer.processing.title);
+    expect(screen.queryByText(enMessages.viewer.processing.pausedTag)).not.toBeInTheDocument();
+    expect(screen.queryByText(enMessages.viewer.processing.queuePausedTag)).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: enMessages.viewer.processing.chooseSteps }),
+    );
+    expect(screen.getByRole('checkbox', { name: enMessages.viewer.steps.analysis })).toBeEnabled();
   });
 
   // Two sections, in that order: "is it finished, and did anything break", then "what happened"

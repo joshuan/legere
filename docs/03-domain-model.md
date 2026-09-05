@@ -728,7 +728,7 @@ An instance knob an admin turns at runtime: a key, a JSON value, and when it las
 
 | Field | Type | Notes |
 |---|---|---|
-| key | string | primary key; `queue` is the first one — concurrency per queue, units inside a job, which queues are paused, and which steps of the pipeline are held (`05 §5.4d`) |
+| key | string | primary key; load-control overrides remain under the compatible `queue` key and are read as one management aggregate by `ProcessingControlPlane` (`05 §5.4f`); `analysis` remains a separate content preference |
 | value | json | whatever that key means |
 | updatedAt | timestamptz | |
 
@@ -738,6 +738,14 @@ a row here is somebody overriding one deliberately, so an instance with an empty
 exactly as it always has. A value whose shape this version does not recognise is ignored rather than
 crashing what reads it — a setting written by a later version must not stop the workers from
 starting.
+
+Processing overrides are sparse, per scope and per field. Absence means “use the environment or
+built-in default”; it is not filled with a copy of that default when another field is changed. A
+stored value equal to the default remains an intentional stored choice, while a scoped `null` command
+removes the override. `ProcessingControlPlane` is the only writer of these processing keys and
+publishes `{ effective, default, source }` for every knob (`05 §5.4f`, `07 §7.3`). The old complete
+`queue` JSON shape remains readable during the upgrade and is normalized to sparse known fields on
+the first control-plane write; no database migration is needed.
 
 ### 3.3.22. ApiToken
 
@@ -873,7 +881,7 @@ not when they become visible.
 lies: cosine distance between vectors from different embedders is a number with no meaning, and a
 half-finished model switch would otherwise be invisible until somebody noticed the results were
 wrong. It is written by the step that writes the vector (`05 §5.5` step 6) and counted per model on
-`/admin/queue` (`07 §7.3`).
+the Processing overview (`/admin/processing`, `07 §7.3`).
 
 ### 3.3.12. Document type
 Admin-managed reference list.

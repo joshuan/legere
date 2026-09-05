@@ -1,1 +1,1 @@
-export { AdminQueueScreen } from './admin-queue-screen';
+export { AdminProcessingScreen } from './admin-queue-screen';

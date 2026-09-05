@@ -260,8 +260,9 @@ Docling parse, 40 for the transcriber's twenty page renders and 20 for the trans
 for the analysis and 5 for the fields, 2 for a batch of vectors. The expiry is **three hours**
 ([`06 §6.8`](./06-backend-architecture.md)). The price of the headroom is recovery time — a job whose
 worker died is invisible for three hours rather than one — and it is paid by the hourly sweep above,
-which re-enqueues a document whose steps have been unstarted for two, and by the handler, which
-refuses to start a document it is already running (§5.5).
+which re-enqueues a document whose steps have been unstarted for two, and by the per-document
+coordinator, which serializes a duplicate delivery without acknowledging away its work (§5.4f,
+§5.5).
 
 All of these are **constants in the code, not settings**. An operator has no way to know what the
 right Stirling timeout is, and an instance that needs a different one has a container to fix rather
@@ -371,9 +372,10 @@ in-memory wait that outlives the queue's own bound.
 🔒 **Time spent waiting at a gate is time inside the job.** A `document-process` job has three hours
 before pg-boss decides its worker has gone ([`06 §6.8`](./06-backend-architecture.md)), and that time
 covers the queueing as much as the work: a service throttled to a trickle does not show up as a quick
-job that waited, it shows up as a **slow job**, on `/admin/queue`, which is the screen where it ought
-to show up as anything at all. That is what the knob costs and why it is an operator's rather than a
-default — gating is throughput given away on purpose, and the place it is given away is visible.
+job that waited, it shows up as a **slow job**, on `/admin/processing/services`, which is the screen
+where it ought to show up as anything at all. That is what the knob costs and why it is an operator's
+rather than a default — gating is throughput given away on purpose, and the place it is given away
+is visible.
 
 **A gate says what it is doing**: how many units are **in flight**, how many are **waiting**, and how
 long the one at the front of the queue has been waiting. Read straight off the semaphore, published in
@@ -398,8 +400,9 @@ arrives with, which is **whether the thing exists at the address this instance h
 that was renamed, a provider whose key expired, a `DOCLING_URL` nobody ever set. Until a document
 walks into it, that is invisible: the pipeline finds out at the moment it needs the service, and the
 operator finds out from a failed step an hour later. So each of the five services of §5.4b answers
-two more questions on `/admin/queue` — **where it is** and **whether it answers** — and both are read
-live rather than remembered.
+two more questions on `/admin/processing/services` — **where it is** and **whether it answers**.
+The address comes from current resolved configuration; health is sampled only by the explicit check
+operation and retained briefly, with its age visible in the snapshot.
 
 **Where it is** is the base URL this instance resolved, the same string the port hands the job log as
 `endpoint` (`03 §3.3.18`), so the address on the screen is the address being called and not a
@@ -471,7 +474,8 @@ down (`03 §3.3.10`). What the pause protects is the document that has simply no
 **Resuming drains what waited.** Releasing a step is the moment its documents move: the release
 enqueues that step for the documents whose it is `PENDING`, newest first and bounded per call by
 `QUEUE_REPROCESS_MAX` — the same work, through the same use case, as a repair asked for from
-`/admin/queue` (`07 §7.3`). What the bound leaves behind the hourly sweep takes within two hours,
+`/admin/processing/pipeline` (`07 §7.3`). What the bound leaves behind the hourly sweep takes within
+two hours,
 because nothing holds those steps any more, and it asks only for the steps that never started
 (§5.4). So a pause that lasted a week over ten thousand documents drains in batches instead of one
 push — and drains without re-reading a page that was read already.
@@ -519,9 +523,9 @@ exhausted leave the steps exactly there, `QUEUED`, which is the state the hourly
 already re-enqueues after two quiet hours — so a blip costs seconds, an evening's outage costs the
 evening plus a sweep, and neither costs a person a single click. 🔒 A document is **never** marked
 `FAILED` because a container was away — including a container that is away because its address is
-wrong: that reads as an endless outage, which is honest, is named `DOWN` on `/admin/queue` (§5.4c),
-and drains by itself the moment the address is fixed, rather than leaving a thousand documents
-waiting for a thousand Retries. The transcriber keeps its own rule (§5.5 step 3): best-effort by
+wrong: that reads as an endless outage, which is honest, is named `DOWN` on the Processing services
+tab (§5.4c), and drains by itself the moment the address is fixed, rather than leaving a thousand
+documents waiting for a thousand Retries. The transcriber keeps its own rule (§5.5 step 3): best-effort by
 design, its outage leaves the recognised text and interrupts nothing.
 
 A valid OpenAI-compatible `429 Retry-After` is the deliberate, longer form of that interruption,
@@ -544,6 +548,186 @@ the same fact once per document. Like every §5.4a bound the 30 seconds is a con
 the breaker keeps no counters and publishes nothing, because §5.4c already answers "is it there" on
 the screen an operator is looking at, live and per service.
 
+## 5.4f. One processing control plane
+
+Queues, document steps and external services are three kinds of thing, not three versions of the
+same thing. A queue delivers work, a step records what happened to one document, and a service gate
+meters outbound work. They keep their existing runtime implementations and status vocabularies.
+What is one is the **management aggregate** over them: the `ProcessingControlPlane` of
+[ADR-026](./02-architecture-overview.md#adr-026-one-processing-control-plane-three-execution-mechanisms),
+fed by one validated, read-only `ProcessingTopology` declaration.
+
+### The topology
+
+The topology lives in application code, is ordered, contains no framework object or callback, and is
+published in the administrative snapshot. It is configuration **about this version of the
+application**, not an instance setting: an admin may tune a known node but cannot add a seventh step
+or point a dependency somewhere else. It describes these relationships once:
+
+| Kind | Nodes and relationships |
+|---|---|
+| queues | `library-scan -> file-ingest -> document-process`, plus `maintenance -> document-process`; each is classified as ingress, pipeline or housekeeping and declares whether its concurrency is configurable, its `stately`/`short`/`standard` policy and its positive `expireInSeconds` recovery horizon |
+| pipeline | hosted by `document-process`, with `canonical`, `preview`, `markdown`, `analysis`, `fields`, `vectorization` in execution order |
+| dependencies | `preview <- canonical`; `markdown <- canonical`; `analysis <- markdown`; `fields <- markdown`, and `<- analysis` only while the document has no type; `vectorization <- markdown` |
+| services | `canonical -> stirling`; `preview -> stirling`; `markdown -> docling` (primary when configured), `-> stirling` (fallback when Docling is unconfigured and auxiliary when OCR is used), `-> transcriber` (optional when OCR is used); `analysis` and `fields -> classifier` (primary when configured) plus `-> stirling` (auxiliary when page images are used); `vectorization -> embeddings` (primary when configured) |
+
+Queue delivery metadata is equally explicit:
+
+| Queue | Kind | Produces | Policy | `expireInSeconds` |
+|---|---|---|---|---:|
+| `library-scan` | `INGRESS` | `file-ingest` | `stately` | 900 |
+| `file-ingest` | `INGRESS` | `document-process` | `standard` | 600 |
+| `document-process` | `PIPELINE` | — | `short` | 10800 |
+| `maintenance` | `HOUSEKEEPING` | `document-process` | `standard` | 900 |
+
+Service edges carry `PRIMARY`, `FALLBACK`, `OPTIONAL` or `AUXILIARY` together with the condition
+`ALWAYS`, `WHEN_CONFIGURED`, `WHEN_PRIMARY_UNCONFIGURED`, `WHEN_OCR_USED` or
+`WHEN_PAGE_IMAGES_USED`. Dependency edges distinguish `ARTIFACT` from `CONDITIONAL_TYPE` and say
+whether they hold on `UPSTREAM_UNSETTLED` or `UPSTREAM_UNSETTLED_AND_TYPE_MISSING`. Those small
+enums are facts the client can translate; a server-provided English sentence is not. Topology tests
+compare its queue, step and service identities with the closed shared contracts, check dependency
+order, require every resource edge's service consumer list to contain that step, and compare every
+worker binding with the queue identities. Worker registration, service probing, the control-plane
+snapshot and the admin UI consume this definition (or assert their executable registries against
+it); none keeps a private
+`step -> service` switch. Queue `policy` and `expireInSeconds` are declarative
+metadata which the pg-boss adapter consumes or asserts; the topology does not contain a pg-boss
+object, handler callback or other infrastructure implementation.
+
+This is **not** a generic workflow engine. The topology carries identities and relationships needed
+for management. It does not execute a step, translate a queue state into a step state or pretend a
+health probe is a job.
+
+### One snapshot
+
+`GET /api/admin/processing` returns one `ProcessingSnapshot`, stamped at `generatedAt`. Its top level
+is deliberately aligned with what the page renders rather than wrapped in parallel `state` and
+`settings` trees: `revision`, apply state, `topology`, queue rows, the pipeline row with its steps,
+service rows, vectors and storage. Each queue/step/service row keeps its control beside its runtime
+evidence, and each queue/step carries the blocker list the server derived.
+
+The snapshot is a coherent read model, not a transaction over pg-boss, the document tables and live
+semaphores: `generatedAt` says when assembly began, and each slow or cached constituent retains its own
+`measuredAt`/`checkedAt`. Independent database reads run in parallel. Service probes are the deliberate
+exception to the fast path: the ordinary read uses the last in-process sample
+(`health: { freshness: UNKNOWN, value: null }` until one exists);
+`POST /api/admin/processing/services/check` performs all probes in parallel and updates that cache.
+Thus the screen can draw from a fast first response and keep the old row visible while an explicit
+or slow-cadence health refresh waits for a dead container; its following snapshot read sees the
+sample.
+
+Every setting is reported as:
+
+```text
+{ effective: T, default: T, source: DEFAULT | OVERRIDE }
+```
+
+`default` is the value that wins after the override is cleared: environment-backed for the knobs of
+§12.4 and built-in for the fixed concurrency and false pause defaults. `DEFAULT` deliberately folds
+those two origins into “the deployer's/current version's value”; `OVERRIDE` means an admin stored this
+field. A stored number equal to its default still says `OVERRIDE`: provenance answers who chose it,
+not whether two numbers happen to match. Bad stored data is ignored per `03 §3.3.21`, so `effective`
+is always valid. A scoped numeric command may send `null` to remove that field's override and return
+to its default; setting a pause to `false` removes it from the stored paused set. Neither copies the
+defaults of unrelated fields into the database. Analysis output language remains the separate
+content preference it already was; it is shown on the Pipeline tab but is not a load-control setting
+or part of `ProcessingSnapshot`.
+
+Queue metrics are more than instantaneous depth. Each queue reports:
+
+- `queued`, `active` and `failedRecent` (the existing 24-hour window);
+- `oldestQueuedAt`, or `null` when no created/retry job waits;
+- `lastCompletedAt`, or `null` where the retained pg-boss history has no completion; and
+- `completedLastHour`, the number completed in the preceding rolling 60 minutes.
+
+The exact window travels in the field name so “throughput” cannot quietly change units. These are
+read directly from pg-boss in one grouped monitor query. Step counters remain the durable status
+counts on documents; a queue completion is not invented for a pipeline step. Storage and vector
+metrics keep their own existing maintenance timestamps.
+
+### Blocking is an answer, not a client-side inference
+
+Every queue and pipeline step in the snapshot carries `blockers`, an ordered list of typed reasons:
+
+- `QUEUE_PAUSED` names the queue whose worker is absent and blocks every step it hosts;
+- `STEP_PAUSED` names the step itself;
+- `DEPENDENCY_PAUSED` names an upstream paused step, its complete path and whether it applies on
+  `UPSTREAM_UNSETTLED` or `UPSTREAM_UNSETTLED_AND_TYPE_MISSING`; and
+- `RUNTIME_DEGRADED` carries the safe-apply detail when the last runtime state could not be confirmed.
+
+Direct and inherited pauses are never flattened into one boolean: the operator must be able to tell
+which switch to use. `fields <- analysis` retains its conditional dependency in the reason, too.
+Capacity by itself is not a blocker: a gate with one unit in flight and three waiting is doing work,
+so its service row reports `inFlight`, `waiting`, `longestWaitMs` and `throttledUntil` rather than
+declaring every consumer blocked. Nor is a failed health probe silently converted into a pause; its
+health row speaks for itself and the ordinary outage/retry semantics of §5.4e remain in force. The
+topology links the affected steps to that service without claiming all of them are presently making
+a call.
+
+For a particular document the same rules are evaluated against its existing artifacts and type.
+The signed-in document processing-state response of `07 §7.3` therefore returns both explicit pauses
+and the effective per-step blockers for that document; the viewer says *held by Canonical* rather than
+showing a downstream `PENDING` step as an unexplained wait. This publishes no queue depth or admin
+setting beyond the pause already visible in the document's behavior.
+
+### Scoped commands and safe apply
+
+A command changes one management scope only: one queue, the document pipeline, one step or one
+service (`07 §7.3`). Each body carries `expectedRevision`; a command based on an older snapshot is
+refused with `409 PROCESSING_SETTINGS_CHANGED`, so a second tab cannot write over a decision it did
+not read. Only the declared fields survive contract validation, queue/service partials must contain
+at least one control field, and all values use the existing numeric bounds. `null` clears a numeric
+override; pause commands use a
+boolean, where `false` removes the stored pause. There is no whole-settings write on the new surface:
+saving Stirling cannot include a stale draft of `document-process`. Commands are serialized inside
+the one process of ADR-002 and return the new revision, `changed`, apply state, resolved controls and
+any resumed-step result. The client validates that response, clears the successful row's draft and
+refreshes the operational snapshot.
+
+Changing a value that affects live machinery follows one safe-apply protocol:
+
+1. under the mutation lock, read the currently stored overrides and build one validated candidate;
+2. persist that desired candidate with the next monotonic revision;
+3. apply its gates and **only the affected** workers, passing the candidate explicitly rather than
+   making runtime code assemble settings of its own; and
+4. publish the command result, then perform bounded, idempotent catch-up work such as draining a
+   resumed step.
+
+Persist-first is deliberate: a process which dies between phases converges to the durable desired
+state when worker bootstrap reads the same durable settings. If live application fails, the control
+plane writes the before-image back as a **new** monotonic revision and re-applies that runtime; the
+candidate revision can never be used later as though it still described current settings. It then returns
+`503 PROCESSING_APPLY_FAILED`; a partial apply is never success. If recovery itself fails, apply state
+is `DEGRADED`, `appliedRevision` is `null`, the snapshot/log names the failure, and restart rebuilds
+runtime from the durable desired revision when workers start again. `APPLIED_WITH_WARNINGS` is the
+third state: configuration itself applied, but post-apply catch-up did not finish and maintenance
+will resume it. Bootstrap and live apply share `QueueSettings`, `ServiceGates` and the worker adapter;
+bootstrap registers all configured workers, while a live command reconfigures only affected queues.
+
+Resuming a step is committed once its pause is removed and runtime agrees. Its bounded reprocess is
+catch-up, not part of configuration atomicity: an enqueue failure is logged and the hourly sweep of
+§5.4 completes it. A response says how many documents this command enqueued immediately. Gate
+changes affect callers no later than their next acquisition as before. Queue changes re-register
+only that queue; a failure in `file-ingest` cannot bounce a healthy `document-process` worker.
+
+### Delivery and retry stay behind the queue port
+
+The control plane does not bypass the queue policy it describes. A failed-job Retry reads the failed
+row through the read-only `QueueMonitor` and enqueues its recognized name/payload through `JobQueue`,
+so the same retry limit, backoff, expiry, priority rules and derived singleton key apply to a manual
+copy as to every other send. The original failed row remains journal history.
+
+Likewise, “one run per document” must not mean “acknowledge the second run without doing it”. When a
+delivery meets the same document already in process, the per-document coordinator chains that whole
+delivery after the predecessor; it is **not** coalesced in the handler. pg-boss's `short` policy has
+already performed the only safe debounce while matching jobs were waiting, while a second full
+payload arriving after the active run read a page list may represent a later crop or append and must
+run again. The delivery does not resolve until its own run settles; its own error reaches pg-boss
+retry semantics, while a predecessor's error does not discard the work behind it. Tests use a
+blocked first run and prove a second full run and a disjoint subset request both survive the
+collision. Serialization is still in-process because ADR-002 still permits one process; moving to
+several worker processes would require a database-backed lease and a separate ADR.
+
 ## 5.5. Document processing pipeline (`document-process`)
 
 Steps run sequentially for a document; each step records its status
@@ -561,11 +745,13 @@ document write the same rows and the same artifacts in an order nobody chose, so
   key rather than the document alone, because a debounce on the document alone would silently drop a
   rebuild a crop asked for whenever a one-step job happened to be waiting — and the crop would never
   appear. Asking twice for the same steps is one piece of work; asking for different steps is not.
-- **In the process**, the handler refuses a document it is already running. A run that outlives its
-  job's expiry is not cancelled by pg-boss — it is failed and delivered again while it is still
-  working (§5.4a) — and one process runs the whole instance
+- **In the process**, a per-document coordinator serializes deliveries. A request that arrives while
+  its document is running is queued whole behind that run; it is neither coalesced in the handler nor
+  acknowledged merely because the document is busy. A run that outlives its job's expiry is not cancelled by pg-boss — it is failed
+  and delivered again while it is still working (§5.4a) — and one process runs the whole instance
   ([ADR-002](./02-architecture-overview.md#adr-002-one-processport-expressexpressadapter--nestjs--next)),
-  so this is the whole of "at a time".
+  so an in-process coordinator is the whole of "at a time". The complete collision rules and their
+  regression tests are in §5.4f.
 - **And a neighbour's failure is not a document's problem.** A worker takes its jobs a batch at a
   time, and pg-boss's own wrapper completes or fails *every id in the batch* on the batch's one
   outcome. Each job's outcome is recorded against that job instead, so a document that met a
@@ -1461,7 +1647,14 @@ file's refs become live again, since the bytes are on the volume and their hash 
 
 ## 5.8. Observability (admin panel)
 
-- Queue state: depth per job type, active jobs, FAILED with the error text and a "Retry" button.
+- One control-plane snapshot (§5.4f): topology, effective/default/source for every load control,
+  typed blockers and health/apply evidence from which the screen summarizes problems.
+- Queue state: depth per job type, active jobs, failures in 24 hours, oldest queued work, most recent
+  completion and completions in the last 60 minutes.
+- Document-step counters and their queue/dependency blockers; live service-gate load and cached
+  health on the same topology edges the workers use.
+- FAILED jobs keep their own paginated journal, error text and a "Retry" command; retry always goes
+  back through `JobQueue` and its policy.
 - Per-library scan journal (§5.2).
 - Counters: documents total/processed/without representation/unavailable; artifact volume in the S3
   bucket.

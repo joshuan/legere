@@ -41,6 +41,20 @@ export class CheckExternalServices {
     return this.inFlight;
   }
 
+  // A control-plane snapshot must stay a local read: opening the processing screen during an
+  // outage must not wait for five network timeouts. Probing remains an explicit endpoint.
+  peek(): {
+    freshness: 'UNKNOWN' | 'FRESH' | 'STALE';
+    data: ServicesHealthResponse | null;
+  } {
+    const answered = this.answered;
+    if (answered === null) return { freshness: 'UNKNOWN', data: null };
+    return {
+      freshness: this.clock.now().getTime() - answered.at < FRESH_FOR_MS ? 'FRESH' : 'STALE',
+      data: answered.data,
+    };
+  }
+
   private async check(): Promise<ServicesHealthResponse> {
     const checkedAt = this.clock.now();
     // 🔒 In parallel and never in sequence: five services that have all stopped answering must cost

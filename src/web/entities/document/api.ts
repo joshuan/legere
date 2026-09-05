@@ -44,6 +44,10 @@ import {
   type SplitDocumentResponse,
   type UpdateDocumentPageRequest,
 } from '../../../shared/contracts/files';
+import {
+  documentProcessingStateSchema,
+  type DocumentProcessingStateResponse,
+} from '../../../shared/contracts/processing';
 import { okResponseSchema, type OkResponse } from '../../../shared/contracts/users';
 import { apiClient, uploadFile, type UploadProgress } from '../../shared/api';
 
@@ -94,6 +98,14 @@ export const documentApi = {
 
   markdown: (id: string): Promise<DocumentMarkdownResponse> =>
     apiClient.get(`/api/documents/${id}/markdown`, { schema: documentMarkdownResponseSchema }),
+
+  // Why this document's pending steps are intentionally held. The answer is document-scoped:
+  // dependency pauses depend on artifacts and type already present on this document, so a global
+  // list of switches cannot answer the question honestly (docs/05 §5.4f, docs/11 §11.5).
+  processingState: (id: string): Promise<DocumentProcessingStateResponse> =>
+    apiClient.get(`/api/documents/${id}/processing-state`, {
+      schema: documentProcessingStateSchema,
+    }),
 
   update: (id: string, body: UpdateDocumentRequest): Promise<DocumentDetailDto> =>
     apiClient.patch(`/api/documents/${id}`, { schema: documentDetailDtoSchema, body }),
@@ -285,6 +297,7 @@ export const documentKeys = {
   list: (filters: DocumentFilters, sort?: DocumentSort) => ['documents', filters, sort] as const,
   detail: (id: string) => ['document', id] as const,
   markdown: (id: string) => ['document', id, 'markdown'] as const,
+  processingState: (id: string) => ['document', id, 'processing-state'] as const,
   events: (id: string) => ['document', id, 'events'] as const,
   links: (id: string) => ['document', id, 'links'] as const,
   linkSuggestions: (id: string) => ['document', id, 'link-suggestions'] as const,

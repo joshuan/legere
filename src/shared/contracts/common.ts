@@ -77,6 +77,9 @@ export const ERROR_CODES = [
   // 🔒 A step this instance is holding is not run for the asking (docs/05 §5.4d): a reprocess whose
   // every step is paused would enqueue a job that does nothing, so it is refused instead.
   'STEPS_PAUSED',
+  // Optimistic control-plane update and a desired setting that could not be made live.
+  'PROCESSING_SETTINGS_CHANGED',
+  'PROCESSING_APPLY_FAILED',
   'ONBOARDING_CLOSED',
   'VALIDATION_FAILED',
   // 🔒 A cursor names the order it was cut from (docs/07 §7.1). Answering it from another column

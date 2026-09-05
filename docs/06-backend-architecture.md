@@ -66,10 +66,11 @@ only. Inventory (module → use cases):
 | document types | `ListCategories`, `CreateCategory`ᴬ, `UpdateCategory`ᴬ, `DeleteCategory`ᴬ |
 | collections | `CreateCollection`, `ListMyCollections`, `GetCollection`, `UpdateCollection`, `DeleteCollection`, `AddCollectionItem`, `RemoveCollectionItem`, `ShareCollection`, `RevokeCollectionShare`, `ListCollectionShares` |
 | document files | `AddFileToDocument`, `ReorderDocumentFiles`, `SetFileCrop`, `SuggestFileCrop`, `SplitFileIntoDocument`, `CombineDocuments`, `SuggestDocumentGroups`, `DownloadFile` |
-| queue-admin | `GetQueueOverview`ᴬ, `ListFailedJobs`ᴬ, `RetryFailedJob`ᴬ |
+| processing-admin | `ProcessingControlPlane.snapshot/update/checkServices/listFailures/retry/reprocess`ᴬ — an aggregate facade over the focused readers and commands (the deliberate exception explained in §6.3.5) |
 | health | `CheckHealth` |
 
-ᴬ = admin-only (enforced by `RolesGuard` at presentation + asserted in the use case).
+ᴬ = admin-only (enforced by `RolesGuard` at presentation; a use case reasserts caller-dependent
+business authorization where that operation receives caller context).
 
 ### 6.3.2. Job handlers
 Job handlers live in `application/jobs/` and are use cases with the signature
@@ -79,7 +80,7 @@ Job handlers live in `application/jobs/` and are use cases with the signature
 |---------|---------|--------------------------------------------------------------------------|
 | `HandleLibraryScan` | `{ libraryId, scanRunId? }` | walk, diff, create/update FileRefs, enqueue `file-ingest`, write ScanRun |
 | `HandleFileIngest` | `{ fileRefId }` | hash stream, attach/create Document, enqueue `document-process` for new documents |
-| `HandleDocumentProcess` | `{ documentId, steps?: string[] }` | run steps 1–5 sequentially; `steps` limits re-processing to a subset |
+| `HandleDocumentProcess` | `{ documentId, steps?: string[] }` | run steps 1–6 sequentially; `steps` limits re-processing to a subset; a per-document coordinator serializes overlapping deliveries without acknowledging away the later request (`05 §5.4f`) |
 | `HandleMaintenance` (also re-enqueues documents whose steps have not started — `PENDING`, nothing scheduled, or `QUEUED`, a job that went missing — and marks what it takes as `QUEUED` at once, 05 §5.4) | `{}` | purge expired EmailVerifications/invites/resets; delete S3 artifacts of documents soft-deleted > 30 days ago is **not** done (retention: keep); compact nothing else |
 
 Every handler starts with an idempotency check ("already done? → return") and must tolerate
@@ -103,7 +104,8 @@ re-delivery (pg-boss is at-least-once).
 | `CatalogueAnalyst` | `suggestMerges(catalogue, rows[]): { groups: { ids[], name, kind?, aka[] }[], placeholders: id[] }`, `previewMerge(catalogue, rows[]): { name, kind?, aka[] } \| null`, `isConfigured` — the duplicate-noticer of `05 §5.6c` over all three catalogues: the same provider and gate as `DocumentAnalyst`, asked which living rows are one entry. `catalogue` is which of the three is being read — `people`, `subjects`, `subject-kinds` — and exists so that a failure names its question in the log (§6.7): one port and one provider serve all three, and "the analyst is down" is not actionable without saying which reading it broke. One reading is **not one call**: rows are ordered by the blocking key of `05 §5.6c` and cut into chunks of at most sixty, one completion and one gate unit each, their answers unioned before the caller judges them — a catalogue that fits in one chunk is one call with the rows untouched. A row may carry a `kind` (the subjects call does); the answer then names the kind the survivor keeps — resolved by the caller against the kinds the merged rows already have — and points beside the groups at **placeholders**, rows naming a kind rather than a thing. Rows without kinds answer groups alone. The adapter owns the shape — schema-parsed, lengths capped, a parse failure an empty answer rather than an error — and the use cases own the sense: unknown ids, groups of one and twice-claimed rows are dropped against the living catalogue, at most twenty groups pass (where the unit floor can see it). 🔒 The rows travel **inside the nonce-fenced data channel**, never in the system message — every signed-in user writes these rows | `OpenAiCompatCatalogueAnalyst` (chat-completions JSON answer, `CLASSIFIER_*` env, `classifier` gate) |
 | `PageTranscriber` | `transcribe(pages[], languages[]): { markdown, usage }`, `isConfigured`, `endpoint` | `OpenAiCompatTranscriber` — the recogniser of last resort (05 §5.5 step 3): a vision model reading the pages of a document that had to be recognised at all |
 | `JobQueue` | `enqueue(name, payload, opts?)`, `enqueueAfterTx(...)`, `scheduleCron(name, cron)` | `PgBossJobQueue` |
-| `QueueMonitor` | `overview()`, `failedJobs(cursor)`, `retry(jobId)` | `PgBossQueueMonitor` (raw SQL over the `pgboss` schema) |
+| `QueueMonitor` | `depths()`, `failedJobs(cursor)`, `failedJob(jobId)`, `isHealthy()` — read-only; depths include oldest queued time, latest completion and completed-in-60-minutes per known queue | `PgBossQueueMonitor` (raw SQL over the `pgboss` schema) |
+| `ProcessingWorkerRuntime` | `reconfigure(queues, settings)`, `snapshot()` — the narrow live-worker boundary used by the safe-apply protocol of `05 §5.4f`; it takes the desired settings explicitly and never re-reads them | `WorkerRegistry`; process-wide `ServiceGates` remain an application collaborator because every external adapter already acquires them there |
 | `UnitOfWork` | `run<T>(fn: (tx) => Promise<T>, bounds?: { timeoutMs })` | `PrismaUnitOfWork` (`$transaction`; repositories accept the tx handle). The bound is optional and the adapter's default stands without it (§6.3.4) |
 | `MimeDetector` | `detect(streamHead): {mime, ext}` | `FileTypeMimeDetector` (`file-type` package; fallback to extension for text) |
 
@@ -135,6 +137,40 @@ What the bound is not is permission to split the write. `03 §3.3.11` promises t
 half of one vectorization and half of another, so the delete and the insert stay inside the one
 transaction; where the insert is cut into batches to keep a single statement within what the wire
 protocol can carry, the batches are cut inside that transaction and commit with it.
+
+### 6.3.5. Processing management
+
+`ProcessingTopology` and `ProcessingControlPlane` live in `application/processing/`; neither imports
+Nest, pg-boss, Prisma or a service client. The topology is an `as const`, read-only declaration which
+is validated and cloned for publication, and the control plane is the orchestration boundary over
+existing ports. It does **not** become the runtime base class for
+queues, steps or services ([ADR-026](./02-architecture-overview.md#adr-026-one-processing-control-plane-three-execution-mechanisms)).
+It is the deliberate exception to §6.3.1's one-class-per-operation naming: snapshot, scoped update,
+service check, failure retry and bulk reprocess are one administrative facade, while the serialized
+mutations share one tail and last-apply state instead of coordinating through controllers.
+
+`ProcessingControlPlane.snapshot()` reads the topology, effective processing settings,
+`QueueMonitor`, document step counts, gate/runtime state, service-health cache and maintenance
+metrics. Independent reads are started together and assembled into the one flattened contract of
+`07 §7.3`; presentation code does no joins and the web layer never reconstructs a relationship.
+`checkServices()` is the explicit slower operation: it delegates to the shared health reader, which
+probes in parallel and replaces the cache read by the next snapshot. Failure listing, retry and bulk
+reprocess likewise delegate to their focused application commands while staying under the same
+administrative namespace.
+
+The four update routes delegate to one serialized control-plane mutation method. It owns the
+expected-revision check, before-image, candidate validation, sparse desired-state write,
+affected-only runtime apply, compensation as a new monotonic revision and apply-state reporting
+specified in `05 §5.4f`. The controller never calls `WorkerRegistry`, `ServiceGates`,
+`SettingsRepository` or reprocess logic in sequence; doing so would put the atomicity of one command
+back in the presentation layer. Startup reads the same durable `QueueSettings`, configures the same
+`ServiceGates` and registers workers through the same adapter before accepting queue work; scoped
+live commands use `ProcessingWorkerRuntime.reconfigure` for affected queues only.
+
+The delegated `RetryFailedJob` also preserves the boundary: it asks the read-only `QueueMonitor` for
+the failed row, validates its queue against the closed processing queue names, and calls
+`JobQueue.enqueue`. The pg-boss adapter is the only place which may attach retry, backoff, expiry, priority defaults and a derived
+singleton key. A monitor is an observer and never sends work.
 
 ## 6.4. Presentation layer
 
@@ -174,7 +210,8 @@ protocol can carry, the batches are cut inside that transaction and commit with 
 LibraryReader), `PdfModule` (PdfToolbox, ImageTool), `AiModule` (EmbeddingProvider,
 DocumentAnalyst, PageTranscriber), `QueueModule` (JobQueue, QueueMonitor, worker bootstrap), and the feature
 modules: `AuthModule`, `UsersModule`, `LibrariesModule`, `DocumentsModule`, `SearchModule`,
-`DocumentTypesModule`, `CollectionsModule`, `QueueAdminModule`, `HealthModule`.
+`DocumentTypesModule`, `CollectionsModule`, `QueueAdminModule` (the processing controller plus the
+queue-era compatibility controller), `HealthModule`.
 
 ## 6.6. Configuration
 
@@ -343,14 +380,20 @@ history from a log already written.
   role receives queue DML only; the migrator retains ownership and runtime has no schema DDL or
   execution rights on pg-boss's create/delete helpers
   ([`12 §12.7`](./12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)).
-- Worker registration maps queue names to application handlers with per-queue concurrency from config
-  (defaults in [`05 §5.4`](./05-library-and-processing.md#54-job-queue-pg-boss)); handlers are
-  resolved from the Nest DI container (`app.get(HandleFileIngest)`).
+- Worker registration maps the queue nodes of `ProcessingTopology` to executable application
+  handlers, asserting that each node has exactly one handler, with per-queue effective concurrency
+  from the control plane (defaults in [`05 §5.4`](./05-library-and-processing.md#54-job-queue-pg-boss));
+  handlers are resolved from the Nest DI container (`app.get(HandleFileIngest)`). The topology
+  carries policy metadata, not handler callbacks, so application metadata stays framework-free.
 - Retry policy per queue: `retryLimit: 5`, `retryBackoff: true` (exponential).
   `document-process` settles a
   document's own failures inside the handler and lets exactly one error class reach this policy:
   `ServiceUnavailableError`, a service being away, which is retried because it is transient and must
   not be recorded against a document ([`05 §5.4e`](./05-library-and-processing.md#54e-an-outage-is-not-a-verdict)).
+- Manual retry uses that same send path: `QueueMonitor` returns the recognized failed row and
+  `RetryFailedJob` calls `JobQueue.enqueue`; the monitor never calls `boss.send`. Thus a manual copy
+  receives the queue's retry/backoff/expiry and derived singleton key, and the failed row remains as
+  history (`05 §5.4f`).
 - 🔒 **A singleton key means nothing unless the queue's policy says it does**, and the key is
   therefore decided in one place — the queue adapter, off the payload — rather than at each of the
   eight call sites that ask for work. pg-boss's dedup indexes cover only the `short`, `singleton` and
@@ -386,7 +429,9 @@ history from a log already written.
   every hour. The arithmetic is in
   [`05 §5.4a`](./05-library-and-processing.md#54a-what-one-document-may-cost); the price is that a
   `document-process` job whose worker died waits three hours rather than one, which the hourly
-  maintenance sweep and the handler's own refusal to run a document twice both cover.
+  maintenance sweep and the per-document coordinator both cover. A delivery which overlaps active
+  work is not completed until its own whole request has subsequently run (`05 §5.4f`); handler-level
+  coalescing is forbidden because a composition rebuild may name pages the active run never saw.
 - Cron: on start, the app (re)registers pg-boss schedules — per-library scans (`*/N` from
   `scanIntervalMinutes`; re-registered whenever a library is created/updated) and `maintenance`
   (hourly).

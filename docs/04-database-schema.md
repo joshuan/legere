@@ -1217,7 +1217,7 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 | one page of a catalogue in a named order (`07 §7.3`: `lastDocumentAt`, `documents`, `things`, `name`) | **none, and deliberately**: every key but the name is an aggregate — `max(documents.document_date)` across the link table, or a count of it — which no index can order by, and the keyset is applied to the aggregated result. One page is one aggregation over the **living** catalogue plus a top-N sort, and what bounds it is the catalogue ceiling rather than the archive: 10 000 people, 20 000 subjects, 500 kinds (`08 §8.4`). Measured at those ceilings it is 60–120 ms, with a top-N heapsort and no full sort. The joins underneath are the ones above — `document_people(person_id)`, `document_subjects(subject_id)`, `subjects(kind_id)` — and `documents` is reached by primary key |
 | filter/browse by year, "what happened in March" | `documents(document_date DESC NULLS LAST)` (raw SQL, §4.3) |
 | filter by place | `documents(country) WHERE country IS NOT NULL`, `documents(city) WHERE city IS NOT NULL` — partial, because the analysis finds a place for only some documents and an index over the rest would be NULL entries nothing looks up (raw SQL, §4.3) |
-| filter by pipeline step + status | none: five low-cardinality enum columns, and the queue screen's counters bound the answer |
+| filter by pipeline step + status | none: low-cardinality enum columns, and the Processing screen's counters bound the answer |
 | FTS: the document's own words | GIN on `search_vector`, query via `websearch_to_tsquery('simple', $1)` — title, extracted field values (via `extracted_search_text`), description, Markdown and place, all in the generated column (§4.3) |
 | FTS: the names of what a document is made of and about | GIN on `to_tsvector('simple', name)` over `files`, `people` and `subjects` (§4.3) — one index scan per table, joined to the document through `document_pages` / `document_people` / `document_subjects` — the first of the three **distinct**, since one file may be read by several pages of one document. Deliberately not denormalised onto the document: a name is matched where it lives (§4.3) |
 | semantic search | HNSW cosine on `document_chunks.embedding`, `ORDER BY embedding <=> $1 LIMIT k` |
@@ -1274,7 +1274,7 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 - **Which model wrote a vector is stored beside it** (`document_chunks.model`, `03 §3.3.11`). Two
   models in one table is a search that quietly lies — cosine distance between vectors from different
   embedders is a number with no meaning — and without the column the only way to notice would be to
-  remember. `/admin/queue` counts the chunks per model (`07 §7.3`) so a half-finished switch is
+  remember. `/admin/processing` counts the chunks per model (`07 §7.3`) so a half-finished switch is
   visible on the screen that owns the pipeline.
 
 ## 4.6. Seed (dev)

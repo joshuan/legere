@@ -126,7 +126,7 @@ CLASSIFIER_PAGE_IMAGE_MAX_DIM=1200           # longest side of each of them: a m
 QUEUE_CONCURRENCY_INGEST=4
 QUEUE_CONCURRENCY_PROCESS=2
 QUEUE_UNIT_CONCURRENCY=1
-QUEUE_REPROCESS_MAX=500                      # cap on one POST /api/admin/queue/reprocess call
+QUEUE_REPROCESS_MAX=500                      # cap on one POST /api/admin/processing/reprocess call
 
 # --- per-service gates (05 §5.4b): concurrency 0 = ungated (else 1…32), cooldown 0…600 seconds ---
 SERVICE_CONCURRENCY_STIRLING=0               # calls of this service in flight at once
@@ -149,6 +149,29 @@ CLASSIFIER_API_BASE_URL=                     # empty = reuse EMBEDDINGS_API_BASE
 CLASSIFIER_API_KEY=
 CLASSIFIER_MODEL=
 ```
+
+**Processing defaults and live overrides.** The queue, pipeline and service variables above are
+defaults, not a second control surface. `QueueSettings` resolves them with stored overrides; the
+`ProcessingControlPlane` reports each load-control value as `{ effective, default, source }`
+(`05 §5.4f`): `source` is `DEFAULT`
+until an admin stores an override, and `OVERRIDE` afterwards. `library-scan` and `maintenance`
+concurrency are fixed built-in defaults of 1 and every queue/step pause is built-in `false`; the
+single `DEFAULT` source deliberately covers both those version defaults and the environment-backed
+ones. Analysis language remains a separate content preference (empty means the document's language),
+not a load control in the processing snapshot.
+
+Changing the environment therefore changes the value used on the next start only where no override
+exists. The Processing screen's **Use default** command removes one stored field; it does not write a
+copy of the current environment value. Existing `queue` and `analysis` settings rows remain readable
+and need no database migration, but all new writes are sparse, scoped control-plane writes (`03
+§3.3.21`, `07 §7.3`). An invalid stored field falls back to the default and cannot prevent startup.
+Worker bootstrap reads the same durable effective values, configures service gates and registers all
+unpaused queues; scoped live commands use the worker runtime adapter to reconfigure only the queues
+whose controls changed.
+
+No new variable defines the processing topology. Queue identities, pipeline dependencies and
+step-to-service roles are application-version facts in `ProcessingTopology`, not deployment choices
+([ADR-026](./02-architecture-overview.md#adr-026-one-processing-control-plane-three-execution-mechanisms)).
 
 **`DOCLING_PICTURE_DESCRIPTION`.** Docling can write a caption under every picture in a document,
 using a vision model that runs inside its container. It works, and it is off by default, because

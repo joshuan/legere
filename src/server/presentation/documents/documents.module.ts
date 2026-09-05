@@ -41,6 +41,7 @@ import {
   type PageThumbSettings,
 } from '../../application/documents/download-document';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
+import { GetDocumentProcessingState } from '../../application/documents/get-document-processing-state';
 import {
   GroupingCandidateReader,
   SuggestGroupings,
@@ -494,6 +495,12 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
         queueSettings: QueueSettings,
       ): ReprocessDocument => new ReprocessDocument(documents, events, queue, queueSettings),
       inject: [DocumentRepository, DocumentEventRepository, JobQueue, QueueSettings],
+    },
+    {
+      provide: GetDocumentProcessingState,
+      useFactory: (queueSettings: QueueSettings): GetDocumentProcessingState =>
+        new GetDocumentProcessingState(queueSettings),
+      inject: [QueueSettings],
     },
   ],
 })

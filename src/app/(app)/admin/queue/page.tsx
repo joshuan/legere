@@ -1,1 +1,5 @@
-export { AdminQueueScreen as default } from '../../../../web/screens/admin-queue';
+import { redirect } from 'next/navigation';
+
+export default function LegacyAdminQueuePage() {
+  redirect('/admin/processing');
+}

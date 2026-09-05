@@ -483,6 +483,60 @@ boundary, move pages into another document. And the price ADR-021 named is uncha
 change re-runs the pipeline for that document, in the background, with the old artifacts serving
 until the new ones land.
 
+### ADR-026. One processing control plane, three execution mechanisms
+
+**Context.** Operations grew along three different axes. pg-boss queues own delivery, retries and
+worker concurrency; the document pipeline owns six durable per-document step states and their
+dependencies; service gates own health, rate limits and provider holds. Those are deliberately
+different semantics, but their names, defaults and relationships were repeated in queue policy,
+worker wiring, the document handler, health checks, REST contracts and the admin screen. The result
+looked like three unrelated systems and every new step or service needed a trail of matching edits.
+
+**Decision.** Processing has one application-level management aggregate,
+`ProcessingControlPlane`, backed by one validated, read-only `ProcessingTopology` declaration. The
+topology is the ordered source of truth for:
+
+- the queues this version runs and which pipeline, if any, each queue hosts;
+- the six document steps, their dependency edges and the external services they may use;
+- the external services this version can gate and probe; and
+- which queues produce work for which later queue, plus the declarative pg-boss policy and expiry
+  metadata which the queue adapter consumes or asserts.
+
+The control plane composes configuration, live queue counters, document-step counters, gate state,
+service health and stored metrics into one snapshot. Every load-control mutation goes through a
+scoped control-plane command with an expected settings revision, and every setting in the snapshot
+names its effective value, its default and whether an override is in force. The existing analysis
+output-language preference remains separate because it changes content, not load. The admin UI
+renders the topology and relationships returned by the snapshot; it does not maintain a second
+`step -> service` table.
+
+**The unification stops at management.** A queue is still a pg-boss delivery channel, a step is still
+a durable state transition on one document, and a service is still an outbound resource behind a
+gate. They do not implement a common runtime interface, do not share a status enum and do not become
+one generic graph executor. The document pipeline remains the sequential, idempotent
+`document-process` handler of `05 §5.5`; this decision is not the per-step-job DAG alternative.
+
+**Why.** An operator gets one answer to “what is running, what is holding it, and which knob controls
+it”, while each mechanism keeps the invariants it already enforces. A single topology removes the
+manual joins that drifted, and scoped commands remove the lost-update risk of posting a whole form
+containing unrelated edits.
+
+**Alternatives.** One universal queue/node abstraction was rejected because delivery, durable
+document state and outbound capacity have incompatible lifecycles. One pg-boss job per pipeline step
+would make retry and concurrency finer-grained, but requires a scheduler for dependency resolution,
+versioning and stale-work cancellation; it is a later decision justified only by measurements of
+head-of-line blocking. Keeping only an API/UI facade would improve presentation but leave the
+duplicated topology and unsafe apply path intact.
+
+**Consequences.** The authoritative management contract moves from `/api/admin/queue/*` to
+`/api/admin/processing/*` (`07 §7.3`), with the old routes retained as deprecated compatibility
+delegates during the transition; the admin screen becomes **Processing** while retaining a redirect
+from its old address (`11 §11.13`). Queue/service implementations remain infrastructure
+adapters behind application ports. Applying runtime settings is serialized, compensating and
+observable; a partial apply is never returned as success (`05 §5.4f`, `06 §6.3`). Adding a queue,
+step or gated service requires extending the topology and satisfying its completeness tests before
+any UI mapping is possible.
+
 ### ADR-013. CI — a single Docker image to GHCR; deployment outside the repository
 - **Decision:** GitHub Actions: on every PR — `typecheck` + `lint` + `test` + `build` (with a
   PostgreSQL+pgvector service); on `main`/tag — build of a **single** image `ghcr.io/<owner>/legere`.

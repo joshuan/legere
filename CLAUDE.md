@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**The backlog M0–M31 is implemented** — there is no unchecked task in
+**The backlog M0–M61 is implemented** — there is no unchecked task in
 `docs/tasks/backlog.md`, so the next piece of work starts by writing one. Every mandatory scenario of `docs/14 §14.8` is mapped to a test in
 `docs/tasks/scenario-coverage.md`. The specification (documents 01–14 in `docs/`) remains the source
 of truth; new work continues the same way — take the first unchecked task, tick it off in the same
@@ -84,9 +84,14 @@ file storage is attached to the server; Legere scans it, deduplicates **files** 
 composes them into **documents** — a document is an ordered list of **pages**, each naming the file
 it is read from, which page of it, which way up it lies and how much of it is paper (`02` ADR-025),
 plus one canonical PDF built from them (`02` ADR-021, half of it superseded by ADR-025). Each document runs through a pg-boss queue (canonical PDF → JPG
-preview → Markdown with OCR → analysis → vectorization into pgvector), and the product provides a
+preview → Markdown with OCR → analysis → typed fields → vectorization into pgvector), and the product provides a
 viewer, hybrid search (FTS + vectors), sharing, and an admin panel. Heavy PDF operations (conversion,
 OCR, page merging) run in an external
 **Stirling-PDF** container. Derived artifacts live in a private **S3 bucket** (served via
 short-lived signed URLs); the server stores no files locally. Details — `docs/01`, `docs/02`,
 `docs/05`.
+
+Processing is administered through one `ProcessingControlPlane` and one validated, read-only
+`ProcessingTopology` declaration (ADR-026): queues, document steps and external services are
+presented and configured as one management aggregate, while pg-boss delivery, durable step
+execution and service gates deliberately remain different runtime mechanisms.

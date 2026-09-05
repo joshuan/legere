@@ -77,11 +77,11 @@ import {
   type PageFormat,
   type StepStatus,
 } from '../../../shared/contracts/enums';
+import type { DocumentProcessingBlockerDto } from '../../../shared/contracts/processing';
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
 import { personApi, personKeys } from '../../entities/person';
-import { pipelineApi, queueKeys } from '../../entities/queue';
 import { searchApi, searchKeys } from '../../entities/search';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
@@ -457,17 +457,23 @@ function ProcessingSection({
   const [choosing, setChoosing] = useState(false);
   const [steps, setSteps] = useState<DocumentStep[]>([]);
 
-  // Which steps the instance is holding (docs/05 §5.4d). Read by every reader, not only an admin:
-  // "this document has been half processed for two days" is asked by whoever opened it, and a step
-  // held on purpose is a different answer from a queue that is slow (docs/11 §11.5). Instance-wide
-  // and slow to change, so it is not polled with the document beside it.
-  const pausedSteps = useQuery({
-    queryKey: queueKeys.pausedSteps,
-    queryFn: pipelineApi.pausedSteps,
-    staleTime: 60_000,
+  // A pause is not enough to explain this row: an existing artifact or document type may let a
+  // downstream step proceed. Ask the document-scoped read model which pending steps are actually
+  // held, and why, rather than rebuilding the dependency graph in the browser (docs/05 §5.4f).
+  const processingState = useQuery({
+    queryKey: documentKeys.processingState(document.id),
+    queryFn: () => documentApi.processingState(document.id),
+    refetchInterval: document.processing ? LIVE_REFRESH_MS : false,
   });
-  const paused = (step: DocumentStep): boolean =>
-    (pausedSteps.data?.pausedSteps ?? []).includes(step);
+  const blockersByStep = new Map(
+    (processingState.data?.steps ?? []).map(({ step, blockers }) => [step, blockers]),
+  );
+  const blockersFor = (step: DocumentStep, status: StepStatus): DocumentProcessingBlockerDto[] =>
+    status === 'PENDING' ? [...(blockersByStep.get(step) ?? [])] : [];
+  const blockedSteps = new Set(
+    DOCUMENT_STEPS.filter((step) => blockersFor(step, document.steps[step]).length > 0),
+  );
+  const runnableChosen = steps.filter((step) => !blockedSteps.has(step));
 
   // The newest settled duration of each step (docs/11 §11.5). The list arrives newest first, so
   // the first STEP_FINISHED seen for a step is its latest run — and one that reported no duration
@@ -484,6 +490,7 @@ function ProcessingSection({
   const refresh = (): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.detail(document.id) });
     void queryClient.invalidateQueries({ queryKey: documentKeys.events(document.id) });
+    void queryClient.invalidateQueries({ queryKey: documentKeys.processingState(document.id) });
   };
 
   // Asking for this one document to be analysed however long it is. A different request from "run
@@ -546,11 +553,11 @@ function ProcessingSection({
             <Button
               size="small"
               type="primary"
-              disabled={steps.length === 0}
+              disabled={runnableChosen.length === 0}
               loading={reprocess.isPending}
-              onClick={() => reprocess.mutate(steps)}
+              onClick={() => reprocess.mutate(runnableChosen)}
             >
-              {t('viewer.processing.reprocessSelected', { count: steps.length })}
+              {t('viewer.processing.reprocessSelected', { count: runnableChosen.length })}
             </Button>
           </Space>
         )}
@@ -563,7 +570,8 @@ function ProcessingSection({
         {DOCUMENT_STEPS.map((step) => {
           const status = document.steps[step];
           const label = t(`viewer.steps.${step}`);
-          const isPaused = paused(step);
+          const blockers = blockersFor(step, status);
+          const isBlocked = blockers.length > 0;
           const reason = document.skipReasons[step];
           const failure = document.failedStep === step ? document.processingError : null;
           const duration =
@@ -579,7 +587,7 @@ function ProcessingSection({
                     checked={steps.includes(step)}
                     // 🔒 A held step is not selectable: the server refuses to run it (docs/07
                     // §7.3), and a checkbox that buys a 409 is a checkbox that lies.
-                    disabled={isPaused}
+                    disabled={isBlocked}
                     onChange={(event) =>
                       setSteps((chosen) =>
                         event.target.checked
@@ -590,16 +598,16 @@ function ProcessingSection({
                   />
                 )}
                 <span className="legere-step-glyph" aria-hidden>
-                  {stepGlyph(isPaused ? 'PAUSED' : status)}
+                  {stepGlyph(isBlocked ? 'PAUSED' : status)}
                 </span>
                 <Typography.Text>
                   {label}
-                  {isPaused && (
-                    <>
+                  {blockers.map((blocker, index) => (
+                    <Fragment key={processingBlockerKey(blocker, index)}>
                       {' '}
-                      <Tag color="orange">{t('viewer.processing.pausedTag')}</Tag>
-                    </>
-                  )}
+                      <Tag color="orange">{processingBlockerTag(blocker, t)}</Tag>
+                    </Fragment>
+                  ))}
                 </Typography.Text>
                 <span className="legere-step-leader" aria-hidden />
                 <Typography.Text type="secondary" className="legere-step-state">
@@ -607,13 +615,18 @@ function ProcessingSection({
                   {duration !== undefined && ` · ${formatDuration(duration, t)}`}
                 </Typography.Text>
               </div>
-              {/* Waiting on purpose, which is a different thing from waiting for a worker: without
-                  this line the row says Waiting and leaves the reader to wonder (docs/05 §5.4d). */}
-              {isPaused && (
-                <Typography.Text type="secondary" className="legere-step-note">
-                  {t('viewer.processing.pausedHint')}
+              {/* Waiting on purpose, with the exact switch or dependency which caused it. The
+                  server has already evaluated artifacts and type for this document; the viewer
+                  translates that answer and never infers the cascade itself. */}
+              {blockers.map((blocker, index) => (
+                <Typography.Text
+                  type="secondary"
+                  className="legere-step-note"
+                  key={processingBlockerKey(blocker, index)}
+                >
+                  {processingBlockerHint(blocker, t)}
                 </Typography.Text>
-              )}
+              ))}
               {/* SKIPPED alone reads like a failure; the reason says which harmless one it was —
                   and the way past the length limit stands beside the reason that names it
                   (docs/03 §3.3.10, docs/05 §5.5 step 4). */}
@@ -670,6 +683,38 @@ function ProcessingSection({
       )}
     </Space>
   );
+}
+
+function processingBlockerKey(blocker: DocumentProcessingBlockerDto, index: number): string {
+  if (blocker.kind === 'QUEUE_PAUSED') return `${blocker.kind}-${blocker.queue}-${index}`;
+  if (blocker.kind === 'STEP_PAUSED') return `${blocker.kind}-${blocker.step}-${index}`;
+  return `${blocker.kind}-${blocker.path.join('-')}-${blocker.condition}-${index}`;
+}
+
+function processingBlockerTag(
+  blocker: DocumentProcessingBlockerDto,
+  t: ReturnType<typeof useTranslations>,
+): string {
+  if (blocker.kind === 'QUEUE_PAUSED') return t('viewer.processing.queuePausedTag');
+  if (blocker.kind === 'STEP_PAUSED') return t('viewer.processing.pausedTag');
+  return t('viewer.processing.dependencyPausedTag', {
+    step: t(`viewer.steps.${blocker.step}`),
+  });
+}
+
+function processingBlockerHint(
+  blocker: DocumentProcessingBlockerDto,
+  t: ReturnType<typeof useTranslations>,
+): string {
+  if (blocker.kind === 'QUEUE_PAUSED') {
+    return t('viewer.processing.queuePausedHint', { queue: blocker.queue });
+  }
+  if (blocker.kind === 'STEP_PAUSED') return t('viewer.processing.pausedHint');
+  return t('viewer.processing.dependencyPausedHint', {
+    upstream: t(`viewer.steps.${blocker.step}`),
+    path: blocker.path.map((step) => t(`viewer.steps.${step}`)).join(' → '),
+    condition: t(`viewer.processing.blockerConditions.${blocker.condition}`),
+  });
 }
 
 // One shape and one colour per verdict (docs/11 §11.5), so the row that matters is found before it

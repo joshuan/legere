@@ -7,6 +7,7 @@ import { NotFoundError } from '../../domain/errors/domain-error';
 import type { DocumentRepository } from '../../domain/repositories/document.repository';
 import type { DocumentChunkRepository } from '../../domain/repositories/document-chunk.repository';
 import type { MetricsCache } from '../ports/metrics-cache';
+import { QUEUE_NAMES, type JobQueue, type QueueName } from '../ports/job-queue';
 import type { QueueMonitor } from '../ports/queue-monitor';
 import type { ServiceGates } from './service-gate';
 
@@ -36,7 +37,7 @@ export class GetQueueOverview {
       queues,
       documents: {
         total: counters.total,
-        // Always all five steps, in pipeline order, even when a status has no documents in it —
+        // Always all six steps, in pipeline order, even when a status has no documents in it —
         // a card that disappears when it reaches zero is worse than one showing zero.
         steps: DOCUMENT_STEPS.map((step) => ({ step, counts: counters.steps[step] })),
       },
@@ -67,13 +68,27 @@ export class ListQueueFailures {
 }
 
 export class RetryFailedJob {
-  constructor(private readonly monitor: QueueMonitor) {}
+  constructor(
+    private readonly monitor: QueueMonitor,
+    private readonly queue: JobQueue,
+  ) {}
 
   async execute(jobId: string): Promise<{ ok: true }> {
     // A job that already left the failed state (retried by someone else, or archived) is simply
     // not there any more — the same answer as a made-up id.
-    const retried = await this.monitor.retry(jobId);
-    if (!retried) throw new NotFoundError('NOT_FOUND', 'Failed job not found');
+    const failed = await this.monitor.failedJob(jobId);
+    if (failed === null || !isQueueName(failed.queue)) {
+      throw new NotFoundError('NOT_FOUND', 'Failed job not found');
+    }
+    await this.queue.enqueue(failed.queue, payloadOf(failed.payload));
     return { ok: true };
   }
+}
+
+function isQueueName(value: string): value is QueueName {
+  return QUEUE_NAMES.some((queue) => queue === value);
+}
+
+function payloadOf(value: unknown): object {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }

@@ -1,4 +1,4 @@
-import { Body, Injectable, type PipeTransform, Query } from '@nestjs/common';
+import { Body, Injectable, Param, type PipeTransform, Query } from '@nestjs/common';
 import type { ZodType, ZodTypeDef } from 'zod';
 import { ValidationFailedError } from '../../domain/errors/domain-error';
 
@@ -26,4 +26,11 @@ export function ZodBody<T>(schema: ZodType<T, ZodTypeDef, unknown>): ParameterDe
 
 export function ZodQuery<T>(schema: ZodType<T, ZodTypeDef, unknown>): ParameterDecorator {
   return Query(new ZodValidationPipe(schema));
+}
+
+export function ZodParam<T>(
+  name: string,
+  schema: ZodType<T, ZodTypeDef, unknown>,
+): ParameterDecorator {
+  return Param(name, new ZodValidationPipe(schema));
 }

@@ -16,6 +16,7 @@ import {
   type Envelope,
   type PaginationQuery,
 } from '../../../shared/contracts/common';
+import type { DocumentProcessingStateResponse } from '../../../shared/contracts/processing';
 import {
   createDocumentLinkRequestSchema,
   listDocumentGroupsQuerySchema,
@@ -104,6 +105,7 @@ import {
   SuggestDocumentLinks,
 } from '../../application/documents/document-links';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
+import { GetDocumentProcessingState } from '../../application/documents/get-document-processing-state';
 import { SuggestGroupings } from '../../application/documents/suggest-groupings';
 import { UploadDocument } from '../../application/documents/upload-document';
 import type { DocumentDetail } from '../../domain/repositories/document.repository';
@@ -175,6 +177,7 @@ export class DocumentsController {
     private readonly createLinkTo: CreateDocumentLink,
     private readonly deleteLinkTo: DeleteDocumentLink,
     private readonly suggestLinks: SuggestDocumentLinks,
+    private readonly processingState: GetDocumentProcessingState,
     private readonly config: AppConfig,
   ) {}
 
@@ -233,6 +236,14 @@ export class DocumentsController {
     @CurrentDocument() document: DocumentDetail,
   ): Envelope<DocumentDetailDto> {
     return successEnvelope(this.get.execute(user, document));
+  }
+
+  @Get(':id/processing-state')
+  @UseGuards(DocumentAccessGuard)
+  async getProcessingState(
+    @CurrentDocument() document: DocumentDetail,
+  ): Promise<Envelope<DocumentProcessingStateResponse>> {
+    return successEnvelope(await this.processingState.execute(document));
   }
 
   @Patch(':id')

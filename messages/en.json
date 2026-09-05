@@ -38,7 +38,9 @@
       "DOCUMENT_TYPE_SLUG_TAKEN": "A document type with this slug already exists.",
       "COLLECTION_NAME_TAKEN": "You already have a collection with this name.",
       "DOCUMENT_UNAVAILABLE": "The original file is currently unavailable.",
-      "STEPS_PAUSED": "That step is paused, so nothing was started. Resume it on the queue page.",
+      "STEPS_PAUSED": "That step is paused, so nothing was started. Resume it on the Processing page.",
+      "PROCESSING_SETTINGS_CHANGED": "Processing controls changed in another tab. Reload and try again.",
+      "PROCESSING_APPLY_FAILED": "The processing controls could not be applied safely. Check the current state and try again.",
       "ONBOARDING_CLOSED": "This instance has already been set up.",
       "VALIDATION_FAILED": "Please check the highlighted fields.",
       "CURSOR_SORT_MISMATCH": "The order changed while this page was open. Reload to see it.",
@@ -446,7 +448,7 @@
       }
     },
     "queue": {
-      "title": "Queue",
+      "title": "Processing",
       "autoRefresh": "Auto-refresh",
       "queued": "Queued",
       "active": "Active",
@@ -493,10 +495,23 @@
         "queue": "Queue",
         "payload": "Payload",
         "retries": "Retries",
-        "actions": "Actions"
+        "actions": "Actions",
+        "more": "Load more"
       },
       "settings": {
         "saved": "Applied",
+        "resumedWork": "Applied · {count} released step runs enqueued",
+        "useDefault": "Use default",
+        "useDefaults": "Use defaults",
+        "effectiveDefault": "Effective {effective} · default {default}",
+        "source": {
+          "DEFAULT": "Default",
+          "OVERRIDE": "Override"
+        },
+        "state": {
+          "running": "running",
+          "paused": "paused"
+        },
         "unitConcurrency": "Units per job",
         "unitConcurrencyHint": "How many independent pieces inside one job run at once — the pages of a scan set being cropped, say.",
         "analysisLanguage": "The analysis writes in",
@@ -520,6 +535,10 @@
         "state": "State",
         "stateHint": "One cheap request per service — the one it publishes for the purpose. It goes around the queues and around the gates, so it answers even while everything else is stuck.",
         "check": "Check",
+        "checked": "Service checks completed",
+        "controls": "Limits",
+        "resetConcurrency": "Default calls",
+        "resetCooldown": "Default pause",
         "checkedAt": "Checked at {time}",
         "latency": "{ms} ms",
         "httpCode": "HTTP {code}",
@@ -556,7 +575,13 @@
         "ungated": "Not throttled",
         "inFlight": "{count} in flight",
         "throttledUntil": "Throttled until {time}",
-        "waiting": "{count} waiting, longest {seconds} s"
+        "waiting": "{count} waiting, longest {seconds} s",
+        "waitingShort": "{count} waiting",
+        "freshness": {
+          "UNKNOWN": "Not checked",
+          "FRESH": "Fresh",
+          "STALE": "Stale"
+        }
       },
       "names": {
         "library-scan": "Scanning libraries",
@@ -567,7 +592,7 @@
       "hints": {
         "library-scan": "Walks the attached folders and notices files that are new, changed or gone.",
         "file-ingest": "Hashes each file, deduplicates it, and makes a document out of it.",
-        "document-process": "The five steps below: the canonical PDF, its preview, its text, the analysis, the vectors.",
+        "document-process": "The six steps below: the canonical PDF, its preview, its text, the analysis, extracted fields, and vectors.",
         "maintenance": "Hourly: expires one-time credentials, sweeps orphaned artifacts, and picks up documents nobody is coming for."
       },
       "tabs": {
@@ -590,6 +615,65 @@
       "stages": {
         "title": "Stages",
         "stage": "Stage"
+      },
+      "apply": {
+        "APPLIED": "Configuration applied",
+        "APPLIED_WITH_WARNINGS": "Configuration applied with warnings",
+        "DEGRADED": "Processing control is degraded",
+        "revisions": "Desired revision {desired} · applied revision {applied}",
+        "blockers": "Active blockers: {count}",
+        "generatedAt": "Snapshot generated at {time}"
+      },
+      "liveness": {
+        "completedLastHour": "Done (1 h)",
+        "oldestQueuedAt": "Oldest queued",
+        "lastCompletedAt": "Last done",
+        "noQueuedWork": "No queued work",
+        "noRetainedCompletion": "No retained completion"
+      },
+      "runtime": {
+        "unregistered": "Worker not registered",
+        "appliedConcurrency": "Runtime concurrency: {value}"
+      },
+      "blockers": {
+        "title": "Blockers",
+        "queuePaused": "Queue paused: {queue}",
+        "stepPaused": "Step paused: {step}",
+        "dependencyPaused": "Paused dependency: {path}",
+        "runtimeDegraded": "Runtime: {detail}"
+      },
+      "topology": {
+        "title": "Processing topology",
+        "terminal": "terminal",
+        "expiry": "expires after {seconds} s",
+        "produces": "produces {queues}",
+        "dependsOn": "after {step}",
+        "noDependencies": "No dependencies",
+        "steps": "Pipeline steps: {steps}",
+        "otherConsumers": "Other consumers: {consumers}",
+        "resourceDetail": "{role} · {when}",
+        "kind": {
+          "INGRESS": "Ingress",
+          "PIPELINE": "Pipeline",
+          "HOUSEKEEPING": "Housekeeping"
+        },
+        "role": {
+          "PRIMARY": "Primary",
+          "FALLBACK": "Fallback",
+          "OPTIONAL": "Optional",
+          "AUXILIARY": "Auxiliary"
+        },
+        "when": {
+          "ALWAYS": "always",
+          "WHEN_CONFIGURED": "when configured",
+          "WHEN_PRIMARY_UNCONFIGURED": "when the primary service is not configured",
+          "WHEN_OCR_USED": "when OCR is used",
+          "WHEN_PAGE_IMAGES_USED": "when page images are used"
+        },
+        "holdWhen": {
+          "UPSTREAM_UNSETTLED": "Held while the upstream step is unsettled",
+          "UPSTREAM_UNSETTLED_AND_TYPE_MISSING": "Held while upstream is unsettled and the document type is missing"
+        }
       }
     },
     "documentTypes": {
@@ -923,7 +1007,15 @@
       "retryStep": "Retry this step",
       "analyseInFull": "Analyse the whole document",
       "pausedTag": "Paused",
-      "pausedHint": "This step is paused for the whole instance: it is waiting on purpose, and nothing is coming for it until an administrator resumes it."
+      "pausedHint": "This step is paused for the whole instance: it is waiting on purpose, and nothing is coming for it until an administrator resumes it.",
+      "queuePausedTag": "Queue paused",
+      "queuePausedHint": "The {queue} queue is paused. This step is waiting until an administrator resumes the queue.",
+      "dependencyPausedTag": "Held by {step}",
+      "dependencyPausedHint": "Held by the paused {upstream} step through {path}. {condition}",
+      "blockerConditions": {
+        "UPSTREAM_UNSETTLED": "This applies while the upstream result this step needs has not been built.",
+        "UPSTREAM_UNSETTLED_AND_TYPE_MISSING": "This applies while the upstream analysis is unsettled and this document has no type."
+      }
     },
     "details": {
       "size": "Size",
@@ -1216,6 +1308,7 @@
       "libraries": "Libraries",
       "users": "Users",
       "queue": "Queue",
+      "processing": "Processing",
       "instance": "Instance",
       "trash": "Trash"
     },

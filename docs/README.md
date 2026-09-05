@@ -51,9 +51,13 @@ Take the first unchecked task; one task = one PR; tick it off in the same PR.
 - **The external library is read-only.** Legere mounts the document storage read-only and **never**
   writes to it or modifies source files.
 - **Job queue — pg-boss** on top of the same PostgreSQL, workers in the same process. No Redis.
+- **Processing management — one control plane and one validated, read-only topology declaration**
+  over queues, document steps and external services. This is a management/read-model boundary, not a
+  common runtime abstraction: pg-boss delivery, durable pipeline states and service gates keep their own semantics
+  ([ADR-026](./02-architecture-overview.md#adr-026-one-processing-control-plane-three-execution-mechanisms)).
 - **Deduplication** — by SHA-256 of content: one content = one document, no matter how many files contain it.
 - **Processing pipeline:** canonicalization to PDF → first-page JPG preview → Markdown extraction (OCR
-  when needed) → analysis → vectorization (embeddings in pgvector).
+  when needed) → analysis → typed fields → vectorization (embeddings in pgvector).
 - **PDF tooling lives outside:** a sibling **Stirling-PDF** container (conversion to PDF, OCR, page
   merging, margin cropping). The app talks to it over an internal HTTP API.
 - **Derived artifacts** (previews, md, merged PDFs) — in **S3** (private bucket; viewing and downloading —

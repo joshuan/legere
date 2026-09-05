@@ -175,6 +175,31 @@ describe('WorkerRegistry', () => {
     expect(boss.queues).toEqual(['file-ingest', 'document-process']);
   });
 
+  it('reconfigures only the named queue and reports what is actually registered', async () => {
+    await registry.start();
+    boss.reset();
+
+    await registry.reconfigure(['document-process'], {
+      concurrency: {
+        'library-scan': 1,
+        'file-ingest': 4,
+        'document-process': 7,
+        maintenance: 1,
+      },
+      paused: [],
+    });
+
+    expect(boss.stopped).toEqual(['document-process']);
+    expect(boss.working).toEqual([{ queue: 'document-process', batchSize: 7 }]);
+    expect(registry.snapshot()).toEqual(
+      expect.arrayContaining([
+        { queue: 'file-ingest', registered: true, appliedConcurrency: 4 },
+        { queue: 'document-process', registered: true, appliedConcurrency: 7 },
+        { queue: 'maintenance', registered: false, appliedConcurrency: null },
+      ]),
+    );
+  });
+
   // The gates of docs/05 §5.4b come from the same row as the concurrencies, and are applied at the
   // same moment: an instance that was started with a gate stored is gated from its first job.
   it('configures the service gates from the settings it registers workers from', async () => {

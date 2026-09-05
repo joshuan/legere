@@ -39,12 +39,16 @@ human-readable index and must stay in sync with them.
     answers, skipping and repeating rows while looking like an ordinary page, and here there is a
     right answer, so quietly giving the wrong one is worse than saying no.
 
-  One list is outside this: `GET /api/admin/queue/failures` reads pg-boss's own tables, which Prisma
-  does not model (`04 §4.2`), and its cursor is the `failedAt` timestamp of the last row returned.
+  One list is outside this: `GET /api/admin/processing/failures` (and its queue-era compatibility
+  alias) reads pg-boss's own tables, which Prisma does not model (`04 §4.2`), and its cursor is the
+  `failedAt` timestamp of the last row returned.
   Being a timestamp it is validated as one — 🔒 anything else is `422 VALIDATION_FAILED`, a malformed
   query parameter rather than an opaque string to start over from, because an unparsed one reaches
   the driver as an `Invalid Date` and answers 500.
-- **IDs** are UUIDs in paths. Path params are validated; malformed UUID → 404 (not 422).
+- **Entity IDs** are UUIDs in paths. Path params are validated; malformed UUID → 404 (not 422).
+  Processing topology identifiers (`document-process`, `canonical`, `stirling`) are closed contract
+  enums instead: an unknown one is `422 VALIDATION_FAILED`, never an accepted setting that does
+  nothing.
 
 ## 7.2. Error codes
 
@@ -69,9 +73,10 @@ human-readable index and must stay in sync with them.
 | 409 | `CANONICAL_NOT_READY` | the canonical PDF has not been built yet |
 | 409 | `DOCUMENT_UNAVAILABLE` | source download when all refs MISSING |
 | 409 | `STEPS_PAUSED` | a reprocess whose every requested step is paused ([`05 §5.4d`](./05-library-and-processing.md#54d-a-step-can-be-paused)) — the job would do nothing, so it is refused rather than enqueued |
+| 409 | `PROCESSING_SETTINGS_CHANGED` | a scoped processing command whose `expectedRevision` is no longer current; re-read before deciding what to write |
 | 410 | `ONBOARDING_CLOSED` | onboarding after first user exists |
 | 415 | `UNSUPPORTED_FORMAT` | an uploaded file whose detected content type the pipeline cannot render into pages ([`05 §5.1a`](./05-library-and-processing.md#51a-uploads)) — all three upload routes |
-| 422 | `VALIDATION_FAILED` | Zod failure (`details.issues`) — including the timestamp cursor of `GET /api/admin/queue/failures` (§7.1) |
+| 422 | `VALIDATION_FAILED` | Zod failure (`details.issues`) — including the timestamp cursor of `GET /api/admin/processing/failures` (§7.1) |
 | 422 | `CURSOR_SORT_MISMATCH` | a cursor cut from one named order handed to a request asking for another (§7.1) |
 | 422 | `LIBRARY_PATH_INVALID` | path outside root / not a directory |
 | 422 | `FILE_NOT_IMAGE` | asking a page that is not a page of an image to be **mirrored** — a page of a PDF arrives the way its producer laid it out and turns in quarters (`03 §3.3.17`) — or asking for a crop proposal over a file that is not an image, edge detection having nothing to read otherwise. A **crop** is no longer one of these: since ADR-025 it is asked of a page, and every page takes one |
@@ -84,6 +89,7 @@ human-readable index and must stay in sync with them.
 | 400 | `EMAIL_CODE_INVALID`, `REGISTRATION_TICKET_INVALID`, `INVITE_INVALID`, `RESET_INVALID`, `CAPTCHA_FAILED` | auth flows |
 | 429 | `RATE_LIMITED`, `EMAIL_CODE_TOO_MANY_ATTEMPTS` | limits |
 | 500 | `INTERNAL` | unexpected |
+| 503 | `PROCESSING_APPLY_FAILED` | a processing setting could not be applied consistently to the live runtime; no partial success is returned (`05 §5.4f`) |
 
 ## 7.3. Endpoints
 
@@ -246,10 +252,10 @@ document; they are on the file because "what did this page look like before" is 
 page. Their bytes download from the same `…/files/:fileId/content` route as any other file of the
 document, by their own id.
 
-`DocumentDetailDto` = list dto + `{ ocrUsed, pageFormat, titleSource, typeSource, steps: {canonical, preview, markdown, analysis, fields, vectorization}, skipReasons, pausedSteps, processingError, failedStep, createdBy?, pages: DocumentPageDto[], files: DocumentFileDto[], people: {id,name,deleted}[], subjects: {id,kindId,kind,name,deleted}[], description, auto, extracted }`.
-Which steps the instance is **holding** is not on the document, because it is not about the document:
-it is one instance-wide fact read from `GET /api/pipeline/paused-steps` (below) and shown against the
-steps of whichever document is open (`11 §11.5`).
+`DocumentDetailDto` = list dto + `{ ocrUsed, pageFormat, titleSource, typeSource, steps: {canonical, preview, markdown, analysis, fields, vectorization}, skipReasons, processingError, failedStep, createdBy?, pages: DocumentPageDto[], files: DocumentFileDto[], people: {id,name,deleted}[], subjects: {id,kindId,kind,name,deleted}[], description, auto, extracted }`.
+Processing blockers are deliberately not repeated on this DTO. The viewer reads the separate,
+document-scoped `GET /api/documents/:id/processing-state` projection below, because whether a pause
+holds a downstream step depends on this document's existing artifacts and type.
 `extracted` is the whole typed-fields answer of `03 §3.3.10a` — `{ schema: {slug, version}, values,
 sources } | null` — and `auto.fields` beside it is what the model last read, which is what the
 "read as X" line and the per-field reset are drawn from. The people and subjects are the list's own, said more fully: `deleted` says the catalogue no longer holds that name — the link survives a deletion on purpose (03 §3.3.19), so the flag is the only thing that distinguishes a name still worth choosing from one kept as a record, and it is on the detail because that is where a name can still be chosen. A subject carries its kind by id as well as by name, because the kind is a row of its own (03 §3.3.20a) and each half is a way into the documents filed under it (11 §11.5).
@@ -378,25 +384,101 @@ target.
 
 ### The pipeline, as everybody sees it
 
-One route, and it is not an admin's: which steps of `05 §5.5` this instance is holding (`05 §5.4d`).
-A step that reads `PENDING` for ever is either waiting for a worker or paused, and whoever opened the
-document is owed the difference — so the fact is published to every signed-in caller rather than kept
-behind `/api/admin`. Nothing else about the queue is here: no depths, no concurrencies, no gates.
+One route, and it is not an admin's: which steps of `05 §5.5` this instance is holding for the
+document being read (`05 §5.4d`, §5.4f). A step that reads `PENDING` for ever is either waiting for a
+worker, paused itself or held by a paused input. Whoever opened the document is owed that difference,
+including the cascade; no queue depth, concurrency, gate setting or health detail leaves the admin
+boundary.
 
 | Method & path | Auth | Notes |
 |---------------|------|-------|
-| `GET /api/pipeline/paused-steps` | 🔒 | → `{ pausedSteps: ('canonical'\|'preview'\|'markdown'\|'analysis'\|'fields'\|'vectorization')[] }` — the stored list, in pipeline order, empty on an instance that holds nothing (which is every instance until somebody says otherwise). The same list an admin sets through `PATCH /api/admin/queue/settings` |
+| `GET /api/pipeline/paused-steps` | 🔒 | current compatibility response → `{ pausedSteps: DocumentStep[] }`, the explicit stored list in pipeline order; it remains available after M61.6 as the simple instance-wide projection. |
+| `GET /api/documents/:id/processing-state` | 🔒 document access | → `{ pausedSteps: DocumentStep[], steps: [{ step, blockers: DocumentProcessingBlocker[] }] }`. `pausedSteps` is the explicit stored list in pipeline order for compatibility with simple clients; the document blocker subtype contains only `QUEUE_PAUSED`, `STEP_PAUSED` and `DEPENDENCY_PAUSED`. It is evaluated server-side against this document's status, existing artifacts and type, so only `PENDING` steps receive reasons and a downstream step which can reuse an earlier artifact is not falsely called held. Empty arrays mean nothing is paused. |
 
-### Admin: queue
+### Admin: processing
+
+The administrative API is one management surface over the validated, read-only topology of
+`05 §5.4f`. A `ProcessingSnapshot` has this normative shape (the Zod contract spells out every
+nested enum and bound):
+
+```text
+{
+  generatedAt, revision,
+  apply: { status: APPLIED | APPLIED_WITH_WARNINGS | DEGRADED,
+           desiredRevision, appliedRevision, lastAttemptAt, detail },
+  topology: {
+    version: 1,
+    queues: [{ name, kind, produces, concurrencyConfigurable, policy, expireInSeconds }],
+    pipeline: { queue, steps: [{ step, dependencies, resources }] },
+    services: [{ service, steps, otherConsumers }]
+  },
+  queues: [{ name, control: { paused, concurrency },
+             runtime: { registered, appliedConcurrency, queued, active, failedRecent,
+                        oldestQueuedAt, lastCompletedAt, completedLastHour }, blockers }],
+  pipeline: { queue, unitConcurrency, totalDocuments,
+              steps: [{ step, control: { paused }, counts, blockers }] },
+  services: [{ service, control: { concurrency, cooldownSeconds },
+               gate: { inFlight, waiting, longestWaitMs, gated, throttledUntil },
+               health: { freshness, value } }],
+  vectors,
+  storage
+}
+```
+
+Every control leaf is `{ effective, default, source }`, with `source` `DEFAULT` or `OVERRIDE`.
+Nullable metric/health/apply fields are nullable in the contract rather than omitted. Dependencies
+carry `kind: ARTIFACT|CONDITIONAL_TYPE` and
+`holdWhen: UPSTREAM_UNSETTLED|UPSTREAM_UNSETTLED_AND_TYPE_MISSING`; resources carry the exact
+role/condition enums of `05 §5.4f`. `blockers` is a list of `QUEUE_PAUSED`, `STEP_PAUSED`,
+`DEPENDENCY_PAUSED` (with path and condition) or `RUNTIME_DEGRADED`. Health freshness is `UNKNOWN`,
+`FRESH` or `STALE`, and its `value` is the §5.4c row without the repeated service name, or `null`.
+Storage/vector shapes retain their existing contracts and timestamps. `failedRecent` remains the
+existing 24-hour count; the three liveness fields are added by M61.7 and are explicit `null` where no
+retained row answers them.
+
+Every PATCH body carries `expectedRevision`. Queue/service partials require at least one setting;
+pipeline and step commands carry their one required field. Numeric values keep the existing bounds:
+queue/unit concurrency 1…32, service concurrency 0…32, cooldown 0…600; nullable numbers clear their
+override, while pause booleans add/remove the name from its stored set. A successful PATCH returns
+`{ revision, changed, apply, controls, resumed }`, where `controls` is the fully resolved control
+read-model and `resumed` contains `{ step, documents, hasMore }` rows. The client validates the whole
+response, clears the successful draft and revalidates the snapshot. A stale revision is
+`409 PROCESSING_SETTINGS_CHANGED`;
+safe-apply/compensation and `DEGRADED` behavior are normative in `05 §5.4f`.
+
 | Method & path | Auth | Notes |
 |---------------|------|-------|
-| `GET /api/admin/queue/overview` | 🔒ᴬ | per queue: `{ name, queued, active, failedRecent }` + document step counters + `gates: [{ service, inFlight, waiting, longestWaitMs, gated, throttledUntil }]` + `storage: { objects, bytes, measuredAt } \| null` + `vectors: { chunks, byModel: [{ model, chunks }] }` — how many chunks the archive holds and which embedder made them (`03 §3.3.11`). One grouped count, on the same 5-second clock as the rest; `byModel` with more than one row is a model switch that has not finished, which is the one state where semantic distances mean nothing (`04 §4.5`), and a chunk written before the column existed answers `null` for its model (hourly aggregate, `null` before the first `maintenance` run). `gates` is what each gate of `05 §5.4b` is doing this instant — read off the in-process semaphore, one row per service in the order `SERVICE_NAMES` gives, `longestWaitMs` being how long the caller at the front of the queue has been standing there (`0` when nobody is), `gated` saying whether the operator configured a concurrency, and `throttledUntil` carrying the ISO instant through which a provider's valid `429 Retry-After` has paused it (`null` otherwise). A provider hold still reports its waiting count when `gated` is false: ungated healthy traffic and provider-throttled traffic are different states. It rides in the overview because it belongs to the same 5-second clock as the counters, and deliberately **not** in `/services`, whose answer is a cached probe of somebody else's container (§7.3 below) |
-| `GET /api/admin/queue/failures` | 🔒ᴬ | paginated failed jobs: `{ jobId, queue, payload, error, failedAt, retryCount }`, newest first; `cursor` is the `failedAt` of the last row and is validated as a timestamp (§7.1) |
-| `POST /api/admin/queue/failures/:jobId/retry` | 🔒ᴬ | re-enqueues a copy of the job → `{ ok: true }` |
-| `GET /api/admin/queue/settings` | 🔒ᴬ | → `{ concurrency: { <queue>: number }, unitConcurrency, paused, pausedSteps, services: { <service>: { concurrency, cooldownSeconds } } }` — every queue and every gated service, with the env defaults where nothing is stored, and where what is stored reads as a number outside its range: a row written by another version of this code is not trusted into the workers (03 §3.3.21) |
-| `PATCH /api/admin/queue/settings` | 🔒ᴬ | the same shape, sent whole; a value outside its range is **refused** (`422 VALIDATION_FAILED`) rather than quietly bent to fit — 1…32 for a queue concurrency and for `unitConcurrency` — and the workers are re-registered immediately so the change needs no restart. `paused` is the list of queues whose workers are not registered at all: jobs still arrive and wait, nothing consumes them (05 §5.4). `pausedSteps` is the same idea one level down (05 §5.4d) — the steps of `05 §5.5` that no job runs, held at `PENDING` with nothing written against them, with a step name this version does not know dropped the way an unknown queue name is. It needs no re-registration, being read per job; **releasing a step enqueues what it was holding** — that step for the documents whose it is `PENDING`, newest first, at most `QUEUE_REPROCESS_MAX` a call, the same work `POST /api/admin/queue/reprocess` does — and the hourly sweep takes whatever the bound left behind. `services` carries the same kind of override for the five gated services of `05 §5.4b` — `stirling`, `docling`, `classifier`, `transcriber`, `embeddings`, keyed the way the environment names them rather than the way the pipeline names its steps — with `concurrency` bounded to `0`…32 (`0` = ungated, and the default) and `cooldownSeconds` to 0…600, refused on exactly the terms the knobs beside them are; a service name this version does not know is dropped rather than refused, as an unknown queue name is, and a gate changes for the callers already waiting at it no later than their next acquisition, so it needs a restart no more than a concurrency does |
-| `GET /api/admin/queue/services` | 🔒ᴬ | → `{ services: [{ service, url, status, httpStatus, latencyMs, checkedAt, detail }] }` — one row per gated service of `05 §5.4b`, in that order, saying where this instance calls it and whether it answered: `url` is the resolved base URL with any userinfo stripped (`''` where none is configured), `status` one of `UP` / `UNAUTHORIZED` / `ANSWERED` / `DOWN` / `NOT_CONFIGURED` per `05 §5.4c`, `httpStatus` the code where there was one, `latencyMs` how long the probe took, `checkedAt` when it was taken and `detail` a short truncated reason where there is one to give. The probe runs outside the queues and outside the gates — "everything is stuck" is when this is asked — under its own timeout, all five in parallel, and the answer is cached for a few seconds so reloading tabs do not multiply traffic to a container that may already be struggling; a cached answer is visible as one through `checkedAt`. 🔒 No secret is in this answer: an API key is not published, not even in part |
-| `POST /api/admin/queue/reprocess` | 🔒ᴬ | `{ step?, status? }` → `{ enqueued: number }`. Each absence widens the question by a level: both — the documents whose named step sits in that status; `step` alone — that step whatever state it is in; neither — the whole pipeline of every document, which is the same work the button on one document's own page asks for. Re-enqueues `document-process` for every document whose named step sits in that status, newest first, at most `QUEUE_REPROCESS_MAX` (default 500) a call — the answer to "the previews failed, run them again" without opening five hundred documents. A **paused** step (`05 §5.4d`) is not run here either: naming one is `409 STEPS_PAUSED`, and the widest question — the whole pipeline of every document — enqueues the documents and lets the handler hold the paused steps inside each of them |
+| `GET /api/admin/processing` | 🔒ᴬ | the full flattened `ProcessingSnapshot`; independent queue/document/vector reads run in parallel and service health is the cached sample. |
+| `POST /api/admin/processing/services/check` | 🔒ᴬ | probes all topology services in parallel outside queues/gates, updates the cache and returns the existing `{ services: [...] }` health response; no secret is published. |
+| `PATCH /api/admin/processing/queues/:queue` | 🔒ᴬ | `{ expectedRevision, concurrency?: number\|null, paused?: boolean }`; applies only this queue and never bounces another worker. |
+| `PATCH /api/admin/processing/pipeline` | 🔒ᴬ | `{ expectedRevision, unitConcurrency: number\|null }`; it is read per document, so no worker is re-registered. |
+| `PATCH /api/admin/processing/pipeline/steps/:step` | 🔒ᴬ | `{ expectedRevision, paused: boolean }`; resume enqueues the released `PENDING` work up to `QUEUE_REPROCESS_MAX` and reports per-step count/`hasMore` in `resumed`; the hourly sweep takes the remainder or a failed catch-up. |
+| `PATCH /api/admin/processing/services/:service` | 🔒ᴬ | `{ expectedRevision, concurrency?: number\|null, cooldownSeconds?: number\|null }`; reconfigures only this process-wide gate and affects existing waiters no later than their next acquisition. |
+| `GET /api/admin/processing/failures` | 🔒ᴬ | paginated failed jobs `{ jobId, queue, payload, error, failedAt, retryCount }`, newest first; timestamp cursor validated per §7.1. |
+| `POST /api/admin/processing/failures/:jobId/retry` | 🔒ᴬ | reads the failed row and re-enqueues it through `JobQueue` → `{ ok: true }`; the original row remains and central policy is applied. |
+| `POST /api/admin/processing/reprocess` | 🔒ᴬ | `{ step?, status? }` → `{ enqueued }`, retaining the widening, cap and pause rules of `05 §5.4d`. |
+
+The existing routes below remain **compatibility endpoints during M61**. The whole settings writer
+delegates to the control plane's same serialized safe replace operation; it is not a second unsafe
+path. Analysis language remains here because it is a content preference rather than a processing
+load control. New UI code uses the processing namespace for the snapshot, scoped commands, service
+checks, failures and bulk reprocess; the queue-era equivalents below delegate to the same readers and
+commands during the transition.
+
+| Method & path | Auth | Notes |
+|---------------|------|-------|
+| `GET /api/admin/queue/overview` | 🔒ᴬ | legacy projection of queue depths, step counts, gates, vectors and storage from the same readers as the snapshot. |
+| `GET /api/admin/queue/settings` | 🔒ᴬ | legacy effective-value shape; new callers use snapshot controls and revision. |
+| `PATCH /api/admin/queue/settings` | 🔒ᴬ | legacy whole-body shape, serialized and safely applied through `ProcessingControlPlane.replaceLegacy`; retained for compatibility, not used by the new screen. |
+| `GET/PATCH /api/admin/queue/analysis` | 🔒ᴬ | `{ language }`; unchanged analysis output-language preference. |
+| `GET /api/admin/queue/services` | 🔒ᴬ | legacy probe-and-return behavior; the new screen uses the explicit processing check endpoint. |
+| `GET /api/admin/queue/failures` | 🔒ᴬ | compatibility alias of `GET /api/admin/processing/failures`. |
+| `POST /api/admin/queue/failures/:jobId/retry` | 🔒ᴬ | compatibility alias of `POST /api/admin/processing/failures/:jobId/retry`. |
+| `POST /api/admin/queue/reprocess` | 🔒ᴬ | compatibility alias of `POST /api/admin/processing/reprocess`. |
+
+`/api/pipeline/paused-steps` remains a simple compatibility projection from the same `QueueSettings`
+source. The document viewer does not call it; only the document-scoped route can answer effective
+dependency blockers.
 
 ### Admin: the trash
 

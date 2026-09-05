@@ -157,27 +157,34 @@ export class HandleDocumentProcess extends JobHandler {
   // step by `running()`, which is the same reason `requestId` uses it (docs/03 §3.3.18).
   private readonly startedAt = new Map<string, number>();
 
-  // 🔒 The documents this process is working on right now (docs/05 §5.4, §5.5). One thing at a time
-  // per document, and this is what makes that true rather than merely intended: pg-boss enforces a
-  // job's expiry by racing the handler against a timer and, on losing, failing the job and handing
-  // out another delivery — it does not cancel the handler, so a run that outlives its expiry is
-  // still holding buffers, still calling Stirling and still writing step statuses while its
-  // replacement starts from the top. Two runs of one document write the same rows and the same
-  // artifacts in an order nobody chose. The expiry is now above the sum of the §5.4a budgets, which
-  // makes the overlap unlikely; this makes it impossible.
+  // 🔒 The work this process is doing for each document (docs/05 §5.4, §5.5). pg-boss's `short`
+  // policy only collapses matching work while it is waiting: a composition edit is deliberately
+  // allowed to enqueue a rebuild while another job is active. The second delivery must therefore
+  // wait, not disappear and not write the same rows and artifacts alongside the first.
   //
-  // In this process and no other, which is enough: one process runs the whole instance (ADR-002).
-  private readonly inFlight = new Set<string>();
+  // A matching payload cannot be coalesced here: once an active full run has read the composition,
+  // a crop or appended page enqueues the same `{ documentId }` payload precisely because `short`
+  // permits new work beside an active job. The queue already performed the only safe debounce while
+  // jobs were waiting. Every delivery that reaches the handler is therefore chained behind `tail`.
+  // This also covers expiry reclaim: the replacement may repeat work after the old handler finally
+  // settles, but it never overlaps it. In this process and no other is enough: one process runs the
+  // whole instance (ADR-002).
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   async handle(rawPayload: unknown): Promise<void> {
     const payload = documentProcessPayloadSchema.parse(rawPayload);
     const documentId = payload.documentId;
-    if (this.inFlight.has(documentId)) return;
-    this.inFlight.add(documentId);
+    // A failure belongs to the delivery that encountered it. It must not discard different work
+    // already waiting behind it, so only the predecessor's settlement is ignored here; this run's
+    // own rejection still reaches WorkerRegistry and pg-boss retry handling.
+    const predecessor = this.inFlight.get(documentId) ?? Promise.resolve();
+    const execution = predecessor.catch(() => undefined).then(() => this.run(payload));
+    this.inFlight.set(documentId, execution);
+
     try {
-      await this.run(payload);
+      await execution;
     } finally {
-      this.inFlight.delete(documentId);
+      if (this.inFlight.get(documentId) === execution) this.inFlight.delete(documentId);
     }
   }
 

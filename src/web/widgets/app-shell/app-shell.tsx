@@ -179,9 +179,9 @@ export function AppShell({
                 label: <Link href="/admin/users">{t('nav.admin.users')}</Link>,
               },
               {
-                key: '/admin/queue',
+                key: '/admin/processing',
                 icon: <ThunderboltOutlined />,
-                label: <Link href="/admin/queue">{t('nav.admin.queue')}</Link>,
+                label: <Link href="/admin/processing">{t('nav.admin.processing')}</Link>,
               },
               // What has left a document and not been destroyed yet (docs/11 §11.13b). Beside the
               // queue, because both are about what the instance is holding on to.

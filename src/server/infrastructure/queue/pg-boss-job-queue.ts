@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { JobQueue, type EnqueueOptions, type QueueName } from '../../application/ports/job-queue';
+import {
+  documentProcessWorkKey,
+  JobQueue,
+  type EnqueueOptions,
+  type QueueName,
+} from '../../application/ports/job-queue';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import { isPrismaTx } from '../persistence/prisma-client';
 import { PgBossProvider } from './pg-boss.provider';
@@ -88,16 +93,5 @@ export class PgBossJobQueue extends JobQueue {
 // for different steps are not, and both are kept.
 function derivedKeyOf(name: QueueName, payload: object): string | undefined {
   if (name !== 'document-process') return undefined;
-
-  const asked: Record<string, unknown> = { ...payload };
-  const documentId = asked.documentId;
-  if (typeof documentId !== 'string') return undefined;
-
-  const raw: unknown[] = Array.isArray(asked.steps) ? asked.steps : [];
-  const steps = raw.filter((step): step is string => typeof step === 'string').sort();
-  // Sorted and joined, so the same set asked for in two orders is one key; `#full` because a person
-  // asking for a long document to be analysed whole is asking for different work from the run that
-  // would skip it (docs/05 §5.5 step 4).
-  const full = asked.analyseInFull === true ? '#full' : '';
-  return steps.length === 0 ? `${documentId}${full}` : `${documentId}${full}#${steps.join('+')}`;
+  return documentProcessWorkKey(payload);
 }

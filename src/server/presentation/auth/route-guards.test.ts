@@ -110,6 +110,7 @@ describe('the route table (🔒 docs/08 §8.6)', () => {
         'documents/:id/preview',
         'documents/:id/thumb',
         'documents/:id/markdown',
+        'documents/:id/processing-state',
       ]),
     );
   });

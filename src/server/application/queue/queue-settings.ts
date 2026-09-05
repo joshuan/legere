@@ -1,3 +1,10 @@
+import { DOCUMENT_STEPS, type DocumentStep } from '../../../shared/contracts/documents';
+import {
+  type ProcessingControlsDto,
+  type ProcessingSettingsCommand,
+  type ResolvedBooleanSettingDto,
+  type ResolvedNumberSettingDto,
+} from '../../../shared/contracts/processing';
 import {
   QUEUE_CONCURRENCY_MAX,
   SERVICE_COOLDOWN_MAX_SECONDS,
@@ -7,25 +14,45 @@ import {
   type ServiceName,
   type UpdateQueueSettingsRequest,
 } from '../../../shared/contracts/queue';
-import { DOCUMENT_STEPS, type DocumentStep } from '../../../shared/contracts/documents';
-import type { SettingsRepository } from '../../domain/repositories/settings.repository';
+import type {
+  SettingValue,
+  SettingsRepository,
+} from '../../domain/repositories/settings.repository';
+import { ConflictError } from '../../domain/errors/domain-error';
 import { QUEUE_NAMES, type QueueName } from '../ports/job-queue';
 
-// The one key these live under; the table is a general store (docs/03 §3.3.21).
 export const QUEUE_SETTINGS_KEY = 'queue';
+const SETTINGS_SCHEMA_VERSION = 2;
 
-// What a queue does when nobody has said otherwise: the env values of docs/12 §12.4. A setting row
-// is somebody overriding one deliberately, so the defaults stay where they always were.
 export type QueueDefaults = {
   concurrency: Record<QueueName, number>;
   unitConcurrency: number;
-  // The gates of docs/05 §5.4b, from `SERVICE_CONCURRENCY_*` / `SERVICE_COOLDOWN_*`. Zeroes unless
-  // an operator wrote otherwise, and zeroes are no gate at all.
   services: Record<ServiceName, ServiceGateDto>;
 };
 
-// Every gate off, which is what `SERVICE_CONCURRENCY_*` and `SERVICE_COOLDOWN_*` resolve to when
-// nobody has set them: an instance that upgrades into gating waits nowhere (docs/05 §5.4b).
+type QueueSettingsOverrides = {
+  concurrency: Partial<Record<QueueName, number>>;
+  unitConcurrency?: number;
+  paused: QueueName[];
+  pausedSteps: DocumentStep[];
+  services: Partial<Record<ServiceName, Partial<ServiceGateDto>>>;
+};
+
+export type QueueSettingsState = {
+  revision: number;
+  effective: QueueSettingsDto;
+  controls: ProcessingControlsDto;
+  // Needed by compensation: restoring effective values alone would turn inherited defaults into
+  // overrides and lie about their source.
+  overrides: QueueSettingsOverrides;
+};
+
+export type QueueSettingsChange = {
+  before: QueueSettingsState;
+  after: QueueSettingsState;
+  changed: boolean;
+};
+
 export function ungatedServices(): Record<ServiceName, ServiceGateDto> {
   return {
     stirling: { concurrency: 0, cooldownSeconds: 0 },
@@ -36,8 +63,8 @@ export function ungatedServices(): Record<ServiceName, ServiceGateDto> {
   };
 }
 
-// Reading is not an admin-only operation in the domain sense — the worker registry reads it on every
-// restart — so this is a plain service rather than a use case pair.
+// Persistence and default resolution. Applying the desired state to pg-boss and the live gates is
+// deliberately left to ProcessingControlPlane.
 export class QueueSettings {
   constructor(
     private readonly settings: SettingsRepository,
@@ -45,79 +72,245 @@ export class QueueSettings {
   ) {}
 
   async read(): Promise<QueueSettingsDto> {
-    const stored = await this.settings.read(QUEUE_SETTINGS_KEY);
-    const overrides = parse(stored);
+    return (await this.readState()).effective;
+  }
 
-    return {
+  async readResolved(): Promise<ProcessingControlsDto> {
+    return (await this.readState()).controls;
+  }
+
+  async readState(): Promise<QueueSettingsState> {
+    const parsed = parse(await this.settings.read(QUEUE_SETTINGS_KEY));
+    return this.resolve(parsed?.overrides ?? emptyOverrides(), parsed?.revision ?? 0);
+  }
+
+  // Compatibility for the old whole-form endpoint. Supplied numbers are explicit overrides;
+  // omitted queue and service keys continue to inherit their defaults.
+  async write(input: UpdateQueueSettingsRequest): Promise<QueueSettingsDto> {
+    return (await this.replace(input)).after.effective;
+  }
+
+  async replace(input: UpdateQueueSettingsRequest): Promise<QueueSettingsChange> {
+    const before = await this.readState();
+    const overrides: QueueSettingsOverrides = {
+      concurrency: Object.fromEntries(
+        QUEUE_NAMES.flatMap((queue) => {
+          const value = input.concurrency[queue];
+          return value === undefined ? [] : [[queue, clamp(value)]];
+        }),
+      ),
+      unitConcurrency: clamp(input.unitConcurrency),
+      paused: knownQueues(input.paused),
+      pausedSteps: knownSteps(input.pausedSteps),
+      services: Object.fromEntries(
+        SERVICE_NAMES.flatMap((service) => {
+          const value = input.services[service];
+          return value === undefined ? [] : [[service, clampGate(value)]];
+        }),
+      ),
+    };
+    if (sameOverrides(before.overrides, overrides))
+      return { before, after: before, changed: false };
+    const after = this.resolve(overrides, before.revision + 1);
+    await this.persist(after);
+    return { before, after, changed: true };
+  }
+
+  async apply(command: ProcessingSettingsCommand): Promise<QueueSettingsChange> {
+    const before = await this.readState();
+    if (before.revision !== command.expectedRevision) {
+      throw new ConflictError(
+        'PROCESSING_SETTINGS_CHANGED',
+        'Processing settings changed; read the current revision and try again',
+      );
+    }
+    const overrides = cloneOverrides(before.overrides);
+
+    if (command.kind === 'queue') {
+      if (command.concurrency !== undefined) {
+        if (command.concurrency === null) delete overrides.concurrency[command.queue];
+        else overrides.concurrency[command.queue] = command.concurrency;
+      }
+      if (command.paused !== undefined) {
+        overrides.paused = toggled(QUEUE_NAMES, overrides.paused, command.queue, command.paused);
+      }
+    } else if (command.kind === 'pipeline') {
+      if (command.unitConcurrency === null) delete overrides.unitConcurrency;
+      else overrides.unitConcurrency = command.unitConcurrency;
+    } else if (command.kind === 'step') {
+      overrides.pausedSteps = toggled(
+        DOCUMENT_STEPS,
+        overrides.pausedSteps,
+        command.step,
+        command.paused,
+      );
+    } else {
+      const gate = { ...(overrides.services[command.service] ?? {}) };
+      if (command.concurrency !== undefined) {
+        if (command.concurrency === null) delete gate.concurrency;
+        else gate.concurrency = command.concurrency;
+      }
+      if (command.cooldownSeconds !== undefined) {
+        if (command.cooldownSeconds === null) delete gate.cooldownSeconds;
+        else gate.cooldownSeconds = command.cooldownSeconds;
+      }
+      if (Object.keys(gate).length === 0) delete overrides.services[command.service];
+      else overrides.services[command.service] = gate;
+    }
+
+    if (sameOverrides(before.overrides, overrides))
+      return { before, after: before, changed: false };
+
+    const after = this.resolve(overrides, before.revision + 1);
+    await this.persist(after);
+    return { before, after, changed: true };
+  }
+
+  // A rollback is a new write and therefore gets a new revision. A client which observed the
+  // candidate revision cannot later use it to overwrite the restored state.
+  async restore(before: QueueSettingsState): Promise<QueueSettingsState> {
+    const current = await this.readState();
+    const restored = this.resolve(cloneOverrides(before.overrides), current.revision + 1);
+    await this.persist(restored);
+    return restored;
+  }
+
+  async heldSteps(): Promise<ReadonlySet<DocumentStep>> {
+    const paused = (await this.read()).pausedSteps;
+    return new Set(DOCUMENT_STEPS.filter((step) => paused.includes(step)));
+  }
+
+  private resolve(overrides: QueueSettingsOverrides, revision: number): QueueSettingsState {
+    const effective: QueueSettingsDto = {
       concurrency: Object.fromEntries(
         QUEUE_NAMES.map((queue) => [
           queue,
-          overrides?.concurrency?.[queue] ?? this.defaults.concurrency[queue],
+          overrides.concurrency[queue] ?? this.defaults.concurrency[queue],
         ]),
       ),
-      unitConcurrency: overrides?.unitConcurrency ?? this.defaults.unitConcurrency,
-      // Nothing is paused until somebody pauses it: an instance with an empty settings table works
-      // every queue it has (docs/05 §5.4).
-      paused: overrides?.paused ?? [],
-      // And runs every step of the pipeline (docs/05 §5.4d).
-      pausedSteps: overrides?.pausedSteps ?? [],
+      unitConcurrency: overrides.unitConcurrency ?? this.defaults.unitConcurrency,
+      paused: [...overrides.paused],
+      pausedSteps: [...overrides.pausedSteps],
       services: Object.fromEntries(
         SERVICE_NAMES.map((service) => [
           service,
-          gateOf(overrides?.services?.[service], this.defaults.services[service]),
+          gateOf(overrides.services[service], this.defaults.services[service]),
         ]),
       ),
     };
-  }
-
-  async write(input: UpdateQueueSettingsRequest): Promise<QueueSettingsDto> {
-    // Only the queues that exist, and only within bounds: a stored key nobody serves would sit there
-    // forever looking like a setting that does nothing.
-    const concurrency = Object.fromEntries(
-      QUEUE_NAMES.map((queue) => [
-        queue,
-        clamp(input.concurrency[queue] ?? this.defaults.concurrency[queue]),
-      ]),
-    );
-    // The same hygiene one level down (docs/05 §5.4b): a service this version does not gate is
-    // dropped. The clamp is belt-and-braces behind the contract, which has already refused anything
-    // out of range (docs/07 §7.3) — what it really bounds is the env defaults standing in for an
-    // absent override.
-    const services = Object.fromEntries(
-      SERVICE_NAMES.map((service) => [
+    const controls: ProcessingControlsDto = {
+      revision,
+      queues: QUEUE_NAMES.map((name) => ({
+        name,
+        paused: resolvedBoolean(overrides.paused.includes(name)),
+        concurrency: resolvedNumber(
+          effective.concurrency[name] ?? this.defaults.concurrency[name],
+          this.defaults.concurrency[name],
+          overrides.concurrency[name] !== undefined,
+        ),
+      })),
+      pipeline: {
+        unitConcurrency: resolvedNumber(
+          effective.unitConcurrency,
+          this.defaults.unitConcurrency,
+          overrides.unitConcurrency !== undefined,
+        ),
+        steps: DOCUMENT_STEPS.map((step) => ({
+          step,
+          paused: resolvedBoolean(overrides.pausedSteps.includes(step)),
+        })),
+      },
+      services: SERVICE_NAMES.map((service) => ({
         service,
-        clampGate(input.services[service] ?? this.defaults.services[service]),
-      ]),
-    );
-    const value = {
-      concurrency,
-      unitConcurrency: clamp(input.unitConcurrency),
-      // Same rule as the concurrencies: only queues that exist. A paused name nobody serves would
-      // sit in the settings row for ever, pausing nothing (docs/05 §5.4).
-      paused: knownQueues(input.paused),
-      // And the same rule again for the steps (docs/05 §5.4d): a step this version does not run is
-      // dropped rather than stored, exactly as an unknown queue name is.
-      pausedSteps: knownSteps(input.pausedSteps),
-      services,
+        concurrency: resolvedNumber(
+          effective.services[service]?.concurrency ?? this.defaults.services[service].concurrency,
+          this.defaults.services[service].concurrency,
+          overrides.services[service]?.concurrency !== undefined,
+        ),
+        cooldownSeconds: resolvedNumber(
+          effective.services[service]?.cooldownSeconds ??
+            this.defaults.services[service].cooldownSeconds,
+          this.defaults.services[service].cooldownSeconds,
+          overrides.services[service]?.cooldownSeconds !== undefined,
+        ),
+      })),
     };
-    await this.settings.write(QUEUE_SETTINGS_KEY, value);
-    return value;
+    return { revision, effective, controls, overrides: cloneOverrides(overrides) };
   }
 
-  // The steps no job may run right now (docs/05 §5.4d), as everything that has to decide reads them.
-  // Here rather than at each call site because "what is paused" is one question, and a settings row
-  // this version cannot read must answer it with "nothing" rather than stop the pipeline.
-  async heldSteps(): Promise<ReadonlySet<DocumentStep>> {
-    return new Set((await this.read()).pausedSteps.filter(isDocumentStep));
+  private async persist(state: QueueSettingsState): Promise<void> {
+    const stored: SettingValue = {
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+      revision: state.revision,
+      ...(Object.keys(state.overrides.concurrency).length === 0
+        ? {}
+        : { concurrency: state.overrides.concurrency }),
+      ...(state.overrides.unitConcurrency === undefined
+        ? {}
+        : { unitConcurrency: state.overrides.unitConcurrency }),
+      ...(state.overrides.paused.length === 0 ? {} : { paused: state.overrides.paused }),
+      ...(state.overrides.pausedSteps.length === 0
+        ? {}
+        : { pausedSteps: state.overrides.pausedSteps }),
+      ...(Object.keys(state.overrides.services).length === 0
+        ? {}
+        : { services: state.overrides.services }),
+    };
+    await this.settings.write(QUEUE_SETTINGS_KEY, stored);
   }
+}
+
+function resolvedNumber(
+  effective: number,
+  fallback: number,
+  overridden: boolean,
+): ResolvedNumberSettingDto {
+  return { effective, default: fallback, source: overridden ? 'OVERRIDE' : 'DEFAULT' };
+}
+
+function resolvedBoolean(overridden: boolean): ResolvedBooleanSettingDto {
+  return { effective: overridden, default: false, source: overridden ? 'OVERRIDE' : 'DEFAULT' };
+}
+
+function emptyOverrides(): QueueSettingsOverrides {
+  return { concurrency: {}, paused: [], pausedSteps: [], services: {} };
+}
+
+function cloneOverrides(value: QueueSettingsOverrides): QueueSettingsOverrides {
+  return {
+    concurrency: { ...value.concurrency },
+    ...(value.unitConcurrency === undefined ? {} : { unitConcurrency: value.unitConcurrency }),
+    paused: [...value.paused],
+    pausedSteps: [...value.pausedSteps],
+    services: Object.fromEntries(
+      SERVICE_NAMES.flatMap((service) => {
+        const gate = value.services[service];
+        return gate === undefined ? [] : [[service, { ...gate }]];
+      }),
+    ),
+  };
+}
+
+function sameOverrides(left: QueueSettingsOverrides, right: QueueSettingsOverrides): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function toggled<T extends string>(
+  order: readonly T[],
+  current: readonly T[],
+  value: T,
+  enabled: boolean,
+): T[] {
+  const selected = new Set(current);
+  if (enabled) selected.add(value);
+  else selected.delete(value);
+  return order.filter((entry) => selected.has(entry));
 }
 
 function clamp(value: number): number {
   return Math.min(QUEUE_CONCURRENCY_MAX, Math.max(1, Math.trunc(value)));
 }
 
-// A gate has its own floor, and it is 0: a service concurrency of zero is a meaningful answer — no
-// gate at all — where a queue concurrency of zero would be a queue nobody serves (docs/05 §5.4b).
 function clampGate(gate: ServiceGateDto): ServiceGateDto {
   return {
     concurrency: bound(gate.concurrency, QUEUE_CONCURRENCY_MAX),
@@ -129,8 +322,6 @@ function bound(value: number, max: number): number {
   return Math.min(max, Math.max(0, Math.trunc(value)));
 }
 
-// What is stored for one service over what the environment said, knob by knob: an override that
-// carries only a cooldown leaves the concurrency where env put it.
 function gateOf(
   stored: Partial<ServiceGateDto> | undefined,
   fallback: ServiceGateDto,
@@ -141,70 +332,55 @@ function gateOf(
   };
 }
 
-// The queues named here that this version actually has, deduplicated and in pipeline order. A name
-// it does not know is dropped rather than kept: a queue removed by an upgrade, or a typo, must not
-// become a setting that does nothing for ever.
 function knownQueues(value: unknown): QueueName[] {
   if (!Array.isArray(value)) return [];
   const named = new Set(value.filter((entry): entry is string => typeof entry === 'string'));
   return QUEUE_NAMES.filter((queue) => named.has(queue));
 }
 
-// The steps this version has, in pipeline order, out of the names it was given. A step an upgrade
-// removed — or a typo — must not sit in the settings row holding nothing back for ever.
 function knownSteps(value: unknown): DocumentStep[] {
   if (!Array.isArray(value)) return [];
   const named = new Set(value.filter((entry): entry is string => typeof entry === 'string'));
   return DOCUMENT_STEPS.filter((step) => named.has(step));
 }
 
-function isDocumentStep(value: string): value is DocumentStep {
-  return DOCUMENT_STEPS.some((step) => step === value);
-}
-
-// Whatever is in the column has been in a database in between: a shape this version does not know is
-// ignored rather than crashing the workers on start.
-function parse(value: unknown): {
-  concurrency?: Record<string, number>;
-  unitConcurrency?: number;
-  paused?: QueueName[];
-  pausedSteps?: DocumentStep[];
-  services?: Record<string, Partial<ServiceGateDto>>;
-} | null {
-  if (value === null || typeof value !== 'object') return null;
+function parse(value: unknown): { revision: number; overrides: QueueSettingsOverrides } | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   const record: Record<string, unknown> = { ...value };
-
-  // 🔒 Checked against the range on the way **out** of the database, not only on the way in
-  // (docs/05 §5.4b: "whatever the stored row holds is checked as it is read, and a value another
-  // version of this code left behind is not trusted"). The gates one level down already did this and
-  // the concurrencies did not: a row holding `{"document-process": 1000000}` — a hand edit, a
-  // restore from another version, a write primitive found elsewhere — was handed straight to
-  // `boss.work` as the batch size, which is both the `LIMIT` of the fetch and the width of the
-  // `Promise.all` over the jobs it returns. An out-of-range value falls back to the environment
-  // default, exactly as an out-of-range gate does; a settings row must never be able to stop the
-  // workers from starting, and it must not be able to start a million of them either (docs/03
-  // §3.3.21).
-  const concurrency: Record<string, number> = {};
-  const stored = record.concurrency;
-  if (stored !== null && typeof stored === 'object') {
-    for (const [queue, raw] of Object.entries({ ...stored })) {
+  const concurrency: Partial<Record<QueueName, number>> = {};
+  const storedConcurrency = record.concurrency;
+  if (
+    storedConcurrency !== null &&
+    typeof storedConcurrency === 'object' &&
+    !Array.isArray(storedConcurrency)
+  ) {
+    const values: Record<string, unknown> = { ...storedConcurrency };
+    for (const queue of QUEUE_NAMES) {
+      const raw = values[queue];
       if (inConcurrencyRange(raw)) concurrency[queue] = raw;
     }
   }
 
   const unit = record.unitConcurrency;
+  const revision =
+    record.schemaVersion === SETTINGS_SCHEMA_VERSION &&
+    typeof record.revision === 'number' &&
+    Number.isInteger(record.revision) &&
+    record.revision >= 0
+      ? record.revision
+      : 0;
   return {
-    concurrency,
-    paused: knownQueues(record.paused),
-    pausedSteps: knownSteps(record.pausedSteps),
-    services: parseServices(record.services),
-    ...(inConcurrencyRange(unit) ? { unitConcurrency: unit } : {}),
+    revision,
+    overrides: {
+      concurrency,
+      ...(inConcurrencyRange(unit) ? { unitConcurrency: unit } : {}),
+      paused: knownQueues(record.paused),
+      pausedSteps: knownSteps(record.pausedSteps),
+      services: parseServices(record.services),
+    },
   };
 }
 
-// 1…QUEUE_CONCURRENCY_MAX, the range the contract refuses outside of (docs/07 §7.3). A queue
-// concurrency of zero would be a queue nobody serves, which is what pausing is for, so the floor
-// here is one rather than the gates' zero.
 function inConcurrencyRange(value: unknown): value is number {
   return (
     typeof value === 'number' &&
@@ -214,16 +390,15 @@ function inConcurrencyRange(value: unknown): value is number {
   );
 }
 
-// Knob by knob, and only the ones that read as a number in range: a stored gate written by a later
-// version — or by hand — must not stop the workers from starting (docs/03 §3.3.21).
-function parseServices(value: unknown): Record<string, Partial<ServiceGateDto>> {
-  if (value === null || typeof value !== 'object') return {};
-
-  const services: Record<string, Partial<ServiceGateDto>> = {};
-  for (const [service, raw] of Object.entries({ ...value })) {
-    if (raw === null || typeof raw !== 'object') continue;
+function parseServices(value: unknown): Partial<Record<ServiceName, Partial<ServiceGateDto>>> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {};
+  const records: Record<string, unknown> = { ...value };
+  const services: Partial<Record<ServiceName, Partial<ServiceGateDto>>> = {};
+  for (const service of SERVICE_NAMES) {
+    const raw = records[service];
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) continue;
     const gate: Record<string, unknown> = { ...raw };
-    services[service] = {
+    const parsed = {
       ...(inRange(gate.concurrency, QUEUE_CONCURRENCY_MAX)
         ? { concurrency: gate.concurrency }
         : {}),
@@ -231,6 +406,7 @@ function parseServices(value: unknown): Record<string, Partial<ServiceGateDto>> 
         ? { cooldownSeconds: gate.cooldownSeconds }
         : {}),
     };
+    if (Object.keys(parsed).length > 0) services[service] = parsed;
   }
   return services;
 }
