@@ -9,6 +9,7 @@ export const ERROR_CODES = [
   'USER_NOT_FOUND',
   'LIBRARY_NOT_FOUND',
   'DOCUMENT_NOT_FOUND',
+  'RECEIPT_NOT_FOUND',
   'DOCUMENT_TYPE_NOT_FOUND',
   'COLLECTION_NOT_FOUND',
   'FILE_NOT_FOUND',
@@ -40,6 +41,8 @@ export const ERROR_CODES = [
   // again, so recovery is the admin's ordinary tidying tools.
   'CATALOGUE_FULL',
   'DOCUMENT_DUPLICATE',
+  'RECEIPT_DUPLICATE',
+  'ARCHIVE_KIND_CONFLICT',
   // 🔒 An upload the pipeline could never render is refused at the door (docs/05 §5.1a); a library
   // file of the same kind is merely registered, because a scan has nobody to answer.
   'UNSUPPORTED_FORMAT',

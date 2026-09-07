@@ -76,6 +76,7 @@ disagree, the doc wins — and report the discrepancy.
 | M30 | Schemas for the papers this archive actually holds | `flight`, `invoice`, `lab-report`, `civil-certificate`; `receipt`, `passport`, `id-card` revised |
 | M31–M60 | Completed refinements and audit closure | see the authoritative ordered history in [`backlog.md`](./backlog.md) |
 | M61 | One place to understand and control processing | one topology and control plane over queues, document steps and services, without merging their runtime semantics |
+| M62 | Receipts beside documents | a separate receipt aggregate, two-step image pipeline, conversion and UI |
 
 Milestones are strictly sequential; tasks within a milestone are ordered by dependency.
 

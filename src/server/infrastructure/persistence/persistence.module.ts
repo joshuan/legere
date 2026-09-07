@@ -20,6 +20,8 @@ import { ApiTokenRepository } from '../../domain/repositories/api-token.reposito
 import { SessionRepository } from '../../domain/repositories/session.repository';
 import { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
 import { UserRepository } from '../../domain/repositories/user.repository';
+import { ReceiptRepository } from '../../domain/repositories/receipt.repository';
+import { ArchiveItemRepository } from '../../domain/repositories/archive-item.repository';
 import { PrismaCategoryRepository } from './prisma-document-type.repository';
 import { PrismaCollectionRepository } from './prisma-collection.repository';
 import { PrismaDocumentChunkRepository } from './prisma-document-chunk.repository';
@@ -41,6 +43,8 @@ import { PrismaSessionRepository } from './prisma-session.repository';
 import { PrismaUnitOfWork } from './prisma-unit-of-work';
 import { PrismaUserInviteRepository } from './prisma-user-invite.repository';
 import { PrismaUserRepository } from './prisma-user.repository';
+import { PrismaReceiptRepository } from './prisma-receipt.repository';
+import { PrismaArchiveItemRepository } from './prisma-archive-item.repository';
 import { PrismaService } from './prisma.service';
 
 // Persistence wiring (docs/06 §6.5): the Prisma client, the UnitOfWork port, and the repository
@@ -58,6 +62,8 @@ const REPOSITORIES = [
   { provide: FileRefRepository, useClass: PrismaFileRefRepository },
   { provide: FileRepository, useClass: PrismaFileRepository },
   { provide: DocumentRepository, useClass: PrismaDocumentRepository },
+  { provide: ReceiptRepository, useClass: PrismaReceiptRepository },
+  { provide: ArchiveItemRepository, useClass: PrismaArchiveItemRepository },
   { provide: DocumentLinkRepository, useClass: PrismaDocumentLinkRepository },
   { provide: DocumentEventRepository, useClass: PrismaDocumentEventRepository },
   { provide: PersonRepository, useClass: PrismaPersonRepository },
@@ -86,6 +92,8 @@ const REPOSITORIES = [
     FileRefRepository,
     FileRepository,
     DocumentRepository,
+    ReceiptRepository,
+    ArchiveItemRepository,
     DocumentLinkRepository,
     DocumentEventRepository,
     PersonRepository,

@@ -17,6 +17,7 @@ import { DocumentEventRepository } from '../../domain/repositories/document-even
 import { DocumentRepository } from '../../domain/repositories/document.repository';
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { FileRepository } from '../../domain/repositories/file.repository';
+import { ReceiptRepository } from '../../domain/repositories/receipt.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { AdminTrashController } from './admin-trash.controller';
@@ -85,15 +86,17 @@ import { AdminTrashController } from './admin-trash.controller';
       provide: RestoreTrashItem,
       useFactory: (
         documents: DocumentRepository,
+        receipts: ReceiptRepository,
         files: FileRepository,
         fileRefs: FileRefRepository,
         events: DocumentEventRepository,
         queue: JobQueue,
         unitOfWork: UnitOfWork,
       ): RestoreTrashItem =>
-        new RestoreTrashItem(documents, files, fileRefs, events, queue, unitOfWork),
+        new RestoreTrashItem(documents, receipts, files, fileRefs, events, queue, unitOfWork),
       inject: [
         DocumentRepository,
+        ReceiptRepository,
         FileRepository,
         FileRefRepository,
         DocumentEventRepository,

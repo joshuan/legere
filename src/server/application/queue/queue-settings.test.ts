@@ -39,6 +39,7 @@ describe('QueueSettings', () => {
       'library-scan': 1,
       'file-ingest': 4,
       'document-process': 2,
+      'receipt-process': 2,
       maintenance: 1,
     });
     expect(read.unitConcurrency).toBe(1);

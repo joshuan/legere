@@ -49,4 +49,6 @@ export type DocumentEventPayload = {
   changes?:
     | Record<string, { from?: string | null | undefined; to?: string | null | undefined }>
     | undefined;
+  fromKind?: 'DOCUMENT' | 'RECEIPT' | undefined;
+  toKind?: 'DOCUMENT' | 'RECEIPT' | undefined;
 };

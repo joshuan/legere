@@ -40,10 +40,11 @@ EmailVerification (standalone, keyed by email; used by registration & password r
 | `LibraryVisibility` | `ALL_USERS`, `RESTRICTED` | new libraries default to `RESTRICTED` (fail-closed) |
 | `FileRefStatus` | `DISCOVERED`, `HASHED`, `MISSING`, `EXCLUDED` | `EXCLUDED` is the mark an admin's deletion leaves on a volume it may not write to (§3.3.9): the bytes are still there and Legere will not read them again |
 | `FileOrigin` | `LIBRARY`, `MANAGED` | where a file's bytes live: on the read-only volume (addressed by `FileRef`s) or in our own bucket (uploaded from a browser, or produced by us). A document's own origin is derived from its files rather than stored — see §3.3.10 |
+| `ArchiveItemKind` | `DOCUMENT`, `RECEIPT` | which product profile owns a stable archive identity (`15 §15.2`) |
 | `StepStatus` | `PENDING`, `QUEUED`, `RUNNING`, `DONE`, `FAILED`, `SKIPPED` | per pipeline step. **`PENDING` and `QUEUED` are the two halves of what used to be one word**: `QUEUED` says a job exists and a worker will get to it; `PENDING` says nothing is scheduled — the artifact is out of date and waits for the hourly sweep (`05 §5.4`), for somebody to ask, or, where the step is paused (`05 §5.4d`), for the pause to be lifted: a held step is `PENDING` and stays there on purpose, which is why the sweep leaves it alone and the screens say which of the two it is. A migration that resets a step produces the second, and while the two shared a name the archive read as busy for the two hours before the sweep noticed, with the queue counter beside it honestly showing nothing. `RUNNING` is persisted, against the earlier decision to treat it as a queue state only: steps that take minutes exist — parsing with picture captions, OCR over a long scan, a local model thinking — and for those minutes a step that has not started reads as "stuck". The mark is best-effort and never the reason a job fails |
 | `PageFormat` | `AUTO`, `A4`, `MATCH_SOURCE` | what shape the pages of the canonical take (`05 §5.5` step 1). `AUTO` reads it off the pictures the pages were made from |
 | `ValueSource` | `NONE`, `AUTO`, `MANUAL` | who decided a value: nobody, the pipeline, a person. Carried by `typeSource` and `titleSource`, and — as the two words `AUTO`/`MANUAL` inside JSON — by the per-field `sources` of the typed fields (§3.3.10a): one vocabulary, because it is one question |
-| `TrashReason` | `REPLACED`, `DOCUMENT_DELETED`, `PAGE_REMOVED` | how a file came to be in the trash (`05 §5.7a`). Not "who deleted it" but "what happened to it", which is what decides whether there is a newer copy to compare it with. The third is what a composition edit leaves: the last page reading those bytes was taken out of a document that still exists (`05 §5.6`), which is a different story from the document going away and is told as one |
+| `TrashReason` | `REPLACED`, `DOCUMENT_DELETED`, `RECEIPT_DELETED`, `PAGE_REMOVED` | how a file came to be in the trash (`05 §5.7a`, `15 §15.7`). Not "who deleted it" but "what happened to it", which is what decides which product profile restore recreates and whether there is a newer copy to compare it with |
 | `ScanRunStatus` | `RUNNING`, `DONE`, `FAILED` | |
 | `VerificationPurpose` | `REGISTRATION`, `PASSWORD_RESET` | on `EmailVerification` |
 
@@ -211,6 +212,12 @@ confirmation says as much (`11 §11.5`). The cost of the choice is the other hal
 renaming an excluded file is also a new path, and the document comes back. Both follow from the same
 sentence — Legere knows paths on a volume it does not own — and the alternative, excluding by content
 hash for ever, buys tidiness with a deletion nobody can reverse.
+
+### 3.3.9a. ArchiveItem
+
+The stable identity and common lifecycle of an archived item. `kind` selects exactly one product
+profile: the existing `Document`, or the receipt profile specified by [`15 §15.2`](./15-receipts.md#152-archive-item-and-profiles).
+Conversion swaps that profile while keeping this id, owner and journal.
 
 ### 3.3.10. Document
 
@@ -776,15 +783,15 @@ a session answers (§3.3.2), asked of a different credential.
 
 ### 3.3.18. DocumentEvent
 
-The history of one document: how it came to be what it is. The `Document` row carries the *current*
-state of every step; this is the only place that says which run failed, what a value was before
-somebody corrected it, and who corrected it.
+The history of one archive item: how it came to be what it is. A product profile carries the
+*current* state of every step; this is the only place that says which run failed, what a value was
+before somebody corrected it, who corrected it, or when the item changed product kind.
 
 | Field | Type | Notes |
 |---|---|---|
 | id | uuid | |
-| documentId | uuid | cascade on physical delete; a soft-deleted document keeps its log (ADR-015) |
-| type | DocumentEventType | `CREATED`, `FILE_ATTACHED`, `FILE_MISSING`, `QUEUED`, `STEP_STARTED`, `STEP_FINISHED`, `META_CHANGED`, `LINKED`, `UNLINKED` |
+| documentId | uuid | compatibility property mapped to `archive_item_id`; cascade on physical archive-item delete |
+| type | DocumentEventType | `CREATED`, `FILE_ATTACHED`, `FILE_MISSING`, `QUEUED`, `STEP_STARTED`, `STEP_FINISHED`, `META_CHANGED`, `LINKED`, `UNLINKED`, `KIND_CHANGED` |
 | actorId | uuid? | who did it; **null is the pipeline acting on its own** |
 | payload | json | what the entry needs to be readable: `step`, `status`, `reason`, `error`, `steps`, `source`, `path`, `changes` (field → `{from, to}`), for a link: `otherDocumentId` and `otherTitle` (a record, not a live reference — the other side may be gone by the time this is read), and for a step: `service`, `endpoint`, `requestId`, what it cost — `durationMs`, `chars`, `pages`, `ocrUsed`, `promptTokens`, `completionTokens` — and what it made of its own work: `legibility` and `extraction` on the analysis, `confidence` on the fields (§3.3.10) |
 | at | timestamptz | |
@@ -962,8 +969,10 @@ describes the bytes and nothing else.
 | name | string | the file's own name, as it arrived: the last path segment, or the uploaded file name |
 | pageCount | int? | how many pages this file holds, counted afresh every time the canonical build reads it (§5.5 step 1): an image is one, a PDF is what its page tree says, an office document is what the converter laid it out as. `NULL` until a build has counted. This is what says whether the file can be enumerated at all — a file nobody has counted is held by a document as one entry with no page index (§3.3.17) — and what a page index is checked against, so an edit can refuse a wrong one without a round trip to Stirling |
 | trashedAt | timestamptz? | in the trash since (`05 §5.7a`): the file has no live page in any document and is waiting to be deleted or restored. `NULL` for a file some document still reads |
-| trashedReason | TrashReason? | why it left: `REPLACED` by a better copy, `DOCUMENT_DELETED` with the last document reading it, or `PAGE_REMOVED` when the last page reading it was taken out of a document that is still there (`05 §5.6`) |
+| trashedReason | TrashReason? | why it left: `REPLACED` by a better copy, `DOCUMENT_DELETED`, `RECEIPT_DELETED`, or `PAGE_REMOVED` when the last page reading it was taken out of a document that is still there (`05 §5.6`, `15 §15.7`) |
 | trashedFrom | string? | the title the document had when the file left it **last** — leaving the last one is when a file enters the trash. A record, not a link: that document is usually gone, and "which paper was this a page of" is the question somebody looking at the trash actually asks |
+| trashedArchiveKind | ArchiveItemKind? | product profile restore recreates; old rows without it restore as documents |
+| trashedOwnerId | uuid? | former owner retained while the product profile is absent |
 | replacedById | uuid? | for `REPLACED`: the file that took this one's place. Every earlier version of a page points at the file that is in the document **now**, not at the one immediately after it, so "the versions of this page" is one query and stays one however many times the page is replaced; the order among them is `trashedAt` |
 | createdAt / updatedAt / deletedAt | | |
 

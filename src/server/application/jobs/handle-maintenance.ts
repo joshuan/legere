@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { DocumentRepository } from '../../domain/repositories/document.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { FileRepository } from '../../domain/repositories/file.repository';
+import type { ReceiptRepository } from '../../domain/repositories/receipt.repository';
 import type { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import type { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
 import type { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
@@ -17,11 +18,11 @@ import { JobHandler } from './job-handler';
 // The cron sends no payload; anything pg-boss stored alongside it is ignored.
 export const maintenancePayloadSchema = z.object({}).passthrough();
 
-// Artifacts are keyed `documents/{documentId}/...` and a managed file's own bytes
-// `files/{fileId}/...` (docs/09 §9.2); the id is the only thing in either key that ties an object to
-// a row.
+// Product artifacts are keyed by their profile id, and a managed file's own bytes by its file id
+// (docs/09 §9.2, docs/15 §15.5). The id is the only thing in a key that ties an object to a row.
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const DOCUMENT_KEY = new RegExp(`^documents/(${UUID})/`);
+const RECEIPT_KEY = new RegExp(`^receipts/(${UUID})/`);
 const FILE_KEY = new RegExp(`^files/(${UUID})/`);
 
 // One `IN (...)` per this many ids, so a bucket with a hundred thousand documents does not build a
@@ -49,6 +50,7 @@ export class HandleMaintenance extends JobHandler {
     private readonly invites: UserInviteRepository,
     private readonly resets: PasswordResetRepository,
     private readonly documents: DocumentRepository,
+    private readonly receipts: Pick<ReceiptRepository, 'filterExistingIds'>,
     private readonly fileRows: FileRepository,
     private readonly fileRefs: FileRefRepository,
     private readonly files: FileStorage,
@@ -121,28 +123,28 @@ export class HandleMaintenance extends JobHandler {
     });
   }
 
-  // Objects whose owner does not exist *at all* — a document for anything under `documents/`, a file
-  // for anything under `files/` (docs/09 §9.2). Two ways to arrive here: a half-written ingest, and
-  // a hard delete whose bucket calls did not all land (docs/03 §3.3.10) — which is why the second
-  // layout is swept at all, and why a delete may leave objects behind without leaking them for ever.
-  // A soft-deleted document keeps its artifacts, so it counts as existing; anything outside the two
-  // layouts is left alone rather than guessed about.
+  // Objects whose profile/file owner does not exist *at all* (docs/09 §9.2, docs/15 §15.5). Two
+  // ways to arrive here: a half-written ingest, and a hard delete whose bucket calls did not all
+  // land. Soft-deleted products keep their profiles and artifacts; unknown layouts stay untouched.
   private async findOrphans(objects: StoredObjectInfo[]): Promise<ReadonlySet<string>> {
     const byDocument = group(objects, DOCUMENT_KEY);
+    const byReceipt = group(objects, RECEIPT_KEY);
     const byFile = group(objects, FILE_KEY);
 
     const liveDocuments = await this.existing([...byDocument.keys()], (ids) =>
       this.documents.filterExistingIds(ids),
+    );
+    const liveReceipts = await this.existing([...byReceipt.keys()], (ids) =>
+      this.receipts.filterExistingIds(ids),
     );
     const liveFiles = await this.existing([...byFile.keys()], (ids) =>
       this.fileRows.filterExistingIds(ids),
     );
 
     const orphans = new Set<string>();
-    for (const [id, keys] of [...byDocument, ...byFile]) {
-      if (liveDocuments.has(id) || liveFiles.has(id)) continue;
-      for (const key of keys) orphans.add(key);
-    }
+    addMissing(orphans, byDocument, liveDocuments);
+    addMissing(orphans, byReceipt, liveReceipts);
+    addMissing(orphans, byFile, liveFiles);
     return orphans;
   }
 
@@ -171,4 +173,15 @@ function group(objects: StoredObjectInfo[], pattern: RegExp): Map<string, string
     else keys.push(object.key);
   }
   return byOwner;
+}
+
+function addMissing(
+  target: Set<string>,
+  byOwner: ReadonlyMap<string, string[]>,
+  liveOwners: ReadonlySet<string>,
+): void {
+  for (const [id, keys] of byOwner) {
+    if (liveOwners.has(id)) continue;
+    for (const key of keys) target.add(key);
+  }
 }

@@ -168,6 +168,19 @@ standard lists them.
 | 🔒 the user-written catalogues travel inside the fence, never the system message | `src/server/infrastructure/ai/openai-compat-analyst.test.ts` — keeps every user-written catalogue inside the fence, and the system message clean of it |
 | a catalogue answer in another case links the existing row | `test/integration/catalogue-fold.integration.test.ts` — links the existing row when a name arrives in another case |
 
+## Receipts
+
+| Scenario | Test |
+|---|---|
+| image upload creates a receipt rather than a document, retains caller text and queues receipt processing | `test/e2e/receipts.e2e.test.ts` — accepts an image and noisy caller text as one receipt without creating a document |
+| another owner cannot discover, read, fetch artifacts from or delete a receipt | `test/e2e/receipts.e2e.test.ts` — does not disclose another owner's receipt in lists, detail, artifacts or deletion; `src/server/presentation/auth/route-guards.test.ts` — every receipt route is session guarded and mutations refuse read-only tokens |
+| all PDF pages and caller text reach extraction; no configured analyst is a clean skip | `src/server/application/jobs/handle-receipt-process.test.ts` — renders every PDF page and supplies noisy caller text beside the images; skips extraction without an analyst while keeping the preview |
+| receipt artifact orphans are swept according to Receipt-profile existence | `src/server/application/jobs/handle-maintenance.test.ts` — removes receipt artifacts whose receipt profile is gone |
+| Receipt → Document and eligible Document → Receipt keep the archive id | `test/e2e/receipts.e2e.test.ts` — converts a settled receipt into a document without changing its archive id; converts a one-file managed image document into a receipt with the same id |
+| deleting and restoring retains product kind and owner boundary | `test/e2e/receipts.e2e.test.ts` — restores a deleted receipt from the common trash as a receipt; `src/web/screens/admin-trash/admin-trash-screen.test.tsx` — restores a receipt to the receipt route |
+| the receipt UI has separate responsive list/detail surfaces and keeps noisy caller text collapsed | `src/web/screens/receipts/receipts-screen.test.tsx` — shows receipt data in both responsive representations without document controls; `src/web/screens/receipt-viewer/receipt-viewer-screen.test.tsx` — shows the image, structured fields and item rows, with source text behind a disclosure; `src/web/widgets/app-shell/app-shell.test.tsx` — offers the top-level Receipts destination |
+| schema, docs and migration remain one recorded shape | `test/integration/schema-and-docs.integration.test.ts` — executes the exact-schema and migration-residue guard |
+
 ## Files and documents
 
 | Scenario | Test |

@@ -1,5 +1,6 @@
 import type { Crop, Rotation } from '../../../shared/contracts/documents';
 import type {
+  ArchiveItemKind,
   FileOrigin,
   FileRefStatus,
   TrashReason,
@@ -102,6 +103,8 @@ export abstract class FileRepository {
       reason: TrashReason;
       trashedFrom: string | null;
       replacedById?: string | undefined;
+      archiveKind?: ArchiveItemKind | undefined;
+      ownerId?: string | null | undefined;
       at: Date;
     },
     tx?: TransactionHandle,

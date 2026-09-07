@@ -10,7 +10,7 @@ import { okResponseSchema, type OkResponse } from '../../../shared/contracts/use
 import { apiClient } from '../../shared/api';
 
 // The trash (docs/07 §7.3 "Admin: the trash"): every file that has left a document and has not been
-// destroyed yet. An admin's, because each of these either destroys bytes or makes a document.
+// destroyed yet. An admin's, because each of these either destroys bytes or recreates an item.
 export const trashApi = {
   // Newest first, paginated on `trashedAt` (docs/07 §7.1). The answer carries the whole trash's
   // weight beside the page, which is the question the screen exists to answer (docs/11 §11.13b).
@@ -30,8 +30,8 @@ export const trashApi = {
   empty: (): Promise<EmptyTrashResponse> =>
     apiClient.delete('/api/admin/trash', { schema: emptyTrashResponseSchema }),
 
-  // The file becomes a **new** document holding exactly it — never the document it came from, which
-  // has moved on or is gone — so the answer is where to go and look at it (docs/05 §5.7a).
+  // The file becomes a **new** item of its former kind — never the item it came from — so the answer
+  // includes both the id and the destination product surface (docs/05 §5.7a, docs/15 §15.7).
   restore: (fileId: string): Promise<RestoreTrashResponse> =>
     apiClient.post(`/api/admin/trash/${fileId}/restore`, { schema: restoreTrashResponseSchema }),
 };

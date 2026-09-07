@@ -20,6 +20,7 @@ import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
 import { InMemoryMetricsCache } from '../../infrastructure/storage/in-memory-metrics-cache';
 import { DOCUMENT_STEPS } from '../../../shared/contracts/documents';
+import type { ReceiptRepository } from '../../domain/repositories/receipt.repository';
 import { QUEUE_SETTINGS_KEY } from '../queue/queue-settings';
 import { HandleMaintenance } from './handle-maintenance';
 
@@ -34,6 +35,8 @@ const DELETED_DOCUMENT = '22222222-2222-4222-8222-222222222222';
 const GONE_DOCUMENT = '33333333-3333-4333-8333-333333333333';
 const LIVE_FILE = '44444444-4444-4444-8444-444444444444';
 const GONE_FILE = '55555555-5555-4555-8555-555555555555';
+const LIVE_RECEIPT = '99999999-9999-4999-8999-999999999999';
+const GONE_RECEIPT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 // The hourly housekeeping job (docs/06 §6.8, docs/09 §9.5).
 // Records what the sweep enqueued; nothing else here needs a queue.
@@ -69,6 +72,8 @@ describe('HandleMaintenance', () => {
   let invites: InMemoryUserInviteRepository;
   let resets: InMemoryPasswordResetRepository;
   let documents: InMemoryDocumentRepository;
+  let receipts: Pick<ReceiptRepository, 'filterExistingIds'>;
+  let receiptIds: Set<string>;
   let fileRows: InMemoryFileRepository;
   let fileRefs: InMemoryFileRefRepository;
   let files: InMemoryFileStorage;
@@ -86,6 +91,10 @@ describe('HandleMaintenance', () => {
     invites = new InMemoryUserInviteRepository();
     resets = new InMemoryPasswordResetRepository();
     documents = new InMemoryDocumentRepository();
+    receiptIds = new Set();
+    receipts = {
+      filterExistingIds: (ids) => Promise.resolve(ids.filter((id) => receiptIds.has(id))),
+    };
     fileRows = new InMemoryFileRepository();
     files = new InMemoryFileStorage();
     metrics = new InMemoryMetricsCache();
@@ -96,6 +105,7 @@ describe('HandleMaintenance', () => {
       invites,
       resets,
       documents,
+      receipts,
       fileRows,
       fileRefs,
       files,
@@ -212,6 +222,16 @@ describe('HandleMaintenance', () => {
     await handler.handle();
 
     expect(files.keys()).toEqual([`files/${LIVE_FILE}/original.jpg`]);
+  });
+
+  it('removes receipt artifacts whose receipt profile is gone', async () => {
+    receiptIds.add(LIVE_RECEIPT);
+    await files.put(`receipts/${LIVE_RECEIPT}/thumb.jpg`, Buffer.alloc(10), 'image/jpeg');
+    await files.put(`receipts/${GONE_RECEIPT}/pages/0.jpg`, Buffer.alloc(20), 'image/jpeg');
+
+    await handler.handle();
+
+    expect(files.keys()).toEqual([`receipts/${LIVE_RECEIPT}/thumb.jpg`]);
   });
 
   // 🔒 The one destruction in Legere that happens on a clock (docs/05 §5.7a) — and the half of it

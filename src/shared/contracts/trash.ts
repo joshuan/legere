@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { paginationQuerySchema } from './common';
 import { documentFileRefSchema } from './documents';
-import { fileOriginSchema, trashReasonSchema } from './enums';
+import { archiveItemKindSchema, fileOriginSchema, trashReasonSchema } from './enums';
 
 // The trash (docs/07 §7.3 admin trash, docs/05 §5.7a, docs/11 §11.13b): every file that has left a
 // document and has not yet been destroyed. A file is in exactly one document or in here.
@@ -17,6 +17,8 @@ export const trashItemSchema = z.object({
   // is then nothing to download and nothing to restore.
   available: z.boolean(),
   isImage: z.boolean(),
+  // Product profile to recreate. Old rows predate the distinction and therefore read as documents.
+  archiveKind: archiveItemKindSchema,
   reason: trashReasonSchema,
   trashedAt: z.string().datetime(),
   // The title the document had when the file left it. A record rather than a link: that document is
@@ -52,9 +54,10 @@ export const emptyTrashResponseSchema = z.object({
 });
 export type EmptyTrashResponse = z.infer<typeof emptyTrashResponseSchema>;
 
-// A restored file becomes a document of its own — a new one, never the document it came from
-// (docs/05 §5.7a), so the answer is where to go and look at it.
+// A restored file becomes a new archive item of its former kind, never the item it came from
+// (docs/05 §5.7a, docs/15 §15.7), so the answer is where to go and look at it.
 export const restoreTrashResponseSchema = z.object({
   documentId: z.string().uuid(),
+  kind: archiveItemKindSchema,
 });
 export type RestoreTrashResponse = z.infer<typeof restoreTrashResponseSchema>;

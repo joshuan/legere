@@ -10,6 +10,7 @@ import {
   LeftOutlined,
   LogoutOutlined,
   SearchOutlined,
+  ShoppingOutlined,
   RightOutlined,
   SettingOutlined,
   TagsOutlined,
@@ -80,6 +81,11 @@ export function AppShell({
       key: '/documents',
       icon: <FileTextOutlined />,
       label: <Link href="/documents">{t('nav.documents')}</Link>,
+    },
+    {
+      key: '/receipts',
+      icon: <ShoppingOutlined />,
+      label: <Link href="/receipts">{t('nav.receipts')}</Link>,
     },
     {
       key: '/browse',

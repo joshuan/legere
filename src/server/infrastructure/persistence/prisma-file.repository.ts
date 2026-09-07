@@ -10,7 +10,7 @@ import {
   type Crop,
   type Rotation,
 } from '../../../shared/contracts/documents';
-import type { TrashReason } from '../../../shared/contracts/enums';
+import type { ArchiveItemKind, TrashReason } from '../../../shared/contracts/enums';
 import { artifactKeys } from '../../application/storage/artifact-keys';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import {
@@ -50,6 +50,8 @@ function toDomain(row: PrismaFile): File {
     trashedAt: row.trashedAt,
     trashedReason: row.trashedReason,
     trashedFrom: row.trashedFrom,
+    trashedArchiveKind: row.trashedArchiveKind,
+    trashedOwnerId: row.trashedOwnerId,
     replacedById: row.replacedById,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -217,6 +219,8 @@ export class PrismaFileRepository implements FileRepository {
       reason: TrashReason;
       trashedFrom: string | null;
       replacedById?: string | undefined;
+      archiveKind?: ArchiveItemKind | undefined;
+      ownerId?: string | null | undefined;
       at: Date;
     },
     tx?: TransactionHandle,
@@ -241,6 +245,8 @@ export class PrismaFileRepository implements FileRepository {
         trashedAt: input.at,
         trashedReason: input.reason,
         trashedFrom: input.trashedFrom,
+        ...(input.archiveKind === undefined ? {} : { trashedArchiveKind: input.archiveKind }),
+        ...(input.ownerId === undefined ? {} : { trashedOwnerId: input.ownerId }),
         replacedById: input.replacedById ?? null,
       },
     });
@@ -249,7 +255,14 @@ export class PrismaFileRepository implements FileRepository {
   async untrash(id: string, tx?: TransactionHandle): Promise<File> {
     const row = await clientOf(this.prisma, tx).file.update({
       where: { id },
-      data: { trashedAt: null, trashedReason: null, trashedFrom: null, replacedById: null },
+      data: {
+        trashedAt: null,
+        trashedReason: null,
+        trashedFrom: null,
+        trashedArchiveKind: null,
+        trashedOwnerId: null,
+        replacedById: null,
+      },
     });
     return toDomain(row);
   }

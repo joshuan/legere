@@ -48,6 +48,8 @@ const payloadSchema = z
     changes: z
       .record(z.object({ from: z.string().nullish(), to: z.string().nullish() }))
       .optional(),
+    fromKind: z.enum(['DOCUMENT', 'RECEIPT']).optional(),
+    toKind: z.enum(['DOCUMENT', 'RECEIPT']).optional(),
   })
   .catch({});
 
@@ -77,6 +79,12 @@ export class PrismaDocumentEventRepository extends DocumentEventRepository {
     // order they happened in, and the newest must not be undone by a straggler. Raw rather than the
     // typed client on purpose — `updated_at` is not touched, because this is not an edit of the
     // document, and because `updated_at` is the very column this one exists to stop standing in for.
+    await client.$executeRaw`
+      UPDATE archive_items
+         SET last_event_at = GREATEST(last_event_at, ${row.at}::timestamptz)
+       WHERE id = ${event.documentId}::uuid`;
+    // Compatibility projection for the existing document read model. A receipt has no row here,
+    // so this is deliberately a harmless zero-row update for receipt events.
     await client.$executeRaw`
       UPDATE documents
          SET last_event_at = GREATEST(last_event_at, ${row.at}::timestamptz)

@@ -3,6 +3,7 @@ import { HandleDocumentProcess } from '../../application/jobs/handle-document-pr
 import { HandleFileIngest } from '../../application/jobs/handle-file-ingest';
 import { HandleLibraryScan } from '../../application/jobs/handle-library-scan';
 import { HandleMaintenance } from '../../application/jobs/handle-maintenance';
+import { HandleReceiptProcess } from '../../application/jobs/handle-receipt-process';
 import type { ProcessingSettings } from '../../application/jobs/processing-settings';
 import { BuildCanonical } from '../../application/documents/build-canonical';
 import { CallContext } from '../../application/ports/call-context';
@@ -36,6 +37,7 @@ import { UserInviteRepository } from '../../domain/repositories/user-invite.repo
 import { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import { LibraryRepository } from '../../domain/repositories/library.repository';
 import { FileRepository } from '../../domain/repositories/file.repository';
+import { ReceiptRepository } from '../../domain/repositories/receipt.repository';
 import { ScanRunRepository } from '../../domain/repositories/scan-run.repository';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { WorkerRegistry, type WorkerBinding } from '../../infrastructure/queue/worker-registry';
@@ -71,6 +73,7 @@ export const PROCESSING_WORKER_BINDINGS = [
   { queue: 'library-scan', handler: HandleLibraryScan, concurrency: 1 },
   { queue: 'file-ingest', handler: HandleFileIngest },
   { queue: 'document-process', handler: HandleDocumentProcess },
+  { queue: 'receipt-process', handler: HandleReceiptProcess },
   { queue: 'maintenance', handler: HandleMaintenance, concurrency: 1 },
 ] satisfies readonly WorkerBinding[];
 
@@ -266,12 +269,41 @@ export const PROCESSING_WORKER_BINDINGS = [
       ],
     },
     {
+      provide: HandleReceiptProcess,
+      useFactory: (
+        receipts: ReceiptRepository,
+        fileRows: FileRepository,
+        events: DocumentEventRepository,
+        storage: FileStorage,
+        pdfs: PdfToolbox,
+        images: ImageTool,
+        analyst: DocumentAnalyst,
+        config: AppConfig,
+      ): HandleReceiptProcess =>
+        new HandleReceiptProcess(receipts, fileRows, events, storage, pdfs, images, analyst, {
+          previewMaxDim: config.get('PREVIEW_MAX_DIM'),
+          thumbMaxDim: config.get('THUMB_MAX_DIM'),
+          analystPageImageMaxDim: config.get('CLASSIFIER_PAGE_IMAGE_MAX_DIM'),
+        }),
+      inject: [
+        ReceiptRepository,
+        FileRepository,
+        DocumentEventRepository,
+        FileStorage,
+        PdfToolbox,
+        ImageTool,
+        DocumentAnalyst,
+        AppConfig,
+      ],
+    },
+    {
       provide: HandleMaintenance,
       useFactory: (
         verifications: EmailVerificationRepository,
         invites: UserInviteRepository,
         resets: PasswordResetRepository,
         documents: DocumentRepository,
+        receipts: ReceiptRepository,
         fileRows: FileRepository,
         fileRefs: FileRefRepository,
         files: FileStorage,
@@ -288,6 +320,7 @@ export const PROCESSING_WORKER_BINDINGS = [
           invites,
           resets,
           documents,
+          receipts,
           fileRows,
           fileRefs,
           files,
@@ -303,6 +336,7 @@ export const PROCESSING_WORKER_BINDINGS = [
         UserInviteRepository,
         PasswordResetRepository,
         DocumentRepository,
+        ReceiptRepository,
         FileRepository,
         FileRefRepository,
         FileStorage,
@@ -315,7 +349,13 @@ export const PROCESSING_WORKER_BINDINGS = [
       ],
     },
   ],
-  exports: [HandleLibraryScan, HandleFileIngest, HandleDocumentProcess, HandleMaintenance],
+  exports: [
+    HandleLibraryScan,
+    HandleFileIngest,
+    HandleDocumentProcess,
+    HandleReceiptProcess,
+    HandleMaintenance,
+  ],
 })
 export class JobsModule implements OnModuleInit {
   constructor(private readonly workers: WorkerRegistry) {}

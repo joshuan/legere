@@ -27,7 +27,7 @@ import { ZodQuery } from '../http/zod-validation.pipe';
 
 // The trash (docs/07 §7.3, docs/05 §5.7a, docs/11 §11.13b): every file that has left a document and
 // has not been destroyed yet. An admin's, all of it — each route either destroys bytes for good or
-// makes a document.
+// makes a new archive item.
 @Controller('admin/trash')
 @UseGuards(SessionGuard, RolesGuard)
 @Roles('ADMIN')
@@ -72,8 +72,8 @@ export class AdminTrashController {
     return successEnvelope(await this.removeOne.execute(fileId));
   }
 
-  // A creation, and it says so: what comes back is a new document, never the one the file left
-  // (docs/05 §5.7a).
+  // A creation, and it says so: what comes back is a new item of the former product kind, never the
+  // one the file left (docs/05 §5.7a, docs/15 §15.7).
   @Post(':fileId/restore')
   @HttpCode(201)
   async restoreItem(

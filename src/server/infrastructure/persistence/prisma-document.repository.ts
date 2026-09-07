@@ -837,8 +837,18 @@ export class PrismaDocumentRepository implements DocumentRepository {
   }
 
   async create(input: CreateDocumentInput, tx?: TransactionHandle): Promise<Document> {
-    const row = await clientOf(this.prisma, tx).document.create({
-      data: { title: input.title, createdById: input.createdById ?? null },
+    const client = clientOf(this.prisma, tx);
+    const archiveItem = await client.archiveItem.create({
+      data: { kind: 'DOCUMENT', createdById: input.createdById ?? null },
+    });
+    const row = await client.document.create({
+      data: {
+        id: archiveItem.id,
+        title: input.title,
+        createdById: input.createdById ?? null,
+        createdAt: archiveItem.createdAt,
+        lastEventAt: archiveItem.lastEventAt,
+      },
     });
     return toDomain(row);
   }
@@ -1666,7 +1676,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
   // One statement, and the cascades of docs/04 §4.2 take the journal, the chunks, the people and
   // subject links and the `document_pages` rows with it (docs/03 §3.3.10).
   async hardDelete(id: string, tx?: TransactionHandle): Promise<void> {
-    await clientOf(this.prisma, tx).document.deleteMany({ where: { id } });
+    await clientOf(this.prisma, tx).archiveItem.deleteMany({ where: { id, kind: 'DOCUMENT' } });
   }
 
   // No `deletedAt` filter on purpose: a soft-deleted document still owns its artifacts.

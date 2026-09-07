@@ -12,6 +12,10 @@ export const artifactKeys = {
   preview: (documentId: string): string => `documents/${documentId}/preview.jpg`,
   // First page, THUMB_MAX_DIM.
   thumbnail: (documentId: string): string => `documents/${documentId}/thumb.jpg`,
+  receiptThumbnail: (receiptId: string): string => `receipts/${receiptId}/thumb.jpg`,
+  receiptPage: (receiptId: string, page: number): string =>
+    `receipts/${receiptId}/pages/${page}.jpg`,
+  receiptPrefix: (receiptId: string): string => `receipts/${receiptId}/`,
   // A MANAGED file's own bytes: an upload, or something we made (docs/09 §9.2). A LIBRARY file has
   // no object at all — its bytes stay on the volume.
   fileOriginal: (fileId: string, ext: string): string =>

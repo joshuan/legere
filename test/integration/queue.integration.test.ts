@@ -105,6 +105,7 @@ describe('Queue (integration)', () => {
       'file-ingest',
       'library-scan',
       'maintenance',
+      'receipt-process',
     ]);
   });
 
@@ -340,7 +341,7 @@ describe('Queue (integration)', () => {
       completedLastHour: 0,
     });
     // Every known queue appears, even with nothing in it.
-    expect(depths).toHaveLength(4);
+    expect(depths).toHaveLength(5);
     expect(await monitor.isHealthy()).toBe(true);
   });
 

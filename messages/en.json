@@ -29,6 +29,7 @@
       "USER_NOT_FOUND": "This user no longer exists.",
       "LIBRARY_NOT_FOUND": "This library no longer exists.",
       "DOCUMENT_NOT_FOUND": "This document no longer exists.",
+      "RECEIPT_NOT_FOUND": "This receipt no longer exists.",
       "DOCUMENT_TYPE_NOT_FOUND": "This document type no longer exists.",
       "COLLECTION_NOT_FOUND": "This collection no longer exists.",
       "INVITE_NOT_FOUND": "This invite no longer exists.",
@@ -54,6 +55,8 @@
       "EMAIL_CODE_TOO_MANY_ATTEMPTS": "Too many wrong codes. Request a new one.",
       "INTERNAL": "An unexpected server error occurred.",
       "DOCUMENT_DUPLICATE": "This file is already on this instance, in a document you cannot open.",
+      "RECEIPT_DUPLICATE": "These bytes are already stored as a receipt or document.",
+      "ARCHIVE_KIND_CONFLICT": "This item cannot be converted in its current form.",
       "UNSUPPORTED_FORMAT": "This file format is not supported. Legere takes PDFs, images, office documents and plain text.",
       "PERSON_EXISTS": "Somebody with this name is already in the list.",
       "PERSON_NOT_FOUND": "This person is no longer in the list.",
@@ -816,6 +819,7 @@
       "reasons": {
         "REPLACED": "replaced by a newer copy",
         "DOCUMENT_DELETED": "its document was deleted",
+        "RECEIPT_DELETED": "its receipt was deleted",
         "PAGE_REMOVED": "its last page was removed"
       },
       "unknownDocument": "a document with no title",
@@ -827,9 +831,18 @@
         "delete": "Delete",
         "emptyAll": "Empty the trash"
       },
-      "restoreTitle": "Restore «{name}» as a new document?",
-      "restoreNote": "It does not go back into the document it came from — that document has moved on, or is gone. You get a new document holding this one file, and the pipeline reads it afresh.",
-      "restored": "Restored as a new document.",
+      "restoreTitle": {
+        "DOCUMENT": "Restore «{name}» as a new document?",
+        "RECEIPT": "Restore «{name}» as a new receipt?"
+      },
+      "restoreNote": {
+        "DOCUMENT": "It does not go back into the document it came from — that document has moved on, or is gone. You get a new document holding this one file, and the pipeline reads it afresh.",
+        "RECEIPT": "It does not go back into the deleted receipt. You get a new receipt holding the original file, and receipt extraction runs afresh."
+      },
+      "restored": {
+        "DOCUMENT": "Restored as a new document.",
+        "RECEIPT": "Restored as a new receipt."
+      },
       "deleteTitle": "Delete «{name}» for good?",
       "deleted": "Deleted for good.",
       "emptyTitle": "Delete everything in the trash?",
@@ -943,6 +956,68 @@
       "sameSitting": "{count} scans in {folder}, scanned in one sitting",
       "combine": "Combine",
       "dismiss": "Dismiss"
+    }
+  },
+  "receipts": {
+    "title": "Receipts",
+    "singular": "Receipt",
+    "upload": "Upload receipt",
+    "uploadHint": "Images and PDFs. One file becomes one receipt.",
+    "uploaded": "Receipt uploaded",
+    "duplicate": "This receipt was already here",
+    "empty": "No receipts yet.",
+    "loadMore": "Load more",
+    "processing": "Processing",
+    "failed": "Processing failed",
+    "unknownVendor": "Receipt",
+    "owner": "Owner",
+    "added": "Added",
+    "file": "Original file",
+    "pageCount": "Pages",
+    "size": "Size",
+    "previewStep": "Preview",
+    "extractionStep": "Data extraction",
+    "statuses": {
+      "PENDING": "Pending",
+      "QUEUED": "Queued",
+      "RUNNING": "Running",
+      "DONE": "Done",
+      "FAILED": "Failed",
+      "SKIPPED": "Skipped"
+    },
+    "pages": "{count, plural, one {# page} other {# pages}}",
+    "details": "Receipt data",
+    "raw": "Raw JSON",
+    "noData": "Structured data is not available yet.",
+    "copyJson": "Copy JSON",
+    "downloadJson": "Download JSON",
+    "downloadOriginal": "Download original",
+    "sourceText": "Source text supplied by the client",
+    "sourceTextHint": "Noisy email text used as an extraction hint",
+    "moveToDocuments": "Move to documents",
+    "moveToDocumentsConfirm": "Turn this receipt into a document? Receipt data will be removed and the full document pipeline will start.",
+    "copied": "JSON copied",
+    "delete": "Delete receipt",
+    "deleteConfirm": "Delete this receipt? The original will move to the trash.",
+    "deleted": "Receipt deleted",
+    "back": "All receipts",
+    "fields": {
+      "vendor": "Merchant",
+      "statementDescriptor": "Statement descriptor",
+      "purchasedAt": "Purchase date",
+      "purchasedTime": "Time",
+      "total": "Total",
+      "taxAmount": "Tax",
+      "paymentMethod": "Payment method",
+      "card": "Card",
+      "vendorTaxId": "Merchant tax ID",
+      "receiptNumber": "Receipt number",
+      "items": "Items",
+      "quantity": "Quantity",
+      "unitPrice": "Unit price",
+      "amount": "Amount",
+      "discount": "Discount",
+      "name": "Item"
     }
   },
   "viewer": {
@@ -1164,6 +1239,10 @@
       }
     },
     "addedToCollection": "Added to the collection",
+    "moveToReceipts": "Move to receipts",
+    "moveToReceiptsConfirm": "Turn this document into a receipt? Document-only data and artifacts will be removed.",
+    "moveToReceiptsLibrary": "Library documents cannot become receipts: Legere never copies a read-only original into managed storage.",
+    "moveToReceiptsUnavailable": "A receipt must be one settled document with one managed file.",
     "log": {
       "empty": "Nothing has happened to this document yet",
       "queued": "Queued for processing",
@@ -1298,6 +1377,7 @@
   },
   "nav": {
     "documents": "Documents",
+    "receipts": "Receipts",
     "browse": "Browse",
     "search": "Search",
     "collections": "Collections",

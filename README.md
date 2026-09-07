@@ -1,8 +1,11 @@
 # Legere
 
-Legere is a document management system. Its principle is based on how Immich works with an external
+Legere is a self-hosted archive for documents and receipts. Its document principle is based on how Immich works with an external
 library. The primary scenario: Legere is deployed on a server with a read-only storage of document
 files attached; the system monitors and manages those documents.
+
+Receipts sit beside documents as explicitly uploaded image/PDF originals. They receive thumbnails
+and structured JSON, but no canonical PDF, extracted text or vectors.
 
 Principles:
 1) The external library is read-only.

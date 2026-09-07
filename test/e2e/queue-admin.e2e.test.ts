@@ -285,6 +285,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         'library-scan',
         'file-ingest',
         'document-process',
+        'receipt-process',
         'maintenance',
       ]);
       expect(overview.documents.total).toBe(1);

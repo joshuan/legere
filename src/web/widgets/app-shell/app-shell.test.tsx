@@ -230,6 +230,7 @@ describe('AppShell', () => {
     // The routes under src/app; anything the shell links to has to be one of them.
     const routes = [
       '/documents',
+      '/receipts',
       '/search',
       '/collections',
       '/settings',

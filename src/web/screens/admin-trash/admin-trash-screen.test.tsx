@@ -22,6 +22,7 @@ const managed: TrashItemDto = {
   origin: 'MANAGED',
   available: true,
   isImage: true,
+  archiveKind: 'DOCUMENT',
   reason: 'REPLACED',
   trashedAt: '2026-02-10T09:00:00.000Z',
   trashedFrom: 'Rental agreement',
@@ -40,6 +41,7 @@ const library: TrashItemDto = {
   origin: 'LIBRARY',
   available: true,
   isImage: false,
+  archiveKind: 'DOCUMENT',
   reason: 'DOCUMENT_DELETED',
   trashedAt: '2026-02-09T09:00:00.000Z',
   trashedFrom: null,
@@ -126,7 +128,7 @@ describe('AdminTrashScreen', () => {
     server.use(
       http.post('/api/admin/trash/:fileId/restore', ({ params }) => {
         restored = String(params.fileId);
-        return HttpResponse.json(envelope({ documentId: NEW_DOCUMENT_ID }));
+        return HttpResponse.json(envelope({ documentId: NEW_DOCUMENT_ID, kind: 'DOCUMENT' }));
       }),
     );
 
@@ -140,13 +142,15 @@ describe('AdminTrashScreen', () => {
     expect(
       await screen.findByText('Restore «passport-scan.jpg» as a new document?'),
     ).toBeInTheDocument();
-    expect(screen.getByText(enMessages.admin.trash.restoreNote)).toBeInTheDocument();
+    expect(screen.getByText(enMessages.admin.trash.restoreNote.DOCUMENT)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'OK' }));
 
     await waitFor(() => expect(restored).toBe(MANAGED_ID));
     // The document it made is the whole answer, and it is not the one the file came from.
-    const link = await screen.findByRole('link', { name: enMessages.admin.trash.restored });
+    const link = await screen.findByRole('link', {
+      name: enMessages.admin.trash.restored.DOCUMENT,
+    });
     expect(link).toHaveAttribute('href', `/documents/${NEW_DOCUMENT_ID}`);
   });
 

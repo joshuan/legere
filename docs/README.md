@@ -24,6 +24,7 @@ documentation — report it (see [`../CLAUDE.md`](../CLAUDE.md)).
 | 12 | [`12-build-config-run.md`](./12-build-config-run.md) | Build, env, local run, Dockerfile, deployment example |
 | 13 | [`13-ci-cd.md`](./13-ci-cd.md) | GitHub Actions: PR checks and image publishing to GHCR |
 | 14 | [`14-coding-standards.md`](./14-coding-standards.md) | Code standards, ESLint boundaries, testing, Definition of Done |
+| 15 | [`15-receipts.md`](./15-receipts.md) | Receipts as a separate archive-item kind, pipeline, API and UI |
 
 The specification is **complete** — every document is written and all previously open questions are
 resolved (each document ends with its resolution notes).

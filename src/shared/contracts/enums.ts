@@ -44,6 +44,9 @@ export type StepSkipReason = z.infer<typeof stepSkipReasonSchema>;
 export const fileOriginSchema = z.enum(['LIBRARY', 'MANAGED']);
 export type FileOrigin = z.infer<typeof fileOriginSchema>;
 
+export const archiveItemKindSchema = z.enum(['DOCUMENT', 'RECEIPT']);
+export type ArchiveItemKind = z.infer<typeof archiveItemKindSchema>;
+
 // Where a step is (docs/03 §3.3.10). `PENDING` and `QUEUED` are the two halves of what used to be
 // one word, and telling them apart is the whole point: `QUEUED` says a job exists and a worker will
 // get to it; `PENDING` says nothing is scheduled — the artifact is out of date and waits for the
@@ -72,6 +75,7 @@ export const documentEventTypeSchema = z.enum([
   // documents, carrying the other's id and title as a record.
   'LINKED',
   'UNLINKED',
+  'KIND_CHANGED',
 ]);
 export type DocumentEventType = z.infer<typeof documentEventTypeSchema>;
 
@@ -91,5 +95,10 @@ export type ScanRunStatus = z.infer<typeof scanRunStatusSchema>;
 // How a file came to be in the trash (docs/05 §5.7a): replaced by a better copy of the same page,
 // part of a document somebody deleted, or the last page reading it taken out of a document that is
 // still there (docs/05 §5.6). What happened to it, not who did it.
-export const trashReasonSchema = z.enum(['REPLACED', 'DOCUMENT_DELETED', 'PAGE_REMOVED']);
+export const trashReasonSchema = z.enum([
+  'REPLACED',
+  'DOCUMENT_DELETED',
+  'RECEIPT_DELETED',
+  'PAGE_REMOVED',
+]);
 export type TrashReason = z.infer<typeof trashReasonSchema>;

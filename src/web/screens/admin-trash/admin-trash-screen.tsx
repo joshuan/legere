@@ -58,8 +58,9 @@ export function AdminTrashScreen() {
 
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: trashKeys.list });
-    // A restore makes a document and a delete unmakes bytes: the grid counts both.
+    // A restore makes a new archive item and a delete unmakes bytes: both product lists may change.
     void queryClient.invalidateQueries({ queryKey: ['documents'] });
+    void queryClient.invalidateQueries({ queryKey: ['receipts'] });
   }, [queryClient]);
 
   const onError = useCallback(
@@ -72,12 +73,11 @@ export function AdminTrashScreen() {
   const restore = useMutation({
     mutationFn: (fileId: string) => trashApi.restore(fileId),
     onSuccess: (result) => {
-      // The new document is the whole answer, so the toast is the way to it: it is not the document
-      // the file came from, and nobody knows where to look for it otherwise (docs/05 §5.7a).
-      void message.success(
-        <Link href={`/documents/${result.documentId}`}>{t('admin.trash.restored')}</Link>,
-        3,
-      );
+      const href =
+        result.kind === 'RECEIPT'
+          ? `/receipts/${result.documentId}`
+          : `/documents/${result.documentId}`;
+      void message.success(<Link href={href}>{t(`admin.trash.restored.${result.kind}`)}</Link>, 3);
       refresh();
     },
     onError,
@@ -135,6 +135,7 @@ export function AdminTrashScreen() {
           <Space direction="vertical" size={0}>
             <Space size={4} wrap>
               <Typography.Text>{item.name}</Typography.Text>
+              {item.archiveKind === 'RECEIPT' && <Tag>{t('receipts.singular')}</Tag>}
               {/* Bytes a volume lost: there is nothing left to restore, and the row says so rather
                   than letting somebody find out by pressing the button (docs/07 §7.3). */}
               {!item.available && <Tag>{t('viewer.files.missing')}</Tag>}
@@ -209,10 +210,14 @@ export function AdminTrashScreen() {
         <Space size="small">
           {item.available ? (
             <Popconfirm
-              title={t('admin.trash.restoreTitle', { name: item.name })}
+              title={t(`admin.trash.restoreTitle.${item.archiveKind}`, { name: item.name })}
               // Said before it happens, not after: a restore does not put the page back where it
               // came from, and somebody expecting that would be surprised (docs/05 §5.7a).
-              description={<div style={{ maxWidth: 320 }}>{t('admin.trash.restoreNote')}</div>}
+              description={
+                <div style={{ maxWidth: 320 }}>
+                  {t(`admin.trash.restoreNote.${item.archiveKind}`)}
+                </div>
+              }
               onConfirm={() => restore.mutate(item.id)}
             >
               <Button size="small" loading={restore.isPending && restore.variables === item.id}>

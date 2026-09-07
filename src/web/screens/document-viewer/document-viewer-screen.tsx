@@ -81,6 +81,7 @@ import type { DocumentProcessingBlockerDto } from '../../../shared/contracts/pro
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { documentApi, documentFiles, documentKeys } from '../../entities/document';
+import { receiptApi, receiptKeys } from '../../entities/receipt';
 import { personApi, personKeys } from '../../entities/person';
 import { searchApi, searchKeys } from '../../entities/search';
 import { subjectApi, subjectKeys } from '../../entities/subject';
@@ -133,7 +134,7 @@ export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?
   const active = pendingTab?.documentId === id && pendingTab.from === tab ? pendingTab.to : tab;
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   const document = useQuery({
     queryKey: documentKeys.detail(id),
@@ -202,6 +203,16 @@ export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?
     onSuccess: () => {
       void message.success(t('viewer.processing.queued'), 2);
       refresh();
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+
+  const moveToReceipts = useMutation({
+    mutationFn: () => receiptApi.convert(id, 'RECEIPT'),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['documents'] });
+      void queryClient.invalidateQueries({ queryKey: receiptKeys.all });
+      router.replace(`/receipts/${id}`);
     },
     onError: (error: unknown) => void message.error(describeError(error)),
   });
@@ -378,6 +389,37 @@ export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?
               </div>
             )}
           </Card>
+
+          {detail.documentType?.slug === 'receipt' && (
+            <Card>
+              <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                {detail.origin === 'LIBRARY' ? (
+                  <Alert type="warning" showIcon message={t('viewer.moveToReceiptsLibrary')} />
+                ) : detail.files.length !== 1 || detail.processing ? (
+                  <Typography.Text type="secondary">
+                    {t('viewer.moveToReceiptsUnavailable')}
+                  </Typography.Text>
+                ) : null}
+                <Button
+                  block
+                  disabled={
+                    detail.origin === 'LIBRARY' || detail.files.length !== 1 || detail.processing
+                  }
+                  loading={moveToReceipts.isPending}
+                  onClick={() => {
+                    modal.confirm({
+                      title: t('viewer.moveToReceipts'),
+                      content: t('viewer.moveToReceiptsConfirm'),
+                      okText: t('viewer.moveToReceipts'),
+                      onOk: () => moveToReceipts.mutate(),
+                    });
+                  }}
+                >
+                  {t('viewer.moveToReceipts')}
+                </Button>
+              </Space>
+            </Card>
+          )}
 
           {/* 🔒 What is left of the panel, and why (docs/11 §11.5): it says what the document is
               called, what it is about in a line, and what it looks like. Everything that *acts* on

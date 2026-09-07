@@ -1858,3 +1858,33 @@ the same commit.
 | Compatibility routes and UI addresses | `test/e2e/queue-admin.e2e.test.ts` — the real new snapshot/scoped command path runs against PostgreSQL/pg-boss, stale revisions are refused, legacy settings/overview/services/failures/retry/reprocess contracts remain executable, and old/new failure reads are pairwise equivalent. `src/web/screens/admin-queue/admin-queue-screen.test.tsx` — the active client calls only `/api/admin/processing/*` for the snapshot, controls, checks, cursor-paginated failures and reprocess. `src/app/(app)/admin/queue/page.test.tsx` and `src/app/(app)/admin/queue/[tab]/page.test.tsx` — old UI addresses redirect exactly; `src/server/presentation/auth/route-guards.test.ts` audits admin guards for both controller surfaces. |
 | Effective document blockers | `src/server/application/documents/get-document-processing-state.test.ts` — topology order, canonical/Markdown cascades, typed/untyped conditional fields, settled-artifact bypass, settled direct pause and parent queue pause. `src/web/screens/document-viewer/document-viewer-screen.test.tsx` — reasons/paths are rendered, blocked controls are disabled, unblocked pending work stays selectable and `/api/pipeline/paused-steps` is not called. `src/server/presentation/auth/route-guards.test.ts` audits `DocumentAccessGuard` on the document-scoped route. |
 | Queue liveness | `src/server/infrastructure/queue/pg-boss-queue-monitor.test.ts` — grouped values are mapped and missing known queues receive explicit zero/null evidence. `test/integration/queue.integration.test.ts` — created/retry depth plus recent/old completion windows and no-history queues against pg-boss. `src/server/application/processing/processing-control-plane.test.ts` — liveness fields pass into the unified snapshot. `src/web/screens/admin-queue/admin-queue-screen.test.tsx` — Overview renders those values with resolved settings/topology. |
+
+## M62 — Receipts beside documents
+
+Receipts are a second product kind over the same stored-file identity, ownership and audit boundary.
+The complete product and technical contract is [`15`](../15-receipts.md). Tasks are sequential.
+
+- [x] **M62.1 — One archive identity, two profiles**
+  **Goal:** existing documents and new receipts share a stable ArchiveItem without weakening document behavior.
+  **Docs:** [`15 §15.2–§15.3`](../15-receipts.md)
+  **Acceptance:** a forward-only migration backfills every document under the same id, receipt creation and conversion preserve one matching profile, events follow the item without rewriting their history, receipt JSON contracts are versioned, and all existing document tests remain green.
+
+- [x] **M62.2 — A receipt enters and is read as pictures plus JSON**
+  **Goal:** explicit image/PDF upload produces a receipt, thumbnail, viewable pages and structured data only.
+  **Docs:** [`15 §15.4–§15.6`](../15-receipts.md)
+  **Acceptance:** upload/dedup/access are race-safe, the optional caller `text` is retained and reaches extraction beside all page images, PDF pages and images get JPEG representations, the original is retained, receipt artifacts are swept by maintenance, the two-step pipeline is in the processing topology, and no receipt invokes canonicalisation, parsing, transcription or embeddings.
+
+- [x] **M62.3 — An archive item can change product kind**
+  **Goal:** eligible managed content moves Document ↔ Receipt under one id, and receipt deletion restores as a receipt.
+  **Docs:** [`15 §15.7–§15.8`](../15-receipts.md)
+  **Acceptance:** ownership and eligibility are enforced, the target profile is reprocessed from the retained original, subtype-only rows/artifacts are cleaned, library/multi/processing documents explain their refusal while shared content is rejected at the boundary, and trash records/restores kind and owner.
+
+- [x] **M62.4 — Receipts have their own reading surface**
+  **Goal:** users upload, browse and inspect receipts without mixing them into document workflows.
+  **Docs:** [`15 §15.9`](../15-receipts.md)
+  **Acceptance:** navigation, responsive list, detail viewer, raw JSON, collapsed caller text, receipt-only upload state, processing states and conversion warnings are localized and component-tested; documents/search/browse/collections remain document-only.
+
+- [x] **M62.5 — The new branch is complete**
+  **Goal:** documentation, operational controls and mandatory scenarios agree with the implementation.
+  **Docs:** [`15`](../15-receipts.md), [`14 §14.8–§14.9`](../14-coding-standards.md)
+  **Acceptance:** migration, unit, integration, e2e, security and UI scenarios are indexed; typecheck, lint, test and build pass; all M62 boxes are checked.

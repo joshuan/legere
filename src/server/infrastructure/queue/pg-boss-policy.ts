@@ -10,6 +10,7 @@ export const EXPIRE_IN_SECONDS: Readonly<Record<QueueName, number>> = {
   'library-scan': queueDefinition('library-scan').expireInSeconds,
   'file-ingest': queueDefinition('file-ingest').expireInSeconds,
   'document-process': queueDefinition('document-process').expireInSeconds,
+  'receipt-process': queueDefinition('receipt-process').expireInSeconds,
   maintenance: queueDefinition('maintenance').expireInSeconds,
 };
 

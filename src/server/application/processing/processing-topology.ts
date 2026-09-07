@@ -37,6 +37,14 @@ export const PROCESSING_TOPOLOGY = {
       expireInSeconds: 3 * 60 * 60,
     },
     {
+      name: 'receipt-process',
+      kind: 'PIPELINE',
+      produces: [],
+      concurrencyConfigurable: true,
+      policy: 'short',
+      expireInSeconds: 60 * 60,
+    },
+    {
       name: 'maintenance',
       kind: 'HOUSEKEEPING',
       produces: ['document-process'],
@@ -114,10 +122,14 @@ export const PROCESSING_TOPOLOGY = {
     {
       service: 'stirling',
       steps: ['canonical', 'preview', 'markdown', 'analysis', 'fields'],
-      otherConsumers: [],
+      otherConsumers: ['receipts'],
     },
     { service: 'docling', steps: ['markdown'], otherConsumers: [] },
-    { service: 'classifier', steps: ['analysis', 'fields'], otherConsumers: ['catalogues'] },
+    {
+      service: 'classifier',
+      steps: ['analysis', 'fields'],
+      otherConsumers: ['catalogues', 'receipts'],
+    },
     { service: 'transcriber', steps: ['markdown'], otherConsumers: [] },
     { service: 'embeddings', steps: ['vectorization'], otherConsumers: ['semantic-search'] },
   ],

@@ -57,6 +57,15 @@ describe('PgBossQueueMonitor', () => {
         completedLastHour: 7,
       },
       {
+        name: 'receipt-process',
+        queued: 0,
+        active: 0,
+        failedRecent: 0,
+        oldestQueuedAt: null,
+        lastCompletedAt: null,
+        completedLastHour: 0,
+      },
+      {
         name: 'maintenance',
         queued: 0,
         active: 0,

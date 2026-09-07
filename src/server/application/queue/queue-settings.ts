@@ -25,7 +25,8 @@ export const QUEUE_SETTINGS_KEY = 'queue';
 const SETTINGS_SCHEMA_VERSION = 2;
 
 export type QueueDefaults = {
-  concurrency: Record<QueueName, number>;
+  concurrency: Record<Exclude<QueueName, 'receipt-process'>, number> &
+    Partial<Record<'receipt-process', number>>;
   unitConcurrency: number;
   services: Record<ServiceName, ServiceGateDto>;
 };
@@ -185,7 +186,7 @@ export class QueueSettings {
       concurrency: Object.fromEntries(
         QUEUE_NAMES.map((queue) => [
           queue,
-          overrides.concurrency[queue] ?? this.defaults.concurrency[queue],
+          overrides.concurrency[queue] ?? this.defaultConcurrency(queue),
         ]),
       ),
       unitConcurrency: overrides.unitConcurrency ?? this.defaults.unitConcurrency,
@@ -204,8 +205,8 @@ export class QueueSettings {
         name,
         paused: resolvedBoolean(overrides.paused.includes(name)),
         concurrency: resolvedNumber(
-          effective.concurrency[name] ?? this.defaults.concurrency[name],
-          this.defaults.concurrency[name],
+          effective.concurrency[name] ?? this.defaultConcurrency(name),
+          this.defaultConcurrency(name),
           overrides.concurrency[name] !== undefined,
         ),
       })),
@@ -236,6 +237,13 @@ export class QueueSettings {
       })),
     };
     return { revision, effective, controls, overrides: cloneOverrides(overrides) };
+  }
+
+  private defaultConcurrency(queue: QueueName): number {
+    if (queue === 'receipt-process') {
+      return this.defaults.concurrency[queue] ?? this.defaults.concurrency['document-process'];
+    }
+    return this.defaults.concurrency[queue];
   }
 
   private async persist(state: QueueSettingsState): Promise<void> {

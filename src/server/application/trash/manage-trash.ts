@@ -11,6 +11,7 @@ import type { DocumentEventRepository } from '../../domain/repositories/document
 import type { DocumentRepository } from '../../domain/repositories/document.repository';
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { FileRepository, TrashedFile } from '../../domain/repositories/file.repository';
+import type { ReceiptRepository } from '../../domain/repositories/receipt.repository';
 import { titleOf } from '../documents/compose-document';
 import type { DocumentFileBytes } from '../documents/document-file-bytes';
 import type { Download } from '../documents/download-document';
@@ -129,7 +130,7 @@ export class DownloadTrashItem {
   }
 }
 
-// POST /api/admin/trash/:fileId/restore — the file becomes a document of its own.
+// POST /api/admin/trash/:fileId/restore — the file becomes a new archive item of its former kind.
 //
 // A **new** one, never the document it came from: that document has moved on or does not exist, and
 // putting a page back into a page order that changed underneath it would be a guess (docs/05 §5.7a).
@@ -137,6 +138,7 @@ export class DownloadTrashItem {
 export class RestoreTrashItem {
   constructor(
     private readonly documents: DocumentRepository,
+    private readonly receipts: ReceiptRepository,
     private readonly files: FileRepository,
     private readonly fileRefs: FileRefRepository,
     private readonly events: DocumentEventRepository,
@@ -154,7 +156,8 @@ export class RestoreTrashItem {
       // Bytes deduplicate to one file (ADR-021), so the same content may have been uploaded again
       // while this sat here — and then it has a home and there is nothing to restore.
       const home = await this.files.findDocumentIdForFile(file.id, tx);
-      if (home !== null) {
+      const receiptHome = await this.receipts.findByFileId(file.id, tx);
+      if (home !== null || receiptHome !== null) {
         throw new ConflictError(
           'FILE_ALREADY_IN_DOCUMENT',
           'These bytes are already a file of a document',
@@ -165,6 +168,28 @@ export class RestoreTrashItem {
       // Its paths on a volume become live again: the bytes are there and their hash is known, which
       // is what `EXCLUDED` was holding back (docs/03 §3.3.9).
       await this.fileRefs.markRestored(restored.id, restored.contentHash, tx);
+
+      if (file.trashedArchiveKind === 'RECEIPT') {
+        const receipt = await this.receipts.create(
+          {
+            fileId: restored.id,
+            createdById: file.trashedOwnerId ?? actorId,
+          },
+          tx,
+        );
+        await this.queue.enqueueAfterTx(tx, 'receipt-process', { receiptId: receipt.id });
+        await this.events.record(
+          {
+            documentId: receipt.id,
+            type: 'CREATED',
+            actorId,
+            payload: { source: 'RESTORE', path: restored.name },
+          },
+          tx,
+        );
+        await this.events.record({ documentId: receipt.id, type: 'QUEUED', actorId }, tx);
+        return { documentId: receipt.id, kind: 'RECEIPT' };
+      }
 
       const document = await this.documents.create(
         { title: titleOf(restored.name), createdById: actorId },
@@ -193,7 +218,7 @@ export class RestoreTrashItem {
       );
       await this.events.record({ documentId: document.id, type: 'QUEUED', actorId }, tx);
 
-      return { documentId: document.id };
+      return { documentId: document.id, kind: 'DOCUMENT' };
     });
   }
 }
@@ -246,6 +271,7 @@ export function toTrashItem(file: TrashedFile, retentionDays: number): TrashItem
     origin: file.origin,
     available: file.available,
     isImage: isImageFile(file),
+    archiveKind: file.trashedArchiveKind ?? 'DOCUMENT',
     // 🔒 Both of these are narrowed from nullable columns, and both are non-null by construction:
     // everything on this list is in the trash. A row that somehow is not would be a bug, and it is
     // shown as what it least misrepresents rather than crashing the screen that would reveal it.

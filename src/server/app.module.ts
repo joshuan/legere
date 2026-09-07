@@ -19,6 +19,8 @@ import { SubjectKindsModule } from './presentation/subject-kinds/subject-kinds.m
 import { SubjectsModule } from './presentation/subjects/subjects.module';
 import { CollectionsModule } from './presentation/collections/collections.module';
 import { DocumentsModule } from './presentation/documents/documents.module';
+import { ReceiptsModule } from './presentation/receipts/receipts.module';
+import { ArchiveItemsModule } from './presentation/archive-items/archive-items.module';
 import { DomainExceptionFilter } from './presentation/http/domain-exception.filter';
 import { throttlerOptions } from './presentation/http/throttling';
 import { HealthModule } from './presentation/health/health.module';
@@ -54,6 +56,8 @@ import { UsersModule } from './presentation/users/users.module';
     UsersModule,
     LibrariesModule,
     DocumentsModule,
+    ReceiptsModule,
+    ArchiveItemsModule,
     DocumentTypesModule,
     PeopleModule,
     SubjectsModule,

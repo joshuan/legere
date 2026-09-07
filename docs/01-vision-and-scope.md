@@ -2,10 +2,14 @@
 
 ## 1.1. Vision
 
-**Legere** is a self-hosted document management system. Its operating principle is borrowed from how
+**Legere** is a self-hosted archive for documents and receipts. Its operating principle is borrowed from how
 **Immich** works with external libraries: Legere is deployed on a server with a **read-only document
 file storage** attached. The system monitors that storage, processes the files it finds, and gives
 users convenient access: viewing, search (full-text and semantic), document types, sharing.
+
+Receipts are a product surface beside documents: explicitly uploaded image/PDF originals, a visual
+preview and a structured reading, without the canonical/text/search pipeline of a document
+([`15`](./15-receipts.md)).
 
 The key idea: **source files are untouchable**. Legere never writes to the external library — everything
 it produces (Markdown representations, previews, merged PDFs, metadata) lives in the database and in its
@@ -42,6 +46,8 @@ One person can hold both roles (the typical home scenario: the admin is also the
 | **External library** (Library) | An admin-configured root path inside the read-only storage that Legere monitors. There can be several libraries |
 | **File** (FileRef) | A concrete file on disk inside a library: path, size, mtime, content hash. Read-only |
 | **Document** | A logical unit of content after deduplication: one content hash = one document, which several files in different locations may point to |
+| **Archive item** | Stable identity, owner and journal shared by the mutually exclusive Document and Receipt product profiles |
+| **Receipt** | One explicitly uploaded image/PDF original with visual pages and versioned structured JSON; not a document type |
 | **Derived artifact** (Artifact) | Something Legere produced itself: a JPG preview, a Markdown representation, the canonical PDF every document has. Stored in the app's private S3 bucket, not in the library |
 | **Scan set** | A user-selected set of scan images of one physical document, merged into a single PDF with margins cropped |
 | **Job** | A unit of work in the processing queue: library scan, hashing, canonical assembly, parsing, preview, analysis, vectorization |
@@ -68,6 +74,7 @@ One person can hold both roles (the typical home scenario: the admin is also the
 - Scan sets: manual file selection → merge into a PDF with margin cropping (Stirling-PDF) → a derived
   document.
 - Admin panel: libraries, users/invites, document type reference list, queue and error monitoring.
+- Explicit receipt upload, receipt list/viewer, image/PDF rendering and structured JSON extraction.
 
 **MVP file formats:** PDF, images (JPG/PNG/TIFF/WebP/HEIC), office documents (DOCX/XLSX/PPTX,
 ODT/ODS/ODP), plain text/Markdown. Other formats are registered as documents "without a representation"

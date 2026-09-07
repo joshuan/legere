@@ -832,3 +832,39 @@ pre,
 .legere-peek .legere-viewer-preview {
   height: 100%;
 }
+/* Receipt rows stay information-dense on a desk and become touch-sized cards on a phone. */
+.receipt-mobile-list {
+  display: none;
+}
+
+.receipt-thumb-placeholder {
+  align-items: center;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+  border-radius: 4px;
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 20px;
+  height: 64px;
+  justify-content: center;
+  width: 52px;
+}
+
+.receipt-json {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 700px) {
+  .receipt-desktop-list {
+    display: none;
+  }
+
+  .receipt-mobile-list {
+    display: block;
+  }
+}

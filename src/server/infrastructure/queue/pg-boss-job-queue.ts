@@ -92,6 +92,10 @@ export class PgBossJobQueue extends JobQueue {
 // same steps of the same document *are* the same piece of work and collapse into one; two requests
 // for different steps are not, and both are kept.
 function derivedKeyOf(name: QueueName, payload: object): string | undefined {
+  if (name === 'receipt-process') {
+    const data: Record<string, unknown> = { ...payload };
+    return typeof data.receiptId === 'string' ? data.receiptId : undefined;
+  }
   if (name !== 'document-process') return undefined;
   return documentProcessWorkKey(payload);
 }

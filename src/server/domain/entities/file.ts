@@ -1,4 +1,4 @@
-import type { FileOrigin, TrashReason } from '../../../shared/contracts/enums';
+import type { ArchiveItemKind, FileOrigin, TrashReason } from '../../../shared/contracts/enums';
 
 // A file: the bytes themselves, once, however many places they turn up in (docs/03 §3.3.16).
 // What a person reads is a Document, which is an ordered list of **pages** read out of files, plus a
@@ -27,6 +27,8 @@ export type File = {
   // The title the document had when the file left it — a record and not a link, because that
   // document is usually gone by the time anybody reads the trash.
   trashedFrom: string | null;
+  trashedArchiveKind?: ArchiveItemKind | null;
+  trashedOwnerId?: string | null;
   // For REPLACED: the file that took this one's place. Points at the file in the document *now*, so
   // the versions of a page are one query however many times it has been replaced (docs/03 §3.3.16).
   replacedById: string | null;

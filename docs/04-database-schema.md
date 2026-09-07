@@ -67,11 +67,17 @@ enum FileOrigin {
   MANAGED
 }
 
+enum ArchiveItemKind {
+  DOCUMENT
+  RECEIPT
+}
+
 // How a file came to be in the trash (docs/03 §3.2, docs/05 §5.7a). Not who put it there but what
 // happened to it, which is what decides whether there is a newer copy to compare it with.
 enum TrashReason {
   REPLACED
   DOCUMENT_DELETED
+  RECEIPT_DELETED
   // The last page reading these bytes was taken out of a document that is still there (docs/05 §5.6).
   PAGE_REMOVED
 }
@@ -100,6 +106,7 @@ enum DocumentEventType {
   // An edge to another document, made or removed by a person (docs/03 §3.3.23); written on both.
   LINKED
   UNLINKED
+  KIND_CHANGED
 }
 
 // Where a value came from: nobody, the pipeline, or a person (docs/03 §3.3.10).
@@ -147,10 +154,11 @@ model User {
   passwordResets   PasswordReset[]   @relation("ResetTarget")
   createdResets    PasswordReset[]   @relation("ResetCreator")
   documentLinks    DocumentLink[]
+  derivedDocuments Document[]        @relation("DocumentCreatorLegacy")
   libraryAccess    LibraryAccess[]
   collections      Collection[]
   collectionShares CollectionShare[]
-  derivedDocuments Document[]
+  archiveItems     ArchiveItem[]
   documentEvents   DocumentEvent[]
 
   @@map("users")
@@ -314,6 +322,28 @@ model FileRef {
   @@map("file_refs")
 }
 
+// The stable identity shared by mutually exclusive product profiles (docs/15 §15.2). A kind
+// conversion keeps this row and swaps only the profile below it.
+model ArchiveItem {
+  id          String          @id @default(uuid()) @db.Uuid
+  kind        ArchiveItemKind
+  createdById String?         @map("created_by_id") @db.Uuid
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastEventAt DateTime        @default(now()) @map("last_event_at") @db.Timestamptz(6)
+  deletedAt   DateTime?       @map("deleted_at") @db.Timestamptz(6)
+
+  createdBy User?           @relation(fields: [createdById], references: [id])
+  document  Document?
+  receipt   Receipt?
+  events    DocumentEvent[]
+
+  @@index([kind, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([createdById, kind])
+  @@index([lastEventAt(sort: Desc)])
+  @@map("archive_items")
+}
+
 model Document {
   id                  String                   @id @default(uuid()) @db.Uuid
   pageCount           Int?                     @map("page_count")
@@ -352,21 +382,19 @@ model Document {
   titleSource         ValueSource              @default(NONE) @map("title_source")
   typeId              String?                  @map("type_id") @db.Uuid
   typeSource          ValueSource              @default(NONE) @map("type_source")
+  // Compatibility projection of ArchiveItem lifecycle data. Kept in sync by the application and
+  // database trigger while the document read model is moved to archive_items incrementally.
   createdById         String?                  @map("created_by_id") @db.Uuid
   createdAt           DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  // When this document last changed: the newest entry in its journal, whatever kind (docs/03
-  // §3.3.18). Denormalised because ranking an archive by max(document_events.at) is a correlated
-  // aggregate no index serves; maintained by the one method every event is written through. Never
-  // null — a document with no journal at all reads as the moment it came into being.
   lastEventAt         DateTime                 @default(now()) @map("last_event_at") @db.Timestamptz(6)
   deletedAt           DateTime?                @map("deleted_at") @db.Timestamptz(6)
 
+  archiveItem     ArchiveItem?      @relation(fields: [id], references: [id], onDelete: Cascade)
+  createdBy       User?             @relation("DocumentCreatorLegacy", fields: [createdById], references: [id])
   documentType    DocumentType?     @relation(fields: [typeId], references: [id])
-  createdBy       User?             @relation(fields: [createdById], references: [id])
   pages           DocumentPage[]
   chunks          DocumentChunk[]
-  events          DocumentEvent[]
   people          DocumentPerson[]
   subjects        DocumentSubject[]
   collectionItems CollectionItem[]
@@ -375,15 +403,37 @@ model Document {
 
   @@index([typeId])
   @@index([createdAt(sort: Desc)])
-  // "When it last changed", newest first (docs/07 §7.1). Expressible here, unlike the document-date
-  // order it sits beside, which needs NULLS FIRST and lives in raw SQL (docs/04 §4.3).
   @@index([lastEventAt(sort: Desc)])
   @@map("documents")
 }
 
+// One explicitly uploaded receipt, kept as its original image/PDF plus display artifacts and a
+// versioned structured reading (docs/15).
+model Receipt {
+  id               String     @id @db.Uuid
+  fileId           String     @unique @map("file_id") @db.Uuid
+  pageCount        Int?       @map("page_count")
+  previewStatus    StepStatus @default(QUEUED) @map("preview_status")
+  extractionStatus StepStatus @default(QUEUED) @map("extraction_status")
+  extracted        Json?
+  // Optional noisy text supplied by an importing client (for example an emailed receipt body).
+  // It helps structured extraction but is never indexed as document text.
+  sourceText       String?    @map("source_text")
+  processingError  String?    @map("processing_error")
+  failedStep       String?    @map("failed_step")
+  skipReasons      Json       @default("{}") @map("skip_reasons")
+
+  archiveItem ArchiveItem @relation(fields: [id], references: [id], onDelete: Cascade)
+  file        File        @relation(fields: [fileId], references: [id])
+
+  @@index([previewStatus])
+  @@index([extractionStatus])
+  @@map("receipts")
+}
+
 model DocumentEvent {
   id         String            @id @default(uuid()) @db.Uuid
-  documentId String            @map("document_id") @db.Uuid
+  documentId String            @map("archive_item_id") @db.Uuid
   type       DocumentEventType
   // Who did it; null is the pipeline acting on its own.
   actorId    String?           @map("actor_id") @db.Uuid
@@ -391,11 +441,11 @@ model DocumentEvent {
   payload    Json              @default("{}")
   at         DateTime          @default(now()) @db.Timestamptz(6)
 
-  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document ArchiveItem @relation(fields: [documentId], references: [id], onDelete: Cascade)
   // Restricted, not the default SET NULL: null here is "the pipeline acting on its own", so a
   // database that nulled the column on a deleted user would reattribute that person's every action
   // to the machine rather than record that they are gone (docs/04 §4.2).
-  actor    User?    @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  actor    User?       @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   // The log is always read for one document, newest first.
   @@index([documentId, at(sort: Desc)])
@@ -594,37 +644,42 @@ model CollectionShare {
 
 // The bytes themselves, once, however many places they turn up in (docs/03 §3.3.16, ADR-021).
 model File {
-  id            String       @id @default(uuid()) @db.Uuid
-  contentHash   String       @map("content_hash")
-  origin        FileOrigin
-  storageKey    String?      @map("storage_key")
-  mimeType      String       @map("mime_type")
-  ext           String
-  sizeBytes     BigInt       @map("size_bytes")
-  name          String
+  id                 String           @id @default(uuid()) @db.Uuid
+  contentHash        String           @map("content_hash")
+  origin             FileOrigin
+  storageKey         String?          @map("storage_key")
+  mimeType           String           @map("mime_type")
+  ext                String
+  sizeBytes          BigInt           @map("size_bytes")
+  name               String
   // How many pages are inside these bytes (docs/03 §3.3.16): an image is one, a PDF is what its page
   // tree says, an office document is what the converter laid it out as. Counted afresh by every
   // canonical build that opens the file, null until one has — and while it is null a document cannot
   // name the file's pages one by one, so it holds it as a single entry standing for it whole
   // (ADR-025). It is also what a page index is checked against, without a round trip to Stirling.
-  pageCount     Int?         @map("page_count")
+  pageCount          Int?             @map("page_count")
   // In the trash since, and how it got there (docs/05 §5.7a): a file with no live page anywhere is
   // in the trash, and the trash is where every file that leaves the last document reading it waits
   // to be deleted or restored. `trashedFrom` is the title the document had when it left — a record
   // and not a link, because that document is usually gone by the time anybody reads this.
-  trashedAt     DateTime?    @map("trashed_at") @db.Timestamptz(6)
-  trashedReason TrashReason? @map("trashed_reason")
-  trashedFrom   String?      @map("trashed_from")
+  trashedAt          DateTime?        @map("trashed_at") @db.Timestamptz(6)
+  trashedReason      TrashReason?     @map("trashed_reason")
+  trashedFrom        String?          @map("trashed_from")
+  // Product kind and owner the file had when it entered the trash. They let restore recreate a
+  // receipt as a receipt instead of guessing from its extension (docs/15 §15.7).
+  trashedArchiveKind ArchiveItemKind? @map("trashed_archive_kind")
+  trashedOwnerId     String?          @map("trashed_owner_id") @db.Uuid
   // For REPLACED: the file that took this one's place. Every earlier copy of a page points at the
   // file in the document *now*, so "the versions of this page" stays one query however many times
   // the page is replaced (docs/03 §3.3.16).
-  replacedById  String?      @map("replaced_by_id") @db.Uuid
-  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt     DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  replacedById       String?          @map("replaced_by_id") @db.Uuid
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime?        @map("deleted_at") @db.Timestamptz(6)
 
   refs            FileRef[]
   pages           DocumentPage[]
+  receipt         Receipt?
   replacedBy      File?          @relation("FileVersions", fields: [replacedById], references: [id])
   earlierVersions File[]         @relation("FileVersions")
 
@@ -685,8 +740,9 @@ model Setting {
 - BigInt columns (`size`, `sizeBytes`) are serialized to JSON as strings in DTOs (contract rule,
   [`07 §7.4`](./07-api-specification.md#74-dto-serialization)).
 - `onDelete: Cascade` is used on what belongs to a document and cannot outlive it: `DocumentChunk`,
-  `DocumentEvent`, `DocumentPerson`, `DocumentSubject`, `DocumentPage` and both ends of
-  `DocumentLink`. Deleting a document for real (`03 §3.3.10`) is then one `DELETE` and not six, and —
+  `DocumentPerson`, `DocumentSubject`, `DocumentPage` and both ends of `DocumentLink`.
+  `DocumentEvent` instead belongs to the stable `ArchiveItem`, so a kind conversion keeps its
+  journal. Deleting an archive item for real is then one `DELETE`, and —
   more to the point — no future statement can leave a chunk or a journal entry behind pointing at a
   row that is gone.
   **`CollectionItem` deliberately has none:** a collection is somebody else's list, and a document is
@@ -727,7 +783,7 @@ model Setting {
   `prisma migrate diff` from being usable as a gate (§4.3).
 - pg-boss creates and evolves its objects in a separate `pgboss` schema; Prisma does not manage
   them. The owner-only `queue-migrate` one-shot applies those revisions. In the shipped deployment
-  that same step creates/updates the four fixed queues and their partitions. The application role
+  that same step creates/updates the five fixed queues and their partitions. The application role
   then operates them through table grants while the migrator retains ownership; runtime has no DDL
   or DDL-helper execution in either schema (SEC-43, [`12 §12.7`](./12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)).
   The admin queue view reads those objects through the `QueueMonitor` port (raw SQL), never via
@@ -1223,7 +1279,9 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 | semantic search | HNSW cosine on `document_chunks.embedding`, `ORDER BY embedding <=> $1 LIMIT k` |
 | the links of one document, from either end | `document_links` unique `(a_id, b_id)` read from the left + the `(b_id)` index — one edge, findable from both sides |
 | link suggestions: probing the archive for a document's identifiers (`05 §5.6b`) | the same GIN on `search_vector` — a probe is an ordinary FTS query |
-| the events of one document, newest first | `document_events(document_id, at DESC)` |
+| the events of one archive item, newest first | `document_events(archive_item_id, at DESC)` |
+| receipt list, newest first | `archive_items(kind, created_at DESC, id DESC)` joined to the one-to-one receipt profile |
+| receipt by original | `receipts(file_id)` unique index |
 | admin scan journal | `scan_runs(library_id, started_at DESC)` |
 | at most one RUNNING scan per library | `scan_runs_running_uq` partial unique index |
 | authenticating a bearer token, once per request | `api_tokens.token_hash` unique index |

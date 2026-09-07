@@ -20,6 +20,7 @@ function queueDefaults(config: AppConfig): QueueDefaults {
       'library-scan': 1,
       'file-ingest': config.get('QUEUE_CONCURRENCY_INGEST'),
       'document-process': config.get('QUEUE_CONCURRENCY_PROCESS'),
+      'receipt-process': config.get('QUEUE_CONCURRENCY_PROCESS'),
       maintenance: 1,
     },
     unitConcurrency: config.get('QUEUE_UNIT_CONCURRENCY'),
