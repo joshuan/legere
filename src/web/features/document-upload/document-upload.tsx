@@ -60,7 +60,7 @@ export function UploadDropZone({
   hint,
   children,
 }: {
-  onFiles: (file: File) => void;
+  onFiles: (files: File[]) => void;
   hint?: ReactNode;
   children: ReactNode;
 }) {
@@ -111,7 +111,7 @@ export function UploadDropZone({
       event.preventDefault();
       const files = Array.from(event.dataTransfer.files);
       clear();
-      for (const file of files) onFiles(file);
+      onFiles(files);
     };
 
     window.addEventListener('dragenter', enter);

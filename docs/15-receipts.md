@@ -177,7 +177,10 @@ original file metadata, both processing steps, Move to Documents and Delete.
 
 The whole `/receipts` screen is also a drop target. Dropping one or several images/PDFs, or choosing
 several through its picker, uploads each file as a separate receipt through the same endpoint. A
-full-screen receipt-specific overlay acknowledges the drag before the files are released.
+full-screen receipt-specific overlay acknowledges the drag before the files are released. Files in
+one selection are sent sequentially and a panel at the top counts the active file and total, shows
+byte-weighted progress, and remains after completion with uploaded, duplicate and failed counts plus
+every failed file and its error. Only failures also raise a toast; successful files never do.
 
 A document whose type slug is `receipt` shows Move to Receipts. A library, multi-file or processing
 document keeps the disabled action and a reason beside it; a shared managed file is refused by the

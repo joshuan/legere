@@ -1,11 +1,12 @@
 import '@testing-library/jest-dom/vitest';
-import { act, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReceiptListItemDto } from '../../../shared/contracts/receipts';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { receiptApi } from '../../entities/receipt';
+import { ApiError } from '../../shared/api';
 import { ReceiptsScreen } from './receipts-screen';
 
 const ID = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -52,6 +53,20 @@ function drag(event: Event): void {
   });
 }
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 beforeEach(() => {
   server.use(
@@ -84,8 +99,13 @@ describe('ReceiptsScreen', () => {
     expect(screen.queryByRole('searchbox')).toBeNull();
   });
 
-  it('uploads every image dropped anywhere on the receipts page', async () => {
-    const upload = vi.spyOn(receiptApi, 'upload').mockResolvedValue({ receipt, created: true });
+  it('uploads a dropped batch sequentially and leaves its completed accounting on the page', async () => {
+    const first = deferred<{ receipt: ReceiptListItemDto; created: boolean }>();
+    const second = deferred<{ receipt: ReceiptListItemDto; created: boolean }>();
+    const upload = vi
+      .spyOn(receiptApi, 'upload')
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
     renderWithProviders(<ReceiptsScreen />);
     const files = [
       new File(['first'], 'first-receipt.jpg', { type: 'image/jpeg' }),
@@ -97,8 +117,43 @@ describe('ReceiptsScreen', () => {
 
     drag(dragEvent('drop', files));
 
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Uploading 1 of 2')).toBeInTheDocument();
+
+    act(() => first.resolve({ receipt, created: true }));
     await waitFor(() => expect(upload).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Uploading 2 of 2')).toBeInTheDocument();
+
+    act(() => second.resolve({ receipt, created: true }));
+    expect(await screen.findByText('Uploaded 2 of 2')).toBeInTheDocument();
     expect(upload.mock.calls.map(([file]) => file.name)).toEqual(files.map((file) => file.name));
     expect(screen.queryByText(enMessages.receipts.dropHint)).not.toBeInTheDocument();
+    expect(screen.queryByText('Receipt uploaded')).not.toBeInTheDocument();
+
+    // The result is a persistent record, dismissed only by the reader.
+    await act(async () => Promise.resolve());
+    expect(screen.getByText('Uploaded 2 of 2')).toBeInTheDocument();
+    expect(document.querySelector('.ant-message-notice')).toBeNull();
+  });
+
+  it('toasts only an error and keeps that failed file and batch total visible', async () => {
+    vi.spyOn(receiptApi, 'upload').mockRejectedValue(new ApiError('INTERNAL', 500));
+    renderWithProviders(<ReceiptsScreen />);
+
+    drag(
+      dragEvent('drop', [new File(['broken'], 'unreadable-receipt.jpg', { type: 'image/jpeg' })]),
+    );
+
+    expect(await screen.findByText('Uploaded 0 of 1')).toBeInTheDocument();
+    const panel = screen.getByRole('region', { name: enMessages.receipts.uploadBatch.label });
+    expect(within(panel).getByText(enMessages.receipts.uploadBatch.errors)).toBeInTheDocument();
+    expect(within(panel).getByText(/unreadable-receipt\.jpg/)).toHaveTextContent(
+      enMessages.errors.codes.INTERNAL,
+    );
+    await waitFor(() =>
+      expect(document.querySelector('.ant-message')).toHaveTextContent(
+        `unreadable-receipt.jpg: ${enMessages.errors.codes.INTERNAL}`,
+      ),
+    );
   });
 });

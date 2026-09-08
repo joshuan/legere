@@ -28,7 +28,7 @@ function drag(event: Event): void {
   });
 }
 
-function mount(onFiles: (file: File) => void = vi.fn()): void {
+function mount(onFiles: (files: File[]) => void = vi.fn()): void {
   renderWithProviders(
     <UploadDropZone onFiles={onFiles}>
       <p>the grid</p>
@@ -92,7 +92,7 @@ describe('UploadDropZone', () => {
   });
 
   it('hands over every file that was dropped, and clears', () => {
-    const onFiles = vi.fn<(file: File) => void>();
+    const onFiles = vi.fn<(files: File[]) => void>();
     mount(onFiles);
     const dropped = [
       new File(['one'], 'first.pdf', { type: 'application/pdf' }),
@@ -102,8 +102,11 @@ describe('UploadDropZone', () => {
     drag(dragEvent('dragenter', FILE_DRAG));
     drag(dragEvent('drop', FILE_DRAG, dropped));
 
-    expect(onFiles).toHaveBeenCalledTimes(2);
-    expect(onFiles.mock.calls.map(([file]) => file.name)).toEqual(['first.pdf', 'second.pdf']);
+    expect(onFiles).toHaveBeenCalledTimes(1);
+    expect(onFiles.mock.calls[0]?.[0].map((file) => file.name)).toEqual([
+      'first.pdf',
+      'second.pdf',
+    ]);
     expect(screen.queryByText(HINT)).not.toBeInTheDocument();
   });
 

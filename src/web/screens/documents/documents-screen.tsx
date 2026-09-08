@@ -180,7 +180,7 @@ export function DocumentsScreen() {
     // Everything on the screen is inside the drop zone, the empty state included: a file is dropped
     // where the eye happens to be, and "not over the grid" is not a reason to refuse it
     // (docs/11 §11.3).
-    <UploadDropZone onFiles={sendToLibrary}>
+    <UploadDropZone onFiles={send}>
       {/* No heading: this grid is the archive rather than a page about the archive, and the menu
           item a few pixels to its left already says which screen this is (docs/11 §11.1). */}
       <Space direction="vertical" size="large" style={{ width: '100%' }}>

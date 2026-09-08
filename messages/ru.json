@@ -964,8 +964,15 @@
     "upload": "Загрузить чек",
     "uploadHint": "Изображения и PDF. Один файл становится одним чеком.",
     "dropHint": "Перетащите сюда изображения или PDF, чтобы добавить их как чеки",
-    "uploaded": "Чек загружен",
-    "duplicate": "Этот чек уже был загружен",
+    "uploadBatch": {
+      "label": "Загрузка чеков",
+      "progress": "Загружается {current} из {total}",
+      "finished": "Загружено {uploaded} из {total}",
+      "summary": "Уже были загружены: {duplicates}. Ошибок: {failed}.",
+      "errors": "Не удалось загрузить",
+      "errorToast": "{fileName}: {error}",
+      "close": "Закрыть результат загрузки"
+    },
     "empty": "Чеков пока нет.",
     "loadMore": "Показать ещё",
     "processing": "Обрабатывается",
