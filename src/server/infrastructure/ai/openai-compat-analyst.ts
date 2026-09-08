@@ -549,7 +549,15 @@ function fieldsSystemMessage(
 }
 
 function fieldInstruction(spec: DocumentFieldSpec): string {
-  return `- "${spec.key}" (${fieldShape(spec)}): ${spec.hint}`;
+  const columns =
+    spec.kind === 'table' && spec.columns !== undefined
+      ? ` Columns: ${spec.columns.map(columnInstruction).join(' ')}`
+      : '';
+  return `- "${spec.key}" (${fieldShape(spec)}): ${spec.hint}.${columns}`;
+}
+
+function columnInstruction(column: DocumentFieldColumn): string {
+  return `"${column.key}": ${column.hint}.`;
 }
 
 function fieldShape(spec: DocumentFieldSpec): string {

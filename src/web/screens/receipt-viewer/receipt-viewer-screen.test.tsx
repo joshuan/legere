@@ -25,13 +25,26 @@ const receipt: ReceiptDetailDto = {
   extractionStatus: 'DONE',
   processing: false,
   extracted: {
-    schema: { slug: 'receipt', version: 2 },
+    schema: { slug: 'receipt', version: 3 },
     values: {
       vendor: 'Voli Market',
+      vendorAddress: 'Bulevar Revolucije 5, 85000 Bar',
+      country: 'ME',
+      city: 'Bar',
       purchasedAt: '2026-09-08',
       purchasedTime: '17:42',
       total: { amount: 12.4, currency: 'EUR' },
-      items: [{ name: 'Coffee', quantity: 1, unitPrice: 4.2, amount: 4.2 }],
+      items: [
+        {
+          name: 'Coffee',
+          quantity: 1,
+          unitPrice: 4.2,
+          amount: 4.2,
+          taxCode: 'A',
+          taxRate: 21,
+          taxAmount: 0.73,
+        },
+      ],
     },
     confidence: 96,
   },
@@ -71,6 +84,12 @@ describe('ReceiptViewerScreen', () => {
       ).not.toBeNull(),
     );
     expect(screen.getByText('Coffee')).toBeInTheDocument();
+    expect(screen.getByText('Bulevar Revolucije 5, 85000 Bar')).toBeInTheDocument();
+    expect(screen.getByText('ME')).toBeInTheDocument();
+    expect(screen.getByText('Bar')).toBeInTheDocument();
+    expect(screen.getByText('A')).toBeInTheDocument();
+    expect(screen.getByText('21')).toBeInTheDocument();
+    expect(screen.getByText('0.73')).toBeInTheDocument();
     expect(screen.getByText('12.4 EUR')).toBeInTheDocument();
     expect(screen.getAllByText(enMessages.receipts.statuses.DONE)).toHaveLength(2);
 

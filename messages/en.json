@@ -1004,6 +1004,9 @@
     "back": "All receipts",
     "fields": {
       "vendor": "Merchant",
+      "vendorAddress": "Store address",
+      "country": "Store country",
+      "city": "Store city",
       "statementDescriptor": "Statement descriptor",
       "purchasedAt": "Purchase date",
       "purchasedTime": "Time",
@@ -1018,6 +1021,8 @@
       "unitPrice": "Unit price",
       "amount": "Amount",
       "discount": "Discount",
+      "taxCode": "Tax code",
+      "taxRate": "Tax rate, %",
       "name": "Item"
     }
   },
@@ -1136,6 +1141,9 @@
     "fields": {
       "receipt": {
         "vendor": "Vendor",
+        "vendorAddress": "Store address",
+        "country": "Store country",
+        "city": "Store city",
         "statementDescriptor": "On the statement",
         "purchasedAt": "Purchased",
         "purchasedTime": "Time",
@@ -1151,7 +1159,10 @@
           "quantity": "Quantity",
           "unitPrice": "Unit price",
           "amount": "Amount",
-          "discount": "Discount"
+          "discount": "Discount",
+          "taxCode": "Tax code",
+          "taxRate": "Tax rate, %",
+          "taxAmount": "Tax"
         }
       },
       "passport": {

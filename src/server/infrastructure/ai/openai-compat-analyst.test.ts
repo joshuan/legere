@@ -423,6 +423,37 @@ describe('OpenAiCompatAnalyst', () => {
       expect(inside).toContain('- country: ME');
       expect(system).toContain('they outrank anything you read off the page');
     });
+
+    it('tells the fields model what every table column means', async () => {
+      const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(answers('{"items":[]}'));
+
+      await analyst().extractFields(
+        {
+          typeSlug: 'receipt',
+          version: 3,
+          fields: [
+            {
+              key: 'items',
+              kind: 'table',
+              hint: 'The purchased lines',
+              columns: [
+                { key: 'name', kind: 'string', hint: 'The item as printed' },
+                {
+                  key: 'taxRate',
+                  kind: 'number',
+                  hint: 'The tax percentage assigned to this line',
+                },
+              ],
+            },
+          ],
+        },
+        'Coffee A 21%',
+      );
+
+      const { system } = messagesOf(spy);
+      expect(system).toContain('"name": The item as printed.');
+      expect(system).toContain('"taxRate": The tax percentage assigned to this line.');
+    });
   });
 
   describe('the answer', () => {

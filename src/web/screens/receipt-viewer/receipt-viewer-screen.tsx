@@ -35,6 +35,9 @@ import { moneyValue } from '../receipts/receipts-screen';
 
 const SCALAR_KEYS = [
   'vendor',
+  'vendorAddress',
+  'country',
+  'city',
   'statementDescriptor',
   'purchasedAt',
   'purchasedTime',
@@ -355,6 +358,21 @@ function ReceiptItems({ rows }: { rows: Record<string, unknown>[] }) {
       width: 90,
       render: (_, row) => displayValue(row.values.discount),
     },
+    {
+      title: t('fields.taxCode'),
+      width: 90,
+      render: (_, row) => displayValue(row.values.taxCode),
+    },
+    {
+      title: t('fields.taxRate'),
+      width: 90,
+      render: (_, row) => displayValue(row.values.taxRate),
+    },
+    {
+      title: t('fields.taxAmount'),
+      width: 100,
+      render: (_, row) => displayValue(row.values.taxAmount),
+    },
   ];
   return (
     <div>
@@ -365,7 +383,7 @@ function ReceiptItems({ rows }: { rows: Record<string, unknown>[] }) {
         columns={columns}
         dataSource={data}
         pagination={false}
-        scroll={{ x: 560 }}
+        scroll={{ x: 840 }}
       />
     </div>
   );

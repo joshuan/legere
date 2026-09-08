@@ -858,13 +858,16 @@ describe('the invoice schema (docs/03 §3.3.10a)', () => {
   });
 });
 
-// The receipt at v2 (docs/03 §3.3.10a): what a till receipt says about the purchase, and what it
-// says about the line of the bank statement that paid for it.
-describe('the receipt schema at v2 (docs/03 §3.3.10a)', () => {
+// The receipt at v3 (docs/03 §3.3.10a): where the shop is, what a till receipt says about the
+// purchase, and what it says about the line of the bank statement that paid for it.
+describe('the receipt schema at v3 (docs/03 §3.3.10a)', () => {
   // Photographed on a phone, paid by card: the descriptor a statement would print, the minute, the
   // masked digits, a weighed line and a discounted one.
   const photographed = {
     vendor: 'Tropic maloprodaja d.o.o.',
+    vendorAddress: 'Kralja Petra I 18, 73240 Višegrad',
+    country: 'ba',
+    city: 'Višegrad',
     statementDescriptor: 'TROPIC MALOPRODAJA VISEGRAD BA',
     purchasedAt: '2026-05-12',
     purchasedTime: '18:42',
@@ -875,10 +878,35 @@ describe('the receipt schema at v2 (docs/03 §3.3.10a)', () => {
     vendorTaxId: '4400958690005',
     receiptNumber: 'FR-000148/26',
     items: [
-      { name: 'Hljeb polubijeli 500g', quantity: 1, unitPrice: 1.5, amount: 1.5 },
+      {
+        name: 'Hljeb polubijeli 500g',
+        quantity: 1,
+        unitPrice: 1.5,
+        amount: 1.5,
+        taxCode: 'A',
+        taxRate: 17,
+        taxAmount: 0.22,
+      },
       // Sold by weight: the quantity is what the scales printed and the unit price is per kilogram.
-      { name: 'Banane', quantity: 0.542, unitPrice: 2.79, amount: 1.51 },
-      { name: 'Mlijeko 2.8% 1l', quantity: 2, unitPrice: 2.35, amount: 4.3, discount: 0.4 },
+      {
+        name: 'Banane',
+        quantity: 0.542,
+        unitPrice: 2.79,
+        amount: 1.51,
+        taxCode: 'E',
+        taxRate: 0,
+        taxAmount: 0,
+      },
+      {
+        name: 'Mlijeko 2.8% 1l',
+        quantity: 2,
+        unitPrice: 2.35,
+        amount: 4.3,
+        discount: 0.4,
+        taxCode: 'A',
+        taxRate: 17,
+        taxAmount: 0.62,
+      },
     ],
   };
 
@@ -896,9 +924,12 @@ describe('the receipt schema at v2 (docs/03 §3.3.10a)', () => {
   };
 
   it('states the version the answers speak, and the fields it added', () => {
-    expect(receipt.version).toBe(2);
+    expect(receipt.version).toBe(3);
     expect(receipt.fields.map((field) => field.key)).toEqual([
       'vendor',
+      'vendorAddress',
+      'country',
+      'city',
       'statementDescriptor',
       'purchasedAt',
       'purchasedTime',
@@ -917,11 +948,17 @@ describe('the receipt schema at v2 (docs/03 §3.3.10a)', () => {
       'unitPrice',
       'amount',
       'discount',
+      'taxCode',
+      'taxRate',
+      'taxAmount',
     ]);
   });
 
   it('reads a photographed till receipt down to the card, the method and the minute', () => {
     const values = sanitizeFieldValues(receipt, photographed);
+    expect(values['vendorAddress']).toBe('Kralja Petra I 18, 73240 Višegrad');
+    expect(values['country']).toBe('BA');
+    expect(values['city']).toBe('Višegrad');
     expect(values['statementDescriptor']).toBe('TROPIC MALOPRODAJA VISEGRAD BA');
     expect(values['purchasedTime']).toBe('18:42');
     expect(values['paymentMethod']).toBe('card');
@@ -932,9 +969,34 @@ describe('the receipt schema at v2 (docs/03 §3.3.10a)', () => {
     expect(values['total']).toEqual({ amount: 23.45, currency: 'BAM' });
     expect(values['taxAmount']).toBe(3.41);
     expect(values['items']).toEqual([
-      { name: 'Hljeb polubijeli 500g', quantity: 1, unitPrice: 1.5, amount: 1.5 },
-      { name: 'Banane', quantity: 0.542, unitPrice: 2.79, amount: 1.51 },
-      { name: 'Mlijeko 2.8% 1l', quantity: 2, unitPrice: 2.35, amount: 4.3, discount: 0.4 },
+      {
+        name: 'Hljeb polubijeli 500g',
+        quantity: 1,
+        unitPrice: 1.5,
+        amount: 1.5,
+        taxCode: 'A',
+        taxRate: 17,
+        taxAmount: 0.22,
+      },
+      {
+        name: 'Banane',
+        quantity: 0.542,
+        unitPrice: 2.79,
+        amount: 1.51,
+        taxCode: 'E',
+        taxRate: 0,
+        taxAmount: 0,
+      },
+      {
+        name: 'Mlijeko 2.8% 1l',
+        quantity: 2,
+        unitPrice: 2.35,
+        amount: 4.3,
+        discount: 0.4,
+        taxCode: 'A',
+        taxRate: 17,
+        taxAmount: 0.62,
+      },
     ]);
   });
 
@@ -954,11 +1016,12 @@ describe('the receipt schema at v2 (docs/03 §3.3.10a)', () => {
     });
   });
 
-  it('is found by the descriptor, the card, the tax number and the receipt number', () => {
+  it('is found by the address, descriptor, card, tax number and receipt number', () => {
     const text = extractedSearchTextOf(receipt, sanitizeFieldValues(receipt, photographed));
     expect(text).toBe(
       [
         'Tropic maloprodaja d.o.o.',
+        'Kralja Petra I 18, 73240 Višegrad',
         'TROPIC MALOPRODAJA VISEGRAD BA',
         '*8534',
         '4400958690005',
@@ -973,7 +1036,7 @@ describe('the receipt schema at v2 (docs/03 §3.3.10a)', () => {
     expect(text).not.toContain('card');
   });
 
-  it('re-reads a v1 answer at v2 and keeps the field a person corrected', () => {
+  it('re-reads a v1 answer at v3 and keeps the field a person corrected', () => {
     // What the document has held since before the bump: a vendor somebody typed, the rest read.
     const stored: ExtractedFields = {
       schema: { slug: 'receipt', version: 1 },
@@ -989,7 +1052,7 @@ describe('the receipt schema at v2 (docs/03 §3.3.10a)', () => {
 
     // 🔒 A version bump is not a type change: the slug agrees, so the paper is simply read again —
     // the correction survives it and the fields v2 added arrive as the model read them.
-    expect(next.schema).toEqual({ slug: 'receipt', version: 2 });
+    expect(next.schema).toEqual({ slug: 'receipt', version: 3 });
     expect(next.values['vendor']).toBe('Tropic d.o.o. Višegrad');
     expect(next.sources['vendor']).toBe('MANUAL');
     expect(next.values['card']).toBe('*8534');

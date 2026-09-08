@@ -1004,6 +1004,9 @@
     "back": "Все чеки",
     "fields": {
       "vendor": "Продавец",
+      "vendorAddress": "Адрес магазина",
+      "country": "Страна магазина",
+      "city": "Город магазина",
       "statementDescriptor": "Описание в выписке",
       "purchasedAt": "Дата покупки",
       "purchasedTime": "Время",
@@ -1018,6 +1021,8 @@
       "unitPrice": "Цена",
       "amount": "Сумма",
       "discount": "Скидка",
+      "taxCode": "Код налога",
+      "taxRate": "Ставка налога, %",
       "name": "Позиция"
     }
   },
@@ -1136,6 +1141,9 @@
     "fields": {
       "receipt": {
         "vendor": "Продавец",
+        "vendorAddress": "Адрес магазина",
+        "country": "Страна магазина",
+        "city": "Город магазина",
         "statementDescriptor": "В выписке",
         "purchasedAt": "Дата покупки",
         "purchasedTime": "Время",
@@ -1151,7 +1159,10 @@
           "quantity": "Количество",
           "unitPrice": "Цена за единицу",
           "amount": "Сумма",
-          "discount": "Скидка"
+          "discount": "Скидка",
+          "taxCode": "Код налога",
+          "taxRate": "Ставка налога, %",
+          "taxAmount": "Налог"
         }
       },
       "passport": {

@@ -21,7 +21,7 @@ const receipt: ReceiptListItemDto = {
   extractionStatus: 'DONE',
   processing: false,
   extracted: {
-    schema: { slug: 'receipt', version: 2 },
+    schema: { slug: 'receipt', version: 3 },
     values: {
       vendor: 'Voli Market',
       purchasedAt: '2026-09-08',

@@ -55,9 +55,11 @@ event type set gains `KIND_CHANGED`.
 
 ## 15.3. Receipt data
 
-The first schema is the existing receipt field schema version 2. Its values are vendor, statement
-descriptor, purchase date and time, total, tax, payment method, masked card, vendor tax id, receipt
-number and the line-item table.
+The current receipt field schema is version 3. Its values are vendor, the particular store's
+one-line address, ISO country and city, statement descriptor, purchase date and time, total, tax,
+payment method, masked card, vendor tax id, receipt number and the line-item table. Every item may
+carry its printed tax code, the rate unambiguously associated with that code and a line tax amount
+where the receipt actually states one; the extractor does not apportion a receipt-wide tax total.
 
 ```ts
 type ReceiptExtraction = {

@@ -1045,7 +1045,7 @@ describe('Documents (e2e)', () => {
 
       const detail = expectData(res, documentDetailDtoSchema);
       expect(detail.extracted).toEqual({
-        schema: { slug: 'receipt', version: 2 },
+        schema: { slug: 'receipt', version: 3 },
         values: { vendor: 'Voli Market', total: { amount: 12.4, currency: 'EUR' } },
         sources: { vendor: 'MANUAL', total: 'MANUAL' },
       });

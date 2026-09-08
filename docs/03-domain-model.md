@@ -463,6 +463,13 @@ fiscal receipt is filed under (`vendorTaxId`, `receiptNumber`, `taxAmount`); the
 price and the discount printed against them. `paymentMethod` is the field oftener inferred than
 read, so its hint teaches the markings themselves: a masked card number, a POS/TID/RRN line,
 "Безналичными" or "Platna kartica" say card; "Наличными", "Сдача" or "Gotovina" say cash.
+`receipt` **v3** adds the one-line `vendorAddress` and the shop's `country` (ISO alpha-2) and `city`.
+Those name the particular branch that issued the receipt, not a merchant's registered office. Each
+item can now carry the tax marker printed against it (`taxCode`), the percentage that marker maps to
+(`taxRate`) and a line-level `taxAmount` where the receipt actually prints one. The extractor does
+not invent a line tax by apportioning a receipt-wide total. Table-column hints travel with the field
+schema into the model prompt, so these distinctions are instructions the model reads rather than
+comments only the application reads.
 🔒 **A cash-machine slip and an exchange receipt stay `receipt`**, with the bank or the *menjačnica*
 as the vendor: a withdrawal has a merchant, a moment, a sum and a card, which is every field that
 matters here — a type of its own is owed only when that proves too small to hold one, and not
@@ -509,7 +516,7 @@ change: the next `fields` run re-reads under the newer schema and every correcti
 **What is stored.** One JSON on the document — `extracted` — self-describing:
 
 ```
-{ schema:  { slug: 'receipt', version: 2 },
+{ schema:  { slug: 'receipt', version: 3 },
   values:  { vendor: 'Voli', purchasedAt: '2026-05-12', total: { amount: 12.4, currency: 'EUR' }, items: [...] },
   sources: { vendor: 'AUTO', purchasedAt: 'MANUAL', total: 'AUTO', items: 'AUTO' } }
 ```

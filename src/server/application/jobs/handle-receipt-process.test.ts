@@ -126,8 +126,20 @@ describe('HandleReceiptProcess', () => {
     pdfs.pageCount = 2;
     analyst.fieldValues = {
       vendor: '  Voli  ',
+      vendorAddress: '  Bulevar Revolucije 5, 85000 Bar  ',
+      country: 'ME',
+      city: 'Bar',
       purchasedAt: '2026-09-07',
       total: { amount: '12.40', currency: 'EUR' },
+      items: [
+        {
+          name: 'Coffee',
+          amount: '4,20',
+          taxCode: 'A',
+          taxRate: '21',
+          taxAmount: '0,73',
+        },
+      ],
       invented: 'discard me',
     };
     analyst.fieldConfidence = 93;
@@ -147,12 +159,24 @@ describe('HandleReceiptProcess', () => {
       previewStatus: 'DONE',
       extractionStatus: 'DONE',
       extracted: {
-        schema: { slug: 'receipt', version: 2 },
+        schema: { slug: 'receipt', version: 3 },
         confidence: 93,
         values: {
           vendor: 'Voli',
+          vendorAddress: 'Bulevar Revolucije 5, 85000 Bar',
+          country: 'ME',
+          city: 'Bar',
           purchasedAt: '2026-09-07',
           total: { amount: 12.4, currency: 'EUR' },
+          items: [
+            {
+              name: 'Coffee',
+              amount: 4.2,
+              taxCode: 'A',
+              taxRate: 21,
+              taxAmount: 0.73,
+            },
+          ],
         },
       },
     });

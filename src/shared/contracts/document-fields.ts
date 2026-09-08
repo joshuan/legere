@@ -37,12 +37,11 @@ export type DocumentFieldSchema = {
 };
 
 export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
-  // v2 (docs/03 §3.3.10a): a till receipt's second job in an archive is answering "which line of the
-  // bank statement is this", so beside what the paper says it bought, it now says how it was paid —
-  // the descriptor a statement prints, the method, the masked card and the minute of the purchase.
+  // v3 (docs/03 §3.3.10a): beside the statement match added at v2, a receipt now says where the
+  // particular shop stands and carries the tax attribution printed for each line item.
   {
     typeSlug: 'receipt',
-    version: 2,
+    version: 3,
     fields: [
       {
         key: 'vendor',
@@ -50,6 +49,22 @@ export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
         searchable: true,
         summary: true,
         hint: 'The merchant as printed at the head of the receipt, in its own script and case — the shop as it names itself, which is not how a bank statement spells it',
+      },
+      {
+        key: 'vendorAddress',
+        kind: 'string',
+        searchable: true,
+        hint: 'The full address of this particular shop as one line, preserving the useful printed parts — street, building, postal code and locality. The merchant name and tax number belong to their own fields and are not part of the address',
+      },
+      {
+        key: 'country',
+        kind: 'string',
+        hint: 'The ISO 3166-1 alpha-2 code, in uppercase, of the country where this particular shop is located, e.g. "ME", "RS", "RU". Read it from the address or another explicit location identifier on the receipt; currency alone is not enough evidence',
+      },
+      {
+        key: 'city',
+        kind: 'string',
+        hint: 'The city or locality of this particular shop, as printed in its address. A merchant headquarters elsewhere is not the shop location',
       },
       {
         key: 'statementDescriptor',
@@ -123,6 +138,21 @@ export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
             key: 'discount',
             kind: 'number',
             hint: 'What was taken off this line — the "скидка" or "popust" printed against it — as a bare positive number; a line sold at full price carries none',
+          },
+          {
+            key: 'taxCode',
+            kind: 'string',
+            hint: 'The tax category marker assigned to this line exactly as printed, e.g. "A", "Ђ", "VAT20". Where the line has no marker and cannot be matched unambiguously to the receipt tax table, carry none',
+          },
+          {
+            key: 'taxRate',
+            kind: 'number',
+            hint: 'The tax percentage assigned to this line, as a bare percent such as 20 rather than 0.20. Use the rate printed on the line or the rate unambiguously mapped from its tax category in the receipt tax table',
+          },
+          {
+            key: 'taxAmount',
+            kind: 'number',
+            hint: 'The tax amount attributed to this line, as printed, in the receipt currency. Do not calculate or apportion it from the line total when the receipt gives only a category or rate',
           },
         ],
       },
@@ -580,6 +610,18 @@ function cleanString(raw: unknown, maxChars: number): string | undefined {
   return value.slice(0, maxChars);
 }
 
+// Receipt place fields obey the same storage vocabulary as a document's place: country is an
+// upper-case ISO-shaped code, and a city is a bounded real name rather than a model's "unknown".
+function cleanCountry(raw: unknown): string | undefined {
+  const code = cleanString(raw, 2)?.toUpperCase();
+  return code !== undefined && /^[A-Z]{2}$/.test(code) ? code : undefined;
+}
+
+function cleanCity(raw: unknown): string | undefined {
+  const city = cleanString(raw, 120);
+  return city !== undefined && !/^(unknown|n\/?a|none|null)$/i.test(city) ? city : undefined;
+}
+
 function cleanNumber(raw: unknown): number | undefined {
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : undefined;
   // Models print numbers the way receipts do; "12.40" and "12,40" are both the number.
@@ -648,6 +690,8 @@ export function validateFieldValue(spec: DocumentFieldSpec, raw: unknown): unkno
   if (raw === null || raw === undefined) return undefined;
   switch (spec.kind) {
     case 'string':
+      if (spec.key === 'country') return cleanCountry(raw);
+      if (spec.key === 'city') return cleanCity(raw);
       return cleanString(raw, MAX_STRING_CHARS);
     case 'number':
       return cleanNumber(raw);
