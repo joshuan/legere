@@ -25,9 +25,9 @@ type RuntimeRoleProof = {
   queueFunctionsSecurityDefiner: boolean;
 };
 
-// CI runs the application and its complete test suite with this role. The flag keeps a developer's
-// ordinary owner-backed test database useful while making the production privilege contract a
-// mandatory, live PostgreSQL assertion on every push (SEC-43, docs/12 §12.7).
+// CI runs the application and its complete test suite with this optional hardened role. The shipped
+// image uses one owner URL so it can self-migrate under plain `docker run`; this proves deployments
+// with an external migration controller may still retain the narrower runtime contract (docs/12).
 describe.skipIf(process.env.RUNTIME_DATABASE_ROLE_TEST !== 'true')(
   'the production database runtime role (integration)',
   () => {
@@ -118,7 +118,7 @@ describe.skipIf(process.env.RUNTIME_DATABASE_ROLE_TEST !== 'true')(
       }
       expect(queueDdlDenied).toBe(true);
 
-      // The owner-only queue migration created all fixed queues and partitions before runtime. The
+      // The external queue migration created all fixed queues and partitions before runtime. The
       // application can use them, but neither DDL helper is an executable DoS primitive.
       const [queue] = await db.$queryRaw<{ name: string }[]>`
         SELECT name FROM pgboss.queue WHERE name = 'maintenance'

@@ -1,8 +1,8 @@
 #!/bin/sh
-# Converges the production database privileges after every migration (docs/12 §12.7).
-# The owner credential exists only in this one-shot container; the application connects as
-# `legere_app`, which can change rows in public and in pre-created pg-boss queues, but cannot change
-# either schema or invoke pg-boss's DDL helpers itself.
+# Optional hardening for deployments with an external migration controller (docs/12 §12.8).
+# The shipped self-migrating image uses one owner URL so it also works under plain `docker run`.
+# A custom deployment may run both migrations first, then use this script to provision `legere_app`
+# with row access but no schema DDL or pg-boss DDL-helper access.
 set -eu
 
 : "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"
@@ -63,7 +63,7 @@ SELECT format(
   current_user
 ) \gexec
 
--- The owner-only queue-migrate process has already migrated pg-boss and created every fixed queue
+-- The external migration controller has already migrated pg-boss and created every fixed queue
 -- partition. Keep that schema and every object owned by the migrator so the *next* deployment can
 -- migrate it too. Runtime receives row privileges only: no DDL helper can be turned into an
 -- unbounded partition-creation or partition-drop primitive after process compromise.

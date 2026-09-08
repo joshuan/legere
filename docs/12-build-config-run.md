@@ -431,8 +431,10 @@ volumes: { db-data: {}, minio-data: {}, ollama-data: {} }
 
 ## 12.6. Dockerfile (one image)
 
-Multi-stage; the final image starts only the server. Schema changes are an explicit owner-credential
-one-shot operation; putting migrations back into the runtime command would undo SEC-43:
+Multi-stage; the final image is a complete deployment unit. Its default command applies the Prisma
+schema, applies pg-boss's own schema and fixed queues, and only then starts the server. That contract
+lives in the image rather than in Compose: `docker run`, Compose, Kubernetes and an automatic image
+updater cannot accidentally start new code against an old database.
 
 ```dockerfile
 FROM node:26-alpine AS deps
@@ -461,9 +463,11 @@ COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/messages ./messages
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/next.config.mjs ./next.config.mjs
+COPY --chmod=755 deploy/start.sh ./start.sh
 RUN mkdir -p .next/cache && chown node:node .next/cache
 USER node
 EXPOSE 8080
+ENTRYPOINT ["./start.sh"]
 CMD ["node", "dist/server/main.js"]
 ```
 
@@ -488,20 +492,27 @@ would otherwise do:
   answers both halves — the finding goes away because the code goes away, and a container that has
   been talked into running a command can no longer install anything with it.
 
-Running the image without compose therefore has an explicit sequence: run
-`./node_modules/.bin/prisma migrate deploy` and `node dist/server/migrate-queue.js` once with the
-owner URL, provision the runtime role as described in §12.7, then run the default command with the
-runtime URL. There is deliberately no mode where the long-lived server receives the credential that
-performed DDL.
+`start.sh` is deliberately small and fail-closed:
+
+```sh
+./node_modules/.bin/prisma migrate deploy
+node dist/server/migrate-queue.js
+exec "$@"
+```
+
+All three use `DATABASE_URL`. If either migration command fails, `set -e` exits the container and
+the HTTP server never opens. Repeating either migration on every restart is safe: Prisma records its
+forward-only revisions and pg-boss plus the fixed-queue registration are convergent. The database
+role supplied to the image must therefore own the application and `pgboss` schemas. The default
+command is the server; keeping migration in `ENTRYPOINT` means an orchestrator that restates or
+replaces `command` still cannot bypass schema startup accidentally.
 
 ## 12.7. Deployment (`deploy/`, shipped with the repository)
 
-`deploy/` is the supported way to run Legere: `init.sh`, `docker-compose.yaml`,
-`postgres-runtime-role.sh` and `.env.example`.
+`deploy/` is the supported way to run Legere: `init.sh`, `docker-compose.yaml` and `.env.example`.
 The root `README.md` quickstart is `curl … /deploy/init.sh | bash` — the script asks for the document
 folder (creating it when it does not exist) and for a mail server, downloads the compose file,
-writes a `.env` with five generated secrets, downloads the idempotent database-role provisioner,
-and offers to start. They ship **in** the repository on purpose: a self-hosted
+writes a `.env` with four generated secrets, and offers to start. They ship **in** the repository on purpose: a self-hosted
 product whose install instructions are "write your own compose file" is a product nobody installs.
 
 What must never ship is a secret, and none does: `.env.example` carries empty placeholders, `init.sh`
@@ -524,46 +535,17 @@ one-shot bucket init. Only the app and MinIO publish a port; the database and St
 internal network. Pointing `S3_*` at a managed object store and deleting the two MinIO services is a
 supported edit, and is what a larger deployment does.
 
-**Migrations and the application use different PostgreSQL roles.** The one-shot `migrate` service
-holds the `legere` owner URL, applies every Prisma migration, and exits. The owner-only
-`queue-migrate` one-shot then applies pg-boss's separate versioned schema. A final one-shot service,
-`database-permissions`, runs `postgres-runtime-role.sh` with that owner credential and the separate
-`POSTGRES_APP_PASSWORD`; only after all three succeed does `app` start as `legere_app`.
+**Migrations belong to the application image.** Compose supplies the database owner URL as
+`DATABASE_URL` and does not override the image command. There are no stopped `migrate` containers
+for an updater to overlook. On every new container the image runs the two migrations itself, then
+starts the server. A no-op migration costs only a short startup check; a failed migration keeps the
+container unhealthy instead of letting workers generate a stream of schema-mismatch errors.
 
-🔒 The privilege boundary is exact and convergent:
-
-- `legere_app` can connect and `SELECT` / `INSERT` / `UPDATE` / `DELETE` application tables in
-  `public`; it cannot `CREATE`, `ALTER`, `DROP`, `TRUNCATE`, create another schema, or read or change
-  `_prisma_migrations`. Grants are refreshed after every migration and owner default privileges cover
-  newly created application objects.
-- pg-boss evolves its owner-owned schema in `queue-migrate`, not in the server; that one-shot also
-  creates/updates the four code-owned queues and their partitions. Runtime starts with
-  `migrate: false` and gets DML there, but neither ownership, schema DDL, nor execution rights on
-  pg-boss's create/delete helpers. A compromised app therefore cannot create unbounded partitions
-  or drop an existing queue.
-  On an upgrade from the former one-role deployment it accounts for existing relations, sequences,
-  views, materialized views, foreign tables, routines, enums and domains without dropping the schema
-  or a queued job.
-- the long-lived app receives only `POSTGRES_APP_PASSWORD`; the owner password exists in `migrate`
-  and `database-permissions`, both short-lived containers. Password rotation is an edit to `.env`
-  followed by `docker compose up -d`: the provisioner applies the new runtime password idempotently.
-- `legere_app` carries `statement_timeout = '30s'` at role level. The owner carries no application
-  timeout, so a large index migration is not killed by the protection meant for requests.
-
-An existing deployment must add one new secret before taking this version:
-
-```bash
-printf '\nPOSTGRES_APP_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> .env
-curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/postgres-runtime-role.sh \
-  -o postgres-runtime-role.sh
-chmod 700 postgres-runtime-role.sh
-docker compose up -d
-```
-
-The first `up` migrates Prisma and pg-boss with the old owner, grants the runtime role scoped access
-to existing `pgboss` objects and current public objects, and only then starts the server. No manual
-SQL and no queue reset is required. A hand-written deployment must preserve the same order: migrate Prisma,
-migrate pg-boss, run the provisioner, start the server with the `legere_app` URL.
+An existing deployment that still has the former `migrate`, `queue-migrate` and
+`database-permissions` services should replace `docker-compose.yaml` with the current file and run
+`docker compose up -d --remove-orphans`. Its existing `POSTGRES_PASSWORD` is already the credential
+the new app service needs; the now-unused `POSTGRES_APP_PASSWORD` line in `.env` may remain until the
+operator next tidies the file. No manual SQL and no queue reset is required.
 
 🔒 **The app container is unprivileged and cannot write to itself:** `user: '1000:1000'`,
 `cap_drop: [ALL]`, `no-new-privileges`, `read_only: true`, and a memory limit. Exactly two paths stay
@@ -798,35 +780,18 @@ development stack of §12.5, which takes the same name from its directory — us
 - **Scaling later:** a second app container is possible (sessions/queue are in Postgres, files in
   S3), but per-IP rate limits become per-instance — acceptable, documented limitation.
 
-### `statement_timeout` — role-level and migration-safe
+### Database role and timeouts
 
-🔒 Every connection made by the shipped application role inherits a 30-second
-`statement_timeout`. Search is the query a signed-in caller can repeat at will; it is bounded from
-the application side ([`05 §5.4a`](./05-library-and-processing.md#54a-what-one-document-may-cost)),
-and this database-side bound is the backstop for it and for the next query nobody has measured yet.
+The shipped single-container startup uses one owner role for migrations and runtime. It therefore
+does not put a role-level `statement_timeout` on that connection: the same setting would also bound
+`CREATE INDEX` and other migrations whose legitimate duration grows with the archive. Expensive
+request paths retain their application-level bounds ([`05 §5.4a`](./05-library-and-processing.md#54a-what-one-document-may-cost)).
 
-It belongs **on the database role the application connects as**, and nowhere else:
-
-- Not on the connection string. `DATABASE_URL` is the operator's, it carries the password, and every
-  deployment writes its own; a limit appended to a value copied out of an example file survives
-  exactly until somebody edits it, and disappears silently rather than loudly.
-- Not in application code. `SET statement_timeout` applies to whichever pooled connection happened to
-  run it, which is a limit that holds for some queries and not others — the worst kind.
-- Not on the migration role. A timeout low enough to be worth having would kill the first
-  `CREATE INDEX` over a large table, and an upgrade that cannot finish is a worse failure than the
-  one being prevented.
-
-The role split of §12.7 makes one statement in `postgres-runtime-role.sh` authoritative:
-
-```sql
-ALTER ROLE legere_app SET statement_timeout = '30s';
-```
-
-30 s: an order of magnitude above the slowest legitimate request the application makes (a hybrid
-search over a large archive is milliseconds; the pipeline's long work is in sibling containers, not
-in Postgres), and far below the point at which a caller has taken a connection out of circulation.
-Applied to the role rather than to the session, it survives reconnects and pool growth, and it cannot
-be forgotten by whoever writes the next query. The migration role keeps no timeout at all.
+An operator with an external migration controller may still split owner and runtime roles and use
+`deploy/postgres-runtime-role.sh`; CI keeps exercising that optional hardening path. Such a
+deployment is responsible for running both migrations before every app replacement. It is not the
+default because the image's stronger product invariant is that an ordinary `docker run` can never
+serve against an old schema.
 
 ## 12.8a. Security headers
 

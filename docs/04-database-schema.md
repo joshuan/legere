@@ -782,10 +782,10 @@ model Setting {
   accident of which migration wrote the table, and one of the seven differences that kept
   `prisma migrate diff` from being usable as a gate (§4.3).
 - pg-boss creates and evolves its objects in a separate `pgboss` schema; Prisma does not manage
-  them. The owner-only `queue-migrate` one-shot applies those revisions. In the shipped deployment
-  that same step creates/updates the five fixed queues and their partitions. The application role
-  then operates them through table grants while the migrator retains ownership; runtime has no DDL
-  or DDL-helper execution in either schema (SEC-43, [`12 §12.7`](./12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)).
+  them. The image startup applies those revisions after Prisma and before the server, then
+  creates/updates the five fixed queues and their partitions. Startup and runtime use the same
+  `DATABASE_URL`, so the invariant holds for plain `docker run` as well as the shipped Compose
+  stack ([`12 §12.6`](./12-build-config-run.md#126-dockerfile-one-image)).
   The admin queue view reads those objects through the `QueueMonitor` port (raw SQL), never via
   Prisma models.
 

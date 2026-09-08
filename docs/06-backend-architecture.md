@@ -375,11 +375,11 @@ history from a log already written.
 ## 6.8. Queue integration (pg-boss)
 
 - One `PgBoss` instance per process, started in bootstrap step 5 (§2.2) with `schema: 'pgboss'` on
-  `DATABASE_URL` and `migrate: false`: the owner-only `queue-migrate` process has already applied
-  pg-boss's schema version and creates/updates all fixed queue partitions. Production's `legere_app`
-  role receives queue DML only; the migrator retains ownership and runtime has no schema DDL or
-  execution rights on pg-boss's create/delete helpers
-  ([`12 §12.7`](./12-build-config-run.md#127-deployment-deploy-shipped-with-the-repository)).
+  `DATABASE_URL` and `migrate: false`: the image's startup command has already applied pg-boss's
+  schema version and created/updated all fixed queue partitions with that same database connection.
+  Keeping migration out of the long-lived `PgBoss` instance makes startup ordering explicit while
+  keeping it independent of Compose
+  ([`12 §12.6`](./12-build-config-run.md#126-dockerfile-one-image)).
 - Worker registration maps the queue nodes of `ProcessingTopology` to executable application
   handlers, asserting that each node has exactly one handler, with per-queue effective concurrency
   from the control plane (defaults in [`05 §5.4`](./05-library-and-processing.md#54-job-queue-pg-boss));

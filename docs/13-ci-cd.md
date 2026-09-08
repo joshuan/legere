@@ -148,13 +148,12 @@ jobs:
 > `S3FileStorage` integration suite; by default it is skipped in CI and runs locally against the dev
 > compose (service containers cannot override `command`, hence a step, not a `service`).
 
-The split URLs are another production assertion, not test ceremony. Migrations and fixture cleanup
-use `MIGRATION_DATABASE_URL`; the owner also applies pg-boss's own schema before the same role
-provisioner shipped in `deploy/` transfers it. The application, repositories and pg-boss then use
-`DATABASE_URL`, and pg-boss starts with migrations disabled. The SEC-43 integration test asks
-PostgreSQL itself that the latter role has DML but no DDL in `public`, cannot alter migration
-history, cannot own or create objects in `pgboss`, cannot execute its DDL helpers, and receives the
-role-level 30-second statement timeout.
+The split URLs are a defense-in-depth compatibility test. CI migrates with
+`MIGRATION_DATABASE_URL`, provisions a restricted role, and runs the application suite through
+`DATABASE_URL`; the SEC-43 integration test asks PostgreSQL itself that this optional runtime role
+has DML but no DDL. The shipped image deliberately uses one owner URL instead: its default command
+must be able to migrate itself before serving even under plain `docker run`, with no Compose-only
+controller to coordinate a second credential ([`12 §12.6`](./12-build-config-run.md#126-dockerfile-one-image)).
 
 ## 13.3. `.github/workflows/release.yml`
 

@@ -7,8 +7,8 @@ import {
 } from '../src/server/infrastructure/queue/pg-boss-policy';
 
 // pg-boss owns a schema Prisma cannot migrate. This executable is the queue equivalent of
-// `prisma migrate deploy`: a short-lived process with the database owner credential, run before the
-// runtime role is provisioned and before the server starts (SEC-43, docs/12 §12.7).
+// `prisma migrate deploy`: image startup runs it after Prisma and before the server, using the same
+// DATABASE_URL in Docker, Compose and every other container runtime (docs/12 §12.6–12.7).
 async function migrateQueue(): Promise<void> {
   const connectionString = process.env.DATABASE_URL;
   if (connectionString === undefined || connectionString === '') {
@@ -22,9 +22,8 @@ async function migrateQueue(): Promise<void> {
   await boss.start();
 
   // pg-boss v10 requires queues (and their partitions) to exist before runtime can send/work.
-  // This owner-only executable owns that DDL too: a compromised long-lived process cannot create
-  // unbounded partitions through create_queue. updateQueue makes code-owned options converge on
-  // every deploy rather than preserving an earlier release's policy indefinitely.
+  // updateQueue makes code-owned options converge on every start rather than preserving an earlier
+  // release's policy indefinitely.
   for (const name of QUEUE_NAMES) {
     const options = {
       name,

@@ -38,6 +38,7 @@ COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/messages ./messages
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/next.config.mjs ./next.config.mjs
+COPY --chmod=755 deploy/start.sh ./start.sh
 # The one path the process genuinely writes to: Next keeps its incremental cache under
 # `.next/cache` and creates it on the first render. It exists here so that a `tmpfs` mounted over it
 # lands on a directory the runtime user already owns (docs/12 §12.7).
@@ -46,7 +47,8 @@ RUN mkdir -p .next/cache && chown node:node .next/cache
 # `deploy/docling/Dockerfile` drops privileges the same way.
 USER node
 EXPOSE 8080
-# Migrations require an owner credential and are always an explicit one-shot operation. The server
-# starts with the DML-only runtime credential; combining both in this command would put public-schema
-# DDL back into the application container (SEC-43, docs/12 §12.6–12.7).
+# The image, rather than a particular orchestrator, owns its startup contract. ENTRYPOINT means an
+# orchestrator's `command` may choose the long-lived process without accidentally bypassing the
+# forward-only Prisma and pg-boss migrations which must precede it.
+ENTRYPOINT ["./start.sh"]
 CMD ["node", "dist/server/main.js"]
