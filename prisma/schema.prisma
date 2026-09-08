@@ -398,6 +398,13 @@ model Receipt {
   previewStatus    StepStatus @default(QUEUED) @map("preview_status")
   extractionStatus StepStatus @default(QUEUED) @map("extraction_status")
   extracted        Json?
+  // Indexed projections of the stable receipt facts used by the shelf. The complete, versioned
+  // answer remains `extracted`; these columns are replaced beside it and are never edited alone.
+  vendor           String?
+  purchasedAt      DateTime?  @map("purchased_at") @db.Date
+  country          String?
+  currency         String?
+  totalAmount      Float?     @map("total_amount") @db.DoublePrecision
   // Optional noisy text supplied by an importing client (for example an emailed receipt body).
   // It helps structured extraction but is never indexed as document text.
   sourceText       String?    @map("source_text")
@@ -410,6 +417,10 @@ model Receipt {
 
   @@index([previewStatus])
   @@index([extractionStatus])
+  @@index([purchasedAt(sort: Desc), id(sort: Desc)])
+  @@index([totalAmount(sort: Desc), id(sort: Desc)])
+  @@index([country])
+  @@index([currency])
   @@map("receipts")
 }
 

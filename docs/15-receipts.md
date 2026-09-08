@@ -41,6 +41,7 @@ item. Document-only metadata and relationships remain on that profile.
 | previewStatus | `StepStatus` | Durable receipt preview state |
 | extractionStatus | `StepStatus` | Durable structured-reading state |
 | extracted | json? | `ReceiptExtraction`, below |
+| vendor / purchasedAt / country / currency / totalAmount | nullable projections | Indexed list/search values replaced with `extracted` |
 | sourceText | text? | Optional noisy caller text; an extraction hint, never indexed |
 | processingError / failedStep / skipReasons | | Same operational meaning as documents; skip reasons are reserved for receipt-specific gates |
 
@@ -154,7 +155,7 @@ steps. Only administrators operate the shared trash, as before.
 | Method and path | Meaning |
 |---|---|
 | `POST /api/receipts` | Upload one image/PDF receipt |
-| `GET /api/receipts` | Cursor page, newest added first |
+| `GET /api/receipts` | Filtered, ordered cursor page |
 | `GET /api/receipts/:id` | Receipt detail |
 | `GET /api/receipts/:id/thumbnail` | First-page list thumbnail URL |
 | `GET /api/receipts/:id/pages/:page` | Derived page JPEG URL; zero-based page index |
@@ -163,13 +164,26 @@ steps. Only administrators operate the shared trash, as before.
 | `DELETE /api/receipts/:id` | Creator/admin; file goes to trash |
 | `PATCH /api/archive-items/:id/kind` | Creator/admin kind conversion |
 
-The list does not search or sort inside receipt JSON. Its only order is `(createdAt DESC, id DESC)`.
+`GET /api/receipts` accepts `q` (a case-insensitive substring of the extracted vendor), inclusive
+`purchasedFrom` / `purchasedTo`, exact upper-case `country` and `currency`, and inclusive
+`amountMin` / `amountMax`. Its named descending orders are `purchasedAt`, `createdAt` and `total`;
+purchase date is the default, and absent extracted dates or totals sort after known values. `total`
+compares the printed number deliberately without converting currencies. The indexed receipt columns
+are a query projection replaced atomically beside `extracted`; the versioned JSON remains the
+complete answer shown to a reader.
+
+Cursors carry the named order and its last nullable key plus the id tiebreak. Malformed or stale
+cursors restart at the first page; a cursor from another order is refused with
+`CURSOR_SORT_MISMATCH`.
 
 ## 15.9. UI
 
-`Receipts` is a top-level item after `Documents`. `/receipts` uses compact desktop rows and mobile
-cards: thumbnail, vendor-or-filename, purchase date/time, total, processing state and upload date.
-It owns a receipt-only image/PDF picker and reports the active upload on the action itself.
+`Receipts` is a top-level item after `Documents`. `/receipts` uses the full content width for compact
+desktop rows and mobile cards. Desktop rows show thumbnail, vendor, purchase date/time, store
+address and country, item count, total, tax, payment method, receipt number, added time and
+processing state. The URL owns the vendor search, purchase-date range, country, currency and amount
+range filters plus the order, so the view is linkable like the document shelf. It owns a
+receipt-only image/PDF picker and reports the active upload on the action itself.
 
 `/receipts/:id` shows the original/page images on the left and read-only structured values on the
 right, followed by the items table, collapsed raw JSON and source-text blocks, Copy/Download,
@@ -181,6 +195,8 @@ full-screen receipt-specific overlay acknowledges the drag before the files are 
 one selection are sent sequentially and a panel at the top counts the active file and total, shows
 byte-weighted progress, and remains after completion with uploaded, duplicate and failed counts plus
 every failed file and its error. Only failures also raise a toast; successful files never do.
+Completing an upload refreshes the visible list immediately only under `createdAt` order, where the
+new row honestly belongs at the top; another order is not visually disturbed by recency.
 
 A document whose type slug is `receipt` shows Move to Receipts. A library, multi-file or processing
 document keeps the disabled action and a reason beside it; a shared managed file is refused by the
@@ -190,7 +206,8 @@ conversion boundary. Existing receipt documents are not migrated automatically.
 
 - Automatic document/receipt classification.
 - Receipt libraries or copying a library original into S3.
-- Search, vectors, Markdown, OCR text, canonical PDFs, collections or sharing for receipts.
+- Vectors, document-wide text search, Markdown, OCR text, canonical PDFs, collections or sharing for
+  receipts.
 - Editing or normalising receipt values in Legere.
 - Write-capable API tokens, app-to-app upload, webhooks, external ids or callbacks.
 

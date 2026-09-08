@@ -4,10 +4,12 @@ import {
   decodeCatalogueCursor,
   decodeCursor,
   decodeDocumentCursor,
+  decodeReceiptCursor,
   decodeTextCursor,
   encodeCatalogueCursor,
   encodeCursor,
   encodeDocumentCursor,
+  encodeReceiptCursor,
   encodeTextCursor,
 } from './cursor';
 
@@ -114,6 +116,39 @@ describe('cursor', () => {
     ).toBeNull();
     expect(
       decodeTextCursor(Buffer.from('1\u0000A title\u0000not-a-uuid').toString('base64url')),
+    ).toBeNull();
+  });
+});
+
+describe('receipt cursor', () => {
+  const ID = 'cccccccc-3333-4333-8333-333333333333';
+
+  it('round-trips the three orders and their nullable extracted keys', () => {
+    for (const cursor of [
+      { sort: 'purchasedAt', key: '2026-09-08', id: ID },
+      { sort: 'purchasedAt', key: null, id: ID },
+      { sort: 'createdAt', key: '2026-09-08T18:00:00.000Z', id: ID },
+      { sort: 'total', key: '1234.56', id: ID },
+      { sort: 'total', key: null, id: ID },
+    ] as const) {
+      expect(decodeReceiptCursor(encodeReceiptCursor(cursor), cursor.sort)).toEqual(cursor);
+    }
+  });
+
+  it('refuses a cursor from another receipt order and restarts on malformed keys', () => {
+    const cut = encodeReceiptCursor({ sort: 'total', key: '12.4', id: ID });
+    expect(() => decodeReceiptCursor(cut, 'purchasedAt')).toThrow(UnprocessableError);
+    expect(
+      decodeReceiptCursor(Buffer.from(`1|total|not-a-number|${ID}`).toString('base64url'), 'total'),
+    ).toBeNull();
+    expect(
+      decodeReceiptCursor(Buffer.from(`1|createdAt||${ID}`).toString('base64url'), 'createdAt'),
+    ).toBeNull();
+    expect(
+      decodeReceiptCursor(
+        Buffer.from(`1|purchasedAt|2026-02-31|${ID}`).toString('base64url'),
+        'purchasedAt',
+      ),
     ).toBeNull();
   });
 });

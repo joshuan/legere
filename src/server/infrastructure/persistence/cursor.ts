@@ -5,6 +5,7 @@ import {
   type SubjectKindSort,
 } from '../../../shared/contracts/common';
 import { documentSortSchema, type DocumentSort } from '../../../shared/contracts/documents';
+import { receiptSortSchema, type ReceiptSort } from '../../../shared/contracts/receipts';
 import { UnprocessableError } from '../../domain/errors/domain-error';
 
 // Opaque cursors for keyset pagination (docs/07 §7.1). A cursor encodes the sort key of the last
@@ -89,6 +90,12 @@ export function encodeDocumentCursor(cursor: DocumentCursor): string {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+function isCalendarDate(value: string): boolean {
+  if (!ISO_DATE.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 // 🔒 Throws `CURSOR_SORT_MISMATCH` when the cursor names an order other than the one being asked
 // for. Everything else unreadable — a stale version, a key that does not fit its order, a sort name
 // this build does not know — is null, and the list starts over.
@@ -117,6 +124,41 @@ export function decodeDocumentCursor(
   if (sort === 'documentDate') {
     return ISO_DATE.test(key) ? { sort, key, id } : null;
   }
+  return Number.isNaN(new Date(key).getTime()) ? null : { sort, key, id };
+}
+
+// Receipt lists have the same three kinds of key as document lists, but their nullable numeric
+// total and purchase date sort after known values. The sort name travels in the opaque cursor so a
+// page cut from one order can never be continued under another (docs/15 §15.7).
+export type ReceiptCursor = { sort: ReceiptSort; key: string | null; id: string };
+
+export function encodeReceiptCursor(cursor: ReceiptCursor): string {
+  return encode([CURSOR_VERSION, cursor.sort, cursor.key ?? '', cursor.id]);
+}
+
+export function decodeReceiptCursor(
+  value: string | undefined,
+  sort: ReceiptSort,
+): ReceiptCursor | null {
+  const fields = decode(value, 4);
+  if (fields === null) return null;
+  const [, name, key, id] = fields;
+  if (name === undefined || key === undefined || id === undefined || !UUID.test(id)) return null;
+
+  const parsed = receiptSortSchema.safeParse(name);
+  if (!parsed.success) return null;
+  if (parsed.data !== sort) {
+    throw new UnprocessableError(
+      'CURSOR_SORT_MISMATCH',
+      `This cursor was cut from the "${parsed.data}" receipt order and cannot continue a "${sort}" one`,
+    );
+  }
+
+  if (key === '') {
+    return sort === 'purchasedAt' || sort === 'total' ? { sort, key: null, id } : null;
+  }
+  if (sort === 'purchasedAt') return isCalendarDate(key) ? { sort, key, id } : null;
+  if (sort === 'total') return Number.isFinite(Number(key)) ? { sort, key, id } : null;
   return Number.isNaN(new Date(key).getTime()) ? null : { sort, key, id };
 }
 

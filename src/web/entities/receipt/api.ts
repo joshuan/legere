@@ -6,8 +6,10 @@ import {
   uploadReceiptResponseSchema,
   type ConvertArchiveItemResponse,
   type ListReceiptsResponse,
+  type ReceiptFilters,
   type ReceiptArtifactUrl,
   type ReceiptDetailDto,
+  type ReceiptSort,
   type UploadReceiptResponse,
 } from '../../../shared/contracts/receipts';
 import { errorBodySchema } from '../../../shared/contracts/common';
@@ -16,7 +18,9 @@ import { apiClient, ApiError, type UploadProgress } from '../../shared/api';
 
 export const receiptKeys = {
   all: ['receipts'] as const,
-  list: ['receipts', 'list'] as const,
+  lists: ['receipts', 'list'] as const,
+  list: (filters: ReceiptFilters, sort: ReceiptSort) =>
+    ['receipts', 'list', filters, sort] as const,
   detail: (id: string) => ['receipts', 'detail', id] as const,
   artifact: (id: string, kind: string) => ['receipts', 'artifact', id, kind] as const,
 };
@@ -27,10 +31,17 @@ export const receiptApi = {
     onProgress?: UploadProgress,
     sourceText?: string,
   ): Promise<UploadReceiptResponse> => uploadReceipt(file, onProgress, sourceText),
-  list: (cursor?: string): Promise<ListReceiptsResponse> =>
+  list: (
+    filters: ReceiptFilters,
+    options: { sort?: ReceiptSort | undefined; cursor?: string | undefined } = {},
+  ): Promise<ListReceiptsResponse> =>
     apiClient.get('/api/receipts', {
       schema: listReceiptsResponseSchema,
-      ...(cursor === undefined ? {} : { query: { cursor } }),
+      query: {
+        ...filters,
+        ...(options.sort === undefined ? {} : { sort: options.sort }),
+        ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
+      },
     }),
   get: (id: string): Promise<ReceiptDetailDto> =>
     apiClient.get(`/api/receipts/${id}`, { schema: receiptDetailSchema }),

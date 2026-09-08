@@ -9,7 +9,9 @@ import {
   listReceiptsResponseSchema,
   receiptDetailSchema,
   uploadReceiptResponseSchema,
+  type ReceiptExtraction,
 } from '../../src/shared/contracts/receipts';
+import { ReceiptRepository } from '../../src/server/domain/repositories/receipt.repository';
 import {
   listTrashResponseSchema,
   restoreTrashResponseSchema,
@@ -60,9 +62,9 @@ describe('Receipts (e2e)', () => {
     return sid;
   }
 
-  async function receiptImage(): Promise<Buffer> {
+  async function receiptImage(color = '#ffffff'): Promise<Buffer> {
     return sharp({
-      create: { width: 16, height: 24, channels: 3, background: '#ffffff' },
+      create: { width: 16, height: 24, channels: 3, background: color },
     })
       .jpeg()
       .toBuffer();
@@ -88,14 +90,14 @@ describe('Receipts (e2e)', () => {
     return sid;
   }
 
-  async function uploadReceipt(text = SOURCE_TEXT) {
+  async function uploadReceipt(options: { text?: string; fileName?: string; color?: string } = {}) {
     const uploaded = await request(app.baseUrl)
       .post('/api/receipts')
       .set('Origin', APP_ORIGIN)
       .set('Cookie', cookie)
-      .field('text', text)
-      .attach('file', await receiptImage(), {
-        filename: 'email-receipt.jpg',
+      .field('text', options.text ?? SOURCE_TEXT)
+      .attach('file', await receiptImage(options.color), {
+        filename: options.fileName ?? 'email-receipt.jpg',
         contentType: 'image/jpeg',
       });
     expect(uploaded.status).toBe(201);
@@ -134,6 +136,111 @@ describe('Receipts (e2e)', () => {
     expect(jobs).toEqual([{ data: { receiptId: answer.receipt.id } }]);
     expect(app.files.keys()).toHaveLength(1);
     expect(app.files.keys()[0]).toMatch(/^files\/.+\/original\.jpg$/);
+  });
+
+  it('filters extracted facts and paginates each named receipt order', async () => {
+    const repository = app.nestApp.get(ReceiptRepository);
+    const fixtures = [
+      {
+        fileName: 'old-voli.jpg',
+        color: '#ffffff',
+        createdAt: '2026-01-15T10:00:00.000Z',
+        values: {
+          vendor: 'Voli Market',
+          purchasedAt: '2026-01-10',
+          country: 'ME',
+          total: { amount: 12.4, currency: 'EUR' },
+        },
+      },
+      {
+        fileName: 'newest-sale.jpg',
+        color: '#eeeeee',
+        createdAt: '2026-01-10T10:00:00.000Z',
+        values: {
+          vendor: 'Mega Store',
+          purchasedAt: '2026-03-05',
+          country: 'US',
+          total: { amount: 8, currency: 'USD' },
+        },
+      },
+      {
+        fileName: 'middle-voli.jpg',
+        color: '#dddddd',
+        createdAt: '2026-01-20T10:00:00.000Z',
+        values: {
+          vendor: 'VOLI Express',
+          purchasedAt: '2026-02-05',
+          country: 'ME',
+          total: { amount: 25, currency: 'EUR' },
+        },
+      },
+      {
+        fileName: 'undated.jpg',
+        color: '#cccccc',
+        createdAt: '2026-01-05T10:00:00.000Z',
+        values: {
+          vendor: 'Old Paper',
+          country: 'ME',
+          total: { amount: 999, currency: 'EUR' },
+        },
+      },
+    ] as const;
+
+    const ids: Record<string, string> = {};
+    for (const fixture of fixtures) {
+      const uploaded = await uploadReceipt({
+        fileName: fixture.fileName,
+        color: fixture.color,
+      });
+      ids[fixture.fileName] = uploaded.receipt.id;
+      await repository.updateProcessing(uploaded.receipt.id, {
+        extractionStatus: 'DONE',
+        extracted: {
+          schema: { slug: 'receipt', version: 3 },
+          values: fixture.values,
+          confidence: 95,
+        } satisfies ReceiptExtraction,
+      });
+      await testPrisma().archiveItem.update({
+        where: { id: uploaded.receipt.id },
+        data: { createdAt: new Date(fixture.createdAt) },
+      });
+    }
+
+    const list = async (query = '') =>
+      expectData(
+        await api(app).get(`/api/receipts${query}`).set('Cookie', cookie),
+        listReceiptsResponseSchema,
+      );
+
+    expect((await list()).items.map((item) => item.fileName)).toEqual([
+      'newest-sale.jpg',
+      'middle-voli.jpg',
+      'old-voli.jpg',
+      'undated.jpg',
+    ]);
+    expect(
+      (
+        await list(
+          '?q=voli&purchasedFrom=2026-01-01&purchasedTo=2026-01-31&country=me&currency=eur&amountMin=10&amountMax=20',
+        )
+      ).items.map((item) => item.fileName),
+    ).toEqual(['old-voli.jpg']);
+    expect((await list('?sort=createdAt')).items.map((item) => item.fileName)).toEqual([
+      'middle-voli.jpg',
+      'old-voli.jpg',
+      'newest-sale.jpg',
+      'undated.jpg',
+    ]);
+
+    const first = await list('?sort=total&limit=2');
+    expect(first.items.map((item) => item.fileName)).toEqual(['undated.jpg', 'middle-voli.jpg']);
+    expect(first.nextCursor).not.toBeNull();
+    const second = await list(`?sort=total&limit=2&cursor=${first.nextCursor ?? ''}`);
+    expect(second.items.map((item) => item.fileName)).toEqual(['old-voli.jpg', 'newest-sale.jpg']);
+    expect(new Set([...first.items, ...second.items].map((item) => item.id))).toEqual(
+      new Set(Object.values(ids)),
+    );
   });
 
   it("does not disclose another owner's receipt in lists, detail, artifacts or deletion", async () => {

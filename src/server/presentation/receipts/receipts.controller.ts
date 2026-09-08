@@ -9,19 +9,19 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import {
-  paginationQuerySchema,
-  type Envelope,
-  type PaginationQuery,
-} from '../../../shared/contracts/common';
+import { type Envelope } from '../../../shared/contracts/common';
 import type {
+  ListReceiptsQuery,
   ListReceiptsResponse,
   ReceiptArtifactUrl,
   ReceiptDetailDto,
   UploadReceiptResponse,
   UploadReceiptFields,
 } from '../../../shared/contracts/receipts';
-import { uploadReceiptFieldsSchema } from '../../../shared/contracts/receipts';
+import {
+  listReceiptsQuerySchema,
+  uploadReceiptFieldsSchema,
+} from '../../../shared/contracts/receipts';
 import type { User } from '../../domain/entities/user';
 import {
   DeleteReceipt,
@@ -76,7 +76,7 @@ export class ReceiptsController {
   @Get()
   async listReceipts(
     @CurrentUser() user: User,
-    @ZodQuery(paginationQuerySchema) query: PaginationQuery,
+    @ZodQuery(listReceiptsQuerySchema) query: ListReceiptsQuery,
   ): Promise<Envelope<ListReceiptsResponse>> {
     return successEnvelope(await this.list.execute(user, query));
   }

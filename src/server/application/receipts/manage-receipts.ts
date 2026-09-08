@@ -1,5 +1,6 @@
 import type {
   ListReceiptsResponse,
+  ListReceiptsQuery,
   ReceiptArtifactUrl,
   ReceiptDetailDto,
   ReceiptListItemDto,
@@ -36,10 +37,7 @@ export function toReceiptListDto(receipt: Receipt): ReceiptListItemDto {
 export class ListReceipts {
   constructor(private readonly receipts: ReceiptRepository) {}
 
-  async execute(
-    viewer: Viewer,
-    query: { limit: number; cursor?: string | undefined },
-  ): Promise<ListReceiptsResponse> {
+  async execute(viewer: Viewer, query: ListReceiptsQuery): Promise<ListReceiptsResponse> {
     const page = await this.receipts.list(viewer, query);
     return { items: page.items.map(toReceiptListDto), nextCursor: page.nextCursor };
   }

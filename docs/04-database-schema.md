@@ -416,6 +416,13 @@ model Receipt {
   previewStatus    StepStatus @default(QUEUED) @map("preview_status")
   extractionStatus StepStatus @default(QUEUED) @map("extraction_status")
   extracted        Json?
+  // Indexed projections of the stable receipt facts used by the shelf. The complete, versioned
+  // answer remains `extracted`; these columns are replaced beside it and are never edited alone.
+  vendor           String?
+  purchasedAt      DateTime?  @map("purchased_at") @db.Date
+  country          String?
+  currency         String?
+  totalAmount      Float?     @map("total_amount") @db.DoublePrecision
   // Optional noisy text supplied by an importing client (for example an emailed receipt body).
   // It helps structured extraction but is never indexed as document text.
   sourceText       String?    @map("source_text")
@@ -428,6 +435,10 @@ model Receipt {
 
   @@index([previewStatus])
   @@index([extractionStatus])
+  @@index([purchasedAt(sort: Desc), id(sort: Desc)])
+  @@index([totalAmount(sort: Desc), id(sort: Desc)])
+  @@index([country])
+  @@index([currency])
   @@map("receipts")
 }
 
@@ -1280,7 +1291,10 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 | the links of one document, from either end | `document_links` unique `(a_id, b_id)` read from the left + the `(b_id)` index — one edge, findable from both sides |
 | link suggestions: probing the archive for a document's identifiers (`05 §5.6b`) | the same GIN on `search_vector` — a probe is an ordinary FTS query |
 | the events of one archive item, newest first | `document_events(archive_item_id, at DESC)` |
-| receipt list, newest first | `archive_items(kind, created_at DESC, id DESC)` joined to the one-to-one receipt profile |
+| receipt list by upload date | `archive_items(kind, created_at DESC, id DESC)` joined to the one-to-one receipt profile |
+| receipt list by purchase date or unconverted amount | `receipts(purchased_at DESC, id DESC)`, `receipts(total_amount DESC, id DESC)`; nullable extracted values sort last |
+| filter receipts by country or currency | `receipts(country)`, `receipts(currency)` |
+| search receipts by extracted vendor | case-insensitive substring over the bounded `receipts.vendor` projection; no document FTS or receipt body text is involved |
 | receipt by original | `receipts(file_id)` unique index |
 | admin scan journal | `scan_runs(library_id, started_at DESC)` |
 | at most one RUNNING scan per library | `scan_runs_running_uq` partial unique index |

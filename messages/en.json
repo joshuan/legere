@@ -974,6 +974,7 @@
       "close": "Close upload result"
     },
     "empty": "No receipts yet.",
+    "emptyFiltered": "No receipts match these filters.",
     "loadMore": "Load more",
     "processing": "Processing",
     "failed": "Processing failed",
@@ -1009,6 +1010,29 @@
     "deleteConfirm": "Delete this receipt? The original will move to the trash.",
     "deleted": "Receipt deleted",
     "back": "All receipts",
+    "filters": {
+      "vendor": "Search merchants",
+      "purchaseDates": "Purchase date range",
+      "dateFrom": "Purchased from",
+      "dateTo": "Purchased to",
+      "country": "Country",
+      "currency": "Currency",
+      "amountMin": "Amount from",
+      "amountMax": "Amount to",
+      "clear": "Clear filters"
+    },
+    "sort": {
+      "label": "Receipt order",
+      "options": {
+        "purchasedAt": "Purchase date — newest first",
+        "createdAt": "Upload date — newest first",
+        "total": "Amount — largest first"
+      }
+    },
+    "paymentMethods": {
+      "card": "Card",
+      "cash": "Cash"
+    },
     "fields": {
       "vendor": "Merchant",
       "vendorAddress": "Store address",

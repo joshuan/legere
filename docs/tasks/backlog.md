@@ -1888,3 +1888,8 @@ The complete product and technical contract is [`15`](../15-receipts.md). Tasks 
   **Goal:** documentation, operational controls and mandatory scenarios agree with the implementation.
   **Docs:** [`15`](../15-receipts.md), [`14 §14.8–§14.9`](../14-coding-standards.md)
   **Acceptance:** migration, unit, integration, e2e, security and UI scenarios are indexed; typecheck, lint, test and build pass; all M62 boxes are checked.
+
+- [x] **M62.6 — The receipt shelf can be narrowed and arranged**
+  **Goal:** a growing receipt archive answers which purchase a reader means without opening rows one by one.
+  **Docs:** [`15 §15.8–§15.9`](../15-receipts.md), [`04 §4.4`](../04-database-schema.md#44-indexes)
+  **Acceptance:** the receipt list searches extracted vendors, filters inclusive purchase-date and amount ranges plus country and currency, and offers descending purchase-date, upload-date and raw amount orders through sort-aware opaque cursors; purchase date is the default with unknown values last, raw amount deliberately ignores currency conversion, extracted query projections are backfilled and replaced atomically, the full-width desktop table carries useful receipt facts, filter/order state is linkable, and a completed upload refreshes the list immediately only when upload date puts it at the top; localized ru/en with contract, cursor, e2e and UI tests.

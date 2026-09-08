@@ -1,4 +1,8 @@
-import type { ReceiptExtraction } from '../../../shared/contracts/receipts';
+import type {
+  ReceiptExtraction,
+  ReceiptFilters,
+  ReceiptSort,
+} from '../../../shared/contracts/receipts';
 import type { StepStatus } from '../../../shared/contracts/enums';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Receipt } from '../entities/receipt';
@@ -11,6 +15,12 @@ export type ReceiptProcessingUpdate = {
   extracted?: ReceiptExtraction | null;
   processingError?: string | null;
   failedStep?: string | null;
+};
+
+export type ReceiptListInput = ReceiptFilters & {
+  limit: number;
+  cursor?: string | undefined;
+  sort?: ReceiptSort | undefined;
 };
 
 export abstract class ReceiptRepository {
@@ -27,7 +37,7 @@ export abstract class ReceiptRepository {
   abstract findByFileId(fileId: string, tx?: TransactionHandle): Promise<Receipt | null>;
   abstract list(
     viewer: Viewer,
-    query: { limit: number; cursor?: string | undefined },
+    query: ReceiptListInput,
     tx?: TransactionHandle,
   ): Promise<{ items: Receipt[]; nextCursor: string | null }>;
   abstract updateProcessing(
