@@ -57,9 +57,11 @@ function carriesFiles(transfer: DataTransfer | null): transfer is DataTransfer {
 // file dropped on a page, which is to navigate away to it, is taken away wherever it would fire.
 export function UploadDropZone({
   onFiles,
+  hint,
   children,
 }: {
   onFiles: (file: File) => void;
+  hint?: ReactNode;
   children: ReactNode;
 }) {
   const t = useTranslations();
@@ -163,7 +165,7 @@ export function UploadDropZone({
               aria-hidden
             />
             <Typography.Text style={{ display: 'block', marginTop: 8 }}>
-              {t('documents.upload.hint')}
+              {hint ?? t('documents.upload.hint')}
             </Typography.Text>
           </div>
         </div>

@@ -963,6 +963,7 @@
     "singular": "Receipt",
     "upload": "Upload receipt",
     "uploadHint": "Images and PDFs. One file becomes one receipt.",
+    "dropHint": "Drop images or PDFs here to add them as receipts",
     "uploaded": "Receipt uploaded",
     "duplicate": "This receipt was already here",
     "empty": "No receipts yet.",

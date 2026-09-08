@@ -173,6 +173,10 @@ It owns a receipt-only image/PDF picker and reports the active upload on the act
 right, followed by the items table, collapsed raw JSON and source-text blocks, Copy/Download,
 original file metadata, both processing steps, Move to Documents and Delete.
 
+The whole `/receipts` screen is also a drop target. Dropping one or several images/PDFs, or choosing
+several through its picker, uploads each file as a separate receipt through the same endpoint. A
+full-screen receipt-specific overlay acknowledges the drag before the files are released.
+
 A document whose type slug is `receipt` shows Move to Receipts. A library, multi-file or processing
 document keeps the disabled action and a reason beside it; a shared managed file is refused by the
 conversion boundary. Existing receipt documents are not migrated automatically.

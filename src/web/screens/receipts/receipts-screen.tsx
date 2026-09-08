@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { useMemo, useRef } from 'react';
 import type { ReceiptListItemDto } from '../../../shared/contracts/receipts';
 import { receiptApi, receiptKeys } from '../../entities/receipt';
+import { UploadDropZone } from '../../features/document-upload';
 import { useErrorMessage } from '../../shared/lib';
 
 const LIVE_REFRESH_MS = 5000;
@@ -30,7 +31,7 @@ export function ReceiptsScreen() {
         ? LIVE_REFRESH_MS
         : false,
   });
-  const upload = useMutation({
+  const { mutate: uploadFile, isPending: uploadIsPending } = useMutation({
     mutationFn: (file: File) => receiptApi.upload(file),
     onSuccess: (result) => {
       void message.success(result.created ? t('uploaded') : t('duplicate'));
@@ -86,88 +87,91 @@ export function ReceiptsScreen() {
   ];
 
   return (
-    <div style={{ maxWidth: 1180, margin: '0 auto', padding: 24 }}>
-      <Space direction="vertical" size={20} style={{ width: '100%' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
-          <div>
-            <Typography.Title level={2} style={{ margin: 0 }}>
-              {t('title')}
-            </Typography.Title>
-            <Typography.Text type="secondary">{t('uploadHint')}</Typography.Text>
-          </div>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            loading={upload.isPending}
-            onClick={() => inputRef.current?.click()}
-          >
-            {t('upload')}
-          </Button>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*,application/pdf"
-            hidden
-            onChange={(event) => {
-              const file = event.currentTarget.files?.[0];
-              event.currentTarget.value = '';
-              if (file !== undefined) upload.mutate(file);
-            }}
-          />
-        </div>
-
-        {receipts.isLoading ? (
-          <div style={{ textAlign: 'center', padding: 64 }}>
-            <Spin />
-          </div>
-        ) : items.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('empty')} />
-        ) : (
-          <>
-            <div className="receipt-desktop-list">
-              <Table rowKey="id" columns={columns} dataSource={items} pagination={false} />
+    <UploadDropZone onFiles={uploadFile} hint={t('dropHint')}>
+      <div style={{ maxWidth: 1180, margin: '0 auto', padding: 24 }}>
+        <Space direction="vertical" size={20} style={{ width: '100%' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+            <div>
+              <Typography.Title level={2} style={{ margin: 0 }}>
+                {t('title')}
+              </Typography.Title>
+              <Typography.Text type="secondary">{t('uploadHint')}</Typography.Text>
             </div>
-            <div className="receipt-mobile-list">
-              <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                {items.map((receipt) => (
-                  <Link key={receipt.id} href={`/receipts/${receipt.id}`}>
-                    <Card size="small">
-                      <div style={{ display: 'flex', gap: 14 }}>
-                        <ReceiptThumbnail receipt={receipt} />
-                        <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
-                          <Typography.Text strong ellipsis>
-                            {vendorOf(receipt) ?? t('unknownVendor')}
-                          </Typography.Text>
-                          <Typography.Text type="secondary">
-                            {[
-                              stringValue(receipt, 'purchasedAt'),
-                              stringValue(receipt, 'purchasedTime'),
-                              moneyValue(receipt.extracted?.values.total),
-                            ]
-                              .filter((value) => value !== null)
-                              .join(' · ') || receipt.fileName}
-                          </Typography.Text>
-                          <ReceiptStatus receipt={receipt} />
-                        </Space>
-                      </div>
-                    </Card>
-                  </Link>
-                ))}
-              </Space>
-            </div>
-          </>
-        )}
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              loading={uploadIsPending}
+              onClick={() => inputRef.current?.click()}
+            >
+              {t('upload')}
+            </Button>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              multiple
+              hidden
+              onChange={(event) => {
+                const files = Array.from(event.currentTarget.files ?? []);
+                event.currentTarget.value = '';
+                for (const file of files) uploadFile(file);
+              }}
+            />
+          </div>
 
-        {receipts.hasNextPage && (
-          <Button
-            loading={receipts.isFetchingNextPage}
-            onClick={() => void receipts.fetchNextPage()}
-          >
-            {t('loadMore')}
-          </Button>
-        )}
-      </Space>
-    </div>
+          {receipts.isLoading ? (
+            <div style={{ textAlign: 'center', padding: 64 }}>
+              <Spin />
+            </div>
+          ) : items.length === 0 ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('empty')} />
+          ) : (
+            <>
+              <div className="receipt-desktop-list">
+                <Table rowKey="id" columns={columns} dataSource={items} pagination={false} />
+              </div>
+              <div className="receipt-mobile-list">
+                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  {items.map((receipt) => (
+                    <Link key={receipt.id} href={`/receipts/${receipt.id}`}>
+                      <Card size="small">
+                        <div style={{ display: 'flex', gap: 14 }}>
+                          <ReceiptThumbnail receipt={receipt} />
+                          <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
+                            <Typography.Text strong ellipsis>
+                              {vendorOf(receipt) ?? t('unknownVendor')}
+                            </Typography.Text>
+                            <Typography.Text type="secondary">
+                              {[
+                                stringValue(receipt, 'purchasedAt'),
+                                stringValue(receipt, 'purchasedTime'),
+                                moneyValue(receipt.extracted?.values.total),
+                              ]
+                                .filter((value) => value !== null)
+                                .join(' · ') || receipt.fileName}
+                            </Typography.Text>
+                            <ReceiptStatus receipt={receipt} />
+                          </Space>
+                        </div>
+                      </Card>
+                    </Link>
+                  ))}
+                </Space>
+              </div>
+            </>
+          )}
+
+          {receipts.hasNextPage && (
+            <Button
+              loading={receipts.isFetchingNextPage}
+              onClick={() => void receipts.fetchNextPage()}
+            >
+              {t('loadMore')}
+            </Button>
+          )}
+        </Space>
+      </div>
+    </UploadDropZone>
   );
 }
 
