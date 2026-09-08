@@ -11,7 +11,7 @@
 #
 #   docker buildx imagetools inspect quay.io/docling-project/docling-serve-cpu:latest \
 #     --format '{{.Manifest.Digest}}'
-FROM quay.io/docling-project/docling-serve-cpu:v1.31.0@sha256:32ba1a1dded8d8fd21f9d8da1b9837e04cfee164ef891d9513174c3d989dcee9
+FROM quay.io/docling-project/docling-serve-cpu:v1.32.0@sha256:576fc2074ac77bcfbf3fe27633aa0dd89b452a170b2cd31689c8751e94d60f7a
 
 # tessdata_fast: a few MB per language, and the accuracy difference against the full models is not
 # visible on document scans. 🔒 A commit, not `main`: the language data is parsed by tesseract's
