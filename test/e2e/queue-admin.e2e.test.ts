@@ -845,13 +845,14 @@ describe('Reprocess and queue administration (e2e)', () => {
   // same hygiene (docs/07 §7.3).
   it('carries a gate per external service in the same settings payload', async () => {
     const before = await api(app).get('/api/admin/queue/settings').set('Cookie', adminCookie);
-    // 🔒 The defaults are 0/0: an instance that upgrades into this waits nowhere (docs/05 §5.4b).
+    // Existing defaults stay 0/0; the new local receipt vision service starts at one call.
     expect(expectData(before, queueSettingsSchema).services).toEqual({
       stirling: { concurrency: 0, cooldownSeconds: 0 },
       docling: { concurrency: 0, cooldownSeconds: 0 },
       classifier: { concurrency: 0, cooldownSeconds: 0 },
       transcriber: { concurrency: 0, cooldownSeconds: 0 },
       embeddings: { concurrency: 0, cooldownSeconds: 0 },
+      'receipt-extractor': { concurrency: 1, cooldownSeconds: 0 },
     });
 
     const saved = await api(app)
@@ -877,6 +878,7 @@ describe('Reprocess and queue administration (e2e)', () => {
     expect(settings.services.ocr).toBeUndefined();
     // Every service comes back, including the ones nobody touched.
     expect(settings.services.embeddings).toEqual({ concurrency: 0, cooldownSeconds: 0 });
+    expect(settings.services['receipt-extractor']).toEqual({ concurrency: 1, cooldownSeconds: 0 });
 
     // 🔒 It survives a read, which is what "survives a restart" means for a stored setting.
     const after = await api(app).get('/api/admin/queue/settings').set('Cookie', adminCookie);
@@ -885,7 +887,7 @@ describe('Reprocess and queue administration (e2e)', () => {
       cooldownSeconds: 30,
     });
 
-    // Back to ungated, so nothing that runs after this test waits at a gate.
+    // Back to inherited defaults, so later tests keep no service overrides.
     await api(app)
       .patch('/api/admin/queue/settings', {
         concurrency: {},
