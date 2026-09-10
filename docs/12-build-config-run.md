@@ -15,6 +15,11 @@
   entry raises the package to the version the upstream project itself already ships, and comes out
   again when the parent catches up — CI's `npm audit` ([`13 §13.1`](./13-ci-cd.md#131-principles)) is
   what says when it has not.
+- The Multer override raises Nest's exact `2.2.0` pin to `2.3.0`, closing its multipart parsing
+  and aborted-upload advisories, including [GHSA-wc9g-mqfw-jrwm](https://github.com/advisories/GHSA-wc9g-mqfw-jrwm).
+  Remove it when `@nestjs/platform-express` itself requires a fixed version. The September 2026
+  release also raises Next.js to `15.5.25` and Nodemailer to `9.1.1`, keeping both existing major
+  versions; production audit remains a blocking release check.
 
 ## 12.2. npm scripts (authoritative)
 
