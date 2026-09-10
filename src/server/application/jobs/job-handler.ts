@@ -7,5 +7,7 @@
 // Every handler must be idempotent: pg-boss delivers at-least-once, so re-delivery of the same
 // payload must not duplicate work or corrupt state (docs/05 §5.4).
 export abstract class JobHandler {
-  abstract handle(payload: unknown): Promise<void>;
+  abstract handle(payload: unknown, delivery?: JobDelivery): Promise<void>;
 }
+
+export type JobDelivery = { retryCount: number; resumeFromCheckpoint?: boolean };

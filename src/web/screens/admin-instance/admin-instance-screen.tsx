@@ -26,6 +26,7 @@ const SOURCE_COLOR: Record<SettingSource, string> = {
 // Record<Consequence, …> is deliberate, as in shared/api/error-messages: adding a token to the
 // contract without a message here is a type error, never a raw key on screen.
 const CONSEQUENCE_KEYS: Record<Consequence, string> = {
+  RECEIPTS_USE_DOCUMENT_ANALYST: 'admin.instance.consequences.RECEIPTS_USE_DOCUMENT_ANALYST',
   SIGNED_URLS_USE_INTERNAL_ENDPOINT:
     'admin.instance.consequences.SIGNED_URLS_USE_INTERNAL_ENDPOINT',
   SCAN_UNLIMITED: 'admin.instance.consequences.SCAN_UNLIMITED',

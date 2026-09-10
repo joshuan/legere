@@ -1711,6 +1711,70 @@ describe('HandleDocumentProcess', () => {
   // An outage is not a verdict (docs/05 §5.4e): a service being away puts the step back to QUEUED
   // and carries the error out to pg-boss, so the retry is the queue's and never a person's.
   describe('an outage is not a verdict (docs/05 §5.4e)', () => {
+    it('resumes a queue retry after completed PDF and markdown stages', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      analyst.unavailable = true;
+      await expect(run()).rejects.toThrow('unreachable');
+      const completedEvents = events.events.filter((event) => event.type === 'STEP_STARTED').length;
+      const pdfCalls = pdfs.calls.length;
+      analyst.unavailable = false;
+
+      await handler.handle(
+        { documentId: DOCUMENT_ID },
+        { retryCount: 1, resumeFromCheckpoint: true },
+      );
+
+      expect(stateOf().steps.analysis).toBe('DONE');
+      expect(pdfs.calls).toHaveLength(pdfCalls);
+      expect(
+        events.events
+          .filter((event) => event.type === 'STEP_STARTED')
+          .slice(completedEvents)
+          .map((event) => event.payload?.step),
+      ).not.toEqual(expect.arrayContaining(['canonical', 'preview', 'markdown']));
+    });
+
+    it('keeps an explicit full reprocess distinct from a checkpoint resume', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      await run();
+      const pdfCalls = pdfs.calls.length;
+      await handler.handle({ documentId: DOCUMENT_ID, resume: true });
+      expect(pdfs.calls).toHaveLength(pdfCalls);
+      await run();
+      expect(pdfs.calls.length).toBeGreaterThan(pdfCalls);
+    });
+
+    it('invalidates old downstream success before a fresh rebuild can be interrupted', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      await run();
+      expect(stateOf().steps.analysis).toBe('DONE');
+      parser.configured = true;
+      parser.unavailable = true;
+      await expect(run()).rejects.toThrow('unreachable');
+      expect(stateOf().steps).toMatchObject({
+        markdown: 'QUEUED',
+        analysis: 'QUEUED',
+        fields: 'QUEUED',
+        vectorization: 'QUEUED',
+      });
+      parser.unavailable = false;
+      const analysis = vi.spyOn(analyst, 'analyze');
+      await handler.handle(
+        { documentId: DOCUMENT_ID },
+        { retryCount: 1, resumeFromCheckpoint: true },
+      );
+      expect(analysis).toHaveBeenCalledTimes(1);
+      expect(stateOf().steps.analysis).toBe('DONE');
+    });
+
+    it('does not mistake an unstarted expired rebuild for a checkpointed retry', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      await run();
+      const before = pdfs.calls.length;
+      await handler.handle({ documentId: DOCUMENT_ID }, { retryCount: 1 });
+      expect(pdfs.calls.length).toBeGreaterThan(before);
+    });
+
     it('puts an interrupted markdown step back to QUEUED and rethrows, recording no failure', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       parser.configured = true;

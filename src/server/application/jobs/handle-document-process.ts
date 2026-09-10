@@ -61,7 +61,7 @@ import type { UnitOfWork } from '../ports/unit-of-work';
 import { artifactKeys } from '../storage/artifact-keys';
 import type { AnalysisSettings } from '../settings/analysis-settings';
 import type { QueueSettings } from '../queue/queue-settings';
-import { JobHandler } from './job-handler';
+import { JobHandler, type JobDelivery } from './job-handler';
 import type { ProcessingSettings } from './processing-settings';
 
 export const documentProcessPayloadSchema = z.object({
@@ -72,6 +72,8 @@ export const documentProcessPayloadSchema = z.object({
   // The page limit exists so that nothing *unasked* spends minutes of a model on a book; being asked
   // is the whole difference, so it travels with the job rather than being inferred from the steps.
   analyseInFull: z.boolean().optional(),
+  // Automatic recovery resumes settled artifacts; an explicit reprocess still rebuilds them.
+  resume: z.boolean().optional(),
 });
 export type DocumentProcessPayload = z.infer<typeof documentProcessPayloadSchema>;
 
@@ -171,8 +173,11 @@ export class HandleDocumentProcess extends JobHandler {
   // whole instance (ADR-002).
   private readonly inFlight = new Map<string, Promise<void>>();
 
-  async handle(rawPayload: unknown): Promise<void> {
+  async handle(rawPayload: unknown, delivery?: JobDelivery): Promise<void> {
     const payload = documentProcessPayloadSchema.parse(rawPayload);
+    // Retry count alone is insufficient: an expired delivery may never have entered this handler.
+    // Only a recorded service interruption proves that the requested stages were invalidated.
+    if ((delivery?.retryCount ?? 0) > 0 && delivery?.resumeFromCheckpoint) payload.resume = true;
     const documentId = payload.documentId;
     // A failure belongs to the delivery that encountered it. It must not discard different work
     // already waiting behind it, so only the predecessor's settlement is ignored here; this run's
@@ -198,6 +203,14 @@ export class HandleDocumentProcess extends JobHandler {
     // Soft-deleted or gone between enqueue and delivery: nothing to process, and nothing to fail.
     if (document === null || document.deletedAt !== null) return;
 
+    if (payload.resume) {
+      for (const step of requested) {
+        if (document.steps[step] === 'DONE' || document.steps[step] === 'SKIPPED') {
+          requested.delete(step);
+        }
+      }
+    }
+
     // 🔒 What this instance is holding, read here rather than at start-up, so pausing a step takes
     // effect on the next document and re-registers no worker (docs/05 §5.4d). Held steps leave this
     // run entirely: the row keeps the status it already has, and nothing below writes to it — not
@@ -216,7 +229,14 @@ export class HandleDocumentProcess extends JobHandler {
       // QUEUED rather than PENDING: the job doing the clearing is the job that will do the work, so
       // nothing here is unscheduled (docs/03 §3.3.10).
       steps: onlyRequested(
-        { canonical: 'QUEUED', preview: 'QUEUED', markdown: 'QUEUED' },
+        {
+          canonical: 'QUEUED',
+          preview: 'QUEUED',
+          markdown: 'QUEUED',
+          analysis: 'QUEUED',
+          fields: 'QUEUED',
+          vectorization: 'QUEUED',
+        },
         requested,
       ),
       // 🔒 Every step this run may touch, not only the three that build the canonical: a reason left

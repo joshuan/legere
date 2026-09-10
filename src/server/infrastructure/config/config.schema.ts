@@ -188,6 +188,13 @@ export const configSchema = z.object({
   CLASSIFIER_API_BASE_URL: z.string().default(''),
   CLASSIFIER_API_KEY: z.string().default(''),
   CLASSIFIER_MODEL: z.string().default(''),
+  // Explicit receipt routing: never inherit a document provider's endpoint or credentials.
+  RECEIPT_API_BASE_URL: z.string().default(''),
+  RECEIPT_API_KEY: z.string().default(''),
+  RECEIPT_MODEL: z.string().default(''),
+  RECEIPT_PAGE_IMAGE_MAX_DIM: z.coerce.number().int().positive().default(1600),
+  SERVICE_CONCURRENCY_RECEIPT_EXTRACTOR: z.coerce.number().int().nonnegative().default(1),
+  SERVICE_COOLDOWN_RECEIPT_EXTRACTOR: z.coerce.number().int().nonnegative().default(0),
 });
 
 export type ConfigValues = z.infer<typeof configSchema>;

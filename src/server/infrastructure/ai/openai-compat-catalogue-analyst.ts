@@ -229,7 +229,13 @@ export class OpenAiCompatCatalogueAnalyst extends CatalogueAnalyst {
     });
 
     if (response.status === 429) {
-      throw throttledOrUnavailable('classifier', response.headers.get('retry-after'));
+      const body = await readBoundedText(response, MAX_ERROR_BYTES).catch(() => '');
+      throw throttledOrUnavailable(
+        'classifier',
+        response.headers.get('retry-after'),
+        new Date(),
+        body,
+      );
     }
     if (isUnavailableStatus(response.status)) {
       throw new ServiceUnavailableError(

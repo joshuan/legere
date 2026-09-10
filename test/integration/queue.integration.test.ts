@@ -17,6 +17,7 @@ import { PrismaService } from '../../src/server/infrastructure/persistence/prism
 import { PgBossProvider } from '../../src/server/infrastructure/queue/pg-boss.provider';
 import { QueueModule } from '../../src/server/infrastructure/queue/queue.module';
 import { WorkerRegistry } from '../../src/server/infrastructure/queue/worker-registry';
+import { DocumentRepository } from '../../src/server/domain/repositories/document.repository';
 import { disconnectTestPrisma, truncateAll } from '../helpers/db';
 
 // A handler that records what it received, so worker wiring and payload delivery can be observed.
@@ -37,6 +38,7 @@ describe('Queue (integration)', () => {
   let provider: PgBossProvider;
   let workers: WorkerRegistry;
   let handler: RecordingHandler;
+  let documents: DocumentRepository;
   let close: () => Promise<void>;
 
   beforeAll(async () => {
@@ -58,6 +60,7 @@ describe('Queue (integration)', () => {
     prisma = moduleRef.get(PrismaService);
     provider = moduleRef.get(PgBossProvider);
     workers = moduleRef.get(WorkerRegistry);
+    documents = moduleRef.get(DocumentRepository);
     close = () => moduleRef.close();
 
     await provider.start();
@@ -152,6 +155,99 @@ describe('Queue (integration)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.name).toBe('file-ingest');
     expect(rows[0]?.data).toEqual({ fileRefId: 'abc' });
+  });
+
+  it('keeps a resume distinct from an explicit rebuild', async () => {
+    await queue.enqueue('document-process', { documentId: 'doc', resume: true });
+    await queue.enqueue('document-process', { documentId: 'doc', resume: true });
+    await queue.enqueue('document-process', { documentId: 'doc' });
+    expect((await jobs()).map((job) => job.singletonkey)).toEqual(['doc#resume', 'doc']);
+  });
+
+  it('preserves the checkpoint marker across pg-boss fail and redelivery', async () => {
+    const boss = await provider.start();
+    const id = await queue.enqueue('document-process', { documentId: 'checkpoint' });
+    const first = await boss.fetch('document-process', { includeMetadata: true });
+    expect(first[0]?.id).toBe(id);
+    if (id === null) throw new Error('Missing job');
+    await boss.fail('document-process', id, {
+      message: 'temporary outage',
+      resumeFromCheckpoint: true,
+    });
+    await prisma.$executeRaw`UPDATE pgboss.job SET start_after = now() - interval '1 second' WHERE id = ${id}::uuid`;
+    const retry = await boss.fetch('document-process', { includeMetadata: true });
+    expect(retry[0]).toMatchObject({ id, retryCount: 1, output: { resumeFromCheckpoint: true } });
+  });
+
+  it('recovers orphaned RUNNING work, excludes every live state before LIMIT, and commits atomically', async () => {
+    const old = new Date('2025-01-01T00:00:00Z');
+    const ids: string[] = [];
+    for (const state of ['created', 'retry', 'active', 'failed']) {
+      const doc = await prisma.document.create({
+        data: {
+          title: state,
+          createdAt: old,
+          updatedAt: old,
+          canonicalStatus: 'DONE',
+          previewStatus: 'DONE',
+          markdownStatus: 'DONE',
+          analysisStatus: 'RUNNING',
+          fieldsStatus: 'DONE',
+          vectorizationStatus: 'SKIPPED',
+        },
+      });
+      ids.push(doc.id);
+      const jobId = await queue.enqueue('document-process', { documentId: doc.id });
+      await prisma.$executeRaw`UPDATE pgboss.job SET state = ${state}::pgboss.job_state WHERE id = ${jobId}::uuid`;
+    }
+    const orphan = ids.at(-1);
+    if (orphan === undefined) throw new Error('Missing fixture');
+    try {
+      expect(await documents.listStaleUnstartedIds(new Date(), 200, ['analysis'])).toEqual([]);
+      await expect(
+        unitOfWork.run(async (tx) => {
+          const stalled = await documents.listStaleUnstartedIds(new Date(), 1, [], tx);
+          expect(stalled).toEqual([{ id: orphan, steps: ['analysis'] }]);
+          // A concurrent sweep cannot claim the row this one has locked.
+          await unitOfWork.run(async (otherTx) => {
+            expect(await documents.listStaleUnstartedIds(new Date(), 1, [], otherTx)).toEqual([]);
+          });
+          await queue.enqueueAfterTx(tx, 'document-process', {
+            documentId: orphan,
+            steps: ['analysis'],
+            resume: true,
+          });
+          await documents.markUnstartedQueued(orphan, ['analysis'], tx);
+          throw new Error('rollback recovery');
+        }),
+      ).rejects.toThrow('rollback recovery');
+      expect(await jobs()).toHaveLength(4);
+      expect(
+        (await prisma.document.findUniqueOrThrow({ where: { id: orphan } })).analysisStatus,
+      ).toBe('RUNNING');
+      await unitOfWork.run(async (tx) => {
+        const stalled = await documents.listStaleUnstartedIds(new Date(), 1, [], tx);
+        expect(stalled).toEqual([{ id: orphan, steps: ['analysis'] }]);
+        await queue.enqueueAfterTx(tx, 'document-process', {
+          documentId: orphan,
+          steps: ['analysis'],
+          resume: true,
+        });
+        await documents.markUnstartedQueued(orphan, ['analysis'], tx);
+      });
+      expect(await documents.listStaleUnstartedIds(new Date(), 200, [])).toEqual([]);
+      expect(
+        (await prisma.document.findUniqueOrThrow({ where: { id: orphan } })).analysisStatus,
+      ).toBe('QUEUED');
+      const activeId = ids[2];
+      if (activeId === undefined) throw new Error('Missing active fixture');
+      await documents.markUnstartedQueued(activeId, ['analysis']);
+      expect(
+        (await prisma.document.findUniqueOrThrow({ where: { id: activeId } })).analysisStatus,
+      ).toBe('RUNNING');
+    } finally {
+      await prisma.document.deleteMany({ where: { id: { in: ids } } });
+    }
   });
 
   it('collapses repeated enqueues that share a singleton key', async () => {
@@ -372,7 +468,8 @@ describe('Queue (integration)', () => {
     const retried = rows.filter((row) => row.state === 'created');
     expect(retried).toHaveLength(1);
     expect(retried[0]).toMatchObject({
-      singletonkey: 'fails',
+      singletonkey: 'fails#resume',
+      data: { documentId: 'fails', resume: true },
       retrylimit: 5,
       retrybackoff: true,
       expireseconds: 3 * 60 * 60,

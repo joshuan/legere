@@ -16,6 +16,12 @@ export type ServiceEndpoint = {
 };
 
 export function serviceEndpoint(config: AppConfig, service: ServiceName): ServiceEndpoint {
+  if (service === 'receipt-extractor') {
+    return {
+      baseUrl: trimmed(config.get('RECEIPT_API_BASE_URL')),
+      apiKey: config.get('RECEIPT_API_KEY'),
+    };
+  }
   if (service === 'stirling') {
     return { baseUrl: trimmed(config.get('STIRLING_URL')), apiKey: '' };
   }

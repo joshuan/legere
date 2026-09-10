@@ -44,10 +44,25 @@ describe('Retry-After', () => {
     });
   });
 
-  it('falls back to ordinary typed unavailability without a usable deadline', () => {
+  it('uses a shared one-minute hold without a usable deadline', () => {
     const error = throttledOrUnavailable('embeddings', null, NOW);
 
     expect(error).toBeInstanceOf(ServiceUnavailableError);
-    expect(error).not.toBeInstanceOf(ServiceThrottledError);
+    expect(error).toMatchObject({ retryAfter: new Date(NOW.getTime() + 60_000) });
+  });
+
+  it.each([
+    ['{"retry_after_seconds":90}', 90_000],
+    ['{"reset_at":"2026-09-05T12:02:00Z"}', 120_000],
+    ['{"blocked_until":"2026-09-05T12:03:00Z","retry_after_seconds":30}', 180_000],
+    ['{"retry_after_seconds":11042}', MAX_RETRY_AFTER_MS],
+    ['{"retry_after_seconds":-10}', 60_000],
+    ['{"retry_after_seconds":null}', 60_000],
+    ['{"error":"try again in 10000000 seconds"}', 60_000],
+    ['<html>Rate limited</html>', 60_000],
+  ])('reads a bounded gateway deadline from %s', (body, delay) => {
+    expect(throttledOrUnavailable('classifier', null, NOW, body)).toMatchObject({
+      retryAfter: new Date(NOW.getTime() + delay),
+    });
   });
 });

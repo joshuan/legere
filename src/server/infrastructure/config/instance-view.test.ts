@@ -64,6 +64,7 @@ describe('describeInstance', () => {
           S3_SECRET_ACCESS_KEY: 's3-secret-nobody-may-see',
           EMBEDDINGS_API_KEY: 'sk-embeddings-nobody-may-see',
           CLASSIFIER_API_KEY: 'sk-classifier-nobody-may-see',
+          RECEIPT_API_KEY: 'sk-receipt-nobody-may-see',
           TURNSTILE_SECRET_KEY: 'turnstile-secret-nobody-may-see',
           NEXT_PUBLIC_TURNSTILE_SITE_KEY: 'turnstile-site-key',
         }),
@@ -77,6 +78,7 @@ describe('describeInstance', () => {
         's3-secret-nobody-may-see',
         'sk-embeddings-nobody-may-see',
         'sk-classifier-nobody-may-see',
+        'sk-receipt-nobody-may-see',
         'turnstile-secret-nobody-may-see',
         'turnstile-site-key',
       ]) {

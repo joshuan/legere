@@ -1,6 +1,9 @@
 import { Global, Module } from '@nestjs/common';
 import { CatalogueAnalyst } from '../../application/ports/catalogue-analyst';
 import { DocumentAnalyst } from '../../application/ports/document-analyst';
+import { ReceiptExtractor } from '../../application/ports/receipt-extractor';
+import { ServiceGates } from '../../application/queue/service-gate';
+import { AppConfig } from '../config/app-config';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
 import { PageTranscriber } from '../../application/ports/page-transcriber';
 import { OpenAiCompatAnalyst } from './openai-compat-analyst';
@@ -15,10 +18,33 @@ import { OpenAiCompatTranscriber } from './openai-compat-transcriber';
 @Module({
   providers: [
     { provide: EmbeddingProvider, useClass: OpenAiCompatEmbeddings },
-    { provide: DocumentAnalyst, useClass: OpenAiCompatAnalyst },
+    {
+      provide: DocumentAnalyst,
+      useFactory: (config: AppConfig, gates: ServiceGates): DocumentAnalyst =>
+        new OpenAiCompatAnalyst(config, gates),
+      inject: [AppConfig, ServiceGates],
+    },
+    {
+      provide: ReceiptExtractor,
+      useFactory: (
+        config: AppConfig,
+        gates: ServiceGates,
+        legacy: DocumentAnalyst,
+      ): ReceiptExtractor =>
+        config.get('RECEIPT_API_BASE_URL') === '' && config.get('RECEIPT_MODEL') === ''
+          ? legacy
+          : new OpenAiCompatAnalyst(config, gates, 'receipt-extractor'),
+      inject: [AppConfig, ServiceGates, DocumentAnalyst],
+    },
     { provide: CatalogueAnalyst, useClass: OpenAiCompatCatalogueAnalyst },
     { provide: PageTranscriber, useClass: OpenAiCompatTranscriber },
   ],
-  exports: [EmbeddingProvider, DocumentAnalyst, CatalogueAnalyst, PageTranscriber],
+  exports: [
+    EmbeddingProvider,
+    DocumentAnalyst,
+    ReceiptExtractor,
+    CatalogueAnalyst,
+    PageTranscriber,
+  ],
 })
 export class AiModule {}

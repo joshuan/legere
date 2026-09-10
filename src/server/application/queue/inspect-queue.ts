@@ -80,7 +80,11 @@ export class RetryFailedJob {
     if (failed === null || !isQueueName(failed.queue)) {
       throw new NotFoundError('NOT_FOUND', 'Failed job not found');
     }
-    await this.queue.enqueue(failed.queue, payloadOf(failed.payload));
+    const payload = payloadOf(failed.payload);
+    await this.queue.enqueue(
+      failed.queue,
+      failed.queue === 'document-process' ? { ...payload, resume: true } : payload,
+    );
     return { ok: true };
   }
 }

@@ -51,6 +51,7 @@ describe('QueueSettings', () => {
       classifier: { concurrency: 0, cooldownSeconds: 0 },
       transcriber: { concurrency: 0, cooldownSeconds: 0 },
       embeddings: { concurrency: 0, cooldownSeconds: 0 },
+      'receipt-extractor': { concurrency: 0, cooldownSeconds: 0 },
     });
   });
 
@@ -99,6 +100,7 @@ describe('QueueSettings', () => {
       'classifier',
       'docling',
       'embeddings',
+      'receipt-extractor',
       'stirling',
       'transcriber',
     ]);

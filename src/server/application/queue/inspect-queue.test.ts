@@ -78,7 +78,7 @@ describe('RetryFailedJob', () => {
     expect(queue.enqueued).toEqual([
       {
         name: 'document-process',
-        payload: { documentId: '11111111-1111-4111-8111-111111111111' },
+        payload: { documentId: '11111111-1111-4111-8111-111111111111', resume: true },
       },
     ]);
   });

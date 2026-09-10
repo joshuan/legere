@@ -56,17 +56,43 @@ export function parseRetryAfter(value: string | null, now: Date): Date | null {
   return new Date(deadlineMs);
 }
 
-// A 429 without a usable deadline is still transient, but supplies no schedule the gate can trust:
-// it therefore takes the ordinary typed unavailability/backoff path of docs/05 §5.4e.
+// Some gateways put the reset deadline in JSON instead of Retry-After. A missing/malformed
+// deadline still requires a shared pause, rather than spending a retry for every waiting document.
 export function throttledOrUnavailable(
   service: ServiceName,
   retryAfter: string | null,
   now = new Date(),
+  body?: string,
 ): ServiceUnavailableError {
-  const deadline = parseRetryAfter(retryAfter, now);
-  return deadline === null
-    ? new ServiceUnavailableError(service, 'rate limited without a usable Retry-After')
-    : new ServiceThrottledError(service, deadline);
+  const deadline = parseRetryAfter(retryAfter, now) ?? bodyRetryAfter(body, now);
+  return new ServiceThrottledError(service, deadline ?? new Date(now.getTime() + 60_000));
+}
+
+function bodyRetryAfter(body: string | undefined, now: Date): Date | null {
+  if (body === undefined) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object') return null;
+  // Never execute or interpret the error message. Only these machine-readable fields are used.
+  const deadlines: Date[] = [];
+  for (const key of ['retry_after_seconds', 'reset_at', 'blocked_until']) {
+    const value: unknown = Reflect.get(parsed, key);
+    if (typeof value !== 'string' && typeof value !== 'number') continue;
+    const deadlineMs =
+      key === 'retry_after_seconds'
+        ? now.getTime() + Number(value) * 1000
+        : Date.parse(String(value));
+    const distance = deadlineMs - now.getTime();
+    if (!Number.isFinite(deadlineMs) || distance <= 0) continue;
+    deadlines.push(new Date(now.getTime() + Math.min(distance, MAX_RETRY_AFTER_MS)));
+  }
+  return deadlines.length === 0
+    ? null
+    : new Date(Math.max(...deadlines.map((date) => date.getTime())));
 }
 
 // The three ways a proxy says "the thing behind me is not there" (docs/05 §5.4e). Nothing else

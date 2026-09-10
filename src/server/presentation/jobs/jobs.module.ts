@@ -10,6 +10,7 @@ import { CallContext } from '../../application/ports/call-context';
 import { LoggingModule } from '../../infrastructure/logging/logging.module';
 import { Clock } from '../../application/ports/clock';
 import { DocumentAnalyst } from '../../application/ports/document-analyst';
+import { ReceiptExtractor } from '../../application/ports/receipt-extractor';
 import { PageTranscriber } from '../../application/ports/page-transcriber';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
 import { DocumentParser } from '../../application/ports/document-parser';
@@ -277,13 +278,13 @@ export const PROCESSING_WORKER_BINDINGS = [
         storage: FileStorage,
         pdfs: PdfToolbox,
         images: ImageTool,
-        analyst: DocumentAnalyst,
+        analyst: ReceiptExtractor,
         config: AppConfig,
       ): HandleReceiptProcess =>
         new HandleReceiptProcess(receipts, fileRows, events, storage, pdfs, images, analyst, {
           previewMaxDim: config.get('PREVIEW_MAX_DIM'),
           thumbMaxDim: config.get('THUMB_MAX_DIM'),
-          analystPageImageMaxDim: config.get('CLASSIFIER_PAGE_IMAGE_MAX_DIM'),
+          analystPageImageMaxDim: config.get('RECEIPT_PAGE_IMAGE_MAX_DIM'),
         }),
       inject: [
         ReceiptRepository,
@@ -292,7 +293,7 @@ export const PROCESSING_WORKER_BINDINGS = [
         FileStorage,
         PdfToolbox,
         ImageTool,
-        DocumentAnalyst,
+        ReceiptExtractor,
         AppConfig,
       ],
     },

@@ -42,6 +42,7 @@ export const SERVICE_NAMES = [
   'classifier',
   'transcriber',
   'embeddings',
+  'receipt-extractor',
 ] as const;
 export type ServiceName = (typeof SERVICE_NAMES)[number];
 

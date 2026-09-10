@@ -91,6 +91,18 @@ describe('HttpExternalServiceProbe', () => {
       expect(result.url).toBe('http://ollama:11434/v1');
     });
 
+    it('probes the dedicated receipt endpoint without inheriting another service key', async () => {
+      const fetchSpy = answers(200);
+      const result = await probe({
+        RECEIPT_API_BASE_URL: 'http://receipts:11434/v1',
+        CLASSIFIER_API_KEY: 'document-only-key',
+        EMBEDDINGS_API_KEY: 'embedding-only-key',
+      }).check('receipt-extractor');
+      expect(urlOf(fetchSpy.mock.calls[0]?.[0] ?? '')).toBe('http://receipts:11434/v1/models');
+      expect(new Headers(fetchSpy.mock.calls[0]?.[1]?.headers).get('authorization')).toBeNull();
+      expect(result.status).toBe('UP');
+    });
+
     it('asks nothing at all where no address is configured', async () => {
       const fetchSpy = answers(200);
 

@@ -734,14 +734,14 @@ describe('OpenAiCompatAnalyst', () => {
     });
   });
 
-  it('treats a 429 without Retry-After as ordinary typed unavailability', async () => {
+  it('treats a 429 without Retry-After as a shared bounded hold', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('rate limited, retry later', { status: 429 }),
     );
 
     const call = analyst().analyze('text', CATEGORIES);
     await expect(call).rejects.toBeInstanceOf(ServiceUnavailableError);
-    await expect(call).rejects.not.toBeInstanceOf(ServiceThrottledError);
+    await expect(call).rejects.toBeInstanceOf(ServiceThrottledError);
   });
 
   it('shares a valid Retry-After hold between analysis and fields calls', async () => {
@@ -762,6 +762,30 @@ describe('OpenAiCompatAnalyst', () => {
 
     clock.advance(2_000);
     await vi.advanceTimersByTimeAsync(2_000);
+    expect((await fields).values).toEqual({ vendor: 'Voli' });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('holds later calls when a gateway puts its reset only in JSON', async () => {
+    const now = new Date('2026-09-05T12:00:00.000Z');
+    vi.useFakeTimers({ now });
+    const clock = new FixedClock(now);
+    const gates = new ServiceGates(clock);
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{"retry_after_seconds":90}', { status: 429 }))
+      .mockResolvedValueOnce(answers('{"vendor":"Voli"}'));
+    const shared = analyst({}, gates);
+    await expect(shared.analyze('text', CATEGORIES)).rejects.toBeInstanceOf(ServiceThrottledError);
+    const fields = shared.extractFields(RECEIPT_SCHEMA, 'text');
+    await Promise.resolve();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(gates.snapshot().find((gate) => gate.service === 'classifier')).toMatchObject({
+      waiting: 1,
+      throttledUntil: '2026-09-05T12:01:30.000Z',
+    });
+    clock.advance(90_000);
+    await vi.advanceTimersByTimeAsync(90_000);
     expect((await fields).values).toEqual({ vendor: 'Voli' });
     expect(fetch).toHaveBeenCalledTimes(2);
   });

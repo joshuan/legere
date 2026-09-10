@@ -24,8 +24,7 @@ function queueDefaults(config: AppConfig): QueueDefaults {
       maintenance: 1,
     },
     unitConcurrency: config.get('QUEUE_UNIT_CONCURRENCY'),
-    // The gates of docs/05 §5.4b, zero by default: an instance that upgrades into this waits
-    // nowhere until an operator decides something should.
+    // Existing service gates default to zero; dedicated receipt vision starts at one call.
     services: {
       stirling: {
         concurrency: config.get('SERVICE_CONCURRENCY_STIRLING'),
@@ -46,6 +45,10 @@ function queueDefaults(config: AppConfig): QueueDefaults {
       embeddings: {
         concurrency: config.get('SERVICE_CONCURRENCY_EMBEDDINGS'),
         cooldownSeconds: config.get('SERVICE_COOLDOWN_EMBEDDINGS'),
+      },
+      'receipt-extractor': {
+        concurrency: config.get('SERVICE_CONCURRENCY_RECEIPT_EXTRACTOR'),
+        cooldownSeconds: config.get('SERVICE_COOLDOWN_RECEIPT_EXTRACTOR'),
       },
     },
   };

@@ -61,6 +61,7 @@ export function ungatedServices(): Record<ServiceName, ServiceGateDto> {
     classifier: { concurrency: 0, cooldownSeconds: 0 },
     transcriber: { concurrency: 0, cooldownSeconds: 0 },
     embeddings: { concurrency: 0, cooldownSeconds: 0 },
+    'receipt-extractor': { concurrency: 0, cooldownSeconds: 0 },
   };
 }
 

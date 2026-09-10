@@ -14,6 +14,7 @@ const PROBE_PATHS: Record<ServiceName, string> = {
   classifier: '/models',
   transcriber: '/models',
   embeddings: '/models',
+  'receipt-extractor': '/models',
 };
 
 // 🔒 Short, and shorter than anything the pipeline allows itself. This one runs while somebody is

@@ -290,7 +290,7 @@ export abstract class DocumentRepository {
   abstract countByStepStatus(tx?: TransactionHandle): Promise<StepStatusCounters>;
 
   // The named steps of this document become QUEUED where nothing is scheduled for them, because the
-  // caller has just scheduled them (docs/03 §3.3.10). Only PENDING moves: a step that is DONE, FAILED
+  // caller has just scheduled them (docs/03 §3.3.10). PENDING and orphaned RUNNING move: DONE, FAILED
   // or SKIPPED has an outcome, and the run about to happen may or may not touch it. Only the named
   // ones move either: a step the sweep did not ask for — one a pause is holding (docs/05 §5.4d) — has
   // no job coming and must not be made to look as though it had.
@@ -300,10 +300,9 @@ export abstract class DocumentRepository {
     tx?: TransactionHandle,
   ): Promise<void>;
 
-  // Documents left waiting: a step is PENDING and nothing has written to the row since `olderThan`.
-  // A document being processed right now has its steps written as they run, so it is never in this
-  // answer — what is, is a document whose job was lost or was never enqueued at all, which is what a
-  // migration that resets statuses leaves behind (docs/05 §5.4).
+  // Stale PENDING/QUEUED/RUNNING steps without a created, retrying or active document job.
+  // With a transaction, locks selected rows through recovery enqueue + status update. Live work
+  // is excluded before the batch limit, even when it has not updated its document recently.
   //
   // Each answer carries the unstarted steps themselves, because that is what the sweep asks for: a
   // document waiting on its vectors is worth one embedding call, not the whole pipeline again. Steps

@@ -32,7 +32,14 @@ import { describeLanguage } from './language-names';
 
 // Chat-completions, the shape every OpenAI-compatible runtime implements (docs/06 §6.3.3).
 const completionResponseSchema = z.object({
-  choices: z.array(z.object({ message: z.object({ content: z.string().nullable() }) })).min(1),
+  choices: z
+    .array(
+      z.object({
+        message: z.object({ content: z.string().nullable() }),
+        finish_reason: z.string().nullish(),
+      }),
+    )
+    .min(1),
   // What the provider says it spent. Read from its own accounting rather than counted here: only it
   // knows what its tokenizer did (docs/03 §3.3.18). Absent from providers that do not report it.
   usage: z
@@ -196,15 +203,16 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
   constructor(
     config: AppConfig,
     private readonly gates: ServiceGates,
+    private readonly service: 'classifier' | 'receipt-extractor' = 'classifier',
   ) {
     super();
     // Where this service is, resolved where every caller of it reads the same answer — including an
     // empty CLASSIFIER_API_BASE_URL reusing the embeddings endpoint, since one local runtime usually
     // serves both (docs/12 §12.4, `service-endpoints.ts`).
-    const endpoint = serviceEndpoint(config, 'classifier');
+    const endpoint = serviceEndpoint(config, service);
     this.baseUrl = endpoint.baseUrl;
     this.apiKey = endpoint.apiKey;
-    this.model = config.get('CLASSIFIER_MODEL');
+    this.model = config.get(service === 'receipt-extractor' ? 'RECEIPT_MODEL' : 'CLASSIFIER_MODEL');
   }
 
   // A base URL alone is not enough: without a model name there is nothing to ask.
@@ -231,7 +239,7 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     // One look at one document is one unit of the `classifier` gate: the service an operator turns
     // on with `CLASSIFIER_API_BASE_URL`, whatever the pipeline calls the step that asks it
     // (docs/05 §5.4b).
-    return this.gates.run('classifier', () =>
+    return this.gates.run(this.service, () =>
       this.ask(
         excerpt,
         documentTypes,
@@ -256,13 +264,27 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
   ): Promise<FieldExtraction> {
     if (!this.isConfigured) throw new Error('No document analyst is configured');
 
-    return this.gates.run('classifier', async () => {
+    return this.gates.run(this.service, async () => {
       const nonce = newNonce();
       const answer = await this.completion([
         { role: 'system', content: fieldsSystemMessage(schema, nonce, confirmed) },
-        { role: 'user', content: documentMessageContent(excerpt, pages, nonce, confirmed) },
+        {
+          role: 'user',
+          content: documentMessageContent(
+            excerpt,
+            pages,
+            nonce,
+            confirmed,
+            undefined,
+            this.service === 'receipt-extractor',
+          ),
+        },
       ]);
-      return { ...readFieldAnswer(answer.content), usage: answer.usage };
+      const fields = readFieldAnswer(answer.content);
+      if (this.service === 'receipt-extractor' && Object.keys(fields.values).length === 0) {
+        throw new Error('Receipt extractor returned no structured fields');
+      }
+      return { ...fields, usage: answer.usage };
     });
   }
 
@@ -310,7 +332,7 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
   private async completion(
     messages: readonly unknown[],
   ): Promise<{ content: string; usage: { promptTokens?: number; completionTokens?: number } }> {
-    return reachService('classifier', () => this.exchange(messages));
+    return reachService(this.service, () => this.exchange(messages));
   }
 
   private async exchange(
@@ -326,6 +348,11 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
       body: JSON.stringify({
         model: this.model,
         temperature: TEMPERATURE,
+        // Ollama/Gemma otherwise spends its generation budget thinking before producing fields.
+        // Document requests retain exactly their existing generation options.
+        ...(this.service === 'receipt-extractor'
+          ? { reasoning_effort: 'none', max_tokens: 8192 }
+          : {}),
         // Asking for a JSON object is a hint, not a guarantee — the answer is validated by the
         // caller either way, and providers that do not support the flag ignore it.
         response_format: { type: 'json_object' },
@@ -337,11 +364,17 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
     });
 
     if (response.status === 429) {
-      throw throttledOrUnavailable('classifier', response.headers.get('retry-after'));
+      const body = await readBoundedText(response, MAX_ERROR_BYTES).catch(() => '');
+      throw throttledOrUnavailable(
+        this.service,
+        response.headers.get('retry-after'),
+        new Date(),
+        body,
+      );
     }
     if (isUnavailableStatus(response.status)) {
       throw new ServiceUnavailableError(
-        'classifier',
+        this.service,
         `/chat/completions answered ${response.status}`,
       );
     }
@@ -354,6 +387,13 @@ export class OpenAiCompatAnalyst extends DocumentAnalyst {
       await readBoundedJson(response, MAX_ANSWER_BYTES),
     );
     if (!parsed.success) throw new Error('Analyst returned an unreadable response');
+
+    if (
+      this.service === 'receipt-extractor' &&
+      parsed.data.choices[0]?.finish_reason === 'length'
+    ) {
+      throw new Error('Receipt extraction response was truncated at the output limit');
+    }
 
     return {
       content: parsed.data.choices[0]?.message.content ?? '',
@@ -379,18 +419,18 @@ function documentMessageContent(
   nonce: string,
   confirmed: ConfirmedValues,
   catalogue?: CatalogueBlock,
+  imagesFirst = false,
 ): unknown {
-  return pages.length === 0
-    ? fenceDocument(excerpt, nonce, confirmed, catalogue)
-    : [
-        { type: 'text', text: fenceDocument(excerpt, nonce, confirmed, catalogue) },
-        ...pages.map((page) => ({
-          type: 'image_url',
-          image_url: {
-            url: `data:image/jpeg;base64,${page.bytes.toString('base64')}`,
-          },
-        })),
-      ];
+  const text = fenceDocument(excerpt, nonce, confirmed, catalogue);
+  if (pages.length === 0) return text;
+  const images = pages.map((page) => ({
+    type: 'image_url',
+    image_url: {
+      url: `data:image/jpeg;base64,${page.bytes.toString('base64')}`,
+    },
+  }));
+  const textPart = { type: 'text', text };
+  return imagesFirst ? [...images, textPart] : [textPart, ...images];
 }
 
 // One language for everything the machine writes, when the instance has said which (docs/05 §5.5).

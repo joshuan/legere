@@ -348,7 +348,7 @@ describe('HandleMaintenance', () => {
         // The steps that never started, which for a document nothing has touched is all six. No key
         // is passed: the queue derives one from the payload, so an hourly sweep that runs again
         // before the last one drained adds nothing (docs/05 §5.4).
-        payload: { documentId: 'doc-stale', steps: [...DOCUMENT_STEPS] },
+        payload: { documentId: 'doc-stale', steps: [...DOCUMENT_STEPS], resume: true },
       },
     ]);
     // 🔒 And the row says so at once. The sweep is the moment a step stops being unscheduled, and a
@@ -377,7 +377,7 @@ describe('HandleMaintenance', () => {
     await handler.handle();
 
     expect(queue.enqueued.map((job) => job.payload)).toEqual([
-      { documentId: 'doc-lost', steps: [...DOCUMENT_STEPS] },
+      { documentId: 'doc-lost', steps: [...DOCUMENT_STEPS], resume: true },
     ]);
   });
 
@@ -405,9 +405,41 @@ describe('HandleMaintenance', () => {
     // 🔒 That step and nothing else: re-running the six over a document that only needs its
     // analysis would recognise the scan again to arrive where it already was (docs/05 §5.4).
     expect(queue.enqueued.map((job) => job.payload)).toEqual([
-      { documentId: 'doc-manual-type', steps: ['analysis'] },
+      { documentId: 'doc-manual-type', steps: ['analysis'], resume: true },
     ]);
     expect((await documents.findById('doc-manual-type'))?.steps.analysis).toBe('QUEUED');
+  });
+
+  it('resumes an orphaned RUNNING step without rebuilding settled stages', async () => {
+    documents.add(
+      documentFixture({
+        id: 'orphan',
+        steps: {
+          canonical: 'DONE',
+          preview: 'DONE',
+          markdown: 'DONE',
+          analysis: 'RUNNING',
+          fields: 'QUEUED',
+          vectorization: 'SKIPPED',
+        },
+      }),
+    );
+    documents.setUpdatedAt('orphan', new Date(NOW.getTime() - 3 * HOUR));
+    await handler.handle();
+    expect(queue.enqueued).toEqual([
+      {
+        name: 'document-process',
+        payload: {
+          documentId: 'orphan',
+          steps: ['analysis', 'fields'],
+          resume: true,
+        },
+      },
+    ]);
+    expect((await documents.findById('orphan'))?.steps).toMatchObject({
+      canonical: 'DONE',
+      analysis: 'QUEUED',
+    });
   });
 
   // A held step is unstarted on purpose (docs/05 §5.4d), so the sweep is not the thing that will
@@ -446,7 +478,7 @@ describe('HandleMaintenance', () => {
       await handler.handle();
 
       expect(queue.enqueued.map((job) => job.payload)).toEqual([
-        { documentId: 'doc-held', steps: ['fields'] },
+        { documentId: 'doc-held', steps: ['fields'], resume: true },
       ]);
       const swept = await documents.findById('doc-held');
       expect(swept?.steps.fields).toBe('QUEUED');

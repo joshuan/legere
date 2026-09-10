@@ -411,7 +411,7 @@ const STEP_COLUMN = {
 // Not started, in both of the ways a step can fail to be: nothing was ever scheduled for it, or
 // something was and the job went missing (docs/05 §5.4).
 function unstarted(status: StepStatus): boolean {
-  return status === 'PENDING' || status === 'QUEUED';
+  return status === 'PENDING' || status === 'QUEUED' || status === 'RUNNING';
 }
 
 // Which column each step of the pipeline records itself in (docs/03 §3.3.10). A step is a name in
@@ -1086,19 +1086,22 @@ export class PrismaDocumentRepository implements DocumentRepository {
   ): Promise<void> {
     if (steps.length === 0) return;
     const asked = (step: DocumentStep): boolean => steps.includes(step);
-    // Raw, because six columns have to move on one condition each and Prisma has no way to say
-    // "this column, if it is PENDING" in a single update. The condition is asked here rather than in
-    // JavaScript over the row that was read a moment ago: a step a worker has picked up in between
-    // must not be dragged back to QUEUED.
+    // Maintenance holds the row lock from selection through enqueue. The active-job guard also
+    // protects callers outside that transaction from resetting work a worker is still doing.
     await clientOf(this.prisma, tx).$executeRaw`
       UPDATE "documents" SET
-        "canonical_status"     = CASE WHEN ${asked('canonical')}     AND "canonical_status"     = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "canonical_status"     END,
-        "preview_status"       = CASE WHEN ${asked('preview')}       AND "preview_status"       = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "preview_status"       END,
-        "markdown_status"      = CASE WHEN ${asked('markdown')}      AND "markdown_status"      = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "markdown_status"      END,
-        "analysis_status"      = CASE WHEN ${asked('analysis')}      AND "analysis_status"      = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "analysis_status"      END,
-        "fields_status"        = CASE WHEN ${asked('fields')}        AND "fields_status"        = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "fields_status"        END,
-        "vectorization_status" = CASE WHEN ${asked('vectorization')} AND "vectorization_status" = 'PENDING' THEN 'QUEUED'::"StepStatus" ELSE "vectorization_status" END
-      WHERE "id" = ${documentId}::uuid AND "deleted_at" IS NULL`;
+        "canonical_status"     = CASE WHEN ${asked('canonical')}     AND "canonical_status"     IN ('PENDING', 'RUNNING') THEN 'QUEUED'::"StepStatus" ELSE "canonical_status"     END,
+        "preview_status"       = CASE WHEN ${asked('preview')}       AND "preview_status"       IN ('PENDING', 'RUNNING') THEN 'QUEUED'::"StepStatus" ELSE "preview_status"       END,
+        "markdown_status"      = CASE WHEN ${asked('markdown')}      AND "markdown_status"      IN ('PENDING', 'RUNNING') THEN 'QUEUED'::"StepStatus" ELSE "markdown_status"      END,
+        "analysis_status"      = CASE WHEN ${asked('analysis')}      AND "analysis_status"      IN ('PENDING', 'RUNNING') THEN 'QUEUED'::"StepStatus" ELSE "analysis_status"      END,
+        "fields_status"        = CASE WHEN ${asked('fields')}        AND "fields_status"        IN ('PENDING', 'RUNNING') THEN 'QUEUED'::"StepStatus" ELSE "fields_status"        END,
+        "vectorization_status" = CASE WHEN ${asked('vectorization')} AND "vectorization_status" IN ('PENDING', 'RUNNING') THEN 'QUEUED'::"StepStatus" ELSE "vectorization_status" END,
+        "updated_at" = CURRENT_TIMESTAMP
+      WHERE "id" = ${documentId}::uuid AND "deleted_at" IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM pgboss.job WHERE name = 'document-process' AND state = 'active'
+            AND data->>'documentId' = ${documentId}
+        )`;
   }
 
   async listStaleUnstartedIds(
@@ -1113,31 +1116,39 @@ export class PrismaDocumentRepository implements DocumentRepository {
     const considered = DOCUMENT_STEPS.filter((step) => !ignored.includes(step));
     if (considered.length === 0) return [];
 
-    const rows = await clientOf(this.prisma, tx).document.findMany({
-      where: {
-        deletedAt: null,
-        updatedAt: { lt: olderThan },
-        // Both halves of "not started". PENDING is a step nothing is scheduled for — a migration
-        // reset it, and the sweep is the only thing coming. QUEUED is a step a job was made for, and
-        // it is here because the job can go missing: a crash between the enqueue and the run leaves
-        // a row saying a worker is on the way when none is. The handler is idempotent, so the cost of
-        // sweeping one that was fine is a repeated run (docs/05 §5.4).
-        OR: considered.map((step) => ({
-          [STEP_COLUMN[step]]: { in: ['PENDING', 'QUEUED'] },
-        })),
-      },
-      select: {
-        id: true,
-        canonicalStatus: true,
-        previewStatus: true,
-        markdownStatus: true,
-        analysisStatus: true,
-        fieldsStatus: true,
-        vectorizationStatus: true,
-      },
-      orderBy: { createdAt: 'asc' },
-      take: limit,
-    });
+    // Exclude live jobs before LIMIT, so a large backlog cannot hide orphaned RUNNING rows.
+    // Maintenance holds these row locks through enqueue + status update in the same transaction.
+    // Only our fixed step names form SQL identifiers; all caller input remains bound parameters.
+    const conditions = considered.map(
+      (step) => Prisma.sql`${Prisma.raw(`d."${step}_status"`)} IN ('PENDING', 'QUEUED', 'RUNNING')`,
+    );
+    const rows = await clientOf(this.prisma, tx).$queryRaw<
+      Array<
+        Pick<
+          PrismaDocument,
+          | 'id'
+          | 'canonicalStatus'
+          | 'previewStatus'
+          | 'markdownStatus'
+          | 'analysisStatus'
+          | 'fieldsStatus'
+          | 'vectorizationStatus'
+        >
+      >
+    >(Prisma.sql`
+      SELECT d.id, d.canonical_status AS "canonicalStatus", d.preview_status AS "previewStatus",
+        d.markdown_status AS "markdownStatus", d.analysis_status AS "analysisStatus",
+        d.fields_status AS "fieldsStatus", d.vectorization_status AS "vectorizationStatus"
+      FROM documents d
+      WHERE d.deleted_at IS NULL AND d.updated_at < ${olderThan}
+        AND (${Prisma.join(conditions, ' OR ')})
+        AND NOT EXISTS (
+          SELECT 1 FROM pgboss.job j WHERE j.name = 'document-process'
+            AND j.state IN ('created', 'retry', 'active') AND j.data->>'documentId' = d.id::text
+        )
+      ORDER BY d.created_at ASC, d.id ASC LIMIT ${limit}
+      FOR UPDATE OF d SKIP LOCKED
+    `);
     return rows.map((row) => ({
       id: row.id,
       steps: considered.filter((step) => unstarted(row[STEP_COLUMN[step]])),

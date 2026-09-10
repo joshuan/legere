@@ -96,7 +96,13 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
     });
 
     if (response.status === 429) {
-      throw throttledOrUnavailable('embeddings', response.headers.get('retry-after'));
+      const body = await readBoundedText(response, MAX_ERROR_BYTES).catch(() => '');
+      throw throttledOrUnavailable(
+        'embeddings',
+        response.headers.get('retry-after'),
+        new Date(),
+        body,
+      );
     }
     if (isUnavailableStatus(response.status)) {
       // A proxy answering for a provider that is not there (docs/05 §5.4e).

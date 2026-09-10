@@ -34,7 +34,11 @@ export function documentProcessWorkKey(payload: object): string | undefined {
   // An absent/empty list means the complete pipeline. `#full` distinguishes a deliberate request
   // to analyse a long document from the ordinary run that may stop at its automatic page limit.
   const full = asked.analyseInFull === true ? '#full' : '';
-  return steps.length === 0 ? `${documentId}${full}` : `${documentId}${full}#${steps.join('+')}`;
+  // A checkpoint resume must not swallow an explicit rebuild caused by a composition edit.
+  const resume = asked.resume === true ? '#resume' : '';
+  return steps.length === 0
+    ? `${documentId}${full}${resume}`
+    : `${documentId}${full}${resume}#${steps.join('+')}`;
 }
 
 // Job enqueueing (docs/06 §6.3.3). Payloads are plain JSON — never entities.

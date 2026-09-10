@@ -303,7 +303,9 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       // (docs/14 §14.1), and the compiler should be the one checking every step is present.
       const queued = (step: DocumentStep): StepStatus => {
         const status = document.steps[step];
-        return steps.includes(step) && status === 'PENDING' ? 'QUEUED' : status;
+        return steps.includes(step) && (status === 'PENDING' || status === 'RUNNING')
+          ? 'QUEUED'
+          : status;
       };
       this.documents.set(documentId, {
         ...document,
@@ -336,8 +338,8 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       )
       .map((document: Document) => ({
         id: document.id,
-        steps: considered.filter(
-          (step) => document.steps[step] === 'PENDING' || document.steps[step] === 'QUEUED',
+        steps: considered.filter((step) =>
+          ['PENDING', 'QUEUED', 'RUNNING'].includes(document.steps[step]),
         ),
       }))
       // A document held only on a paused step is not waiting for anything this sweep can give it

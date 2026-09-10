@@ -29,8 +29,7 @@ const FILE_KEY = new RegExp(`^files/(${UUID})/`);
 // single enormous query.
 const EXISTENCE_BATCH = 500;
 
-// How long a document may sit at PENDING before this job assumes nobody is coming for it. Longer
-// than `document-process` takes to expire, so a slow document is never enqueued twice.
+// Stale statuses without any live queue delivery are recoverable after this grace period.
 const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 
 // A bound on one sweep: an upgrade that resets every document must not put the whole archive into
@@ -80,23 +79,27 @@ export class HandleMaintenance extends JobHandler {
     // 🔒 A step this instance is holding is not one of them (docs/05 §5.4d): it is unstarted on
     // purpose, and a document waiting at a pause would otherwise be enqueued hourly, for ever, to be
     // held again — an hourly job that does nothing but keep the queue busy.
-    const stalled = await this.documents.listStaleUnstartedIds(
-      new Date(now.getTime() - STALE_AFTER_MS),
-      STALE_BATCH,
-      [...(await this.queueSettings.heldSteps())],
+    const held = [...(await this.queueSettings.heldSteps())];
+    await this.unitOfWork.run(
+      async (tx) => {
+        const stalled = await this.documents.listStaleUnstartedIds(
+          new Date(now.getTime() - STALE_AFTER_MS),
+          STALE_BATCH,
+          held,
+          tx,
+        );
+        for (const { id, steps } of stalled) {
+          // Resume only unfinished stages. Locks, job inserts and status changes commit together.
+          await this.queue.enqueueAfterTx(tx, 'document-process', {
+            documentId: id,
+            steps,
+            resume: true,
+          });
+          await this.documents.markUnstartedQueued(id, steps, tx);
+        }
+      },
+      { timeoutMs: 30_000 },
     );
-    for (const { id, steps } of stalled) {
-      // Those steps, and not the whole pipeline: a document waiting on its vectors is worth one
-      // embedding call, and re-running all six over it would recognise a scan again to arrive where
-      // it already was (docs/05 §5.4).
-      // The queue keys this by the document and the steps asked for, so a sweep that runs again
-      // before the last one drained adds nothing (docs/05 §5.4).
-      await this.queue.enqueue('document-process', { documentId: id, steps });
-      // And the row says so straight away: the sweep is the moment a PENDING step stops being
-      // unscheduled, and a counter that only changed when a worker got round to it would keep the
-      // old ambiguity alive under a new name (docs/03 §3.3.10).
-      await this.documents.markUnstartedQueued(id, steps);
-    }
 
     // 🔒 The one destruction in Legere that happens on a clock (docs/05 §5.7a): files of ours that
     // have sat in the trash past the retention window. A LIBRARY file is never in this answer — its

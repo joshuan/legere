@@ -128,10 +128,12 @@ export const PROCESSING_TOPOLOGY = {
     {
       service: 'classifier',
       steps: ['analysis', 'fields'],
+      // Receipts use this only in legacy mode, without a dedicated receipt endpoint/model.
       otherConsumers: ['catalogues', 'receipts'],
     },
     { service: 'transcriber', steps: ['markdown'], otherConsumers: [] },
     { service: 'embeddings', steps: ['vectorization'], otherConsumers: ['semantic-search'] },
+    { service: 'receipt-extractor', steps: [], otherConsumers: ['receipts'] },
   ],
 } as const satisfies ProcessingTopologyDto;
 

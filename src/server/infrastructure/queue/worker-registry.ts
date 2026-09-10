@@ -2,9 +2,10 @@ import { Injectable, type Type } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { InjectPinoLogger, type PinoLogger } from 'nestjs-pino';
 import type PgBoss from 'pg-boss';
-import type { Job } from 'pg-boss';
+import type { JobWithMetadata } from 'pg-boss';
 import type { QueueSettingsDto } from '../../../shared/contracts/queue';
 import type { JobHandler } from '../../application/jobs/job-handler';
+import { ServiceUnavailableError } from '../../application/ports/service-unavailable';
 import { QUEUE_NAMES, type QueueName } from '../../application/ports/job-queue';
 import {
   ProcessingWorkerRuntime,
@@ -32,6 +33,7 @@ const MAINTENANCE_CRON = '0 * * * *';
 export class WorkerRegistry extends ProcessingWorkerRuntime {
   private readonly bindings: WorkerBinding[] = [];
   private readonly applied = new Map<QueueName, number>();
+  private readonly slots = new Map<QueueName, WorkerSlots>();
 
   constructor(
     private readonly provider: PgBossProvider,
@@ -121,13 +123,22 @@ export class WorkerRegistry extends ProcessingWorkerRuntime {
     // retained only as a fallback for a deliberately partial test double.
     const concurrency = settings.concurrency[binding.queue] ?? binding.concurrency ?? 1;
     const handler = this.moduleRef.get<JobHandler>(binding.handler, { strict: false });
-    await boss.work(
-      binding.queue,
-      { batchSize: concurrency },
-      async (jobs: Job<object>[]): Promise<void> => {
-        await Promise.all(jobs.map((job) => this.runOne(boss, binding.queue, job, handler)));
-      },
-    );
+    const slots = this.slots.get(binding.queue) ?? new WorkerSlots();
+    this.slots.set(binding.queue, slots);
+    slots.resize(concurrency);
+    // Each subscriber refills independently. Shared slots also bound draining subscribers during
+    // reconfiguration: pg-boss offWork stops polling but does not await their current callbacks.
+    for (let index = 0; index < concurrency; index += 1) {
+      await boss.work(
+        binding.queue,
+        { batchSize: 1, includeMetadata: true },
+        async (jobs: JobWithMetadata<object>[]): Promise<void> => {
+          await Promise.all(
+            jobs.map((job) => slots.run(() => this.runOne(boss, binding.queue, job, handler))),
+          );
+        },
+      );
+    }
     this.applied.set(binding.queue, concurrency);
     this.logger.info({ queue: binding.queue, concurrency }, 'Queue worker started');
   }
@@ -150,12 +161,16 @@ export class WorkerRegistry extends ProcessingWorkerRuntime {
   private async runOne(
     boss: PgBoss,
     queue: QueueName,
-    job: Job<object>,
+    job: JobWithMetadata<object>,
     handler: JobHandler,
   ): Promise<void> {
     const startedAt = Date.now();
     try {
-      await handler.handle(job.data);
+      const output: Record<string, unknown> = { ...job.output };
+      await handler.handle(job.data, {
+        retryCount: job.retryCount ?? 0,
+        resumeFromCheckpoint: output.resumeFromCheckpoint === true,
+      });
       this.logger.info(
         { job: queue, jobId: job.id, durationMs: Date.now() - startedAt, outcome: 'done' },
         'Job completed',
@@ -171,9 +186,49 @@ export class WorkerRegistry extends ProcessingWorkerRuntime {
         },
         'Job failed',
       );
-      await boss.fail(queue, job.id, { message: messageOf(error) }).catch(() => {
-        throw error;
-      });
+      await boss
+        .fail(queue, job.id, {
+          message: messageOf(error),
+          ...(queue === 'document-process' && error instanceof ServiceUnavailableError
+            ? { resumeFromCheckpoint: true }
+            : {}),
+        })
+        .catch(() => {
+          throw error;
+        });
+    }
+  }
+}
+
+class WorkerSlots {
+  private limit = 1;
+  private active = 0;
+  private readonly waiting: Array<() => void> = [];
+
+  resize(limit: number): void {
+    this.limit = limit;
+    this.admit();
+  }
+
+  async run(work: () => Promise<void>): Promise<void> {
+    await new Promise<void>((resolve) => {
+      this.waiting.push(resolve);
+      this.admit();
+    });
+    try {
+      await work();
+    } finally {
+      this.active -= 1;
+      this.admit();
+    }
+  }
+
+  private admit(): void {
+    while (this.active < this.limit && this.waiting.length > 0) {
+      const next = this.waiting.shift();
+      if (next === undefined) break;
+      this.active += 1;
+      next();
     }
   }
 }

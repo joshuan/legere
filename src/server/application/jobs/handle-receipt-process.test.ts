@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ServiceUnavailableError } from '../ports/service-unavailable';
 import {
   FakeAnalyst,
   FakeDocumentEventRepository,
@@ -208,6 +209,67 @@ describe('HandleReceiptProcess', () => {
       documentId: RECEIPT_ID,
       type: 'STEP_FINISHED',
       payload: { step: 'extraction', status: 'SKIPPED', reason: 'NOT_CONFIGURED' },
+    });
+  });
+
+  it('retries a provider outage from saved previews instead of reporting a completed job', async () => {
+    vi.spyOn(analyst, 'extractFields').mockRejectedValueOnce(
+      new ServiceUnavailableError('classifier', 'rate limited'),
+    );
+    await expect(handler.handle({ receiptId: RECEIPT_ID })).rejects.toBeInstanceOf(
+      ServiceUnavailableError,
+    );
+    expect(receipts.receipt).toMatchObject({
+      previewStatus: 'DONE',
+      extractionStatus: 'QUEUED',
+      processingError: null,
+    });
+    const renderCalls = pdfs.calls.length;
+
+    await handler.handle({ receiptId: RECEIPT_ID });
+
+    expect(receipts.receipt?.extractionStatus).toBe('DONE');
+    expect(pdfs.calls).toHaveLength(renderCalls);
+    expect(analyst.fieldCalls.at(-1)?.pages).toBe(1);
+  });
+
+  it('serializes a replacement delivery while the first extraction waits for the provider', async () => {
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const extract = analyst.extractFields.bind(analyst);
+    const call = vi.spyOn(analyst, 'extractFields').mockImplementationOnce(async (...args) => {
+      await held;
+      return extract(...args);
+    });
+    const first = handler.handle({ receiptId: RECEIPT_ID });
+    let second: Promise<void> | undefined;
+    try {
+      await vi.waitFor(() => expect(call).toHaveBeenCalledTimes(1));
+      second = handler.handle({ receiptId: RECEIPT_ID });
+      await Promise.resolve();
+      expect(call).toHaveBeenCalledTimes(1);
+    } finally {
+      release();
+      await Promise.all([first, second]);
+    }
+    expect(receipts.receipt?.extractionStatus).toBe('DONE');
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
+  it('rethrows a preview service outage but keeps malformed input as a document failure', async () => {
+    pdfs.unavailable = true;
+    await expect(handler.handle({ receiptId: RECEIPT_ID })).rejects.toBeInstanceOf(
+      ServiceUnavailableError,
+    );
+    expect(receipts.receipt?.previewStatus).toBe('QUEUED');
+    pdfs.unavailable = false;
+    vi.spyOn(pdfs, 'pdfPageCount').mockRejectedValueOnce(new Error('Invalid PDF'));
+    await handler.handle({ receiptId: RECEIPT_ID });
+    expect(receipts.receipt).toMatchObject({
+      previewStatus: 'FAILED',
+      processingError: 'Invalid PDF',
     });
   });
 });

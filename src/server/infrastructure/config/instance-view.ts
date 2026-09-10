@@ -33,6 +33,7 @@ export const SECRET_KEYS: ReadonlySet<keyof ConfigValues> = new Set([
   'TRANSCRIBER_API_KEY',
   'EMBEDDINGS_API_KEY',
   'CLASSIFIER_API_KEY',
+  'RECEIPT_API_KEY',
 ]);
 
 export function describeInstance(config: AppConfig): InstanceResponse {
@@ -123,6 +124,16 @@ export function describeInstance(config: AppConfig): InstanceResponse {
           ),
           s('CLASSIFIER_API_KEY'),
           s('CLASSIFIER_MODEL', when(blank('CLASSIFIER_MODEL'), 'ANALYSIS_SKIPPED_NO_MODEL')),
+          s(
+            'RECEIPT_API_BASE_URL',
+            when(
+              blank('RECEIPT_API_BASE_URL') && blank('RECEIPT_MODEL'),
+              'RECEIPTS_USE_DOCUMENT_ANALYST',
+            ),
+          ),
+          s('RECEIPT_API_KEY'),
+          s('RECEIPT_MODEL'),
+          s('RECEIPT_PAGE_IMAGE_MAX_DIM'),
         ],
       },
       {
@@ -167,6 +178,8 @@ export function describeInstance(config: AppConfig): InstanceResponse {
           s('SERVICE_COOLDOWN_TRANSCRIBER'),
           s('SERVICE_CONCURRENCY_EMBEDDINGS'),
           s('SERVICE_COOLDOWN_EMBEDDINGS'),
+          s('SERVICE_CONCURRENCY_RECEIPT_EXTRACTOR'),
+          s('SERVICE_COOLDOWN_RECEIPT_EXTRACTOR'),
         ],
       },
     ],

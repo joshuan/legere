@@ -139,6 +139,8 @@ SERVICE_CONCURRENCY_TRANSCRIBER=0
 SERVICE_COOLDOWN_TRANSCRIBER=0
 SERVICE_CONCURRENCY_EMBEDDINGS=0             # one batch of embeddings is one call
 SERVICE_COOLDOWN_EMBEDDINGS=0
+SERVICE_CONCURRENCY_RECEIPT_EXTRACTOR=1       # dedicated receipt vision model; conservative by default
+SERVICE_COOLDOWN_RECEIPT_EXTRACTOR=0
 
 # --- AI providers (empty base URL = feature disabled, steps SKIPPED) ---
 EMBEDDINGS_API_BASE_URL=                     # OpenAI-compatible, e.g. https://api.openai.com/v1 or http://ollama:11434/v1
@@ -148,6 +150,10 @@ EMBEDDING_DIMENSIONS=1024                    # must match the DB vector(1024); c
 CLASSIFIER_API_BASE_URL=                     # empty = reuse EMBEDDINGS_API_BASE_URL; both empty = analysis SKIPPED
 CLASSIFIER_API_KEY=
 CLASSIFIER_MODEL=
+RECEIPT_API_BASE_URL=                        # both receipt URL and model blank = legacy document analyst
+RECEIPT_API_KEY=                             # never inherits a key from another service
+RECEIPT_MODEL=                               # e.g. gemma4:e4b-it-q4_K_M on Ollama; see 15 §15.6
+RECEIPT_PAGE_IMAGE_MAX_DIM=1600
 ```
 
 **Processing defaults and live overrides.** The queue, pipeline and service variables above are

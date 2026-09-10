@@ -121,12 +121,50 @@ matching product profile, not merely the archive item, as ownership of a product
 2. **Extraction:** show every page and optional caller-supplied `sourceText` to the OpenAI-compatible
    receipt extractor, validate the answer against the current receipt schema and replace
    `Receipt.extracted` atomically. Legere never generates this text itself. An unconfigured
-   classifier is `SKIPPED/NOT_CONFIGURED` and never prevents viewing.
+   extractor is `SKIPPED/NOT_CONFIGURED` and never prevents viewing.
 
 The processing topology contains a dedicated `receipt-process` queue and a receipt worker separate
-from the document step graph. Both product workers share the current outbound service gates. Receipt
-preview uses Stirling for PDFs; receipt extraction uses the classifier gate. Docling, transcription
-and embeddings are never receipt consumers.
+from the document step graph. Receipt preview uses the shared Stirling gate for PDFs. Extraction
+uses a dedicated `ReceiptExtractor` port and, when configured, its own `receipt-extractor` service
+gate. Docling, transcription and embeddings are never receipt consumers.
+
+Set `RECEIPT_API_BASE_URL` and `RECEIPT_MODEL` to separate receipts from document analysis. For an
+Ollama instance reachable from the app, for example:
+
+```dotenv
+RECEIPT_API_BASE_URL=http://ollama:11434/v1
+RECEIPT_MODEL=gemma4:e4b-it-q4_K_M
+RECEIPT_API_KEY=
+RECEIPT_PAGE_IMAGE_MAX_DIM=1600
+SERVICE_CONCURRENCY_RECEIPT_EXTRACTOR=1
+SERVICE_COOLDOWN_RECEIPT_EXTRACTOR=0
+```
+
+The model must already be installed in Ollama. The hostname above is illustrative, not an added
+Compose service. The dedicated key never inherits classifier or embedding credentials. One
+in-flight extraction is the default, keeping a local vision model from being flooded by the
+receipt worker queue. Its concurrency, cooldown and provider hold are visible separately under
+`/admin/processing`; stored overrides take precedence over environment defaults. Document analysis
+and transcription retain their existing endpoints, models and request options.
+
+Dedicated receipt requests place images before text, request JSON, disable thinking with
+`reasoning_effort: "none"`, and cap the answer at 8192 tokens. Truncated and empty structured
+answers fail visibly instead of becoming successful empty receipts. Image size is controlled by
+`RECEIPT_PAGE_IMAGE_MAX_DIM`, independently of document analysis.
+
+For upgrade compatibility, when **both** receipt endpoint and model are blank, extraction reuses
+the existing document analyst and its classifier gate. The instance settings screen reports this
+fallback; the dedicated service is unconfigured in that mode. Setting only one of the two does
+not silently fall back. A release alone does not switch an existing installation to Ollama: set
+both values and recreate the app container with the updated Compose environment.
+
+A service outage or rate limit returns the interrupted step to `QUEUED` and is rethrown to the
+queue, rather than being swallowed as a completed job with a failed receipt. A retry reuses saved
+display pages when preview is `DONE`; it resizes them for extraction without rendering the original
+PDF again. Malformed input and extraction-answer errors remain `FAILED`. Overlapping deliveries
+for one receipt are serialized in-process, including expiry replacements during a long AI hold.
+Previously persisted `FAILED` receipts are not automatically reclassified; an operator must
+select and requeue the failures caused by the outage after deployment and provider recovery.
 
 ## 15.7. Access, conversion and deletion
 

@@ -165,10 +165,10 @@ Rules:
   **how many jobs of a queue run at once**, and **how many independent units inside a single job**
   do — the files of one document being read and cropped into pages, say. The second is one number because those
   units are all the same shape of work.
-  The batch a worker takes is run **in parallel**, which is what a concurrency of four has always
-  meant; it used to be awaited one job at a time, so the setting fetched four jobs and then ran them
-  in a queue of its own. The total load is capped so the queue does not starve the API in the same
-  process.
+  Each slot is an independent pg-boss subscriber fetching **one job**. A free slot refills without
+  waiting for the slowest member of a batch. A shared per-queue semaphore also counts callbacks
+  draining after reconfiguration: stopping polling does not cancel their work, and replacing the
+  subscribers must not multiply the configured concurrency.
 - Enqueueing a job and writing an entity happen in a single DB transaction (pg-boss lives in the same
   PostgreSQL).
 - **A queue can be paused.** A paused queue keeps accepting jobs and registers no worker, so work
@@ -181,12 +181,15 @@ Rules:
   the six is misbehaving. It is a stored setting beside the paused queues, and it holds rather than
   skips — §5.4d.
 - **Nobody waits unstarted for ever.** The hourly `maintenance` sweep re-enqueues documents whose row
-  nothing has written to for two hours and whose steps have not started — **`PENDING` or `QUEUED`,
-  and both for a reason**: `PENDING` is a step nothing was ever scheduled for, which is what a
+  nothing has written to for two hours and whose steps remain unfinished — **`PENDING`, `QUEUED`, or orphaned `RUNNING`**:
+  `PENDING` is a step nothing was ever scheduled for, which is what a
   migration that resets every step leaves behind and what it has no queue to write to; `QUEUED` is a
   step a job *was* made for, and it is swept too because the job can go missing — a crash between the
   enqueue and the run leaves a row claiming a worker is on the way when none is, and a claim about
-  the queue that only the queue can check is a claim that has to be re-checked. It asks for **those
+  the queue that only the queue can check is a claim that has to be re-checked. `RUNNING` without a
+  live job is recoverable too. Created, retrying and active jobs exclude a document **before** the
+  batch limit, regardless of its age. Selection locks, enqueueing and status updates share one
+  transaction; concurrent sweeps skip locked rows. It asks for **those
   steps and not the whole pipeline**: a document waiting on its vectors alone is worth one embedding
   call, and re-running the six steps of §5.5 over it would OCR a scan again to arrive where it
   already was. The sweep marks what it takes as `QUEUED` there and then, so the moment a step stops
@@ -289,7 +292,8 @@ parallelism that was fine. A gate per service is the knob that was missing, and 
 concurrency can go **up**: one document at the analyst while another renders in Stirling, and each
 heavy service still serving at most N callers with a breather between them.
 
-**Five services, one gate each** — `stirling`, `docling`, `classifier`, `transcriber`, `embeddings` —
+**Six services, one gate each** — `stirling`, `docling`, `classifier`, `transcriber`, `embeddings`,
+`receipt-extractor` —
 and two numbers on every gate:
 
 | Knob | Range | What it decides |
@@ -320,12 +324,13 @@ gate's own cooldown breathing between them, which is exactly what the cooldown i
 call — the analysis, or the fields step (§5.5 step 5) — one transcription and one batch of
 embeddings are each a unit.
 
-**Both numbers default to `0`, and a gate of zeroes is not a gate.** An instance that upgrades into
+**Both numbers default to `0`, except dedicated receipt extraction defaults to concurrency `1`;
+a gate of zeroes is not a gate.** An instance that upgrades into
 this behaves exactly as it behaved: nothing waits anywhere until an operator decides something
 should. The defaults come from the environment in the naming the queue knobs already use —
 `SERVICE_CONCURRENCY_STIRLING` and `SERVICE_COOLDOWN_STIRLING` beside `QUEUE_CONCURRENCY_PROCESS`
 and `QUEUE_UNIT_CONCURRENCY` ([`12 §12.4`](./12-build-config-run.md)), and likewise for `DOCLING`,
-`CLASSIFIER`, `TRANSCRIBER` and `EMBEDDINGS` — and a stored setting overrides the environment, which
+`CLASSIFIER`, `TRANSCRIBER`, `EMBEDDINGS` and `RECEIPT_EXTRACTOR` — and a stored setting overrides the environment, which
 is the rule the concurrencies follow and for the reason they follow it (`03 §3.3.21`): the overrides
 live in the same settings row and travel in the same admin payload as `concurrency` and
 `unitConcurrency` ([`07 §7.3`](./07-api-specification.md)). A service name this version does not know
@@ -348,8 +353,8 @@ whole of this instance
 ([ADR-002](./02-architecture-overview.md#adr-002-one-processport-expressexpressadapter--nestjs--next)),
 so instance-wide is what in-process means here and there is no second one to disagree with it.
 
-**A provider may close its own gate.** The three OpenAI-compatible clients — classifier,
-transcriber and embeddings — preserve a `429` as a typed service interruption and, when
+**A provider may close its own gate.** The OpenAI-compatible clients — classifier,
+transcriber, embeddings and dedicated receipt extraction — preserve a `429` as a typed service interruption and, when
 `Retry-After` is either delta-seconds or an HTTP date, carry its absolute deadline to the gate. The
 unit that received the response returns that interruption to its step, on the same `QUEUED` rather
 than `FAILED` path as §5.4e; every caller already standing behind it, and every caller that arrives
@@ -358,16 +363,18 @@ its own. This hold applies even when the operator's concurrency is `0`: zero dis
 traffic limit, not a provider's explicit refusal. Since all calls to a named service share the one
 in-process gate, a classifier refusal observed by analysis also holds the fields and catalogue
 readings, for example; it does not hold the transcriber or embeddings, which are different services.
+Dedicated receipt extraction is independent too. When no dedicated receipt provider is configured,
+receipts retain the legacy classifier client and gate; see [15 §15.6](./15-receipts.md#156-processing).
 
 The gate resumes automatically at a conservative point. When the provider's deadline is at most an
 hour away, it is respected exactly. Past an hour, resume at the later of the interval's midpoint and
 one hour before the deadline: the call is never made earlier than one hour before the provider said
 it was ready, while a very long interval does not keep a job asleep until its last minute. Another
-`429` may extend that hold and can never shorten it. A missing or malformed value, an already passed
-deadline, or one more than **three hours** away is not kept in process: three hours is the job expiry
-of `06 §6.8`, so waiting longer could not preserve that job. It follows the ordinary typed
-service-unavailable/backoff path instead. Thus no remote header can create an unbounded timer or an
-in-memory wait that outlives the queue's own bound.
+`429` may extend that hold and can never shorten it. When the header is unusable, the bounded JSON
+error body may supply `retry_after_seconds`, `reset_at`, or `blocked_until`; only these top-level
+machine-readable fields are interpreted, never the error prose. JSON deadlines are capped at three
+hours. Without a usable deadline, **a shared 60-second hold** still applies, instead of failing every
+waiting document through the short outage breaker. An invalid header cannot create an unbounded timer.
 
 🔒 **Time spent waiting at a gate is time inside the job.** A `document-process` job has three hours
 before pg-boss decides its worker has gone ([`06 §6.8`](./06-backend-architecture.md)), and that time
@@ -385,7 +392,7 @@ snapshot of this instant, and a number that would have to be written down to be 
 would outlive the truth.
 
 🔒 **This exists because the screen was unreadable without it, in the one situation it is for.** The
-`document-process` worker takes a pg-boss batch the size of its concurrency and runs it in parallel, so
+`document-process` subscribers consume independently up to the configured concurrency, so
 two jobs start together and both mark their step `RUNNING` *before* asking for a slot. With a gate of
 one, both then read `RUNNING` for as long as they alternate — one working, one waiting — which is
 exactly what a gate that does nothing also looks like. There was no way to tell those apart from the
@@ -399,7 +406,7 @@ A gate says how hard a service may be asked. It says nothing about the question 
 arrives with, which is **whether the thing exists at the address this instance holds** — a container
 that was renamed, a provider whose key expired, a `DOCLING_URL` nobody ever set. Until a document
 walks into it, that is invisible: the pipeline finds out at the moment it needs the service, and the
-operator finds out from a failed step an hour later. So each of the five services of §5.4b answers
+operator finds out from a failed step an hour later. So each of the services of §5.4b answers
 two more questions on `/admin/processing/services` — **where it is** and **whether it answers**.
 The address comes from current resolved configuration; health is sampled only by the explicit check
 operation and retained briefly, with its age visible in the snapshot.
@@ -416,7 +423,7 @@ all — it is a different secret, and `/admin/instance` already says only that o
 |---|---|---|
 | `stirling` | `GET {STIRLING_URL}/api/v1/info/status` | `2xx` |
 | `docling` | `GET {DOCLING_URL}/health` | `2xx` |
-| `classifier`, `transcriber`, `embeddings` | `GET {base}/models`, with the service's own bearer token when it has one | `2xx` |
+| `classifier`, `transcriber`, `embeddings`, `receipt-extractor` | `GET {base}/models`, with the service's own bearer token when it has one | `2xx` |
 
 The answer is one of five states, and they are worth distinguishing because each names a different
 repair:
@@ -432,8 +439,8 @@ repair:
 🔒 **A probe is never a step.** It runs outside the gates of §5.4b and outside the queues: it must be
 answerable while every gate is shut, since "everything is stuck" is exactly when somebody opens this
 screen. It carries its own short timeout for the same reason — a service that has stopped answering
-must make the page slow to draw once, not hang it — and every service is probed in parallel, so five
-of them cost one timeout rather than five. The result is held for a few seconds, so two admins and a
+must make the page slow to draw once, not hang it — and every service is probed in parallel, so all
+of them cost one timeout rather than one per service. The result is held for a few seconds, so two admins and a
 reloading tab do not multiply the traffic to a container that may already be struggling; the answer
 says when it was taken, so a held one reads as held.
 
@@ -716,6 +723,15 @@ The control plane does not bypass the queue policy it describes. A failed-job Re
 row through the read-only `QueueMonitor` and enqueues its recognized name/payload through `JobQueue`,
 so the same retry limit, backoff, expiry, priority rules and derived singleton key apply to a manual
 copy as to every other send. The original failed row remains journal history.
+
+On a typed document service interruption, the worker records `resumeFromCheckpoint` alongside the
+job error. Automatic redeliveries use that marker and pg-boss's retry metadata to resume from persisted
+stage checkpoints: `DONE` and `SKIPPED` stages retain their artifacts and are not repeated. Expiry or
+an unknown failure without this marker starts the requested work fresh: retry count alone cannot
+prove that a claimed job ever entered its handler. Manual
+failed-job Retry and maintenance also enqueue `resume: true`. An explicit document reprocess still
+runs the requested stages from scratch. Resume has a separate singleton key, so it cannot swallow
+a composition rebuild which happens to request the same stages.
 
 Likewise, “one run per document” must not mean “acknowledge the second run without doing it”. When a
 delivery meets the same document already in process, the per-document coordinator chains that whole

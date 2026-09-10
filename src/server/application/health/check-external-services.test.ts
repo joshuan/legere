@@ -75,7 +75,7 @@ describe('CheckExternalServices', () => {
 
   // 🔒 The answer to "which of my services are up" must not become an error page because one adapter
   // had a bad day — least of all during the outage that made somebody ask.
-  it('reports a probe that throws as down and keeps the other four', async () => {
+  it('reports a probe that throws as down and keeps the other services', async () => {
     class ThrowingProbe extends ExternalServiceProbe {
       check(service: ServiceName): Promise<ServiceProbeResult> {
         if (service === 'classifier') return Promise.reject(new Error('probe exploded'));
@@ -88,7 +88,9 @@ describe('CheckExternalServices', () => {
     const classifier = result.services.find((row) => row.service === 'classifier');
     expect(classifier?.status).toBe('DOWN');
     expect(classifier?.detail).toBe('probe exploded');
-    expect(result.services.filter((row) => row.status === 'UP')).toHaveLength(4);
+    expect(result.services.filter((row) => row.status === 'UP')).toHaveLength(
+      SERVICE_NAMES.length - 1,
+    );
   });
 
   it('truncates a reason too long to sit in a tooltip', async () => {
@@ -104,7 +106,7 @@ describe('CheckExternalServices', () => {
     expect(result.services[0]?.detail?.endsWith('…')).toBe(true);
   });
 
-  // Every open admin tab asks for this, and each ask leaves the instance five times.
+  // Every open admin tab asks for this, and each ask probes every configured service.
   describe('the cost of being asked', () => {
     it('answers a second caller from what it already knows', async () => {
       const probe = new CountingProbe(() => UP);

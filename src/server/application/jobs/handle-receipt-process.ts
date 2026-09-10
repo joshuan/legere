@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { fieldSchemaFor, sanitizeFieldValues } from '../../../shared/contracts/document-fields';
-import { DocumentAnalyst, type PageImage } from '../ports/document-analyst';
+import type { PageImage } from '../ports/document-analyst';
+import type { ReceiptExtractor } from '../ports/receipt-extractor';
 import { isImageFile, isPdfFile } from '../../domain/entities/file';
 import type { File } from '../../domain/entities/file';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
@@ -12,6 +13,7 @@ import type { ImageTool } from '../ports/image-tool';
 import type { PdfToolbox } from '../ports/pdf-toolbox';
 import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
 import { JobHandler } from './job-handler';
+import { ServiceUnavailableError } from '../ports/service-unavailable';
 
 const payloadSchema = z.object({ receiptId: z.string().uuid() });
 const PREVIEW_QUALITY = 82;
@@ -33,21 +35,55 @@ export class HandleReceiptProcess extends JobHandler {
     private readonly storage: FileStorage,
     private readonly pdfs: PdfToolbox,
     private readonly images: ImageTool,
-    private readonly analyst: DocumentAnalyst,
+    private readonly analyst: ReceiptExtractor,
     private readonly settings: ReceiptProcessingSettings,
   ) {
     super();
   }
 
+  // Expiry does not cancel a pg-boss callback. Serialize replacement deliveries in this process
+  // so a long provider hold cannot produce concurrent writes to the same receipt.
+  private readonly inFlight = new Map<string, Promise<void>>();
+
   async handle(payload: unknown): Promise<void> {
-    const parsed = payloadSchema.parse(payload);
-    const receipt = await this.receipts.findById(parsed.receiptId);
+    const { receiptId } = payloadSchema.parse(payload);
+    const predecessor = this.inFlight.get(receiptId) ?? Promise.resolve();
+    const execution = predecessor.catch(() => undefined).then(() => this.run(receiptId));
+    this.inFlight.set(receiptId, execution);
+    try {
+      await execution;
+    } finally {
+      if (this.inFlight.get(receiptId) === execution) this.inFlight.delete(receiptId);
+    }
+  }
+
+  private async run(receiptId: string): Promise<void> {
+    const receipt = await this.receipts.findById(receiptId);
     if (receipt === null || receipt.deletedAt !== null) return;
     if (receipt.previewStatus === 'DONE' && receipt.extractionStatus === 'DONE') return;
 
-    const pages = await this.render(receipt.id, receipt.file);
+    // Persisted previews are a checkpoint. AI retries need only resized display images.
+    const pages =
+      receipt.previewStatus === 'DONE' && receipt.pageCount !== null
+        ? await this.loadPages(receipt.id, receipt.pageCount)
+        : await this.render(receipt.id, receipt.file);
     if (pages === null) return;
     await this.extract(receipt.id, pages, receipt.sourceText);
+  }
+
+  private async loadPages(receiptId: string, pageCount: number): Promise<PageImage[]> {
+    const pages: PageImage[] = [];
+    for (let index = 0; index < pageCount; index += 1) {
+      const source = await toBuffer(
+        await this.storage.getStream(artifactKeys.receiptPage(receiptId, index)),
+      );
+      pages.push({
+        bytes: await this.images.toJpegPreview(source, {
+          maxDim: this.settings.analystPageImageMaxDim,
+        }),
+      });
+    }
+    return pages;
   }
 
   private async render(receiptId: string, file: File): Promise<PageImage[] | null> {
@@ -92,6 +128,10 @@ export class HandleReceiptProcess extends JobHandler {
       });
       return analystPages;
     } catch (error) {
+      if (error instanceof ServiceUnavailableError) {
+        await this.receipts.updateProcessing(receiptId, { previewStatus: 'QUEUED' });
+        throw error;
+      }
       await this.receipts.updateProcessing(receiptId, {
         previewStatus: 'FAILED',
         extractionStatus: 'FAILED',
@@ -178,6 +218,14 @@ export class HandleReceiptProcess extends JobHandler {
         },
       });
     } catch (error) {
+      if (error instanceof ServiceUnavailableError) {
+        await this.receipts.updateProcessing(receiptId, {
+          extractionStatus: 'QUEUED',
+          processingError: null,
+          failedStep: null,
+        });
+        throw error;
+      }
       await this.receipts.updateProcessing(receiptId, {
         extractionStatus: 'FAILED',
         processingError: messageOf(error),
