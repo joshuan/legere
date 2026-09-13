@@ -28,6 +28,11 @@ import {
   type ServicesHealthResponse,
 } from '../../../shared/contracts/queue';
 import { apiClient } from '../../shared/api';
+import {
+  receiptProcessingOverviewSchema,
+  retryFailedReceiptsRequestSchema,
+  retryFailedReceiptsResponseSchema,
+} from '../../../shared/contracts/receipt-processing';
 
 const ROOT = '/api/admin/processing';
 
@@ -35,6 +40,12 @@ const ROOT = '/api/admin/processing';
 // Each write carries the revision the operator saw so two open admin tabs cannot overwrite one
 // another without the server noticing.
 export const processingApi = {
+  receipts: () => apiClient.get(`${ROOT}/receipts`, { schema: receiptProcessingOverviewSchema }),
+  retryReceipts: (limit: number) =>
+    apiClient.post(`${ROOT}/receipts/retry-failed`, {
+      schema: retryFailedReceiptsResponseSchema,
+      body: retryFailedReceiptsRequestSchema.parse({ limit }),
+    }),
   snapshot: (): Promise<ProcessingSnapshotResponse> =>
     apiClient.get(ROOT, { schema: processingSnapshotSchema }),
 
@@ -95,6 +106,7 @@ export const processingApi = {
 };
 
 export const processingKeys = {
+  receipts: ['admin', 'processing', 'receipts'] as const,
   snapshot: ['admin', 'processing', 'snapshot'] as const,
   failures: ['admin', 'processing', 'failures'] as const,
 };

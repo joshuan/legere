@@ -13,6 +13,37 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ replace }) }));
 
 const JOB_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
 const JOB_ID_2 = 'cccccccc-3333-4333-8333-333333333333';
+const receiptQueue: ProcessingSnapshotResponse['queues'][number] = {
+  name: 'receipt-process',
+  control: {
+    paused: { effective: false, default: false, source: 'DEFAULT' },
+    concurrency: { effective: 2, default: 2, source: 'DEFAULT' },
+  },
+  runtime: {
+    registered: true,
+    appliedConcurrency: 2,
+    queued: 0,
+    active: 0,
+    failedRecent: 0,
+    oldestQueuedAt: null,
+    lastCompletedAt: null,
+    completedLastHour: 0,
+  },
+  blockers: [],
+};
+const receiptOverview = {
+  counts: {
+    total: 1610,
+    done: 469,
+    failed: 1141,
+    queued: 0,
+    running: 0,
+    skipped: 0,
+    retryable: 1141,
+  },
+  extractorConfigured: true,
+  batchLimit: 200,
+};
 const CHECKED_AT = '2026-01-02T10:05:00.000Z';
 
 const snapshot: ProcessingSnapshotResponse = {
@@ -269,13 +300,17 @@ describe('AdminProcessingScreen', () => {
     expect(
       screen.getAllByText(enMessages.admin.queue.liveness.completedLastHour).length,
     ).toBeGreaterThan(0);
-    const ingest = screen.getByText('file-ingest').closest('tr');
+    const ingest = screen.getByRole('region', {
+      name: enMessages.admin.queue.names['file-ingest'],
+    });
     if (!(ingest instanceof HTMLElement)) throw new Error('expected file-ingest row');
     expect(within(ingest).getByText('7')).toBeInTheDocument();
     expect(
       within(ingest).getByText(enMessages.admin.queue.settings.source.OVERRIDE),
     ).toBeInTheDocument();
-    const processing = screen.getByText('document-process').closest('tr');
+    const processing = screen.getByRole('region', {
+      name: enMessages.admin.queue.names['document-process'],
+    });
     if (!(processing instanceof HTMLElement)) throw new Error('expected document-process row');
     expect(
       within(processing).getByText(enMessages.admin.queue.runtime.unregistered),
@@ -303,7 +338,7 @@ describe('AdminProcessingScreen', () => {
     });
     await user.clear(input);
     await user.type(input, '6');
-    const row = input.closest('tr');
+    const row = input.closest('[role="region"]');
     if (!(row instanceof HTMLElement)) throw new Error('expected editable queue row');
     await user.click(within(row).getByRole('button', { name: enMessages.common.actions.save }));
 
@@ -336,7 +371,7 @@ describe('AdminProcessingScreen', () => {
     });
     await user.clear(input);
     await user.type(input, '6');
-    const row = input.closest('tr');
+    const row = input.closest('[role="region"]');
     if (!(row instanceof HTMLElement)) throw new Error('expected editable queue row');
     await user.click(within(row).getByRole('button', { name: enMessages.common.actions.save }));
 
@@ -469,7 +504,7 @@ describe('AdminProcessingScreen', () => {
     checks = 0;
 
     renderWithProviders(<AdminProcessingScreen />);
-    await screen.findByText(enMessages.admin.queue.stages.title);
+    await screen.findByRole('region', { name: enMessages.admin.queue.stages.title });
     expect(checks).toBe(0);
     expect(intervals.mock.calls.some((call) => call[1] === 60_000)).toBe(false);
     intervals.mockRestore();
@@ -564,10 +599,105 @@ describe('AdminProcessingScreen', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('shows archive counts separately from queue jobs, with translated receipt controls', async () => {
+    server.use(
+      http.get('/api/admin/processing', () =>
+        HttpResponse.json(envelope({ ...snapshot, queues: [receiptQueue] })),
+      ),
+      http.get('/api/admin/processing/receipts', () =>
+        HttpResponse.json(envelope(receiptOverview)),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<AdminProcessingScreen />);
+    const card = await screen.findByRole('region', {
+      name: enMessages.admin.queue.names['receipt-process'],
+    });
+    expect(
+      within(card).getByText(enMessages.admin.queue.hints['receipt-process']),
+    ).toBeInTheDocument();
+    expect(within(card).queryByRole('table')).not.toBeInTheDocument();
+    expect(
+      within(card).getByRole('link', { name: enMessages.admin.queue.receiptProcessing.open }),
+    ).toHaveAttribute('href', '/admin/processing/receipts');
+    await user.click(screen.getByRole('tab', { name: enMessages.admin.queue.tabs.receipts }));
+    expect(replace).toHaveBeenCalledWith('/admin/processing/receipts');
+    expect(await screen.findByText('1,610')).toBeInTheDocument();
+    expect(screen.getByText('469')).toBeInTheDocument();
+    expect(screen.getByText('1,141')).toBeInTheDocument();
+    expect(
+      screen.getByText(enMessages.admin.queue.receiptProcessing.emptyQueue),
+    ).toBeInTheDocument();
+  });
+
+  it('confirms the chosen retry batch, posts once and refreshes archive counts', async () => {
+    const sent: unknown[] = [];
+    let reads = 0;
+    server.use(
+      http.get('/api/admin/processing', () =>
+        HttpResponse.json(envelope({ ...snapshot, queues: [receiptQueue] })),
+      ),
+      http.get('/api/admin/processing/receipts', () => {
+        reads++;
+        return HttpResponse.json(envelope(receiptOverview));
+      }),
+      http.post('/api/admin/processing/receipts/retry-failed', async ({ request }) => {
+        sent.push(await request.json());
+        return HttpResponse.json(envelope({ enqueued: 12 }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<AdminProcessingScreen tab="receipts" />);
+    const input = await screen.findByRole('spinbutton', {
+      name: enMessages.admin.queue.receiptProcessing.batch,
+    });
+    expect(input).toHaveValue('200');
+    await user.clear(input);
+    await user.type(input, '12');
+    await user.click(
+      screen.getByRole('button', {
+        name: enMessages.admin.queue.receiptProcessing.retry.replace('{count}', '12'),
+      }),
+    );
+    expect(sent).toEqual([]);
+    await user.click(
+      await screen.findByRole('button', { name: enMessages.admin.queue.receiptProcessing.confirm }),
+    );
+    await waitFor(() => expect(sent).toEqual([{ limit: 12 }]));
+    await waitFor(() => expect(reads).toBeGreaterThan(1));
+  });
+
+  it.each(['paused', 'unconfigured', 'unregistered', 'empty'] as const)(
+    'disables receipt retry when %s',
+    async (reason) => {
+      const queue = structuredClone(receiptQueue);
+      const overview = structuredClone(receiptOverview);
+      if (reason === 'paused') queue.control.paused.effective = true;
+      if (reason === 'unconfigured') overview.extractorConfigured = false;
+      if (reason === 'unregistered') queue.runtime.registered = false;
+      if (reason === 'empty') overview.counts.retryable = 0;
+      server.use(
+        http.get('/api/admin/processing', () =>
+          HttpResponse.json(envelope({ ...snapshot, queues: [queue] })),
+        ),
+        http.get('/api/admin/processing/receipts', () => HttpResponse.json(envelope(overview))),
+      );
+      renderWithProviders(<AdminProcessingScreen tab="receipts" />);
+      expect(
+        await screen.findByRole('button', {
+          name: enMessages.admin.queue.receiptProcessing.retry.replace(
+            '{count}',
+            reason === 'empty' ? '0' : '200',
+          ),
+        }),
+      ).toBeDisabled();
+    },
+  );
+
   it('puts the selected tab into the new processing URL', async () => {
     const user = userEvent.setup();
     renderWithProviders(<AdminProcessingScreen />);
-    await screen.findByText(enMessages.admin.queue.stages.title);
+    await screen.findByRole('region', { name: enMessages.admin.queue.stages.title });
 
     await user.click(screen.getByRole('tab', { name: enMessages.admin.queue.tabs.services }));
     expect(replace).toHaveBeenCalledWith('/admin/processing/services');

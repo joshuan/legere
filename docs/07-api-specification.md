@@ -449,6 +449,8 @@ safe-apply/compensation and `DEGRADED` behavior are normative in `05 §5.4f`.
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `GET /api/admin/processing` | 🔒ᴬ | the full flattened `ProcessingSnapshot`; independent queue/document/vector reads run in parallel and service health is the cached sample. |
+| `GET /api/admin/processing/receipts` | 🔒ᴬ | `{ counts: { total, done, failed, queued, running, skipped, retryable }, extractorConfigured, batchLimit: 200 }`. Counts cover the entire non-deleted receipt archive, not a page or retained jobs. Status precedence is running, failed, done, skipped, then queued/pending. |
+| `POST /api/admin/processing/receipts/retry-failed` | 🔒ᴬ | `{ limit?: 1..200 }` (default 200) → `{ enqueued }`. Only failed receipts without a queued/running step or a live `receipt-process` job are eligible. Oldest first, row-locked with `SKIP LOCKED`; job, status reset and actor event commit atomically. Preserves originals, previews that succeeded and extracted data; does not retry fully successful receipts. A paused queue → `409 STEPS_PAUSED`; missing extraction model → `409 RECEIPT_EXTRACTOR_NOT_CONFIGURED`. |
 | `POST /api/admin/processing/services/check` | 🔒ᴬ | probes all topology services in parallel outside queues/gates, updates the cache and returns the existing `{ services: [...] }` health response; no secret is published. |
 | `PATCH /api/admin/processing/queues/:queue` | 🔒ᴬ | `{ expectedRevision, concurrency?: number\|null, paused?: boolean }`; applies only this queue and never bounces another worker. |
 | `PATCH /api/admin/processing/pipeline` | 🔒ᴬ | `{ expectedRevision, unitConcurrency: number\|null }`; it is read per document, so no worker is re-registered. |

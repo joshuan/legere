@@ -49,6 +49,8 @@ import {
   isAdminProcessingTab,
   type AdminProcessingTab,
 } from './admin-queue-tab';
+import { ReceiptProcessingTab } from './receipt-processing-tab';
+import styles from './processing.module.css';
 
 const REFRESH_MS = 5_000;
 const SERVICES_REFRESH_MS = 60_000;
@@ -115,6 +117,7 @@ export function AdminProcessingScreen({ tab = 'overview' }: { tab?: AdminProcess
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: processingKeys.snapshot });
     void queryClient.invalidateQueries({ queryKey: processingKeys.failures });
+    void queryClient.invalidateQueries({ queryKey: processingKeys.receipts });
   }, [queryClient]);
 
   const retry = useMutation({
@@ -221,6 +224,22 @@ export function AdminProcessingScreen({ tab = 'overview' }: { tab?: AdminProcess
         }}
         items={[
           { key: 'overview', label: t('admin.queue.tabs.overview'), children: overview },
+          {
+            key: 'receipts',
+            label: t('admin.queue.tabs.receipts'),
+            children:
+              data === undefined ? (
+                <Spin />
+              ) : (
+                <ReceiptProcessingTab snapshot={data} active={active === 'receipts'} live={live}>
+                  {data.queues
+                    .filter((row) => row.name === 'receipt-process')
+                    .map((row) => (
+                      <QueueCard key={row.name} row={row} snapshot={data} />
+                    ))}
+                </ReceiptProcessingTab>
+              ),
+          },
           { key: 'pipeline', label: t('admin.queue.tabs.pipeline'), children: pipeline },
           { key: 'services', label: t('admin.queue.tabs.services'), children: services },
           {
@@ -296,80 +315,11 @@ function OverviewTab({ snapshot }: { snapshot: ProcessingSnapshotResponse }) {
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <TopologyStrip topology={snapshot.topology} />
-      <Card title={t('admin.queue.stages.title')}>
-        <Table<QueueRow>
-          size="small"
-          rowKey="name"
-          pagination={false}
-          scroll={{ x: 'max-content' }}
-          dataSource={[...snapshot.queues]}
-          columns={[
-            {
-              title: t('admin.queue.stages.stage'),
-              key: 'stage',
-              render: (_, row) => (
-                <QueueIdentity
-                  row={row}
-                  topology={snapshot.topology.queues.find((item) => item.name === row.name)}
-                />
-              ),
-            },
-            {
-              title: t('admin.queue.queued'),
-              key: 'queued',
-              render: (_, row) => row.runtime.queued,
-            },
-            {
-              title: t('admin.queue.active'),
-              key: 'active',
-              render: (_, row) => row.runtime.active,
-            },
-            {
-              title: t('admin.queue.failedRecent'),
-              key: 'failed',
-              render: (_, row) =>
-                row.runtime.failedRecent === 0 ? null : (
-                  <Typography.Text type="danger">{row.runtime.failedRecent}</Typography.Text>
-                ),
-            },
-            {
-              title: t('admin.queue.liveness.completedLastHour'),
-              key: 'completedLastHour',
-              render: (_, row) => row.runtime.completedLastHour,
-            },
-            {
-              title: t('admin.queue.liveness.oldestQueuedAt'),
-              key: 'oldestQueuedAt',
-              render: (_, row) => (
-                <Timestamp
-                  value={row.runtime.oldestQueuedAt}
-                  empty={t('admin.queue.liveness.noQueuedWork')}
-                />
-              ),
-            },
-            {
-              title: t('admin.queue.liveness.lastCompletedAt'),
-              key: 'lastCompletedAt',
-              render: (_, row) => (
-                <Timestamp
-                  value={row.runtime.lastCompletedAt}
-                  empty={t('admin.queue.liveness.noRetainedCompletion')}
-                />
-              ),
-            },
-            {
-              title: t('admin.queue.settings.concurrency'),
-              key: 'control',
-              render: (_, row) => <QueueControls row={row} revision={snapshot.revision} />,
-            },
-            {
-              title: t('admin.queue.blockers.title'),
-              key: 'blockers',
-              render: (_, row) => <Blockers blockers={row.blockers} />,
-            },
-          ]}
-        />
-      </Card>
+      <section aria-label={t('admin.queue.stages.title')} className={styles.queueGrid}>
+        {snapshot.queues.map((row) => (
+          <QueueCard key={row.name} row={row} snapshot={snapshot} />
+        ))}
+      </section>
 
       <Card title={t('admin.queue.storage.title')}>
         {storage === null ? (
@@ -391,6 +341,68 @@ function OverviewTab({ snapshot }: { snapshot: ProcessingSnapshotResponse }) {
         )}
       </Card>
     </Space>
+  );
+}
+
+function QueueCard({ row, snapshot }: { row: QueueRow; snapshot: ProcessingSnapshotResponse }) {
+  const t = useTranslations();
+  return (
+    <Card
+      size="small"
+      className={styles.queueCard ?? ''}
+      role="region"
+      aria-label={t(`admin.queue.names.${row.name}`)}
+    >
+      <div className={styles.cardContent}>
+        <QueueIdentity
+          row={row}
+          topology={snapshot.topology.queues.find((item) => item.name === row.name)}
+        />
+        <div className={styles.metrics}>
+          <Statistic title={t('admin.queue.queued')} value={row.runtime.queued} />
+          <Statistic title={t('admin.queue.active')} value={row.runtime.active} />
+          <Statistic
+            title={t('admin.queue.failedRecent')}
+            value={row.runtime.failedRecent}
+            valueStyle={{
+              color: row.runtime.failedRecent > 0 ? 'var(--ant-color-error)' : 'inherit',
+            }}
+          />
+          <Statistic
+            title={t('admin.queue.liveness.completedLastHour')}
+            value={row.runtime.completedLastHour}
+          />
+        </div>
+        <div className={styles.timestamps}>
+          <div>
+            <Typography.Text type="secondary">
+              {t('admin.queue.liveness.oldestQueuedAt')}:{' '}
+            </Typography.Text>
+            <Timestamp
+              value={row.runtime.oldestQueuedAt}
+              empty={t('admin.queue.liveness.noQueuedWork')}
+            />
+          </div>
+          <div>
+            <Typography.Text type="secondary">
+              {t('admin.queue.liveness.lastCompletedAt')}:{' '}
+            </Typography.Text>
+            <Timestamp
+              value={row.runtime.lastCompletedAt}
+              empty={t('admin.queue.liveness.noRetainedCompletion')}
+            />
+          </div>
+        </div>
+        <div className={styles.controls}>
+          <Typography.Text strong>{t('admin.queue.settings.concurrency')}</Typography.Text>
+          <QueueControls row={row} revision={snapshot.revision} />
+        </div>
+        {row.blockers.length > 0 && <Blockers blockers={row.blockers} />}
+        {row.name === 'receipt-process' && (
+          <Link href="/admin/processing/receipts">{t('admin.queue.receiptProcessing.open')}</Link>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -478,7 +490,7 @@ function QueueControls({ row, revision }: { row: QueueRow; revision: number }) {
   const control = row.control.concurrency;
   return (
     <Space direction="vertical" size={4}>
-      <Space size={4}>
+      <Space size={4} wrap>
         <InputNumber
           min={1}
           max={QUEUE_CONCURRENCY_MAX}
@@ -519,7 +531,7 @@ function QueueControls({ row, revision }: { row: QueueRow; revision: number }) {
         )}
       </Space>
       <ResolvedSetting setting={control} />
-      <Space size={6}>
+      <Space size={6} wrap>
         <Switch
           size="small"
           checked={!row.control.paused.effective}

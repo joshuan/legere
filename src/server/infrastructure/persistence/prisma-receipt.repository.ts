@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import type { ReceiptProcessingCounts } from '../../../shared/contracts/receipt-processing';
 import { moneyValueSchema } from '../../../shared/contracts/document-fields';
 import {
   DEFAULT_RECEIPT_SORT,
@@ -23,6 +24,16 @@ const RECEIPT_INCLUDE = {
   file: true,
   archiveItem: { include: { createdBy: { select: { id: true, displayName: true } } } },
 } satisfies Prisma.ReceiptInclude;
+
+const RETRYABLE_RECEIPT = Prisma.sql`
+  (r.preview_status = 'FAILED' OR r.extraction_status = 'FAILED')
+  AND r.preview_status NOT IN ('RUNNING', 'QUEUED')
+  AND r.extraction_status NOT IN ('RUNNING', 'QUEUED')
+  AND NOT EXISTS (
+    SELECT 1 FROM pgboss.job j WHERE j.name = 'receipt-process'
+      AND j.state IN ('created', 'retry', 'active') AND j.data->>'receiptId' = r.id::text
+  )
+`;
 
 type ReceiptRow = Prisma.ReceiptGetPayload<{ include: typeof RECEIPT_INCLUDE }>;
 
@@ -193,6 +204,40 @@ function projectionOf(extracted: ReceiptExtraction | null): {
 export class PrismaReceiptRepository extends ReceiptRepository {
   constructor(private readonly prisma: PrismaService) {
     super();
+  }
+
+  async countProcessing(): Promise<ReceiptProcessingCounts> {
+    const [counts] = await this.prisma.$queryRaw<ReceiptProcessingCounts[]>(Prisma.sql`
+      WITH states AS (
+        SELECT CASE
+          WHEN r.preview_status = 'RUNNING' OR r.extraction_status = 'RUNNING' THEN 'running'
+          WHEN r.preview_status = 'FAILED' OR r.extraction_status = 'FAILED' THEN 'failed'
+          WHEN r.preview_status = 'DONE' AND r.extraction_status = 'DONE' THEN 'done'
+          WHEN r.preview_status = 'SKIPPED' OR r.extraction_status = 'SKIPPED' THEN 'skipped'
+          ELSE 'queued' END AS status, (${RETRYABLE_RECEIPT}) AS retryable
+        FROM receipts r JOIN archive_items a ON a.id = r.id WHERE a.deleted_at IS NULL
+      )
+      SELECT count(*)::int AS total,
+        count(*) FILTER (WHERE status = 'done')::int AS done,
+        count(*) FILTER (WHERE status = 'failed')::int AS failed,
+        count(*) FILTER (WHERE status = 'queued')::int AS queued,
+        count(*) FILTER (WHERE status = 'running')::int AS running,
+        count(*) FILTER (WHERE status = 'skipped')::int AS skipped,
+        count(*) FILTER (WHERE retryable)::int AS retryable FROM states
+    `);
+    if (counts === undefined) throw new Error('Missing receipt counts');
+    return counts;
+  }
+
+  async lockFailedForRetry(limit: number, tx: TransactionHandle) {
+    return clientOf(this.prisma, tx).$queryRaw<
+      Array<Pick<Receipt, 'id' | 'previewStatus' | 'extractionStatus'>>
+    >(Prisma.sql`
+      SELECT r.id, r.preview_status AS "previewStatus", r.extraction_status AS "extractionStatus"
+      FROM receipts r JOIN archive_items a ON a.id = r.id
+      WHERE a.deleted_at IS NULL AND ${RETRYABLE_RECEIPT}
+      ORDER BY a.created_at, r.id LIMIT ${limit} FOR UPDATE OF r SKIP LOCKED
+    `);
   }
 
   async create(

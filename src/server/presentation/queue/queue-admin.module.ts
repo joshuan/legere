@@ -28,12 +28,35 @@ import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { AdminQueueController } from './admin-queue.controller';
 import { PipelineController } from './pipeline.controller';
 import { ProcessingAdminController } from './processing-admin.controller';
+import { ReceiptRepository } from '../../domain/repositories/receipt.repository';
+import { ReceiptExtractor } from '../../application/ports/receipt-extractor';
+import { UnitOfWork } from '../../application/ports/unit-of-work';
+import { RetryFailedReceipts } from '../../application/receipts/retry-failed-receipts';
 
 // Admin queue observability (docs/06 §6.5), and the one route beside it that is not an admin's: which
 // steps the pipeline is holding, which every reader of a document is owed (docs/05 §5.4d).
 @Module({
   controllers: [AdminQueueController, ProcessingAdminController, PipelineController],
   providers: [
+    {
+      provide: RetryFailedReceipts,
+      useFactory: (
+        receipts: ReceiptRepository,
+        queue: JobQueue,
+        events: DocumentEventRepository,
+        uow: UnitOfWork,
+        settings: QueueSettings,
+        extractor: ReceiptExtractor,
+      ) => new RetryFailedReceipts(receipts, queue, events, uow, settings, extractor),
+      inject: [
+        ReceiptRepository,
+        JobQueue,
+        DocumentEventRepository,
+        UnitOfWork,
+        QueueSettings,
+        ReceiptExtractor,
+      ],
+    },
     // The analysis language lives with the queue knobs: same kind of setting, same screen
     // (docs/05 §5.5).
     {

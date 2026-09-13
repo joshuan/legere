@@ -36,6 +36,11 @@ import { successEnvelope } from '../http/envelope';
 import { UuidParam } from '../http/uuid-param.pipe';
 import { ZodBody, ZodParam, ZodQuery } from '../http/zod-validation.pipe';
 import { z } from 'zod';
+import { RetryFailedReceipts } from '../../application/receipts/retry-failed-receipts';
+import {
+  retryFailedReceiptsRequestSchema,
+  type ReceiptProcessingOverview,
+} from '../../../shared/contracts/receipt-processing';
 
 const serviceNameSchema = z.enum(SERVICE_NAMES);
 
@@ -43,7 +48,24 @@ const serviceNameSchema = z.enum(SERVICE_NAMES);
 @UseGuards(SessionGuard, RolesGuard)
 @Roles('ADMIN')
 export class ProcessingAdminController {
-  constructor(private readonly controlPlane: ProcessingControlPlane) {}
+  constructor(
+    private readonly controlPlane: ProcessingControlPlane,
+    private readonly retryReceipts: RetryFailedReceipts,
+  ) {}
+
+  @Get('receipts')
+  async receiptCounts(): Promise<Envelope<ReceiptProcessingOverview>> {
+    return successEnvelope(await this.retryReceipts.overview());
+  }
+
+  @Post('receipts/retry-failed')
+  async retryFailedReceipts(
+    @CurrentUser() user: User,
+    @ZodBody(retryFailedReceiptsRequestSchema)
+    body: z.infer<typeof retryFailedReceiptsRequestSchema>,
+  ): Promise<Envelope<{ enqueued: number }>> {
+    return successEnvelope(await this.retryReceipts.execute(body.limit, user.id));
+  }
 
   @Get()
   async snapshot(): Promise<Envelope<ProcessingSnapshotResponse>> {

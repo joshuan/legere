@@ -40,6 +40,7 @@
       "COLLECTION_NAME_TAKEN": "You already have a collection with this name.",
       "DOCUMENT_UNAVAILABLE": "The original file is currently unavailable.",
       "STEPS_PAUSED": "That step is paused, so nothing was started. Resume it on the Processing page.",
+      "RECEIPT_EXTRACTOR_NOT_CONFIGURED": "Configure a receipt extraction model in the server configuration first.",
       "PROCESSING_SETTINGS_CHANGED": "Processing controls changed in another tab. Reload and try again.",
       "PROCESSING_APPLY_FAILED": "The processing controls could not be applied safely. Check the current state and try again.",
       "ONBOARDING_CLOSED": "This instance has already been set up.",
@@ -596,22 +597,53 @@
         }
       },
       "names": {
+        "receipt-process": "Receipt processing",
         "library-scan": "Scanning libraries",
         "file-ingest": "Taking in files",
         "document-process": "Processing documents",
         "maintenance": "Housekeeping"
       },
       "hints": {
+        "receipt-process": "Creates previews and reads receipts. Retries preserve a completed preview when extraction fails.",
         "library-scan": "Walks the attached folders and notices files that are new, changed or gone.",
         "file-ingest": "Hashes each file, deduplicates it, and makes a document out of it.",
         "document-process": "The six steps below: the canonical PDF, its preview, its text, the analysis, extracted fields, and vectors.",
         "maintenance": "Hourly: expires one-time credentials, sweeps orphaned artifacts, and picks up documents nobody is coming for."
       },
       "tabs": {
+        "receipts": "Receipts",
         "overview": "Overview",
         "pipeline": "Pipeline",
         "services": "Services",
         "failures": "Failures"
+      },
+      "receiptProcessing": {
+        "open": "Receipt counts and retry →",
+        "title": "Receipts in the archive",
+        "viewReceipts": "Open receipts",
+        "counts": {
+          "total": "Total receipts",
+          "done": "Processed",
+          "failed": "Failed",
+          "queued": "Awaiting processing",
+          "running": "Processing",
+          "skipped": "Skipped"
+        },
+        "countsHint": "The entire archive, not only the loaded page. Each receipt is counted once. These counts differ from the queue job counts below.",
+        "retryTitle": "Retry failed receipts",
+        "retryHint": "Return failed receipts to the queue. Completed receipts and receipts with a live job are left alone. Originals and completed previews are preserved.",
+        "eligible": "Ready to retry: {count}",
+        "batch": "Receipts per request",
+        "retry": "Retry failures · {count}",
+        "confirmTitle": "Queue up to {count} receipts?",
+        "confirmHint": "Only failed receipts without a live job. Successful results will not be overwritten.",
+        "confirm": "Queue receipts",
+        "enqueued": "Queued: {count}",
+        "batchHint": "Up to {count} receipts per click. Repeat for the next batch if more failures remain. New failures may reappear; check their cause before another retry.",
+        "emptyQueue": "Enabling a queue does not retry old failures. There are no jobs now: use the button below to queue failed receipts.",
+        "paused": "The queue is paused. Enable it in the settings below, then retry failures.",
+        "notConfigured": "Receipt extraction is not configured. Set the provider and model on the server.",
+        "noWorker": "The queue worker is not running. Check the application status."
       },
       "refresh": {
         "on": "On",

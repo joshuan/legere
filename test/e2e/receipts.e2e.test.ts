@@ -1,6 +1,14 @@
 import request from 'supertest';
 import sharp from 'sharp';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StepStatus } from '../../src/shared/contracts/enums';
+import {
+  receiptProcessingOverviewSchema,
+  retryFailedReceiptsResponseSchema,
+} from '../../src/shared/contracts/receipt-processing';
+import { ReceiptExtractor } from '../../src/server/application/ports/receipt-extractor';
+import { JobQueue } from '../../src/server/application/ports/job-queue';
+import { QueueSettings } from '../../src/server/application/queue/queue-settings';
 import { registerVerifyResponseSchema } from '../../src/shared/contracts/auth';
 import { documentDetailDtoSchema } from '../../src/shared/contracts/documents';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
@@ -46,6 +54,8 @@ describe('Receipts (e2e)', () => {
     await app.close();
     await disconnectTestPrisma();
   });
+
+  afterEach(() => vi.restoreAllMocks());
 
   async function onboard(email: string): Promise<string> {
     await api(app).post('/api/auth/register/start', { email });
@@ -103,6 +113,203 @@ describe('Receipts (e2e)', () => {
     expect(uploaded.status).toBe(201);
     return expectData(uploaded, uploadReceiptResponseSchema);
   }
+
+  describe('admin receipt processing', () => {
+    const root = '/api/admin/processing/receipts';
+
+    async function seedState(
+      index: number,
+      previewStatus: StepStatus,
+      extractionStatus: StepStatus,
+    ) {
+      const { receipt } = await uploadReceipt({ color: `rgb(${index * 20},0,0)` });
+      await testPrisma().$executeRaw`
+        DELETE FROM pgboss.job WHERE name = 'receipt-process' AND data->>'receiptId' = ${receipt.id}
+      `;
+      await app.nestApp.get(ReceiptRepository).updateProcessing(receipt.id, {
+        previewStatus,
+        extractionStatus,
+        processingError: extractionStatus === 'FAILED' ? 'provider failed' : null,
+        failedStep: extractionStatus === 'FAILED' ? 'extraction' : null,
+      });
+      return receipt.id;
+    }
+
+    const overview = async () =>
+      expectData(await api(app).get(root).set('Cookie', cookie), receiptProcessingOverviewSchema);
+    const retry = (limit = 200) =>
+      api(app).post(`${root}/retry-failed`, { limit }).set('Cookie', cookie);
+    const configure = () =>
+      vi.spyOn(app.nestApp.get(ReceiptExtractor), 'isConfigured', 'get').mockReturnValue(true);
+
+    it('counts the whole live receipt archive, independently of retained queue jobs', async () => {
+      expect((await overview()).counts).toEqual({
+        total: 0,
+        done: 0,
+        failed: 0,
+        queued: 0,
+        running: 0,
+        skipped: 0,
+        retryable: 0,
+      });
+      await seedState(1, 'DONE', 'DONE');
+      await seedState(2, 'DONE', 'FAILED');
+      await seedState(3, 'FAILED', 'FAILED');
+      const live = await seedState(4, 'DONE', 'FAILED');
+      await app.nestApp.get(JobQueue).enqueue('receipt-process', { receiptId: live });
+      await seedState(5, 'QUEUED', 'QUEUED');
+      await seedState(6, 'DONE', 'RUNNING');
+      await seedState(7, 'DONE', 'SKIPPED');
+      const deleted = await seedState(8, 'DONE', 'FAILED');
+      await testPrisma().archiveItem.update({
+        where: { id: deleted },
+        data: { deletedAt: new Date() },
+      });
+      await seedState(9, 'FAILED', 'QUEUED');
+      expect((await overview()).counts).toEqual({
+        total: 8,
+        done: 1,
+        failed: 4,
+        queued: 1,
+        running: 1,
+        skipped: 1,
+        retryable: 2,
+      });
+    });
+
+    it('retries a bounded batch, retains original/preview/extracted data and audits the actor', async () => {
+      configure();
+      const id = await seedState(1, 'DONE', 'FAILED');
+      const previewFailure = await seedState(2, 'FAILED', 'FAILED');
+      const done = await seedState(3, 'DONE', 'DONE');
+      const repository = app.nestApp.get(ReceiptRepository);
+      const extracted: ReceiptExtraction = {
+        schema: { slug: 'receipt', version: 3 },
+        values: { vendor: 'Saved shop' },
+        confidence: 95,
+      };
+      await repository.updateProcessing(id, { extracted, pageCount: 1 });
+      const before = await repository.findById(id);
+      const files = app.files.keys();
+      expect(expectData(await retry(1), retryFailedReceiptsResponseSchema)).toEqual({
+        enqueued: 1,
+      });
+      expect(await repository.findById(id)).toMatchObject({
+        fileId: before?.fileId,
+        sourceText: SOURCE_TEXT,
+        extracted,
+        pageCount: 1,
+        previewStatus: 'DONE',
+        extractionStatus: 'QUEUED',
+        processingError: null,
+        failedStep: null,
+      });
+      expect((await overview()).counts.retryable).toBe(1);
+      expect(expectData(await retry(), retryFailedReceiptsResponseSchema)).toEqual({ enqueued: 1 });
+      expect(await repository.findById(previewFailure)).toMatchObject({
+        previewStatus: 'QUEUED',
+        extractionStatus: 'QUEUED',
+      });
+      expect(expectData(await retry(), retryFailedReceiptsResponseSchema)).toEqual({ enqueued: 0 });
+      expect(await repository.findById(done)).toMatchObject({
+        previewStatus: 'DONE',
+        extractionStatus: 'DONE',
+      });
+      expect(app.files.keys()).toEqual(files);
+      const events = await testPrisma().documentEvent.findMany({
+        where: { documentId: id, type: 'QUEUED' },
+      });
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          actorId: before?.createdById,
+          payload: { steps: ['extraction'], reason: 'retry-failed-receipt' },
+        }),
+      );
+      const jobs = await testPrisma().$queryRaw<
+        Array<{ data: { receiptId: string } }>
+      >`SELECT data FROM pgboss.job WHERE name = 'receipt-process'`;
+      expect(jobs.map((job) => job.data.receiptId).sort()).toEqual([id, previewFailure].sort());
+    });
+
+    it('does not duplicate work when two admins retry concurrently or a live job already exists', async () => {
+      configure();
+      await seedState(1, 'DONE', 'FAILED');
+      await seedState(2, 'DONE', 'FAILED');
+      const live = await seedState(3, 'DONE', 'FAILED');
+      await app.nestApp.get(JobQueue).enqueue('receipt-process', { receiptId: live });
+      const results = await Promise.all([retry(), retry()]);
+      expect(
+        results
+          .map((result) => expectData(result, retryFailedReceiptsResponseSchema).enqueued)
+          .reduce((a, b) => a + b, 0),
+      ).toBe(2);
+      const jobs = await testPrisma().$queryRaw<Array<{ receiptId: string; count: number }>>`
+        SELECT data->>'receiptId' AS "receiptId", count(*)::int AS count FROM pgboss.job
+        WHERE name = 'receipt-process' GROUP BY data->>'receiptId'
+      `;
+      expect(jobs).toHaveLength(3);
+      expect(jobs.every((job) => job.count === 1)).toBe(true);
+      expect(await app.nestApp.get(ReceiptRepository).findById(live)).toMatchObject({
+        extractionStatus: 'FAILED',
+      });
+    });
+
+    it('rolls back both jobs and statuses if a later enqueue fails', async () => {
+      configure();
+      const ids = [await seedState(1, 'DONE', 'FAILED'), await seedState(2, 'DONE', 'FAILED')];
+      const queue = app.nestApp.get(JobQueue);
+      const enqueue = queue.enqueueAfterTx.bind(queue);
+      vi.spyOn(queue, 'enqueueAfterTx')
+        .mockImplementationOnce(enqueue)
+        .mockRejectedValueOnce(new Error('queue unavailable'));
+      expect((await retry()).status).toBe(500);
+      expect((await overview()).counts.retryable).toBe(2);
+      expect(
+        await testPrisma().receipt.count({
+          where: { id: { in: ids }, extractionStatus: 'FAILED' },
+        }),
+      ).toBe(2);
+      expect(
+        await testPrisma().$queryRaw`SELECT id FROM pgboss.job WHERE name = 'receipt-process'`,
+      ).toEqual([]);
+      expect(
+        await testPrisma().documentEvent.count({
+          where: { payload: { path: ['reason'], equals: 'retry-failed-receipt' } },
+        }),
+      ).toBe(0);
+    });
+
+    it('refuses unconfigured or paused extraction and validates batch size before enqueueing', async () => {
+      await seedState(1, 'DONE', 'FAILED');
+      expect((await retry()).body).toMatchObject({
+        error: { code: 'RECEIPT_EXTRACTOR_NOT_CONFIGURED' },
+      });
+      configure();
+      for (const limit of [0, -1, 201, 1.5]) expect((await retry(limit)).status).toBe(422);
+      const settings = app.nestApp.get(QueueSettings);
+      vi.spyOn(settings, 'read').mockResolvedValue({
+        ...(await settings.read()),
+        paused: ['receipt-process'],
+      });
+      expect((await retry()).body).toMatchObject({ error: { code: 'STEPS_PAUSED' } });
+      expect((await overview()).counts.retryable).toBe(1);
+    });
+
+    it('requires an admin and a same-origin mutation', async () => {
+      expect((await api(app).get(root)).status).toBe(401);
+      const user = await inviteUser(`receipt-user-${seq}@legere.local`);
+      expect((await api(app).get(root).set('Cookie', user)).status).toBe(403);
+      expect((await api(app).post(`${root}/retry-failed`).set('Cookie', user)).status).toBe(403);
+      expect(
+        (
+          await request(app.baseUrl)
+            .post(`${root}/retry-failed`)
+            .set('Cookie', cookie)
+            .send({ limit: 1 })
+        ).status,
+      ).toBe(403);
+    });
+  });
 
   it('accepts an image and noisy caller text as one receipt without creating a document', async () => {
     const answer = await uploadReceipt();

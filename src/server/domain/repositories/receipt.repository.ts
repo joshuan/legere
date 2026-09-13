@@ -6,6 +6,7 @@ import type {
 import type { StepStatus } from '../../../shared/contracts/enums';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { Receipt } from '../entities/receipt';
+import type { ReceiptProcessingCounts } from '../../../shared/contracts/receipt-processing';
 import type { Viewer } from './document.repository';
 
 export type ReceiptProcessingUpdate = {
@@ -24,6 +25,18 @@ export type ReceiptListInput = ReceiptFilters & {
 };
 
 export abstract class ReceiptRepository {
+  abstract countProcessing(): Promise<ReceiptProcessingCounts>;
+  // Locks eligible failures through the caller's enqueue/status transaction; skips live jobs.
+  abstract lockFailedForRetry(
+    limit: number,
+    tx: TransactionHandle,
+  ): Promise<
+    Array<{
+      id: string;
+      previewStatus: StepStatus;
+      extractionStatus: StepStatus;
+    }>
+  >;
   abstract create(
     input: { fileId: string; createdById: string; sourceText?: string | undefined },
     tx?: TransactionHandle,

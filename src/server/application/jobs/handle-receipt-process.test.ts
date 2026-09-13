@@ -49,6 +49,12 @@ function receiptFixture(overrides: Partial<Receipt> = {}): Receipt {
 }
 
 class InMemoryReceiptRepository extends ReceiptRepository {
+  countProcessing(): ReturnType<ReceiptRepository['countProcessing']> {
+    throw new Error('unused');
+  }
+  lockFailedForRetry(): ReturnType<ReceiptRepository['lockFailedForRetry']> {
+    throw new Error('unused');
+  }
   receipt: Receipt | null = receiptFixture();
   readonly updates: ReceiptProcessingUpdate[] = [];
 

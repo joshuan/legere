@@ -1317,14 +1317,13 @@ saved filters are built on the list.
 
 ## 11.13. Admin: Processing (`/admin/processing`)
 
-**Four tabs, because four different questions are asked of this screen** — and one page holding all
-four answered none of them at a glance. It held stage cards, a table of steps inside one of them,
-a block of external services, a table of failures and a storage figure, in one column a metre long:
-everything was there, and finding any of it meant scrolling past the rest.
+**Five tabs, each answering a different operational question.** Receipt archive counts are distinct
+from transient queue-job counts: an empty queue does not mean that every uploaded receipt succeeded.
 
 | Tab | The question it answers | What is on it |
 |---|---|---|
-| **Overview** | is anything moving, and how is it connected? | the topology, one row per stage, and what the bucket holds |
+| **Overview** | is anything moving, and how is it connected? | the topology, responsive stage cards, and what the bucket holds |
+| **Receipts** | how many receipts arrived, and can failed ones be retried? | whole-archive counts, bounded retry with confirmation, and receipt queue controls |
 | **Pipeline** | where are the documents stuck? | the six steps of `05 §5.5`, their counters and their switches |
 | **Services** | is the thing we call answering, and how hard are we asking? | one row per external service |
 | **Failures** | what broke, and can it be run again? | the failed-jobs table |
@@ -1348,7 +1347,7 @@ it waits.
 
 **Every control lives beside the numbers it governs**, which is the rule the one-page version was
 built on and the tabs keep — one level down each: a stage's concurrency and its pause on the stage's
-own row in **Overview**, a step's pause on the step's own row in **Pipeline**, a service's gate on the
+own card in **Overview**, a step's pause on the step's own row in **Pipeline**, a service's gate on the
 service's row in **Services**. Nothing has to be looked for in another tab to be understood.
 
 Each editable numeric row owns its own draft and calls its own scoped endpoint with the snapshot
@@ -1379,15 +1378,31 @@ difference between reading this page and misreading it.
   conditions stay on the Pipeline rows, where their translated tooltips come directly from the same
   topology. This is an orientation map, not a live node editor and not a claim that a service is
   another queue.
-- **One row per stage** rather than a card per stage: the stage **named twice** (what it does, over
+- **One responsive card per stage**, with metrics and controls stacked inside the same card, not
+  separated by a horizontally scrolling table: the stage **named twice** (what it does, over
   what the queue calls it — the technical name is what the failures table and the container's logs
   say), one line saying what it actually does, its depth as **queued / active / failed in 24 h**, its
   **oldest queued** age, **last completed** time and **completed in the last hour**, the
   **concurrency** that decides how fast the depth falls, and the switch that says whether the stage
-  runs at all. A paused stage is tagged as paused on its own row, so a growing queue is never mistaken
-  for a stuck one. A zero failure count is not drawn as a zero. Timestamps which are `null` say
+  runs at all. A paused stage is tagged as paused on its own card, so a growing queue is never mistaken
+  for a stuck one. Cards retain labeled zero counts. Timestamps which are `null` say
   *No queued work* / *No retained completion*, not epoch zero.
 - **What the bucket holds**, as of the last `maintenance` run, and `null` until the first one.
+
+### Receipts (`/admin/processing/receipts`)
+
+- Whole-archive totals: uploaded, done, failed, queued/pending, running and skipped. Deleted items
+  are excluded. These are receipt states, not recent job history, and refresh every five seconds
+  while this tab and auto-refresh are active.
+- Explain explicitly when failed receipts remain but the queue is empty. Enabling the worker alone
+  does not re-enqueue historical failures.
+- **Retry failures** takes an editable batch of 1–200 eligible receipts, with an explicit count and
+  confirmation before POST. Disabled while pending, when empty, paused, unregistered or unconfigured.
+  The server rechecks eligibility; concurrent admins cannot create duplicate retries. Original files
+  and successful receipt results are preserved. The next batch requires another explicit action;
+  this is not an automatic infinite retry loop.
+- The same receipt queue card exposes concurrency and pause without having to find the row on
+  another tab. Its overview card links here.
 
 ### Pipeline
 
