@@ -76,6 +76,27 @@ afterEach(() => {
 });
 
 describe('DoclingParser', () => {
+  it('submits DOCX once as a native document without PDF windows or OCR', async () => {
+    const spy = answers('# Contract\n\n| Item | Amount |\n| --- | --- |\n| Service | 42 |');
+    const markdown = await parser().toMarkdown(Buffer.from('docx-original'), {
+      format: 'docx',
+      ocrLanguages: ['rus'],
+      pageCount: 40,
+    });
+    const { form } = sentRequest(spy);
+    const file = form.get('files');
+    if (!(file instanceof File)) throw new Error('Expected a DOCX upload');
+    expect(file.name).toBe('input.docx');
+    expect(await file.text()).toBe('docx-original');
+    expect(form.get('page_range')).toBeNull();
+    expect(form.get('pdf_backend')).toBeNull();
+    expect(form.get('do_ocr')).toBe('false');
+    expect(form.get('force_ocr')).toBeNull();
+    expect(form.get('ocr_lang')).toBeNull();
+    expect(spy.mock.calls.filter(([url]) => urlOf(url).includes('/v1/convert'))).toHaveLength(1);
+    expect(markdown).toContain('| Service | 42 |');
+  });
+
   it('is unconfigured without a URL, and says so instead of calling nowhere', async () => {
     expect(parser({ DOCLING_URL: '' }).isConfigured).toBe(false);
     await expect(

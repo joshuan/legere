@@ -33,6 +33,9 @@ import type { File } from '../../domain/entities/file';
 import { RelativePath } from '../../domain/value-objects/relative-path';
 import { InMemoryFileStorage } from '../../infrastructure/storage/in-memory-file-storage';
 import { BuildCanonical } from '../documents/build-canonical';
+import { DocumentMarkdownSource } from '../documents/document-markdown-source';
+import { readOriginalFile } from '../documents/read-original-file';
+import { toBuffer } from '../ports/binary-source';
 import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
 import { AnalysisSettings } from '../settings/analysis-settings';
 import { FixedClock } from '../../../../test/helpers/fakes';
@@ -175,6 +178,9 @@ describe('HandleDocumentProcess', () => {
       queueSettings,
       settings,
       clock,
+      new DocumentMarkdownSource(fileRepo, (file) =>
+        readOriginalFile(file, fileRefs, libraries, reader, storage),
+      ),
     );
   });
 
@@ -2618,6 +2624,147 @@ describe('HandleDocumentProcess', () => {
     });
   });
 
+  describe('native Word Markdown', () => {
+    const wordFile = {
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ext: 'docx',
+      name: 'contract.docx',
+    };
+
+    it.each(['MANAGED', 'LIBRARY'] as const)(
+      'reads the whole %s DOCX original after building PDF and previews',
+      async (origin) => {
+        await givenDocument([{ file: { ...wordFile, origin }, bytes: 'native-word-bytes' }]);
+        parser.configured = true;
+        const parse = vi.spyOn(parser, 'toMarkdown').mockImplementation(async (source, options) => {
+          expect(await toBuffer(source)).toEqual(Buffer.from('native-word-bytes'));
+          expect(options).toEqual({ format: 'docx', ocrLanguages: [], pageCount: 1 });
+          return '# Contract\n\n| Item | Amount |\n| --- | --- |\n| Archive | 42 |';
+        });
+        await run();
+        expect(parse).toHaveBeenCalledTimes(1);
+        expect(stateOf().steps).toMatchObject({
+          canonical: 'DONE',
+          preview: 'DONE',
+          markdown: 'DONE',
+        });
+        expect(stateOf().markdown).toContain('| Archive | 42 |');
+        expect(pdfs.calls).toContainEqual({ method: 'toPdf', fileName: 'contract.docx' });
+      },
+    );
+
+    it.each(['removed', 'reordered', 'duplicated'] as const)(
+      'uses PDF after pages were %s and does not bring removed source text back',
+      async (change) => {
+        pdfs.pageCount = 2;
+        await givenDocument([{ file: wordFile, bytes: 'whole-original' }]);
+        await handler.handle({ documentId: DOCUMENT_ID, steps: ['canonical'] });
+        const pages = await fileRepo.listPagesForDocument(DOCUMENT_ID);
+        const first = pages[0];
+        const second = pages[1];
+        if (first === undefined || second === undefined) throw new Error('Expected two Word pages');
+        await fileRepo.replacePages(DOCUMENT_ID, {
+          expecting: null,
+          pages:
+            change === 'removed'
+              ? [first]
+              : change === 'reordered'
+                ? [second, first]
+                : [first, first],
+        });
+        parser.configured = true;
+        const parse = vi.spyOn(parser, 'toMarkdown').mockImplementation((_source, options) => {
+          expect(options.format).toBeUndefined();
+          return Promise.resolve(TEXT_LAYER.repeat(2));
+        });
+        await handler.handle({ documentId: DOCUMENT_ID, steps: ['canonical', 'markdown'] });
+        expect(parse).toHaveBeenCalledTimes(1);
+        expect(stateOf().markdown).toBe(TEXT_LAYER.repeat(2));
+      },
+    );
+
+    it('uses PDF when a DOCX is combined with another file', async () => {
+      await givenDocument([
+        { file: wordFile },
+        { file: { mimeType: 'application/pdf', ext: 'pdf' } },
+      ]);
+      parser.configured = true;
+      parser.markdown = TEXT_LAYER;
+      const parse = vi.spyOn(parser, 'toMarkdown');
+      await run();
+      expect(parse.mock.calls.every(([, options]) => options.format === undefined)).toBe(true);
+      expect(stateOf().steps.markdown).toBe('DONE');
+    });
+
+    it.each(['cropped', 'turned'] as const)('uses PDF when a Word page is %s', async (change) => {
+      const crop: Crop = {
+        points: [
+          [0.1, 0.1],
+          [0.9, 0.1],
+          [0.9, 0.9],
+          [0.1, 0.9],
+        ],
+      };
+      await givenDocument([
+        {
+          file: wordFile,
+          ...(change === 'cropped' ? { crop } : { turn: { quarterTurns: 1, mirrored: false } }),
+        },
+      ]);
+      parser.configured = true;
+      parser.markdown = TEXT_LAYER;
+      const parse = vi.spyOn(parser, 'toMarkdown');
+      await run();
+      expect(parse).toHaveBeenCalled();
+      expect(parse.mock.calls.every(([, options]) => options.format === undefined)).toBe(true);
+      expect(stateOf().steps.markdown).toBe('DONE');
+    });
+
+    it.each(['empty', 'rejected', 'missing-original'] as const)(
+      'falls back to PDF when native reading is %s',
+      async (reason) => {
+        await givenDocument([{ file: { ...wordFile, origin: 'MANAGED' } }]);
+        await handler.handle({ documentId: DOCUMENT_ID, steps: ['canonical'] });
+        if (reason === 'missing-original') {
+          const [page] = await fileRepo.listPagesForDocument(DOCUMENT_ID);
+          if (page === undefined) throw new Error('Expected Word source');
+          await storage.delete(originalKeyOf(page.file));
+        }
+        parser.configured = true;
+        const parse = vi.spyOn(parser, 'toMarkdown').mockImplementation((_source, options) => {
+          if (options.format === 'docx') {
+            if (reason === 'rejected') {
+              return Promise.reject(new Error('Unsupported native conversion'));
+            }
+            return Promise.resolve('');
+          }
+          return Promise.resolve(TEXT_LAYER);
+        });
+        await handler.handle({ documentId: DOCUMENT_ID, steps: ['markdown'] });
+        expect(stateOf().markdown).toBe(TEXT_LAYER);
+        expect(parse.mock.calls.at(-1)?.[1].format).toBeUndefined();
+      },
+    );
+
+    it('preserves the interruption checkpoint when native Docling is unavailable', async () => {
+      await givenDocument([{ file: wordFile }]);
+      parser.configured = true;
+      parser.unavailable = true;
+      const parse = vi.spyOn(parser, 'toMarkdown');
+      await expect(run()).rejects.toThrow('fetch failed');
+      expect(parse).toHaveBeenCalledTimes(1);
+      expect(parse.mock.calls[0]?.[1].format).toBe('docx');
+      expect(stateOf().steps.canonical).toBe('DONE');
+    });
+
+    it('does not open the original when Docling is unconfigured', async () => {
+      await givenDocument([{ file: wordFile }]);
+      await run();
+      expect(parser.calls).toEqual([]);
+      expect(stateOf().steps.markdown).toBe('DONE');
+    });
+  });
+
   it('rejects a payload that is not a document id', async () => {
     await expect(handler.handle({ id: DOCUMENT_ID })).rejects.toThrow();
   });
@@ -2671,6 +2818,9 @@ describe('HandleDocumentProcess', () => {
       queueSettingsFixture(unitConcurrency, queueStore),
       settings,
       new FixedClock(),
+      new DocumentMarkdownSource(fileRepo, (file) =>
+        readOriginalFile(file, fileRefs, libraries, reader, storage),
+      ),
     );
   }
 });

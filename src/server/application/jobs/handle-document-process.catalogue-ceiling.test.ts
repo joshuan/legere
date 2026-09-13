@@ -117,6 +117,7 @@ describe('HandleDocumentProcess catalogue proposals', () => {
       queueSettingsFixture(),
       settings,
       new FixedClock(),
+      { open: () => Promise.resolve(null) },
     );
   });
 

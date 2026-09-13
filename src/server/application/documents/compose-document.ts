@@ -77,7 +77,6 @@ const USER_PRIORITY = 10;
 
 // Enough bytes for magic-byte detection across the formats file-type recognises — the same head the
 // library ingest reads.
-const HEAD_BYTES = 4100;
 
 // What the corner detector reads: detection wants shapes rather than detail, and a full-resolution
 // photograph is a hundred times the work for the same four corners (docs/05 §5.6).
@@ -1114,7 +1113,7 @@ export async function describeUpload(
     throw new UnprocessableError('VALIDATION_FAILED', 'The uploaded file is empty');
   }
   const contentHash = ContentHash.parse(createHash('sha256').update(input.bytes).digest('hex'));
-  const detected = await mime.detect(input.bytes.subarray(0, HEAD_BYTES), input.fileName);
+  const detected = await mime.detect(input.bytes, input.fileName);
   // 🔒 Refused at the door, before anything is stored: an upload the pipeline could never render
   // would be a document of nothing but skipped steps (docs/05 §5.1a). The gate is the very
   // classification the canonical build branches on (§5.5 step 1), so what is accepted and what

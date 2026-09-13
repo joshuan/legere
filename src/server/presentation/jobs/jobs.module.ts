@@ -6,6 +6,8 @@ import { HandleMaintenance } from '../../application/jobs/handle-maintenance';
 import { HandleReceiptProcess } from '../../application/jobs/handle-receipt-process';
 import type { ProcessingSettings } from '../../application/jobs/processing-settings';
 import { BuildCanonical } from '../../application/documents/build-canonical';
+import { DocumentMarkdownSource } from '../../application/documents/document-markdown-source';
+import { readOriginalFile } from '../../application/documents/read-original-file';
 import { CallContext } from '../../application/ports/call-context';
 import { LoggingModule } from '../../infrastructure/logging/logging.module';
 import { Clock } from '../../application/ports/clock';
@@ -196,6 +198,20 @@ export const PROCESSING_WORKER_BINDINGS = [
       ],
     },
     {
+      provide: DocumentMarkdownSource,
+      useFactory: (
+        files: FileRepository,
+        fileRefs: FileRefRepository,
+        libraries: LibraryRepository,
+        reader: LibraryReader,
+        storage: FileStorage,
+      ) =>
+        new DocumentMarkdownSource(files, (file) =>
+          readOriginalFile(file, fileRefs, libraries, reader, storage),
+        ),
+      inject: [FileRepository, FileRefRepository, LibraryRepository, LibraryReader, FileStorage],
+    },
+    {
       provide: HandleDocumentProcess,
       useFactory: (
         documents: DocumentRepository,
@@ -221,6 +237,7 @@ export const PROCESSING_WORKER_BINDINGS = [
         queueSettings: QueueSettings,
         config: AppConfig,
         clock: Clock,
+        markdownSource: DocumentMarkdownSource,
       ): HandleDocumentProcess =>
         new HandleDocumentProcess(
           documents,
@@ -244,6 +261,7 @@ export const PROCESSING_WORKER_BINDINGS = [
           queueSettings,
           processingSettings(config),
           clock,
+          markdownSource,
         ),
       inject: [
         DocumentRepository,
@@ -267,6 +285,7 @@ export const PROCESSING_WORKER_BINDINGS = [
         QueueSettings,
         AppConfig,
         Clock,
+        DocumentMarkdownSource,
       ],
     },
     {

@@ -232,6 +232,7 @@ export type UpdateDocumentMetaInput = {
 // that came out wrong: how long did it take, how much did it cost, and did it actually read anything
 // (docs/03 §3.3.18).
 export type StepMetrics = {
+  sourceFormat?: 'pdf' | 'docx';
   // Characters of text the step produced — the half of "it took four minutes" that says whether the
   // four minutes bought anything.
   chars?: number;

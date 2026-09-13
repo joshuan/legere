@@ -1,6 +1,8 @@
 import type { BinarySource } from './binary-source';
 
 export type ParseOptions = {
+  // DOCX is a semantic document, submitted whole without PDF page ranges or OCR.
+  format?: 'pdf' | 'docx';
   // Tesseract language codes, in priority order, for the OCR pass. Empty means "no OCR": a PDF that
   // carries its own text is read, not recognised.
   ocrLanguages: readonly string[];

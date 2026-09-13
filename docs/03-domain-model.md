@@ -970,7 +970,7 @@ describes the bytes and nothing else.
 | contentHash | string | sha256 hex; unique among live files — the deduplication key that used to sit on the document (ADR-009, ADR-021) |
 | origin | FileOrigin | `LIBRARY` (bytes on the read-only volume, addressed by `FileRef`s) or `MANAGED` (bytes in our bucket) |
 | storageKey | string? | for `MANAGED` files, the exact object key; `NULL` for `LIBRARY` files. Stored rather than derived so a key written by an older version keeps working after the layout changes (docs/09 §9.2) |
-| mimeType | string | detected from content (magic bytes), never from the extension |
+| mimeType | string | detected from content (magic bytes and ZIP metadata); a verified legacy CFB container additionally needs `.doc` to select Word, and signature-free text needs a text extension (`06 §6.3.3`) |
 | ext | string | lower-cased original extension |
 | sizeBytes | bigint | |
 | name | string | the file's own name, as it arrived: the last path segment, or the uploaded file name |

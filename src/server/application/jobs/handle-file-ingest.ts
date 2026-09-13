@@ -103,7 +103,12 @@ export class HandleFileIngest extends JobHandler {
     }
 
     const contentHash = ContentHash.parse(hasher.digest('hex'));
-    const detected = await this.mime.detect(Buffer.concat(headChunks), ref.path.name);
+    const detected = await this.mime.detect(Buffer.concat(headChunks), ref.path.name, () =>
+      this.reader.openStream(
+        { rootPath: library.rootPath, excludeGlobs: library.excludeGlobs },
+        ref.path,
+      ),
+    );
 
     await this.unitOfWork.run(async (tx) => {
       // Question one: are these bytes already a file? Known content yields the file that already

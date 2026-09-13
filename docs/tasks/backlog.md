@@ -1898,3 +1898,10 @@ The complete product and technical contract is [`15`](../15-receipts.md). Tasks 
   **Goal:** an admin can distinguish failed receipts in the archive from retained queue jobs and retry a bounded batch.
   **Docs:** [`07 §7.3`](../07-api-specification.md#admin-processing), [`11 §11.13`](../11-ui-ux-spec.md#1113-admin-processing-adminprocessing)
   **Acceptance:** a dedicated Receipts tab shows whole-archive status counts, offers confirmed retries of at most 200 eligible failures and keeps queue controls beside the counts; responsive queue cards retain liveness metrics and localized labels. Retries exclude deleted receipts, queued/running steps and live jobs, preserve originals and successful previews, and commit jobs, status resets and actor events atomically. Concurrent requests cannot duplicate work; paused or unconfigured extraction is refused. E2e and component tests cover these behaviors and admin authorization.
+
+## M63 — Word documents
+
+- [x] **M63.1 — DOC and DOCX enter the normal document pipeline**
+  **Goal:** Word originals become readable PDFs and searchable Markdown through the existing services.
+  **Docs:** [`05 §5.5`](../05-library-and-processing.md), [`06 §6.3.3`](../06-backend-architecture.md)
+  **Acceptance:** uploads and library ingest recognize legacy DOC and DOCX even when ZIP metadata lies beyond the initial head; canonical PDF and preview conversion retain the original bytes. Complete, unchanged DOCX documents are parsed natively by Docling without PDF page ranges or OCR; compositions, legacy DOC and unavailable/failed native parsing use the canonical PDF. Detection, real-format conversion, extraction, fallback, page-edit and authorization regressions are covered; typecheck, lint, coverage and build pass.

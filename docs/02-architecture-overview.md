@@ -315,8 +315,9 @@ canonical PDF existed only for office formats, because only they needed converti
 
 **Decision.** Split the two. A **file** is bytes with a hash, a name and one home. A **document** is
 an ordered list of files plus one **canonical PDF built from them, for every document, always**. The
-viewer shows the canonical, Download hands over the canonical, every pipeline step reads the
-canonical; the originals stay untouched and downloadable one at a time. Composition is editable —
+viewer shows the canonical and Download hands over the canonical. Pipeline steps read the canonical,
+with one native-text optimization: Markdown for a complete, unchanged DOCX is read directly from its
+original through Docling (`05 §5.5`). The originals stay untouched and downloadable one at a time. Composition is editable —
 add, combine, split, reorder, crop — and every change rebuilds the canonical.
 
 **Half of this is superseded by [ADR-025](#adr-025-a-document-is-an-ordered-list-of-pages):** what a

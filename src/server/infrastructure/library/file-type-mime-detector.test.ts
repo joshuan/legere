@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { Readable } from 'node:stream';
+import { wordFixture } from '../../../../test/fixtures/office';
 import { FileTypeMimeDetector } from './file-type-mime-detector';
 
 const detector = new FileTypeMimeDetector();
@@ -18,6 +20,45 @@ const PNG = Buffer.concat([
 // Content decides, the extension is only the fallback where there are no magic bytes
 // (docs/06 §6.3.3, docs/03 §3.3.10).
 describe('FileTypeMimeDetector', () => {
+  it('recognizes real legacy DOC and DOCX, including uppercase extensions and late ZIP metadata', async () => {
+    expect(await detector.detect(await wordFixture('doc'), 'contract.DOC')).toEqual({
+      mime: 'application/msword',
+      ext: 'doc',
+    });
+    for (const format of ['docx', 'late-docx'] as const) {
+      expect(await detector.detect(await wordFixture(format), 'renamed.bin')).toEqual({
+        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ext: 'docx',
+      });
+    }
+  });
+
+  it('opens a fresh bounded stream for ZIP metadata beyond an ingest head and closes it', async () => {
+    const bytes = await wordFixture('late-docx');
+    const source = Readable.from([bytes]);
+    expect(
+      await detector.detect(bytes.subarray(0, 4100), 'contract.docx', () =>
+        Promise.resolve(source),
+      ),
+    ).toEqual({
+      mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ext: 'docx',
+    });
+    expect(source.destroyed).toBe(true);
+  });
+
+  it('does not promote unrelated binary content or ZIPs just because they are named as Word', async () => {
+    const zip = Buffer.alloc(22);
+    zip.writeUInt32LE(0x06054b50);
+    expect((await detector.detect(zip, 'fake.docx')).mime).toBe('application/zip');
+    expect((await detector.detect(Buffer.from([1, 0, 2, 3]), 'fake.doc')).mime).toBe(
+      'application/octet-stream',
+    );
+    expect((await detector.detect(await wordFixture('doc'), 'unknown.bin')).mime).toBe(
+      'application/x-cfb',
+    );
+  });
+
   it('detects a PDF from its magic bytes', async () => {
     expect(await detector.detect(PDF, 'invoice.pdf')).toEqual({
       mime: 'application/pdf',

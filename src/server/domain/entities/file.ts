@@ -66,6 +66,13 @@ export function isPdfFile(file: Pick<File, 'mimeType'>): boolean {
   return file.mimeType.split(';')[0]?.trim().toLowerCase() === 'application/pdf';
 }
 
+// Converters select an import filter by suffix; detection can disagree with the original name.
+export function conversionFileName(file: Pick<File, 'name' | 'ext'>): string {
+  return file.ext === '' || file.name.toLowerCase().endsWith(`.${file.ext}`)
+    ? file.name
+    : `${file.name}.${file.ext}`;
+}
+
 // Whether a list of indices is exactly the pages of a file of `pageCount` pages, each once — which
 // is the whole of what makes a stored page order storable (docs/07 §7.3). A short list, a repeated
 // index and an index past the end are the three ways to get it wrong, and this refuses all three by

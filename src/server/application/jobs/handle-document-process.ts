@@ -40,6 +40,7 @@ import type { PersonRepository } from '../../domain/repositories/person.reposito
 import type { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
 import type { SubjectRepository } from '../../domain/repositories/subject.repository';
 import type { BuildCanonical } from '../documents/build-canonical';
+import type { DocumentMarkdownSource } from '../documents/document-markdown-source';
 import type { BinarySource } from '../ports/binary-source';
 import type { CallContext } from '../ports/call-context';
 import type { StepSkipReason, StepStatus } from '../../../shared/contracts/enums';
@@ -102,8 +103,8 @@ const THUMB_QUALITY = 75;
 // something no document explains, and failing the step is how that gets said.
 export const CHUNK_WRITE_TIMEOUT_MS = 3 * 60 * 1_000;
 
-// What step 1 left behind for every step after it. There is one artifact now, whatever the document
-// was made of, so the later steps have one question to ask: is the canonical there (ADR-021)?
+// What step 1 left behind for every step after it. Even native DOCX extraction requires a
+// completed canonical, so every document stays readable as PDF (ADR-021).
 type Canonical =
   | { kind: 'ready'; pageCount: number; ocrUsed: boolean }
   // Nothing in the document can be rendered: no page to preview, no text to read, and no failure
@@ -148,6 +149,7 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly queueSettings: QueueSettings,
     private readonly settings: ProcessingSettings,
     private readonly clock: Clock,
+    private readonly markdownSource: Pick<DocumentMarkdownSource, 'open'>,
   ) {
     super();
   }
@@ -468,8 +470,8 @@ export class HandleDocumentProcess extends JobHandler {
     }
   }
 
-  // Step 3. The canonical PDF and nothing else: it is read where it carries text, and recognised
-  // where step 1's OCR still found none (docs/05 §5.5 step 3).
+  // Step 3. A complete DOCX retains its native structure; otherwise read the canonical PDF,
+  // applying OCR where its text layer is insufficient (docs/05 §5.5 step 3).
   private async extractMarkdown(document: Document, canonical: Canonical): Promise<void> {
     if (canonical.kind === 'nothing') {
       await this.write(document.id, {
@@ -485,15 +487,16 @@ export class HandleDocumentProcess extends JobHandler {
     }
 
     try {
-      const read = await this.readCanonicalText(document, canonical);
+      const read = await this.readDocumentText(document, canonical);
       const ocrUsed = canonical.ocrUsed || read.ocrUsed;
       // A document that had to be *recognised* is a photograph or a scan, and that is exactly where
       // the cheap path has a floor no tuning lifts (docs/05 §5.5 step 3). One that arrived carrying
       // its own text layer is left alone: reading it is free and perfect, and no model improves on
       // perfect.
-      const transcribed = ocrUsed
-        ? await this.transcribePages(document, canonical.pageCount, read.markdown)
-        : null;
+      const transcribed =
+        ocrUsed && !read.native
+          ? await this.transcribePages(document, canonical.pageCount, read.markdown)
+          : null;
       const markdown = transcribed?.markdown ?? read.markdown;
 
       // What the document turned out to be written in — the set a later OCR pass is given
@@ -505,6 +508,7 @@ export class HandleDocumentProcess extends JobHandler {
         // and only one of them was ever written down (docs/03 §3.3.18).
         metrics: {
           chars: markdown.length,
+          sourceFormat: read.native ? 'docx' : 'pdf',
           ocrUsed,
           ...(transcribed === null ? {} : { transcribed: true, ...transcribed.usage }),
         },
@@ -555,6 +559,32 @@ export class HandleDocumentProcess extends JobHandler {
     } catch {
       return null;
     }
+  }
+
+  private async readDocumentText(
+    document: Document,
+    canonical: { pageCount: number },
+  ): Promise<{ markdown: string; ocrUsed: boolean; native?: boolean }> {
+    if (this.parser.isConfigured) {
+      try {
+        const source = await this.markdownSource.open(document.id);
+        if (source !== null) {
+          const markdown = tidyMarkdown(
+            await this.parser.toMarkdown(source, {
+              format: 'docx',
+              ocrLanguages: [],
+              pageCount: canonical.pageCount,
+            }),
+          );
+          if (markdown.trim() !== '') return { markdown, ocrUsed: false, native: true };
+        }
+      } catch (error) {
+        // A missing original or rejected native conversion still has a readable canonical PDF.
+        // A service hold is different: preserve the queue's normal interruption/checkpoint path.
+        if (error instanceof ServiceUnavailableError) throw error;
+      }
+    }
+    return this.readCanonicalText(document, canonical);
   }
 
   private async readCanonicalText(

@@ -118,7 +118,8 @@ export class DoclingParser extends DocumentParser {
     // memory than a two-dozen-page one. A document at or under the window — or one whose page count
     // is unknown — is one window with no `page_range` at all, byte for byte the request this step
     // has always sent.
-    const windows = pageWindows(options.pageCount);
+    const windows: PageWindow[] =
+      options.format === 'docx' ? [null] : pageWindows(options.pageCount);
     const parseDeadline = Date.now() + PARSE_DEADLINE_MS;
 
     const parts: string[] = [];
@@ -183,12 +184,13 @@ export class DoclingParser extends DocumentParser {
 
   private buildForm(bytes: Buffer, options: ParseOptions, window: PageWindow): FormData {
     const form = new FormData();
-    form.append('files', new Blob([viewOf(bytes)]), 'input.pdf');
+    const native = options.format === 'docx';
+    form.append('files', new Blob([viewOf(bytes)]), native ? 'input.docx' : 'input.pdf');
     form.append('to_formats', 'md');
     // pypdfium2 over the default parser: measured on real documents, the default splits diacritics
     // into separate glyph runs — "li č ne" instead of "lične" — which breaks the word for search as
     // well as for reading (docs/05 §5.5).
-    form.append('pdf_backend', 'pypdfium2');
+    if (!native) form.append('pdf_backend', 'pypdfium2');
     if (window !== null) {
       // Two repeated fields, 1-based and inclusive — verified against docling-serve itself, which
       // answers 200 with the whole document when the field name is wrong.
@@ -196,7 +198,7 @@ export class DoclingParser extends DocumentParser {
       form.append('page_range', String(window[1]));
     }
 
-    if (options.ocrLanguages.length === 0) {
+    if (native || options.ocrLanguages.length === 0) {
       // The document carries its own text: reading it is both faster and more accurate than
       // recognising a picture of it.
       form.append('do_ocr', 'false');

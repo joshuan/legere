@@ -153,6 +153,7 @@ describe('Document processing (integration)', () => {
       queueSettingsFixture(),
       settings,
       new FixedClock(),
+      { open: () => Promise.resolve(null) },
     );
 
     await truncateAll();

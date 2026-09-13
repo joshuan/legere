@@ -4,7 +4,7 @@ import { loadConfig } from '../../src/server/infrastructure/config/app-config';
 import { ServiceGates } from '../../src/server/application/queue/service-gate';
 import { FixedClock } from '../helpers/fakes';
 import { StirlingPdfToolbox } from '../../src/server/infrastructure/pdf/stirling-pdf-toolbox';
-import { rtfWithText } from '../fixtures/office';
+import { rtfWithText, wordFixture } from '../fixtures/office';
 import { pdfWithText } from '../fixtures/pdf';
 
 const config = loadConfig(process.env);
@@ -31,6 +31,24 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
   beforeAll(async () => {
     stirling.up = await reachable(`${STIRLING_URL}/api/v1/info/status`);
   });
+
+  for (const format of ['doc', 'docx'] as const) {
+    itWithStirling(
+      `converts a real ${format.toUpperCase()} to readable PDF and a first-page preview`,
+      async () => {
+        const original = await wordFixture(format);
+        const unchanged = Buffer.from(original);
+        const pdf = await pdfs.toPdf({ body: original, fileName: `word.${format}` });
+        expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+        expect(await pdfs.pdfPageCount(pdf)).toBeGreaterThan(0);
+        const markdown = await pdfs.pdfToMarkdown(pdf);
+        expect(markdown).toContain('FIRSTPAGE');
+        expect(markdown).toContain('SECONDPAGE');
+        expect((await pdfs.pdfPageJpg(pdf)).subarray(0, 2)).toEqual(Buffer.from([0xff, 0xd8]));
+        expect(original).toEqual(unchanged);
+      },
+    );
+  }
 
   itWithStirling('counts the pages of a PDF', async () => {
     expect(await pdfs.pdfPageCount(pdfWithText(['one', 'two', 'three']))).toBe(3);

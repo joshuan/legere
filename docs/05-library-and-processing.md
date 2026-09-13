@@ -918,8 +918,21 @@ they are served to the client via short-lived signed URLs after an access check.
 2. **First-page JPG preview:** the canonical PDF → Stirling-PDF (PDF→IMG, first page) → `sharp`
    (resize/JPEG). Artifacts `preview.jpg` (+ a smaller `thumb.jpg` for lists). One rule for every
    document, because by this point every document is a PDF.
-3. **Markdown extraction** — the canonical PDF goes through **Docling** (ADR-018), which has a layout model:
+3. **Markdown extraction** — normally the canonical PDF goes through **Docling** (ADR-018), which has a layout model:
    headings stay headings and tables stay tables, instead of being flattened into a wall of text.
+   **Word documents:** both legacy `.doc` and `.docx` are accepted by upload and library ingest and
+   always receive a canonical PDF through Stirling/LibreOffice, with previews from that PDF.
+   For a document containing exactly one complete DOCX, Docling reads the original DOCX directly,
+   retaining its headings, lists and tables without PDF layout reconstruction. This optimization
+   requires every source page exactly once in its original order, with no crop or turn; merged,
+   split or rearranged documents use the canonical PDF so removed text never returns to search.
+   DOCX is submitted once, without PDF page windows or OCR options: its semantic content has no
+   stable PDF page boundaries. Canonicalization remains required before Markdown. Legacy DOC,
+   an unconfigured parser, an unavailable original, empty native output or a rejected native parse
+   uses the existing PDF path. Service interruptions still follow the normal retry/cooldown rules.
+   The Markdown completion event records `sourceFormat: docx | pdf`. Originals remain unchanged
+   in their original storage. Native DOCX support is provided by the
+   existing [Docling parser](https://docling-project.github.io/docling/usage/supported_formats/).
    With `DOCLING_URL` empty the step falls back to Stirling's converter, which reads the text and
    loses that structure. What that fallback then tidies up — Stirling's image placeholders, and the
    Markdown tables it invents for a page whose *layout* is a table — is text derived from a PDF

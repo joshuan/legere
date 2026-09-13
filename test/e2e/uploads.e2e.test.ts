@@ -10,6 +10,7 @@ import { artifactKeys } from '../../src/server/application/storage/artifact-keys
 import { api, createTestApp, tokenFromFragmentUrl, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
+import { wordFixture } from '../fixtures/office';
 
 const PASSWORD = 'a-decent-passphrase';
 // A real PDF header, so content detection has something to recognise.
@@ -23,7 +24,7 @@ describe('Uploads (e2e)', () => {
 
   beforeAll(async () => {
     // A small cap keeps the oversize case honest without pushing 100 MiB through the heap.
-    app = await createTestApp({ uploadMaxBytes: 4096 });
+    app = await createTestApp({ uploadMaxBytes: 64 * 1024 });
   });
 
   beforeEach(async () => {
@@ -80,6 +81,33 @@ describe('Uploads (e2e)', () => {
       .postBinary('/api/documents', body)
       .set('Cookie', cookie)
       .set('X-Legere-Filename', encodeURIComponent(fileName));
+
+  it.each(['doc', 'docx', 'late-docx'] as const)(
+    'accepts a real %s upload and queues canonical processing',
+    async (format) => {
+      const ext = format === 'doc' ? 'doc' : 'docx';
+      const bytes = await wordFixture(format);
+      const { document } = expectData(
+        await upload(adminCookie, bytes, `contract.${ext}`),
+        uploadDocumentResponseSchema,
+      );
+      expect(document.primaryExt).toBe(ext);
+      expect(
+        (await testPrisma().document.findUniqueOrThrow({ where: { id: document.id } }))
+          .canonicalStatus,
+      ).toBe('QUEUED');
+      expect(await processJobs()).toContainEqual(
+        expect.objectContaining({ data: { documentId: document.id } }),
+      );
+      const file = await testPrisma().file.findFirstOrThrow();
+      expect(file.mimeType).toBe(
+        ext === 'doc'
+          ? 'application/msword'
+          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+      expect(app.files.get(file.storageKey ?? '').body).toEqual(bytes);
+    },
+  );
 
   const processJobs = (): Promise<{ data: { documentId: string } }[]> =>
     testPrisma().$queryRawUnsafe(

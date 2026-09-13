@@ -26,6 +26,7 @@ import { StorageModule } from '../../src/server/infrastructure/storage/storage.m
 import { QueueModule } from '../../src/server/infrastructure/queue/queue.module';
 import { JobsModule } from '../../src/server/presentation/jobs/jobs.module';
 import { disconnectTestPrisma, truncateAll } from '../helpers/db';
+import { wordFixture } from '../fixtures/office';
 
 // The core promise of the product (docs/05 §5.2–5.4, §5.7, docs/03 §3.3.9–3.3.10): a mounted folder
 // becomes deduplicated documents. Exercised over real files with the real database and queue.
@@ -150,6 +151,27 @@ describe('Scan and ingest (integration)', () => {
     prisma.scanRun.findFirstOrThrow({ where: { libraryId }, orderBy: { startedAt: 'desc' } });
 
   // Tests -------------------------------------------------------------------
+
+  it.each(['doc', 'late-docx'] as const)(
+    'ingests real %s Word bytes from the read-only library',
+    async (format) => {
+      const libraryId = await createLibrary();
+      const ext = format === 'doc' ? 'doc' : 'docx';
+      const bytes = await wordFixture(format);
+      await writeFile(join(root, `contract.${ext}`), bytes);
+      await scan.handle({ libraryId });
+      expect(await runIngests()).toBe(1);
+      const file = await prisma.file.findFirstOrThrow();
+      expect(file.ext).toBe(ext);
+      expect(file.origin).toBe('LIBRARY');
+      expect(file.mimeType).toBe(
+        ext === 'doc'
+          ? 'application/msword'
+          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+      expect(await countProcessJobs()).toBe(1);
+    },
+  );
 
   describe('the scan diff (docs/05 §5.2)', () => {
     it('discovers new files, records a ScanRun and enqueues one ingest each', async () => {

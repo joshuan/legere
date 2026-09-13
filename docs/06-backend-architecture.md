@@ -107,7 +107,7 @@ re-delivery (pg-boss is at-least-once).
 | `QueueMonitor` | `depths()`, `failedJobs(cursor)`, `failedJob(jobId)`, `isHealthy()` — read-only; depths include oldest queued time, latest completion and completed-in-60-minutes per known queue | `PgBossQueueMonitor` (raw SQL over the `pgboss` schema) |
 | `ProcessingWorkerRuntime` | `reconfigure(queues, settings)`, `snapshot()` — the narrow live-worker boundary used by the safe-apply protocol of `05 §5.4f`; it takes the desired settings explicitly and never re-reads them | `WorkerRegistry`; process-wide `ServiceGates` remain an application collaborator because every external adapter already acquires them there |
 | `UnitOfWork` | `run<T>(fn: (tx) => Promise<T>, bounds?: { timeoutMs })` | `PrismaUnitOfWork` (`$transaction`; repositories accept the tx handle). The bound is optional and the adapter's default stands without it (§6.3.4) |
-| `MimeDetector` | `detect(streamHead): {mime, ext}` | `FileTypeMimeDetector` (`file-type` package; fallback to extension for text) |
+| `MimeDetector` | `detect(bytes, fileName, openSource?): {mime, ext}` | `FileTypeMimeDetector`: magic bytes first; ZIP contents identify DOCX, with a fresh bounded stream when an ingest head is insufficient. Legacy DOC requires both the CFB signature and `.doc`; text requires a text-like head and a text extension. A renamed arbitrary binary/ZIP is not a Word document. |
 
 ### 6.3.4. Transactions
 `UnitOfWork.run` wraps every multi-write use case. Job enqueueing inside a transaction uses

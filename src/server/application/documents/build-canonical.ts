@@ -5,7 +5,7 @@ import { classifyFormat, type DocumentFormat } from '../../domain/entities/docum
 import { pageGeometryOf, type SourceShape } from '../../domain/entities/document-page-geometry';
 import { hasUsableTextLayer } from '../../domain/entities/document-text';
 import { ocrLanguagesOf } from '../../domain/entities/document-language';
-import type { File } from '../../domain/entities/file';
+import { conversionFileName, type File } from '../../domain/entities/file';
 import type {
   DocumentPageWithFile,
   FileRepository,
@@ -19,12 +19,12 @@ import type { LibraryReader } from '../ports/library-reader';
 import type { PdfToolbox } from '../ports/pdf-toolbox';
 import type { ProcessingSettings } from '../jobs/processing-settings';
 import type { QueueSettings } from '../queue/queue-settings';
-import { originalKeyOf } from '../storage/artifact-keys';
+import { readOriginalFile } from './read-original-file';
 
 // Step 1 of the pipeline, on its own (docs/05 §5.5): the pages of a document, in their order, become
 // one PDF. Six passes — every file opened once and its pages counted, every page turned into a part,
 // the parts merged, a text layer ensured, the format applied, the metadata stamped — and the result
-// is the canonical, which every later step reads and nothing else.
+// is the canonical. Markdown may use the original only for a complete, unchanged DOCX.
 //
 // Written as a service rather than as a method of the job handler because it is the one part of the
 // pipeline that knows what a document is *made of*; the handler knows what a document has *been
@@ -164,8 +164,11 @@ export class BuildCanonical {
     }
 
     if (format === 'OFFICE' || format === 'TEXT') {
-      // The converter picks its input filter from the extension, so the file keeps its own name.
-      const pdf = await this.pdfs.toPdf({ body: await this.read(file), fileName: file.name });
+      // Keep the name while ensuring its suffix agrees with the detected conversion format.
+      const pdf = await this.pdfs.toPdf({
+        body: await this.read(file),
+        fileName: conversionFileName(file),
+      });
       return { kind: 'pdf', pdf, pageCount: await this.pdfs.pdfPageCount(pdf) };
     }
 
@@ -366,24 +369,7 @@ export class BuildCanonical {
   // request, and a canonical built out of the files one person may see would be a different document
   // for each reader.
   private async read(file: File): Promise<BinarySource> {
-    if (file.origin === 'MANAGED') return this.storage.getStream(originalKeyOf(file));
-
-    const ref = await this.fileRefs.findLiveRefForFile(file.id);
-    if (ref === null) {
-      // The file vanished before the rebuild got to it. Throwing lets the job retry with backoff and
-      // then surface in the failures list, rather than quietly writing a canonical missing a page.
-      throw new Error(`The file "${file.name}" is not on any volume we can read`);
-    }
-
-    const library = await this.libraries.findById(ref.libraryId);
-    if (library === null || library.deletedAt !== null) {
-      throw new Error(`The file "${file.name}" is in a library that no longer exists`);
-    }
-
-    return this.reader.openStream(
-      { rootPath: library.rootPath, excludeGlobs: library.excludeGlobs },
-      ref.path,
-    );
+    return readOriginalFile(file, this.fileRefs, this.libraries, this.reader, this.storage);
   }
 }
 

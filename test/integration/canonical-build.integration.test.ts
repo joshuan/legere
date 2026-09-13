@@ -27,7 +27,7 @@ import { PrismaService } from '../../src/server/infrastructure/persistence/prism
 import { SharpImageTool } from '../../src/server/infrastructure/pdf/sharp-image-tool';
 import { StirlingPdfToolbox } from '../../src/server/infrastructure/pdf/stirling-pdf-toolbox';
 import { InMemoryFileStorage } from '../../src/server/infrastructure/storage/in-memory-file-storage';
-import { rtfWithText } from '../fixtures/office';
+import { rtfWithText, wordFixture } from '../fixtures/office';
 import { pdfWithText } from '../fixtures/pdf';
 import { disconnectTestPrisma, truncateAll } from '../helpers/db';
 import { StubLibraryReader } from '../helpers/processing-fakes';
@@ -265,6 +265,37 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
       expect(text.indexOf(PDF_TEXT.slice(0, 40))).toBeLessThan(
         text.indexOf(OFFICE_TEXT.slice(0, 40)),
       );
+    },
+  );
+
+  itWithStirling(
+    'builds a DOCX canonical and removes a page without changing the Word original',
+    async () => {
+      const document = await prisma.document.create({ data: { title: 'Word pages' } });
+      const original = await wordFixture('docx');
+      const fileId = await givenFile(document.id, 0, {
+        name: 'word.docx',
+        ext: 'docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        bytes: original,
+      });
+      const whole = await build.execute(documentRow(document.id));
+      if (whole.kind !== 'built') throw new Error('Expected a Word canonical');
+      expect(whole.pageCount).toBe(2);
+      const pages = await files.listPagesForDocument(document.id);
+      expect(pages.map((page) => page.pageIndex)).toEqual([0, 1]);
+      const first = pages[0];
+      if (first === undefined) throw new Error('Expected the first Word page');
+      await files.replacePages(document.id, { expecting: null, pages: [first] });
+      const edited = await build.execute(documentRow(document.id));
+      if (edited.kind !== 'built') throw new Error('Expected an edited canonical');
+      expect(edited.pageCount).toBe(1);
+      const pdfs = new StirlingPdfToolbox(config, new ServiceGates(new FixedClock()));
+      const text = await pdfs.pdfToMarkdown(edited.pdf);
+      expect(text).toContain('FIRSTPAGE');
+      expect(text).not.toContain('SECONDPAGE');
+      const file = await prisma.file.findUniqueOrThrow({ where: { id: fileId } });
+      expect(storage.get(file.storageKey ?? '').body).toEqual(original);
     },
   );
 
