@@ -1201,7 +1201,7 @@ describe('Document files (e2e)', () => {
     });
 
     it('still lets the pictures and the PDF the page shows render where they stand', async () => {
-      const { documentId } = await givenLibraryDocument();
+      const { documentId } = await givenLibraryDocument({ title: 'Rental agreement' });
       await app.files.put(artifactKeys.canonicalPdf(documentId), PDF, 'application/pdf');
 
       const [preview, thumb, canonical] = await Promise.all([
@@ -1228,12 +1228,15 @@ describe('Document files (e2e)', () => {
       });
       expect(deliveryOf(canonical.headers.location)).toEqual({
         contentType: 'application/pdf',
-        disposition: 'inline',
+        disposition:
+          'inline; filename="Rental agreement.pdf"; filename*=UTF-8\'\'Rental%20agreement.pdf',
       });
       // Present all the same, on the branch that used to say nothing at all (SEC-03).
       expect(preview.headers['x-content-type-options']).toBe('nosniff');
       expect(canonical.headers['x-content-type-options']).toBe('nosniff');
-      expect(canonical.headers['content-disposition']).toBe('inline');
+      expect(canonical.headers['content-disposition']).toBe(
+        'inline; filename="Rental agreement.pdf"; filename*=UTF-8\'\'Rental%20agreement.pdf',
+      );
     });
 
     it('404s a preview the pipeline never produced', async () => {

@@ -47,6 +47,12 @@ enum Theme {
   DARK
 }
 
+enum ApiTokenScope {
+  READ
+  DOCUMENTS_INGEST
+  RECEIPTS_INGEST
+}
+
 enum LibraryVisibility {
   ALL_USERS
   RESTRICTED
@@ -184,6 +190,7 @@ model ApiToken {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @map("user_id") @db.Uuid
   name       String
+  scope      ApiTokenScope @default(READ)
   tokenHash  String    @unique @map("token_hash")
   expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
   lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
