@@ -22,6 +22,8 @@ export const ATTACHED_FILENAME_HEADER = 'x-file-name';
 const RAW_BODY_ROUTES: readonly { method: string; path: RegExp }[] = [
   // POST /api/documents — a new document from an uploaded file.
   { method: 'POST', path: /^\/documents\/?$/ },
+  // POST /api/incoming/documents — a narrowly authenticated automation upload.
+  { method: 'POST', path: /^\/incoming\/documents\/?$/ },
   // POST /api/documents/:id/files — another file for a document that exists.
   { method: 'POST', path: /^\/documents\/[^/]+\/files\/?$/ },
   // POST /api/documents/:id/files/:fileId/replacement — a better copy of one page (docs/05 §5.6).

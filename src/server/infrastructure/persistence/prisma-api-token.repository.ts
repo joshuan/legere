@@ -14,6 +14,7 @@ function toDomain(row: PrismaApiToken): ApiToken {
     id: row.id,
     userId: row.userId,
     name: row.name,
+    scope: row.scope,
     tokenHash: row.tokenHash,
     expiresAt: row.expiresAt,
     lastUsedAt: row.lastUsedAt,

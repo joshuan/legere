@@ -14,8 +14,8 @@ human-readable index and must stay in sync with them.
 - **Auth:** session cookie `sid` (httpOnly), or `Authorization: Bearer <api token>` for reads
   ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)). 🔒 = requires session;
   🔒ᴬ = requires role ADMIN. A bearer token satisfies 🔒/🔒ᴬ on safe methods as its owner would;
-  on any other method the request is refused with `READ_ONLY_TOKEN`, so every mutation below means
-  "session only". Mutations additionally pass the fail-closed Origin check
+  on any other method the request is refused with `READ_ONLY_TOKEN`, except the two explicitly
+  scoped inbox uploads below. Mutations additionally pass the fail-closed Origin check
   ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)).
 - **Pagination:** cursor-based: request `?limit=` (default 30, max 100) `&cursor=` (opaque);
   response `{ data: { items: [...], nextCursor: string | null } }`. An **aggregate** is not a list of
@@ -57,7 +57,7 @@ human-readable index and must stay in sync with them.
 | 401 | `UNAUTHENTICATED` | no/invalid session |
 | 401 | `INVALID_CREDENTIALS` | login; the current password of `POST /api/me/password` ([`08 §8.1.6a`](./08-auth-and-authorization.md)) |
 | 403 | `FORBIDDEN` | authz failure, CSRF failure, deactivated user |
-| 403 | `READ_ONLY_TOKEN` | a mutating request carrying an `Authorization: Bearer` header ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)) |
+| 403 | `READ_ONLY_TOKEN` | a mutating request carrying an `Authorization: Bearer` header outside the two scoped inbox uploads ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions)) |
 | 404 | `NOT_FOUND` | unknown route/malformed id |
 | 404 | `USER_NOT_FOUND`, `LIBRARY_NOT_FOUND`, `DOCUMENT_NOT_FOUND`, `DOCUMENT_TYPE_NOT_FOUND`, `COLLECTION_NOT_FOUND`, `FILE_NOT_FOUND`, `PAGE_NOT_FOUND`, `INVITE_NOT_FOUND`, `API_TOKEN_NOT_FOUND`, `SESSION_NOT_FOUND`, `LINK_NOT_FOUND` | resource lookups (incl. soft-deleted); a session belonging to somebody else is *not found* rather than forbidden ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions)) |
 | 409 | `EMAIL_ALREADY_REGISTERED` | registration race |
@@ -75,7 +75,7 @@ human-readable index and must stay in sync with them.
 | 409 | `STEPS_PAUSED` | a reprocess whose every requested step is paused ([`05 §5.4d`](./05-library-and-processing.md#54d-a-step-can-be-paused)) — the job would do nothing, so it is refused rather than enqueued |
 | 409 | `PROCESSING_SETTINGS_CHANGED` | a scoped processing command whose `expectedRevision` is no longer current; re-read before deciding what to write |
 | 410 | `ONBOARDING_CLOSED` | onboarding after first user exists |
-| 415 | `UNSUPPORTED_FORMAT` | an uploaded file whose detected content type the pipeline cannot render into pages ([`05 §5.1a`](./05-library-and-processing.md#51a-uploads)) — all three upload routes |
+| 415 | `UNSUPPORTED_FORMAT` | an uploaded file whose detected content type the pipeline cannot render into pages ([`05 §5.1a`](./05-library-and-processing.md#51a-uploads)) — every raw-file upload route |
 | 422 | `VALIDATION_FAILED` | Zod failure (`details.issues`) — including the timestamp cursor of `GET /api/admin/processing/failures` (§7.1) |
 | 422 | `CURSOR_SORT_MISMATCH` | a cursor cut from one named order handed to a request asking for another (§7.1) |
 | 422 | `LIBRARY_PATH_INVALID` | path outside root / not a directory |
@@ -161,6 +161,8 @@ session and cannot answer "which of these is you" ([`08 §8.2`](./08-auth-and-au
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `POST /api/documents` | 🔒 | **upload**: the file as the raw request body, its name in `X-Legere-Filename` (RFC 5987 or plain). Mime detected from content; a format the pipeline cannot render → `415 UNSUPPORTED_FORMAT` (`05 §5.1a`); `UPLOAD_MAX_BYTES` cap → 413. Deduplicated by **file** (ADR-009, ADR-021): bytes that are already a file resolve to that file's document when the caller may read it (`200`), and to `409 DOCUMENT_DUPLICATE` when they may not. Otherwise `201` with a new document holding the new file, processing already enqueued |
+| `POST /api/incoming/documents` | `Authorization: Bearer <DOCUMENTS_INGEST token>` | **automation upload** for mailbox workflows: same raw-file body and `X-Legere-Filename` header as `POST /api/documents`, owned by the token's user. The same format, size, deduplication and queued-processing rules apply; the token cannot read the archive or call another endpoint (`08 §8.2b`) |
+| `POST /api/incoming/receipts` | `Authorization: Bearer <RECEIPTS_INGEST token>` | **automation receipt upload**: multipart form, binary field `file`, optional text field `text`, identical to `POST /api/receipts`; owned by the token's user and enqueued for receipt processing. The token cannot read receipts or call another endpoint (`08 §8.2b`) |
 | `GET /api/documents` | 🔒 | paginated; `sort?` = `documentDate` \| `createdAt` \| `lastEventAt` — the closed set of named orders of §7.1, all three newest-first with the id as the tiebreak, **which of them is the default named in the table below and nowhere else**, here or in `11 §11.3`, because a default written down twice is a default that drifts; filters: `libraryId?`, `typeId?`, `personId?`, `subjectId?`, `subjectKindId?` (every subject of that kind at once, 03 §3.3.20a), `year?`, `country?` (ISO 3166-1 alpha-2, upper-cased on the way in like the PATCH does, so `?country=me` is the same question), `city?` (matched exactly as stored, which is what a link carrying a document's own place hands over), `availability?` (`AVAILABLE`\|`PARTIAL`\|`UNAVAILABLE`), `processing?` (bool), `origin?` (`LIBRARY`\|`MANAGED`), `unassigned?` (a grouping dimension: the documents that have **no** value in it — no type, no date, nobody named on them; a question no uuid filter has room to ask, and the one a grouped grid needs for its last section, `11 §11.3`), `step?` + `stepStatus?` (given together: the documents whose named pipeline step sits in that status — what a queue counter links to, 11 §11.13); only documents the caller can read. Every one of them is what a name in the viewer's details pane links to (11 §11.5); `subjectId` and `subjectKindId` given together are one question and not two — a kind with a thing of another kind finds nothing |
 | `GET /api/documents/years` | 🔒 | `{ items: [{ year, count }] }`, newest first — the years the caller's documents carry (11 §11.4). Declared before `:id`, or the router reads "years" as a document id
 | `GET /api/documents/groups?by=` | 🔒 | `{ items: [{ key, label, count }] }`, where a `key` of `null` is the group of documents that have **no** value in that dimension — last, and outside the cap, because dropping it would take those documents off the screen rather than off a shelf (`11 §11.3`); its contents are this list with `unassigned=<dimension>` — the shelves of one dimension under the filters in force (see below). `by` = `type`\|`person`\|`subject`\|`year`\|`country`\|`city`; takes **every filter `GET /api/documents` takes** and no pagination. Declared before `:id`, like the years |

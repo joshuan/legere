@@ -10,6 +10,7 @@ import {
   InputNumber,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Table,
   Tag,
@@ -22,8 +23,7 @@ import { apiTokenApi, apiTokenKeys } from '../../entities/api-token';
 import { useErrorMessage } from '../../shared/lib';
 import { OneTimeLinkModal } from '../../shared/ui';
 
-// The API tokens card on /settings (docs/11 §11.9). A token reads this instance from outside and
-// can never write to it, which is the one thing the card has to make obvious.
+// The API tokens card names the one capability a script receives; inbox tokens never inherit read.
 export function ApiTokensCard() {
   const t = useTranslations();
   const queryClient = useQueryClient();
@@ -82,6 +82,11 @@ export function ApiTokensCard() {
           locale={{ emptyText: t('settings.apiTokens.empty') }}
           columns={[
             { title: t('settings.apiTokens.columns.name'), dataIndex: 'name' },
+            {
+              title: t('settings.apiTokens.columns.scope'),
+              dataIndex: 'scope',
+              render: (scope: ApiTokenDto['scope']) => t(`settings.apiTokens.scopes.${scope}`),
+            },
             {
               title: t('settings.apiTokens.columns.status'),
               dataIndex: 'status',
@@ -145,6 +150,14 @@ export function ApiTokensCard() {
             rules={[{ required: true, message: t('settings.apiTokens.nameRequired') }]}
           >
             <Input placeholder={t('settings.apiTokens.namePlaceholder')} />
+          </Form.Item>
+          <Form.Item label={t('settings.apiTokens.scope')} name="scope" initialValue="READ">
+            <Select
+              options={['READ', 'DOCUMENTS_INGEST', 'RECEIPTS_INGEST'].map((scope) => ({
+                value: scope,
+                label: t(`settings.apiTokens.scopes.${scope}`),
+              }))}
+            />
           </Form.Item>
           {/* Left empty on purpose: the instance default is the server's to know (docs/12 §12.4). */}
           <Form.Item label={t('settings.apiTokens.expiresInDays')} name="expiresInDays">

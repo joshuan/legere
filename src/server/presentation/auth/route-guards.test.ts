@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { AppModule } from '../../app.module';
 import { DocumentAccessGuard } from '../documents/document-access.guard';
+import { ApiTokenScopeGuard } from './api-token-scope.guard';
 import { ROLES_KEY, RolesGuard } from './roles.guard';
 import { SessionGuard } from './session.guard';
 
@@ -58,10 +59,13 @@ describe('the route table (🔒 docs/08 §8.6)', () => {
     expect(new Set(routes.map((route) => route.id)).size).toBe(routes.length);
   });
 
-  it('puts every route that is not deliberately public behind SessionGuard', () => {
+  it('puts every route that is not deliberately public behind session or scoped API-token auth', () => {
     const unguarded = routes
       .filter((route) => !PUBLIC_ROUTES.has(route.id))
-      .filter((route) => !route.guards.includes(SessionGuard))
+      .filter(
+        (route) =>
+          !route.guards.includes(SessionGuard) && !route.guards.includes(ApiTokenScopeGuard),
+      )
       .map((route) => `${route.id} (${route.path})`);
 
     expect(unguarded).toEqual([]);

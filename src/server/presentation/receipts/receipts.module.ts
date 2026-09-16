@@ -19,6 +19,8 @@ import { ReceiptRepository } from '../../domain/repositories/receipt.repository'
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { ReceiptsController } from './receipts.controller';
+import { ReceiptIngestController } from './receipt-ingest.controller';
+import { ApiTokenScopeGuard } from '../auth/api-token-scope.guard';
 
 @Module({
   imports: [
@@ -34,9 +36,10 @@ import { ReceiptsController } from './receipts.controller';
       }),
     }),
   ],
-  controllers: [ReceiptsController],
+  controllers: [ReceiptsController, ReceiptIngestController],
   providers: [
     ...sessionGuardProviders,
+    ApiTokenScopeGuard,
     {
       provide: ListReceipts,
       useFactory: (receipts: ReceiptRepository): ListReceipts => new ListReceipts(receipts),

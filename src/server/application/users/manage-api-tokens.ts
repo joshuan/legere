@@ -37,6 +37,7 @@ export class CreateApiToken {
     const created = await this.apiTokens.create({
       userId,
       name: input.name,
+      scope: input.scope ?? 'READ',
       tokenHash: this.tokens.hash(plaintext),
       expiresAt: new Date(now.getTime() + days * MS_PER_DAY),
     });
@@ -97,6 +98,7 @@ export function toApiTokenDto(token: ApiToken, now: Date): ApiTokenDto {
   return {
     id: token.id,
     name: token.name,
+    scope: token.scope,
     status: statusOf(token, now),
     createdAt: token.createdAt.toISOString(),
     expiresAt: token.expiresAt.toISOString(),

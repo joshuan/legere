@@ -89,7 +89,7 @@ ALLOW_UNCONFIGURED_EMAIL=false               # production refuses an empty SMTP_
 LIBRARY_ROOT=./dev-library                   # the folder `npm run dev` reads; the container overrides this with /library
 GROUPING_WINDOW_MINUTES=10                   # how close in time scans must be to be suggested as one document (05 §5.6a)
 SCAN_MAX_FILES=50000                         # a scan gives up past this many files (05 §5.2); 0 = no limit
-UPLOAD_MAX_BYTES=104857600                   # 100 MiB: the largest file a user may upload (05 §5.1a)
+UPLOAD_MAX_BYTES=104857600                   # app default 100 MiB; deployment sets 256 MiB explicitly, the pipeline maximum (05 §5.1a)
 TRASH_RETENTION_DAYS=30                      # how long a file of ours waits in the trash before the sweep deletes it (05 §5.7a); a library original waits for a person however this is set
 
 # --- S3 (derived artifacts; dev values match the compose MinIO) ---
@@ -160,6 +160,32 @@ RECEIPT_API_KEY=                             # never inherits a key from another
 RECEIPT_MODEL=                               # e.g. gemma4:e4b-it-q4_K_M on Ollama; see 15 §15.6
 RECEIPT_PAGE_IMAGE_MAX_DIM=1600
 ```
+
+### Mail attachments through n8n
+
+In **Settings → API tokens**, create a token with scope `DOCUMENTS_INGEST` or `RECEIPTS_INGEST`.
+The token is shown exactly once; store it in n8n's credential manager. It belongs to the signed-in
+user, expires like every API token, appears in the token list with its scope and can be revoked there
+without restarting Legere.
+
+In an n8n workflow, place an **HTTP Request** node after the email trigger and iterate over its
+attachments. Configure the node as follows (the exact labels differ slightly between n8n releases):
+
+| Setting | Value |
+|---|---|
+| Method | `POST` |
+| URL | `https://<your-legere-host>/api/incoming/documents` |
+| Authentication | HTTP Header Auth: `Authorization: Bearer <DOCUMENTS_INGEST token>` |
+| Headers | `X-Legere-Filename: <attachment filename>` |
+| Send body | on; Content type: **n8n Binary File**; Input data field: the attachment's binary property (often `attachment_0`) |
+
+The body must be the file bytes themselves, not JSON, multipart form data or base64 text. A successful
+new file answers `201 { data: … }`; an already-accessible duplicate may answer `200`, while a
+duplicate the configured owner may not read answers `409 DOCUMENT_DUPLICATE`. Treat both 200 and 201
+as successful delivery. Receipt attachments use `POST /api/incoming/receipts`, a
+`RECEIPTS_INGEST` token and the normal multipart `file` field. n8n should retain its normal retry policy for transient 5xx/429 responses,
+but should not retry 4xx configuration or content errors blindly. The full security boundary and
+rotation procedure are in [`08 §8.2b`](./08-auth-and-authorization.md#82b-document-inbox-credential-n8n--mailbox-automation).
 
 **Processing defaults and live overrides.** The queue, pipeline and service variables above are
 defaults, not a second control surface. `QueueSettings` resolves them with stored overrides; the

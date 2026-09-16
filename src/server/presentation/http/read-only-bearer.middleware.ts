@@ -18,6 +18,7 @@ export function readOnlyBearer(req: Request, res: Response, next: NextFunction):
     // 🔒 The one route where a POST is a read, declared once (docs/08 §8.2a): MCP is JSON-RPC over
     // a POST, and it is the only credential that route takes.
     isReadOnlyPostRoute(req.method, req.path) ||
+    isAutomationIngestRoute(req.method, req.path) ||
     bearerTokenOf(req) === undefined
   ) {
     next();
@@ -27,4 +28,10 @@ export function readOnlyBearer(req: Request, res: Response, next: NextFunction):
   res
     .status(403)
     .json(errorEnvelope('READ_ONLY_TOKEN', 'An API token may only be used for safe methods', null));
+}
+
+function isAutomationIngestRoute(method: string, path: string): boolean {
+  if (method !== 'POST') return false;
+  const normalized = path.replace(/\/+$/, '').toLowerCase();
+  return normalized === '/incoming/documents' || normalized === '/incoming/receipts';
 }

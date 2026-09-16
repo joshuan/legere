@@ -9,7 +9,7 @@ import {
 } from '../../../shared/contracts/users';
 import { apiClient } from '../../shared/api';
 
-// A user's own read-only API tokens (docs/07 §7.3, docs/08 §8.2a).
+// A user's own single-scope API tokens (docs/07 §7.3, docs/08 §8.2).
 export const apiTokenApi = {
   list: (): Promise<ListApiTokensResponse> =>
     apiClient.get('/api/me/api-tokens', { schema: listApiTokensResponseSchema }),

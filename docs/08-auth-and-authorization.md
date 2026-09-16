@@ -225,7 +225,8 @@ credential which leaks costs its owner nothing but a revocation and can never ch
   standing beside `csrfOriginCheck` — before routing, without looking the token up, so a route that
   forgot its guard is still covered. `SessionGuard` behind it refuses to resolve a bearer credential
   on an unsafe method at all, and refuses it *before* the lookup, so neither layer turns an honest
-  refusal into "invalid token". Fail-closed, like the origin check it stands next to, and proven by
+  refusal into "invalid token". The only write exceptions are the two routes of §8.2b, each guarded
+  after lookup by its own token scope. Fail-closed, like the origin check it stands next to, and proven by
   a test that stands the guard up with the middleware removed.
 - **Authorization.** The token resolves to its owner and inherits **their** role and visibility: an
   admin's token reads the admin endpoints, a user's token reads what that user can read. Deactivating
@@ -256,6 +257,16 @@ credential which leaks costs its owner nothing but a revocation and can never ch
   script read an archive, and none can be added silently — a token's authority is exactly its
   owner's, and that is a sentence users can hold in their heads.
 
+## 8.2b. Scoped inbox tokens (n8n / mailbox automation)
+
+The same user-issued, hashed, expiring and revocable API-token rows also support two write-only
+scopes: `DOCUMENTS_INGEST` for `POST /api/incoming/documents`, and `RECEIPTS_INGEST` for
+`POST /api/incoming/receipts`. A token has exactly one scope, is issued through `/settings`, is shown
+once and is revoked through the ordinary token list. It authenticates as its owner but has no read,
+download, metadata, deletion or queue-control capability; a `READ` token cannot upload, and an
+inbox token cannot read. The two endpoints are exempt from CSRF only because they require that
+explicit bearer header, which a cross-origin form cannot attach.
+
 ## 8.3. Roles
 
 | Capability | USER | ADMIN |
@@ -276,7 +287,8 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   `Origin`/`Referer` compared against `APP_BASE_URL`, **fail-closed** (absent/mismatched → 403). The
   check is mounted above the `/api` dispatcher, not on `/api`: which requests may change state is
   not a question of where a route happens to be mounted, and a Next route handler or server action
-  added later would otherwise inherit the session cookie with no check at all.
+  added later would otherwise inherit the session cookie with no check at all. The only exceptions
+  are the credential-only MCP POST of §8.2a and the scoped-token inbox uploads of §8.2b.
 - 🔒 **The per-address caps are per *purpose*.** A sign-up letter and a reset letter draw on separate
   daily allowances, and where an address has both an active registration and an active reset series,
   the **reset** is the one a code is checked against. Both follow from the same attack: an invite

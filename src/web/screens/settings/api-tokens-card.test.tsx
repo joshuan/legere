@@ -10,6 +10,7 @@ import { ApiTokensCard } from './api-tokens-card';
 const active = {
   id: 'aaaaaaaa-1111-4111-8111-111111111111',
   name: 'export script',
+  scope: 'READ',
   status: 'ACTIVE',
   createdAt: '2026-01-01T00:00:00.000Z',
   expiresAt: '2026-04-01T00:00:00.000Z',

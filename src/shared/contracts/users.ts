@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { PASSWORD_MAX_LENGTH, passwordSchema } from './auth';
 import { paginatedSchema, paginationQuerySchema } from './common';
-import { languageSchema, themeSchema, userRoleSchema } from './enums';
+import { apiTokenScopeSchema, languageSchema, themeSchema, userRoleSchema } from './enums';
 
 // Me & admin user/invite/reset contracts (docs/07 §7.3 "Auth & account", "Admin: users & invites").
 
@@ -127,6 +127,7 @@ export type ApiTokenStatus = z.infer<typeof apiTokenStatusSchema>;
 export const apiTokenDtoSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
+  scope: apiTokenScopeSchema,
   status: apiTokenStatusSchema,
   createdAt: z.string().datetime(),
   expiresAt: z.string().datetime(),
@@ -141,6 +142,7 @@ export type ListApiTokensResponse = z.infer<typeof listApiTokensResponseSchema>;
 // POST /api/me/api-tokens — a lifetime the owner picks, or the instance default.
 export const createApiTokenRequestSchema = z.object({
   name: z.string().trim().min(1).max(128),
+  scope: apiTokenScopeSchema.optional(),
   expiresInDays: z.number().int().min(1).max(365).optional(),
 });
 export type CreateApiTokenRequest = z.infer<typeof createApiTokenRequestSchema>;

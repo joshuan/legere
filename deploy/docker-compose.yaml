@@ -92,6 +92,9 @@ services:
       ALLOW_UNCONFIGURED_EMAIL: ${ALLOW_UNCONFIGURED_EMAIL:-false}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
       OCR_LANGUAGES: ${OCR_LANGUAGES:-rus+eng}
+      # The HTTP body cap is set explicitly rather than silently falling back to the application's
+      # 100 MiB development default. It must not exceed the pipeline's 256 MiB whole-file ceiling.
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-268435456}
       # Empty = categorization and vector search stay switched off, and the UI says so.
       EMBEDDINGS_API_BASE_URL: ${EMBEDDINGS_API_BASE_URL:-}
       EMBEDDINGS_API_KEY: ${EMBEDDINGS_API_KEY:-}

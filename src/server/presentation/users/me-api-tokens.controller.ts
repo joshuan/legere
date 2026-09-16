@@ -19,7 +19,7 @@ import { successEnvelope } from '../http/envelope';
 import { UuidParam } from '../http/uuid-param.pipe';
 import { ZodBody } from '../http/zod-validation.pipe';
 
-// A user's own read-only API tokens (docs/07 §7.3, docs/08 §8.2a). Issuing and revoking are
+// A user's own single-scope API tokens (docs/07 §7.3, docs/08 §8.2). Issuing and revoking are
 // mutations, so these routes are reachable with a session only — a token cannot beget a token.
 @Controller('me/api-tokens')
 @UseGuards(SessionGuard)

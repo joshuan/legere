@@ -37,6 +37,7 @@ const TOKEN: ApiToken = {
   id: 'a3f0f1c2-0000-4000-8000-000000000002',
   userId: OWNER.id,
   name: 'a backup script',
+  scope: 'READ',
   tokenHash: 'not used by this suite',
   expiresAt: new Date('2026-11-06T12:00:00.000Z'),
   lastUsedAt: null,

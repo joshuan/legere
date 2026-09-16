@@ -545,6 +545,7 @@ export class InMemoryApiTokenRepository extends ApiTokenRepository {
       id: `api-token-${this.counter}`,
       userId: input.userId,
       name: input.name,
+      scope: input.scope ?? 'READ',
       tokenHash: input.tokenHash,
       expiresAt: input.expiresAt,
       lastUsedAt: null,

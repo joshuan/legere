@@ -2,7 +2,7 @@ import type { Readable } from 'node:stream';
 import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
 import type { DocumentDetail } from '../../domain/repositories/document.repository';
 import { toBuffer } from '../ports/binary-source';
-import type { Delivery, FileStorage } from '../ports/file-storage';
+import { safeDownloadFileName, type Delivery, type FileStorage } from '../ports/file-storage';
 import type { ImageTool } from '../ports/image-tool';
 import type { PdfToolbox } from '../ports/pdf-toolbox';
 import { artifactKeys, originalDelivery, originalKeyOf } from '../storage/artifact-keys';
@@ -69,7 +69,11 @@ export class DownloadDocumentCanonical {
       // serves the range requests a PDF viewer makes without going through us (docs/09 §9.2). The one
       // thing Legere builds itself out of everything it was given, so it is also the one original
       // that may render — in the storage origin, where no session cookie of ours exists (SEC-39).
-      const delivery: Delivery = { disposition: 'inline', contentType: 'application/pdf' };
+      const delivery: Delivery = {
+        disposition: 'inline',
+        contentType: 'application/pdf',
+        fileName: safeDownloadFileName(document.title, '.pdf'),
+      };
       return {
         kind: 'redirect',
         delivery,
@@ -85,7 +89,7 @@ export class DownloadDocumentCanonical {
       delivery: {
         disposition: 'attachment',
         contentType: 'application/pdf',
-        fileName: `${document.title}.pdf`,
+        fileName: safeDownloadFileName(document.title, '.pdf'),
       },
     };
   }

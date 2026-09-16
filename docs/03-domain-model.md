@@ -10,7 +10,7 @@ Conventions: all IDs are UUID v4; all timestamps are UTC (`timestamptz`); soft d
 
 ```
 User ─┬─< Session
-      ├─< ApiToken (read-only bearer credentials)
+      ├─< ApiToken (one scoped bearer credential)
       ├─< UserInvite (createdBy / acceptedBy)
       ├─< PasswordReset (user / createdBy)
       ├─< Collection ──< CollectionItem >── Document

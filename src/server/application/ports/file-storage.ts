@@ -41,7 +41,7 @@ export type StoredObjectInfo = {
 // viewer embeds in an <object>. `attachment` is bytes to save, and a browser renders an attachment
 // as nothing at all, whatever `contentType` claims — which is why an upload is only ever that.
 export type Delivery =
-  | { disposition: 'inline'; contentType: string }
+  | { disposition: 'inline'; contentType: string; fileName?: string }
   // The name a saved file gets. Required rather than optional: bytes offered to be saved without a
   // name are saved under the key's last segment, which is `original.pdf` for every upload there is.
   | { disposition: 'attachment'; contentType: string; fileName: string };
@@ -50,7 +50,43 @@ export type Delivery =
 // formatter for both ways bytes leave Legere — the response header the app writes, and the override
 // signed into a presigned URL — because they are one rule and must not drift apart.
 export function contentDispositionOf(delivery: Delivery): string {
-  if (delivery.disposition === 'inline') return 'inline';
+  if (delivery.fileName === undefined) return 'inline';
   const ascii = delivery.fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(delivery.fileName)}`;
+  return `${delivery.disposition}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(delivery.fileName)}`;
+}
+
+// A document title is prose (up to 500 characters), while a browser filename must also make sense
+// to filesystems. Keep human scripts, but remove control/bidi characters and every separator or
+// reserved filename character. The conservative 240-byte ceiling leaves room below common 255-byte
+// filesystem limits after a browser adds nothing of its own.
+export function safeDownloadFileName(title: string, extension: string): string {
+  const suffix = extension.startsWith('.') ? extension : `.${extension}`;
+  const cleaned = title
+    .normalize('NFKC')
+    .replace(
+      new RegExp(
+        // eslint-disable-next-line no-control-regex -- this is an allowlisted removal of unsafe filename controls.
+        '[\\u0000-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2066-\\u2069]',
+        'gu',
+      ),
+      '',
+    )
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .trim();
+  const stem = cleaned === '' ? 'document' : cleaned;
+  return `${truncateUtf8(stem, 240 - Buffer.byteLength(suffix, 'utf8'))}${suffix}`;
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  let result = '';
+  let bytes = 0;
+  for (const char of value) {
+    const charBytes = Buffer.byteLength(char, 'utf8');
+    if (bytes + charBytes > maxBytes) break;
+    result += char;
+    bytes += charBytes;
+  }
+  return result;
 }

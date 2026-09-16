@@ -71,6 +71,8 @@ import { sessionGuardProviders } from '../auth/session-guard.providers';
 import { DocumentAccessGuard } from './document-access.guard';
 import { UploadDocument } from '../../application/documents/upload-document';
 import { DocumentsController } from './documents.controller';
+import { DocumentIngestController } from './document-ingest.controller';
+import { ApiTokenScopeGuard } from '../auth/api-token-scope.guard';
 
 function downloadSettings(config: AppConfig): DownloadSettings {
   return { signedUrlTtlSec: config.get('SIGNED_URL_TTL_SEC') };
@@ -85,10 +87,11 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
 // Documents (docs/06 §6.5): the read model, the bytes, the composition of files, metadata editing,
 // deletion and reprocessing.
 @Module({
-  controllers: [DocumentsController],
+  controllers: [DocumentsController, DocumentIngestController],
   providers: [
     ...sessionGuardProviders,
     DocumentAccessGuard,
+    ApiTokenScopeGuard,
     // The one read model that is not a repository: the grouping suggestions are a single bounded
     // query nothing else asks (docs/05 §5.6a).
     { provide: GroupingCandidateReader, useClass: PrismaGroupingCandidateReader },

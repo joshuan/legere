@@ -196,7 +196,7 @@ singleton key. A monitor is an observer and never sends work.
   per-email limits live inside the auth use cases (they read `EmailVerification`/login-failure
   state).
 - **CSRF:** an Express-level middleware on `/api` for mutating methods — fail-closed
-  `Origin`/`Referer` check against `APP_BASE_URL` (see [`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)).
+  `Origin`/`Referer` check against `APP_BASE_URL` (see [`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)). The bearer-only MCP route and two scoped inbox routes are exempt; none accepts a credential browsers attach automatically.
 - **Read-only bearer:** a second middleware beside it, also on `/api` and also for mutating methods:
   an `Authorization: Bearer` header there is refused with `READ_ONLY_TOKEN` before routing
   ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)).

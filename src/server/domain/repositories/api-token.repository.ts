@@ -1,10 +1,12 @@
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
+import type { ApiTokenScope } from '../../../shared/contracts/enums';
 
-// ApiToken entity (docs/03 §3.3.22): a read-only bearer credential a user issues to themselves.
+// ApiToken entity (docs/03 §3.3.22): a single-scope bearer credential a user issues to themselves.
 export type ApiToken = {
   id: string;
   userId: string;
   name: string;
+  scope: ApiTokenScope;
   tokenHash: string;
   expiresAt: Date;
   lastUsedAt: Date | null;
@@ -21,6 +23,7 @@ export function isApiTokenUsable(token: ApiToken, now: Date): boolean {
 export type CreateApiTokenInput = {
   userId: string;
   name: string;
+  scope?: ApiTokenScope;
   tokenHash: string;
   expiresAt: Date;
 };

@@ -179,7 +179,7 @@ model Session {
   @@map("sessions")
 }
 
-// A read-only bearer credential its owner issues to a script (docs/03 §3.3.22, docs/08 §8.2a).
+// A bearer credential with one narrow scope, issued by its owner (docs/03 §3.3.22, docs/08 §8.2).
 model ApiToken {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @map("user_id") @db.Uuid

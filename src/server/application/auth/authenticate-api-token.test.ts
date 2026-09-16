@@ -62,6 +62,22 @@ describe('API tokens', () => {
     expect(Date.parse(chosen.apiToken.expiresAt) - clock.now().getTime()).toBe(7 * day);
   });
 
+  it('stores one explicit capability, defaulting old callers to read-only', async () => {
+    const read = await create.execute(userId, { name: 'backup' });
+    const inbox = await create.execute(userId, {
+      name: 'mail attachments',
+      scope: 'DOCUMENTS_INGEST',
+    });
+
+    expect(read.apiToken.scope).toBe('READ');
+    expect(inbox.apiToken.scope).toBe('DOCUMENTS_INGEST');
+    expect((await new ListApiTokens(apiTokens, clock).execute(userId)).items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: inbox.apiToken.id, scope: 'DOCUMENTS_INGEST' }),
+      ]),
+    );
+  });
+
   it('refuses a token that is unknown, malformed, expired or revoked', async () => {
     const created = await create.execute(userId, { name: 'export script', expiresInDays: 1 });
 

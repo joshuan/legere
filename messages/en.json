@@ -191,7 +191,7 @@
     },
     "apiTokens": {
       "title": "API tokens",
-      "description": "A token lets a script read this instance through the API as you — and never change anything. It is shown once, when you create it.",
+      "description": "Choose exactly what a script may do. Tokens are shown once, can expire and can be revoked here.",
       "empty": "No tokens yet.",
       "create": "Create token",
       "name": "Name",
@@ -199,6 +199,7 @@
       "nameRequired": "A token needs a name",
       "expiresInDays": "Expires in (days)",
       "expiresInDaysPlaceholder": "Instance default",
+      "scope": "Permission",
       "submit": "Create",
       "revoke": "Revoke",
       "revokeConfirm": "Revoke this token? Anything using it stops working immediately.",
@@ -209,6 +210,7 @@
       "issuedCopy": "Copy token",
       "columns": {
         "name": "Name",
+        "scope": "Permission",
         "status": "Status",
         "created": "Created",
         "expires": "Expires",
@@ -218,6 +220,11 @@
         "ACTIVE": "Active",
         "EXPIRED": "Expired",
         "REVOKED": "Revoked"
+      },
+      "scopes": {
+        "READ": "Read archive",
+        "DOCUMENTS_INGEST": "Add documents from automation",
+        "RECEIPTS_INGEST": "Add receipts from automation"
       }
     }
   },
