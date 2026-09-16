@@ -2,7 +2,7 @@ import { Injectable, type CanActivate, type ExecutionContext } from '@nestjs/com
 import type { Request } from 'express';
 import { AuthenticateApiToken } from '../../application/auth/authenticate-api-token';
 import { AuthenticateSession } from '../../application/auth/authenticate-session';
-import { ReadOnlyTokenError } from '../../domain/errors/domain-error';
+import { ForbiddenError, ReadOnlyTokenError } from '../../domain/errors/domain-error';
 import { bearerTokenOf } from '../http/bearer';
 import { isReadOnlyPostRoute } from '../http/read-only-post-routes';
 import { SESSION_COOKIE_NAME } from '../http/session-cookie';
@@ -34,7 +34,11 @@ export class SessionGuard implements CanActivate {
       // place stops being enforced the moment a route is mounted somewhere that place does not
       // cover. Refusing to resolve the credential at all is what makes the sentence in §8.2a true.
       if (!SAFE_METHODS.has(req.method) && !readOnlyPost) throw new ReadOnlyTokenError();
-      attachCaller(req, await this.authenticateApiToken.execute(bearer));
+      const caller = await this.authenticateApiToken.execute(bearer);
+      if (caller.kind !== 'API_TOKEN' || caller.apiToken.scope !== 'READ') {
+        throw new ForbiddenError('This API token does not have read permission');
+      }
+      attachCaller(req, caller);
       return true;
     }
 

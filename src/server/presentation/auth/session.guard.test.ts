@@ -49,10 +49,15 @@ const TOKEN: ApiToken = {
 // use for, and the guard only ever calls `execute`.
 class FakeApiTokens {
   resolved = 0;
+  scope: ApiToken['scope'] = 'READ';
 
   execute(): Promise<AuthenticatedCaller> {
     this.resolved += 1;
-    return Promise.resolve({ kind: 'API_TOKEN', user: OWNER, apiToken: TOKEN });
+    return Promise.resolve({
+      kind: 'API_TOKEN',
+      user: OWNER,
+      apiToken: { ...TOKEN, scope: this.scope },
+    });
   }
 }
 
@@ -105,6 +110,19 @@ async function standUpWithoutTheMiddleware(): Promise<{
 }
 
 describe('SessionGuard and a read-only token', () => {
+  it.each(['DOCUMENTS_INGEST', 'RECEIPTS_INGEST'] as const)(
+    'refuses reads with a %s token',
+    async (scope) => {
+      const { server, tokens, close } = await standUpWithoutTheMiddleware();
+      tokens.scope = scope;
+      try {
+        await server.get('/probe').set('Authorization', 'Bearer legere_whatever').expect(403);
+      } finally {
+        await close();
+      }
+    },
+  );
+
   it('lets a token read', async () => {
     const { server, close } = await standUpWithoutTheMiddleware();
 

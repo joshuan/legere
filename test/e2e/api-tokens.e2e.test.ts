@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import request from 'supertest';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
+import { uploadDocumentResponseSchema } from '../../src/shared/contracts/documents';
+import type { ApiTokenScope } from '../../src/shared/contracts/enums';
+import { uploadReceiptResponseSchema } from '../../src/shared/contracts/receipts';
 import {
   createApiTokenResponseSchema,
   createInviteResponseSchema,
@@ -70,13 +74,97 @@ describe('API tokens (e2e)', () => {
     return sid;
   }
 
-  async function issue(cookie: string, name = 'export script'): Promise<string> {
+  async function issue(
+    cookie: string,
+    name = 'export script',
+    scope: ApiTokenScope = 'READ',
+  ): Promise<string> {
     const created = await api(app)
-      .post('/api/me/api-tokens', { name })
+      .post('/api/me/api-tokens', { name, scope })
       .set('Cookie', cookie)
       .expect(201);
     return expectData(created, createApiTokenResponseSchema).token;
   }
+
+  it('accepts a document attachment without browser credentials and deduplicates retries', async () => {
+    const token = await issue(adminCookie, 'mail documents', 'DOCUMENTS_INGEST');
+    const send = () =>
+      request(app.baseUrl)
+        .post('/api/incoming/documents')
+        .set('Authorization', `Bearer ${token}`)
+        .set('X-Legere-Filename', encodeURIComponent('Договор.txt'))
+        // The raw body must survive even an incorrect JSON content type.
+        .set('Content-Type', 'application/json')
+        .send(Buffer.from('Rental agreement from email'));
+
+    const uploaded = expectData(await send().expect(201), uploadDocumentResponseSchema);
+    expect(uploaded.created).toBe(true);
+    expect(uploaded.document.title).toBe('Договор');
+    const duplicate = expectData(await send().expect(201), uploadDocumentResponseSchema);
+    expect(duplicate.created).toBe(false);
+    expect(duplicate.document.id).toBe(uploaded.document.id);
+    await api(app)
+      .get(`/api/documents/${uploaded.document.id}`)
+      .set('Cookie', adminCookie)
+      .expect(200);
+  });
+
+  it('accepts a multipart receipt under its token owner without Origin or cookies', async () => {
+    const token = await issue(adminCookie, 'mail receipts', 'RECEIPTS_INGEST');
+    const response = await request(app.baseUrl)
+      .post('/api/incoming/receipts')
+      .set('Authorization', `Bearer ${token}`)
+      .field('text', 'Receipt from email')
+      .attach('file', Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF'), {
+        filename: 'receipt.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(201);
+    const uploaded = expectData(response, uploadReceiptResponseSchema);
+    expect(uploaded.created).toBe(true);
+    await api(app)
+      .get(`/api/receipts/${uploaded.receipt.id}`)
+      .set('Cookie', adminCookie)
+      .expect(200);
+  });
+
+  it.each([
+    { scope: 'DOCUMENTS_INGEST', path: 'documents', other: 'receipts' },
+    { scope: 'RECEIPTS_INGEST', path: 'receipts', other: 'documents' },
+  ] as const)('enforces the $scope boundary and revocation', async ({ scope, path, other }) => {
+    const token = await issue(adminCookie, scope, scope);
+    const readToken = await issue(adminCookie);
+    await request(app.baseUrl)
+      .post(`/api/incoming/${path}`)
+      .set('Authorization', `Bearer ${readToken}`)
+      .expect(403);
+    await request(app.baseUrl)
+      .post(`/api/incoming/${other}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(403);
+    await api(app).post(`/api/incoming/${path}`).set('Cookie', adminCookie).expect(401);
+    await request(app.baseUrl).post(`/api/incoming/${path}`).expect(401);
+    for (const endpoint of ['/api/me', '/api/documents', '/api/admin/users']) {
+      await api(app).get(endpoint).set('Authorization', `Bearer ${token}`).expect(403);
+    }
+    await request(app.baseUrl)
+      .post('/api/mcp')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+      .expect(403);
+
+    const listed = expectData(
+      await api(app).get('/api/me/api-tokens').set('Cookie', adminCookie),
+      listApiTokensResponseSchema,
+    );
+    const id = listed.items.find((item) => item.scope === scope)?.id;
+    expect(id).toBeDefined();
+    await api(app).delete(`/api/me/api-tokens/${id}`).set('Cookie', adminCookie).expect(200);
+    await request(app.baseUrl)
+      .post(`/api/incoming/${path}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(401);
+  });
 
   it('reads as its owner and shows the secret exactly once', async () => {
     const created = await api(app)
