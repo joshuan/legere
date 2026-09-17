@@ -10,7 +10,7 @@ Next owns `src/app` (routing only, thin files); all UI code lives in `src/web` b
 ```
 src/web/
 ├── screens/      # top-level screen compositions, one slice per route (FSD "pages", renamed)
-├── widgets/      # self-contained UI blocks (document-grid, viewer-panel, queue-dashboard, app-sidebar, upload-panel, search-overlay)
+├── widgets/      # self-contained UI blocks (document-grid, viewer-panel, queue-dashboard, app-sidebar, upload-panel, search-shortcut)
 ├── features/     # user actions (login-form, invite-wizard, crop-editor, page-arranger, document-upload, share-collection)
 ├── entities/     # domain UI + api hooks (document, library, collection, document type, user)
 └── shared/       # ui-kit wrappers, api client, i18n utils, config, lib (format, hooks)
@@ -97,11 +97,9 @@ section exists to remove, one level down. A test enumerates the boundaries under
 when one appears there. **The same holds under `admin/queue/[tab]`**, which moves its own slot for the
 same reason and on the same terms ([`11 §11.13`](./11-ui-ux-spec.md)).
 
-**What the `(app)` layout owns besides the sider:** the upload panel (§10.5a) and the **search
-overlay** ([`11 §11.1a`](./11-ui-ux-spec.md#111a-the-search-overlay)) — both for the same reason,
-that they outlive the screen under them. The overlay's `Cmd+K` / `Ctrl+K` listener is bound once, by
-the layout, rather than by each screen: a hotkey registered per screen is a hotkey that works on four
-of them and is a bug on the fifth. There is **no top-bar component** for anything else to live in —
+**What the `(app)` layout owns besides the sider:** the upload panel (§10.5a). The shell binds the
+search shortcut once ([`11 §11.1a`](./11-ui-ux-spec.md#111a-search-navigation)); it navigates to
+the search page or focuses its existing input. Search has no modal or context provider. There is **no top-bar component** for anything else to live in —
 the shell is the sider and the content, and a screen's heading and actions belong to the screen
 ([`11 §11.1`](./11-ui-ux-spec.md#111-shell--navigation)).
 

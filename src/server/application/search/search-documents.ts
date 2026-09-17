@@ -3,6 +3,7 @@ import {
   type SearchMatchField,
   type SearchQuery,
   type SearchResponse,
+  type SearchSort,
 } from '../../../shared/contracts/search';
 import type {
   DocumentRepository,
@@ -17,6 +18,8 @@ import { toListDto } from '../documents/manage-documents';
 // first place cannot dominate the other's first two — 60 is the value the RRF paper uses and the
 // spec fixes.
 const RRF_K = 60;
+// Date/title sorting applies to close semantic matches, never to the entire indexed archive.
+const SEMANTIC_SORT_CANDIDATES = 200;
 
 // GET /api/search (docs/07 §7.3): words, meaning, or both.
 export class SearchDocuments {
@@ -28,7 +31,7 @@ export class SearchDocuments {
   async execute(viewer: Viewer, query: SearchQuery): Promise<SearchResponse> {
     const semanticAvailable = this.embeddings.isConfigured;
     const q = query.q.trim();
-    if (q === '') return { items: [], semanticAvailable };
+    if (q === '') return { items: [], semanticAvailable, semanticFallback: false };
 
     const filters: SearchFilters = {
       ...(query.libraryId === undefined ? {} : { libraryId: query.libraryId }),
@@ -40,12 +43,24 @@ export class SearchDocuments {
     const wantsSemantic = query.mode !== 'text' && semanticAvailable;
     const wantsText = query.mode !== 'semantic' || !semanticAvailable;
 
+    const readText = (): Promise<SearchMatch[]> =>
+      this.documents.searchByText(viewer, q, filters, query.limit, query.sort);
     const [text, semantic] = await Promise.all([
-      wantsText ? this.documents.searchByText(viewer, q, filters, query.limit) : [],
-      wantsSemantic ? this.semantic(viewer, q, filters, query.limit) : [],
+      wantsText ? readText() : [],
+      wantsSemantic
+        ? this.semantic(
+            viewer,
+            q,
+            filters,
+            query.sort === 'relevance' ? query.limit : SEMANTIC_SORT_CANDIDATES,
+          ).catch(() => null)
+        : [],
     ]);
-
-    const fused = fuse(text, semantic);
+    // An unavailable semantic provider must not turn a working text search into an empty page.
+    // The response explicitly tells the caller when words were used in place of meaning.
+    const fallback = semantic === null;
+    const fused = fuse(fallback && !wantsText ? await readText() : text, semantic ?? []);
+    if (query.sort !== 'relevance') fused.sort((a, b) => compareHits(a, b, query.sort));
     return {
       items: fused.slice(0, query.limit).map((hit) => ({
         document: toListDto(hit.item),
@@ -54,6 +69,7 @@ export class SearchDocuments {
         matchedIn: hit.matchedIn,
       })),
       semanticAvailable,
+      semanticFallback: fallback || (query.mode !== 'text' && !semanticAvailable),
     };
   }
 
@@ -65,7 +81,12 @@ export class SearchDocuments {
   ): Promise<SearchMatch[]> {
     const [embedding] = await this.embeddings.embed([q]);
     if (embedding === undefined) return [];
-    return this.documents.searchByVector(viewer, embedding, filters, limit);
+    return this.documents.searchByVector(
+      viewer,
+      embedding,
+      { ...filters, embeddingModel: this.embeddings.model },
+      limit,
+    );
   }
 }
 
@@ -75,6 +96,27 @@ type FusedHit = {
   snippet: string | null;
   matchedIn: SearchMatchField[];
 };
+
+function compareHits(a: FusedHit, b: FusedHit, sort: SearchSort): number {
+  const left = a.item.document;
+  const right = b.item.document;
+  let compared = 0;
+  if (sort.startsWith('documentDate')) {
+    if (left.documentDate === null && right.documentDate !== null) return 1;
+    if (right.documentDate === null && left.documentDate !== null) return -1;
+    compared = compareStrings(left.documentDate ?? '', right.documentDate ?? '');
+  } else if (sort.startsWith('createdAt')) {
+    compared = left.createdAt.getTime() - right.createdAt.getTime();
+  } else {
+    // Match the database's C collation for valid Unicode, independent of the server locale.
+    compared = compareStrings(left.title, right.title);
+  }
+  return (sort.endsWith('Desc') ? -compared : compared) || compareStrings(left.id, right.id);
+}
+
+function compareStrings(left: string, right: string): number {
+  return Buffer.compare(Buffer.from(left), Buffer.from(right));
+}
 
 // Two orderings with no common scale are merged by position, not by score (docs/07 §7.3). Ties break
 // on the document id, so the same query always answers in the same order.

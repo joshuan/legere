@@ -4,7 +4,6 @@ import type { ReactNode } from 'react';
 import { CurrentUserProvider } from '../../web/entities/user';
 import { UploadQueueProvider } from '../../web/features/upload-queue';
 import { AppShell } from '../../web/widgets/app-shell';
-import { SearchOverlayProvider } from '../../web/widgets/search-overlay';
 import { UploadPanelLayout } from '../../web/widgets/upload-panel';
 import { PATHNAME_HEADER } from '../../middleware';
 import { APP_VERSION } from '../_server/app-version';
@@ -28,23 +27,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // being sent survives walking to another page, and the panel beside the screen is where it is
   // watched. Inside the client providers of the root layout, so it has the query cache to refresh.
   //
-  // The search overlay is here for the same reason and one more: its Cmd+K / Ctrl+K listener is
-  // bound once, by the layout, rather than by each screen — a hotkey registered per screen works on
-  // four of them and is a bug on the fifth (docs/10 §10.2, docs/11 §11.1a).
-  //
   // The user goes into the client tree here, outermost, so that a screen wanting to know who is
   // reading it — whether to offer an admin's affordances, whether this collection is the reader's
   // own — reads it from context instead of being handed it by a page that had to fetch it first
   // (docs/10 §10.2).
   return (
     <CurrentUserProvider user={user}>
-      <SearchOverlayProvider>
-        <AppShell user={user} version={APP_VERSION}>
-          <UploadQueueProvider>
-            <UploadPanelLayout>{children}</UploadPanelLayout>
-          </UploadQueueProvider>
-        </AppShell>
-      </SearchOverlayProvider>
+      <AppShell user={user} version={APP_VERSION}>
+        <UploadQueueProvider>
+          <UploadPanelLayout>{children}</UploadPanelLayout>
+        </UploadQueueProvider>
+      </AppShell>
     </CurrentUserProvider>
   );
 }

@@ -7,7 +7,6 @@ import messages from '../../messages/en.json';
 import type { UserDto } from '../../src/shared/contracts/auth';
 import { CurrentUserProvider } from '../../src/web/entities/user';
 import { UploadQueueProvider } from '../../src/web/features/upload-queue';
-import { SearchOverlayProvider } from '../../src/web/widgets/search-overlay';
 
 // Somebody signed in, because in the application there always is: the (app) layout redirects a
 // caller without a session to /login before any screen renders (docs/10 §10.2). Overrides let a test
@@ -36,9 +35,7 @@ export const TEST_ADMIN: UserDto = testUser({
 // Renders a component with the same providers the app gives it (docs/10 §10.4), minus SSR-only
 // pieces. Retries are off so a failing request surfaces immediately instead of after backoff.
 //
-// The upload queue and the search overlay are among them: the authenticated layout mounts both
-// around every screen (docs/11 §11.3a, §11.1a), so a screen that hands the queue files — or a shell
-// that raises the overlay — has one here too. So is the signed-in user: since M31.1 a screen reads
+// The upload queue is shared by every screen (docs/11 §11.3a). So is the signed-in user: a screen reads
 // the role, and its own reader's id, from the context the layout provides rather than from a prop a
 // page fetched for it (docs/10 §10.2).
 export function renderWithProviders(
@@ -55,9 +52,7 @@ export function renderWithProviders(
         <AntdApp>
           <QueryClientProvider client={queryClient}>
             <CurrentUserProvider user={user}>
-              <SearchOverlayProvider>
-                <UploadQueueProvider>{children}</UploadQueueProvider>
-              </SearchOverlayProvider>
+              <UploadQueueProvider>{children}</UploadQueueProvider>
             </CurrentUserProvider>
           </QueryClientProvider>
         </AntdApp>

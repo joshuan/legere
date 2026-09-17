@@ -114,6 +114,7 @@ export class ArchiveTools {
     const answer = await this.search.execute(viewer, {
       q: input.data.query,
       mode: input.data.mode ?? 'hybrid',
+      sort: 'relevance',
       limit: input.data.limit ?? 10,
     });
 
@@ -121,6 +122,7 @@ export class ArchiveTools {
       // Said out loud rather than left to be inferred from an empty list: a mode that quietly
       // degraded is the difference between "not here" and "not searched" (docs/11 §11.6).
       semanticAvailable: answer.semanticAvailable,
+      semanticFallback: answer.semanticFallback,
       results: answer.items.map((hit) => ({
         id: hit.document.id,
         title: hit.document.title,

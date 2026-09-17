@@ -3,8 +3,7 @@
 import { useSyncExternalStore } from 'react';
 
 // Cmd where there is a Cmd, Ctrl everywhere else (docs/11 §11.1a). Read off the browser rather than
-// guessed, and read from one place by the two things that must agree: the listener that opens the
-// overlay and the hint the menu item writes beside itself.
+// guessed, and read from one place by the two things that must agree: the search page shortcut and the hint the menu item writes beside itself.
 export function isMacPlatform(): boolean {
   if (typeof navigator === 'undefined') return false;
   return /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);

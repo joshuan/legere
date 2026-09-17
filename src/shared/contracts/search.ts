@@ -8,9 +8,21 @@ import { documentListDtoSchema } from './documents';
 export const searchModeSchema = z.enum(['hybrid', 'text', 'semantic']);
 export type SearchMode = z.infer<typeof searchModeSchema>;
 
+export const searchSortSchema = z.enum([
+  'relevance',
+  'documentDateDesc',
+  'documentDateAsc',
+  'createdAtDesc',
+  'createdAtAsc',
+  'titleAsc',
+  'titleDesc',
+]);
+export type SearchSort = z.infer<typeof searchSortSchema>;
+
 export const searchQuerySchema = z.object({
   q: z.string().trim().max(500).default(''),
   mode: searchModeSchema.default('hybrid'),
+  sort: searchSortSchema.default('relevance'),
   limit: z.coerce.number().int().min(1).max(50).default(20),
   libraryId: z.string().uuid().optional(),
   typeId: z.string().uuid().optional(),
@@ -56,5 +68,7 @@ export const searchResponseSchema = z.object({
   // False when no embedding provider is configured: the UI disables the semantic toggle rather than
   // offering a mode that would silently return nothing.
   semanticAvailable: z.boolean(),
+  // True when the requested semantic half fell back to text.
+  semanticFallback: z.boolean().optional(),
 });
 export type SearchResponse = z.infer<typeof searchResponseSchema>;

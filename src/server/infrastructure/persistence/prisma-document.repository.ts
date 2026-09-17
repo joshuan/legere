@@ -23,7 +23,7 @@ import {
   extractedFieldsSchema,
   type ExtractedFields,
 } from '../../../shared/contracts/document-fields';
-import type { SearchMatchField } from '../../../shared/contracts/search';
+import type { SearchMatchField, SearchSort } from '../../../shared/contracts/search';
 import {
   stepSkipReasonSchema,
   stepStatusSchema,
@@ -548,6 +548,7 @@ export function searchByTextSql(
   query: string,
   filters: SearchFilters,
   limit: number,
+  sort: SearchSort = 'relevance',
 ): Prisma.Sql {
   return Prisma.sql`
     WITH q AS MATERIALIZED (
@@ -651,7 +652,7 @@ export function searchByTextSql(
       LEFT JOIN names n ON n.id = d.id, q
       WHERE ${readableSql(viewer)}
         AND ${filtersSql(filters)}
-      ORDER BY score DESC, d.id
+      ORDER BY ${searchOrderSql(sort, Prisma.sql`score`)}
       LIMIT ${limit}
     )
     -- Why each row is here, asked of the answered page alone: to_tsvector over the Markdown of every
@@ -680,8 +681,28 @@ export function searchByTextSql(
              AND NOT (search_tokens(coalesce(d.description, '')) @@ q.tsq) AS in_text
     FROM matches m
     JOIN documents d ON d.id = m.id, q
-    ORDER BY m.score DESC, m.id
+    ORDER BY ${searchOrderSql(sort, Prisma.sql`m.score`)}
   `;
+}
+
+// Ordering is chosen from fixed SQL fragments; no request value becomes a column or direction.
+function searchOrderSql(sort: SearchSort, score: Prisma.Sql): Prisma.Sql {
+  switch (sort) {
+    case 'documentDateDesc':
+      return Prisma.sql`d.document_date DESC NULLS LAST, d.id`;
+    case 'documentDateAsc':
+      return Prisma.sql`d.document_date ASC NULLS LAST, d.id`;
+    case 'createdAtDesc':
+      return Prisma.sql`d.created_at DESC, d.id`;
+    case 'createdAtAsc':
+      return Prisma.sql`d.created_at ASC, d.id`;
+    case 'titleAsc':
+      return Prisma.sql`d.title COLLATE "C" ASC, d.id`;
+    case 'titleDesc':
+      return Prisma.sql`d.title COLLATE "C" DESC, d.id`;
+    default:
+      return Prisma.sql`${score} DESC, d.id`;
+  }
 }
 
 // The flags the query answers with, in the order reasons are said in (docs/07 §7.3).
@@ -1327,12 +1348,13 @@ export class PrismaDocumentRepository implements DocumentRepository {
     query: string,
     filters: SearchFilters,
     limit: number,
+    sort: SearchSort = 'relevance',
     tx?: TransactionHandle,
   ): Promise<SearchMatch[]> {
     const client = clientOf(this.prisma, tx);
 
     const rows = await client.$queryRaw<Array<{ id: string; snippet: string } & MatchFlags>>(
-      searchByTextSql(viewer, query, filters, limit),
+      searchByTextSql(viewer, query, filters, limit, sort),
     );
 
     return this.hydrate(
@@ -1362,14 +1384,15 @@ export class PrismaDocumentRepository implements DocumentRepository {
         JOIN documents d ON d.id = k.document_id
         WHERE ${readableSql(viewer)}
           AND ${filtersSql(filters)}
+          AND ${filters.embeddingModel === undefined ? Prisma.sql`TRUE` : Prisma.sql`k.model = ${filters.embeddingModel}`}
         ORDER BY k.embedding <=> ${vector}::vector
         LIMIT ${limit * 5}
       ), best AS (
         SELECT DISTINCT ON (document_id) document_id AS id, distance, left(content, 300) AS snippet
         FROM nearest
-        ORDER BY document_id, distance
+        ORDER BY document_id, distance, content
       )
-      SELECT id, snippet FROM best ORDER BY distance LIMIT ${limit}
+      SELECT id, snippet FROM best ORDER BY distance, id LIMIT ${limit}
     `;
 
     return this.hydrate(

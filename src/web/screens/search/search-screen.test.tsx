@@ -12,10 +12,11 @@ vi.mock('next/link', () => ({
 }));
 
 const replace = vi.fn();
+const push = vi.fn();
 let currentSearch = 'q=invoice';
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace }),
+  useRouter: () => ({ replace, push }),
   usePathname: () => '/search',
   useSearchParams: () => new URLSearchParams(currentSearch),
 }));
@@ -135,7 +136,7 @@ describe('SearchScreen', () => {
     await userEvent.clear(input);
     await userEvent.type(input, 'passport{enter}');
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith('/search?q=passport'));
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/search?q=passport'));
   });
 
   it('sends the mode chosen in the URL', async () => {
@@ -205,5 +206,79 @@ describe('SearchScreen', () => {
 
     expect(await screen.findByText(enMessages.search.noResults)).toBeInTheDocument();
     expect(screen.getByText(enMessages.search.noResultsHint)).toBeInTheDocument();
+  });
+  it('preserves the query and mode when choosing chronological order', async () => {
+    currentSearch = 'q=invoice&mode=semantic';
+    renderWithProviders(<SearchScreen />);
+    await screen.findByText('Rental agreement');
+    await userEvent.click(screen.getByRole('combobox', { name: enMessages.search.sortLabel }));
+    await userEvent.click(screen.getByText(enMessages.search.sorts.documentDateDesc));
+    expect(replace).toHaveBeenCalledWith('/search?q=invoice&mode=semantic&sort=documentDateDesc');
+  });
+
+  it('restores the input and sort when browser history changes the URL', async () => {
+    const { rerender } = renderWithProviders(<SearchScreen />);
+    await screen.findByText('Rental agreement');
+    await userEvent.type(screen.getByLabelText(enMessages.search.placeholder), ' draft');
+    currentSearch = 'q=passport&sort=documentDateAsc';
+    rerender(<SearchScreen />);
+    expect(screen.getByLabelText(enMessages.search.placeholder)).toHaveValue('passport');
+    expect(screen.getByText(enMessages.search.sorts.documentDateAsc)).toBeInTheDocument();
+    currentSearch = 'q=invoice';
+    rerender(<SearchScreen />);
+    expect(screen.getByLabelText(enMessages.search.placeholder)).toHaveValue('invoice');
+  });
+
+  it('sends the URL sort to the API and shows dates beside results', async () => {
+    currentSearch = 'q=invoice&sort=createdAtAsc';
+    const seen: string[] = [];
+    server.use(
+      http.get('/api/search', ({ request }) => {
+        seen.push(new URL(request.url).search);
+        return HttpResponse.json(
+          envelope({
+            items: [{ ...hit, document: { ...hit.document, documentDate: '2023-03-22' } }],
+            semanticAvailable: true,
+          }),
+        );
+      }),
+    );
+    renderWithProviders(<SearchScreen />);
+    await screen.findByText('Rental agreement');
+    expect(seen[0]).toContain('sort=createdAtAsc');
+    expect(screen.getByText(/Document:.*2023/)).toBeInTheDocument();
+    expect(screen.getByText(/Added:.*2026/)).toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+  });
+
+  it('checks semantic availability before the first query', async () => {
+    currentSearch = '';
+    serve({ items: [], semanticAvailable: false });
+    renderWithProviders(<SearchScreen />);
+    expect(await screen.findByText(enMessages.search.semanticUnavailable)).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: enMessages.search.modes.semantic })).toBeDisabled();
+  });
+
+  it('shows a semantic fallback notice alongside usable text results', async () => {
+    server.use(
+      http.get('/api/search', () =>
+        HttpResponse.json(
+          envelope({ items: [hit], semanticAvailable: true, semanticFallback: true }),
+        ),
+      ),
+    );
+    renderWithProviders(<SearchScreen />);
+    expect(await screen.findByText(enMessages.search.semanticFallback)).toBeInTheDocument();
+    expect(screen.getByText('Rental agreement')).toBeInTheDocument();
+  });
+
+  it('reports a failed request and lets the reader retry, instead of claiming no matches', async () => {
+    server.use(http.get('/api/search', () => HttpResponse.json({ error: null }, { status: 500 })));
+    renderWithProviders(<SearchScreen />);
+    const retry = await screen.findByRole('button', { name: enMessages.search.retry });
+    expect(screen.queryByText(enMessages.search.noResults)).not.toBeInTheDocument();
+    serve({ items: [hit], semanticAvailable: true });
+    await userEvent.click(retry);
+    expect(await screen.findByText('Rental agreement')).toBeInTheDocument();
   });
 });

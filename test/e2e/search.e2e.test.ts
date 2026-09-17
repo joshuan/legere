@@ -1,5 +1,6 @@
+import { EmbeddingProvider } from '../../src/server/application/ports/embedding-provider';
 import { foldName } from '../../src/server/domain/value-objects/name-fold';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
 import { searchResponseSchema } from '../../src/shared/contracts/search';
 import {
@@ -18,6 +19,8 @@ describe('Search (e2e)', () => {
   let app: TestApp;
   let adminCookie: string;
   let seq = 0;
+
+  afterEach(() => vi.restoreAllMocks());
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -562,7 +565,91 @@ describe('Search (e2e)', () => {
     });
   });
 
+  describe('sorting', () => {
+    it('sorts all text matches before the limit, rather than sorting the top relevance hits', async () => {
+      const library = await givenLibrary();
+      const old = await givenDocument(library, 'Invoice invoice invoice', 'invoice');
+      const recent = await givenDocument(library, 'New paper', 'invoice');
+      const undated = await givenDocument(library, 'Invoice without date', 'invoice');
+      await testPrisma().document.update({
+        where: { id: old },
+        data: { documentDate: new Date('2020-01-01') },
+      });
+      await testPrisma().document.update({
+        where: { id: recent },
+        data: { documentDate: new Date('2025-01-01') },
+      });
+      for (const [sort, expected] of [
+        ['documentDateDesc', recent],
+        ['documentDateAsc', old],
+      ]) {
+        const result = expectData(
+          await search(adminCookie, `?q=invoice&mode=text&sort=${sort}&limit=1`),
+          searchResponseSchema,
+        );
+        expect(result.items.map((hit) => hit.document.id)).toEqual([expected]);
+        const all = expectData(
+          await search(adminCookie, `?q=invoice&mode=text&sort=${sort}`),
+          searchResponseSchema,
+        );
+        expect(all.items.at(-1)?.document.id).toBe(undated);
+      }
+    });
+
+    it('orders titles and rejects an unsupported sort', async () => {
+      const library = await givenLibrary();
+      const a = await givenDocument(library, 'A invoice', 'invoice');
+      const z = await givenDocument(library, 'Z invoice', 'invoice');
+      for (const [sort, expected] of [
+        ['titleAsc', a],
+        ['titleDesc', z],
+      ]) {
+        expect(
+          expectData(
+            await search(adminCookie, `?q=invoice&mode=text&sort=${sort}&limit=1`),
+            searchResponseSchema,
+          ).items[0]?.document.id,
+        ).toBe(expected);
+      }
+      expect((await search(adminCookie, '?q=invoice&sort=DROP')).status).toBe(422);
+    });
+  });
+
   describe('semantic and hybrid', () => {
+    it('uses real vectors for meaning-only matches, excludes other models and enforces access', async () => {
+      const provider = app.nestApp.get(EmbeddingProvider);
+      vi.spyOn(provider, 'isConfigured', 'get').mockReturnValue(true);
+      vi.spyOn(provider, 'model', 'get').mockReturnValue('search-test');
+      vi.spyOn(provider, 'embed').mockResolvedValue([padded([1, 0])]);
+      const library = await givenLibrary();
+      const secret = await givenLibrary('RESTRICTED');
+      const matched = await givenDocument(library, 'Roof maintenance', 'Repairing damaged tiles', {
+        chunk: [1, 0],
+      });
+      const incompatible = await givenDocument(library, 'Different model', 'Unrelated content', {
+        chunk: [1, 0],
+      });
+      const hidden = await givenDocument(secret, 'Private paper', 'Private content', {
+        chunk: [1, 0],
+      });
+      await testPrisma().documentChunk.updateMany({
+        where: { documentId: { in: [matched, hidden] } },
+        data: { model: 'search-test' },
+      });
+      await testPrisma().documentChunk.updateMany({
+        where: { documentId: incompatible },
+        data: { model: 'other-model' },
+      });
+      const user = await inviteUser(`vectoruser${seq}@legere.local`);
+      const result = expectData(
+        await search(user.cookie, '?q=house&mode=semantic&sort=documentDateDesc'),
+        searchResponseSchema,
+      );
+      expect(result.items.map((hit) => hit.document.id)).toEqual([matched]);
+      expect(result.items[0]?.matchedIn).toEqual(['meaning']);
+      expect(result.semanticFallback).toBe(false);
+    });
+
     it('reports semantic search as unavailable and falls back to text', async () => {
       const libraryId = await givenLibrary();
       const documentId = await givenDocument(libraryId, 'Contract', 'the parties agree');

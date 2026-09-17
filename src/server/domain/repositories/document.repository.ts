@@ -6,7 +6,7 @@ import type {
   DocumentSort,
   DocumentStep,
 } from '../../../shared/contracts/documents';
-import type { SearchMatchField } from '../../../shared/contracts/search';
+import type { SearchMatchField, SearchSort } from '../../../shared/contracts/search';
 import type {
   PageFormat,
   ValueSource,
@@ -270,6 +270,8 @@ export type SearchMatch = {
 export type SearchFilters = {
   libraryId?: string | undefined;
   typeId?: string | undefined;
+  // Vector distances are comparable only within one embedding model.
+  embeddingModel?: string | undefined;
 };
 
 export abstract class DocumentRepository {
@@ -387,6 +389,7 @@ export abstract class DocumentRepository {
     query: string,
     filters: SearchFilters,
     limit: number,
+    sort?: SearchSort,
     tx?: TransactionHandle,
   ): Promise<SearchMatch[]>;
 

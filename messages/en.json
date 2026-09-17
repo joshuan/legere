@@ -1504,12 +1504,11 @@
     "start": "Type something to search for.",
     "recent": "Recent documents",
     "resultsLabel": "Search results",
-    "allResults": "All results",
     "noResults": "Nothing found.",
     "noResultsHint": "Check the spelling, or try semantic mode for meaning rather than words.",
     "semanticUnavailable": "Semantic search needs an embeddings provider, which this instance has not been given.",
     "modes": {
-      "hybrid": "Hybrid",
+      "hybrid": "Words and meaning",
       "text": "Text",
       "semantic": "Semantic"
     },
@@ -1530,7 +1529,24 @@
       "place": "place",
       "text": "text",
       "meaning": "meaning"
-    }
+    },
+    "sortLabel": "Sort results",
+    "sorts": {
+      "relevance": "Relevance",
+      "documentDateDesc": "Document date: newest first",
+      "documentDateAsc": "Document date: oldest first",
+      "createdAtDesc": "Date added: newest first",
+      "createdAtAsc": "Date added: oldest first",
+      "titleAsc": "Title: A–Z",
+      "titleDesc": "Title: Z–A"
+    },
+    "semanticFallback": "Semantic search is temporarily unavailable. Showing matches by words.",
+    "semanticSortHint": "This order applies to the closest semantic matches.",
+    "retry": "Try again",
+    "shown": "Showing {count} results",
+    "noDocumentDate": "Document date not set",
+    "documentDate": "Document: {date}",
+    "addedDate": "Added: {date}"
   },
   "collections": {
     "title": "Collections",

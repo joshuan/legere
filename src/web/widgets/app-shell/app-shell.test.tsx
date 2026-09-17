@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,9 +9,10 @@ import { AppShell } from './app-shell';
 
 const replace = vi.fn();
 const push = vi.fn();
+let pathname = '/documents';
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace, push }),
-  usePathname: () => '/documents',
+  usePathname: () => pathname,
 }));
 
 const USER: UserDto = {
@@ -31,13 +32,14 @@ beforeEach(() => {
   server.use(
     http.get('/api/libraries', () => HttpResponse.json(envelope({ items: [] }))),
     http.post('/api/auth/logout', () => HttpResponse.json(envelope({ ok: true }))),
-    // What the search overlay opens on: an empty query shows the recent documents (docs/11 §11.1a).
+    // Recent documents are available to the search page.
     http.get('/api/documents', () => HttpResponse.json(envelope({ items: [], nextCursor: null }))),
   );
 });
 afterEach(() => {
   server.resetHandlers();
   vi.clearAllMocks();
+  pathname = '/documents';
 });
 afterAll(() => server.close());
 
@@ -107,23 +109,40 @@ describe('AppShell', () => {
     expect(screen.getAllByText(enMessages.nav.administration).length).toBeGreaterThan(0);
   });
 
-  it('raises the search overlay from the menu instead of navigating to a page', async () => {
+  it('links to the search page from the menu', async () => {
     renderWithProviders(
       <AppShell user={USER} version="9.9.9">
         <p>content</p>
       </AppShell>,
     );
+    expect(await screen.findByRole('link', { name: /Search/ })).toHaveAttribute('href', '/search');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
 
-    await userEvent.click(
-      screen.getByRole('menuitem', { name: new RegExp(enMessages.nav.search) }),
+  it.each(['ctrlKey', 'metaKey'])('opens the search page with %s+K', async (modifier) => {
+    renderWithProviders(
+      <AppShell user={USER} version="9.9.9">
+        <p>content</p>
+      </AppShell>,
     );
+    await screen.findByText('content');
+    fireEvent.keyDown(window, { key: 'k', [modifier]: true });
+    expect(push).toHaveBeenCalledWith('/search');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
 
-    // Search is the one item that opens rather than goes (docs/11 §11.1a): the screen underneath is
-    // dimmed, not left.
-    const overlay = await screen.findByRole('dialog');
-    expect(within(overlay).getByLabelText(enMessages.search.placeholder)).toBeInTheDocument();
+  it('focuses the existing search input without clearing it or navigating again', async () => {
+    pathname = '/search';
+    renderWithProviders(
+      <AppShell user={USER} version="9.9.9">
+        <input id="document-search-input" aria-label="query" defaultValue="invoice" />
+      </AppShell>,
+    );
+    const input = await screen.findByRole('textbox', { name: 'query' });
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    expect(input).toHaveFocus();
+    expect(input).toHaveValue('invoice');
     expect(push).not.toHaveBeenCalled();
-    expect(replace).not.toHaveBeenCalled();
   });
 
   it('writes the chord beside the item that offers it', async () => {

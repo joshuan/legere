@@ -1912,3 +1912,10 @@ The complete product and technical contract is [`15`](../15-receipts.md). Tasks 
   **Goal:** a JPEG displayed upright in Files stays upright in the canonical PDF and its preview.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md)
   **Acceptance:** EXIF rotation and reflection are applied before image-to-PDF conversion even when image correction is disabled, unnecessary, or fails; already oriented images retain their bytes; original files remain unchanged; regression tests cover EXIF orientations 2–8 and the three correction fallback paths.
+
+## Search page and ordering
+
+- [x] **Make search a page with ordering and visible semantic search**
+  **Goal:** search is a navigable page with useful chronological ordering and clear word/meaning modes.
+  **Docs:** [`07 §7.3`](../07-api-specification.md), [`11 §11.1a, §11.6`](../11-ui-ux-spec.md)
+  **Acceptance:** the menu and keyboard shortcut open the page; URL/history preserve the query and controls; text ordering precedes the limit; dates with no value go last; semantic sorting keeps relevance-based candidates; embeddings failures visibly fall back to text; only compatible model vectors are searched; tests cover navigation, ordering, fallback, access and URL state.

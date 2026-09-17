@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { documentFixture, FakeEmbeddingProvider } from '../../../../test/helpers/processing-fakes';
 import {
   DocumentRepository,
@@ -123,6 +123,7 @@ function notUsed(): never {
 const query = {
   q: 'invoice',
   mode: 'hybrid' as const,
+  sort: 'relevance' as const,
   limit: 10,
 };
 
@@ -250,4 +251,60 @@ describe('SearchDocuments', () => {
 
     expect(result.items).toHaveLength(3);
   });
+  it.each(['hybrid', 'semantic'] as const)(
+    'falls back to text when %s embeddings fail',
+    async (mode) => {
+      documents.text = [match('text-result', 1, 'words')];
+      vi.spyOn(embeddings, 'embed').mockRejectedValue(new Error('provider unavailable'));
+      const result = await search.execute(VIEWER, { ...query, mode });
+      expect(result.items.map((hit) => hit.document.id)).toEqual(['text-result']);
+      expect(result.semanticAvailable).toBe(true);
+      expect(result.semanticFallback).toBe(true);
+      expect(documents.calls).toEqual(['text']);
+    },
+  );
+
+  it.each(['documentDateAsc', 'documentDateDesc'] as const)(
+    'sorts fused results by %s before limiting, with missing dates last',
+    async (sort) => {
+      const old = match('old', 1, null);
+      old.item.document.documentDate = '2020-01-01';
+      const recent = match('recent', 2, null);
+      recent.item.document.documentDate = '2025-01-01';
+      documents.text = [match('undated', 1, null), old];
+      documents.vector = [recent];
+      const result = await search.execute(VIEWER, { ...query, sort, limit: 2 });
+      expect(result.items.map((hit) => hit.document.id)).toEqual(
+        sort === 'documentDateAsc' ? ['old', 'recent'] : ['recent', 'old'],
+      );
+    },
+  );
+
+  it('requests ordered text results and a wider semantic pool in the current model', async () => {
+    const text = vi.spyOn(documents, 'searchByText');
+    const vector = vi.spyOn(documents, 'searchByVector');
+    await search.execute(VIEWER, { ...query, sort: 'documentDateDesc' });
+    expect(text).toHaveBeenCalledWith(VIEWER, 'invoice', {}, 10, 'documentDateDesc');
+    expect(vector).toHaveBeenCalledWith(
+      VIEWER,
+      expect.any(Array),
+      { embeddingModel: embeddings.model },
+      200,
+    );
+  });
+
+  it.each(['titleAsc', 'titleDesc', 'createdAtAsc', 'createdAtDesc'] as const)(
+    'orders results by %s',
+    async (sort) => {
+      const a = match('a', 2, null);
+      a.item.document.createdAt = new Date('2020-01-01');
+      const b = match('b', 1, null);
+      b.item.document.createdAt = new Date('2025-01-01');
+      documents.text = [b, a];
+      const result = await search.execute(VIEWER, { ...query, sort, mode: 'text' });
+      expect(result.items.map((hit) => hit.document.id)).toEqual(
+        sort.endsWith('Asc') ? ['a', 'b'] : ['b', 'a'],
+      );
+    },
+  );
 });

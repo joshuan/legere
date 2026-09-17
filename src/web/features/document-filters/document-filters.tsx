@@ -11,12 +11,13 @@ import { libraryApi, libraryKeys } from '../../entities/library';
 
 export type DocumentFiltersProps = {
   value: DocumentFilters;
+  searchOnly?: boolean;
   onChange: (next: DocumentFilters) => void;
 };
 
 // The filter bar of docs/11 §11.3. It owns no state: the URL does, and this only reports changes —
 // so a filtered view is a link somebody can send to a colleague.
-export function DocumentFiltersBar({ value, onChange }: DocumentFiltersProps) {
+export function DocumentFiltersBar({ value, onChange, searchOnly = false }: DocumentFiltersProps) {
   const t = useTranslations();
 
   const libraries = useQuery({ queryKey: libraryKeys.visible, queryFn: libraryApi.listVisible });
@@ -82,56 +83,64 @@ export function DocumentFiltersBar({ value, onChange }: DocumentFiltersProps) {
         }))}
       />
 
-      {/* Where the document's files came from, and nothing finer: a document that absorbed an
+      {!searchOnly && (
+        <>
+          {/* Where the document's files came from, and nothing finer: a document that absorbed an
           upload does not change kind, so there are two answers, not three (docs/03 §3.3.16). */}
-      <Select
-        allowClear
-        style={{ minWidth: 180 }}
-        placeholder={t('documents.filters.origin')}
-        aria-label={t('documents.filters.origin')}
-        value={value.origin ?? undefined}
-        onChange={(origin?: FileOrigin) => set({ origin })}
-        options={[
-          { value: 'LIBRARY', label: t('documents.filters.originLibrary') },
-          { value: 'MANAGED', label: t('documents.filters.originManaged') },
-        ]}
-      />
+          <Select
+            allowClear
+            style={{ minWidth: 180 }}
+            placeholder={t('documents.filters.origin')}
+            aria-label={t('documents.filters.origin')}
+            value={value.origin ?? undefined}
+            onChange={(origin?: FileOrigin) => set({ origin })}
+            options={[
+              { value: 'LIBRARY', label: t('documents.filters.originLibrary') },
+              { value: 'MANAGED', label: t('documents.filters.originManaged') },
+            ]}
+          />
 
-      <Space size="small">
-        <Typography.Text type="secondary">{t('documents.filters.unavailableOnly')}</Typography.Text>
-        <Switch
-          aria-label={t('documents.filters.unavailableOnly')}
-          checked={value.availability === 'UNAVAILABLE'}
-          onChange={(on) => set({ availability: on ? 'UNAVAILABLE' : undefined })}
-        />
-      </Space>
+          <Space size="small">
+            <Typography.Text type="secondary">
+              {t('documents.filters.unavailableOnly')}
+            </Typography.Text>
+            <Switch
+              aria-label={t('documents.filters.unavailableOnly')}
+              checked={value.availability === 'UNAVAILABLE'}
+              onChange={(on) => set({ availability: on ? 'UNAVAILABLE' : undefined })}
+            />
+          </Space>
 
-      <Space size="small">
-        <Typography.Text type="secondary">{t('documents.filters.processingOnly')}</Typography.Text>
-        <Switch
-          aria-label={t('documents.filters.processingOnly')}
-          checked={value.processing === true}
-          onChange={(on) => set({ processing: on ? true : undefined })}
-        />
-      </Space>
+          <Space size="small">
+            <Typography.Text type="secondary">
+              {t('documents.filters.processingOnly')}
+            </Typography.Text>
+            <Switch
+              aria-label={t('documents.filters.processingOnly')}
+              checked={value.processing === true}
+              onChange={(on) => set({ processing: on ? true : undefined })}
+            />
+          </Space>
 
-      {/* Arrived from a queue counter rather than chosen here, so it says in words what was clicked
+          {/* Arrived from a queue counter rather than chosen here, so it says in words what was clicked
           and comes off the same way anything else does (docs/11 §11.13). The step is named as the
           queue screen names it, because that is the number the reader pressed. */}
-      {value.step !== undefined && value.stepStatus !== undefined && (
-        <Tag
-          color="processing"
-          closable
-          closeIcon={<CloseOutlined aria-label={t('documents.filters.stepClear')} />}
-          onClose={() => set({ step: undefined, stepStatus: undefined })}
-        >
-          {t('documents.filters.step', {
-            // The document's own page names the steps, and every other screen borrows that name:
-            // one vocabulary for one thing (docs/11 §11.13).
-            step: t(`viewer.steps.${value.step}`),
-            status: t(`documents.filters.stepStatus.${value.stepStatus}`),
-          })}
-        </Tag>
+          {value.step !== undefined && value.stepStatus !== undefined && (
+            <Tag
+              color="processing"
+              closable
+              closeIcon={<CloseOutlined aria-label={t('documents.filters.stepClear')} />}
+              onClose={() => set({ step: undefined, stepStatus: undefined })}
+            >
+              {t('documents.filters.step', {
+                // The document's own page names the steps, and every other screen borrows that name:
+                // one vocabulary for one thing (docs/11 §11.13).
+                step: t(`viewer.steps.${value.step}`),
+                status: t(`documents.filters.stepStatus.${value.stepStatus}`),
+              })}
+            </Tag>
+          )}
+        </>
       )}
 
       {active && <Button onClick={() => onChange({})}>{t('documents.filters.clear')}</Button>}

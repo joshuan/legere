@@ -12,16 +12,14 @@ Authenticated layout: left **Sider** (collapsible) + content. Menu:
 |------|-------|-----------|
 | Documents | `/documents` | all |
 | Browse | `/browse/:libraryId` (submenu listing visible libraries) | all |
-| Search | opens the overlay (§11.1a) rather than navigating; `/search` is the page behind it | all |
+| Search | `/search` (§11.1a, §11.6) | all |
 | Collections | `/collections` | all |
 | Catalogues ▸ People / Subjects / Subject kinds / Document types | `/people`, `/subjects`, `/subject-kinds`, `/document-types` | all |
 | Administration ▸ Libraries / Users / Queue / Trash / Instance | `/admin/*` | ADMIN |
 | (footer) user name + role, Settings, Logout, version, collapse | `/settings` | all |
 
-**Search is the one item that opens rather than goes.** It is in the menu because that is where
-somebody looks for it; pressing it raises the overlay of §11.1a over whatever is on the screen.
-`/search` remains a real screen at a real address, reached from the overlay and by its own URL
-(§11.6).
+**Search opens its own page.** The menu item links to `/search`; Cmd+K / Ctrl+K navigates
+to the same page and focuses its input (§11.1a, §11.6).
 
 **The foot of the column**, bottom-last in that order: who is signed in — the name, and the role
 where it is worth saying — then the two things they may do about it, then which build this is, then
@@ -53,8 +51,7 @@ immediately underneath, and the same name twice on one screen is not emphasis. T
 long way from what they acted on — Upload above a grid it had nothing to do with, Invite user above a
 table of users it does not appear in — and each now sits in the block it belongs to (§11.3, §11.11).
 The **search input** was a field occupying the widest strip of the application at all times to answer
-a question nobody had asked yet; it is raised on demand and centred instead, which is where a search
-belongs while it is being typed (§11.1a). What the bar cost was the top of every screen, in the one
+a question nobody had asked yet; it now belongs to the dedicated search page (§11.1a). What the bar cost was the top of every screen, in the one
 product whose whole job is to show somebody else's documents at the size they were photographed.
 
 Each screen therefore owns its heading, inside its own content and **only where one earns its place**:
@@ -75,40 +72,13 @@ the person reading it in order to announce that the page they are reading is on 
 boundary may live so that this cannot happen is [`10 §10.2`](./10-frontend-architecture.md#102-routing-map)'s
 to say, and it says it as an invariant.
 
-## 11.1a. The search overlay
+## 11.1a. Search navigation
 
-Search is raised over what is open rather than navigated to. The question "where is that lease"
-arrives while something else is on the screen, and the answer is usually one document rather than a
-page of results to be worked through — so the menu item and **Cmd+K** (**Ctrl+K** where there is no
-Cmd) both open a centred overlay over the current screen, dimming it instead of replacing it. The
-hotkey works **anywhere in the authenticated application** and belongs to the desktop; the menu item
-is how everybody else reaches the same thing, because a feature whose only door is a chord is a
-feature most people never find.
-
-One input, focused the moment it appears, and results **as the query is typed** — debounced, so a
-word being typed costs one request rather than six. It is the same `GET /api/search` the page runs,
-in the same default `hybrid` mode ([`07 §7.3`](./07-api-specification.md)): this is a faster way to
-the one instrument and never a second, quieter search with its own opinion about what matches. A
-short list of the top results, each row the anatomy §11.6 already fixes — thumbnail, title, the
-highlighted snippet, the document type — because a result should look the same wherever it is read.
-
-**The whole path is the keyboard's.** ↑ and ↓ move through the results and the highlighted row is
-visibly the highlighted one; **Enter** opens it; **Enter with nothing highlighted** goes to
-`/search?q=` carrying what has been typed, which is also what the **All results** row at the foot of
-the list does — it is there for the pointer, and for everyone who never learns that Enter already
-did it. **Escape** closes the overlay, and 🔒 **focus returns where it came from** — the card, the
-menu item, the tab it was on — because an overlay that dissolves and drops the focus ring on the
-document body has silently ended a keyboard session that had not finished. Closing changes nothing
-underneath: that screen was dimmed, not left.
-
-**An empty query is not an empty overlay.** It shows the **recent documents**, which is exactly what
-the search page's own empty state shows (§11.6): one behaviour, described once, because two screens
-answering "nothing typed yet" differently would be two products. Nothing found says so and says what
-to try, in the words §11.6 uses.
-
-Localized ru/en like everything else, and the shortcut is written where it is offered — the menu item
-carries the chord as a hint on its right, since a shortcut nobody is told about is a shortcut for the
-person who wrote it.
+The Search menu item and **Cmd+K / Ctrl+K** open `/search`, with the input focused on arrival.
+The shortcut is registered once by the authenticated shell. On the search page it focuses the
+existing input without clearing the query or navigating again. The menu displays the platform's
+shortcut. Search is a normal page: browser Back returns to the previous page, and a document
+opened from the results can be left with Back to recover the search URL and its settings.
 
 ## 11.2. Auth screens
 
@@ -867,7 +837,7 @@ re-rendered.
   will move: the pages by their numbers in **this** document, in document order whatever order they
   were ticked in, because a tile's own **Move** and twelve ticked pages open the same dialog and a
   confirmation that does not say what it is about is one nobody can check before pressing.
-  🔒 Its search settles before it is sent, the way the overlay's does (§11.1a). That is not only
+  🔒 Its search settles before it is sent, before making an API request. That is not only
   politeness here: every non-text search spends an outbound embeddings call and is metered per
   caller ([`08 §8.4`](./08-auth-and-authorization.md)), so a title typed a character at a time ends
   in `RATE_LIMITED` and an empty list — the one moment the picker had to work.
@@ -1104,7 +1074,7 @@ already have one. The empty state says there are none, and the picker above it s
 
 Search input + mode toggle (`Hybrid | Text | Semantic`; semantic disabled with a tooltip when
 `semanticAvailable=false`), filter bar (library, document type). Results: list rows — thumbnail, title,
-highlighted snippet (`<mark>`), document type, score-ordered. Empty query → recent documents. No results →
+highlighted snippet (`<mark>`), document type and dates, ordered by the selected sort. Empty query → recent documents. No results →
 suggestions ("check spelling, try semantic mode").
 
 **The search says what it searches.** A box with a magnifying glass in it is a promise nobody can
@@ -1121,17 +1091,23 @@ of the documents, **Hybrid** runs both and fuses the two orderings.
 because a hit whose snippet quotes a paragraph that does not contain the query reads as a bug, and
 the honest answer is usually "because the scan is called that". It is the same answer the
 suggestions of §11.5e give beside a proposal, for the same reason: a machine that proposes something
-owes the reader what it went on. The tags stand on the search screen and not in the overlay
-(§11.1a): the overlay is three rows and a way in, and a column of tags in it would be an
-explanation nobody stopped to read.
+owes the reader what it went on. The tags stand beside every matched result.
 
-**The overlay is the quick way in; this is the instrument.** Most searches are answered by the first
-few rows of §11.1a and never arrive here — but the modes, the filters and the whole ranked list are
-here, with an input of its own inside its own content, because narrowing a search is work done with
-the results in front of you and an overlay is not a place to work. Two doors, both real: the
-overlay's **All results** row, and `?q=` in the address. A page opened with a query already in the
-URL runs it on arrival rather than waiting to be asked a second time — that address is what somebody
-pasted into a chat, and it has to be the search and not a form remembering the words.
+The URL stores the submitted query, mode, library, document type and sort. A new query creates a
+history entry; changing controls updates that entry. Back/Forward restores both the input and
+the result settings. Only the filters supported by search are offered.
+
+Sorting offers relevance (default), document date (newest/oldest), date added (newest/oldest),
+and title (A–Z/Z–A). Missing document dates go last in either direction. Each row displays the
+document date and date added, so the ordering is visible. Text results are sorted before the
+server applies the result limit. Semantic date/title sorting works within the 200 closest
+documents; a short hint explains that it orders the closest semantic matches. The page requests
+up to 50 results and says how many are shown, without implying that this is the archive's total.
+
+Hybrid remains the default, combining words and vector similarity. The selected mode has a
+visible explanation. An unconfigured embeddings provider is reported before the first query and
+disables semantic mode. A provider failure falls back to text with an explicit notice. A failed
+search is an error with a retry action, never an empty result. No query shows recent documents.
 
 ## 11.7. Collections (`/collections`, `/collections/:id`)
 
@@ -1631,7 +1607,7 @@ platform that wants a bitmap and no transparency.
   against the page, not the ~1.2:1 a hairline gives. Hairlines are for divisions *inside* a surface —
   the rule under the wordmark, the line between a card's thumbnail and its body.
 - **What floats sits on the raised surface** — antd's own `colorBgElevated`, a step above the card
-  tone: modals, popovers, dropdowns and the search overlay (§11.1a). Something lifted over the page
+  tone: modals, popovers, dropdowns and other transient panels. Something lifted over the page
   should read as lifted, which is the rule above said in colour rather than in shadow. It is antd's
   token and not one of ours, deliberately: an overlay takes the surface every modal in the product
   already has, rather than every modal being repainted to match one overlay.

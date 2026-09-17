@@ -26,7 +26,7 @@ import { useState, type ReactNode } from 'react';
 import type { UserDto } from '../../../shared/contracts/auth';
 import { libraryApi, libraryKeys } from '../../entities/library';
 import { sessionApi } from '../../entities/session';
-import { useSearchOverlay, useShortcutHint } from '../search-overlay';
+import { SearchShortcut, useShortcutHint } from '../search-shortcut';
 import { endSession, useErrorMessage } from '../../shared/lib';
 
 // The authenticated shell (docs/11 §11.1): a collapsible sider with the product's sections, and the
@@ -52,9 +52,6 @@ export function AppShell({
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();
-  // Search is the one item that opens rather than goes (docs/11 §11.1): the overlay belongs to the
-  // layout above this, so the shell only asks for it.
-  const searchOverlay = useSearchOverlay();
   const shortcut = useShortcutHint();
 
   // Signing out is a POST — the CSRF check is fail-closed and a GET route would let a prefetch end
@@ -116,21 +113,21 @@ export function AppShell({
         })),
       ],
     },
-    // In the menu because that is where somebody looks for it, but it raises the overlay over
-    // whatever is on the screen instead of navigating; /search stays a real screen at a real
-    // address behind it (docs/11 §11.1a). The chord is written where it is offered.
+    // Search is a regular page; the chord beside the link opens the same destination.
     {
       key: '/search',
       icon: <SearchOutlined />,
       label: (
-        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Link
+          href="/search"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+        >
           {t('nav.search')}
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             {shortcut}
           </Typography.Text>
-        </span>
+        </Link>
       ),
-      onClick: () => searchOverlay.open(),
     },
     {
       key: '/collections',
@@ -211,6 +208,7 @@ export function AppShell({
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
+      <SearchShortcut />
       <Layout.Sider
         className="legere-sider"
         width={240}
