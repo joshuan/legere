@@ -205,6 +205,44 @@ describe('SharpImageTool', () => {
     });
   });
 
+  describe('normalizeOrientation', () => {
+    it.each([
+      { orientation: 2, width: 120, height: 80, x: 115, y: 4 },
+      { orientation: 3, width: 120, height: 80, x: 115, y: 75 },
+      { orientation: 4, width: 120, height: 80, x: 4, y: 75 },
+      { orientation: 5, width: 80, height: 120, x: 4, y: 4 },
+      { orientation: 6, width: 80, height: 120, x: 75, y: 4 },
+      { orientation: 7, width: 80, height: 120, x: 75, y: 115 },
+      { orientation: 8, width: 80, height: 120, x: 4, y: 115 },
+    ])('bakes EXIF $orientation into the pixels exactly once', async (expected) => {
+      const source = await sharp(await markedLandscape(120, 80))
+        .withMetadata({ orientation: expected.orientation })
+        .jpeg()
+        .toBuffer();
+      const original = Buffer.from(source);
+
+      const normalized = await images.normalizeOrientation(Readable.from([source]));
+      if (normalized === null) throw new Error('EXIF orientation was not applied');
+      const meta = await sharp(normalized).metadata();
+      expect(meta.format).toBe('jpeg');
+      expect(meta.width).toBe(expected.width);
+      expect(meta.height).toBe(expected.height);
+      expect(meta.orientation).toBeUndefined();
+      const { data, info } = await sharp(normalized).raw().toBuffer({ resolveWithObject: true });
+      expect(data[(expected.y * info.width + expected.x) * info.channels]).toBeLessThan(20);
+      expect(await images.normalizeOrientation(normalized)).toBeNull();
+      expect(source).toEqual(original);
+    });
+
+    it('leaves images without an EXIF transform in their original format and bytes', async () => {
+      const png = await markedLandscape(120, 80);
+      const upright = await sharp(png).withMetadata({ orientation: 1 }).jpeg().toBuffer();
+
+      expect(await images.normalizeOrientation(png)).toBeNull();
+      expect(await images.normalizeOrientation(upright)).toBeNull();
+    });
+  });
+
   describe('contentBox', () => {
     it('answers where the content sits, normalized to the whole image', async () => {
       const crop = await images.contentBox(await pageOnWhite());

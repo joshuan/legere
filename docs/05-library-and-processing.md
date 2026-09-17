@@ -825,7 +825,11 @@ they are served to the client via short-lived signed URLs after an access check.
         it, so the search would be looking for lines of text where there are none. The turn is a
         quarter turn and a mirror (`03 §3.3.17`), applied on top of EXIF rather than instead of it:
         `sharp` still stands a photograph up the way every viewer stands it up, and a person's turn
-        is a turn on top of that.
+        is a turn on top of that. Before conversion, any remaining EXIF rotation or reflection is
+        applied to the pixels and its orientation tag removed. This is required even when image
+        correction is disabled, unnecessary, or fails: the converter must receive the same picture
+        the browser displays. Images whose orientation is already applied keep their bytes; only a
+        remaining EXIF transform produces a new JPEG. Original stored files are never rewritten.
         The correction is the two things a camera does to a page and a scanner does not. **The
         lighting is levelled**: the paper of the page is estimated — the brightest pixel around each
         cell of a 128-pixel thumbnail, smoothed into the gradient a lamp makes — and every pixel is
@@ -838,8 +842,9 @@ they are served to the client via short-lived signed URLs after an access check.
         turned — the resample costs more in blurred glyphs than the straightening returns, and the
         recognizer straightens each line of text on its own anyway. What it cannot straighten is a
         table.
-        🔒 **A page that needs neither comes out unchanged** — its own bytes, not so much as
-        re-encoded. What "needs neither" means is measured rather than assumed: the drop from the
+        🔒 **A page that needs neither comes out of correction unchanged** — its own bytes, not
+        re-encoded by that optional filter; EXIF normalization still applies before conversion.
+        What "needs neither" means is measured rather than assumed: the drop from the
         brightest paper on the page to the darkest, over the brightest, is 0.01 on a scanner's own
         scan, 0.06 on a page this correction has already levelled, and 0.28–0.60 on a photograph lit
         from one side, so the threshold sits at 0.10 in the middle of that gap. It is skipped

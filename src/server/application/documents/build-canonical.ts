@@ -277,12 +277,16 @@ export class BuildCanonical {
     const mayCorrect = options.correct ?? true;
     const corrected =
       mayCorrect && this.settings.correctImagePages ? await this.correct(stood) : null;
-    const rendered = corrected ?? stood;
-    // Measured after all three, because that is what the page will be: a photograph taken at an
+    // The optional filters may all leave the original bytes in place. EXIF still has to become
+    // pixels before conversion, or an upright image in the browser can become an upside-down PDF.
+    const oriented = await this.images.normalizeOrientation(corrected ?? stood);
+    const rendered = oriented ?? corrected ?? stood;
+    // Measured after all transforms, because that is what the page will be: a photograph taken at an
     // angle, straightened to the paper's own corners and stood upright is a sheet, whatever the
     // snapshot was.
     const shape = await this.images.dimensions(rendered);
-    const rewritten = page.crop !== null || turn !== null || corrected !== null;
+    const rewritten =
+      page.crop !== null || turn !== null || corrected !== null || oriented !== null;
     return {
       pdf: await this.pdfs.imagesToPdf([
         { body: rendered, fileName: pageNameOf(page.position, rewritten, ext) },
@@ -421,7 +425,7 @@ function documentDateOf(document: Document): Date | null {
 }
 
 // What the picture is called on its way into the converter. A page that was cropped, turned or
-// corrected is JPEG now, whatever it arrived as, and Stirling reads the format from the name; one
+// corrected or EXIF-normalized is JPEG now, and Stirling reads the format from the name; one
 // that came through untouched keeps its own bytes and therefore its own extension.
 function pageNameOf(position: number, rewritten: boolean, ext: string): string {
   const at = String(position).padStart(4, '0');

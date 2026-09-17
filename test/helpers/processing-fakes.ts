@@ -1173,6 +1173,12 @@ export class FakeImageTool extends ImageTool {
     return Buffer.from(`jpeg:${options.maxDim}:${input}`);
   }
 
+  orientation: 'none' | 'applied' = 'none';
+
+  async normalizeOrientation(source: BinarySource): Promise<Buffer | null> {
+    return this.orientation === 'none' ? null : Buffer.from(`oriented(${await describe(source)})`);
+  }
+
   // The crop as a perspective transform (docs/05 §5.6). The result names what it was given and how
   // it was cut, so a test can see which page carried which quadrilateral into the canonical.
   async applyCrop(source: BinarySource, crop: Crop): Promise<Buffer> {

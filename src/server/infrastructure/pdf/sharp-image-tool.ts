@@ -151,6 +151,20 @@ export class SharpImageTool extends ImageTool {
     return quarterTurned ? { width: height, height: width } : { width, height };
   }
 
+  async normalizeOrientation(source: BinarySource): Promise<Buffer | null> {
+    const bytes = await toBuffer(source);
+    const { orientation } = await measured(bytes);
+    if (orientation < 2 || orientation > 8) return null;
+
+    // Correction may return null or be disabled. EXIF still has to become pixels before Stirling
+    // reads the image; encoding without metadata prevents a later reader applying it twice.
+    return (await this.opened(bytes))
+      .rotate()
+      .flatten({ background: '#ffffff' })
+      .jpeg({ quality: CROP_QUALITY })
+      .toBuffer();
+  }
+
   async toJpegPreview(source: BinarySource, options: JpegPreviewOptions): Promise<Buffer> {
     // The longest side is the caller's own, since a preview is under the working bound whatever the
     // picture was: one `resize` does both, because sharp keeps only the last.
@@ -368,9 +382,13 @@ export class SharpImageTool extends ImageTool {
 // How large the picture is, off its header. 🔒 `metadata` parses the header and decodes no pixels —
 // a few hundred bytes whatever the picture is — so it is the one read that may be made with no limit
 // at all, and it is what turns the limit from a refusal into a decision. What it decides is below.
-async function measured(
-  bytes: Buffer,
-): Promise<{ width: number; height: number; pixels: number; quarterTurned: boolean }> {
+async function measured(bytes: Buffer): Promise<{
+  width: number;
+  height: number;
+  pixels: number;
+  orientation: number;
+  quarterTurned: boolean;
+}> {
   const {
     width = 0,
     height = 0,
@@ -392,6 +410,7 @@ async function measured(
     width,
     height,
     pixels,
+    orientation: orientation ?? 1,
     quarterTurned: orientation !== undefined && orientation >= 5 && orientation <= 8,
   };
 }

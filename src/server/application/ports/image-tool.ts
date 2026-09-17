@@ -14,6 +14,11 @@ export type JpegPreviewOptions = {
 export abstract class ImageTool {
   abstract toJpegPreview(source: BinarySource, options: JpegPreviewOptions): Promise<Buffer>;
 
+  // Apply any EXIF rotation/reflection to the pixels before PDF conversion. A rewritten image is
+  // JPEG without an orientation tag; null means its pixels already match the displayed image, so
+  // the caller can retain the original bytes and format. Independent of optional page correction.
+  abstract normalizeOrientation(source: BinarySource): Promise<Buffer | null>;
+
   // How big the picture is, in pixels. Read for one reason: the shape of a page is decided from the
   // shape of what it was made from, and a photograph of a sheet has to be told from a photograph of
   // a receipt before either becomes a page (docs/05 §5.5 step 1).
@@ -45,8 +50,8 @@ export abstract class ImageTool {
   //
   // `null` means the picture needed neither: a scan that is already flat and straight keeps its own
   // bytes rather than being re-encoded into a slightly worse copy of itself, and the caller sends
-  // the original on. Deciding that here rather than at the call site is deliberate — what "already
-  // flat" means is measured off the same pixels the correction would have used.
+  // the original on through EXIF normalization. What "already flat" means is measured off the
+  // same pixels the correction would have used.
   abstract correctPage(source: BinarySource): Promise<Buffer | null>;
 
   // The image as grayscale pixels, downscaled so its longest side is at most `maxDim` — what the

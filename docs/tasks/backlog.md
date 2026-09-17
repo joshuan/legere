@@ -1905,3 +1905,10 @@ The complete product and technical contract is [`15`](../15-receipts.md). Tasks 
   **Goal:** Word originals become readable PDFs and searchable Markdown through the existing services.
   **Docs:** [`05 §5.5`](../05-library-and-processing.md), [`06 §6.3.3`](../06-backend-architecture.md)
   **Acceptance:** uploads and library ingest recognize legacy DOC and DOCX even when ZIP metadata lies beyond the initial head; canonical PDF and preview conversion retain the original bytes. Complete, unchanged DOCX documents are parsed natively by Docling without PDF page ranges or OCR; compositions, legacy DOC and unavailable/failed native parsing use the canonical PDF. Detection, real-format conversion, extraction, fallback, page-edit and authorization regressions are covered; typecheck, lint, coverage and build pass.
+
+## Canonical image orientation
+
+- [x] **Preserve EXIF orientation when building the canonical PDF**
+  **Goal:** a JPEG displayed upright in Files stays upright in the canonical PDF and its preview.
+  **Docs:** [`05 §5.5`](../05-library-and-processing.md)
+  **Acceptance:** EXIF rotation and reflection are applied before image-to-PDF conversion even when image correction is disabled, unnecessary, or fails; already oriented images retain their bytes; original files remain unchanged; regression tests cover EXIF orientations 2–8 and the three correction fallback paths.

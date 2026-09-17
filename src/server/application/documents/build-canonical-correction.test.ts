@@ -184,6 +184,27 @@ describe('BuildCanonical: correcting a page before it is one', () => {
     expect(pdfs.markdownReads.at(0) ?? '').toContain('image-pdf(photograph)');
   });
 
+  it.each(['none', 'failing', 'disabled'] as const)(
+    'preserves EXIF orientation when correction is %s',
+    async (correction) => {
+      images.correction = correction === 'disabled' ? 'applied' : correction;
+      images.orientation = 'applied';
+      const document = documentFixture();
+      await givenPhotograph(document.id, { ext: 'png' });
+
+      const built = await buildWith({
+        ...SETTINGS,
+        correctImagePages: correction !== 'disabled',
+      }).execute(document);
+
+      expect(built.kind).toBe('built');
+      expect(pageSentToPdf()).toBe('page-0000.jpg');
+      expect(pdfs.markdownReads.at(0) ?? '').toContain('image-pdf(oriented(photograph))');
+      expect(images.measured).toContain('oriented(photograph)');
+      expect(storage.get(`documents/${document.id}/source.png`).body.toString()).toBe('photograph');
+    },
+  );
+
   it('does not touch a page at all when the instance turned the correction off', async () => {
     images.correction = 'applied';
     const document = documentFixture();
