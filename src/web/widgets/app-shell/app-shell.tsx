@@ -22,11 +22,12 @@ import { App, Layout, Menu, Space, Tag, Typography, theme } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { UserDto } from '../../../shared/contracts/auth';
 import { libraryApi, libraryKeys } from '../../entities/library';
 import { sessionApi } from '../../entities/session';
 import { SearchShortcut, useShortcutHint } from '../search-shortcut';
+import { useThemePreference } from '../../shared/providers';
 import { endSession, useErrorMessage } from '../../shared/lib';
 
 // The authenticated shell (docs/11 §11.1): a collapsible sider with the product's sections, and the
@@ -53,6 +54,11 @@ export function AppShell({
   const describeError = useErrorMessage();
   const { message } = App.useApp();
   const shortcut = useShortcutHint();
+  const setThemePreference = useThemePreference();
+  useEffect(() => {
+    setThemePreference(user.theme);
+    return () => setThemePreference('SYSTEM');
+  }, [setThemePreference, user.theme]);
 
   // Signing out is a POST — the CSRF check is fail-closed and a GET route would let a prefetch end
   // someone's session (docs/08 §8.4). Hence a menu action rather than a link to a page.
@@ -209,9 +215,14 @@ export function AppShell({
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <SearchShortcut />
+      <a href="#main-content" className="legere-skip-link">
+        {t('nav.skipContent')}
+      </a>
       <Layout.Sider
         className="legere-sider"
         width={240}
+        breakpoint="lg"
+        collapsedWidth={64}
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
@@ -332,7 +343,7 @@ export function AppShell({
             screen, in a product whose whole job is to show documents at the size they were
             photographed (docs/11 §11.1). A flex column, so a screen that wants the rest of the
             window's height can ask for it and actually be given it (docs/11 §11.5). */}
-        <Layout.Content style={{ padding: '24px 32px', display: 'flex', flexDirection: 'column' }}>
+        <Layout.Content id="main-content" tabIndex={-1} className="legere-main">
           <div className="legere-enter legere-content">{children}</div>
         </Layout.Content>
       </Layout>

@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-**The backlog M0–M61 is implemented** — there is no unchecked task in
-`docs/tasks/backlog.md`, so the next piece of work starts by writing one. Every mandatory scenario of `docs/14 §14.8` is mapped to a test in
-`docs/tasks/scenario-coverage.md`. The specification (documents 01–14 in `docs/`) remains the source
-of truth; new work continues the same way — take the first unchecked task, tick it off in the same
-commit, and where a task changes what the docs say, the doc moves first (golden rule 3).
+The completed implementation history and current work are tracked in `docs/tasks/backlog.md`.
+M0–M63, image orientation and the search page are implemented; M64 tracks the September service audit.
+Every mandatory scenario of `docs/14 §14.8` is mapped to a test in
+`docs/tasks/scenario-coverage.md`. The specification (documents 01–15 in `docs/`) remains the source
+of truth. Write a task before new work, tick it off in the same commit, and update affected contracts
+before implementation. The backlog is the authoritative status rather than a duplicated completion claim.
 
 ## Commands
 
@@ -23,7 +24,7 @@ commit, and where a task changes what the docs say, the doc moves first (golden 
 | `npm run test:coverage` | the same with the ≥90% line floor on `domain` + `application`; this is what CI runs |
 | `npm run db:migrate` | apply Prisma migrations forward (the production owner-only one-shot) |
 | `npm run queue:migrate` | owner-only: apply pg-boss's schema and fixed queues before starting the app |
-| `npm run db:migrate:dev` | author a new migration from a schema change — **but see below** |
+| `npm run db:migrate:dev` | Prisma drift tooling only; author SQL migrations by hand — **see below** |
 | `npm run db:seed` | idempotent dev seed: `admin@legere.local` / `password` |
 | `npm run release` | cut a release (`docs/13 §13.3a`); `-- patch` / `-- major` for other bumps |
 

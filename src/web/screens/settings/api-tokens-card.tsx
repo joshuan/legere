@@ -21,7 +21,7 @@ import { useState } from 'react';
 import type { ApiTokenDto, CreateApiTokenRequest } from '../../../shared/contracts/users';
 import { apiTokenApi, apiTokenKeys } from '../../entities/api-token';
 import { useErrorMessage } from '../../shared/lib';
-import { OneTimeLinkModal } from '../../shared/ui';
+import { OneTimeLinkModal, QueryError } from '../../shared/ui';
 
 // The API tokens card names the one capability a script receives; inbox tokens never inherit read.
 export function ApiTokensCard() {
@@ -61,131 +61,140 @@ export function ApiTokensCard() {
     onError: (error: unknown) => void message.error(describeError(error)),
   });
 
+  if (tokens.isError && tokens.data === undefined)
+    return <QueryError error={tokens.error} retry={tokens.refetch} />;
+
   return (
-    <Card
-      title={t('settings.apiTokens.title')}
-      extra={
-        <Button type="primary" onClick={() => setCreating(true)}>
-          {t('settings.apiTokens.create')}
-        </Button>
-      }
-    >
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        <Typography.Text type="secondary">{t('settings.apiTokens.description')}</Typography.Text>
+    <>
+      {tokens.isError && <QueryError error={tokens.error} retry={tokens.refetch} />}
 
-        <Table<ApiTokenDto>
-          rowKey="id"
-          size="small"
-          loading={tokens.isPending}
-          dataSource={tokens.data?.items ?? []}
-          pagination={false}
-          locale={{ emptyText: t('settings.apiTokens.empty') }}
-          columns={[
-            { title: t('settings.apiTokens.columns.name'), dataIndex: 'name' },
-            {
-              title: t('settings.apiTokens.columns.scope'),
-              dataIndex: 'scope',
-              render: (scope: ApiTokenDto['scope']) => t(`settings.apiTokens.scopes.${scope}`),
-            },
-            {
-              title: t('settings.apiTokens.columns.status'),
-              dataIndex: 'status',
-              render: (status: ApiTokenDto['status']) => (
-                <Tag color={statusColor(status)}>{t(`settings.apiTokens.statuses.${status}`)}</Tag>
-              ),
-            },
-            {
-              title: t('settings.apiTokens.columns.created'),
-              dataIndex: 'createdAt',
-              render: (value: string) => new Date(value).toLocaleDateString(),
-            },
-            {
-              title: t('settings.apiTokens.columns.expires'),
-              dataIndex: 'expiresAt',
-              render: (value: string) => new Date(value).toLocaleDateString(),
-            },
-            {
-              title: t('settings.apiTokens.columns.lastUsed'),
-              dataIndex: 'lastUsedAt',
-              render: (value: string | null) =>
-                value === null ? t('settings.apiTokens.never') : new Date(value).toLocaleString(),
-            },
-            {
-              title: '',
-              key: 'actions',
-              render: (_: unknown, token: ApiTokenDto) =>
-                // A dead token has nothing left to revoke; the row stays as a record of it.
-                token.status === 'ACTIVE' ? (
-                  <Popconfirm
-                    title={t('settings.apiTokens.revokeConfirm')}
-                    okText={t('settings.apiTokens.revoke')}
-                    cancelText={t('common.actions.cancel')}
-                    onConfirm={() => revoke.mutate(token.id)}
-                  >
-                    <Button size="small" danger>
-                      {t('settings.apiTokens.revoke')}
-                    </Button>
-                  </Popconfirm>
-                ) : null,
-            },
-          ]}
-        />
-      </Space>
-
-      <Modal
-        open={creating}
-        title={t('settings.apiTokens.create')}
-        onCancel={() => setCreating(false)}
-        footer={null}
-        destroyOnHidden
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={(values: CreateApiTokenRequest) => create.mutate(values)}
-        >
-          <Form.Item
-            label={t('settings.apiTokens.name')}
-            name="name"
-            rules={[{ required: true, message: t('settings.apiTokens.nameRequired') }]}
-          >
-            <Input placeholder={t('settings.apiTokens.namePlaceholder')} />
-          </Form.Item>
-          <Form.Item label={t('settings.apiTokens.scope')} name="scope" initialValue="READ">
-            <Select
-              options={['READ', 'DOCUMENTS_INGEST', 'RECEIPTS_INGEST'].map((scope) => ({
-                value: scope,
-                label: t(`settings.apiTokens.scopes.${scope}`),
-              }))}
-            />
-          </Form.Item>
-          {/* Left empty on purpose: the instance default is the server's to know (docs/12 §12.4). */}
-          <Form.Item label={t('settings.apiTokens.expiresInDays')} name="expiresInDays">
-            <InputNumber
-              min={1}
-              max={365}
-              style={{ width: '100%' }}
-              placeholder={t('settings.apiTokens.expiresInDaysPlaceholder')}
-            />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" loading={create.isPending}>
-            {t('settings.apiTokens.submit')}
+      <Card
+        title={t('settings.apiTokens.title')}
+        extra={
+          <Button type="primary" onClick={() => setCreating(true)}>
+            {t('settings.apiTokens.create')}
           </Button>
-        </Form>
-      </Modal>
+        }
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Typography.Text type="secondary">{t('settings.apiTokens.description')}</Typography.Text>
 
-      <OneTimeLinkModal
-        open={issued !== null}
-        title={t('settings.apiTokens.issuedTitle')}
-        url={issued?.token ?? null}
-        expiresAt={issued?.expiresAt ?? null}
-        labels={{
-          warning: t('settings.apiTokens.issuedWarning'),
-          copy: t('settings.apiTokens.issuedCopy'),
-        }}
-        onClose={() => setIssued(null)}
-      />
-    </Card>
+          <Table<ApiTokenDto>
+            rowKey="id"
+            size="small"
+            loading={tokens.isPending}
+            dataSource={tokens.data?.items ?? []}
+            pagination={false}
+            locale={{ emptyText: t('settings.apiTokens.empty') }}
+            columns={[
+              { title: t('settings.apiTokens.columns.name'), dataIndex: 'name' },
+              {
+                title: t('settings.apiTokens.columns.scope'),
+                dataIndex: 'scope',
+                render: (scope: ApiTokenDto['scope']) => t(`settings.apiTokens.scopes.${scope}`),
+              },
+              {
+                title: t('settings.apiTokens.columns.status'),
+                dataIndex: 'status',
+                render: (status: ApiTokenDto['status']) => (
+                  <Tag color={statusColor(status)}>
+                    {t(`settings.apiTokens.statuses.${status}`)}
+                  </Tag>
+                ),
+              },
+              {
+                title: t('settings.apiTokens.columns.created'),
+                dataIndex: 'createdAt',
+                render: (value: string) => new Date(value).toLocaleDateString(),
+              },
+              {
+                title: t('settings.apiTokens.columns.expires'),
+                dataIndex: 'expiresAt',
+                render: (value: string) => new Date(value).toLocaleDateString(),
+              },
+              {
+                title: t('settings.apiTokens.columns.lastUsed'),
+                dataIndex: 'lastUsedAt',
+                render: (value: string | null) =>
+                  value === null ? t('settings.apiTokens.never') : new Date(value).toLocaleString(),
+              },
+              {
+                title: '',
+                key: 'actions',
+                render: (_: unknown, token: ApiTokenDto) =>
+                  // A dead token has nothing left to revoke; the row stays as a record of it.
+                  token.status === 'ACTIVE' ? (
+                    <Popconfirm
+                      title={t('settings.apiTokens.revokeConfirm')}
+                      okText={t('settings.apiTokens.revoke')}
+                      cancelText={t('common.actions.cancel')}
+                      onConfirm={() => revoke.mutate(token.id)}
+                    >
+                      <Button size="small" danger>
+                        {t('settings.apiTokens.revoke')}
+                      </Button>
+                    </Popconfirm>
+                  ) : null,
+              },
+            ]}
+          />
+        </Space>
+
+        <Modal
+          open={creating}
+          title={t('settings.apiTokens.create')}
+          onCancel={() => setCreating(false)}
+          footer={null}
+          destroyOnHidden
+        >
+          <Form
+            form={form}
+            layout="vertical"
+            onFinish={(values: CreateApiTokenRequest) => create.mutate(values)}
+          >
+            <Form.Item
+              label={t('settings.apiTokens.name')}
+              name="name"
+              rules={[{ required: true, message: t('settings.apiTokens.nameRequired') }]}
+            >
+              <Input placeholder={t('settings.apiTokens.namePlaceholder')} />
+            </Form.Item>
+            <Form.Item label={t('settings.apiTokens.scope')} name="scope" initialValue="READ">
+              <Select
+                options={['READ', 'DOCUMENTS_INGEST', 'RECEIPTS_INGEST'].map((scope) => ({
+                  value: scope,
+                  label: t(`settings.apiTokens.scopes.${scope}`),
+                }))}
+              />
+            </Form.Item>
+            {/* Left empty on purpose: the instance default is the server's to know (docs/12 §12.4). */}
+            <Form.Item label={t('settings.apiTokens.expiresInDays')} name="expiresInDays">
+              <InputNumber
+                min={1}
+                max={365}
+                style={{ width: '100%' }}
+                placeholder={t('settings.apiTokens.expiresInDaysPlaceholder')}
+              />
+            </Form.Item>
+            <Button type="primary" htmlType="submit" loading={create.isPending}>
+              {t('settings.apiTokens.submit')}
+            </Button>
+          </Form>
+        </Modal>
+
+        <OneTimeLinkModal
+          open={issued !== null}
+          title={t('settings.apiTokens.issuedTitle')}
+          url={issued?.token ?? null}
+          expiresAt={issued?.expiresAt ?? null}
+          labels={{
+            warning: t('settings.apiTokens.issuedWarning'),
+            copy: t('settings.apiTokens.issuedCopy'),
+          }}
+          onClose={() => setIssued(null)}
+        />
+      </Card>
+    </>
   );
 }
 

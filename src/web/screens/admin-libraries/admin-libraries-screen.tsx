@@ -9,6 +9,7 @@ import type { LibraryAdminDto, LibraryAdminListItem } from '../../../shared/cont
 import { libraryApi, libraryKeys } from '../../entities/library';
 import { LibraryDrawer } from '../../features/library-form';
 import { useErrorMessage } from '../../shared/lib';
+import { QueryError } from '../../shared/ui';
 
 // /admin/libraries (docs/11 §11.10): the table with counters, the enabled switch, Scan-now, and the
 // create/edit drawer. This is the screen the primary product scenario runs through.
@@ -153,40 +154,47 @@ export function AdminLibrariesScreen() {
     },
   ];
 
+  if (libraries.isError && libraries.data === undefined)
+    return <QueryError error={libraries.error} retry={libraries.refetch} />;
+
   return (
     <>
-      <Card
-        title={t('admin.libraries.title')}
-        extra={
-          <Button
-            type="primary"
-            onClick={() => {
-              setEditing(null);
-              setDrawerOpen(true);
-            }}
-          >
-            {t('admin.libraries.actions.create')}
-          </Button>
-        }
-      >
-        <Table
-          rowKey="id"
-          loading={libraries.isPending}
-          dataSource={libraries.data?.items ?? []}
-          columns={columns}
-          pagination={false}
-          locale={{ emptyText: t('admin.libraries.empty') }}
-        />
-      </Card>
+      {libraries.isError && <QueryError error={libraries.error} retry={libraries.refetch} />}
 
-      <LibraryDrawer
-        open={drawerOpen}
-        library={editing}
-        onClose={() => {
-          setDrawerOpen(false);
-          setEditing(null);
-        }}
-      />
+      <>
+        <Card
+          title={t('admin.libraries.title')}
+          extra={
+            <Button
+              type="primary"
+              onClick={() => {
+                setEditing(null);
+                setDrawerOpen(true);
+              }}
+            >
+              {t('admin.libraries.actions.create')}
+            </Button>
+          }
+        >
+          <Table
+            rowKey="id"
+            loading={libraries.isPending}
+            dataSource={libraries.data?.items ?? []}
+            columns={columns}
+            pagination={false}
+            locale={{ emptyText: t('admin.libraries.empty') }}
+          />
+        </Card>
+
+        <LibraryDrawer
+          open={drawerOpen}
+          library={editing}
+          onClose={() => {
+            setDrawerOpen(false);
+            setEditing(null);
+          }}
+        />
+      </>
     </>
   );
 }

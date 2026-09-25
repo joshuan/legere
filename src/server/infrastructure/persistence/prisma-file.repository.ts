@@ -33,6 +33,7 @@ import {
   type TrashedFile,
 } from '../../domain/repositories/file.repository';
 import { clientOf, isPrismaTx } from './prisma-client';
+import { assertDocumentFiles } from './file-product-home';
 import type { PrismaTx } from './prisma-unit-of-work';
 import { PrismaService } from './prisma.service';
 
@@ -136,6 +137,12 @@ export class PrismaFileRepository implements FileRepository {
     input: CreateFileInput,
     tx?: TransactionHandle,
   ): Promise<{ file: File; created: boolean }> {
+    if (!isPrismaTx(tx)) {
+      return this.prisma.$transaction((client) => this.findOrCreateByContentHash(input, client));
+    }
+    // A missing row cannot be locked. Serialise the hash until the caller's attachment commits,
+    // so simultaneous uploads see the winning product and never query an aborted unique insert.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${input.contentHash}, 0))`;
     const existing = await this.findActiveByContentHash(input.contentHash, tx);
     if (existing !== null) return { file: existing, created: false };
 
@@ -422,6 +429,10 @@ export class PrismaFileRepository implements FileRepository {
 
     const rewrite = async (client: PrismaTx): Promise<void> => {
       await this.lockDocument(client, documentId);
+      await assertDocumentFiles(
+        client,
+        input.pages.map((page) => page.fileId),
+      );
       if (input.expecting !== null) {
         const held = await this.listPagesForDocument(documentId, client);
         if (!sameListing(input.expecting, held.map(entryOf))) throw documentChanged();
@@ -447,6 +458,10 @@ export class PrismaFileRepository implements FileRepository {
     if (pages.length === 0) return;
     const append = async (client: PrismaTx): Promise<void> => {
       await this.lockDocument(client, documentId);
+      await assertDocumentFiles(
+        client,
+        pages.map((page) => page.fileId),
+      );
       // 🔒 SEC-49's bound (docs/05 §5.4a), asked here for the reason it used to be asked in
       // `attach`: an append is where every add, restore, ingest and combine passes, and a bound the
       // caller may forget is not a bound. Counted under the lock, over the files the document would

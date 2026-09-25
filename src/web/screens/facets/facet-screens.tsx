@@ -1,7 +1,7 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { Card, Col, Empty, List, Row, Spin, Typography } from 'antd';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { Button, Card, Col, Empty, List, Row, Spin, Typography } from 'antd';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { documentApi, documentKeys, type DocumentFilters } from '../../entities/document';
@@ -9,6 +9,7 @@ import { documentTypeApi, documentTypeKeys } from '../../entities/document-type'
 import { personApi, personKeys } from '../../entities/person';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
+import { QueryError } from '../../shared/ui';
 import { DocumentCard } from '../../widgets/document-card';
 
 // Browsing by what a document *is about* rather than where its bytes are (docs/11 §11.4). Every
@@ -50,10 +51,18 @@ const FACET_SORT = 'documentDate';
 // What is in one folder. The filter is whatever picked it — a type, a person, a thing, a year.
 function FacetDocuments({ title, filters }: { title: string; filters: DocumentFilters }) {
   const t = useTranslations();
-  const documents = useQuery({
+  const documents = useInfiniteQuery({
     queryKey: documentKeys.list(filters, FACET_SORT),
-    queryFn: () => documentApi.list(filters, { sort: FACET_SORT }),
+    queryFn: ({ pageParam }) =>
+      documentApi.list(filters, {
+        sort: FACET_SORT,
+        cursor: pageParam === '' ? undefined : pageParam,
+      }),
+    initialPageParam: '',
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
   });
+
+  const items = documents.data?.pages.flatMap((page) => page.items) ?? [];
 
   return (
     <Row gutter={[16, 16]}>
@@ -63,18 +72,31 @@ function FacetDocuments({ title, filters }: { title: string; filters: DocumentFi
         </Typography.Title>
       </Col>
       <Col span={24}>
-        {documents.isPending ? (
+        {documents.isError && documents.data !== undefined && (
+          <QueryError error={documents.error} retry={documents.refetch} />
+        )}
+        {documents.isError && documents.data === undefined ? (
+          <QueryError error={documents.error} retry={documents.refetch} />
+        ) : documents.isPending ? (
           <Spin />
-        ) : (documents.data?.items ?? []).length === 0 ? (
+        ) : items.length === 0 ? (
           <Empty description={t('facets.emptyDocuments')} />
         ) : (
           <div className="legere-card-grid">
-            {(documents.data?.items ?? []).map((document) => (
+            {items.map((document) => (
               <div key={document.id}>
                 <DocumentCard document={document} />
               </div>
             ))}
           </div>
+        )}
+        {documents.hasNextPage && (
+          <Button
+            loading={documents.isFetchingNextPage}
+            onClick={() => void documents.fetchNextPage()}
+          >
+            {t('browse.more')}
+          </Button>
         )}
       </Col>
     </Row>
@@ -85,19 +107,27 @@ export function DocumentTypesFacetScreen() {
   const t = useTranslations();
   const documentTypes = useQuery({ queryKey: documentTypeKeys.all, queryFn: documentTypeApi.list });
   if (documentTypes.isPending) return <Spin />;
+  if (documentTypes.isError && documentTypes.data === undefined)
+    return <QueryError error={documentTypes.error} retry={documentTypes.refetch} />;
 
   return (
-    <Card title={t('facets.types')}>
-      <FolderList
-        empty={t('facets.emptyTypes')}
-        items={(documentTypes.data?.items ?? []).map((type) => ({
-          href: `/browse/types/${type.id}`,
-          title: type.name,
-          note: type.description ?? undefined,
-          count: type.documentCount,
-        }))}
-      />
-    </Card>
+    <>
+      {documentTypes.isError && (
+        <QueryError error={documentTypes.error} retry={documentTypes.refetch} />
+      )}
+
+      <Card title={t('facets.types')}>
+        <FolderList
+          empty={t('facets.emptyTypes')}
+          items={(documentTypes.data?.items ?? []).map((type) => ({
+            href: `/browse/types/${type.id}`,
+            title: type.name,
+            note: type.description ?? undefined,
+            count: type.documentCount,
+          }))}
+        />
+      </Card>
+    </>
   );
 }
 
@@ -105,19 +135,25 @@ export function PeopleFacetScreen() {
   const t = useTranslations();
   const people = useQuery({ queryKey: personKeys.all, queryFn: () => personApi.list() });
   if (people.isPending) return <Spin />;
+  if (people.isError && people.data === undefined)
+    return <QueryError error={people.error} retry={people.refetch} />;
 
   return (
-    <Card title={t('facets.people')}>
-      <FolderList
-        empty={t('facets.emptyPeople')}
-        items={(people.data?.items ?? []).map((person) => ({
-          href: `/browse/people/${person.id}`,
-          title: person.name,
-          note: person.note ?? undefined,
-          count: person.documentCount,
-        }))}
-      />
-    </Card>
+    <>
+      {people.isError && <QueryError error={people.error} retry={people.refetch} />}
+
+      <Card title={t('facets.people')}>
+        <FolderList
+          empty={t('facets.emptyPeople')}
+          items={(people.data?.items ?? []).map((person) => ({
+            href: `/browse/people/${person.id}`,
+            title: person.name,
+            note: person.note ?? undefined,
+            count: person.documentCount,
+          }))}
+        />
+      </Card>
+    </>
   );
 }
 
@@ -129,19 +165,25 @@ export function SubjectKindsFacetScreen() {
   // nothing on it yet, which is different from a shelf that does not exist (docs/03 §3.3.20a).
   const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: () => subjectKindApi.list() });
   if (kinds.isPending) return <Spin />;
+  if (kinds.isError && kinds.data === undefined)
+    return <QueryError error={kinds.error} retry={kinds.refetch} />;
 
   return (
-    <Card title={t('facets.subjects')}>
-      <FolderList
-        empty={t('facets.emptySubjects')}
-        items={(kinds.data?.items ?? []).map((kind) => ({
-          href: `/browse/subjects/${kind.id}`,
-          title: kind.name,
-          note: kind.note ?? undefined,
-          count: kind.documentCount,
-        }))}
-      />
-    </Card>
+    <>
+      {kinds.isError && <QueryError error={kinds.error} retry={kinds.refetch} />}
+
+      <Card title={t('facets.subjects')}>
+        <FolderList
+          empty={t('facets.emptySubjects')}
+          items={(kinds.data?.items ?? []).map((kind) => ({
+            href: `/browse/subjects/${kind.id}`,
+            title: kind.name,
+            note: kind.note ?? undefined,
+            count: kind.documentCount,
+          }))}
+        />
+      </Card>
+    </>
   );
 }
 
@@ -149,21 +191,27 @@ export function SubjectsOfKindFacetScreen({ kindId, title }: { kindId: string; t
   const t = useTranslations();
   const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: () => subjectApi.list() });
   if (subjects.isPending) return <Spin />;
+  if (subjects.isError && subjects.data === undefined)
+    return <QueryError error={subjects.error} retry={subjects.refetch} />;
 
   const items = (subjects.data?.items ?? []).filter((subject) => subject.kindId === kindId);
 
   return (
-    <Card title={title}>
-      <FolderList
-        empty={t('facets.emptySubjects')}
-        items={items.map((subject) => ({
-          href: `/browse/subjects/${kindId}/${subject.id}`,
-          title: subject.name,
-          note: subject.note ?? undefined,
-          count: subject.documentCount,
-        }))}
-      />
-    </Card>
+    <>
+      {subjects.isError && <QueryError error={subjects.error} retry={subjects.refetch} />}
+
+      <Card title={title}>
+        <FolderList
+          empty={t('facets.emptySubjects')}
+          items={items.map((subject) => ({
+            href: `/browse/subjects/${kindId}/${subject.id}`,
+            title: subject.name,
+            note: subject.note ?? undefined,
+            count: subject.documentCount,
+          }))}
+        />
+      </Card>
+    </>
   );
 }
 
@@ -171,18 +219,24 @@ export function YearsFacetScreen() {
   const t = useTranslations();
   const years = useQuery({ queryKey: documentKeys.years, queryFn: documentApi.years });
   if (years.isPending) return <Spin />;
+  if (years.isError && years.data === undefined)
+    return <QueryError error={years.error} retry={years.refetch} />;
 
   return (
-    <Card title={t('facets.years')}>
-      <FolderList
-        empty={t('facets.emptyYears')}
-        items={(years.data?.items ?? []).map((entry) => ({
-          href: `/browse/years/${entry.year}`,
-          title: String(entry.year),
-          count: entry.count,
-        }))}
-      />
-    </Card>
+    <>
+      {years.isError && <QueryError error={years.error} retry={years.refetch} />}
+
+      <Card title={t('facets.years')}>
+        <FolderList
+          empty={t('facets.emptyYears')}
+          items={(years.data?.items ?? []).map((entry) => ({
+            href: `/browse/years/${entry.year}`,
+            title: String(entry.year),
+            count: entry.count,
+          }))}
+        />
+      </Card>
+    </>
   );
 }
 

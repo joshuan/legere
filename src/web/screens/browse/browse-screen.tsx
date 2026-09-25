@@ -2,12 +2,13 @@
 
 import { FolderOutlined } from '@ant-design/icons';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { Breadcrumb, Card, Empty, List, Space, Spin, Typography } from 'antd';
+import { Breadcrumb, Button, Card, Empty, List, Space, Spin, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useMemo } from 'react';
 import { libraryApi, libraryKeys } from '../../entities/library';
+import { QueryError } from '../../shared/ui';
 import { DocumentCard } from '../../widgets/document-card';
 
 // /browse/:libraryId?path= (docs/11 §11.4): the mounted folder structure, one level at a time.
@@ -55,7 +56,12 @@ export function BrowseScreen({ libraryId }: { libraryId: string }) {
         ]}
       />
 
-      {view.isPending ? (
+      {view.isError && view.data !== undefined && (
+        <QueryError error={view.error} retry={view.refetch} />
+      )}
+      {view.isError && view.data === undefined ? (
+        <QueryError error={view.error} retry={view.refetch} />
+      ) : view.isPending ? (
         <Spin />
       ) : (
         <>
@@ -97,9 +103,9 @@ export function BrowseScreen({ libraryId }: { libraryId: string }) {
           )}
 
           {view.hasNextPage && (
-            <Typography.Link onClick={() => void view.fetchNextPage()}>
+            <Button loading={view.isFetchingNextPage} onClick={() => void view.fetchNextPage()}>
               {t('browse.more')}
-            </Typography.Link>
+            </Button>
           )}
         </>
       )}

@@ -48,7 +48,7 @@ export function renderWithProviders(
 
   function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <NextIntlClientProvider locale="en" messages={messages}>
+      <NextIntlClientProvider locale="en" messages={messages} timeZone="UTC">
         <AntdApp>
           <QueryClientProvider client={queryClient}>
             <CurrentUserProvider user={user}>

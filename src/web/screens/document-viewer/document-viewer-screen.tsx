@@ -45,6 +45,7 @@ import {
   theme,
 } from 'antd';
 import dayjs from 'dayjs';
+import { QueryError } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -218,16 +219,22 @@ export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?
   });
 
   if (document.isPending) return <Spin />;
+  if (document.isError && document.data === undefined)
+    return <QueryError error={document.error} retry={document.refetch} />;
   if (document.data === undefined) return <Empty description={t('errors.codes.NOT_FOUND')} />;
 
   const detail = document.data;
 
   return (
-    // The two panes, and the height the window has: the classes are where the flex chain down to
-    // the document is hung, since a percentage height stops at the first ancestor without one
-    // (docs/11 §11.5).
-    <Row gutter={[16, 16]} className="legere-viewer">
-      {/* 🔒 Nothing whatever stands above the tabs: they are the one strip of chrome this column
+    <>
+      {document.isError && <QueryError error={document.error} retry={document.refetch} />}
+      {/*
+        The two panes, and the height the window has: the classes are where the flex chain down to
+        the document is hung, since a percentage height stops at the first ancestor without one //
+      (docs/11 §11.5).
+      */}
+      <Row gutter={[16, 16]} className="legere-viewer">
+        {/* 🔒 Nothing whatever stands above the tabs: they are the one strip of chrome this column
           spends, and the open tab takes the rest of the height the viewport has. A name read once on
           arrival must not be charged to every page of every document, and the thing it names is on
           the screen being looked at — so the name is beside the document rather than over it
@@ -235,242 +242,244 @@ export function DocumentViewerScreen({ id, tab = 'preview' }: { id: string; tab?
           🔒 And nothing around them either: no card, no border, no padding of its own. A frame drawn
           round the whole zone is a frame drawn round the one thing the screen exists to show — the
           document's own page is the surface here, and the panel beside it keeps its cards. */}
-      <Col xs={24} lg={16} className="legere-viewer-main">
-        <Tabs
-          activeKey={active}
-          // `replace`, not `push`: reading a document is one visit, and three tabs should not cost
-          // three presses of the browser's back button to leave.
-          onChange={(key) => {
-            if (!isViewerTab(key)) return;
-            setPendingTab({ documentId: id, from: tab, to: key });
-            router.replace(`/documents/${id}/${key}`);
-          }}
-          items={[
-            {
-              key: 'preview',
-              label: t('viewer.tabs.preview'),
-              children: <PreviewPane document={detail} />,
-            },
-            {
-              key: 'text',
-              label: t('viewer.tabs.text'),
-              children: (
-                <TextPane
-                  document={detail}
-                  markdown={markdown.data?.markdown ?? null}
-                  loading={markdown.isPending}
-                  isAdmin={isAdmin}
-                  onReadAgain={() => readAgain.mutate()}
-                  readingAgain={readAgain.isPending}
-                />
-              ),
-            },
-            {
-              key: 'related',
-              label: t('viewer.tabs.related'),
-              children: <RelatedPane id={id} active={active === 'related'} isAdmin={isAdmin} />,
-            },
-            {
-              key: 'log',
-              label: t('viewer.tabs.log'),
-              children: <LogPane document={detail} active={active === 'log'} isAdmin={isAdmin} />,
-            },
-            {
-              key: 'details',
-              label: t('viewer.tabs.details'),
-              children: (
-                <DetailsPane
-                  document={detail}
-                  documentTypes={documentTypes.data?.items ?? []}
-                  people={people.data?.items ?? []}
-                  subjects={subjects.data?.items ?? []}
-                  subjectKinds={subjectKinds.data?.items ?? []}
-                  // A kind is a row now (docs/03 §3.3.20a), and one the catalogue has never seen
-                  // is created here rather than refused: the person filing a boat should not have
-                  // to go and invent "boat" somewhere else first.
-                  onCreateSubject={async (kind, name) => {
-                    const wanted = kind.trim().toLowerCase();
-                    const known = (subjectKinds.data?.items ?? []).find(
-                      (candidate) => candidate.name.toLowerCase() === wanted,
-                    );
-                    const kindId = known?.id ?? (await subjectKindApi.create({ name: wanted })).id;
-                    const created = await subjectApi.create({ kindId, name });
-                    await Promise.all([
-                      queryClient.invalidateQueries({ queryKey: subjectKeys.all }),
-                      queryClient.invalidateQueries({ queryKey: subjectKindKeys.all }),
-                    ]);
-                    return created.id;
-                  }}
-                  onCreatePerson={async (name) => {
-                    const created = await personApi.create({ name });
-                    await queryClient.invalidateQueries({ queryKey: personKeys.all });
-                    return created.id;
-                  }}
-                  onSave={(input) => update.mutate(input)}
-                  saving={update.isPending}
-                />
-              ),
-            },
-            {
-              key: 'files',
-              label: t('viewer.tabs.files'),
-              children: <FilesPane document={detail} isAdmin={isAdmin} />,
-            },
-          ]}
-        />
-      </Col>
+        <Col xs={24} lg={16} className="legere-viewer-main">
+          <Tabs
+            activeKey={active}
+            // `replace`, not `push`: reading a document is one visit, and three tabs should not cost
+            // three presses of the browser's back button to leave.
+            onChange={(key) => {
+              if (!isViewerTab(key)) return;
+              setPendingTab({ documentId: id, from: tab, to: key });
+              router.replace(`/documents/${id}/${key}`);
+            }}
+            items={[
+              {
+                key: 'preview',
+                label: t('viewer.tabs.preview'),
+                children: <PreviewPane document={detail} />,
+              },
+              {
+                key: 'text',
+                label: t('viewer.tabs.text'),
+                children: (
+                  <TextPane
+                    document={detail}
+                    markdown={markdown.data?.markdown ?? null}
+                    loading={markdown.isPending}
+                    isAdmin={isAdmin}
+                    onReadAgain={() => readAgain.mutate()}
+                    readingAgain={readAgain.isPending}
+                  />
+                ),
+              },
+              {
+                key: 'related',
+                label: t('viewer.tabs.related'),
+                children: <RelatedPane id={id} active={active === 'related'} isAdmin={isAdmin} />,
+              },
+              {
+                key: 'log',
+                label: t('viewer.tabs.log'),
+                children: <LogPane document={detail} active={active === 'log'} isAdmin={isAdmin} />,
+              },
+              {
+                key: 'details',
+                label: t('viewer.tabs.details'),
+                children: (
+                  <DetailsPane
+                    document={detail}
+                    documentTypes={documentTypes.data?.items ?? []}
+                    people={people.data?.items ?? []}
+                    subjects={subjects.data?.items ?? []}
+                    subjectKinds={subjectKinds.data?.items ?? []}
+                    // A kind is a row now (docs/03 §3.3.20a), and one the catalogue has never seen
+                    // is created here rather than refused: the person filing a boat should not have
+                    // to go and invent "boat" somewhere else first.
+                    onCreateSubject={async (kind, name) => {
+                      const wanted = kind.trim().toLowerCase();
+                      const known = (subjectKinds.data?.items ?? []).find(
+                        (candidate) => candidate.name.toLowerCase() === wanted,
+                      );
+                      const kindId =
+                        known?.id ?? (await subjectKindApi.create({ name: wanted })).id;
+                      const created = await subjectApi.create({ kindId, name });
+                      await Promise.all([
+                        queryClient.invalidateQueries({ queryKey: subjectKeys.all }),
+                        queryClient.invalidateQueries({ queryKey: subjectKindKeys.all }),
+                      ]);
+                      return created.id;
+                    }}
+                    onCreatePerson={async (name) => {
+                      const created = await personApi.create({ name });
+                      await queryClient.invalidateQueries({ queryKey: personKeys.all });
+                      return created.id;
+                    }}
+                    onSave={(input) => update.mutate(input)}
+                    saving={update.isPending}
+                  />
+                ),
+              },
+              {
+                key: 'files',
+                label: t('viewer.tabs.files'),
+                children: <FilesPane document={detail} isAdmin={isAdmin} />,
+              },
+            ]}
+          />
+        </Col>
 
-      {/* The panel of things about the document scrolls in itself as well, so what is on the left
+        {/* The panel of things about the document scrolls in itself as well, so what is on the left
           stays where it is while what is on the right is read (docs/11 §11.5). */}
-      <Col xs={24} lg={8} className="legere-viewer-side">
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          {/* The panel of things *about* the document opens with what it is called, which is where
+        <Col xs={24} lg={8} className="legere-viewer-side">
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            {/* The panel of things *about* the document opens with what it is called, which is where
               the rest of what is known about it already lives (docs/11 §11.5). 🔒 There is exactly
               one title and one description on the screen: a name rendered twice is a name somebody
               edits in the wrong place. */}
-          <Card>
-            {/* Wrapping rather than truncating, and breaking a long word rather than escaping the
+            <Card>
+              {/* Wrapping rather than truncating, and breaking a long word rather than escaping the
                 column: a document's name is the one string here nobody may be shown half of. */}
-            <Typography.Title
-              level={4}
-              style={{ marginTop: 0, marginBottom: 8, wordBreak: 'break-word' }}
-              editable={{
-                onChange: (title) => {
-                  if (title.trim() !== '' && title !== detail.title) update.mutate({ title });
-                },
-                triggerType: ['icon', 'text'],
-                // Names the pencil as well as its tooltip: two pencils on one panel both called
-                // "Edit" are two controls nobody listening to the page can tell apart.
-                tooltip: t('viewer.editTitle'),
-              }}
-            >
-              {detail.title}
-            </Typography.Title>
+              <Typography.Title
+                level={4}
+                style={{ marginTop: 0, marginBottom: 8, wordBreak: 'break-word' }}
+                editable={{
+                  onChange: (title) => {
+                    if (title.trim() !== '' && title !== detail.title) update.mutate({ title });
+                  },
+                  triggerType: ['icon', 'text'],
+                  // Names the pencil as well as its tooltip: two pencils on one panel both called
+                  // "Edit" are two controls nobody listening to the page can tell apart.
+                  tooltip: t('viewer.editTitle'),
+                }}
+              >
+                {detail.title}
+              </Typography.Title>
 
-            {/* What this document is, for somebody who has never seen it — directly under the name,
+              {/* What this document is, for somebody who has never seen it — directly under the name,
                 in secondary text, edited in place on the same terms (docs/11 §11.5). An em dash
                 where the analysis has written none: a blank reads as a rendering bug, and the dash
                 is also what there is to click on to write one. */}
-            <Typography.Paragraph
-              type="secondary"
-              style={{ marginBottom: 0 }}
-              editable={{
-                // The value, never the em dash standing in for it: an editor seeded with "—" would
-                // make the placeholder the description the moment somebody pressed Enter.
-                text: detail.description ?? '',
-                onChange: (description) => {
-                  const next = description.trim() === '' ? null : description.trim();
-                  if (next !== detail.description) update.mutate({ description: next });
-                },
-                triggerType: ['icon', 'text'],
-                autoSize: { minRows: 2, maxRows: 8 },
-                tooltip: t('viewer.editDescription'),
-              }}
-            >
-              {detail.description ?? '—'}
-            </Typography.Paragraph>
+              <Typography.Paragraph
+                type="secondary"
+                style={{ marginBottom: 0 }}
+                editable={{
+                  // The value, never the em dash standing in for it: an editor seeded with "—" would
+                  // make the placeholder the description the moment somebody pressed Enter.
+                  text: detail.description ?? '',
+                  onChange: (description) => {
+                    const next = description.trim() === '' ? null : description.trim();
+                    if (next !== detail.description) update.mutate({ description: next });
+                  },
+                  triggerType: ['icon', 'text'],
+                  autoSize: { minRows: 2, maxRows: 8 },
+                  tooltip: t('viewer.editDescription'),
+                }}
+              >
+                {detail.description ?? '—'}
+              </Typography.Paragraph>
 
-            {/* What the analysis would have called it, when somebody has since called it something
+              {/* What the analysis would have called it, when somebody has since called it something
                 else — in the same place every other correction keeps its provenance, and a click
                 away from being the name again (docs/11 §11.5). */}
-            {detail.auto.title !== undefined && detail.auto.title !== detail.title && (
-              <div className="legere-definition-note" style={{ marginTop: 8 }}>
-                <Tooltip title={t('viewer.details.applyRead')}>
-                  <Button
-                    size="small"
-                    type="link"
-                    className="legere-definition-note-action"
-                    disabled={update.isPending}
-                    onClick={() => update.mutate({ reset: ['title'] })}
-                  >
-                    {t('viewer.details.auto', { value: detail.auto.title })}
-                  </Button>
-                </Tooltip>
-              </div>
-            )}
-          </Card>
-
-          {detail.documentType?.slug === 'receipt' && (
-            <Card>
-              <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                {detail.origin === 'LIBRARY' ? (
-                  <Alert type="warning" showIcon message={t('viewer.moveToReceiptsLibrary')} />
-                ) : detail.files.length !== 1 || detail.processing ? (
-                  <Typography.Text type="secondary">
-                    {t('viewer.moveToReceiptsUnavailable')}
-                  </Typography.Text>
-                ) : null}
-                <Button
-                  block
-                  disabled={
-                    detail.origin === 'LIBRARY' || detail.files.length !== 1 || detail.processing
-                  }
-                  loading={moveToReceipts.isPending}
-                  onClick={() => {
-                    modal.confirm({
-                      title: t('viewer.moveToReceipts'),
-                      content: t('viewer.moveToReceiptsConfirm'),
-                      okText: t('viewer.moveToReceipts'),
-                      onOk: () => moveToReceipts.mutate(),
-                    });
-                  }}
-                >
-                  {t('viewer.moveToReceipts')}
-                </Button>
-              </Space>
+              {detail.auto.title !== undefined && detail.auto.title !== detail.title && (
+                <div className="legere-definition-note" style={{ marginTop: 8 }}>
+                  <Tooltip title={t('viewer.details.applyRead')}>
+                    <Button
+                      size="small"
+                      type="link"
+                      className="legere-definition-note-action"
+                      disabled={update.isPending}
+                      onClick={() => update.mutate({ reset: ['title'] })}
+                    >
+                      {t('viewer.details.auto', { value: detail.auto.title })}
+                    </Button>
+                  </Tooltip>
+                </div>
+              )}
             </Card>
-          )}
 
-          {/* 🔒 What is left of the panel, and why (docs/11 §11.5): it says what the document is
+            {detail.documentType?.slug === 'receipt' && (
+              <Card>
+                <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                  {detail.origin === 'LIBRARY' ? (
+                    <Alert type="warning" showIcon message={t('viewer.moveToReceiptsLibrary')} />
+                  ) : detail.files.length !== 1 || detail.processing ? (
+                    <Typography.Text type="secondary">
+                      {t('viewer.moveToReceiptsUnavailable')}
+                    </Typography.Text>
+                  ) : null}
+                  <Button
+                    block
+                    disabled={
+                      detail.origin === 'LIBRARY' || detail.files.length !== 1 || detail.processing
+                    }
+                    loading={moveToReceipts.isPending}
+                    onClick={() => {
+                      modal.confirm({
+                        title: t('viewer.moveToReceipts'),
+                        content: t('viewer.moveToReceiptsConfirm'),
+                        okText: t('viewer.moveToReceipts'),
+                        onOk: () => moveToReceipts.mutate(),
+                      });
+                    }}
+                  >
+                    {t('viewer.moveToReceipts')}
+                  </Button>
+                </Space>
+              </Card>
+            )}
+
+            {/* 🔒 What is left of the panel, and why (docs/11 §11.5): it says what the document is
               called, what it is about in a line, and what it looks like. Everything that *acts* on
               the document has gone to the tab that owns the question it answers — Download and
               Delete to Files, the links to Related, the pipeline to Log — because a panel carrying
               all of them was a second screen standing beside the first, drawn in full on every
               document whether or not anybody had come to act on one. */}
-          <Card>
-            {/* Only the caller's own collections: adding to somebody else's is not a thing a
+            <Card>
+              {/* Only the caller's own collections: adding to somebody else's is not a thing a
                 reader may do (docs/03 §3.4). */}
-            <Select
-              showSearch
-              optionFilterProp="label"
-              style={{ width: '100%' }}
-              placeholder={t('viewer.addToCollection')}
-              aria-label={t('viewer.addToCollection')}
-              loading={collections.isPending}
-              value={null}
-              onChange={(collectionId: string) => addToCollection.mutate(collectionId)}
-              options={(collections.data?.items ?? [])
-                .filter((collection) => collection.mine)
-                .map((collection) => ({ value: collection.id, label: collection.name }))}
-            />
-          </Card>
-
-          {/* The page itself, last in the panel (docs/11 §11.5). Small on purpose: the readable copy
-              is the pane on the left, and this is the answer to "is this the right document" —
-              which is a glance, not a read. */}
-          {detail.hasPreview && (
-            <Card styles={{ body: { padding: 8 } }}>
-              {/* The URL is an API route that 302s to a signed URL; next/image would proxy and cache
-                  private content through a shared optimizer (docs/10 §10.8). */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={documentFiles.preview(detail.id)}
-                alt=""
-                loading="lazy"
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  maxHeight: 320,
-                  objectFit: 'contain',
-                  // A page has an edge; a floating bitmap does not (docs/11 §11.15).
-                  background: 'var(--legere-well)',
-                }}
+              <Select
+                showSearch
+                optionFilterProp="label"
+                style={{ width: '100%' }}
+                placeholder={t('viewer.addToCollection')}
+                aria-label={t('viewer.addToCollection')}
+                loading={collections.isPending}
+                value={null}
+                onChange={(collectionId: string) => addToCollection.mutate(collectionId)}
+                options={(collections.data?.items ?? [])
+                  .filter((collection) => collection.mine)
+                  .map((collection) => ({ value: collection.id, label: collection.name }))}
               />
             </Card>
-          )}
-        </Space>
-      </Col>
-    </Row>
+
+            {/* The page itself, last in the panel (docs/11 §11.5). Small on purpose: the readable copy
+              is the pane on the left, and this is the answer to "is this the right document" —
+              which is a glance, not a read. */}
+            {detail.hasPreview && (
+              <Card styles={{ body: { padding: 8 } }}>
+                {/* The URL is an API route that 302s to a signed URL; next/image would proxy and cache
+                  private content through a shared optimizer (docs/10 §10.8). */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={documentFiles.preview(detail.id)}
+                  alt=""
+                  loading="lazy"
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    maxHeight: 320,
+                    objectFit: 'contain',
+                    // A page has an edge; a floating bitmap does not (docs/11 §11.15).
+                    background: 'var(--legere-well)',
+                  }}
+                />
+              </Card>
+            )}
+          </Space>
+        </Col>
+      </Row>
+    </>
   );
 }
 

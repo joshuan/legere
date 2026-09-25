@@ -4,6 +4,7 @@ import type { PageImage } from '../ports/document-analyst';
 import type { ReceiptExtractor } from '../ports/receipt-extractor';
 import { isImageFile, isPdfFile } from '../../domain/entities/file';
 import type { File } from '../../domain/entities/file';
+import { MAX_RECEIPT_EXTRACTION_BYTES, MAX_RECEIPT_PAGES } from '../../domain/entities/receipt';
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { FileRepository } from '../../domain/repositories/file.repository';
 import type { ReceiptRepository } from '../../domain/repositories/receipt.repository';
@@ -63,25 +64,37 @@ export class HandleReceiptProcess extends JobHandler {
     if (receipt.previewStatus === 'DONE' && receipt.extractionStatus === 'DONE') return;
 
     // Persisted previews are a checkpoint. AI retries need only resized display images.
-    const pages =
-      receipt.previewStatus === 'DONE' && receipt.pageCount !== null
-        ? await this.loadPages(receipt.id, receipt.pageCount)
-        : await this.render(receipt.id, receipt.file);
+    let pages: PageImage[] | null;
+    if (receipt.previewStatus === 'DONE' && receipt.pageCount !== null) {
+      try {
+        pages = await this.loadPages(receipt.id, receipt.pageCount);
+      } catch (error) {
+        await this.extractionFailed(receipt.id, error);
+        // Storage adapters can throw raw transport/stream errors. Preserve pg-boss retries for
+        // those while recording a visible failure if all attempts are exhausted.
+        if (!(error instanceof ReceiptResourceLimitError)) throw error;
+        return;
+      }
+    } else {
+      pages = await this.render(receipt.id, receipt.file);
+    }
     if (pages === null) return;
     await this.extract(receipt.id, pages, receipt.sourceText);
   }
 
   private async loadPages(receiptId: string, pageCount: number): Promise<PageImage[]> {
+    assertPageCount(pageCount);
     const pages: PageImage[] = [];
     for (let index = 0; index < pageCount; index += 1) {
       const source = await toBuffer(
         await this.storage.getStream(artifactKeys.receiptPage(receiptId, index)),
       );
-      pages.push({
-        bytes: await this.images.toJpegPreview(source, {
+      appendExtractionPage(
+        pages,
+        await this.images.toJpegPreview(source, {
           maxDim: this.settings.analystPageImageMaxDim,
         }),
-      });
+      );
     }
     return pages;
   }
@@ -105,6 +118,7 @@ export class HandleReceiptProcess extends JobHandler {
 
       if (isPdfFile(file)) {
         pageCount = await this.pdfs.pdfPageCount(original);
+        assertPageCount(pageCount);
         for (let index = 0; index < pageCount; index += 1) {
           const rendered = await this.pdfs.pdfPageJpg(original, { page: index + 1 });
           await this.storePage(receiptId, index, rendered, analystPages);
@@ -160,8 +174,8 @@ export class HandleReceiptProcess extends JobHandler {
       }),
       this.images.toJpegPreview(source, { maxDim: this.settings.analystPageImageMaxDim }),
     ]);
+    appendExtractionPage(analystPages, analystPage);
     await this.storage.put(artifactKeys.receiptPage(receiptId, index), display, 'image/jpeg');
-    analystPages.push({ bytes: analystPage });
     if (index === 0) {
       const thumb = await this.images.toJpegPreview(source, {
         maxDim: this.settings.thumbMaxDim,
@@ -218,27 +232,49 @@ export class HandleReceiptProcess extends JobHandler {
         },
       });
     } catch (error) {
-      if (error instanceof ServiceUnavailableError) {
-        await this.receipts.updateProcessing(receiptId, {
-          extractionStatus: 'QUEUED',
-          processingError: null,
-          failedStep: null,
-        });
-        throw error;
-      }
-      await this.receipts.updateProcessing(receiptId, {
-        extractionStatus: 'FAILED',
-        processingError: messageOf(error),
-        failedStep: 'extraction',
-      });
-      await this.events.record({
-        documentId: receiptId,
-        type: 'STEP_FINISHED',
-        payload: { step: 'extraction', status: 'FAILED', error: messageOf(error) },
-      });
+      await this.extractionFailed(receiptId, error);
     }
   }
+
+  private async extractionFailed(receiptId: string, error: unknown): Promise<void> {
+    if (error instanceof ServiceUnavailableError) {
+      await this.receipts.updateProcessing(receiptId, {
+        extractionStatus: 'QUEUED',
+        processingError: null,
+        failedStep: null,
+      });
+      throw error;
+    }
+    await this.receipts.updateProcessing(receiptId, {
+      extractionStatus: 'FAILED',
+      processingError: messageOf(error),
+      failedStep: 'extraction',
+    });
+    await this.events.record({
+      documentId: receiptId,
+      type: 'STEP_FINISHED',
+      payload: { step: 'extraction', status: 'FAILED', error: messageOf(error) },
+    });
+  }
 }
+
+function assertPageCount(pageCount: number): void {
+  if (!Number.isSafeInteger(pageCount) || pageCount < 1 || pageCount > MAX_RECEIPT_PAGES) {
+    throw new ReceiptResourceLimitError(
+      `A receipt must contain between 1 and ${MAX_RECEIPT_PAGES} pages`,
+    );
+  }
+}
+
+function appendExtractionPage(pages: PageImage[], bytes: Buffer): void {
+  const total = pages.reduce((size, page) => size + page.bytes.byteLength, bytes.byteLength);
+  if (total > MAX_RECEIPT_EXTRACTION_BYTES) {
+    throw new ReceiptResourceLimitError('Receipt extraction images exceed the 32 MiB limit');
+  }
+  pages.push({ bytes });
+}
+
+class ReceiptResourceLimitError extends Error {}
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

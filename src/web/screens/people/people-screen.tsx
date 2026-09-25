@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Form, Input, Typography } from 'antd';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import { QueryError } from '../../shared/ui';
 import { useCallback } from 'react';
 import { catalogueSortSchema, DEFAULT_CATALOGUE_SORT } from '../../../shared/contracts/common';
 import type { PersonDto } from '../../../shared/contracts/people';
@@ -41,127 +42,135 @@ export function PeopleScreen() {
     void queryClient.invalidateQueries({ queryKey: personKeys.all });
   }, [queryClient]);
 
+  if (people.isError && people.data === undefined)
+    return <QueryError error={people.error} retry={people.refetch} />;
+
   return (
-    <CatalogueManager<PersonDto, FormValues>
-      title={t('admin.people.title')}
-      createLabel={t('admin.people.actions.create')}
-      createTitle={t('admin.people.createTitle')}
-      editTitle={t('admin.people.editTitle')}
-      emptyText={t('admin.people.empty')}
-      deletedMessage={t('admin.people.deleted')}
-      rows={people.data?.items ?? []}
-      loading={people.isPending}
-      columns={[
-        {
-          title: t('admin.catalogues.columns.name'),
-          key: 'name',
-          sortKey: 'name',
-          render: (person) => person.name,
-        },
-        {
-          title: t('admin.catalogues.columns.note'),
-          key: 'note',
-          render: (person) => person.note ?? <Typography.Text type="secondary">—</Typography.Text>,
-        },
-        {
-          title: t('admin.catalogues.columns.documents'),
-          key: 'documents',
-          sortKey: 'documents',
-          // The number is the question "which forty?"; the link answers it (docs/11 §11.12a).
-          render: (person) =>
-            person.documentCount === 0 ? (
-              0
-            ) : (
-              <Link href={`/browse/people/${person.id}`}>{person.documentCount}</Link>
-            ),
-        },
-        {
-          // The paper's own date, not the day it was uploaded, and the order the catalogue opens in
+    <>
+      {people.isError && <QueryError error={people.error} retry={people.refetch} />}
+
+      <CatalogueManager<PersonDto, FormValues>
+        title={t('admin.people.title')}
+        createLabel={t('admin.people.actions.create')}
+        createTitle={t('admin.people.createTitle')}
+        editTitle={t('admin.people.editTitle')}
+        emptyText={t('admin.people.empty')}
+        deletedMessage={t('admin.people.deleted')}
+        rows={people.data?.items ?? []}
+        loading={people.isPending}
+        columns={[
+          {
+            title: t('admin.catalogues.columns.name'),
+            key: 'name',
+            sortKey: 'name',
+            render: (person) => person.name,
+          },
+          {
+            title: t('admin.catalogues.columns.note'),
+            key: 'note',
+            render: (person) =>
+              person.note ?? <Typography.Text type="secondary">—</Typography.Text>,
+          },
+          {
+            title: t('admin.catalogues.columns.documents'),
+            key: 'documents',
+            sortKey: 'documents',
+            // The number is the question "which forty?"; the link answers it (docs/11 §11.12a).
+            render: (person) =>
+              person.documentCount === 0 ? (
+                0
+              ) : (
+                <Link href={`/browse/people/${person.id}`}>{person.documentCount}</Link>
+              ),
+          },
+          {
+            // The paper's own date, not the day it was uploaded, and the order the catalogue opens in
+            // (docs/11 §11.12a).
+            title: t('admin.catalogues.columns.lastDocument'),
+            key: 'lastDocumentAt',
+            sortKey: 'lastDocumentAt',
+            render: (person) =>
+              person.lastDocumentAt ?? <Typography.Text type="secondary">—</Typography.Text>,
+          },
+        ]}
+        sorting={sorting}
+        initialValues={{ name: '', note: '' }}
+        valuesOf={(person) => ({ name: person.name, note: person.note ?? '' })}
+        confirmDelete={(person) =>
+          t('admin.people.confirmDelete', { name: person.name, count: person.documentCount })
+        }
+        onSave={(values, editing) => {
+          const note = values.note.trim() === '' ? null : values.note.trim();
+          return editing === null
+            ? personApi.create({ name: values.name, note })
+            : personApi.update(editing.id, { name: values.name, note });
+        }}
+        onDelete={(person) => personApi.remove(person.id)}
+        onSaved={refresh}
+        // Anyone signed in may add — the analysis does, and whoever corrects it must be able to
+        // (docs/03 §3.3.19–20a) — while renaming, deleting and merging reach across every document
+        // that names the row, so they are an admin's.
+        canCreate
+        canManage={isAdmin}
+        // The analysis reads a name as the document spells it, so one person arrives three times
+        // (docs/03 §3.3.19).
+        merge={{
+          label: (person) => person.name,
+          // What the merged rows carried, offered back as the survivor's note rather than dropped
           // (docs/11 §11.12a).
-          title: t('admin.catalogues.columns.lastDocument'),
-          key: 'lastDocumentAt',
-          sortKey: 'lastDocumentAt',
-          render: (person) =>
-            person.lastDocumentAt ?? <Typography.Text type="secondary">—</Typography.Text>,
-        },
-      ]}
-      sorting={sorting}
-      initialValues={{ name: '', note: '' }}
-      valuesOf={(person) => ({ name: person.name, note: person.note ?? '' })}
-      confirmDelete={(person) =>
-        t('admin.people.confirmDelete', { name: person.name, count: person.documentCount })
-      }
-      onSave={(values, editing) => {
-        const note = values.note.trim() === '' ? null : values.note.trim();
-        return editing === null
-          ? personApi.create({ name: values.name, note })
-          : personApi.update(editing.id, { name: values.name, note });
-      }}
-      onDelete={(person) => personApi.remove(person.id)}
-      onSaved={refresh}
-      // Anyone signed in may add — the analysis does, and whoever corrects it must be able to
-      // (docs/03 §3.3.19–20a) — while renaming, deleting and merging reach across every document
-      // that names the row, so they are an admin's.
-      canCreate
-      canManage={isAdmin}
-      // The analysis reads a name as the document spells it, so one person arrives three times
-      // (docs/03 §3.3.19).
-      merge={{
-        label: (person) => person.name,
-        // What the merged rows carried, offered back as the survivor's note rather than dropped
-        // (docs/11 §11.12a).
-        note: (person) => person.note,
-        noteMaxLength: NOTE_MAX,
-        onMerge: (people, values) => {
-          const note = (values.note ?? '').trim();
-          return personApi.merge({
-            ids: people.map((person) => person.id),
-            name: values.name ?? '',
-            note: note === '' ? null : note,
-          });
-        },
-        // A hand-picked merge asks the analyst for the tidy reading while the raw prefill is
-        // already on screen (docs/11 §11.12a); anything short of an answer keeps the raw one.
-        prefill: async (rows) => {
-          const preview = await personApi
-            .mergePreview({ ids: rows.map((person) => person.id) })
-            .catch(() => null);
-          if (preview === null || !preview.available || preview.name === null) return null;
-          return { values: { name: preview.name }, aka: preview.aka ?? [], note: preview.note };
-        },
-      }}
-      // The analyst's proposals (docs/05 §5.6c), on the manager's terms; this screen only says
-      // where to ask and what to call the panel.
-      suggestions={{
-        title: t('admin.people.suggestions.title'),
-        queryKey: personKeys.mergeSuggestions,
-        fetch: async ({ refresh }): Promise<CatalogueSuggestionsReading> => {
-          const reading = await personApi.mergeSuggestions({ refresh });
-          return {
-            state: reading.state,
-            computedAt: reading.computedAt,
-            groups: reading.groups,
-          };
-        },
-      }}
-      fields={() => (
-        <>
-          <Form.Item
-            name="name"
-            label={t('admin.catalogues.fields.name')}
-            rules={[{ required: true, message: t('admin.catalogues.fields.nameRequired') }]}
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="note"
-            label={t('admin.catalogues.fields.note')}
-            extra={t('admin.people.fields.noteHint')}
-          >
-            <Input.TextArea rows={2} />
-          </Form.Item>
-        </>
-      )}
-    />
+          note: (person) => person.note,
+          noteMaxLength: NOTE_MAX,
+          onMerge: (people, values) => {
+            const note = (values.note ?? '').trim();
+            return personApi.merge({
+              ids: people.map((person) => person.id),
+              name: values.name ?? '',
+              note: note === '' ? null : note,
+            });
+          },
+          // A hand-picked merge asks the analyst for the tidy reading while the raw prefill is
+          // already on screen (docs/11 §11.12a); anything short of an answer keeps the raw one.
+          prefill: async (rows) => {
+            const preview = await personApi
+              .mergePreview({ ids: rows.map((person) => person.id) })
+              .catch(() => null);
+            if (preview === null || !preview.available || preview.name === null) return null;
+            return { values: { name: preview.name }, aka: preview.aka ?? [], note: preview.note };
+          },
+        }}
+        // The analyst's proposals (docs/05 §5.6c), on the manager's terms; this screen only says
+        // where to ask and what to call the panel.
+        suggestions={{
+          title: t('admin.people.suggestions.title'),
+          queryKey: personKeys.mergeSuggestions,
+          fetch: async ({ refresh }): Promise<CatalogueSuggestionsReading> => {
+            const reading = await personApi.mergeSuggestions({ refresh });
+            return {
+              state: reading.state,
+              computedAt: reading.computedAt,
+              groups: reading.groups,
+            };
+          },
+        }}
+        fields={() => (
+          <>
+            <Form.Item
+              name="name"
+              label={t('admin.catalogues.fields.name')}
+              rules={[{ required: true, message: t('admin.catalogues.fields.nameRequired') }]}
+            >
+              <Input />
+            </Form.Item>
+            <Form.Item
+              name="note"
+              label={t('admin.catalogues.fields.note')}
+              extra={t('admin.people.fields.noteHint')}
+            >
+              <Input.TextArea rows={2} />
+            </Form.Item>
+          </>
+        )}
+      />
+    </>
   );
 }

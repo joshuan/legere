@@ -15,7 +15,7 @@ Principles:
 5) A convenient document viewer (and a JPG preview of the first page of any document).
 
 Technical:
-- Node.js 26 + TypeScript 7,
+- Node.js 26 + TypeScript 5.9,
 - normalized PostgreSQL,
 - in-house authentication with an email confirmation code,
 - files produced by the system (previews, Markdown, merged PDFs) are stored in S3 (a private bucket),
@@ -64,7 +64,7 @@ Docling for reading documents into structured Markdown, and MinIO for the artifa
 2. **Admin → Libraries → Add**: pick a folder inside the mounted volume. The first scan starts
    immediately, and every file becomes a document — deduplicated by content, so the same bytes in two
    places stay one document;
-3. watch it happen in **Admin → Queue**: per-queue depth, per-step counters, and what failed;
+3. watch it happen in **Admin → Processing**: per-queue depth, per-step counters, and what failed;
 4. **Documents** shows the grid with previews as they are produced; open one for the viewer, the
    extracted text, and its metadata;
 5. **Search** finds documents by their text (title and body). Semantic search stays switched off, and
@@ -78,7 +78,7 @@ Nothing is written to the library volume, ever — it is mounted read-only. Ever
 canonical PDFs, previews, thumbnails, merged scans — lives in the object store, and clients only reach
 it through short-lived signed URLs.
 
-Two things to know before serving it to anyone else:
+Before serving it to anyone else:
 
 - **`APP_BASE_URL` must be the address people actually type.** The CSRF check is fail-closed, so a
   mismatch rejects every login. `init.sh` asks for it; changing it later means editing `.env`.
@@ -118,7 +118,7 @@ npm run dev             # http://localhost:3000
 | `npm run test:coverage` | the same, with the ≥90% floor on `domain` + `application` that CI enforces |
 | `npm run db:migrate` | apply migrations forward (automatic on production image startup) |
 | `npm run queue:migrate` | migrate pg-boss and create/update its fixed queues (also automatic on image startup) |
-| `npm run db:migrate:dev` | author a *new* migration from a schema change |
+| `npm run db:migrate:dev` | Prisma drift tooling only; author forward-only SQL migrations by hand (see `CLAUDE.md`) |
 
 Integration suites that need MinIO or Stirling skip themselves when those are not running, so
 `npm test` works with just PostgreSQL up.

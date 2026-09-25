@@ -50,6 +50,7 @@ import {
 import { UploadButton, UploadDropZone } from '../../features/document-upload';
 import { isSettled, useUploadQueue } from '../../features/upload-queue';
 import { useErrorMessage } from '../../shared/lib';
+import { QueryError } from '../../shared/ui';
 
 // While anything on screen is still being processed the list refreshes, so a document stops saying
 // "Processing" without the user reloading (docs/10 §10.5).
@@ -274,6 +275,9 @@ export function DocumentsScreen() {
         {/* Grouped, the grid is drawn a section at a time, each one a heading and its own cards
             (docs/11 §11.3). Nothing is filtered by looking at it: leaving the grouping leaves the
             archive where it was. */}
+        {documents.isError && documents.data !== undefined && groupBy === null && (
+          <QueryError error={documents.error} retry={documents.refetch} />
+        )}
         {groupBy !== null ? (
           <DocumentGroupSections
             // Keyed by the dimension: what is folded belongs to it, so another dimension is another
@@ -285,6 +289,8 @@ export function DocumentsScreen() {
             fields={fields}
             {...(selecting ? { selection: { selected, setSelected } } : {})}
           />
+        ) : documents.isError && documents.data === undefined ? (
+          <QueryError error={documents.error} retry={documents.refetch} />
         ) : documents.isPending ? (
           <Spin />
         ) : items.length === 0 && !filling ? (
@@ -549,6 +555,8 @@ function DocumentGroupSections({
   );
 
   if (groups.isPending) return <Spin />;
+  if (groups.isError && groups.data === undefined)
+    return <QueryError error={groups.error} retry={groups.refetch} />;
 
   const items = groups.data?.items ?? [];
   if (items.length === 0) {
@@ -558,31 +566,35 @@ function DocumentGroupSections({
   const values = items.map(groupValue);
 
   return (
-    <Space direction="vertical" size={24} style={{ width: '100%' }}>
-      {/* Over the grid rather than in the filter bar: folding is not a filter, it narrows nothing,
+    <>
+      {groups.isError && <QueryError error={groups.error} retry={groups.refetch} />}
+
+      <Space direction="vertical" size={24} style={{ width: '100%' }}>
+        {/* Over the grid rather than in the filter bar: folding is not a filter, it narrows nothing,
           and "Clear filters" leaves it alone (docs/11 §11.3). */}
-      <Space size="small">
-        <Button size="small" onClick={() => fold(values, true)}>
-          {t('documents.groupBy.collapseAll')}
-        </Button>
-        <Button size="small" onClick={() => fold(values, false)}>
-          {t('documents.groupBy.expandAll')}
-        </Button>
+        <Space size="small">
+          <Button size="small" onClick={() => fold(values, true)}>
+            {t('documents.groupBy.collapseAll')}
+          </Button>
+          <Button size="small" onClick={() => fold(values, false)}>
+            {t('documents.groupBy.expandAll')}
+          </Button>
+        </Space>
+        {items.map((group) => (
+          <DocumentGroupSection
+            key={groupValue(group)}
+            by={by}
+            group={group}
+            filters={filters}
+            sort={sort}
+            fields={fields}
+            folded={folded.has(groupValue(group))}
+            onToggle={() => fold([groupValue(group)], !folded.has(groupValue(group)))}
+            {...(selection === undefined ? {} : { selection })}
+          />
+        ))}
       </Space>
-      {items.map((group) => (
-        <DocumentGroupSection
-          key={groupValue(group)}
-          by={by}
-          group={group}
-          filters={filters}
-          sort={sort}
-          fields={fields}
-          folded={folded.has(groupValue(group))}
-          onToggle={() => fold([groupValue(group)], !folded.has(groupValue(group)))}
-          {...(selection === undefined ? {} : { selection })}
-        />
-      ))}
-    </Space>
+    </>
   );
 }
 
@@ -655,7 +667,12 @@ function DocumentGroupSection({
       <div id={bodyId}>
         {folded ? null : (
           <>
-            {documents.isPending ? (
+            {documents.isError && documents.data !== undefined && (
+              <QueryError error={documents.error} retry={documents.refetch} />
+            )}
+            {documents.isError && documents.data === undefined ? (
+              <QueryError error={documents.error} retry={documents.refetch} />
+            ) : documents.isPending ? (
               <Spin size="small" />
             ) : (
               <div className="legere-card-grid">

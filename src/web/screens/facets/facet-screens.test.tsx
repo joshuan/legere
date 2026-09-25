@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom/vitest';
+import userEvent from '@testing-library/user-event';
 import { screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
-import { renderWithProviders } from '../../../../test/helpers/render';
+import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
 import { DocumentsOfPersonScreen } from './facet-screens';
 
 vi.mock('next/link', () => ({
@@ -40,5 +41,23 @@ describe('a facet, once a folder is open', () => {
     // last, and this shelf is still read by the date on the paper (docs/07 §7.3, docs/11 §11.3).
     await waitFor(() => expect(seen[0]).toContain('sort=documentDate'));
     expect(seen[0]).toContain(`personId=${PERSON_ID}`);
+  });
+  it('offers the next cursor page without losing the facet filter', async () => {
+    const seen: string[] = [];
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        const url = new URL(request.url);
+        seen.push(url.search);
+        return HttpResponse.json(
+          envelope({ items: [], nextCursor: url.searchParams.has('cursor') ? null : 'next-page' }),
+        );
+      }),
+    );
+    renderWithProviders(<DocumentsOfPersonScreen id={PERSON_ID} title="Ana Petrović" />);
+    await userEvent.click(await screen.findByRole('button', { name: enMessages.browse.more }));
+    await waitFor(() => expect(seen).toHaveLength(2));
+    expect(seen[1]).toContain('cursor=next-page');
+    expect(seen[1]).toContain(`personId=${PERSON_ID}`);
+    expect(seen[1]).toContain('sort=documentDate');
   });
 });

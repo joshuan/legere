@@ -92,6 +92,7 @@ async function registryDigest(repository, reference) {
   try {
     const auth = await fetch(
       `https://${REGISTRY}/token?service=${REGISTRY}&scope=repository:${repository}:pull`,
+      { signal: AbortSignal.timeout(POLL_INTERVAL_MS) },
     );
     if (!auth.ok) {
       registryTrouble = `${REGISTRY} refused a pull token (${auth.status})`;
@@ -101,6 +102,7 @@ async function registryDigest(repository, reference) {
     const manifest = await fetch(`https://${REGISTRY}/v2/${repository}/manifests/${reference}`, {
       method: 'HEAD',
       headers: { authorization: `Bearer ${token}`, accept: MANIFEST_TYPES },
+      signal: AbortSignal.timeout(POLL_INTERVAL_MS),
     });
     registryTrouble = null;
     if (manifest.status === 404) return null;
@@ -135,7 +137,7 @@ const ciRuns = () =>
   JSON.parse(
     run('gh', [
       'api',
-      `repos/{owner}/{repo}/actions/workflows/ci.yml/runs?head_sha=${head}`,
+      `repos/{owner}/{repo}/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=${head}`,
       '--jq',
       '.workflow_runs | map({status, conclusion, html_url})',
     ]),
@@ -155,22 +157,40 @@ if (pending !== undefined) console.log(`release: CI is still running: ${pending.
 
 const runs = await waitFor(
   ciRuns,
-  (entries) => entries.every((entry) => entry.status === 'completed'),
+  (entries) => entries.length > 0 && entries.every((entry) => entry.status === 'completed'),
   COMPLETION_LIMIT_MS,
   'CI to finish',
 );
 if (runs === null) {
   const minutes = COMPLETION_LIMIT_MS / 60_000;
-  fail(`CI has not finished for ${head} in ${minutes} minutes: ${pending.html_url}`);
+  fail(
+    `CI has not finished for ${head} in ${minutes} minutes: ${pending?.html_url ?? started[0].html_url}`,
+  );
 }
 
 const red = runs.find((entry) => entry.conclusion !== 'success');
 if (red !== undefined) fail(`CI is not green for ${head}: ${red.html_url}`);
 
+// CI can take half an hour. Editing or switching the checkout during that wait invalidates the
+// gate, even though the commit we originally asked GitHub about is still green.
+if (
+  run('git', ['rev-parse', '--abbrev-ref', 'HEAD']) !== 'main' ||
+  run('git', ['rev-parse', 'HEAD']) !== head ||
+  run('git', ['status', '--porcelain']) !== ''
+) {
+  fail('the checkout changed while waiting for CI — nothing was released');
+}
+
 // The version commit and the tag are one move (`npm version`), pushed as one — so the tag always
 // points at the commit that says the same number, and the GitHub Release follows from the tag.
 const version = run('npm', ['version', bump, '-m', 'chore(release): %s']);
-run('git', ['push', '--follow-tags', 'origin', 'main'], { stdio: 'inherit' });
+run(
+  'git',
+  ['push', '--atomic', 'origin', 'refs/heads/main:refs/heads/main', `refs/tags/${version}`],
+  {
+    stdio: 'inherit',
+  },
+);
 console.log(`release: ${version} is pushed — the tag is what the image is built from`);
 
 // The push is the point of no return; everything below only watches. Ctrl-C from here costs the
@@ -189,7 +209,7 @@ const releaseRun = () => {
       'api',
       `repos/{owner}/{repo}/actions/workflows/release.yml/runs?event=push&head_sha=${tagged}`,
       '--jq',
-      '.workflow_runs | map({id, head_branch, status, html_url})',
+      '.workflow_runs | map({id, head_branch, status, conclusion, html_url})',
     ]),
   );
   const found = entries.find((entry) => entry.head_branch === version);
@@ -248,14 +268,15 @@ if (built === null) {
 const broken = built.jobs.filter(
   (job) => job.conclusion !== 'success' && job.conclusion !== 'skipped',
 );
-if (broken.length > 0) {
+if (built.conclusion !== 'success' || broken.length > 0) {
   const published = await registryDigest(repository, imageTag);
   const latest = await registryDigest(repository, 'latest');
   const moved = published !== null && published === latest;
   console.error(
     `release: ${REGISTRY}/${repository}:latest ${moved ? 'does' : 'does not'} point at ${imageTag}`,
   );
-  const names = broken.map((job) => job.name).join(', ');
+  const names =
+    broken.map((job) => job.name).join(', ') || built.conclusion || 'unknown conclusion';
   fail(`the release run finished red — ${names}: ${built.html_url}`);
 }
 

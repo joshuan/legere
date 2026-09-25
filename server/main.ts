@@ -46,6 +46,7 @@ export async function wireServer(
   server: Express,
   nestApp: INestApplication,
   nextHandle: NextHandle,
+  options: { dev?: boolean } = {},
 ): Promise<void> {
   const config = nestApp.get(AppConfig);
   // 🔒 Off unless the operator says otherwise (docs/12 §12.8). Express reads `req.ip` from
@@ -102,7 +103,11 @@ export async function wireServer(
     },
     {
       rootMiddleware: [
-        securityHeaders({ usesHttps: config.usesHttps, bucketOrigin: config.bucketOrigin }),
+        securityHeaders({
+          usesHttps: config.usesHttps,
+          bucketOrigin: config.bucketOrigin,
+          development: options.dev === true && config.get('NODE_ENV') === 'development',
+        }),
         csrfOriginCheck(config.get('APP_BASE_URL')),
       ],
       pageDispatcher,
@@ -135,11 +140,16 @@ export async function bootstrap({ dev }: { dev: boolean }): Promise<void> {
   nestApp.useLogger(nestApp.get(PinoLogger));
   nestApp.enableShutdownHooks();
 
-  await wireServer(server, nestApp, (req, res) => {
-    handle(req, res).catch(() => {
-      if (!res.headersSent) res.status(500).end();
-    });
-  });
+  await wireServer(
+    server,
+    nestApp,
+    (req, res) => {
+      handle(req, res).catch(() => {
+        if (!res.headersSent) res.status(500).end();
+      });
+    },
+    { dev },
+  );
 
   // Step 5 (docs/02 §2.2): pg-boss workers start after Nest is initialized — they resolve handlers
   // from its container — and before the port opens, so nothing is served while the queue is down.

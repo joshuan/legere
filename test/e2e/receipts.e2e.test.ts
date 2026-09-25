@@ -10,7 +10,10 @@ import { ReceiptExtractor } from '../../src/server/application/ports/receipt-ext
 import { JobQueue } from '../../src/server/application/ports/job-queue';
 import { QueueSettings } from '../../src/server/application/queue/queue-settings';
 import { registerVerifyResponseSchema } from '../../src/shared/contracts/auth';
-import { documentDetailDtoSchema } from '../../src/shared/contracts/documents';
+import {
+  documentDetailDtoSchema,
+  uploadDocumentResponseSchema,
+} from '../../src/shared/contracts/documents';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
 import {
   convertArchiveItemResponseSchema,
@@ -343,6 +346,55 @@ describe('Receipts (e2e)', () => {
     expect(jobs).toEqual([{ data: { receiptId: answer.receipt.id } }]);
     expect(app.files.keys()).toHaveLength(1);
     expect(app.files.keys()[0]).toMatch(/^files\/.+\/original\.jpg$/);
+  });
+
+  it('does not attach receipt originals to documents in either upload order', async () => {
+    await uploadReceipt();
+    const image = await receiptImage();
+    const documentUpload = (bytes: Buffer) =>
+      request(app.baseUrl)
+        .post('/api/documents')
+        .set('Origin', APP_ORIGIN)
+        .set('Cookie', cookie)
+        .set('Content-Type', 'application/octet-stream')
+        .set('X-Legere-Filename', 'receipt.jpg')
+        .send(bytes);
+    const refusedDocument = await documentUpload(image);
+    expect(refusedDocument.status).toBe(409);
+    expect(refusedDocument.body).toMatchObject({ error: { code: 'RECEIPT_DUPLICATE' } });
+    expect(await testPrisma().document.count()).toBe(0);
+
+    const document = expectData(
+      await documentUpload(await receiptImage('#111111')),
+      uploadDocumentResponseSchema,
+    );
+    const refusedReceipt = await request(app.baseUrl)
+      .post('/api/receipts')
+      .set('Origin', APP_ORIGIN)
+      .set('Cookie', cookie)
+      .attach('file', await receiptImage('#111111'), 'receipt.jpg');
+    expect(refusedReceipt.status).toBe(409);
+    expect(refusedReceipt.body).toMatchObject({ error: { code: 'RECEIPT_DUPLICATE' } });
+    expect(await testPrisma().receipt.count()).toBe(1);
+    expect(await testPrisma().documentPage.findMany()).toMatchObject([
+      { documentId: document.document.id },
+    ]);
+  });
+
+  it('re-uploading a deleted receipt creates a new receipt and clears the file trash state', async () => {
+    const original = await uploadReceipt();
+    await api(app).delete(`/api/receipts/${original.receipt.id}`).set('Cookie', cookie).expect(200);
+    const restored = await uploadReceipt();
+
+    expect(restored.created).toBe(true);
+    expect(restored.receipt.id).not.toBe(original.receipt.id);
+    expect(await testPrisma().file.findFirstOrThrow()).toMatchObject({
+      trashedAt: null,
+      trashedReason: null,
+      trashedArchiveKind: null,
+    });
+    expect(await testPrisma().file.count()).toBe(1);
+    expect(app.files.keys()).toHaveLength(1);
   });
 
   it('filters extracted facts and paginates each named receipt order', async () => {

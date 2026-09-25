@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Descriptions, Space, Table, Tag, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
+import { QueryError } from '../../shared/ui';
 import Link from 'next/link';
 import type { ScanRunDto } from '../../../shared/contracts/libraries';
 import { libraryApi, libraryKeys } from '../../entities/library';
@@ -102,55 +103,65 @@ export function AdminLibraryDetailScreen({ id }: { id: string }) {
     },
   ];
 
-  return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Card
-        title={library.data?.name ?? t('common.loading')}
-        loading={library.isPending}
-        extra={
-          <Space>
-            <Link href="/admin/libraries">{t('admin.libraries.backToList')}</Link>
-            <Button type="primary" onClick={() => scanNow.mutate()} loading={scanNow.isPending}>
-              {t('admin.libraries.actions.scanNow')}
-            </Button>
-          </Space>
-        }
-      >
-        {library.data !== undefined && (
-          <Descriptions column={1} size="small">
-            <Descriptions.Item label={t('admin.libraries.fields.rootPath')}>
-              <Typography.Text code>
-                {library.data.rootPath === '' ? '/' : library.data.rootPath}
-              </Typography.Text>
-            </Descriptions.Item>
-            <Descriptions.Item label={t('admin.libraries.fields.enabled')}>
-              {library.data.enabled ? t('common.yes') : t('common.no')}
-            </Descriptions.Item>
-            <Descriptions.Item label={t('admin.libraries.fields.visibility')}>
-              {t(`admin.libraries.visibility.${library.data.visibility}`)}
-            </Descriptions.Item>
-            <Descriptions.Item label={t('admin.libraries.fields.scanInterval')}>
-              {t('admin.libraries.minutes', { minutes: library.data.scanIntervalMinutes })}
-            </Descriptions.Item>
-            <Descriptions.Item label={t('admin.libraries.fields.excludeGlobs')}>
-              {library.data.excludeGlobs.length === 0
-                ? '—'
-                : library.data.excludeGlobs.map((glob) => <Tag key={glob}>{glob}</Tag>)}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Card>
+  if (library.isError && library.data === undefined)
+    return <QueryError error={library.error} retry={library.refetch} />;
+  if (scans.isError && scans.data === undefined)
+    return <QueryError error={scans.error} retry={scans.refetch} />;
 
-      <Card title={t('admin.libraries.scans.title')}>
-        <Table
-          rowKey="id"
-          loading={scans.isPending}
-          dataSource={scans.data?.items ?? []}
-          columns={columns}
-          pagination={false}
-          locale={{ emptyText: t('admin.libraries.scans.empty') }}
-        />
-      </Card>
-    </Space>
+  return (
+    <>
+      {library.isError && <QueryError error={library.error} retry={library.refetch} />}
+      {scans.isError && <QueryError error={scans.error} retry={scans.refetch} />}
+
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Card
+          title={library.data?.name ?? t('common.loading')}
+          loading={library.isPending}
+          extra={
+            <Space>
+              <Link href="/admin/libraries">{t('admin.libraries.backToList')}</Link>
+              <Button type="primary" onClick={() => scanNow.mutate()} loading={scanNow.isPending}>
+                {t('admin.libraries.actions.scanNow')}
+              </Button>
+            </Space>
+          }
+        >
+          {library.data !== undefined && (
+            <Descriptions column={1} size="small">
+              <Descriptions.Item label={t('admin.libraries.fields.rootPath')}>
+                <Typography.Text code>
+                  {library.data.rootPath === '' ? '/' : library.data.rootPath}
+                </Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.libraries.fields.enabled')}>
+                {library.data.enabled ? t('common.yes') : t('common.no')}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.libraries.fields.visibility')}>
+                {t(`admin.libraries.visibility.${library.data.visibility}`)}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.libraries.fields.scanInterval')}>
+                {t('admin.libraries.minutes', { minutes: library.data.scanIntervalMinutes })}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('admin.libraries.fields.excludeGlobs')}>
+                {library.data.excludeGlobs.length === 0
+                  ? '—'
+                  : library.data.excludeGlobs.map((glob) => <Tag key={glob}>{glob}</Tag>)}
+              </Descriptions.Item>
+            </Descriptions>
+          )}
+        </Card>
+
+        <Card title={t('admin.libraries.scans.title')}>
+          <Table
+            rowKey="id"
+            loading={scans.isPending}
+            dataSource={scans.data?.items ?? []}
+            columns={columns}
+            pagination={false}
+            locale={{ emptyText: t('admin.libraries.scans.empty') }}
+          />
+        </Card>
+      </Space>
+    </>
   );
 }

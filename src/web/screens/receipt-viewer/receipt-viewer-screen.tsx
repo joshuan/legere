@@ -25,13 +25,13 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { useFormatter, useTranslations } from 'next-intl';
+import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { receiptApi, receiptKeys } from '../../entities/receipt';
+import { moneyValue, receiptApi, receiptKeys } from '../../entities/receipt';
 import { formatBytes, useErrorMessage } from '../../shared/lib';
-import { moneyValue } from '../receipts/receipts-screen';
+import { QueryError } from '../../shared/ui';
 
 const SCALAR_KEYS = [
   'vendor',
@@ -79,6 +79,8 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
     onError: (error: unknown) => void message.error(describeError(error)),
   });
 
+  if (receipt.isError && receipt.data === undefined)
+    return <QueryError error={receipt.error} retry={receipt.refetch} />;
   if (receipt.isLoading || receipt.data === undefined) {
     return (
       <div style={{ padding: 64, textAlign: 'center' }}>
@@ -90,14 +92,15 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
   const raw = data.extracted === null ? null : JSON.stringify(data.extracted, null, 2);
 
   return (
-    <div style={{ maxWidth: 1320, margin: '0 auto', padding: 24 }}>
+    <div style={{ maxWidth: 1320, margin: '0 auto', width: '100%', minWidth: 0 }}>
+      {receipt.isError && <QueryError error={receipt.error} retry={receipt.refetch} />}
       <Space direction="vertical" size={18} style={{ width: '100%' }}>
         <div
           style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}
         >
           <Space direction="vertical" size={2}>
             <Link href="/receipts">
-              <ArrowLeftOutlined /> {t('back')}
+              <ArrowLeftOutlined aria-hidden /> {t('back')}
             </Link>
             <Typography.Title level={2} style={{ margin: 0 }}>
               {textValue(data.extracted?.values.vendor) ?? t('unknownVendor')}
@@ -107,7 +110,7 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
           <Space wrap>
             {data.processing && <Tag color="processing">{t('processing')}</Tag>}
             <Button
-              icon={<DownloadOutlined />}
+              icon={<DownloadOutlined aria-hidden />}
               onClick={() => {
                 void receiptApi
                   .download(id)
@@ -118,7 +121,7 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
               {t('downloadOriginal')}
             </Button>
             <Button
-              icon={<FileTextOutlined />}
+              icon={<FileTextOutlined aria-hidden />}
               loading={convert.isPending}
               disabled={data.processing}
               onClick={() => {
@@ -134,7 +137,7 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
             </Button>
             <Button
               danger
-              icon={<DeleteOutlined />}
+              icon={<DeleteOutlined aria-hidden />}
               loading={remove.isPending}
               onClick={() => {
                 modal.confirm({
@@ -163,6 +166,8 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
                 mimeType={data.mimeType}
                 pageCount={data.pageCount}
                 ready={data.previewStatus === 'DONE'}
+                processing={data.processing}
+                fileName={data.fileName}
               />
             </Card>
           </Col>
@@ -205,20 +210,21 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
                   <Space>
                     <Button
                       size="small"
-                      icon={<CopyOutlined />}
+                      icon={<CopyOutlined aria-hidden />}
                       disabled={raw === null}
                       onClick={() => {
                         if (raw === null) return;
-                        void navigator.clipboard
-                          .writeText(raw)
-                          .then(() => message.success(t('copied')));
+                        void Promise.resolve()
+                          .then(() => navigator.clipboard.writeText(raw))
+                          .then(() => message.success(t('copied')))
+                          .catch(() => message.error(t('copyFailed')));
                       }}
                     >
                       {t('copyJson')}
                     </Button>
                     <Button
                       size="small"
-                      icon={<DownloadOutlined />}
+                      icon={<DownloadOutlined aria-hidden />}
                       disabled={raw === null}
                       onClick={() => {
                         if (raw !== null) downloadJson(raw, `receipt-${id}.json`);
@@ -258,11 +264,15 @@ function ReceiptImages({
   mimeType,
   pageCount,
   ready,
+  processing,
+  fileName,
 }: {
   id: string;
   mimeType: string;
   pageCount: number | null;
   ready: boolean;
+  processing: boolean;
+  fileName: string;
 }) {
   const t = useTranslations('receipts');
   const original = useQuery({
@@ -283,13 +293,19 @@ function ReceiptImages({
   });
 
   if (!ready) {
-    return <Typography.Text type="secondary">{t('processing')}</Typography.Text>;
+    return (
+      <Typography.Text type="secondary">
+        {processing ? t('processing') : t('previewUnavailable')}
+      </Typography.Text>
+    );
   }
-  if (mimeType.startsWith('image/') && original.data !== undefined) {
+  if (mimeType.startsWith('image/')) {
+    if (original.isError) return <QueryError error={original.error} retry={original.refetch} />;
+    if (original.data === undefined) return <Spin />;
     return (
       <Image
         src={original.data.url}
-        alt=""
+        alt={fileName}
         style={{ width: '100%', maxHeight: '78vh', objectFit: 'contain' }}
       />
     );
@@ -297,13 +313,21 @@ function ReceiptImages({
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
       {pageQueries.map((page, index) =>
-        page.data === undefined ? (
+        page.isError ? (
+          // eslint-disable-next-line @eslint-react/no-array-index-key
+          <QueryError key={index} error={page.error} retry={page.refetch} />
+        ) : page.data === undefined ? (
           // A receipt page's index is its stable identity inside the immutable original PDF.
           // eslint-disable-next-line @eslint-react/no-array-index-key
           <Spin key={index} />
         ) : (
-          // eslint-disable-next-line @eslint-react/no-array-index-key
-          <Image key={index} src={page.data.url} alt={`${index + 1}`} style={{ width: '100%' }} />
+          <Image
+            // eslint-disable-next-line @eslint-react/no-array-index-key
+            key={index}
+            src={page.data.url}
+            alt={t('pageAlt', { page: index + 1, fileName })}
+            style={{ width: '100%' }}
+          />
         ),
       )}
     </Space>
@@ -312,13 +336,16 @@ function ReceiptImages({
 
 function ReceiptFields({ values }: { values: Record<string, unknown> }) {
   const t = useTranslations('receipts');
+  const locale = useLocale();
   const items = arrayValue(values.items);
   const descriptions = SCALAR_KEYS.flatMap((key) => {
     const value = values[key];
     if (value === undefined || value === null) return [];
     return [
       <Descriptions.Item key={key} label={t(`fields.${key}`)}>
-        {displayValue(value)}
+        {key === 'paymentMethod' && (value === 'card' || value === 'cash')
+          ? t(`paymentMethods.${value}`)
+          : displayValue(value, locale)}
       </Descriptions.Item>,
     ];
   });
@@ -335,43 +362,44 @@ function ReceiptFields({ values }: { values: Record<string, unknown> }) {
 
 function ReceiptItems({ rows }: { rows: Record<string, unknown>[] }) {
   const t = useTranslations('receipts');
+  const locale = useLocale();
   const data = rows.map((values, index) => ({ key: String(index), values }));
   const columns: ColumnsType<(typeof data)[number]> = [
-    { title: t('fields.name'), render: (_, row) => displayValue(row.values.name) },
+    { title: t('fields.name'), render: (_, row) => displayValue(row.values.name, locale) },
     {
       title: t('fields.quantity'),
       width: 90,
-      render: (_, row) => displayValue(row.values.quantity),
+      render: (_, row) => displayValue(row.values.quantity, locale),
     },
     {
       title: t('fields.unitPrice'),
       width: 100,
-      render: (_, row) => displayValue(row.values.unitPrice),
+      render: (_, row) => displayValue(row.values.unitPrice, locale),
     },
     {
       title: t('fields.amount'),
       width: 100,
-      render: (_, row) => displayValue(row.values.amount),
+      render: (_, row) => displayValue(row.values.amount, locale),
     },
     {
       title: t('fields.discount'),
       width: 90,
-      render: (_, row) => displayValue(row.values.discount),
+      render: (_, row) => displayValue(row.values.discount, locale),
     },
     {
       title: t('fields.taxCode'),
       width: 90,
-      render: (_, row) => displayValue(row.values.taxCode),
+      render: (_, row) => displayValue(row.values.taxCode, locale),
     },
     {
       title: t('fields.taxRate'),
       width: 90,
-      render: (_, row) => displayValue(row.values.taxRate),
+      render: (_, row) => displayValue(row.values.taxRate, locale),
     },
     {
       title: t('fields.taxAmount'),
       width: 100,
-      render: (_, row) => displayValue(row.values.taxAmount),
+      render: (_, row) => displayValue(row.values.taxAmount, locale),
     },
   ];
   return (
@@ -389,10 +417,10 @@ function ReceiptItems({ rows }: { rows: Record<string, unknown>[] }) {
   );
 }
 
-function displayValue(value: unknown): ReactNode {
+function displayValue(value: unknown, locale: string): ReactNode {
   if (value === null || value === undefined) return '—';
   if (typeof value === 'string' || typeof value === 'number') return String(value);
-  return moneyValue(value) ?? JSON.stringify(value);
+  return moneyValue(value, locale) ?? JSON.stringify(value);
 }
 
 function textValue(value: unknown): string | null {

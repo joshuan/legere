@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import { ArchiveItemRepository } from '../../domain/repositories/archive-item.repository';
-import { clientOf } from './prisma-client';
+import { clientOf, isPrismaTx } from './prisma-client';
+import { assertReceiptFile } from './file-product-home';
 import { PrismaService } from './prisma.service';
 
 @Injectable()
@@ -14,8 +15,12 @@ export class PrismaArchiveItemRepository extends ArchiveItemRepository {
     input: { id: string; fileId: string; ownerId: string },
     tx?: TransactionHandle,
   ): Promise<void> {
+    if (!isPrismaTx(tx)) {
+      return this.prisma.$transaction((client) => this.documentToReceipt(input, client));
+    }
     const client = clientOf(this.prisma, tx);
     await client.document.delete({ where: { id: input.id } });
+    await assertReceiptFile(client, input.fileId);
     await client.archiveItem.update({
       where: { id: input.id },
       data: { kind: 'RECEIPT', createdById: input.ownerId, deletedAt: null },

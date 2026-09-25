@@ -170,4 +170,30 @@ describe('CollectionDetailScreen', () => {
 
     await waitFor(() => expect(shared).toEqual({ granteeUserId: null }));
   });
+  it('loads the remaining collection documents using the next cursor', async () => {
+    const seen: string[] = [];
+    server.use(
+      http.get(`/api/collections/${ID}`, ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor');
+        seen.push(cursor ?? '');
+        return HttpResponse.json(
+          envelope({
+            ...detail,
+            items:
+              cursor === null
+                ? { items: [document1], nextCursor: 'next-page' }
+                : {
+                    items: [{ ...document1, id: OTHER_ID, title: 'Second page document' }],
+                    nextCursor: null,
+                  },
+          }),
+        );
+      }),
+    );
+    renderWithProviders(<CollectionDetailScreen id={ID} />);
+    await userEvent.click(await screen.findByRole('button', { name: enMessages.browse.more }));
+    expect(await screen.findByText('Second page document')).toBeInTheDocument();
+    expect(screen.getByText('Rental agreement')).toBeInTheDocument();
+    expect(seen).toEqual(['', 'next-page']);
+  });
 });

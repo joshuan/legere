@@ -1103,7 +1103,10 @@
       "taxCode": "Код налога",
       "taxRate": "Ставка налога, %",
       "name": "Позиция"
-    }
+    },
+    "copyFailed": "Не удалось скопировать JSON. Скачайте его как файл.",
+    "previewUnavailable": "Предпросмотр недоступен.",
+    "pageAlt": "{fileName}, страница {page}"
   },
   "viewer": {
     "saved": "Сохранено",
@@ -1490,7 +1493,8 @@
     "documentTypes": "Типы документов",
     "version": "Версия {version}",
     "collapse": "Свернуть меню",
-    "expand": "Развернуть меню"
+    "expand": "Развернуть меню",
+    "skipContent": "Перейти к содержимому"
   },
   "browse": {
     "library": "Библиотека",

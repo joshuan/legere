@@ -8,6 +8,7 @@ import { useState } from 'react';
 import type { CollectionDto } from '../../../shared/contracts/collections';
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { useErrorMessage } from '../../shared/lib';
+import { QueryError } from '../../shared/ui';
 
 type FormValues = { name: string; description: string };
 
@@ -40,54 +41,61 @@ export function CollectionsScreen() {
   const mine = items.filter((item) => item.mine);
   const shared = items.filter((item) => !item.mine);
 
+  if (collections.isError && collections.data === undefined)
+    return <QueryError error={collections.error} retry={collections.refetch} />;
+
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>
-          {t('collections.title')}
-        </Typography.Title>
-        <Button type="primary" onClick={() => setOpen(true)}>
-          {t('collections.actions.create')}
-        </Button>
-      </Space>
+    <>
+      {collections.isError && <QueryError error={collections.error} retry={collections.refetch} />}
 
-      <Card title={t('collections.mine')} loading={collections.isPending}>
-        <Group items={mine} empty={t('collections.emptyMine')} />
-      </Card>
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+          <Typography.Title level={3} style={{ margin: 0 }}>
+            {t('collections.title')}
+          </Typography.Title>
+          <Button type="primary" onClick={() => setOpen(true)}>
+            {t('collections.actions.create')}
+          </Button>
+        </Space>
 
-      <Card title={t('collections.sharedWithMe')} loading={collections.isPending}>
-        <Group items={shared} empty={t('collections.emptyShared')} showOwner />
-      </Card>
+        <Card title={t('collections.mine')} loading={collections.isPending}>
+          <Group items={mine} empty={t('collections.emptyMine')} />
+        </Card>
 
-      <Modal
-        open={open}
-        title={t('collections.actions.create')}
-        okText={t('common.actions.save')}
-        cancelText={t('common.actions.cancel')}
-        confirmLoading={create.isPending}
-        onCancel={() => setOpen(false)}
-        onOk={() => void form.submit()}
-        destroyOnHidden
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={{ name: '', description: '' }}
-          onFinish={(values) => create.mutate(values)}
+        <Card title={t('collections.sharedWithMe')} loading={collections.isPending}>
+          <Group items={shared} empty={t('collections.emptyShared')} showOwner />
+        </Card>
+
+        <Modal
+          open={open}
+          title={t('collections.actions.create')}
+          okText={t('common.actions.save')}
+          cancelText={t('common.actions.cancel')}
+          confirmLoading={create.isPending}
+          onCancel={() => setOpen(false)}
+          onOk={() => void form.submit()}
+          destroyOnHidden
         >
-          <Form.Item
-            name="name"
-            label={t('collections.fields.name')}
-            rules={[{ required: true, message: t('collections.fields.nameRequired') }]}
+          <Form
+            form={form}
+            layout="vertical"
+            initialValues={{ name: '', description: '' }}
+            onFinish={(values) => create.mutate(values)}
           >
-            <Input />
-          </Form.Item>
-          <Form.Item name="description" label={t('collections.fields.description')}>
-            <Input.TextArea rows={3} />
-          </Form.Item>
-        </Form>
-      </Modal>
-    </Space>
+            <Form.Item
+              name="name"
+              label={t('collections.fields.name')}
+              rules={[{ required: true, message: t('collections.fields.nameRequired') }]}
+            >
+              <Input />
+            </Form.Item>
+            <Form.Item name="description" label={t('collections.fields.description')}>
+              <Input.TextArea rows={3} />
+            </Form.Item>
+          </Form>
+        </Modal>
+      </Space>
+    </>
   );
 }
 

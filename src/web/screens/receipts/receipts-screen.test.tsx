@@ -244,4 +244,20 @@ describe('ReceiptsScreen', () => {
       ),
     );
   });
+  it('shows a failed read as a retryable error, never an empty archive', async () => {
+    let failing = true;
+    server.use(
+      http.get('/api/receipts', () =>
+        failing
+          ? HttpResponse.json({ error: null }, { status: 500 })
+          : HttpResponse.json(envelope({ items: [receipt], nextCursor: null })),
+      ),
+    );
+    renderWithProviders(<ReceiptsScreen />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(enMessages.errors.codes.INTERNAL);
+    expect(screen.queryByText(enMessages.receipts.empty)).not.toBeInTheDocument();
+    failing = false;
+    await userEvent.click(screen.getByRole('button', { name: enMessages.common.actions.retry }));
+    expect(await screen.findAllByText('Voli Market')).toHaveLength(2);
+  });
 });

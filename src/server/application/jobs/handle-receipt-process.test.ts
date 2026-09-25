@@ -8,7 +8,11 @@ import {
   InMemoryFileRepository,
   fileFixture,
 } from '../../../../test/helpers/processing-fakes';
-import type { Receipt } from '../../domain/entities/receipt';
+import {
+  MAX_RECEIPT_EXTRACTION_BYTES,
+  MAX_RECEIPT_PAGES,
+  type Receipt,
+} from '../../domain/entities/receipt';
 import type { Viewer } from '../../domain/repositories/document.repository';
 import {
   ReceiptRepository,
@@ -276,6 +280,126 @@ describe('HandleReceiptProcess', () => {
     expect(receipts.receipt).toMatchObject({
       previewStatus: 'FAILED',
       processingError: 'Invalid PDF',
+    });
+  });
+
+  it('refuses oversized PDFs before rendering any pages', async () => {
+    pdfs.pageCount = MAX_RECEIPT_PAGES + 1;
+
+    await handler.handle({ receiptId: RECEIPT_ID });
+
+    expect(pdfs.calls).toEqual([{ method: 'pdfPageCount' }]);
+    expect(receipts.receipt).toMatchObject({
+      previewStatus: 'FAILED',
+      extractionStatus: 'FAILED',
+      processingError: 'A receipt must contain between 1 and 100 pages',
+    });
+    expect(analyst.fieldCalls).toEqual([]);
+    expect(storage.keys()).toEqual([originalKeyOf(receiptFixture().file)]);
+  });
+
+  it('bounds all extraction images together before sending them to the model', async () => {
+    pdfs.pageCount = 2;
+    vi.spyOn(images, 'toJpegPreview').mockImplementation((_source, options) =>
+      Promise.resolve(
+        options.maxDim === 1400
+          ? Buffer.alloc(MAX_RECEIPT_EXTRACTION_BYTES / 2 + 1)
+          : Buffer.from('display'),
+      ),
+    );
+
+    await handler.handle({ receiptId: RECEIPT_ID });
+
+    expect(receipts.receipt).toMatchObject({
+      previewStatus: 'FAILED',
+      processingError: 'Receipt extraction images exceed the 32 MiB limit',
+    });
+    expect(analyst.fieldCalls).toEqual([]);
+  });
+
+  it('applies the page bound to previously saved previews without reading any page', async () => {
+    receipts.receipt = receiptFixture({ previewStatus: 'DONE', pageCount: MAX_RECEIPT_PAGES + 1 });
+    const read = vi.spyOn(storage, 'getStream');
+
+    await handler.handle({ receiptId: RECEIPT_ID });
+
+    expect(read).not.toHaveBeenCalled();
+    expect(receipts.receipt).toMatchObject({
+      previewStatus: 'DONE',
+      extractionStatus: 'FAILED',
+      failedStep: 'extraction',
+    });
+  });
+
+  it('applies the aggregate image bound to saved previews on a retry', async () => {
+    receipts.receipt = receiptFixture({ previewStatus: 'DONE', pageCount: 2 });
+    for (const index of [0, 1]) {
+      await storage.put(
+        artifactKeys.receiptPage(RECEIPT_ID, index),
+        Buffer.from('jpg'),
+        'image/jpeg',
+      );
+    }
+    vi.spyOn(images, 'toJpegPreview').mockResolvedValue(
+      Buffer.alloc(MAX_RECEIPT_EXTRACTION_BYTES / 2 + 1),
+    );
+
+    await handler.handle({ receiptId: RECEIPT_ID });
+
+    expect(receipts.receipt).toMatchObject({
+      previewStatus: 'DONE',
+      extractionStatus: 'FAILED',
+      processingError: 'Receipt extraction images exceed the 32 MiB limit',
+    });
+    expect(analyst.fieldCalls).toEqual([]);
+  });
+
+  it('records a failed saved preview read instead of leaving the receipt queued forever', async () => {
+    receipts.receipt = receiptFixture({ previewStatus: 'DONE', pageCount: 1 });
+    vi.spyOn(storage, 'getStream').mockRejectedValue(new Error('Saved page is missing'));
+
+    await expect(handler.handle({ receiptId: RECEIPT_ID })).rejects.toThrow(
+      'Saved page is missing',
+    );
+
+    expect(receipts.receipt).toMatchObject({
+      previewStatus: 'DONE',
+      extractionStatus: 'FAILED',
+      processingError: 'Saved page is missing',
+    });
+  });
+
+  it('retries raw storage transport failures and recovers using the same saved preview', async () => {
+    receipts.receipt = receiptFixture({ previewStatus: 'DONE', pageCount: 1 });
+    await storage.put(artifactKeys.receiptPage(RECEIPT_ID, 0), Buffer.from('jpg'), 'image/jpeg');
+    vi.spyOn(storage, 'getStream').mockRejectedValueOnce(new Error('connection reset'));
+
+    await expect(handler.handle({ receiptId: RECEIPT_ID })).rejects.toThrow('connection reset');
+    expect(receipts.receipt?.extractionStatus).toBe('FAILED');
+    await handler.handle({ receiptId: RECEIPT_ID });
+
+    expect(receipts.receipt).toMatchObject({
+      previewStatus: 'DONE',
+      extractionStatus: 'DONE',
+      processingError: null,
+    });
+    expect(pdfs.calls).toEqual([]);
+    expect(analyst.fieldCalls).toHaveLength(1);
+  });
+
+  it('keeps saved preview transport failures retryable', async () => {
+    receipts.receipt = receiptFixture({ previewStatus: 'DONE', pageCount: 1 });
+    vi.spyOn(storage, 'getStream').mockRejectedValue(
+      new ServiceUnavailableError('stirling', 'temporarily unavailable'),
+    );
+
+    await expect(handler.handle({ receiptId: RECEIPT_ID })).rejects.toBeInstanceOf(
+      ServiceUnavailableError,
+    );
+    expect(receipts.receipt).toMatchObject({
+      previewStatus: 'DONE',
+      extractionStatus: 'QUEUED',
+      processingError: null,
     });
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Empty, Popconfirm, Space, Spin, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
@@ -8,6 +8,7 @@ import { collectionApi, collectionKeys } from '../../entities/collection';
 import { useCurrentUser } from '../../entities/user';
 import { ShareModal } from '../../features/collection-share';
 import { useErrorMessage } from '../../shared/lib';
+import { QueryError } from '../../shared/ui';
 import { DocumentCard } from '../../widgets/document-card';
 
 // /collections/:id (docs/11 §11.7). A viewer who is not the owner gets no edit affordances at all —
@@ -22,9 +23,11 @@ export function CollectionDetailScreen({ id }: { id: string }) {
   const { message } = App.useApp();
   const [sharing, setSharing] = useState(false);
 
-  const detail = useQuery({
+  const detail = useInfiniteQuery({
     queryKey: collectionKeys.detail(id),
-    queryFn: () => collectionApi.get(id),
+    queryFn: ({ pageParam }) => collectionApi.get(id, pageParam === '' ? undefined : pageParam),
+    initialPageParam: '',
+    getNextPageParam: (page) => page.items.nextCursor ?? undefined,
   });
 
   const refresh = (): void => {
@@ -44,72 +47,86 @@ export function CollectionDetailScreen({ id }: { id: string }) {
   });
 
   if (detail.isPending) return <Spin />;
-  if (detail.data === undefined) return <Empty description={t('errors.codes.NOT_FOUND')} />;
+  if (detail.isError && detail.data === undefined)
+    return <QueryError error={detail.error} retry={detail.refetch} />;
+  const first = detail.data?.pages[0];
+  if (first === undefined) return null;
 
-  const { collection, items } = detail.data;
+  const { collection } = first;
+  const items = detail.data?.pages.flatMap((page) => page.items.items) ?? [];
   const isOwner = collection.ownerId === currentUserId;
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Space style={{ width: '100%', justifyContent: 'space-between' }} align="start">
-        <Space direction="vertical" size={0}>
-          <Typography.Title
-            level={3}
-            style={{ margin: 0 }}
-            editable={
-              isOwner
-                ? {
-                    onChange: (name) => {
-                      if (name.trim() !== '' && name !== collection.name) rename.mutate(name);
-                    },
-                  }
-                : false
-            }
-          >
-            {collection.name}
-          </Typography.Title>
-          {collection.description !== null && (
-            <Typography.Text type="secondary">{collection.description}</Typography.Text>
-          )}
-          {!isOwner && (
-            <Typography.Text type="secondary">
-              {t('collections.ownedBy', { name: collection.ownerName })}
-            </Typography.Text>
+    <>
+      {detail.isError && <QueryError error={detail.error} retry={detail.refetch} />}
+
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Space style={{ width: '100%', justifyContent: 'space-between' }} align="start">
+          <Space direction="vertical" size={0}>
+            <Typography.Title
+              level={3}
+              style={{ margin: 0 }}
+              editable={
+                isOwner
+                  ? {
+                      onChange: (name) => {
+                        if (name.trim() !== '' && name !== collection.name) rename.mutate(name);
+                      },
+                    }
+                  : false
+              }
+            >
+              {collection.name}
+            </Typography.Title>
+            {collection.description !== null && (
+              <Typography.Text type="secondary">{collection.description}</Typography.Text>
+            )}
+            {!isOwner && (
+              <Typography.Text type="secondary">
+                {t('collections.ownedBy', { name: collection.ownerName })}
+              </Typography.Text>
+            )}
+          </Space>
+
+          {isOwner && (
+            <Button onClick={() => setSharing(true)}>{t('collections.actions.share')}</Button>
           )}
         </Space>
 
-        {isOwner && (
-          <Button onClick={() => setSharing(true)}>{t('collections.actions.share')}</Button>
+        {items.length === 0 ? (
+          <Empty description={t('collections.emptyItems')} />
+        ) : (
+          <div className="legere-card-grid">
+            {items.map((document) => (
+              <div key={document.id}>
+                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                  <DocumentCard document={document} />
+                  {isOwner && (
+                    <Popconfirm
+                      title={t('collections.confirmRemove', { title: document.title })}
+                      okText={t('common.yes')}
+                      cancelText={t('common.actions.cancel')}
+                      onConfirm={() => removeItem.mutate(document.id)}
+                    >
+                      <Button size="small" block>
+                        {t('collections.actions.remove')}
+                      </Button>
+                    </Popconfirm>
+                  )}
+                </Space>
+              </div>
+            ))}
+          </div>
         )}
+
+        {detail.hasNextPage && (
+          <Button loading={detail.isFetchingNextPage} onClick={() => void detail.fetchNextPage()}>
+            {t('browse.more')}
+          </Button>
+        )}
+
+        <ShareModal collectionId={id} open={sharing} onClose={() => setSharing(false)} />
       </Space>
-
-      {items.items.length === 0 ? (
-        <Empty description={t('collections.emptyItems')} />
-      ) : (
-        <div className="legere-card-grid">
-          {items.items.map((document) => (
-            <div key={document.id}>
-              <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                <DocumentCard document={document} />
-                {isOwner && (
-                  <Popconfirm
-                    title={t('collections.confirmRemove', { title: document.title })}
-                    okText={t('common.yes')}
-                    cancelText={t('common.actions.cancel')}
-                    onConfirm={() => removeItem.mutate(document.id)}
-                  >
-                    <Button size="small" block>
-                      {t('collections.actions.remove')}
-                    </Button>
-                  </Popconfirm>
-                )}
-              </Space>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <ShareModal collectionId={id} open={sharing} onClose={() => setSharing(false)} />
-    </Space>
+    </>
   );
 }

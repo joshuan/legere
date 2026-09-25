@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { configSchema } from '../../src/server/infrastructure/config/config.schema';
+import { validateTestDatabaseUrls } from './database-url';
 
 // The width of `document_chunks.embedding` (docs/04 §4.3), taken from the one place that decides it
 // rather than repeated as a literal in every fixture: a migration that changes the column changes
@@ -17,6 +18,7 @@ let client: PrismaClient | null = null;
 let migrationClient: PrismaClient | null = null;
 
 export function testPrisma(): PrismaClient {
+  validateTestDatabaseUrls();
   client ??= new PrismaClient();
   return client;
 }
@@ -25,6 +27,7 @@ export function testPrisma(): PrismaClient {
 // and migration-fixture DDL are test-runner operations, so they use the same separate owner URL as
 // `prisma migrate deploy`; locally it falls back to DATABASE_URL and changes nothing.
 export function migrationPrisma(): PrismaClient {
+  validateTestDatabaseUrls();
   const url = process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
   if (url === undefined) throw new Error('MIGRATION_DATABASE_URL or DATABASE_URL is required');
   migrationClient ??= new PrismaClient({
@@ -57,6 +60,6 @@ export async function truncateAll(): Promise<void> {
     WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'
   `;
   if (rows.length === 0) return;
-  const list = rows.map((row) => `"public"."${row.tablename}"`).join(', ');
+  const list = rows.map((row) => `"public"."${row.tablename.replaceAll('"', '""')}"`).join(', ');
   await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`);
 }

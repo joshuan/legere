@@ -36,9 +36,10 @@ import {
   type ReceiptListItemDto,
   type ReceiptSort,
 } from '../../../shared/contracts/receipts';
-import { receiptApi, receiptKeys } from '../../entities/receipt';
+import { moneyValue, receiptApi, receiptKeys } from '../../entities/receipt';
 import { UploadDropZone } from '../../features/document-upload';
 import { useErrorMessage } from '../../shared/lib';
+import { QueryError } from '../../shared/ui';
 
 const LIVE_REFRESH_MS = 5000;
 
@@ -62,6 +63,7 @@ type ReceiptUploadSettlement =
 export function ReceiptsScreen() {
   const t = useTranslations('receipts');
   const format = useFormatter();
+  const locale = useLocale();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -146,13 +148,13 @@ export function ReceiptsScreen() {
       title: t('fields.total'),
       key: 'total',
       width: 130,
-      render: (_, receipt) => moneyValue(receipt.extracted?.values.total) ?? '—',
+      render: (_, receipt) => moneyValue(receipt.extracted?.values.total, locale) ?? '—',
     },
     {
       title: t('fields.taxAmount'),
       key: 'tax',
       width: 110,
-      render: (_, receipt) => receiptTaxValue(receipt) ?? '—',
+      render: (_, receipt) => receiptTaxValue(receipt, locale) ?? '—',
     },
     {
       title: t('fields.paymentMethod'),
@@ -185,10 +187,12 @@ export function ReceiptsScreen() {
 
   return (
     <UploadDropZone onFiles={uploads.send} hint={t('dropHint')}>
-      <div style={{ width: '100%', padding: 24 }}>
+      <div style={{ width: '100%', minWidth: 0 }}>
         <Space direction="vertical" size={20} style={{ width: '100%' }}>
           <ReceiptUploadPanel items={uploads.items} busy={uploads.busy} onClose={uploads.clear} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+          <div
+            style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}
+          >
             <div>
               <Typography.Title level={2} style={{ margin: 0 }}>
                 {t('title')}
@@ -197,7 +201,7 @@ export function ReceiptsScreen() {
             </div>
             <Button
               type="primary"
-              icon={<PlusOutlined />}
+              icon={<PlusOutlined aria-hidden />}
               loading={uploads.busy}
               onClick={() => inputRef.current?.click()}
             >
@@ -231,7 +235,12 @@ export function ReceiptsScreen() {
             />
           </Space>
 
-          {receipts.isLoading ? (
+          {receipts.isError && receipts.data !== undefined && (
+            <QueryError error={receipts.error} retry={receipts.refetch} />
+          )}
+          {receipts.isError && receipts.data === undefined ? (
+            <QueryError error={receipts.error} retry={receipts.refetch} />
+          ) : receipts.isLoading ? (
             <div style={{ textAlign: 'center', padding: 64 }}>
               <Spin />
             </div>
@@ -266,7 +275,7 @@ export function ReceiptsScreen() {
                               {[
                                 stringValue(receipt, 'purchasedAt'),
                                 stringValue(receipt, 'purchasedTime'),
-                                moneyValue(receipt.extracted?.values.total),
+                                moneyValue(receipt.extracted?.values.total, locale),
                               ]
                                 .filter((value) => value !== null)
                                 .join(' · ') || receipt.fileName}
@@ -334,7 +343,7 @@ function ReceiptFiltersBar({
       <Input
         allowClear
         type="search"
-        prefix={<SearchOutlined />}
+        prefix={<SearchOutlined aria-hidden />}
         style={{ width: 230 }}
         aria-label={t('filters.vendor')}
         placeholder={t('filters.vendor')}
@@ -624,7 +633,7 @@ function ReceiptUploadPanel({
             type="text"
             size="small"
             aria-label={t('uploadBatch.close')}
-            icon={<CloseOutlined />}
+            icon={<CloseOutlined aria-hidden />}
             onClick={onClose}
           />
         )
@@ -674,7 +683,7 @@ function ReceiptThumbnail({ receipt }: { receipt: ReceiptListItemDto }) {
   if (image.data === undefined) {
     return (
       <div className="receipt-thumb-placeholder">
-        <FileImageOutlined />
+        <FileImageOutlined aria-hidden />
       </div>
     );
   }
@@ -711,18 +720,11 @@ function itemCount(receipt: ReceiptListItemDto): number | null {
   return Array.isArray(items) ? items.length : null;
 }
 
-function receiptTaxValue(receipt: ReceiptListItemDto): string | null {
+function receiptTaxValue(receipt: ReceiptListItemDto, locale: string): string | null {
   const tax = receipt.extracted?.values.taxAmount;
   if (typeof tax !== 'number') return null;
   const total = receipt.extracted?.values.total;
   if (typeof total !== 'object' || total === null || Array.isArray(total)) return String(tax);
   const currency = 'currency' in total ? total.currency : null;
-  return typeof currency === 'string' ? `${tax.toLocaleString()} ${currency}` : String(tax);
-}
-
-export function moneyValue(value: unknown): string | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  if (!('amount' in value) || !('currency' in value)) return null;
-  if (typeof value.amount !== 'number' || typeof value.currency !== 'string') return null;
-  return `${value.amount.toLocaleString()} ${value.currency}`;
+  return typeof currency === 'string' ? `${tax.toLocaleString(locale)} ${currency}` : String(tax);
 }

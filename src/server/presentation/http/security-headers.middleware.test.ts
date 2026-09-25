@@ -16,11 +16,16 @@ function nonceIn(policy: string): string {
 // A real Express instance rather than a stubbed request and response: the middleware's whole job is
 // the headers that come out the other side, and that is what this reads. The page route echoes the
 // request header the middleware wrote, since that is the channel the nonce reaches Next through.
-function appWith(options: { usesHttps: boolean; bucketOrigin?: string | null }): Express {
+function appWith(options: {
+  usesHttps: boolean;
+  bucketOrigin?: string | null;
+  development?: boolean;
+}): Express {
   const app = express();
   app.use(
     securityHeaders({
       usesHttps: options.usesHttps,
+      development: options.development ?? false,
       bucketOrigin: options.bucketOrigin === undefined ? BUCKET : options.bucketOrigin,
     }),
   );
@@ -34,6 +39,24 @@ function appWith(options: { usesHttps: boolean; bucketOrigin?: string | null }):
 }
 
 describe('securityHeaders', () => {
+  it('allows development source evaluation only on pages when explicitly enabled', async () => {
+    const app = appWith({ usesHttps: false, development: true });
+    const page = await request(app).get('/documents');
+    expect(page.headers['content-security-policy']).toContain("'unsafe-eval'");
+    expect(page.headers['content-security-policy']).toContain("'strict-dynamic'");
+    expect(page.headers['content-security-policy']).not.toContain("'unsafe-inline'");
+    expect(page.text).toBe(page.headers['content-security-policy']);
+
+    const api = await request(app).get('/api/documents');
+    expect(api.headers['content-security-policy']).toContain("default-src 'none'");
+    expect(api.headers['content-security-policy']).not.toContain('unsafe-eval');
+
+    const production = await request(appWith({ usesHttps: false, development: false })).get(
+      '/documents',
+    );
+    expect(production.headers['content-security-policy']).not.toContain('unsafe-eval');
+  });
+
   it('refuses to be framed, sniffed, or to leak where the reader came from', async () => {
     const response = await request(appWith({ usesHttps: false })).get('/documents');
 

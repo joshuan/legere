@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Popconfirm, Space, Table, Tag, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
+import { QueryError } from '../../shared/ui';
 import { useRouter } from 'next/navigation';
 import type { SessionDto } from '../../../shared/contracts/users';
 import { sessionApi, sessionKeys } from '../../entities/session';
@@ -37,64 +38,71 @@ export function SessionsCard() {
     onError: (error: unknown) => void message.error(describeError(error)),
   });
 
-  return (
-    <Card title={t('settings.sessions.title')}>
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        <Typography.Text type="secondary">{t('settings.sessions.description')}</Typography.Text>
+  if (sessions.isError && sessions.data === undefined)
+    return <QueryError error={sessions.error} retry={sessions.refetch} />;
 
-        <Table<SessionDto>
-          rowKey="id"
-          size="small"
-          loading={sessions.isPending}
-          dataSource={sessions.data?.items ?? []}
-          pagination={false}
-          locale={{ emptyText: t('settings.sessions.empty') }}
-          columns={[
-            {
-              title: t('settings.sessions.columns.device'),
-              dataIndex: 'userAgent',
-              render: (userAgent: string | null, session: SessionDto) => (
-                <Space size="small">
-                  <span>{userAgent ?? t('settings.sessions.unknownDevice')}</span>
-                  {session.current ? (
-                    <Tag color="green">{t('settings.sessions.current')}</Tag>
-                  ) : null}
-                </Space>
-              ),
-            },
-            {
-              title: t('settings.sessions.columns.started'),
-              dataIndex: 'createdAt',
-              render: (value: string) => new Date(value).toLocaleString(),
-            },
-            {
-              title: t('settings.sessions.columns.expires'),
-              dataIndex: 'expiresAt',
-              render: (value: string) => new Date(value).toLocaleDateString(),
-            },
-            {
-              title: '',
-              key: 'actions',
-              render: (_: unknown, session: SessionDto) => (
-                <Popconfirm
-                  title={
-                    session.current
-                      ? t('settings.sessions.revokeCurrentConfirm')
-                      : t('settings.sessions.revokeConfirm')
-                  }
-                  okText={t('settings.sessions.revoke')}
-                  cancelText={t('common.actions.cancel')}
-                  onConfirm={() => revoke.mutate(session)}
-                >
-                  <Button size="small" danger>
-                    {t('settings.sessions.revoke')}
-                  </Button>
-                </Popconfirm>
-              ),
-            },
-          ]}
-        />
-      </Space>
-    </Card>
+  return (
+    <>
+      {sessions.isError && <QueryError error={sessions.error} retry={sessions.refetch} />}
+
+      <Card title={t('settings.sessions.title')}>
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Typography.Text type="secondary">{t('settings.sessions.description')}</Typography.Text>
+
+          <Table<SessionDto>
+            rowKey="id"
+            size="small"
+            loading={sessions.isPending}
+            dataSource={sessions.data?.items ?? []}
+            pagination={false}
+            locale={{ emptyText: t('settings.sessions.empty') }}
+            columns={[
+              {
+                title: t('settings.sessions.columns.device'),
+                dataIndex: 'userAgent',
+                render: (userAgent: string | null, session: SessionDto) => (
+                  <Space size="small">
+                    <span>{userAgent ?? t('settings.sessions.unknownDevice')}</span>
+                    {session.current ? (
+                      <Tag color="green">{t('settings.sessions.current')}</Tag>
+                    ) : null}
+                  </Space>
+                ),
+              },
+              {
+                title: t('settings.sessions.columns.started'),
+                dataIndex: 'createdAt',
+                render: (value: string) => new Date(value).toLocaleString(),
+              },
+              {
+                title: t('settings.sessions.columns.expires'),
+                dataIndex: 'expiresAt',
+                render: (value: string) => new Date(value).toLocaleDateString(),
+              },
+              {
+                title: '',
+                key: 'actions',
+                render: (_: unknown, session: SessionDto) => (
+                  <Popconfirm
+                    title={
+                      session.current
+                        ? t('settings.sessions.revokeCurrentConfirm')
+                        : t('settings.sessions.revokeConfirm')
+                    }
+                    okText={t('settings.sessions.revoke')}
+                    cancelText={t('common.actions.cancel')}
+                    onConfirm={() => revoke.mutate(session)}
+                  >
+                    <Button size="small" danger>
+                      {t('settings.sessions.revoke')}
+                    </Button>
+                  </Popconfirm>
+                ),
+              },
+            ]}
+          />
+        </Space>
+      </Card>
+    </>
   );
 }

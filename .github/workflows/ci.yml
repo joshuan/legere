@@ -27,8 +27,8 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       NODE_ENV: test
-      # The complete app/test suite runs with the same DML-only role as production. Only migration
-      # setup and test cleanup receive the owner URL (SEC-43, docs/13 §13.2).
+      # Exercise the optional DML-only runtime role. The shipped self-migrating image uses the
+      # owner role; only migration setup and test cleanup get that URL here (SEC-43, docs/13 §13.2).
       DATABASE_URL: postgresql://legere_app:legere_app@localhost:5432/legere_test?schema=public
       MIGRATION_DATABASE_URL: postgresql://legere:legere@localhost:5432/legere_test?schema=public
       RUNTIME_DATABASE_ROLE_TEST: 'true'

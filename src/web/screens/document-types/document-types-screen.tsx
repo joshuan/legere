@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Form, Input, Modal, Popconfirm, Space, Table, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
+import { QueryError } from '../../shared/ui';
 import { useCallback, useState } from 'react';
 import type { DocumentTypeDto } from '../../../shared/contracts/document-types';
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
@@ -139,78 +140,87 @@ export function DocumentTypesScreen() {
         ]),
   ];
 
-  return (
-    <Card
-      title={t('admin.documentTypes.title')}
-      extra={
-        isAdmin ? (
-          <Button type="primary" onClick={openCreate}>
-            {t('admin.documentTypes.actions.create')}
-          </Button>
-        ) : null
-      }
-    >
-      <Table
-        rowKey="id"
-        loading={documentTypes.isPending}
-        dataSource={documentTypes.data?.items ?? []}
-        columns={columns}
-        pagination={false}
-        locale={{ emptyText: t('admin.documentTypes.empty') }}
-      />
+  if (documentTypes.isError && documentTypes.data === undefined)
+    return <QueryError error={documentTypes.error} retry={documentTypes.refetch} />;
 
-      <Modal
-        open={open}
-        title={
-          editing === null
-            ? t('admin.documentTypes.createTitle')
-            : t('admin.documentTypes.editTitle')
+  return (
+    <>
+      {documentTypes.isError && (
+        <QueryError error={documentTypes.error} retry={documentTypes.refetch} />
+      )}
+
+      <Card
+        title={t('admin.documentTypes.title')}
+        extra={
+          isAdmin ? (
+            <Button type="primary" onClick={openCreate}>
+              {t('admin.documentTypes.actions.create')}
+            </Button>
+          ) : null
         }
-        okText={t('common.actions.save')}
-        cancelText={t('common.actions.cancel')}
-        confirmLoading={save.isPending}
-        onCancel={() => setOpen(false)}
-        onOk={() => void form.submit()}
-        destroyOnHidden
       >
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={{ slug: '', name: '', description: '' }}
-          onFinish={(values) => save.mutate(values)}
+        <Table
+          rowKey="id"
+          loading={documentTypes.isPending}
+          dataSource={documentTypes.data?.items ?? []}
+          columns={columns}
+          pagination={false}
+          locale={{ emptyText: t('admin.documentTypes.empty') }}
+        />
+
+        <Modal
+          open={open}
+          title={
+            editing === null
+              ? t('admin.documentTypes.createTitle')
+              : t('admin.documentTypes.editTitle')
+          }
+          okText={t('common.actions.save')}
+          cancelText={t('common.actions.cancel')}
+          confirmLoading={save.isPending}
+          onCancel={() => setOpen(false)}
+          onOk={() => void form.submit()}
+          destroyOnHidden
         >
-          <Form.Item
-            name="slug"
-            label={t('admin.documentTypes.fields.slug')}
-            rules={[
-              { required: true, message: t('admin.documentTypes.fields.slugRequired') },
-              {
-                pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-                message: t('admin.documentTypes.fields.slugFormat'),
-              },
-            ]}
-            // 🔒 Immutable after creation: documents, the classifier and bookmarked filters all
-            // refer to it (docs/07 §7.3).
-            extra={editing === null ? undefined : t('admin.documentTypes.fields.slugImmutable')}
+          <Form
+            form={form}
+            layout="vertical"
+            initialValues={{ slug: '', name: '', description: '' }}
+            onFinish={(values) => save.mutate(values)}
           >
-            <Input disabled={editing !== null} placeholder="invoice" />
-          </Form.Item>
-          <Form.Item
-            name="name"
-            label={t('admin.documentTypes.fields.name')}
-            rules={[{ required: true, message: t('admin.documentTypes.fields.nameRequired') }]}
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="description"
-            label={t('admin.documentTypes.fields.description')}
-            extra={t('admin.documentTypes.fields.descriptionHint')}
-          >
-            <Input.TextArea rows={3} />
-          </Form.Item>
-        </Form>
-      </Modal>
-    </Card>
+            <Form.Item
+              name="slug"
+              label={t('admin.documentTypes.fields.slug')}
+              rules={[
+                { required: true, message: t('admin.documentTypes.fields.slugRequired') },
+                {
+                  pattern: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+                  message: t('admin.documentTypes.fields.slugFormat'),
+                },
+              ]}
+              // 🔒 Immutable after creation: documents, the classifier and bookmarked filters all
+              // refer to it (docs/07 §7.3).
+              extra={editing === null ? undefined : t('admin.documentTypes.fields.slugImmutable')}
+            >
+              <Input disabled={editing !== null} placeholder="invoice" />
+            </Form.Item>
+            <Form.Item
+              name="name"
+              label={t('admin.documentTypes.fields.name')}
+              rules={[{ required: true, message: t('admin.documentTypes.fields.nameRequired') }]}
+            >
+              <Input />
+            </Form.Item>
+            <Form.Item
+              name="description"
+              label={t('admin.documentTypes.fields.description')}
+              extra={t('admin.documentTypes.fields.descriptionHint')}
+            >
+              <Input.TextArea rows={3} />
+            </Form.Item>
+          </Form>
+        </Modal>
+      </Card>
+    </>
   );
 }

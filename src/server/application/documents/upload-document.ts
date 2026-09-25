@@ -98,6 +98,7 @@ export class UploadDocument {
           'This content already exists on this instance',
         );
       }
+      if (file.trashedAt !== null) await this.files.untrash(file.id, tx);
 
       const document = await this.documents.create(
         { title: titleOf(input.fileName), createdById: viewer.id },

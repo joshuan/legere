@@ -163,4 +163,25 @@ describe('AdminUsersScreen', () => {
     );
     expect(shown.length).toBeGreaterThan(0);
   });
+  it('loads users beyond the first API page', async () => {
+    const seen: string[] = [];
+    server.use(
+      http.get('/api/admin/users', ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor');
+        seen.push(cursor ?? '');
+        return HttpResponse.json(
+          envelope(
+            cursor === null
+              ? { items: [admin], nextCursor: 'next-page' }
+              : { items: [member], nextCursor: null },
+          ),
+        );
+      }),
+    );
+    renderWithProviders(<AdminUsersScreen />);
+    await userEvent.click(await screen.findByRole('button', { name: enMessages.browse.more }));
+    expect(await screen.findByText('user@legere.local')).toBeInTheDocument();
+    expect(screen.getByText('admin@legere.local')).toBeInTheDocument();
+    expect(seen).toEqual(['', 'next-page']);
+  });
 });

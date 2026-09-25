@@ -2,3 +2,4 @@
 export { AppProviders } from './app-providers';
 export { QueryProvider, buildQueryClient } from './query-provider';
 export { ThemeProvider } from './theme-provider';
+export { useThemePreference } from './theme-provider';

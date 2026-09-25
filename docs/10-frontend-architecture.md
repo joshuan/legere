@@ -106,7 +106,8 @@ the shell is the sider and the content, and a screen's heading and actions belon
 ## 10.3. i18n (next-intl, no locale routing)
 
 - Locale is **not** in the URL. Resolution order (server, `src/i18n/request.ts`): `NEXT_LOCALE`
-  cookie → `Accept-Language` → `en`. After login/`PATCH /api/me` the server sets `NEXT_LOCALE` =
+  cookie → `Accept-Language` → `en`. Language negotiation uses exact primary subtags,
+  excludes `q=0` and invalid quality values, and respects the remaining preference order. After login/`PATCH /api/me` the server sets `NEXT_LOCALE` =
   `User.language` (lower-cased).
 - Catalogs `messages/en.json` (reference) and `messages/ru.json`; keys namespaced by slice
   (`documents.list.empty`, `admin.queue.retry`). No raw user-facing strings in JSX — only
@@ -256,6 +257,10 @@ errors; other `ApiError`s surface per §10.7.
 3. **API errors:** typed `ApiError` → three presentations: form field/summary (mutations from forms),
    antd `message` toast (imperative actions: retry job, share, merge), inline error state with retry
    (queries backing a section). The mapping `code → message key` is exhaustive (§10.3).
+   Initial query failures never masquerade as an empty archive or permanent loading spinner;
+   failed refreshes retain existing content with an inline retry. Cursor-backed lists expose
+   continuation controls. Finite and infinite queries use distinct cache keys when their data
+   shapes differ. Failed image requests expose a localized fallback and retry action.
 
 ## 10.8. Media in the UI
 

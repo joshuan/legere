@@ -119,7 +119,7 @@ export function SearchScreen() {
             </Radio.Group>
             <Select
               aria-label={t('search.sortLabel')}
-              style={{ minWidth: 260, maxWidth: '100%' }}
+              style={{ width: 260, maxWidth: '100%' }}
               value={sort}
               onChange={(value) => navigate({ sort: searchSortSchema.parse(value) })}
               options={searchSortSchema.options.map((value) => ({

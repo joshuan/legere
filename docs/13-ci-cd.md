@@ -373,6 +373,9 @@ npm run release -- patch   # or: major
 
 What the command does, in order (`scripts/release.mjs`):
 
+The CI gate requires a nonempty set of successful `push` runs on `main` for the exact candidate SHA; a polling
+response with no runs never counts as success, even after an earlier response contained a run.
+
 1. **Refuses anything but a clean, pushed `main`.** Not on `main`, a dirty tree, or a local `main`
    that differs from `origin/main` — each is its own refusal, because what is released must be
    exactly what CI looked at.
@@ -388,7 +391,8 @@ What the command does, in order (`scripts/release.mjs`):
    that is already on the screen.
 3. **Writes the version commit and the tag as one move** — `npm version`, which bumps `package.json`
    (+ lockfile), commits `chore(release): X.Y.Z` and lays the annotated tag `vX.Y.Z` on that very
-   commit — then pushes both in one `git push --follow-tags`.
+   commit — then pushes exactly `main` and that tag with one atomic push
+   (`git push --atomic origin main refs/tags/vX.Y.Z`). Unrelated local tags are never published.
 4. **Follows the release build to its end** (§13.3): the tag starts `release.yml`, the
    multi-platform image is published as `X.Y.Z`/`latest`, and the `publish` job creates the GitHub
    Release from the tag, its notes assembled from the commit subjects since the previous tag. The
@@ -409,7 +413,7 @@ What the command does, in order (`scripts/release.mjs`):
    outlives its limit says exactly that.
 
 Why this is atomic where the old way was not: the tag points at the version commit **by
-construction** (one `npm version` invocation), they travel in one push, and the Release is derived
+construction** (one `npm version` invocation), an atomic push updates both refs or neither, and the Release is derived
 from the tag **by CI** — three artifacts, one source of truth, no step where a person picks a commit
 for a tag or a tag for a release. Nobody writes the notes: the commit subjects are Conventional
 Commits and read as a list on their own, and a sentence worth adding can be edited onto the release

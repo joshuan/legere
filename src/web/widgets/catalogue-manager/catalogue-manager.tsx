@@ -385,14 +385,17 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     // The raw prefill is already on screen; the tidy reading replaces it only if this is still the
     // same dialog and the person has not touched it (docs/11 §11.12a).
     const session = mergeSessionRef.current;
-    void merge.prefill?.(rows).then((tidied) => {
-      if (tidied === null || tidied === undefined) return;
-      if (session !== mergeSessionRef.current || mergeForm.isFieldsTouched()) return;
-      mergeForm.setFieldsValue({
-        ...tidied.values,
-        note: analystNote(tidied.note, tidied.aka, rows),
-      });
-    });
+    void merge
+      .prefill?.(rows)
+      .then((tidied) => {
+        if (tidied === null || tidied === undefined) return;
+        if (session !== mergeSessionRef.current || mergeForm.isFieldsTouched()) return;
+        mergeForm.setFieldsValue({
+          ...tidied.values,
+          note: analystNote(tidied.note, tidied.aka, rows),
+        });
+      })
+      .catch(onError);
   };
 
   // The analyst's proposals (docs/05 §5.6c), asked by the manager because every catalogue asks the
@@ -445,7 +448,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   });
   // The third state (docs/05 §5.6c): the analyst was asked and could not answer. Said out loud,
   // because an empty panel area used to mean this and "no duplicates" alike (docs/11 §11.12a).
-  const unavailable = reading?.state === 'UNAVAILABLE';
+  const unavailable = suggested.isError || reading?.state === 'UNAVAILABLE';
 
   const groupRows = (group: CatalogueSuggestionGroup): Row[] =>
     group.ids.flatMap((id) => {
@@ -472,6 +475,8 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
   const summaryLine = (): ReactNode => {
     if (suggested.isPending || recompute.isPending)
       return <Typography.Text>{t('admin.catalogues.suggestions.computing')}</Typography.Text>;
+    if (suggested.isError)
+      return <Typography.Text>{describeError(suggested.error)}</Typography.Text>;
     if (reading === undefined || reading.state === 'UNCONFIGURED')
       return (
         <Typography.Text type="secondary">

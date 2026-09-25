@@ -3,11 +3,13 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/joshuan/legere/main/deploy/init.sh | bash
 #
-# It fetches docker-compose.yaml and the database-role provisioner, writes a .env with freshly
+# It fetches docker-compose.yaml, writes a .env with freshly
 # generated secrets, and offers to start. Nothing is sent anywhere and nothing is installed outside
 # this directory. Reading it before running it is the sensible habit:
 # `curl -fsSL … -o init.sh && less init.sh && bash init.sh`.
 set -euo pipefail
+# Secrets are private from the moment their first byte is written, including intermediate files.
+umask 077
 
 REF="${LEGERE_REF:-main}"
 BASE_URL="${LEGERE_BASE_URL:-https://raw.githubusercontent.com/joshuan/legere/${REF}/deploy}"
@@ -49,17 +51,22 @@ ask_secret() {
 # of those values is that password.
 set_env_value() {
   local key="$1" value="$2" line
-  (
-    umask 077
-    : >.env.new
-  )
+  # Compose interpolates dollars even inside double quotes. Escape them as well as quotes,
+  # backslashes and line breaks, so passwords and paths are data rather than dotenv syntax.
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//\$/\\\$}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  : >"$stage/.env.new"
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-      "${key}="*) printf '%s=%s\n' "$key" "$value" ;;
+      "${key}="*) printf '%s="%s"\n' "$key" "$value" ;;
       *) printf '%s\n' "$line" ;;
     esac
-  done <.env >>.env.new
-  mv .env.new .env
+  done <"$stage/.env" >>"$stage/.env.new"
+  mv "$stage/.env.new" "$stage/.env"
 }
 
 # Hex, not base64: this ends up inside a postgres:// URL, where a stray `/` or `+` would truncate it.
@@ -79,7 +86,11 @@ command -v curl >/dev/null 2>&1 || die "curl is not installed"
 
 # 🔒 An existing .env holds the secrets of a running instance: overwriting it would lock the app out
 # of its own database and bucket.
-[ -e .env ] && die ".env already exists here — rerun in an empty directory, or edit it by hand"
+[ -e .env ] || [ -L .env ] && die ".env already exists here — rerun in an empty directory, or edit it by hand"
+[ -e docker-compose.yaml ] || [ -L docker-compose.yaml ] &&
+  die "docker-compose.yaml already exists here — rerun in an empty directory, or edit it by hand"
+stage=$(mktemp -d .legere-init.XXXXXX)
+trap 'rm -rf "$stage"' EXIT
 
 printf 'Legere — setting up in %s\n\n' "$PWD"
 
@@ -92,7 +103,9 @@ library_path="${library_path:-./documents}"
 library_path="${library_path/#\~/$HOME}"
 
 if [ ! -d "$library_path" ]; then
-  mkdir -p "$library_path" || die "could not create $library_path"
+  # The container reads this directory as uid 1000, which may differ from the installer user.
+  # Keep new library directories traversable without changing permissions on existing paths.
+  (umask 022; mkdir -p "$library_path") || die "could not create $library_path"
   printf 'Created %s — put documents there and Legere will pick them up on the next scan.\n' "$library_path"
 fi
 # `cd` resolves relative paths the way the operator meant them; compose needs an absolute one.
@@ -124,19 +137,25 @@ if [ -z "$smtp_host" ]; then
   smtp_host=$(ask 'SMTP host, e.g. smtp.example.com []: ')
 fi
 
-smtp_port=465
-smtp_user=''
-smtp_password=''
-smtp_from='Legere <no-reply@example.com>'
+smtp_port="${SMTP_PORT:-465}"
+smtp_user="${SMTP_USER:-}"
+smtp_password="${SMTP_PASSWORD:-}"
+smtp_from="${SMTP_FROM:-Legere <no-reply@example.com>}"
 if [ -n "$smtp_host" ]; then
-  smtp_port=$(ask 'SMTP port [465]: ')
-  smtp_port="${smtp_port:-465}"
-  smtp_user=$(ask 'SMTP username (blank = no authentication): ')
-  if [ -n "$smtp_user" ]; then
+  if [ -z "${SMTP_PORT:-}" ]; then
+    smtp_port=$(ask 'SMTP port [465]: ')
+    smtp_port="${smtp_port:-465}"
+  fi
+  if [ -z "${SMTP_USER:-}" ]; then
+    smtp_user=$(ask 'SMTP username (blank = no authentication): ')
+  fi
+  if [ -n "$smtp_user" ] && [ -z "${SMTP_PASSWORD:-}" ]; then
     smtp_password=$(ask_secret 'SMTP password: ')
   fi
-  smtp_from_answer=$(ask "From address [${smtp_from}]: ")
-  smtp_from="${smtp_from_answer:-$smtp_from}"
+  if [ -z "${SMTP_FROM:-}" ]; then
+    smtp_from_answer=$(ask "From address [${smtp_from}]: ")
+    smtp_from="${smtp_from_answer:-$smtp_from}"
+  fi
 fi
 
 # 465 is implicit TLS and 587 is STARTTLS; mismatching the pair is the commonest mail failure there
@@ -162,28 +181,22 @@ EOF
 fi
 
 printf 'Fetching docker-compose.yaml…\n'
-curl -fsSL "${BASE_URL}/docker-compose.yaml" -o docker-compose.yaml ||
+curl -fsSL "${BASE_URL}/docker-compose.yaml" -o "$stage/docker-compose.yaml" ||
   die "could not download docker-compose.yaml from ${BASE_URL}"
 
 printf 'Writing .env with generated secrets…\n'
-curl -fsSL "${BASE_URL}/.env.example" -o .env.tmp ||
+curl -fsSL "${BASE_URL}/.env.example" -o "$stage/.env" ||
   die "could not download .env.example from ${BASE_URL}"
 
-sed \
-  -e "s|^LIBRARY_PATH=.*|LIBRARY_PATH=${library_path}|" \
-  -e "s|^APP_BASE_URL=.*|APP_BASE_URL=http://${host}:${port}|" \
-  -e "s|^APP_PORT=.*|APP_PORT=${port}|" \
-  -e "s|^S3_PUBLIC_ENDPOINT=.*|S3_PUBLIC_ENDPOINT=http://${host}:9000|" \
-  -e "s|^AUTH_SECRET=.*|AUTH_SECRET=$(random_hex)|" \
-  -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(random_hex)|" \
-  -e "s|^MINIO_ROOT_PASSWORD=.*|MINIO_ROOT_PASSWORD=$(random_hex)|" \
-  `# 20 bytes, not 24: MinIO refuses a *service account* secret longer than 40 characters, and 24` \
-  `# bytes of hex is 48. The root password above has no such ceiling, which is why this one is the` \
-  `# only place it bites — and it bites hard: minio-init exits 1 and the app never starts, because` \
-  `# it waits for that container to complete.` \
-  -e "s|^MINIO_APP_PASSWORD=.*|MINIO_APP_PASSWORD=$(random_hex 20)|" \
-  .env.tmp >.env
-rm -f .env.tmp
+set_env_value LIBRARY_PATH "$library_path"
+set_env_value APP_BASE_URL "http://${host}:${port}"
+set_env_value APP_PORT "$port"
+set_env_value S3_PUBLIC_ENDPOINT "http://${host}:9000"
+set_env_value AUTH_SECRET "$(random_hex)"
+set_env_value POSTGRES_PASSWORD "$(random_hex)"
+set_env_value MINIO_ROOT_PASSWORD "$(random_hex)"
+# MinIO service-account secrets have a 40-character ceiling: 20 bytes of hex, not 24.
+set_env_value MINIO_APP_PASSWORD "$(random_hex 20)"
 
 set_env_value SMTP_HOST "$smtp_host"
 set_env_value SMTP_PORT "$smtp_port"
@@ -192,9 +205,10 @@ set_env_value SMTP_USER "$smtp_user"
 set_env_value SMTP_PASSWORD "$smtp_password"
 set_env_value SMTP_FROM "$smtp_from"
 
-chmod 600 .env
+mv "$stage/docker-compose.yaml" docker-compose.yaml
+mv "$stage/.env" .env
 
-app_url=$(grep -E '^APP_BASE_URL=' .env | cut -d= -f2-)
+app_url="http://${host}:${port}"
 
 cat <<EOF
 

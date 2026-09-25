@@ -1919,3 +1919,67 @@ The complete product and technical contract is [`15`](../15-receipts.md). Tasks 
   **Goal:** search is a navigable page with useful chronological ordering and clear word/meaning modes.
   **Docs:** [`07 §7.3`](../07-api-specification.md), [`11 §11.1a, §11.6`](../11-ui-ux-spec.md)
   **Acceptance:** the menu and keyboard shortcut open the page; URL/history preserve the query and controls; text ordering precedes the limit; dates with no value go last; semantic sorting keeps relevance-based candidates; embeddings failures visibly fall back to text; only compatible model vectors are searched; tests cover navigation, ordering, fallback, access and URL state.
+
+## M64 — September service audit
+
+A complete source and local-runtime audit requested on 2026-09-25. Independent implementation
+tracks may run in parallel at the owner's request; all land together after integrated checks.
+Evidence, boundaries and dependency triage live in
+[`service-audit-2026-09.md`](./service-audit-2026-09.md).
+
+- [x] **M64.1 — File identity and receipt privacy survive concurrency**
+  **Goal:** no upload race exposes private receipt data or gives one original both product profiles.
+  **Docs:** [`15 §15.4`](../15-receipts.md), [`03`](../03-domain-model.md)
+  **Acceptance:** duplicate authorization is rechecked transactionally; upload, append, replacement
+  and conversion enforce product exclusivity; concurrent uploads are serialized; contested file
+  locks fail atomically with `DOCUMENT_CHANGED` instead of deadlocking; saved-preview transport
+  errors retain their queue retry behavior; losing artifacts
+  are cleaned and trashed originals restored safely; receipt processing enforces its explicit
+  100-page/32-MiB extraction budget without silent truncation; unit and PostgreSQL regressions pass.
+
+- [x] **M64.2 — Every archive page remains reachable and recoverable**
+  **Goal:** failed reads can be retried, all cursor pages are reachable and cache shapes stay valid.
+  **Docs:** [`10 §10.7`](../10-frontend-architecture.md), [`11`](../11-ui-ux-spec.md)
+  **Acceptance:** receipt/settings/catalogue/admin reads distinguish errors from empty/loading;
+  facet, collection and user lists expose continuation; recent-document and infinite-list queries
+  cannot collide; focused component regressions cover failure recovery and continuation.
+
+- [x] **M64.3 — Reading works on narrow screens and in the selected language**
+  **Goal:** responsive navigation, receipt media and locale selection behave consistently.
+  **Docs:** [`10 §10.3`](../10-frontend-architecture.md), [`11 §11.1`](../11-ui-ux-spec.md), [`15 §15.9`](../15-receipts.md)
+  **Acceptance:** shell collapses on narrow viewports, media failures are recoverable, receipt
+  formatting follows frontend layer boundaries, saved theme applies on login and after saving,
+  keyboard users can skip navigation, and language negotiation excludes unacceptable or
+  invalid language ranges; English/Russian messages and meaningful regressions agree.
+
+- [x] **M64.4 — Installation preserves literal configuration and secret permissions**
+  **Goal:** valid paths/passwords survive setup unchanged and secrets are never created world-readable.
+  **Docs:** [`12 §12.7`](../12-build-config-run.md)
+  **Acceptance:** installer tests cover spaces, dollar signs, hashes, quotes, backslashes and sed
+  metacharacters and escaped control characters, and verify owner-only permissions from creation.
+
+- [x] **M64.5 — Migration and test tooling fail safely**
+  **Goal:** local queue migrations load configuration, failed migrations release connections and
+  destructive test cleanup refuses a database not explicitly designated for testing.
+  **Docs:** [`12 §12.5`](../12-build-config-run.md), [`14 §14.8`](../14-coding-standards.md)
+  **Acceptance:** migration failure closes pg-boss; exported environment wins over dotenv;
+  unsafe test database URLs fail before database work; release requires nonempty successful CI
+  evidence for its exact SHA and atomically pushes only main plus its new tag; runner, harness and
+  release regressions pass; the real development page hydrates with its development-only CSP
+  while production/API policies remain strict.
+
+- [x] **M64.6 — Documentation and backlog describe the implemented service**
+  **Goal:** onboarding, architecture summaries, task workflow and security claims match the code.
+  **Docs:** [`README`](../../README.md), [`documentation map`](../README.md), [`task rules`](./README.md)
+  **Acceptance:** correct toolchain, migration and Processing instructions; file-vs-document dedup,
+  deletion and scoped ingestion semantics agree; direct-main workflow and milestone status are
+  consistent; local links and scenario references are audited; open GitHub dependency proposals
+  are classified without treating optional major upgrades as missing product requirements.
+
+- [x] **M64.7 — Integrated evidence accompanies the fixes**
+  **Goal:** main contains the complete audited changes with reproducible validation results.
+  **Docs:** [`14 §14.8–§14.9`](../14-coding-standards.md)
+  **Acceptance:** Node 26 typecheck, lint, full suite, coverage floor and production build pass
+  against an isolated migrated database; production dependency audit reports its actual findings;
+  visual smoke checks and untested external-service limits are recorded; all M64 tasks are checked
+  in the same commit as their completed implementation.

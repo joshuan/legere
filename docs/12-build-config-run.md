@@ -4,7 +4,7 @@
 
 - Node **26** (exact version pinned in `.nvmrc` at scaffolding; always `nvm use`).
 - npm only; one `package.json`, `package-lock.json` committed. `pnpm`/`yarn`/`bun` forbidden.
-- TypeScript **7**, `strict`. Dev/test transpilation — SWC (ADR-017); prod server build — `tsc`.
+- TypeScript **5.9**, `strict`. Dev/test transpilation — SWC (ADR-017); prod server build — `tsc`.
 - The lockfile is authoritative and is regenerated with `npm run deps:relock` — the install runs in a
   `node:26-alpine` container with `--ignore-scripts`, so the resolution matches the image's platform
   and no dependency's install script runs on the developer's machine to produce it.
@@ -349,11 +349,14 @@ npm install
 cp .env.example .env
 mkdir -p dev-library && cp -r <some-documents> dev-library/   # your test corpus; LIBRARY_ROOT points here
 npm run dev:up          # PostgreSQL(+pgvector) + Stirling-PDF + Docling + ollama + MinIO (+ bucket init)
-npm run db:migrate:dev
+npm run db:migrate      # apply committed forward-only migrations; author new SQL by hand
 npm run queue:migrate   # pg-boss schema plus all fixed queues/partitions, under the DB owner
 npm run db:seed         # admin@legere.local / password; library over dev-library/
 npm run dev             # one process on :3000
 ```
+
+`queue:migrate` loads the local `.env` without overriding exported environment variables, like
+the development runner. A failed queue migration closes its database connection and exits nonzero.
 
 **Reading a sign-up code locally.** `npm run db:seed` is the way in — `admin@legere.local` /
 `password` — and it is enough for everything but the three-step flow itself. To go through
@@ -554,7 +557,13 @@ product whose install instructions are "write your own compose file" is a produc
 
 What must never ship is a secret, and none does: `.env.example` carries empty placeholders, `init.sh`
 fills them with `openssl rand -hex 24` (hex, because the value lands inside a `postgres://` URL where
-a `/` or `+` would truncate it), and the resulting `.env` is written `chmod 600`. Empty placeholders
+a `/` or `+` would truncate it), and the resulting `.env` is created with owner-only permissions from the first write.
+User-supplied values are encoded as quoted Compose dotenv values with escaped dollars, quotes,
+backslashes and control characters, so paths and passwords survive interpolation unchanged.
+Downloads and secret substitution happen in a private staging directory; failed setup cleans it
+without leaving partial configuration, and existing `.env` or Compose files are never overwritten.
+Only newly created library directories use ordinary traversable permissions (`0755`) so the
+unprivileged application can read them; existing directory permissions are left intact. Empty placeholders
 are also why the compose file's `${VAR:?…}` guards exist and why the file cannot be used with the
 example as-is: compose treats an empty value as missing and refuses to start, naming one variable at
 a time. Generating the values is the script's whole reason to exist.
@@ -845,6 +854,11 @@ carry them ([`06 §6.9`](./06-backend-architecture.md)):
 | `Strict-Transport-Security` | one year, `includeSubDomains` — **only when `APP_BASE_URL` is `https://`** | An instance on `http://<lan-ip>` is supported ([`08 §8.2`](./08-auth-and-authorization.md#82-server-side-sessions)); telling that browser to upgrade would lock its operator out |
 
 Neither Express nor Next advertises what it is built on.
+
+Only the explicit development bootstrap with `NODE_ENV=development` adds `unsafe-eval` to
+page scripts, as required by Next's development runtime and source maps. API responses retain their
+strict policy and the production bootstrap never enables it, even without `NODE_ENV`. See
+[Next CSP guidance](https://nextjs.org/docs/app/guides/content-security-policy#development-vs-production-considerations).
 
 **Where `<bucket>` comes from.** The origin a browser is actually sent to for a presigned URL —
 `S3_PUBLIC_ENDPOINT` when one is set, `S3_ENDPOINT` otherwise ([`09 §9.2`](./09-file-storage.md)) —

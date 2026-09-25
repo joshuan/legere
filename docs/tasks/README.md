@@ -7,10 +7,12 @@ implementing Legere.
 
 1. Read [`../../CLAUDE.md`](../../CLAUDE.md) (golden rules) and [`../README.md`](../README.md)
    (documentation map) once per session.
-2. Take the **first unchecked** task in `backlog.md`. Do not skip ahead, do not reorder, do not merge
-   tasks. If a task looks wrong or blocked — stop and ask; do not silently work around it.
+2. Take the **first unchecked** task in `backlog.md`, unless the owner explicitly authorizes
+   independent tasks in parallel. Respect dependencies and record findings before implementing them.
+   Resolve factual drift within an authorized audit; ask about product decisions outside its scope.
 3. Read every document section the task references **before** writing code.
-4. Create a branch `feat/mX-Y-<slug>` (or `fix/`, `chore/`, `ci/` as appropriate).
+4. Follow ADR-014: during the single-author phase, commit directly to `main`. After its
+   transition trigger, use `feat/mX-Y-<slug>` (or `fix/`, `chore/`, `ci/`) and a pull request.
 5. Implement strictly per the docs. Contract-first: if the task touches the API, write/extend the Zod
    schemas in `src/shared/contracts` first, then the server, then the client.
 6. Write the tests the task's acceptance criteria demand (levels per
@@ -18,8 +20,9 @@ implementing Legere.
 7. Schema changed → forward-only Prisma migration committed with the task
    ([`04 §4.5`](../04-database-schema.md#45-migration-policy)).
 8. `npm run typecheck && npm run lint && npm run test` — all green.
-9. Tick the task checkbox (`[x]`) in `backlog.md` **in the same PR**; open the PR referencing the
-   task ID; merge only on green CI ([ADR-014](../02-architecture-overview.md#adr-014-pull-request-based-development)).
+9. Tick the task checkbox (`[x]`) in `backlog.md` **in the same commit**. During the single-author
+   phase CI validates `main` after push; when PRs return, reference the task and merge only on green
+   CI ([ADR-014](../02-architecture-overview.md#adr-014-pull-request-based-development)).
 
 ## Definition of Done
 
@@ -77,8 +80,11 @@ disagree, the doc wins — and report the discrepancy.
 | M31–M60 | Completed refinements and audit closure | see the authoritative ordered history in [`backlog.md`](./backlog.md) |
 | M61 | One place to understand and control processing | one topology and control plane over queues, document steps and services, without merging their runtime semantics |
 | M62 | Receipts beside documents | a separate receipt aggregate, two-step image pipeline, conversion and UI |
+| M63 | Word documents | DOC/DOCX ingestion, canonical delivery and native extraction |
+| M64 | September service audit | identity and privacy, recoverable UI, reliable installation and current documentation |
 
-Milestones are strictly sequential; tasks within a milestone are ordered by dependency.
+Milestones and tasks are ordered by dependency. The owner may authorize independent audit
+work in parallel; integration and verification still precede completion.
 
 M15 is the exception to "take the first unchecked task": its tasks are ordered by what an attacker
 reaches first, and three of them are blocked on a documentation decision (they say so). Take the

@@ -77,7 +77,8 @@ see docs/06 §6.9").
 
 - Conventional Commits: `<type>(<scope>): <summary>`; `type` ∈
   feat/fix/docs/refactor/test/chore/ci/build; `scope` ∈ server/web/contracts/db/auth/infra/i18n/docs….
-- Branches: `feat/*`, `fix/*`, `docs/*`, `chore/*`. Every commit leaves the repo green.
+- During ADR-014’s single-author phase, commit directly to `main`; after its transition trigger,
+  use `feat/*`, `fix/*`, `docs/*`, `chore/*` branches. Every commit leaves the repo green.
 - PR: reference the backlog task, include the DoD checklist (§14.9); squash-merge with a Conventional
   title.
 
@@ -103,6 +104,11 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
 | Unit (application) | every use case and job handler with in-memory ports/repositories | orchestration, idempotency, error codes |
 | Integration (infrastructure) | Prisma repositories against test Postgres (pgvector); `FsLibraryReader` against tmp fixtures; `S3FileStorage` against MinIO (local; optional in CI) | truncate between tests |
 | E2E (HTTP) | full flows with mocked `FileStorage`/`PdfToolbox`/`EmailSender`/`CaptchaVerifier`/AI ports + real DB | supertest |
+
+The test harness refuses application and migration URLs unless both name the same database
+whose name ends in `_test`, on the same host and port. This validation runs before clients or
+the test application are created; destructive cleanup must never fall back to a development or
+production database. Use a separately migrated PostgreSQL instance when running concurrent suites.
 
 **Mandatory scenarios (acceptance floor):**
 - Auth: onboarding only once (race → one admin); 3-step registration happy path + wrong code ×5 burn;
@@ -187,7 +193,7 @@ no global vanity threshold. `npm run test:coverage` enforces it, and CI runs tha
 - [ ] Boundaries intact (Clean Architecture, FSD, client/server, contracts-only sharing).
 - [ ] No secrets / `any` / `as` / `!` / `console` / raw UI strings / legacy shims.
 - [ ] Schema changes ship with a forward-only migration (committed) — [`04 §4.5`](./04-database-schema.md#45-migration-policy).
-- [ ] Backlog task checked off in the same PR; Conventional Commit title.
+- [ ] Backlog task checked off in the same commit; Conventional Commit title.
 
 ## 14.10. Open questions
 

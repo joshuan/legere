@@ -4,11 +4,25 @@ import { ConfigProvider } from 'antd';
 import enUS from 'antd/locale/en_US';
 import ruRU from 'antd/locale/ru_RU';
 import { useLocale } from 'next-intl';
-import { useCallback, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  use,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import type { Theme } from '../../../shared/contracts/enums';
 import { legereTheme } from '../theme';
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
+
+const ThemePreferenceContext = createContext<(preference: Theme) => void>(() => {});
+
+// The shell supplies the signed-in preference; settings can apply a successful save immediately.
+export function useThemePreference(): (preference: Theme) => void {
+  return use(ThemePreferenceContext);
+}
 
 // The OS colour scheme is an external store, so it is read through useSyncExternalStore: the theme
 // keeps following the system setting live rather than sampling it once (docs/10 §10.4).
@@ -35,15 +49,18 @@ export function ThemeProvider({
   preference?: Theme;
 }) {
   const locale = useLocale();
+  const [selectedPreference, setSelectedPreference] = useState(preference);
   const getSnapshot = useCallback(
-    () => (preference === 'SYSTEM' ? systemPrefersDark() : preference === 'DARK'),
-    [preference],
+    () => (selectedPreference === 'SYSTEM' ? systemPrefersDark() : selectedPreference === 'DARK'),
+    [selectedPreference],
   );
   const dark = useSyncExternalStore(subscribeToColorScheme, getSnapshot, serverSnapshot);
 
   return (
-    <ConfigProvider locale={locale === 'ru' ? ruRU : enUS} theme={legereTheme(dark)}>
-      {children}
-    </ConfigProvider>
+    <ThemePreferenceContext value={setSelectedPreference}>
+      <ConfigProvider locale={locale === 'ru' ? ruRU : enUS} theme={legereTheme(dark)}>
+        {children}
+      </ConfigProvider>
+    </ThemePreferenceContext>
   );
 }

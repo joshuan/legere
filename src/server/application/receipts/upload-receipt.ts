@@ -59,7 +59,11 @@ export class UploadReceipt {
     const storageKey = artifactKeys.fileOriginal(fileId, upload.ext);
     await this.storage.put(storageKey, input.bytes, servableContentType(upload.mimeType));
 
-    let stored: { receipt: Awaited<ReturnType<ReceiptRepository['create']>>; created: boolean };
+    let stored: {
+      receipt: Awaited<ReturnType<ReceiptRepository['create']>>;
+      created: boolean;
+      fileCreated: boolean;
+    };
     try {
       stored = await this.unitOfWork.run(async (tx) => {
         const { file, created } = await this.files.findOrCreateByContentHash(
@@ -76,10 +80,17 @@ export class UploadReceipt {
           tx,
         );
         const existing = await this.receipts.findByFileId(file.id, tx);
-        if (existing !== null) return { receipt: existing, created: false };
+        if (existing !== null) {
+          const readable = await this.receipts.findReadableById(existing.id, viewer, tx);
+          if (readable === null) {
+            throw new ConflictError('RECEIPT_DUPLICATE', 'This content already exists');
+          }
+          return { receipt: readable, created: false, fileCreated: false };
+        }
         if ((await this.files.findDocumentIdForFile(file.id, tx)) !== null) {
           throw new ConflictError('RECEIPT_DUPLICATE', 'These bytes already belong to a document');
         }
+        if (file.trashedAt !== null) await this.files.untrash(file.id, tx);
 
         const receipt = await this.receipts.create(
           {
@@ -103,14 +114,14 @@ export class UploadReceipt {
           { documentId: receipt.id, type: 'QUEUED', actorId: viewer.id },
           tx,
         );
-        return { receipt, created };
+        return { receipt, created: true, fileCreated: created };
       });
     } catch (error) {
       await this.storage.delete(storageKey).catch(() => undefined);
       throw error;
     }
 
-    if (!stored.created) await this.storage.delete(storageKey).catch(() => undefined);
+    if (!stored.fileCreated) await this.storage.delete(storageKey).catch(() => undefined);
     return { receipt: toReceiptListDto(stored.receipt), created: stored.created };
   }
 }

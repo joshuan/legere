@@ -6,7 +6,8 @@ retry). All texts via i18n keys (en/ru).
 
 ## 11.1. Shell & navigation
 
-Authenticated layout: left **Sider** (collapsible) + content. Menu:
+Authenticated layout: left **Sider** (collapsible) + content. On narrow viewports the column
+collapses automatically and content gutters shrink so controls and receipt cards remain readable. Menu:
 
 | Item | Route | Visible to |
 |------|-------|-----------|
@@ -15,7 +16,7 @@ Authenticated layout: left **Sider** (collapsible) + content. Menu:
 | Search | `/search` (§11.1a, §11.6) | all |
 | Collections | `/collections` | all |
 | Catalogues ▸ People / Subjects / Subject kinds / Document types | `/people`, `/subjects`, `/subject-kinds`, `/document-types` | all |
-| Administration ▸ Libraries / Users / Queue / Trash / Instance | `/admin/*` | ADMIN |
+| Administration ▸ Libraries / Users / Processing / Trash / Instance | `/admin/*` | ADMIN |
 | (footer) user name + role, Settings, Logout, version, collapse | `/settings` | all |
 
 **Search opens its own page.** The menu item links to `/search`; Cmd+K / Ctrl+K navigates

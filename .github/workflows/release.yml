@@ -225,7 +225,7 @@ jobs:
           prev="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
           {
             git log ${prev:+"$prev.."}"$GITHUB_REF_NAME" --no-merges --pretty='- %s' \
-              | grep -v '^- chore(release):'
+              | sed '/^- chore(release):/d'
             echo
             if [ -n "$prev" ]; then
               echo "**Full Changelog**: https://github.com/$GITHUB_REPOSITORY/compare/$prev...$GITHUB_REF_NAME"

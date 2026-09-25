@@ -263,7 +263,11 @@ describe('AppShell', () => {
     ];
     for (const link of screen.getAllByRole('link')) {
       const href = link.getAttribute('href') ?? '';
-      expect(routes.some((route) => href === route || href.startsWith('/browse/'))).toBe(true);
+      expect(
+        routes.some(
+          (route) => href === route || href.startsWith('/browse/') || href === '#main-content',
+        ),
+      ).toBe(true);
     }
   });
 });

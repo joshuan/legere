@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Form, Modal, Popconfirm, Select, Space, Table, Tag } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useCallback, useState } from 'react';
@@ -8,7 +8,7 @@ import type { UserRole } from '../../../shared/contracts/enums';
 import type { AdminUserDto, InviteDto } from '../../../shared/contracts/users';
 import { userApi, userKeys } from '../../entities/user';
 import { useErrorMessage } from '../../shared/lib';
-import { OneTimeLinkModal } from '../../shared/ui';
+import { OneTimeLinkModal, QueryError } from '../../shared/ui';
 
 type OneTimeLink = { title: string; url: string; expiresAt: string } | null;
 
@@ -23,7 +23,13 @@ export function AdminUsersScreen() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [link, setLink] = useState<OneTimeLink>(null);
 
-  const users = useQuery({ queryKey: userKeys.list, queryFn: () => userApi.list({ limit: 100 }) });
+  const users = useInfiniteQuery({
+    queryKey: userKeys.list,
+    queryFn: ({ pageParam }) =>
+      userApi.list({ limit: 100, ...(pageParam === '' ? {} : { cursor: pageParam }) }),
+    initialPageParam: '',
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+  });
   const invites = useQuery({ queryKey: userKeys.invites, queryFn: userApi.listInvites });
 
   const refresh = useCallback(() => {
@@ -192,73 +198,91 @@ export function AdminUsersScreen() {
     },
   ];
 
+  if (users.isError && users.data === undefined)
+    return <QueryError error={users.error} retry={users.refetch} />;
+  if (invites.isError && invites.data === undefined)
+    return <QueryError error={invites.error} retry={invites.refetch} />;
+
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Card
-        title={t('admin.users.title')}
-        extra={
-          <Button type="primary" onClick={() => setInviteOpen(true)}>
-            {t('admin.invites.actions.create')}
-          </Button>
-        }
-      >
-        <Table
-          rowKey="id"
-          loading={users.isPending}
-          dataSource={users.data?.items ?? []}
-          columns={userColumns}
-          pagination={false}
-        />
-      </Card>
+    <>
+      {users.isError && <QueryError error={users.error} retry={users.refetch} />}
+      {invites.isError && <QueryError error={invites.error} retry={invites.refetch} />}
 
-      <Card title={t('admin.invites.title')}>
-        <Table
-          rowKey="id"
-          loading={invites.isPending}
-          dataSource={invites.data?.items ?? []}
-          columns={inviteColumns}
-          pagination={false}
-          locale={{ emptyText: t('admin.invites.empty') }}
-        />
-      </Card>
-
-      <Modal
-        open={inviteOpen}
-        title={t('admin.invites.actions.create')}
-        okText={t('admin.invites.actions.create')}
-        onCancel={() => setInviteOpen(false)}
-        footer={null}
-      >
-        <Form
-          layout="vertical"
-          initialValues={{ role: 'USER' }}
-          onFinish={(values: { role: UserRole; emailHint?: string }) => createInvite.mutate(values)}
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+        <Card
+          title={t('admin.users.title')}
+          extra={
+            <Button type="primary" onClick={() => setInviteOpen(true)}>
+              {t('admin.invites.actions.create')}
+            </Button>
+          }
         >
-          <Form.Item label={t('admin.invites.fields.role')} name="role">
-            <Select
-              aria-label={t('admin.invites.fields.role')}
-              options={[
-                { value: 'USER', label: 'USER' },
-                { value: 'ADMIN', label: 'ADMIN' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item label={t('admin.invites.fields.emailHint')} name="emailHint">
-            <input className="ant-input" aria-label={t('admin.invites.fields.emailHint')} />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" loading={createInvite.isPending} block>
-            {t('admin.invites.actions.create')}
-          </Button>
-        </Form>
-      </Modal>
+          <Table
+            rowKey="id"
+            loading={users.isPending}
+            dataSource={users.data?.pages.flatMap((page) => page.items) ?? []}
+            columns={userColumns}
+            pagination={false}
+            scroll={{ x: 'max-content' }}
+          />
+          {users.hasNextPage && (
+            <Button loading={users.isFetchingNextPage} onClick={() => void users.fetchNextPage()}>
+              {t('browse.more')}
+            </Button>
+          )}
+        </Card>
 
-      <OneTimeLinkModal
-        open={link !== null}
-        title={link?.title ?? ''}
-        url={link?.url ?? null}
-        expiresAt={link?.expiresAt ?? null}
-        onClose={() => setLink(null)}
-      />
-    </Space>
+        <Card title={t('admin.invites.title')}>
+          <Table
+            rowKey="id"
+            loading={invites.isPending}
+            dataSource={invites.data?.items ?? []}
+            columns={inviteColumns}
+            pagination={false}
+            locale={{ emptyText: t('admin.invites.empty') }}
+          />
+        </Card>
+
+        <Modal
+          open={inviteOpen}
+          title={t('admin.invites.actions.create')}
+          okText={t('admin.invites.actions.create')}
+          onCancel={() => setInviteOpen(false)}
+          footer={null}
+        >
+          <Form
+            layout="vertical"
+            initialValues={{ role: 'USER' }}
+            onFinish={(values: { role: UserRole; emailHint?: string }) =>
+              createInvite.mutate(values)
+            }
+          >
+            <Form.Item label={t('admin.invites.fields.role')} name="role">
+              <Select
+                aria-label={t('admin.invites.fields.role')}
+                options={[
+                  { value: 'USER', label: 'USER' },
+                  { value: 'ADMIN', label: 'ADMIN' },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item label={t('admin.invites.fields.emailHint')} name="emailHint">
+              <input className="ant-input" aria-label={t('admin.invites.fields.emailHint')} />
+            </Form.Item>
+            <Button type="primary" htmlType="submit" loading={createInvite.isPending} block>
+              {t('admin.invites.actions.create')}
+            </Button>
+          </Form>
+        </Modal>
+
+        <OneTimeLinkModal
+          open={link !== null}
+          title={link?.title ?? ''}
+          url={link?.url ?? null}
+          expiresAt={link?.expiresAt ?? null}
+          onClose={() => setLink(null)}
+        />
+      </Space>
+    </>
   );
 }

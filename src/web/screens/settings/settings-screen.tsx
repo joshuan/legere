@@ -11,6 +11,8 @@ import { themeSchema } from '../../../shared/contracts/enums';
 import type { UpdateMeRequest } from '../../../shared/contracts/users';
 import { sessionApi, sessionKeys } from '../../entities/session';
 import { useErrorMessage } from '../../shared/lib';
+import { useThemePreference } from '../../shared/providers';
+import { QueryError } from '../../shared/ui';
 import { ApiTokensCard } from './api-tokens-card';
 import { PasswordCard } from './password-card';
 import { SessionsCard } from './sessions-card';
@@ -24,8 +26,14 @@ export function SettingsScreen() {
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const { message } = App.useApp();
+  const setThemePreference = useThemePreference();
 
-  const { data: me, isPending } = useQuery({ queryKey: sessionKeys.me, queryFn: sessionApi.me });
+  const {
+    data: me,
+    isPending,
+    error,
+    refetch,
+  } = useQuery({ queryKey: sessionKeys.me, queryFn: sessionApi.me });
 
   const save = useMutation({
     mutationFn: (patch: UpdateMeRequest) => sessionApi.updateMe(patch),
@@ -33,7 +41,8 @@ export function SettingsScreen() {
       queryClient.setQueryData(sessionKeys.me, updated);
       void message.success(t('settings.saved'), 2);
       // The locale cookie changed server-side; re-render so messages follow.
-      if (patch.language !== undefined) router.refresh();
+      if (patch.theme !== undefined) setThemePreference(updated.theme);
+      router.refresh();
     },
     onError: (error: unknown) => {
       void message.error(describeError(error));
@@ -42,10 +51,12 @@ export function SettingsScreen() {
 
   const patch = useCallback((next: UpdateMeRequest) => save.mutate(next), [save]);
 
+  if (error !== null && me === undefined) return <QueryError error={error} retry={refetch} />;
   if (isPending || me === undefined) return <Spin />;
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%', maxWidth: 720 }}>
+      {error !== null && <QueryError error={error} retry={refetch} />}
       <Card>
         <Typography.Title level={4}>{t('settings.title')}</Typography.Title>
 

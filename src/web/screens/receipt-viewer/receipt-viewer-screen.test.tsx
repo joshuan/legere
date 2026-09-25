@@ -97,4 +97,40 @@ describe('ReceiptViewerScreen', () => {
     await userEvent.click(screen.getByText(enMessages.receipts.sourceText));
     expect(await screen.findByText(SOURCE_TEXT)).toBeInTheDocument();
   });
+  it('recovers a failed receipt read through the inline retry action', async () => {
+    let failing = true;
+    server.use(
+      http.get(`/api/receipts/${ID}`, () =>
+        failing
+          ? HttpResponse.json({ error: null }, { status: 500 })
+          : HttpResponse.json(envelope(receipt)),
+      ),
+    );
+    renderWithProviders(<ReceiptViewerScreen id={ID} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(enMessages.errors.codes.INTERNAL);
+    failing = false;
+    await userEvent.click(screen.getByRole('button', { name: enMessages.common.actions.retry }));
+    expect(await screen.findByRole('heading', { name: 'Voli Market' })).toBeInTheDocument();
+  });
+
+  it('makes a failed original image request retryable', async () => {
+    server.use(
+      http.get(`/api/receipts/${ID}/original`, () =>
+        HttpResponse.json({ error: null }, { status: 500 }),
+      ),
+    );
+    renderWithProviders(<ReceiptViewerScreen id={ID} />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(enMessages.errors.codes.INTERNAL);
+    expect(
+      screen.getByRole('button', { name: enMessages.common.actions.retry }),
+    ).toBeInTheDocument();
+  });
+
+  it('reports unavailable clipboard access without an unhandled rejection', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('Permission denied'));
+    renderWithProviders(<ReceiptViewerScreen id={ID} />);
+    await user.click(await screen.findByRole('button', { name: enMessages.receipts.copyJson }));
+    expect(await screen.findByText(enMessages.receipts.copyFailed)).toBeInTheDocument();
+  });
 });

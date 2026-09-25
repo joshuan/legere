@@ -262,9 +262,9 @@ credential which leaks costs its owner nothing but a revocation and can never ch
 The same user-issued, hashed, expiring and revocable API-token rows also support two write-only
 scopes: `DOCUMENTS_INGEST` for `POST /api/incoming/documents`, and `RECEIPTS_INGEST` for
 `POST /api/incoming/receipts`. A token has exactly one scope, is issued through `/settings`, is shown
-once and is revoked through the ordinary token list. It authenticates as its owner but has no read,
-download, metadata, deletion or queue-control capability; a `READ` token cannot upload, and an
-inbox token cannot read. The two endpoints are exempt from CSRF only because they require that
+once and is revoked through the ordinary token list. It authenticates as its owner and receives the
+normal upload result, but grants no access to read/download routes, metadata mutations, deletion or
+queue control; a `READ` token cannot upload. The two endpoints are exempt from CSRF only because they require that
 explicit bearer header, which a cross-origin form cannot attach.
 
 ## 8.3. Roles
@@ -276,7 +276,7 @@ explicit bearer header, which a cross-origin form cannot attach.
 | User invites, role changes, deactivation, session revocation | — | ✅ |
 | Document type reference list | — | ✅ |
 | Queue monitoring, retrying FAILED jobs, scan journals | — | ✅ |
-| Document deletion (soft delete) | — | ✅ |
+| Document deletion (profile removed; unreferenced files enter trash) | — | ✅ |
 
 **Invariants:** the **last active admin** cannot be deactivated/demoted (`409 LAST_ADMIN`).
 The role is stored on the user (`User.role`); checked by `RolesGuard` on top of `SessionGuard`.

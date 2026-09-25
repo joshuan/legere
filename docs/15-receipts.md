@@ -88,12 +88,16 @@ job.
 
 Deduplication remains instance-wide at File:
 
-- an accessible existing receipt is a successful duplicate response;
-- content already used by a document is `409 CONTENT_EXISTS_AS_DOCUMENT` and is never converted by
+- an accessible existing receipt is a successful duplicate response; permission is checked again
+  inside the transaction after a concurrent upload wins, before returning any receipt data;
+- content already used by a document is `409 RECEIPT_DUPLICATE` and is never converted by
   upload;
 - an inaccessible match is a generic conflict and discloses no id;
 - File creation/attachment is serialised so concurrent document and receipt uploads cannot give the
-  same file two product homes.
+  same file two product homes. Document upload, append and replacement refuse a live receipt
+  original with a generic conflict and disclose no receipt identity. If another transaction holds
+  a conflicting lock on an original while a composition/conversion is being edited, refuse the whole edit with
+  `409 DOCUMENT_CHANGED` rather than waiting in an inverted document/file lock order.
 
 ## 15.5. Artifacts and delivery
 
@@ -112,6 +116,12 @@ commit leaves only an orphan, which maintenance removes. Maintenance treats the 
 matching product profile, not merely the archive item, as ownership of a product artifact prefix.
 
 ## 15.6. Processing
+
+A receipt is limited to **100 pages** and **32 MiB of cumulative JPEG bytes** retained for one
+extraction request. The worker checks the page limit before rendering and the byte budget before
+retaining each image, including when reusing stored previews. Exceeding either limit visibly fails
+the step; it never silently drops pages or returns a partial successful extraction. Larger originals
+remain available for download and can be split externally before upload.
 
 `receipt-process` runs sequentially and idempotently:
 
@@ -163,14 +173,19 @@ queue, rather than being swallowed as a completed job with a failed receipt. A r
 display pages when preview is `DONE`; it resizes them for extraction without rendering the original
 PDF again. Malformed input and extraction-answer errors remain `FAILED`. Overlapping deliveries
 for one receipt are serialized in-process, including expiry replacements during a long AI hold.
+A generic saved-preview storage/stream failure is recorded visibly and rethrown for pg-boss retry;
+resource-limit failures are terminal and do not spend retries rendering the same oversized input.
 Previously persisted `FAILED` receipts are not automatically reclassified; an operator must
 select and requeue the failures caused by the outage after deployment and provider recovery.
 
 ## 15.7. Access, conversion and deletion
 
 A receipt is readable by its creator and by administrators. Other callers receive 404. Safe GETs
-remain reachable by the existing read-only API token as its owner; uploads, reprocessing,
-conversion and deletion require a session. Receipts are not shareable in this version.
+remain reachable by a `READ` API token as its owner; ordinary uploads, reprocessing, conversion
+and deletion require a session. The separate `POST /api/incoming/receipts` endpoint accepts a
+`RECEIPTS_INGEST` token and returns the normal upload result (`receipt` and `created`, `07 §7.3`,
+`08 §8.2b`); that token grants no access to archive read or download endpoints. Receipts are not
+shareable in this version.
 
 `PATCH /api/archive-items/:id/kind` changes the product profile without changing the archive item
 id. The caller must be the creator or an administrator, and the source pipeline must be settled.
@@ -247,7 +262,8 @@ conversion boundary. Existing receipt documents are not migrated automatically.
 - Vectors, document-wide text search, Markdown, OCR text, canonical PDFs, collections or sharing for
   receipts.
 - Editing or normalising receipt values in Legere.
-- Write-capable API tokens, app-to-app upload, webhooks, external ids or callbacks.
+- General-purpose write tokens, webhooks, external ids or callbacks. Scoped app-to-app inbox
+  uploads are supported through the separate ingestion endpoints (`07 §7.3`).
 
 ## 15.11. Open questions
 

@@ -36,7 +36,8 @@ resolved (each document ends with its resolution notes).
 | [`tasks/README.md`](./tasks/README.md) | How to execute tasks, the working loop, Definition of Done |
 | [`tasks/backlog.md`](./tasks/backlog.md) | The numbered implementation plan, derived from these documents |
 
-Take the first unchecked task; one task = one PR; tick it off in the same PR.
+Take the first unchecked task unless the owner authorizes independent work in parallel. Tick it
+off in the same commit; the temporary direct-to-`main` workflow in ADR-014 applies.
 
 ---
 
@@ -44,7 +45,7 @@ Take the first unchecked task; one task = one PR; tick it off in the same PR.
 
 - **One Node process on one port:** Express(ExpressAdapter) → `/api/*` to NestJS, `*` to Next.js.
   No nginx, no separate frontend/backend containers.
-- **One repository, one `package.json`, npm without workspaces**, Node 26, TypeScript 7, `strict: true`.
+- **One repository, one `package.json`, npm without workspaces**, Node 26, TypeScript 5.9, `strict: true`.
 - **Backend:** NestJS, Clean Architecture (domain/application framework-free), Prisma, PostgreSQL
   (normalized schema + the **pgvector** extension), validation — Zod.
 - **Frontend:** Next.js (App Router), React, Feature-Sliced Design, Ant Design, TanStack Query.
@@ -56,7 +57,8 @@ Take the first unchecked task; one task = one PR; tick it off in the same PR.
   over queues, document steps and external services. This is a management/read-model boundary, not a
   common runtime abstraction: pg-boss delivery, durable pipeline states and service gates keep their own semantics
   ([ADR-026](./02-architecture-overview.md#adr-026-one-processing-control-plane-three-execution-mechanisms)).
-- **Deduplication** — by SHA-256 of content: one content = one document, no matter how many files contain it.
+- **Deduplication** — by SHA-256 at the File boundary. Document pages can share a File
+  (ADR-025), while a receipt original cannot simultaneously belong to a document (`15 §15.4`).
 - **Processing pipeline:** canonicalization to PDF → first-page JPG preview → Markdown extraction (OCR
   when needed) → analysis → typed fields → vectorization (embeddings in pgvector).
 - **PDF tooling lives outside:** a sibling **Stirling-PDF** container (conversion to PDF, OCR, page
@@ -77,8 +79,10 @@ Take the first unchecked task; one task = one PR; tick it off in the same PR.
   described in the repository (only an example in 12).
 - **DB migrations are mandatory and automatic:** forward-only Prisma migrations, applied on container
   start (`prisma migrate deploy`). `prisma db push`/reset against a live instance are forbidden.
-- **Deletion:** soft delete only (`deletedAt`). A file disappearing from the library is not data
-  deletion but an "unavailable" marker.
+- **Deletion:** soft delete where specified; document deletion deliberately removes the profile
+  and its dependent rows (ADR-015 as amended). Unreferenced originals go to recoverable trash;
+  receipt deletion preserves its former kind and owner for restoration. A missing library file
+  becomes unavailable, and its external bytes are never deleted by Legere.
 - **Code style:** no `any`, no type assertions `as` (except `as const`), no non-null `!`, no path
   aliases; Prettier is part of `npm run lint`.
 - **i18n:** next-intl, locale not in the URL; UI languages — **en (default)** and **ru**.

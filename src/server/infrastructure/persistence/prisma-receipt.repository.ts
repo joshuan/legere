@@ -17,7 +17,8 @@ import {
   type ReceiptProcessingUpdate,
 } from '../../domain/repositories/receipt.repository';
 import { decodeReceiptCursor, encodeReceiptCursor, type ReceiptCursor } from './cursor';
-import { clientOf } from './prisma-client';
+import { clientOf, isPrismaTx } from './prisma-client';
+import { assertReceiptFile } from './file-product-home';
 import { PrismaService } from './prisma.service';
 
 const RECEIPT_INCLUDE = {
@@ -244,7 +245,11 @@ export class PrismaReceiptRepository extends ReceiptRepository {
     input: { fileId: string; createdById: string; sourceText?: string | undefined },
     tx?: TransactionHandle,
   ): Promise<Receipt> {
+    if (!isPrismaTx(tx)) {
+      return this.prisma.$transaction((client) => this.create(input, client));
+    }
     const client = clientOf(this.prisma, tx);
+    await assertReceiptFile(client, input.fileId);
     const archiveItem = await client.archiveItem.create({
       data: { kind: 'RECEIPT', createdById: input.createdById },
     });
