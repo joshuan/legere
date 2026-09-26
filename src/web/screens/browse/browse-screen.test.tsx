@@ -1,9 +1,14 @@
 import '@testing-library/jest-dom/vitest';
-import { screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, screen, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
+import { NextIntlClientProvider } from 'next-intl';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
 import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
+import { libraryKeys } from '../../entities/library';
 import { BrowseScreen } from './browse-screen';
 
 const LIBRARY_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -71,6 +76,43 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('BrowseScreen', () => {
+  it('hydrates the server breadcrumb before using a library name already fetched by the shell', async () => {
+    const serverClient = new QueryClient();
+    const browserClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    browserClient.setQueryData(libraryKeys.visible, {
+      items: [{ id: LIBRARY_ID, name: 'Invoices' }],
+    });
+    const ui = (client: QueryClient) => (
+      <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+        <QueryClientProvider client={client}>
+          <BrowseScreen libraryId={LIBRARY_ID} />
+        </QueryClientProvider>
+      </NextIntlClientProvider>
+    );
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(ui(serverClient));
+    document.body.append(container);
+    const serverBreadcrumb = within(container).getByRole('link', {
+      name: enMessages.browse.library,
+    });
+    const onRecoverableError = vi.fn();
+    const root = hydrateRoot(container, ui(browserClient), { onRecoverableError });
+
+    try {
+      await act(() => Promise.resolve());
+      expect(await within(container).findByText('3 documents')).toBeInTheDocument();
+      expect(onRecoverableError).not.toHaveBeenCalled();
+      expect(within(container).getByRole('link', { name: 'Invoices' })).toBe(serverBreadcrumb);
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      serverClient.clear();
+      browserClient.clear();
+    }
+  });
+
   it('lists the folders of the library root with their document counts', async () => {
     renderWithProviders(<BrowseScreen libraryId={LIBRARY_ID} />);
 

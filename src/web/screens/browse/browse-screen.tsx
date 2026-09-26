@@ -8,18 +8,24 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useMemo } from 'react';
 import { libraryApi, libraryKeys } from '../../entities/library';
+import { useHydrated } from '../../shared/lib';
 import { QueryError } from '../../shared/ui';
 import { DocumentCard } from '../../widgets/document-card';
 
 // /browse/:libraryId?path= (docs/11 §11.4): the mounted folder structure, one level at a time.
 export function BrowseScreen({ libraryId }: { libraryId: string }) {
   const t = useTranslations();
+  const hydrated = useHydrated();
   const searchParams = useSearchParams();
   // The path lives in the URL, so a folder is a link and the back button walks up the tree.
   const path = searchParams.get('path') ?? '';
 
   const libraries = useQuery({ queryKey: libraryKeys.visible, queryFn: libraryApi.listVisible });
-  const libraryName = (libraries.data?.items ?? []).find((entry) => entry.id === libraryId)?.name;
+  // The shell may fetch these before this route hydrates. Keep the server's fallback label until
+  // hydration completes, then use the cache without delaying the query or client navigation.
+  const libraryName = hydrated
+    ? libraries.data?.items.find((entry) => entry.id === libraryId)?.name
+    : undefined;
 
   const view = useInfiniteQuery({
     queryKey: libraryKeys.browse(libraryId, path),

@@ -1,6 +1,7 @@
 import { test as base, expect, type Page, type TestInfo } from '@playwright/test';
 import { pdfWithText } from '../fixtures/pdf';
 import { VISUAL_NOW } from './constants';
+import { captureFullPage } from './capture';
 
 const preview = `<svg xmlns="http://www.w3.org/2000/svg" width="612" height="792" viewBox="0 0 612 792">
 <rect width="612" height="792" fill="#fffdf7"/><rect x="44" y="44" width="524" height="704" rx="3" fill="none" stroke="#d6d0bd"/>
@@ -163,12 +164,11 @@ export async function screenshot(page: Page, name: string, testInfo: TestInfo): 
   const brightness = channels.reduce((sum, value) => sum + value, 0) / 3;
   if (testInfo.project.name.endsWith('-dark')) expect(brightness).toBeLessThan(70);
   else expect(brightness).toBeGreaterThan(200);
+  const captured = await captureFullPage(page);
   if (process.env.BROWSER_CAPTURE_ONLY === '1') {
-    const path = testInfo.outputPath(`${name}.png`);
-    await page.screenshot({ path, fullPage: true, animations: 'disabled' });
-    await testInfo.attach(name, { path, contentType: 'image/png' });
+    await testInfo.attach(name, { body: captured, contentType: 'image/png' });
   } else {
-    await expect(page).toHaveScreenshot(`${name}.png`, { fullPage: true });
+    expect(captured).toMatchSnapshot(`${name}.png`, { maxDiffPixels: 100 });
   }
 }
 

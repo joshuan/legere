@@ -212,10 +212,11 @@ this policy is verified by opening the app and reading the console for violation
   Finite recent-document results have a distinct key from infinite archive pages; incompatible
   result shapes must never share cache identity, even when they call the same endpoint.
 - **Hydration starts from the server snapshot.** A shell query may populate shared cache before a
-  later control hydrates. Query-dependent loading icons and options must initially match the server
-  markup, then show the cached result. `DocumentFiltersBar` uses the shared `useHydrated` snapshot
-  for this transition; queries still run immediately. A server-render → prefilled-client-cache
-  regression prevents stale loading SVGs from surviving a successful request.
+  later control hydrates. Query-dependent labels, loading icons and options must initially match
+  the server markup, then show the cached result. `DocumentFiltersBar` and the library browser's
+  breadcrumb use the shared `useHydrated` snapshot for this transition; queries still run
+  immediately. Server-render → prefilled-client-cache regressions prevent hydration mismatches and
+  stale loading SVGs from surviving a successful request.
 - 🔒 **A session that ends takes the cache with it.** The `QueryClient` is created once, in the root
   layout shared by `(app)` and `(public)`, so `router.replace('/login')` is a client-side transition
   that never remounts it: without an explicit `clear()` the next person to sign in on that browser

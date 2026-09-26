@@ -121,6 +121,13 @@ page overflow, navigation and reachable actions. In particular, archive → sear
 work without a reload so incompatible query-cache shapes cannot hide behind isolated page tests.
 Inspect changed screenshots before accepting a baseline update. CI retains differences and traces
 when a browser test fails; production documents and private screenshots never become test fixtures.
+Full-page capture must preserve the CSS viewport and touch emulation. The pinned Chromium's
+`captureBeyondViewport` temporarily resets device emulation, which can collapse the sidebar during
+capture ([upstream report](https://github.com/microsoft/playwright/issues/42607)). Assemble ordinary
+viewport captures, requiring two identical captures of each tile; sticky/fixed chrome from the first
+tile is hidden in later tiles so it appears only once. Use Playwright's PNG snapshot comparison with
+the same 100-pixel limit. Assert that viewport and touch state survive capture; do not suppress
+responsive events or browser errors to hide instability.
 
 The canonical command is `npm run test:browser:docker`; it builds the test application, starts a
 private disposable PostgreSQL instance, migrates/seeds it, and cleans its Compose project after the

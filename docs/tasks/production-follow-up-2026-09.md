@@ -135,6 +135,28 @@ defects found during the refactor.
   tab positions, settled table text and fixed navigation on expanded receipt pages are intentional.
   The comparison tolerance was not increased.
 
+## Release-candidate follow-up
+
+The first hosted CI run on `d94915c` passed the main build/test job but found two browser issues
+that the preceding local run did not reproduce. The release command stopped before creating a tag.
+
+- A library breadcrumb could hydrate with a name already fetched by the shell while the server
+  markup still contained its fallback label. It now uses the same hydration snapshot contract as
+  the filters. A server-render → warmed-client-cache regression failed before the fix and passes
+  with it, including the assertion that React keeps the original breadcrumb DOM node.
+- Chromium's beyond-viewport capture resets touch emulation and can emit false media-query changes
+  while taking long screenshots, making the instance sidebar oscillate on the hosted runner.
+  Viewport captures are now assembled into the full-page PNG, with two identical captures required
+  per tile. Initial sticky/fixed chrome appears only once, and capture restores keyboard focus and
+  scroll while asserting that viewport and touch emulation survive. The 100-pixel comparison limit
+  is unchanged. This is a test capture fix, not a production layout override.
+
+The corrected library/instance/receipt-disclosure/page-arrangement scenarios pass **41/41** browser
+checks across all ten projects (including real login), without updating any of the 440 baselines.
+This focused rerun follows the full-matrix diagnosis of capture-related focus and disclosure-height
+issues. The hydration/filter unit regressions pass **5/5**, full typecheck and lint pass, and the
+production test build succeeds. The full hosted CI matrix remains mandatory before release.
+
 ## Production handoff
 
 The source changes do not deploy themselves. Production remained at the observed 0.35.0 throughout

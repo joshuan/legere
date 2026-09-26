@@ -2028,3 +2028,10 @@ Production observation is read-only; source fixes are verified and committed on 
   **Acceptance:** typecheck, strict lint, affected unit/integration suites, production build and
   Playwright matrix pass; inspect representative screenshots visually; document any production
   operational limits separately; commit all completed fixes and verification artifacts on `main`.
+
+- [x] **M65.6 — Release-candidate browser checks remain deterministic on CI**
+  **Goal:** resolve the first hosted browser run's library hydration error and instance screenshot drift.
+  **Docs:** [`14 §14.8`](../14-coding-standards.md)
+  **Acceptance:** diagnose the retained CI traces, correct the underlying rendering/readiness issues,
+  preserve strict screenshot comparison and browser-error assertions, verify affected routes across
+  the complete viewport/theme matrix, and keep the full hosted matrix as the release gate.
