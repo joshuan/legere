@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import { sessionApi } from '../../entities/session';
 import { safeReturnTo, useErrorMessage } from '../../shared/lib';
-import { isTurnstileConfigured, TurnstileWidget } from '../captcha';
+import { isTurnstileConfigured, TurnstileWidget } from '../../shared/captcha';
 
 // Login card (docs/11 §11.2). Errors are localized by code and shown inline; there is no
 // self-service recovery in the MVP, so "forgot password" is a static hint (docs/08 §8.1.7).
@@ -52,7 +52,10 @@ export function LoginForm({ returnTo }: { returnTo?: string }) {
   );
 
   return (
-    <Card style={{ maxWidth: 400, margin: '4rem auto' }}>
+    <Card
+      className="legere-auth-card"
+      style={{ maxWidth: 400, width: 'calc(100% - 32px)', margin: 'clamp(16px, 8vh, 64px) auto' }}
+    >
       <Typography.Title level={3}>{t('auth.login.title')}</Typography.Title>
 
       {error !== null && (

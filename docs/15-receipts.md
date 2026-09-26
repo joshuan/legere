@@ -178,6 +178,13 @@ resource-limit failures are terminal and do not spend retries rendering the same
 Previously persisted `FAILED` receipts are not automatically reclassified; an operator must
 select and requeue the failures caused by the outage after deployment and provider recovery.
 
+Exhausting pg-boss delivery retries must not strand a receipt in `QUEUED` or `RUNNING`. Hourly
+maintenance recovers up to 200 unfinished receipts older than two hours that have no delivery in
+`created`, `retry` or `active`. Selection locks, enqueue and resetting unfinished steps commit
+together, preserving completed previews and respecting a paused receipt queue. The administrator's
+retry path also recognizes these stale orphaned receipts; fresh or actively delivered receipts are
+never duplicated. Terminal `FAILED` results still require an explicit manual retry.
+
 ## 15.7. Access, conversion and deletion
 
 A receipt is readable by its creator and by administrators. Other callers receive 404. Safe GETs

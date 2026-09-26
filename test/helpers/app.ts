@@ -12,6 +12,7 @@ import {
   type ThrottleBudget,
 } from '../../src/server/presentation/http/throttling';
 import { CatalogueAnalyst } from '../../src/server/application/ports/catalogue-analyst';
+import { Clock } from '../../src/server/application/ports/clock';
 import { EmailSender, type EmailMessage } from '../../src/server/application/ports/email-sender';
 import { FileStorage } from '../../src/server/application/ports/file-storage';
 import { AppConfig, loadConfig } from '../../src/server/infrastructure/config/app-config';
@@ -63,6 +64,9 @@ export type TestApp = {
 };
 
 export type TestAppOptions = {
+  // Browser tests render real Next server components, whose API loopback uses PORT.
+  port?: number;
+  clock?: Clock;
   // Upload tests assert the behaviour at the limit, not the production number: moving 100 MiB
   // through the process (twice — client and server) exhausts the heap for no benefit.
   uploadMaxBytes?: number;
@@ -111,6 +115,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   if (options.analyst !== undefined) {
     builder.overrideProvider(CatalogueAnalyst).useValue(options.analyst);
   }
+  if (options.clock !== undefined) builder.overrideProvider(Clock).useValue(options.clock);
   const moduleRef = await builder
     .overrideProvider(getOptionsToken())
     // Every budget rides along effectively unlimited unless a test asks for it: the e2e suites
@@ -149,7 +154,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   // One HTTP server for the whole file, rather than letting supertest start and tear down an
   // ephemeral server per request: at e2e volumes that churn occasionally hands a client a socket
   // belonging to an already-closed server, which surfaces as an unparseable HTTP response.
-  const http = await listen(server);
+  const http = await listen(server, options.port ?? 0);
   const address = http.address();
   if (address === null || typeof address === 'string')
     throw new Error('server did not bind a port');
@@ -171,9 +176,9 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   };
 }
 
-function listen(app: Express): Promise<Server> {
+function listen(app: Express, port: number): Promise<Server> {
   return new Promise((resolve) => {
-    const server = app.listen(0, '127.0.0.1', () => resolve(server));
+    const server = app.listen(port, '127.0.0.1', () => resolve(server));
   });
 }
 

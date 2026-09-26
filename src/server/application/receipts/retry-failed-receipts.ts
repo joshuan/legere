@@ -52,12 +52,12 @@ export class RetryFailedReceipts {
             { singletonKey: receipt.id },
           );
           if (job === null) continue;
-          const steps =
-            receipt.previewStatus === 'FAILED' ? ['preview', 'extraction'] : ['extraction'];
+          const needsPreview = receipt.previewStatus !== 'DONE';
+          const steps = needsPreview ? ['preview', 'extraction'] : ['extraction'];
           await this.receipts.updateProcessing(
             receipt.id,
             {
-              ...(receipt.previewStatus === 'FAILED' ? { previewStatus: 'QUEUED' } : {}),
+              ...(needsPreview ? { previewStatus: 'QUEUED' } : {}),
               extractionStatus: 'QUEUED',
               processingError: null,
               failedStep: null,

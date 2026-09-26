@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   FixedClock,
   InMemoryEmailVerificationRepository,
@@ -72,7 +72,10 @@ describe('HandleMaintenance', () => {
   let invites: InMemoryUserInviteRepository;
   let resets: InMemoryPasswordResetRepository;
   let documents: InMemoryDocumentRepository;
-  let receipts: Pick<ReceiptRepository, 'filterExistingIds'>;
+  let receipts: Pick<
+    ReceiptRepository,
+    'filterExistingIds' | 'lockStaleUnstarted' | 'updateProcessing'
+  >;
   let receiptIds: Set<string>;
   let fileRows: InMemoryFileRepository;
   let fileRefs: InMemoryFileRefRepository;
@@ -94,6 +97,8 @@ describe('HandleMaintenance', () => {
     receiptIds = new Set();
     receipts = {
       filterExistingIds: (ids) => Promise.resolve(ids.filter((id) => receiptIds.has(id))),
+      lockStaleUnstarted: vi.fn<ReceiptRepository['lockStaleUnstarted']>().mockResolvedValue([]),
+      updateProcessing: vi.fn<ReceiptRepository['updateProcessing']>(),
     };
     fileRows = new InMemoryFileRepository();
     files = new InMemoryFileStorage();
@@ -316,6 +321,76 @@ describe('HandleMaintenance', () => {
       bytes: '0',
       measuredAt: NOW.toISOString(),
     });
+  });
+
+  it('requeues a bounded batch of abandoned receipts and retains completed previews', async () => {
+    vi.spyOn(receipts, 'lockStaleUnstarted').mockResolvedValue([
+      { id: 'receipt-preview', previewStatus: 'RUNNING', extractionStatus: 'QUEUED' },
+      { id: 'receipt-extraction', previewStatus: 'DONE', extractionStatus: 'QUEUED' },
+    ]);
+
+    await handler.handle();
+
+    expect(receipts.lockStaleUnstarted).toHaveBeenCalledWith(
+      new Date(NOW.getTime() - 2 * HOUR),
+      200,
+      expect.anything(),
+    );
+    expect(queue.enqueued).toEqual([
+      { name: 'receipt-process', payload: { receiptId: 'receipt-preview' } },
+      { name: 'receipt-process', payload: { receiptId: 'receipt-extraction' } },
+    ]);
+    expect(receipts.updateProcessing).toHaveBeenCalledWith(
+      'receipt-preview',
+      {
+        previewStatus: 'QUEUED',
+        extractionStatus: 'QUEUED',
+        processingError: null,
+        failedStep: null,
+      },
+      expect.anything(),
+    );
+    expect(receipts.updateProcessing).toHaveBeenCalledWith(
+      'receipt-extraction',
+      {
+        extractionStatus: 'QUEUED',
+        processingError: null,
+        failedStep: null,
+      },
+      expect.anything(),
+    );
+  });
+
+  it('leaves abandoned receipts alone while their queue is paused', async () => {
+    await queueStore.write(QUEUE_SETTINGS_KEY, { paused: ['receipt-process'] });
+
+    await handler.handle();
+
+    expect(receipts.lockStaleUnstarted).not.toHaveBeenCalled();
+    expect(receipts.updateProcessing).not.toHaveBeenCalled();
+    expect(queue.enqueued).toEqual([]);
+  });
+
+  it('does not change receipt state when another delivery already won the queue key', async () => {
+    vi.spyOn(receipts, 'lockStaleUnstarted').mockResolvedValue([
+      { id: 'receipt-race', previewStatus: 'RUNNING', extractionStatus: 'QUEUED' },
+    ]);
+    vi.spyOn(queue, 'enqueueAfterTx').mockResolvedValue(null);
+
+    await handler.handle();
+
+    expect(receipts.updateProcessing).not.toHaveBeenCalled();
+  });
+
+  it('does not mark a receipt queued if its enqueue fails', async () => {
+    vi.spyOn(receipts, 'lockStaleUnstarted').mockResolvedValue([
+      { id: 'receipt-race', previewStatus: 'RUNNING', extractionStatus: 'QUEUED' },
+    ]);
+    vi.spyOn(queue, 'enqueueAfterTx').mockRejectedValue(new Error('queue unavailable'));
+
+    await expect(handler.handle()).rejects.toThrow('queue unavailable');
+
+    expect(receipts.updateProcessing).not.toHaveBeenCalled();
   });
   // A migration that resets every step has no way to enqueue anything, and a crash loses jobs
   // outright. Either way the document waits at PENDING until this sweep notices (docs/05 §5.4).

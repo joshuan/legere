@@ -26,7 +26,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { UserDto } from '../../../shared/contracts/auth';
 import { libraryApi, libraryKeys } from '../../entities/library';
 import { sessionApi } from '../../entities/session';
-import { SearchShortcut, useShortcutHint } from '../search-shortcut';
+import { SearchShortcut, useShortcutHint } from '../../features/search-shortcut';
 import { useThemePreference } from '../../shared/providers';
 import { endSession, useErrorMessage } from '../../shared/lib';
 

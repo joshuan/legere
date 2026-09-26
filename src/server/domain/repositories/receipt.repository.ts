@@ -24,9 +24,17 @@ export type ReceiptListInput = ReceiptFilters & {
   sort?: ReceiptSort | undefined;
 };
 
+export type ReceiptProcessingState = Pick<Receipt, 'id' | 'previewStatus' | 'extractionStatus'>;
+
 export abstract class ReceiptRepository {
   abstract countProcessing(): Promise<ReceiptProcessingCounts>;
-  // Locks eligible failures through the caller's enqueue/status transaction; skips live jobs.
+  // Terminal input/extraction failures are deliberately excluded from automatic recovery.
+  abstract lockStaleUnstarted(
+    olderThan: Date,
+    limit: number,
+    tx: TransactionHandle,
+  ): Promise<ReceiptProcessingState[]>;
+  // Locks failed or abandoned work through the caller's enqueue/status transaction; skips live jobs.
   abstract lockFailedForRetry(
     limit: number,
     tx: TransactionHandle,

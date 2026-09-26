@@ -7,7 +7,17 @@ retry). All texts via i18n keys (en/ru).
 ## 11.1. Shell & navigation
 
 Authenticated layout: left **Sider** (collapsible) + content. On narrow viewports the column
-collapses automatically and content gutters shrink so controls and receipt cards remain readable. Menu:
+collapses automatically and content gutters shrink so controls and receipt cards remain readable.
+
+The layout is fluid from 320 px through tablet and wide desktop sizes. At smaller widths, filters,
+toolbars and multi-column forms wrap or stack; long text breaks within its container; dialogs stay
+inside the viewport. Dense tables may scroll horizontally inside their own region, but must not
+widen the entire page. Viewer controls and every product action remain reachable on touch screens
+and with a keyboard. The same rules apply in light and dark themes, including overlays and
+loading/error/empty states; application chrome follows theme tokens while document paper remains
+readable independently.
+
+Menu:
 
 | Item | Route | Visible to |
 |------|-------|-----------|

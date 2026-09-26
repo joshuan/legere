@@ -1,9 +1,9 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Card, Form, Input, Modal, Popconfirm, Space, Table, Typography } from 'antd';
+import { App, Button, Card, Form, Input, Modal, Popconfirm, Space, Typography } from 'antd';
+import { ResponsiveTable as Table, QueryError } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
-import { QueryError } from '../../shared/ui';
 import { useCallback, useState } from 'react';
 import type { DocumentTypeDto } from '../../../shared/contracts/document-types';
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';

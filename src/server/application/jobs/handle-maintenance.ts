@@ -3,6 +3,7 @@ import type { DocumentRepository } from '../../domain/repositories/document.repo
 import type { FileRefRepository } from '../../domain/repositories/file-ref.repository';
 import type { FileRepository } from '../../domain/repositories/file.repository';
 import type { ReceiptRepository } from '../../domain/repositories/receipt.repository';
+import { RECEIPT_RECOVERY_GRACE_MS } from '../../domain/entities/receipt';
 import type { EmailVerificationRepository } from '../../domain/repositories/email-verification.repository';
 import type { PasswordResetRepository } from '../../domain/repositories/password-reset.repository';
 import type { UserInviteRepository } from '../../domain/repositories/user-invite.repository';
@@ -49,7 +50,10 @@ export class HandleMaintenance extends JobHandler {
     private readonly invites: UserInviteRepository,
     private readonly resets: PasswordResetRepository,
     private readonly documents: DocumentRepository,
-    private readonly receipts: Pick<ReceiptRepository, 'filterExistingIds'>,
+    private readonly receipts: Pick<
+      ReceiptRepository,
+      'filterExistingIds' | 'lockStaleUnstarted' | 'updateProcessing'
+    >,
     private readonly fileRows: FileRepository,
     private readonly fileRefs: FileRefRepository,
     private readonly files: FileStorage,
@@ -100,6 +104,37 @@ export class HandleMaintenance extends JobHandler {
       },
       { timeoutMs: 30_000 },
     );
+
+    // A receipt outage also leaves its interrupted step QUEUED after pg-boss exhausts retries.
+    // Recover only abandoned unfinished work; malformed-input failures remain an operator choice.
+    if (!(await this.queueSettings.read()).paused.includes('receipt-process')) {
+      await this.unitOfWork.run(
+        async (tx) => {
+          const stalled = await this.receipts.lockStaleUnstarted(
+            new Date(now.getTime() - RECEIPT_RECOVERY_GRACE_MS),
+            STALE_BATCH,
+            tx,
+          );
+          for (const receipt of stalled) {
+            const job = await this.queue.enqueueAfterTx(tx, 'receipt-process', {
+              receiptId: receipt.id,
+            });
+            if (job === null) continue;
+            await this.receipts.updateProcessing(
+              receipt.id,
+              {
+                ...(receipt.previewStatus === 'DONE' ? {} : { previewStatus: 'QUEUED' }),
+                extractionStatus: 'QUEUED',
+                processingError: null,
+                failedStep: null,
+              },
+              tx,
+            );
+          }
+        },
+        { timeoutMs: 30_000 },
+      );
+    }
 
     // 🔒 The one destruction in Legere that happens on a clock (docs/05 §5.7a): files of ours that
     // have sat in the trash past the retention window. A LIBRARY file is never in this answer — its

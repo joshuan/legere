@@ -47,6 +47,7 @@ function receiptFixture(): Receipt {
 describe('UploadReceipt', () => {
   const receipts = {
     countProcessing: vi.fn<ReceiptRepository['countProcessing']>(),
+    lockStaleUnstarted: vi.fn<ReceiptRepository['lockStaleUnstarted']>(),
     lockFailedForRetry: vi.fn<ReceiptRepository['lockFailedForRetry']>(),
     create: vi.fn<ReceiptRepository['create']>(),
     findById: vi.fn<ReceiptRepository['findById']>(),

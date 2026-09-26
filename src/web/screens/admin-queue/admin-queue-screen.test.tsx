@@ -667,6 +667,47 @@ describe('AdminProcessingScreen', () => {
     await waitFor(() => expect(reads).toBeGreaterThan(1));
   });
 
+  it('offers confirmed recovery for abandoned queued receipts even when none failed', async () => {
+    const overview = {
+      ...receiptOverview,
+      counts: {
+        total: 190,
+        done: 0,
+        failed: 0,
+        queued: 190,
+        running: 0,
+        skipped: 0,
+        retryable: 190,
+      },
+    };
+    const sent: unknown[] = [];
+    server.use(
+      http.get('/api/admin/processing', () =>
+        HttpResponse.json(envelope({ ...snapshot, queues: [receiptQueue] })),
+      ),
+      http.get('/api/admin/processing/receipts', () => HttpResponse.json(envelope(overview))),
+      http.post('/api/admin/processing/receipts/retry-failed', async ({ request }) => {
+        sent.push(await request.json());
+        return HttpResponse.json(envelope({ enqueued: 190 }));
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<AdminProcessingScreen tab="receipts" />);
+    const button = await screen.findByRole('button', {
+      name: enMessages.admin.queue.receiptProcessing.retry.replace('{count}', '190'),
+    });
+    expect(button).toBeEnabled();
+    expect(
+      screen.getByText(enMessages.admin.queue.receiptProcessing.emptyQueue),
+    ).toBeInTheDocument();
+    await user.click(button);
+    expect(sent).toEqual([]);
+    await user.click(
+      await screen.findByRole('button', { name: enMessages.admin.queue.receiptProcessing.confirm }),
+    );
+    await waitFor(() => expect(sent).toEqual([{ limit: 190 }]));
+  });
+
   it.each(['paused', 'unconfigured', 'unregistered', 'empty'] as const)(
     'disables receipt retry when %s',
     async (reason) => {

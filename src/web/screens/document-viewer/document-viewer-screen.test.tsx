@@ -2705,7 +2705,9 @@ describe('DocumentViewerScreen', () => {
       // A `table` field is a small table of its rows, headers localized like the labels.
       expect(within(panel).getByText('Bread')).toBeInTheDocument();
       expect(
-        within(panel).getByText(enMessages.viewer.fields.receipt.itemsColumns.name),
+        within(panel).getByRole('columnheader', {
+          name: enMessages.viewer.fields.receipt.itemsColumns.name,
+        }),
       ).toBeInTheDocument();
     });
 

@@ -12,6 +12,10 @@ that runs them is.
   required check becomes mandatory at the transition defined by ADR-014.
 - Node from `.nvmrc` (`actions/setup-node` with `node-version-file`), npm cache.
 - Integration tests run against a PostgreSQL **pgvector** service container.
+- A separate `browser-visual` job runs the responsive light/dark Playwright matrix on
+  `ubuntu-24.04-arm`, using the same pinned Linux/ARM Chromium image and disposable database as
+  local baseline generation. It compares committed screenshots and checks runtime errors,
+  navigation and overflow; failed-run traces and screenshots are retained for seven days.
 - External services are not needed in CI: `FileStorage`, `PdfToolbox`, `EmailSender`,
   `CaptchaVerifier`, `EmbeddingProvider`, `DocumentAnalyst` are mocked behind their ports
   ([`14 §14.8`](./14-coding-standards.md#148-testing)). Dummy env values exist only to satisfy config

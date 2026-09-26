@@ -10,7 +10,7 @@ import type {
 } from '../../../shared/contracts/instance';
 import { instanceApi, instanceKeys } from '../../entities/instance';
 import { useErrorMessage } from '../../shared/lib';
-import { DefinitionList, type Definition } from '../../shared/ui/definition-list';
+import { DefinitionList, type Definition } from '../../shared/ui';
 
 // Where a value came from, as a tag. A secret has no source worth reporting — that it is a secret
 // is the whole answer — so SET and UNSET both read as one word and the value cell carries the state.
@@ -107,7 +107,7 @@ function row(setting: InstanceSettingDto, t: Translate): Definition {
       </>
     ),
     value: (
-      <Space size={6}>
+      <Space size={6} wrap>
         {value(setting, t)}
         <Tag color={SOURCE_COLOR[setting.source]} style={{ marginInlineEnd: 0 }}>
           {t(`admin.instance.sources.${setting.source}`)}

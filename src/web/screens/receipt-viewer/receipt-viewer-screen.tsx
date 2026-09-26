@@ -20,10 +20,10 @@ import {
   Row,
   Space,
   Spin,
-  Table,
   Tag,
   Typography,
 } from 'antd';
+import { ResponsiveTable as Table, QueryError } from '../../shared/ui';
 import type { ColumnsType } from 'antd/es/table';
 import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -31,7 +31,6 @@ import { useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { moneyValue, receiptApi, receiptKeys } from '../../entities/receipt';
 import { formatBytes, useErrorMessage } from '../../shared/lib';
-import { QueryError } from '../../shared/ui';
 
 const SCALAR_KEYS = [
   'vendor',

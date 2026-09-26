@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project status
 
 The completed implementation history and current work are tracked in `docs/tasks/backlog.md`.
-M0–M63, image orientation and the search page are implemented; M64 tracks the September service audit.
+M0–M65, image orientation and the search page are implemented, including production follow-up and frontend verification.
 Every mandatory scenario of `docs/14 §14.8` is mapped to a test in
 `docs/tasks/scenario-coverage.md`. The specification (documents 01–15 in `docs/`) remains the source
 of truth. Write a task before new work, tick it off in the same commit, and update affected contracts
@@ -20,8 +20,9 @@ before implementation. The backlog is the authoritative status rather than a dup
 | `npm run build` | `next build`, then the server into `dist/` |
 | `npm run typecheck` | `tsc --noEmit` over the app, the server and the tests — **run before every commit** |
 | `npm run lint` / `lint:fix` | ESLint (layer boundaries included) + Prettier |
-| `npm test` | the whole suite (unit + integration + e2e) against the dev PostgreSQL |
+| `npm test` | the whole suite (unit + integration + e2e) against a separately migrated `_test` PostgreSQL database |
 | `npm run test:coverage` | the same with the ≥90% line floor on `domain` + `application`; this is what CI runs |
+| `npm run test:browser:docker` | Playwright + responsive light/dark screenshot matrix, pinned Linux browser and disposable DB |
 | `npm run db:migrate` | apply Prisma migrations forward (the production owner-only one-shot) |
 | `npm run queue:migrate` | owner-only: apply pg-boss's schema and fixed queues before starting the app |
 | `npm run db:migrate:dev` | Prisma drift tooling only; author SQL migrations by hand — **see below** |
@@ -30,6 +31,8 @@ before implementation. The backlog is the authoritative status rather than a dup
 
 A single test file: `npx vitest run --project server <path>` (`--project web` for `src/web`). The
 MinIO- and Stirling-backed integration suites skip themselves when those containers are not up.
+Visual baselines must be created and compared in the pinned Docker environment; review every
+intentional image change before accepting `--update-snapshots=all` and rerun without that flag.
 On a fresh database the required order is Prisma migration, `queue:migrate`, seed, then `dev`.
 
 **Migrations are written by hand, not generated.** `db:migrate:dev` reads the raw SQL of `04 §4.3`

@@ -1,14 +1,14 @@
 'use client';
 
 import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Card, Form, Modal, Popconfirm, Select, Space, Table, Tag } from 'antd';
+import { App, Button, Card, Form, Modal, Popconfirm, Select, Space, Tag } from 'antd';
+import { ResponsiveTable as Table, OneTimeLinkModal, QueryError } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import { useCallback, useState } from 'react';
 import type { UserRole } from '../../../shared/contracts/enums';
 import type { AdminUserDto, InviteDto } from '../../../shared/contracts/users';
 import { userApi, userKeys } from '../../entities/user';
 import { useErrorMessage } from '../../shared/lib';
-import { OneTimeLinkModal, QueryError } from '../../shared/ui';
 
 type OneTimeLink = { title: string; url: string; expiresAt: string } | null;
 

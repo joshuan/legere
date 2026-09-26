@@ -502,7 +502,9 @@ describe('PeopleScreen', () => {
       expect(seen[0]).toContain('order=desc');
 
       // A click on a count column asks the server the new question rather than reordering the page.
-      await userEvent.click(screen.getByText(enMessages.admin.catalogues.columns.documents));
+      await userEvent.click(
+        screen.getByRole('columnheader', { name: enMessages.admin.catalogues.columns.documents }),
+      );
       await waitFor(() => expect(seen.length).toBeGreaterThan(1));
       expect(seen[seen.length - 1]).toContain('sort=documents');
       expect(seen[seen.length - 1]).toContain('order=asc');

@@ -73,3 +73,20 @@ jobs:
       - run: npm run lint
       - run: npm run test:coverage # domain+application floor of docs/14 §14.8, enforced
       - run: npm run build
+
+  browser-visual:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # This uses the same pinned Linux/ARM browser image as local baseline generation, with its
+      # own disposable database. The application is built and real password login is exercised.
+      - run: bash scripts/browser-tests.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-visual-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

@@ -81,8 +81,8 @@ export async function request<T>(
 
   const parsed = options.schema.safeParse(payload.data);
   if (!parsed.success) {
-    // Loud in dev, tolerated in prod: a shape mismatch is a bug, but it should not blank the page
-    // for a user when only one field drifted (docs/10 §10.5).
+    // Reject contract drift in every environment; validation details stay outside production.
+    // Callers render the typed API failure instead of consuming an invalid response (docs/10 §10.5).
     if (process.env.NODE_ENV !== 'production') {
       throw new ApiError('INTERNAL', response.status, parsed.error.flatten());
     }

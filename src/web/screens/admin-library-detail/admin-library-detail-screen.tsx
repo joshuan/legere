@@ -1,14 +1,13 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Card, Descriptions, Space, Table, Tag, Typography } from 'antd';
+import { App, Button, Card, Descriptions, Space, Tag, Typography } from 'antd';
+import { ResponsiveTable as Table, QueryError } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
-import { QueryError } from '../../shared/ui';
 import Link from 'next/link';
 import type { ScanRunDto } from '../../../shared/contracts/libraries';
-import { libraryApi, libraryKeys } from '../../entities/library';
+import { libraryApi, libraryKeys, statusColor } from '../../entities/library';
 import { useErrorMessage } from '../../shared/lib';
-import { statusColor } from '../admin-libraries';
 
 // While a scan is running the journal refreshes on this interval, so the row updates in place
 // (docs/11 §11.10 "a live progress row while a scan runs").

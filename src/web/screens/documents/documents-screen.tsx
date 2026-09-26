@@ -191,7 +191,7 @@ export function DocumentsScreen() {
               "Clear filters", which takes off what is in force rather than how it is laid out
               (docs/11 §11.3). */}
           <Select<DocumentSort>
-            style={{ minWidth: 200 }}
+            style={{ width: 200, maxWidth: '100%' }}
             aria-label={t('documents.sort.label')}
             value={sort}
             onChange={(next) => setView({ sort: next })}
@@ -207,7 +207,7 @@ export function DocumentsScreen() {
             mode="multiple"
             allowClear
             maxTagCount="responsive"
-            style={{ minWidth: 220 }}
+            style={{ width: 220, maxWidth: '100%' }}
             aria-label={t('documents.card.label')}
             placeholder={t('documents.card.none')}
             value={[...fields]}
@@ -220,7 +220,7 @@ export function DocumentsScreen() {
           {/* Real shelves with real counts, from the server: not headers drawn over whatever this
               page happened to hold (docs/11 §11.3). */}
           <Select<DocumentGroupBy | ''>
-            style={{ minWidth: 180 }}
+            style={{ width: 180, maxWidth: '100%' }}
             aria-label={t('documents.groupBy.label')}
             value={groupBy ?? ''}
             onChange={(next) => setView({ groupBy: next === '' ? null : next })}

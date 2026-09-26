@@ -116,12 +116,19 @@ npm run dev             # http://localhost:3000
 | `npm run lint` | ESLint (layer boundaries included) + Prettier check; `npm run lint:fix` writes |
 | `npm test` | the whole suite — unit, integration and e2e (needs `npm run dev:up`) |
 | `npm run test:coverage` | the same, with the ≥90% floor on `domain` + `application` that CI enforces |
+| `npm run test:browser:docker` | Playwright route, responsive and screenshot checks in the pinned Linux browser, with its own disposable database |
 | `npm run db:migrate` | apply migrations forward (automatic on production image startup) |
 | `npm run queue:migrate` | migrate pg-boss and create/update its fixed queues (also automatic on image startup) |
 | `npm run db:migrate:dev` | Prisma drift tooling only; author forward-only SQL migrations by hand (see `CLAUDE.md`) |
 
 Integration suites that need MinIO or Stirling skip themselves when those are not running, so
 `npm test` works with just PostgreSQL up.
+
+Visual baselines are committed under `test/browser/__screenshots__`. Run
+`npm run test:browser:docker -- --update-snapshots=all` only for an intentional visual change, inspect
+the resulting images, then run the command again without that flag to verify the comparison.
+The matrix covers phone, tablet and desktop widths in light and dark themes. See
+[`docs/14 §14.8`](./docs/14-coding-standards.md#148-testing) for the browser fixture boundaries.
 
 ## Documentation
 

@@ -1983,3 +1983,48 @@ Evidence, boundaries and dependency triage live in
   against an isolated migrated database; production dependency audit reports its actual findings;
   visual smoke checks and untested external-service limits are recorded; all M64 tasks are checked
   in the same commit as their completed implementation.
+
+## M65 — Production follow-up and frontend verification
+
+Requested after M64: inspect production through the supplied monitoring SSH account, diagnose the
+reported search crash and other log failures, then bring the frontend to enforced FSD boundaries,
+full phone/tablet/desktop responsiveness and both themes, with real-browser screenshot coverage.
+Production observation is read-only; source fixes are verified and committed on `main`.
+
+- [x] **M65.1 — Production findings have traceable causes and bounded recovery**
+  **Goal:** distinguish browser crashes, provider failures and stranded queue work from host issues.
+  **Docs:** [`12 §12.8b`](../12-build-config-run.md), [`15 §15.6`](../15-receipts.md)
+  **Acceptance:** record sanitized log aggregates and browser reproduction; identify the deployed
+  version separately from local fixes; stale unfinished receipts without live queue work can recover
+  after two hours in bounded transactional sweeps and through administrator retry; active/fresh work
+  and paused queues are protected, and terminal failures remain manual; regressions cover duplicate
+  recovery, rollback and retry selection. Host/provider issues are reported without unauthorized changes.
+
+- [x] **M65.2 — Frontend layers and public APIs are enforced**
+  **Goal:** route files compose screens; independent slices only import lower layers through public APIs.
+  **Docs:** [`10 §10.1`](../10-frontend-architecture.md), [`14 §14.2`](../14-coding-standards.md)
+  **Acceptance:** remove peer-slice/deep imports, place shared integrations and domain formatting at
+  their proper layers, decompose oversized viewer/processing compositions into cohesive modules, and
+  enforce the boundaries in ESLint without changing authorization or API contracts.
+
+- [x] **M65.3 — Every route adapts to phones, tablets and desktops in both themes**
+  **Goal:** existing product actions remain usable from 320 px through wide desktop layouts.
+  **Docs:** [`10 §10.4`](../10-frontend-architecture.md), [`11 §11.1`](../11-ui-ux-spec.md)
+  **Acceptance:** navigation, forms, filters, lists, tables, dialogs and viewers adapt without page
+  overflow; tables may scroll inside their own container; controls remain reachable by touch and
+  keyboard; all surfaces use the selected light/dark theme, with document paper kept readable.
+
+- [x] **M65.4 — Browser regressions and screenshot baselines protect the interface**
+  **Goal:** layout, theme and navigation failures are visible in reproducible automated checks.
+  **Docs:** [`14 §14.8`](../14-coding-standards.md)
+  **Acceptance:** pinned Playwright/Chromium and deterministic nonempty isolated fixtures exercise
+  all route families at 320/390/768/1024/1440 px in light/dark; real login and application rendering,
+  no production authentication bypass; screenshots, browser errors, overflow and key interactions
+  are checked; Linux baselines and CI artifact handling are documented and verified.
+
+- [x] **M65.5 — Integrated verification and evidence are committed together**
+  **Goal:** the final source changes and completed backlog describe what was actually checked.
+  **Docs:** [`14 §14.9`](../14-coding-standards.md)
+  **Acceptance:** typecheck, strict lint, affected unit/integration suites, production build and
+  Playwright matrix pass; inspect representative screenshots visually; document any production
+  operational limits separately; commit all completed fixes and verification artifacts on `main`.

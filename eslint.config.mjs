@@ -1,20 +1,90 @@
+import path from 'node:path';
 import boundaries from 'eslint-plugin-boundaries';
 import globals from 'globals';
 import { createApplicationEslintConfig } from '@joshuan/tooling/eslint';
 
 const webFiles = ['src/web/**/*.{ts,tsx}', 'src/app/**/*.{ts,tsx}'];
 
+// FSD has two distinct rules: layers point downward, and slices expose only index.ts.
+// The library boundary matcher groups a whole layer; this rule additionally checks its slices,
+// including type imports, re-exports and lazy imports.
+const fsdSliceRule = {
+  meta: {
+    type: 'problem',
+    schema: [],
+    messages: {
+      peer: 'FSD slices in {{layer}} cannot import each other. Compose them in a higher layer.',
+      upward: 'FSD dependencies point downward: {{from}} cannot import {{to}}.',
+      private: 'Import {{slice}} through its public index.ts API.',
+      ownBarrel: 'Inside a slice, import its modules directly instead of its public barrel.',
+    },
+  },
+  create(context) {
+    const filename = path
+      .relative(import.meta.dirname, context.filename)
+      .split(path.sep)
+      .join('/');
+    const source = filename.match(/^src\/web\/(screens|widgets|features|entities|shared)\/([^/]+)/);
+    const ranks = { app: 0, screens: 1, widgets: 2, features: 3, entities: 4, shared: 5 };
+    const fromLayer = source?.[1] ?? (filename.startsWith('src/app/') ? 'app' : null);
+    const inspect = (node, value) => {
+      if (typeof value !== 'string' || !value.startsWith('.') || fromLayer === null) return;
+      const resolved = path
+        .relative(import.meta.dirname, path.resolve(path.dirname(context.filename), value))
+        .split(path.sep)
+        .join('/');
+      const target = resolved.match(
+        /^src\/web\/(screens|widgets|features|entities|shared)\/([^/]+)(?:\/(.*))?$/,
+      );
+      if (target === null) return;
+      const [, toLayer, toSlice, internal] = target;
+      if (source?.[1] === toLayer && source?.[2] === toSlice) {
+        if (
+          (internal === undefined || /^index(?:\.[cm]?[jt]sx?)?$/.test(internal)) &&
+          !/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(filename)
+        )
+          context.report({ node, messageId: 'ownBarrel' });
+        return;
+      }
+      if (ranks[toLayer] < ranks[fromLayer])
+        context.report({ node, messageId: 'upward', data: { from: fromLayer, to: toLayer } });
+      else if (toLayer === fromLayer && toLayer !== 'shared')
+        context.report({ node, messageId: 'peer', data: { layer: toLayer } });
+      if (internal !== undefined && !/^index(?:\.[cm]?[jt]sx?)?$/.test(internal)) {
+        // The single global stylesheet is the shared styles segment's explicit asset entry point.
+        if (
+          toLayer === 'shared' &&
+          toSlice === 'styles' &&
+          internal === 'globals.css' &&
+          fromLayer === 'app'
+        )
+          return;
+        context.report({ node, messageId: 'private', data: { slice: `${toLayer}/${toSlice}` } });
+      }
+    };
+    return {
+      ImportDeclaration: (node) => inspect(node.source, node.source.value),
+      ExportNamedDeclaration: (node) => {
+        if (node.source) inspect(node.source, node.source.value);
+      },
+      ExportAllDeclaration: (node) => inspect(node.source, node.source.value),
+      ImportExpression: (node) => inspect(node.source, node.source.value),
+      TSImportType: (node) => inspect(node.source, node.source.value),
+    };
+  },
+};
+
 export default createApplicationEslintConfig({
   rootDirectory: import.meta.dirname,
   webFiles,
   fsd: false,
   enforceLayerDirection: false,
-  ignores: ['.claude/worktrees/**'],
+  ignores: ['.claude/worktrees/**', 'playwright-report/**', 'test-results/**'],
   additionalFrameworkPackages: ['pdfjs-dist'],
   additionalConfigs: [
     {
       files: webFiles,
-      plugins: { boundaries },
+      plugins: { boundaries, fsd: { rules: { 'slice-boundaries': fsdSliceRule } } },
       settings: {
         'boundaries/include': ['src/web/**/*', 'src/app/**/*', 'src/server/**/*', 'src/i18n/**/*'],
         'boundaries/elements': [
@@ -30,6 +100,7 @@ export default createApplicationEslintConfig({
         ],
       },
       rules: {
+        'fsd/slice-boundaries': 'error',
         'boundaries/dependencies': [
           'error',
           {

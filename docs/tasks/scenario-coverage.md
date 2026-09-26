@@ -215,11 +215,11 @@ standard lists them.
 | a turn is an instruction beside a page, never a rewrite of the file | `test/integration/canonical-build.integration.test.ts` — stands one page of a scan upright without touching the file; rebuilds to the pages as they arrived once the turn is cleared |
 | a turn is applied after the crop, and follows its own page out of the file | `src/server/application/documents/build-canonical.test.ts` — turns the page after cropping it, so the stored quadrilateral still means what it meant; picks the pages first and turns what it picked |
 | a document with a missing original still serves its canonical | `test/e2e/document-files.e2e.test.ts` — still serves the canonical of a document whose volume is gone |
-| the strip draws every page of every file in document order, and says where each came from | `src/web/features/page-strip/page-strip.test.tsx` — draws every page of both files in document order, each saying where it came from |
-| 🔒 a page is dragged anywhere in the document, and the arrow keys do the same work | `src/web/features/page-strip/page-strip.test.tsx` — drags a page across the boundary between two files; moves a focused page one position per arrow key and keeps the focus on it |
-| 🔒 nothing is sent until Save, and Cancel sends nothing at all | `src/web/features/page-strip/page-strip.test.tsx` — sends the whole order on Save, and nothing until then; discards the pending order on Cancel and sends nothing at all |
-| a page is turned, cropped, removed, cut at and moved from the strip | `src/web/features/page-strip/page-strip.test.tsx` — turns one page at a time and draws the thumbnail turned with it; removes a page, having asked first; does not offer to remove the only page there is; cuts the document before a page, and never before the first; moves a selection into a new document; `src/web/screens/document-viewer/document-viewer-screen.test.tsx` — opens the crop editor on a page, and stores what it draws on that page; crops a page of a PDF too, and offers it no mirror |
-| 🔒 a file nobody has counted the pages of is drawn as one honest entry | `src/web/features/page-strip/page-strip.test.tsx` — draws a file held whole as one tile that says so, with no picture and no turn |
+| the strip draws every page of every file in document order, and says where each came from | `src/web/features/document-pages/page-strip/page-strip.test.tsx` — draws every page of both files in document order, each saying where it came from |
+| 🔒 a page is dragged anywhere in the document, and the arrow keys do the same work | `src/web/features/document-pages/page-strip/page-strip.test.tsx` — drags a page across the boundary between two files; moves a focused page one position per arrow key and keeps the focus on it |
+| 🔒 nothing is sent until Save, and Cancel sends nothing at all | `src/web/features/document-pages/page-strip/page-strip.test.tsx` — sends the whole order on Save, and nothing until then; discards the pending order on Cancel and sends nothing at all |
+| a page is turned, cropped, removed, cut at and moved from the strip | `src/web/features/document-pages/page-strip/page-strip.test.tsx` — turns one page at a time and draws the thumbnail turned with it; removes a page, having asked first; does not offer to remove the only page there is; cuts the document before a page, and never before the first; moves a selection into a new document; `src/web/screens/document-viewer/document-viewer-screen.test.tsx` — opens the crop editor on a page, and stores what it draws on that page; crops a page of a PDF too, and offers it no mirror |
+| 🔒 a file nobody has counted the pages of is drawn as one honest entry | `src/web/features/document-pages/page-strip/page-strip.test.tsx` — draws a file held whole as one tile that says so, with no picture and no turn |
 | a file dropped between two pages goes between them | `src/web/screens/document-viewer/document-viewer-screen.test.tsx` — sends a file dropped between two pages to that position; `src/web/features/upload-queue/upload-queue.test.tsx` — uploads to the position it was addressed to; measures the next file of a batch against the answer the last one gave |
 
 ## API
@@ -230,6 +230,24 @@ standard lists them.
 | envelope shape on success and error | `test/e2e/bootstrap.e2e.test.ts` — wraps success in { data } and failure in { error }, and nothing else (docs/07 §7.1) |
 | BigInt as string | `test/e2e/documents.e2e.test.ts` — carries a size past what a JS number holds, exactly (docs/07 §7.4) |
 | a deleted document → 404 everywhere (the deletion is real — `02` ADR-015 as amended, `03 §3.5` — and its files go to the trash) | `test/e2e/documents.e2e.test.ts` — deletes a document for real, and puts its files in the trash; 404s a second delete |
+
+## Production follow-up and browser coverage (M65)
+
+| Scenario | Test |
+|---|---|
+| Abandoned receipts recover after two hours without duplicating active work or losing finished previews | `test/e2e/receipts.e2e.test.ts` — stale recovery, bounded selection, concurrent retry, locked archive identity and transactional rollback; `src/server/application/jobs/handle-maintenance.test.ts` — bounded recovery, paused queues and enqueue failures |
+| An administrator can retry stale queued work even when the failed count is zero | `src/web/screens/admin-queue/admin-queue-screen.test.tsx` — queued-only recovery and confirmation before mutation |
+| FSD rejects peer slices, private imports, upward dependencies and circular imports through a slice's own barrel | `src/app/fsd-boundaries.test.ts` — configured ESLint rule, including re-exports, dynamic and type imports |
+| Missing document images retain an accessible fallback and a different source can load normally | `src/web/entities/document/document-image.test.tsx` — image error and new source |
+| Responsive tables render populated rows and actions | `src/web/shared/ui/responsive-table.test.tsx` — real Ant Design table through the shared public API |
+| Every route family works at phone, tablet and desktop widths in both themes | `test/browser/routes.spec.ts` — populated routes and resolved browse routes; `test/browser/fixtures.ts` — browser exceptions, loaded images, page overflow and rendered theme; `playwright.config.mjs` — five widths × two themes |
+| Archive and search can share a browser session without incompatible cache data | `test/browser/routes.spec.ts` — documents and search retain their own query data during client navigation |
+| A filter hydrates correctly when the shell has already populated its catalogue cache | `src/web/features/document-filters/document-filters.test.tsx` — server loading markup followed by a prefilled client cache; `test/browser/fixtures.ts` — visible loading controls must settle |
+| Keyboard and touch can reach viewer and collection actions | `test/browser/routes.spec.ts` — skip link, receipt source details, share dialog, page arrangement and crop |
+| Public forms, validation, empty data and API errors stay readable in both themes | `test/browser/states.spec.ts` — login, validation, onboarding, invalid invite/reset, empty archive and recoverable API failure |
+
+Browser commands and baseline review rules are documented in [`14 §14.8`](../14-coding-standards.md#148-testing).
+They complement the existing unit/HTTP scenarios rather than replacing authorization coverage.
 
 ## The security checklist of `08 §8.6`
 
@@ -270,7 +288,7 @@ its lines were false. A claim nobody can run is a claim nobody is checking.
 | Document edits share locks; receipt contention rolls back cleanly | `test/integration/file-product-home.integration.test.ts` — allows reorder/expand alongside a split without adding a file/document lock cycle; refuses a document writer immediately during a receipt claim and rolls its edits back |
 | Receipt resource bounds apply to new work and retries | `src/server/application/jobs/handle-receipt-process.test.ts` — refuses oversized PDFs before rendering any pages; bounds all extraction images together before sending them to the model; applies the page bound to previously saved previews without reading any page; applies the aggregate image bound to saved previews on a retry |
 | Saved preview errors settle visibly or remain retryable | `src/server/application/jobs/handle-receipt-process.test.ts` — records a failed saved preview read instead of leaving the receipt queued forever; retries raw storage transport failures and recovers using the same saved preview; keeps saved preview transport failures retryable |
-| Recent search cannot corrupt the archive query cache | `src/web/entities/search/recent.test.tsx` — does not share a cache entry with the archive infinite query |
+| Recent search cannot corrupt the archive query cache | `src/web/entities/document/recent.test.tsx` — does not share a cache entry with the archive infinite query |
 | All server cursor pages are reachable | `src/web/screens/admin-users/admin-users-screen.test.tsx`, `src/web/screens/collection-detail/collection-detail-screen.test.tsx`, `src/web/screens/facets/facet-screens.test.tsx` — continuation regression scenarios |
 | Receipt read/media/clipboard failures are recoverable | `src/web/screens/receipts/receipts-screen.test.tsx` — shows a failed read as a retryable error, never an empty archive; `src/web/screens/receipt-viewer/receipt-viewer-screen.test.tsx` — recovers a failed receipt read through the inline retry action; makes a failed original image request retryable; reports unavailable clipboard access without an unhandled rejection |
 | Saved and updated themes apply | `src/web/shared/providers/theme-provider.test.tsx` — applies a saved preference and changes the active theme after a successful preference update |

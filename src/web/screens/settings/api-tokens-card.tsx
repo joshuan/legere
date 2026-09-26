@@ -12,16 +12,15 @@ import {
   Popconfirm,
   Select,
   Space,
-  Table,
   Tag,
   Typography,
 } from 'antd';
+import { ResponsiveTable as Table, OneTimeLinkModal, QueryError } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import type { ApiTokenDto, CreateApiTokenRequest } from '../../../shared/contracts/users';
 import { apiTokenApi, apiTokenKeys } from '../../entities/api-token';
 import { useErrorMessage } from '../../shared/lib';
-import { OneTimeLinkModal, QueryError } from '../../shared/ui';
 
 // The API tokens card names the one capability a script receives; inbox tokens never inherit read.
 export function ApiTokensCard() {

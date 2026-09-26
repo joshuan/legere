@@ -89,7 +89,9 @@ describe('SubjectKindsScreen', () => {
     expect(await screen.findByText('2026-03-01')).toBeInTheDocument();
     expect(seen[0]).toContain('sort=lastDocumentAt');
 
-    await userEvent.click(screen.getByText(enMessages.admin.subjectKinds.columns.subjects));
+    await userEvent.click(
+      screen.getByRole('columnheader', { name: enMessages.admin.subjectKinds.columns.subjects }),
+    );
     await waitFor(() => expect(seen.length).toBeGreaterThan(1));
     // `things` is the kinds list's own sort name — the other two catalogues do not have it.
     expect(seen[seen.length - 1]).toContain('sort=things');

@@ -637,18 +637,18 @@
           "skipped": "Skipped"
         },
         "countsHint": "The entire archive, not only the loaded page. Each receipt is counted once. These counts differ from the queue job counts below.",
-        "retryTitle": "Retry failed receipts",
-        "retryHint": "Return failed receipts to the queue. Completed receipts and receipts with a live job are left alone. Originals and completed previews are preserved.",
+        "retryTitle": "Recover unfinished receipts",
+        "retryHint": "Retry failed receipts and processing abandoned for over two hours without a live job. Completed receipts and active jobs are left alone. Originals and completed previews are preserved.",
         "eligible": "Ready to retry: {count}",
         "batch": "Receipts per request",
-        "retry": "Retry failures · {count}",
+        "retry": "Retry receipts · {count}",
         "confirmTitle": "Queue up to {count} receipts?",
-        "confirmHint": "Only failed receipts without a live job. Successful results will not be overwritten.",
+        "confirmHint": "Failed or abandoned processing without a live job. Successful results will not be overwritten.",
         "confirm": "Queue receipts",
         "enqueued": "Queued: {count}",
-        "batchHint": "Up to {count} receipts per click. Repeat for the next batch if more failures remain. New failures may reappear; check their cause before another retry.",
-        "emptyQueue": "Enabling a queue does not retry old failures. There are no jobs now: use the button below to queue failed receipts.",
-        "paused": "The queue is paused. Enable it in the settings below, then retry failures.",
+        "batchHint": "Up to {count} receipts per click. Repeat for the next batch if more eligible receipts remain. If failures recur, check their cause before another retry.",
+        "emptyQueue": "There are unfinished receipts, but no jobs are running or waiting. Enabling the queue does not restart them: use the button below to recover eligible receipts.",
+        "paused": "The queue is paused. Enable it in the settings below, then retry receipts.",
         "notConfigured": "Receipt extraction is not configured. Set the provider and model on the server.",
         "noWorker": "The queue worker is not running. Check the application status."
       },
@@ -1109,6 +1109,7 @@
     "pageAlt": "{fileName}, page {page}"
   },
   "viewer": {
+    "previewUnavailable": "Preview is not available.",
     "saved": "Saved",
     "documentType": "Type",
     "auto": "auto",

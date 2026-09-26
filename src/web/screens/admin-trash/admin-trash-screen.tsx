@@ -13,12 +13,12 @@ import {
   Popconfirm,
   Row,
   Space,
-  Table,
   Tag,
   Tooltip,
   Typography,
   theme,
 } from 'antd';
+import { ResponsiveTable as Table } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useCallback, useMemo, useState } from 'react';

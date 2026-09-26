@@ -93,7 +93,7 @@ see docs/06 §6.9").
 
 ## 14.8. Testing
 
-Runner — **Vitest** for everything; server tests transpile via **`unplugin-swc`** (decorator
+Runner — **Vitest** for unit, component and API/infrastructure tests; server tests transpile via **`unplugin-swc`** (decorator
 metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `web`
 (`environment: jsdom`, `@testing-library/react`). E2E API — Nest app over the shared Express +
 **supertest**.
@@ -104,11 +104,32 @@ metadata — ADR-017); two Vitest projects: `server` (`environment: node`) and `
 | Unit (application) | every use case and job handler with in-memory ports/repositories | orchestration, idempotency, error codes |
 | Integration (infrastructure) | Prisma repositories against test Postgres (pgvector); `FsLibraryReader` against tmp fixtures; `S3FileStorage` against MinIO (local; optional in CI) | truncate between tests |
 | E2E (HTTP) | full flows with mocked `FileStorage`/`PdfToolbox`/`EmailSender`/`CaptchaVerifier`/AI ports + real DB | supertest |
+| Browser and visual | real application rendering/login, responsive route families, themes and navigation | Playwright + pinned Chromium; deterministic isolated fixtures and Linux screenshot baselines |
 
 The test harness refuses application and migration URLs unless both name the same database
 whose name ends in `_test`, on the same host and port. This validation runs before clients or
 the test application are created; destructive cleanup must never fall back to a development or
 production database. Use a separately migrated PostgreSQL instance when running concurrent suites.
+
+**Browser coverage.** Use nonempty deterministic fixtures in an isolated `_test` database and real
+session authentication. External storage/AI/email ports may be replaced in the test server; no
+authentication bypass is added to production code and queue workers do not mutate the fixtures.
+The matrix covers 320, 390, 768, 1024 and 1440 CSS pixels in both light and dark themes. Baselines
+are created and compared with the same pinned Linux browser image, stable fonts/dates and disabled
+animations. Every route family is exercised; screenshots complement checks for browser exceptions,
+page overflow, navigation and reachable actions. In particular, archive → search → archive must
+work without a reload so incompatible query-cache shapes cannot hide behind isolated page tests.
+Inspect changed screenshots before accepting a baseline update. CI retains differences and traces
+when a browser test fails; production documents and private screenshots never become test fixtures.
+
+The canonical command is `npm run test:browser:docker`; it builds the test application, starts a
+private disposable PostgreSQL instance, migrates/seeds it, and cleans its Compose project after the
+run. To update baselines intentionally, append `-- --update-snapshots=all`, inspect the images, then
+rerun without the flag. A focused project can be selected with `-- --project=chromium-390-dark`.
+Native browser captures are for diagnosis only (`BROWSER_CAPTURE_ONLY=1` with a separately migrated
+`DATABASE_URL` and an existing production build); they are not portable Linux baselines. The fixed
+environment follows [Playwright's visual comparison guidance](https://playwright.dev/docs/test-snapshots)
+and [Docker guidance](https://playwright.dev/docs/docker).
 
 **Mandatory scenarios (acceptance floor):**
 - Auth: onboarding only once (race → one admin); 3-step registration happy path + wrong code ×5 burn;

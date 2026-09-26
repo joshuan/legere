@@ -1,0 +1,33 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: legere
+      POSTGRES_PASSWORD: browser-fixture
+      POSTGRES_DB: legere_visual_test
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U legere -d legere_visual_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    tmpfs: /var/lib/postgresql/data
+  browser:
+    # Native ARM Linux on Apple Silicon and the CI ARM runner: same Chromium, fonts and OS.
+    platform: linux/arm64
+    build:
+      context: ../..
+      dockerfile: test/browser/Dockerfile
+    depends_on:
+      db: { condition: service_healthy }
+    init: true
+    shm_size: 1gb
+    environment:
+      CI: ${CI:-}
+      BROWSER_CANONICAL: '1'
+      DATABASE_URL: postgresql://legere:browser-fixture@db:5432/legere_visual_test?schema=public
+      NODE_OPTIONS: --no-experimental-webstorage
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    volumes:
+      - ./__screenshots__:/app/test/browser/__screenshots__
+      - ../../test-results:/app/test-results
+      - ../../playwright-report:/app/playwright-report

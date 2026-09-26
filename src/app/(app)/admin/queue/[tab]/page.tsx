@@ -1,8 +1,5 @@
 import { notFound, redirect } from 'next/navigation';
-import {
-  adminProcessingHref,
-  isAdminProcessingTab,
-} from '../../../../../web/screens/admin-queue/admin-queue-tab';
+import { adminProcessingHref, isAdminProcessingTab } from '../../../../../web/entities/processing';
 
 // /admin/queue/:tab (docs/11 §11.13). The open tab is part of the address, so a link to this screen
 // can be a link to the failures — shared, bookmarked, and reloaded where it was left.

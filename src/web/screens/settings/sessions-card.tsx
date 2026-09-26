@@ -1,9 +1,9 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Card, Popconfirm, Space, Table, Tag, Typography } from 'antd';
+import { App, Button, Card, Popconfirm, Space, Tag, Typography } from 'antd';
+import { ResponsiveTable as Table, QueryError } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
-import { QueryError } from '../../shared/ui';
 import { useRouter } from 'next/navigation';
 import type { SessionDto } from '../../../shared/contracts/users';
 import { sessionApi, sessionKeys } from '../../entities/session';
@@ -60,8 +60,13 @@ export function SessionsCard() {
               {
                 title: t('settings.sessions.columns.device'),
                 dataIndex: 'userAgent',
+                width: 260,
                 render: (userAgent: string | null, session: SessionDto) => (
-                  <Space size="small">
+                  <Space
+                    direction="vertical"
+                    size={4}
+                    style={{ maxWidth: 260, overflowWrap: 'anywhere', whiteSpace: 'normal' }}
+                  >
                     <span>{userAgent ?? t('settings.sessions.unknownDevice')}</span>
                     {session.current ? (
                       <Tag color="green">{t('settings.sessions.current')}</Tag>

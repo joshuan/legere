@@ -3,6 +3,9 @@ node_modules
 dist
 out
 coverage
+playwright-report
+test-results
+test/browser/__screenshots__
 .git
 .github
 .env

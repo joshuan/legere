@@ -13,12 +13,12 @@ import {
   Modal,
   Popconfirm,
   Space,
-  Table,
   Typography,
   theme,
   type TableColumnType,
   type TableProps,
 } from 'antd';
+import { ResponsiveTable as Table } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ZodType } from 'zod';

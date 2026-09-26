@@ -8,6 +8,7 @@ import type { FileOrigin } from '../../../shared/contracts/enums';
 import type { DocumentFilters } from '../../entities/document';
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
 import { libraryApi, libraryKeys } from '../../entities/library';
+import { useHydrated } from '../../shared/lib';
 
 export type DocumentFiltersProps = {
   value: DocumentFilters;
@@ -19,6 +20,7 @@ export type DocumentFiltersProps = {
 // so a filtered view is a link somebody can send to a colleague.
 export function DocumentFiltersBar({ value, onChange, searchOnly = false }: DocumentFiltersProps) {
   const t = useTranslations();
+  const hydrated = useHydrated();
 
   const libraries = useQuery({ queryKey: libraryKeys.visible, queryFn: libraryApi.listVisible });
   const documentTypes = useQuery({ queryKey: documentTypeKeys.all, queryFn: documentTypeApi.list });
@@ -57,13 +59,13 @@ export function DocumentFiltersBar({ value, onChange, searchOnly = false }: Docu
     <Space wrap size="middle">
       <Select
         allowClear
-        style={{ minWidth: 200 }}
+        style={{ width: 200, maxWidth: '100%' }}
         placeholder={t('documents.filters.library')}
         aria-label={t('documents.filters.library')}
-        loading={libraries.isPending}
+        loading={!hydrated || libraries.isPending}
         value={value.libraryId ?? undefined}
         onChange={(libraryId?: string) => set({ libraryId })}
-        options={(libraries.data?.items ?? []).map((library) => ({
+        options={(hydrated ? (libraries.data?.items ?? []) : []).map((library) => ({
           value: library.id,
           label: library.name,
         }))}
@@ -71,13 +73,13 @@ export function DocumentFiltersBar({ value, onChange, searchOnly = false }: Docu
 
       <Select
         allowClear
-        style={{ minWidth: 180 }}
+        style={{ width: 180, maxWidth: '100%' }}
         placeholder={t('documents.filters.documentType')}
         aria-label={t('documents.filters.documentType')}
-        loading={documentTypes.isPending}
+        loading={!hydrated || documentTypes.isPending}
         value={value.typeId ?? undefined}
         onChange={(typeId?: string) => set({ typeId })}
-        options={(documentTypes.data?.items ?? []).map((documentType) => ({
+        options={(hydrated ? (documentTypes.data?.items ?? []) : []).map((documentType) => ({
           value: documentType.id,
           label: documentType.name,
         }))}
@@ -89,7 +91,7 @@ export function DocumentFiltersBar({ value, onChange, searchOnly = false }: Docu
           upload does not change kind, so there are two answers, not three (docs/03 §3.3.16). */}
           <Select
             allowClear
-            style={{ minWidth: 180 }}
+            style={{ width: 180, maxWidth: '100%' }}
             placeholder={t('documents.filters.origin')}
             aria-label={t('documents.filters.origin')}
             value={value.origin ?? undefined}

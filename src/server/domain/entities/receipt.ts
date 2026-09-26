@@ -6,6 +6,8 @@ import type { File } from './file';
 // its final pages. The byte bound leaves room for base64 and JSON copies in the provider request.
 export const MAX_RECEIPT_PAGES = 100;
 export const MAX_RECEIPT_EXTRACTION_BYTES = 32 * 1024 * 1024;
+// A lost delivery is recoverable once it has had the same grace period as document work.
+export const RECEIPT_RECOVERY_GRACE_MS = 2 * 60 * 60 * 1000;
 
 export type Receipt = {
   id: string;

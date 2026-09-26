@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
-import { isApiError } from '../api/api-error';
+import { isApiError } from '../api';
 
 // TanStack Query defaults (docs/10 §10.5): never retry a 4xx — those are decisions, not blips —
 // and do not refetch on focus, which would hammer the API on every tab switch.

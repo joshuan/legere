@@ -23,15 +23,9 @@ import {
   type SearchMode,
   type SearchSort,
 } from '../../../shared/contracts/search';
-import {
-  SearchResultRow,
-  searchApi,
-  searchKeys,
-  useRecentDocuments,
-  type SearchInput,
-} from '../../entities/search';
+import { searchApi, searchKeys, type SearchInput } from '../../entities/search';
 import { DocumentFiltersBar } from '../../features/document-filters';
-import type { DocumentFilters } from '../../entities/document';
+import { SearchResultRow, useRecentDocuments, type DocumentFilters } from '../../entities/document';
 import { useErrorMessage } from '../../shared/lib';
 
 // The submitted search lives in the URL. Back/Forward restores both the form and the results.

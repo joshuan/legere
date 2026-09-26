@@ -13,7 +13,7 @@ import {
 import { sessionApi } from '../../entities/session';
 import { isApiError } from '../../shared/api';
 import { safeReturnTo, useErrorMessage } from '../../shared/lib';
-import { isTurnstileConfigured, TurnstileWidget } from '../captcha';
+import { isTurnstileConfigured, TurnstileWidget } from '../../shared/captcha';
 
 // The one wizard behind onboarding, invite acceptance and password reset (docs/11 §11.2): the three
 // flows differ only in which token they carry and whether the address is fixed.
@@ -150,7 +150,10 @@ export function AuthWizard({
   );
 
   return (
-    <Card style={{ maxWidth: 480, margin: '3rem auto' }}>
+    <Card
+      className="legere-auth-card"
+      style={{ maxWidth: 480, width: 'calc(100% - 32px)', margin: 'clamp(16px, 6vh, 48px) auto' }}
+    >
       <Typography.Title level={3}>{t(`auth.wizard.title.${mode}`)}</Typography.Title>
 
       <Steps

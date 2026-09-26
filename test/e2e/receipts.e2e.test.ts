@@ -9,6 +9,7 @@ import {
 import { ReceiptExtractor } from '../../src/server/application/ports/receipt-extractor';
 import { JobQueue } from '../../src/server/application/ports/job-queue';
 import { QueueSettings } from '../../src/server/application/queue/queue-settings';
+import { HandleMaintenance } from '../../src/server/application/jobs/handle-maintenance';
 import { registerVerifyResponseSchema } from '../../src/shared/contracts/auth';
 import {
   documentDetailDtoSchema,
@@ -144,6 +145,153 @@ describe('Receipts (e2e)', () => {
       api(app).post(`${root}/retry-failed`, { limit }).set('Cookie', cookie);
     const configure = () =>
       vi.spyOn(app.nestApp.get(ReceiptExtractor), 'isConfigured', 'get').mockReturnValue(true);
+
+    const ageReceipt = (id: string) =>
+      testPrisma().archiveItem.update({
+        where: { id },
+        data: { updatedAt: new Date(Date.now() - 3 * 60 * 60 * 1000) },
+      });
+
+    it('recovers abandoned receipt steps while excluding fresh, completed, failed and live work', async () => {
+      const extraction = await seedState(1, 'DONE', 'QUEUED');
+      const preview = await seedState(2, 'RUNNING', 'QUEUED');
+      const failed = await seedState(3, 'DONE', 'FAILED');
+      const done = await seedState(4, 'DONE', 'DONE');
+      const fresh = await seedState(5, 'QUEUED', 'QUEUED');
+      const mixedFailure = await seedState(6, 'FAILED', 'QUEUED');
+      for (const id of [extraction, preview, failed, done, mixedFailure]) await ageReceipt(id);
+      const liveIds: string[] = [];
+      for (const [index, state] of ['created', 'retry', 'active'].entries()) {
+        const id = await seedState(index + 7, 'DONE', 'QUEUED');
+        await ageReceipt(id);
+        await app.nestApp.get(JobQueue).enqueue('receipt-process', { receiptId: id });
+        await testPrisma().$executeRaw`
+          UPDATE pgboss.job SET state = ${state}::pgboss.job_state
+          WHERE name = 'receipt-process' AND data->>'receiptId' = ${id}
+        `;
+        liveIds.push(id);
+      }
+      const maintenance = app.nestApp.get(HandleMaintenance);
+
+      await Promise.all([maintenance.handle(), maintenance.handle()]);
+
+      const jobs = await testPrisma().$queryRaw<Array<{ id: string; count: number }>>`
+        SELECT data->>'receiptId' AS id, count(*)::int AS count FROM pgboss.job
+        WHERE name = 'receipt-process' GROUP BY data->>'receiptId'
+      `;
+      expect(jobs.map((job) => job.id).sort()).toEqual([extraction, preview, ...liveIds].sort());
+      expect(jobs.every((job) => job.count === 1)).toBe(true);
+      const repository = app.nestApp.get(ReceiptRepository);
+      expect(await repository.findById(extraction)).toMatchObject({
+        previewStatus: 'DONE',
+        extractionStatus: 'QUEUED',
+      });
+      expect(await repository.findById(preview)).toMatchObject({
+        previewStatus: 'QUEUED',
+        extractionStatus: 'QUEUED',
+      });
+      expect(await repository.findById(failed)).toMatchObject({ extractionStatus: 'FAILED' });
+      expect(await repository.findById(fresh)).toMatchObject({ previewStatus: 'QUEUED' });
+      expect(await repository.findById(mixedFailure)).toMatchObject({ previewStatus: 'FAILED' });
+    });
+
+    it('makes stale orphaned statuses manually retryable without waiting for the hourly sweep', async () => {
+      configure();
+      const id = await seedState(1, 'DONE', 'QUEUED');
+      const running = await seedState(2, 'RUNNING', 'QUEUED');
+      expect((await overview()).counts.retryable).toBe(0);
+      await ageReceipt(id);
+      await ageReceipt(running);
+
+      expect((await overview()).counts.retryable).toBe(2);
+      expect(expectData(await retry(), retryFailedReceiptsResponseSchema)).toEqual({ enqueued: 2 });
+      expect((await overview()).counts.retryable).toBe(0);
+      expect(await app.nestApp.get(ReceiptRepository).findById(running)).toMatchObject({
+        previewStatus: 'QUEUED',
+      });
+    });
+
+    it('excludes live jobs before applying the bounded recovery batch', async () => {
+      const live = await seedState(1, 'DONE', 'QUEUED');
+      const waiting = await seedState(2, 'DONE', 'QUEUED');
+      const next = await seedState(3, 'DONE', 'QUEUED');
+      for (const id of [live, waiting, next]) await ageReceipt(id);
+      await app.nestApp.get(JobQueue).enqueue('receipt-process', { receiptId: live });
+      const selected = await testPrisma().$transaction((tx) =>
+        app.nestApp
+          .get(ReceiptRepository)
+          .lockStaleUnstarted(new Date(Date.now() - 2 * 60 * 60 * 1000), 1, tx),
+      );
+
+      expect(selected).toEqual([
+        { id: waiting, previewStatus: 'DONE', extractionStatus: 'QUEUED' },
+      ]);
+    });
+
+    it('skips an archive identity already locked for deletion rather than inverting its locks', async () => {
+      const id = await seedState(1, 'DONE', 'QUEUED');
+      await ageReceipt(id);
+      let locked = (): void => undefined;
+      const identityHeld = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      let release = (): void => undefined;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const deletion = testPrisma().$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM archive_items WHERE id = ${id}::uuid FOR UPDATE`;
+        locked();
+        await released;
+      });
+      await identityHeld;
+      try {
+        const repository = app.nestApp.get(ReceiptRepository);
+        expect(
+          await testPrisma().$transaction((tx) =>
+            repository.lockStaleUnstarted(new Date(), 200, tx),
+          ),
+        ).toEqual([]);
+        expect(
+          await testPrisma().$transaction((tx) => repository.lockFailedForRetry(200, tx)),
+        ).toEqual([]);
+      } finally {
+        release();
+        await deletion;
+      }
+    });
+
+    it('keeps stale receipts paused and rolls recovery back when a later enqueue fails', async () => {
+      const ids = [
+        await seedState(1, 'RUNNING', 'QUEUED'),
+        await seedState(2, 'RUNNING', 'QUEUED'),
+      ];
+      for (const id of ids) await ageReceipt(id);
+      const settings = app.nestApp.get(QueueSettings);
+      const read = vi
+        .spyOn(settings, 'read')
+        .mockResolvedValue({ ...(await settings.read()), paused: ['receipt-process'] });
+      const maintenance = app.nestApp.get(HandleMaintenance);
+      await maintenance.handle();
+      expect(
+        await testPrisma().$queryRaw`SELECT id FROM pgboss.job WHERE name = 'receipt-process'`,
+      ).toEqual([]);
+      read.mockRestore();
+      const queue = app.nestApp.get(JobQueue);
+      const enqueue = queue.enqueueAfterTx.bind(queue);
+      vi.spyOn(queue, 'enqueueAfterTx')
+        .mockImplementationOnce(enqueue)
+        .mockRejectedValueOnce(new Error('queue unavailable'));
+
+      await expect(maintenance.handle()).rejects.toThrow('queue unavailable');
+
+      expect(
+        await testPrisma().$queryRaw`SELECT id FROM pgboss.job WHERE name = 'receipt-process'`,
+      ).toEqual([]);
+      expect(
+        await testPrisma().receipt.count({ where: { id: { in: ids }, previewStatus: 'RUNNING' } }),
+      ).toBe(2);
+    });
 
     it('counts the whole live receipt archive, independently of retained queue jobs', async () => {
       expect((await overview()).counts).toEqual({

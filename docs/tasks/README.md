@@ -82,6 +82,7 @@ disagree, the doc wins — and report the discrepancy.
 | M62 | Receipts beside documents | a separate receipt aggregate, two-step image pipeline, conversion and UI |
 | M63 | Word documents | DOC/DOCX ingestion, canonical delivery and native extraction |
 | M64 | September service audit | identity and privacy, recoverable UI, reliable installation and current documentation |
+| M65 | Production follow-up and frontend verification | stranded receipt recovery, enforced FSD, responsive themes and browser screenshot coverage |
 
 Milestones and tasks are ordered by dependency. The owner may authorize independent audit
 work in parallel; integration and verification still precede completion.

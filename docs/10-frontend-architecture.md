@@ -10,14 +10,16 @@ Next owns `src/app` (routing only, thin files); all UI code lives in `src/web` b
 ```
 src/web/
 ├── screens/      # top-level screen compositions, one slice per route (FSD "pages", renamed)
-├── widgets/      # self-contained UI blocks (document-grid, viewer-panel, queue-dashboard, app-sidebar, upload-panel, search-shortcut)
-├── features/     # user actions (login-form, invite-wizard, crop-editor, page-arranger, document-upload, share-collection)
+├── widgets/      # self-contained UI blocks (document-viewer, processing-dashboard, app-shell, upload-panel)
+├── features/     # user actions (login-form, auth-wizard, document-pages, receipt-upload, search-shortcut, share-collection)
 ├── entities/     # domain UI + api hooks (document, library, collection, document type, user)
 └── shared/       # ui-kit wrappers, api client, i18n utils, config, lib (format, hooks)
 ```
 
 Rules (ESLint-enforced, [`14 §14.2`](./14-coding-standards.md#142-eslint)):
 - imports only "downward" (`screens → widgets → features → entities → shared`);
+- independent slices in the same layer do not import one another; compose them in the layer above
+  or keep tightly coupled parts inside one cohesive slice;
 - a slice is imported only via its public API (`index.ts`); deep imports are forbidden;
 - `src/web/**` and `src/app/**` never import `src/server/**`; shared code only from
   `src/shared/contracts`.
@@ -38,16 +40,28 @@ src/app/
 │   ├── layout.tsx                   # sidebar shell; fetches /api/me server-side
 │   ├── loading.tsx                  # the authenticated area's skeleton — the only boundary here
 │   ├── documents/page.tsx           # grid + filters (default screen, redirect from /)
-│   ├── documents/[id]/page.tsx      # viewer
+│   ├── documents/[id]/page.tsx      # viewer redirect to the appropriate tab
+│   ├── documents/[id]/[tab]/page.tsx
+│   ├── receipts/page.tsx
+│   ├── receipts/[id]/page.tsx
 │   ├── browse/[libraryId]/page.tsx  # folder browsing (?path=)
+│   ├── browse/types/[id]/page.tsx   # types index + filtered detail
+│   ├── browse/people/[id]/page.tsx  # people index + filtered detail
+│   ├── browse/subjects/[kind]/[id]/page.tsx # kind, subject and filtered detail
+│   ├── browse/years/[year]/page.tsx # year index + filtered detail
 │   ├── search/page.tsx
 │   ├── collections/page.tsx
 │   ├── collections/[id]/page.tsx
+│   ├── people/page.tsx             # shared catalogues, actions separately authorized
+│   ├── subjects/page.tsx
+│   ├── subject-kinds/page.tsx
+│   ├── document-types/page.tsx
 │   ├── settings/page.tsx
 │   └── admin/                       # role-guarded (ADMIN)
 │       ├── libraries/page.tsx  ├── libraries/[id]/page.tsx
-│       ├── users/page.tsx      ├── document types/page.tsx
-│       ├── queue/page.tsx      ├── queue/[tab]/page.tsx   # overview | pipeline | services | failures
+│       ├── users/page.tsx
+│       ├── processing/page.tsx ├── processing/[tab]/page.tsx # overview | receipts | pipeline | services | failures
+│       ├── queue/page.tsx      ├── queue/[tab]/page.tsx  # compatibility redirects to processing
 │       ├── instance/page.tsx   └── trash/page.tsx
 ├── layout.tsx                       # html/body, AntdRegistry, providers
 ├── error.tsx / global-error.tsx / not-found.tsx
@@ -123,6 +137,11 @@ the shell is the sider and the content, and a screen's heading and actions belon
   `matchMedia('prefers-color-scheme')`, listened live), antd locale (`enUS`/`ruRU`) synced with
   next-intl locale.
 - No custom CSS framework; component styling via antd tokens and CSS modules for layout glue only.
+- Light and dark apply to every route and overlay, including empty/error/loading states. Application
+  surfaces use theme tokens; the paper shown inside a document viewer remains independently readable.
+- Layouts are fluid from 320 px through tablet and desktop widths. Controls wrap or stack as space
+  shrinks; wide tables scroll inside their own region rather than widening the page. No action is
+  removed merely to fit a smaller viewport.
 
 ### 10.4a. How the CSP nonce reaches a page
 
@@ -178,18 +197,25 @@ this policy is verified by opening the app and reading the console for violation
 
 ## 10.5. Server state (TanStack Query v5)
 
-- One `QueryClient` in providers: `staleTime: 30s`, `retry: (failures, err) => failures < 2 &&
-  err.status >= 500` (never retry 4xx), `refetchOnWindowFocus: false`.
+- One `QueryClient` in providers: `staleTime: 30s`, at most two retries for typed API network/5xx
+  errors (never retry 4xx or contract failures), `refetchOnWindowFocus: false`.
 - **API client** (`src/web/shared/api/client.ts`): a `fetch` wrapper —
   `request(method, path, { body?, query?, schema })`:
   - same-origin, `credentials: 'include'`, `Content-Type: application/json`;
   - non-2xx → parse envelope, throw typed `ApiError { code, status, details }`; network failure →
     `ApiError('NETWORK')`;
-  - 2xx → parse envelope and validate `data` with the contracts Zod `schema` — drift fails loudly in
-    dev (throws) and logs-only in prod;
+  - 2xx → parse envelope and validate `data` with the contracts Zod `schema`; drift throws an
+    `INTERNAL` API error in every environment, with validation details only outside production;
   - a global handler: `ApiError` 401 outside `(public)` routes → hard redirect to `/login`.
 - Query keys per entity slice: `['documents', filters]`, `['document', id]`, `['collections']`, etc.
   Lists use `useInfiniteQuery` with `nextCursor`. Mutations invalidate the narrowest affected keys.
+  Finite recent-document results have a distinct key from infinite archive pages; incompatible
+  result shapes must never share cache identity, even when they call the same endpoint.
+- **Hydration starts from the server snapshot.** A shell query may populate shared cache before a
+  later control hydrates. Query-dependent loading icons and options must initially match the server
+  markup, then show the cached result. `DocumentFiltersBar` uses the shared `useHydrated` snapshot
+  for this transition; queries still run immediately. A server-render → prefilled-client-cache
+  regression prevents stale loading SVGs from surviving a successful request.
 - 🔒 **A session that ends takes the cache with it.** The `QueryClient` is created once, in the root
   layout shared by `(app)` and `(public)`, so `router.replace('/login')` is a client-side transition
   that never remounts it: without an explicit `clear()` the next person to sign in on that browser

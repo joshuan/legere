@@ -9,12 +9,13 @@ import {
   type ReceiptSort,
 } from '../../../shared/contracts/receipts';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
-import type { Receipt } from '../../domain/entities/receipt';
+import { RECEIPT_RECOVERY_GRACE_MS, type Receipt } from '../../domain/entities/receipt';
 import type { Viewer } from '../../domain/repositories/document.repository';
 import {
   ReceiptRepository,
   type ReceiptListInput,
   type ReceiptProcessingUpdate,
+  type ReceiptProcessingState,
 } from '../../domain/repositories/receipt.repository';
 import { decodeReceiptCursor, encodeReceiptCursor, type ReceiptCursor } from './cursor';
 import { clientOf, isPrismaTx } from './prisma-client';
@@ -26,13 +27,25 @@ const RECEIPT_INCLUDE = {
   archiveItem: { include: { createdBy: { select: { id: true, displayName: true } } } },
 } satisfies Prisma.ReceiptInclude;
 
-const RETRYABLE_RECEIPT = Prisma.sql`
-  (r.preview_status = 'FAILED' OR r.extraction_status = 'FAILED')
-  AND r.preview_status NOT IN ('RUNNING', 'QUEUED')
-  AND r.extraction_status NOT IN ('RUNNING', 'QUEUED')
-  AND NOT EXISTS (
+const NO_LIVE_RECEIPT_JOB = Prisma.sql`
+  NOT EXISTS (
     SELECT 1 FROM pgboss.job j WHERE j.name = 'receipt-process'
       AND j.state IN ('created', 'retry', 'active') AND j.data->>'receiptId' = r.id::text
+  )
+`;
+
+const UNFINISHED_RECEIPT = Prisma.sql`
+  (r.preview_status IN ('PENDING', 'QUEUED', 'RUNNING')
+    OR r.extraction_status IN ('PENDING', 'QUEUED', 'RUNNING'))
+`;
+
+const RETRYABLE_RECEIPT = Prisma.sql`
+  ${NO_LIVE_RECEIPT_JOB} AND (
+    ((r.preview_status = 'FAILED' OR r.extraction_status = 'FAILED')
+      AND r.preview_status NOT IN ('RUNNING', 'QUEUED')
+      AND r.extraction_status NOT IN ('RUNNING', 'QUEUED'))
+    OR (${UNFINISHED_RECEIPT}
+      AND a.updated_at < CURRENT_TIMESTAMP - ${RECEIPT_RECOVERY_GRACE_MS} * INTERVAL '1 millisecond')
   )
 `;
 
@@ -237,7 +250,23 @@ export class PrismaReceiptRepository extends ReceiptRepository {
       SELECT r.id, r.preview_status AS "previewStatus", r.extraction_status AS "extractionStatus"
       FROM receipts r JOIN archive_items a ON a.id = r.id
       WHERE a.deleted_at IS NULL AND ${RETRYABLE_RECEIPT}
-      ORDER BY a.created_at, r.id LIMIT ${limit} FOR UPDATE OF r SKIP LOCKED
+      ORDER BY a.created_at, r.id LIMIT ${limit} FOR UPDATE OF r, a SKIP LOCKED
+    `);
+  }
+
+  async lockStaleUnstarted(
+    olderThan: Date,
+    limit: number,
+    tx: TransactionHandle,
+  ): Promise<ReceiptProcessingState[]> {
+    return clientOf(this.prisma, tx).$queryRaw<ReceiptProcessingState[]>(Prisma.sql`
+      SELECT r.id, r.preview_status AS "previewStatus", r.extraction_status AS "extractionStatus"
+      FROM receipts r JOIN archive_items a ON a.id = r.id
+      WHERE a.deleted_at IS NULL AND a.updated_at < ${olderThan}
+        AND ${UNFINISHED_RECEIPT}
+        AND r.preview_status <> 'FAILED' AND r.extraction_status <> 'FAILED'
+        AND ${NO_LIVE_RECEIPT_JOB}
+      ORDER BY a.created_at, r.id LIMIT ${limit} FOR UPDATE OF r, a SKIP LOCKED
     `);
   }
 

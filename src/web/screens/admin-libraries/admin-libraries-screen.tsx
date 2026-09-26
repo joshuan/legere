@@ -1,15 +1,15 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Card, Popconfirm, Space, Switch, Table, Tag, Typography } from 'antd';
+import { App, Button, Card, Popconfirm, Space, Switch, Tag, Typography } from 'antd';
+import { ResponsiveTable as Table, QueryError } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useCallback, useState } from 'react';
 import type { LibraryAdminDto, LibraryAdminListItem } from '../../../shared/contracts/libraries';
-import { libraryApi, libraryKeys } from '../../entities/library';
+import { libraryApi, libraryKeys, statusColor } from '../../entities/library';
 import { LibraryDrawer } from '../../features/library-form';
 import { useErrorMessage } from '../../shared/lib';
-import { QueryError } from '../../shared/ui';
 
 // /admin/libraries (docs/11 §11.10): the table with counters, the enabled switch, Scan-now, and the
 // create/edit drawer. This is the screen the primary product scenario runs through.
@@ -197,9 +197,4 @@ export function AdminLibrariesScreen() {
       </>
     </>
   );
-}
-
-export function statusColor(status: 'RUNNING' | 'DONE' | 'FAILED'): string {
-  if (status === 'RUNNING') return 'processing';
-  return status === 'DONE' ? 'green' : 'red';
 }

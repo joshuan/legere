@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { use } from 'react';
 import { DocumentViewerScreen } from '../../../../../web/screens/document-viewer';
-import { isViewerTab } from '../../../../../web/screens/document-viewer/viewer-tab';
+import { isViewerTab } from '../../../../../web/entities/document';
 
 // /documents/:id/:tab (docs/11 §11.5). The open tab is part of the address so that a link to a
 // document can be a link to its text: shared, bookmarked, and reloaded where it was left.
