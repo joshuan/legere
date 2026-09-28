@@ -15,8 +15,9 @@ before implementation. The backlog is the authoritative status rather than a dup
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | one process on :3000 (Express + Nest `/api` + Next) — needs `npm run dev:up` |
-| `npm run dev:up` / `dev:down` | the dev dependencies in Docker: PostgreSQL+pgvector, Stirling-PDF, MinIO |
+| `npm run bootstrap` | local setup: `.env`, locked dependencies, Docker services, bucket, Prisma + queue migrations, dev seed |
+| `npm run dev` | one process on :3000 (Express + Nest `/api` + Next) — run bootstrap once first |
+| `npm run dev:up` / `dev:down` | the dev dependencies in Docker: PostgreSQL+pgvector, Stirling-PDF, Docling, ollama, MinIO, Mailpit |
 | `npm run build` | `next build`, then the server into `dist/` |
 | `npm run typecheck` | `tsc --noEmit` over the app, the server and the tests — **run before every commit** |
 | `npm run lint` / `lint:fix` | ESLint (layer boundaries included) + Prettier |

@@ -2035,3 +2035,22 @@ Production observation is read-only; source fixes are verified and committed on 
   **Acceptance:** diagnose the retained CI traces, correct the underlying rendering/readiness issues,
   preserve strict screenshot comparison and browser-error assertions, verify affected routes across
   the complete viewport/theme matrix, and keep the full hosted matrix as the release gate.
+
+## M66 — Local development bootstrap
+
+- [x] **M66.1 — Mailpit and one-command local setup**
+  **Goal:** a fresh checkout can receive development emails and prepare its local services and database
+  with `npm run bootstrap`.
+  **Docs:** [`12 §12.5`](../12-build-config-run.md), [`08 §8.1.8`](../08-auth-and-authorization.md)
+  **Acceptance:** Mailpit is part of the development Compose stack, with SMTP and its inbox bound to
+  loopback; the example environment sends mail there. Bootstrap checks prerequisites, preserves an
+  existing `.env`, creates a missing one with owner-only permissions, installs locked dependencies,
+  waits for services and bucket initialization, generates Prisma, applies both migration layers and
+  seeds without resetting data. It refuses production/non-loopback databases, stops on failure, and
+  supports reusing installed dependencies and already-running services. Isolated runner regressions,
+  Compose validation and a real captured SMTP message verify the setup.
+  **Validation:** full suite (2545 passed, 16 optional-service cases skipped), including 10 isolated
+  bootstrap cases and the existing queue runner and SMTP suites; typecheck,
+  lint, Compose validation, a message captured through `SmtpEmailSender`, and a successful local
+  bootstrap with `--skip-install --skip-docker` against existing services (Prisma + queue migrations
+  and seed).

@@ -12,6 +12,14 @@ services:
     environment: { POSTGRES_USER: legere, POSTGRES_PASSWORD: legere, POSTGRES_DB: legere }
     ports: ['127.0.0.1:5432:5432']
     volumes: ['db-data:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U legere -d legere']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ['127.0.0.1:1025:1025', '127.0.0.1:8025:8025']
   stirling:
     # Built rather than pulled, for the same reason Docling is: the upstream image carries six
     # tesseract languages and Cyrillic is not among them, so a Russian scan fails the text step
@@ -60,7 +68,9 @@ services:
     # connections; retry `mc alias set` until it is ready so the bucket reliably
     # exists after `dev:up` (docs/12 §12.5 acceptance).
     entrypoint: >
-      /bin/sh -c "until mc alias set local http://minio:9000 legere legere-secret; do
+      /bin/sh -c "attempts=0; until mc alias set local http://minio:9000 legere legere-secret; do
+                    attempts=$$((attempts + 1));
+                    if [ $$attempts -ge 60 ]; then echo 'MinIO did not become ready'; exit 1; fi;
                     echo 'waiting for minio...'; sleep 1; done &&
                   mc mb --ignore-existing local/legere"
 volumes: { db-data: {}, minio-data: {}, ollama-data: {} }

@@ -151,7 +151,8 @@ SMTP not configured → `LogEmailSender`, which records that a letter was not se
 its subject — and never what was in it. 🔒 Every body this application composes carries the six-digit
 code of §8.1.3, and a log is read by more people than a database is, so there is no level at which
 printing it is safe; the code exists in the letter and nowhere else. Going through registration on a
-laptop therefore needs somewhere for mail to land: a local catcher costs one command
+laptop therefore needs somewhere for mail to land: Mailpit is included in the development stack,
+and `npm run bootstrap` configures it for a fresh checkout
 ([`12 §12.5`](./12-build-config-run.md#125-local-development)). A production instance refuses to
 start with no `SMTP_HOST` at all ([`12 §12.4a`](./12-build-config-run.md#124a-what-production-refuses-to-start-with)).
 

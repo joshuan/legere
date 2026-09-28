@@ -75,14 +75,14 @@ COOKIE_DOMAIN=                               # empty in dev; set consciously in 
 TURNSTILE_SECRET_KEY=                        # empty = CAPTCHA disabled; set it only on a build that has the site key below, or nothing can pass it — warned about at every start (08 §8.4)
 NEXT_PUBLIC_TURNSTILE_SITE_KEY=              # build-time (baked into the client bundle); the widget is rendered when it is set. Setting it here, at runtime, does nothing
 
-# --- email (empty SMTP_HOST = LogEmailSender: the letter is dropped, never printed) ---
-SMTP_HOST=                                   # a local catcher makes registration work on a laptop (§12.5)
-SMTP_PORT=587
-SMTP_SECURE=false                            # 465 → true, 587 → false
+# --- email (local Mailpit; inbox at http://localhost:8025) ---
+SMTP_HOST=127.0.0.1                          # empty = LogEmailSender: the letter is dropped, never printed
+SMTP_PORT=1025
+SMTP_SECURE=false                            # Mailpit: false; production 465 → true, 587 → false
 SMTP_USER=
 SMTP_PASSWORD=
 SMTP_FROM="Legere <no-reply@example.com>"
-SMTP_ALLOW_PLAINTEXT=false                   # on 587 the session must upgrade to TLS or the letter is not sent; true sends it in the clear, and production refuses that for a relay that is not on this host (§12.4a)
+SMTP_ALLOW_PLAINTEXT=true                    # local Mailpit only; use false for a production SMTP relay (§12.4a)
 ALLOW_UNCONFIGURED_EMAIL=false               # production refuses an empty SMTP_HOST without this (§12.4a)
 
 # --- library volume ---
@@ -344,16 +344,31 @@ front of a request that carries `X-Forwarded-For` (§12.8).
 ## 12.5. Local development
 
 ```bash
-nvm use
-npm install
-cp .env.example .env
-mkdir -p dev-library && cp -r <some-documents> dev-library/   # your test corpus; LIBRARY_ROOT points here
-npm run dev:up          # PostgreSQL(+pgvector) + Stirling-PDF + Docling + ollama + MinIO (+ bucket init)
-npm run db:migrate      # apply committed forward-only migrations; author new SQL by hand
-npm run queue:migrate   # pg-boss schema plus all fixed queues/partitions, under the DB owner
-npm run db:seed         # admin@legere.local / password; library over dev-library/
+nvm install             # install/use the version pinned in .nvmrc
+npm run bootstrap
 npm run dev             # one process on :3000
 ```
+
+Bootstrap requires Node.js 26+ and a running Docker engine with Compose 2.20+. It creates `.env`
+from `.env.example` only when missing (mode `0600`), retains exported environment precedence,
+creates the configured library directory, runs `npm ci`, and starts PostgreSQL, Stirling-PDF,
+Docling, ollama, MinIO and Mailpit. It waits for service readiness and bucket initialization before
+generating Prisma, applying the application and queue migrations, and running the idempotent dev
+seed. Existing data, accounts and environment files are preserved; no reset is performed. The seed
+creates `admin@legere.local` and `user@legere.local` with password `password` when absent.
+
+The command refuses `NODE_ENV=production` and a `DATABASE_URL` outside loopback before running
+installation, Docker or database commands. This is local development setup, not the deployment
+installer. `--skip-install` reuses installed dependencies; `--skip-docker` reuses services you already
+started (including a prepared S3 bucket). For native services, edit `.env` to their actual addresses
+first. Both flags can be combined:
+
+```bash
+npm run bootstrap -- --skip-install --skip-docker
+```
+
+`npm run dev:up` / `npm run dev:down` start and stop the development dependencies afterward. Add a
+test corpus to `dev-library/` (or the existing `LIBRARY_ROOT`) when you want the library scanned.
 
 `queue:migrate` loads the local `.env` without overriding exported environment variables, like
 the development runner. A failed queue migration closes its database connection and exits nonzero.
@@ -362,24 +377,32 @@ the development runner. A failed queue migration closes its database connection 
 `password` — and it is enough for everything but the three-step flow itself. To go through
 registration, an invite or a reset on a laptop, mail needs somewhere to land: the code is in the
 letter and in no log, on purpose ([`08 §8.1.8`](./08-auth-and-authorization.md#818-local-development)).
-Any catcher does; one command and three lines of `.env`:
+Mailpit starts with bootstrap and `npm run dev:up`; its inbox is at <http://localhost:8025>.
+To start only the mail catcher:
 
 ```bash
-docker run -d --name mailpit -p 1025:1025 -p 8025:8025 axllent/mailpit   # letters at http://localhost:8025
+docker compose up -d mailpit
 ```
+
+The example environment already points at it. For an existing `.env`, use:
+
 ```dotenv
-SMTP_HOST=localhost
+SMTP_HOST=127.0.0.1
 SMTP_PORT=1025
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASSWORD=
 SMTP_ALLOW_PLAINTEXT=true
 ```
 
-The third line is the one that is easy to leave out and hard to read the error of: a catcher speaks
+`SMTP_ALLOW_PLAINTEXT` is easy to leave out and hard to read the error of: a catcher speaks
 no TLS, and without it the transport asks for the upgrade, does not get it and refuses to send
 (§12.4a). It is the same permission a relay on `127.0.0.1` needs in production, granted here for the
 same reason — the letter never leaves the machine.
 
-It is not in `docker compose up` because it is not part of the product: the dev stack holds the
-services Legere talks to in production, and a mail catcher is a thing to read letters with.
+Both ports (`1025` SMTP and `8025` inbox) bind only to `127.0.0.1`. Mailpit captures messages locally
+without forwarding them; messages are disposable and disappear when its container is recreated.
+The production deployment keeps its own SMTP configuration and does not include Mailpit.
 
 **Trying the AI step locally.** The dev stack includes `ollama`, which speaks the same
 OpenAI-compatible API as any hosted provider, so nothing but `.env` changes between them:
@@ -436,6 +459,14 @@ services:
     environment: { POSTGRES_USER: legere, POSTGRES_PASSWORD: legere, POSTGRES_DB: legere }
     ports: ['127.0.0.1:5432:5432']
     volumes: ['db-data:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U legere -d legere']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ['127.0.0.1:1025:1025', '127.0.0.1:8025:8025']
   stirling:
     # Our own build too: the upstream image carries six tesseract languages, none of them
     # Cyrillic (ADR-018).
@@ -464,7 +495,10 @@ services:
     image: minio/mc
     depends_on: [minio]
     entrypoint: >
-      /bin/sh -c "mc alias set local http://minio:9000 legere legere-secret &&
+      /bin/sh -c "attempts=0; until mc alias set local http://minio:9000 legere legere-secret; do
+                    attempts=$$((attempts + 1));
+                    if [ $$attempts -ge 60 ]; then echo 'MinIO did not become ready'; exit 1; fi;
+                    echo 'waiting for minio...'; sleep 1; done &&
                   mc mb --ignore-existing local/legere"
 volumes: { db-data: {}, minio-data: {}, ollama-data: {} }
 ```

@@ -98,18 +98,25 @@ version `LEGERE_VERSION` names.
 ## Local development
 
 ```bash
-nvm use && npm install
-cp .env.example .env
-mkdir -p dev-library && cp -r <some documents> dev-library/   # LIBRARY_ROOT points here
-npm run dev:up          # PostgreSQL + Stirling-PDF + Docling + ollama + MinIO (bucket included)
-npm run db:migrate      # forward-only; the production image runs it automatically before startup
-npm run queue:migrate   # pg-boss schema + fixed queues; also automatic in the production image
-npm run db:seed         # admin@legere.local / password, and a library over dev-library/
+nvm install             # install/use the version pinned in .nvmrc
+npm run bootstrap       # dependencies, .env, Docker services, bucket, migrations and dev seed
 npm run dev             # http://localhost:3000
 ```
 
+Requires Node.js 26+ and Docker with Compose 2.20+. Bootstrap preserves an existing `.env` and
+database; a fresh checkout gets development defaults. Sign in with `admin@legere.local` / `password`,
+place a test corpus in `dev-library/`, and read captured email at <http://localhost:8025> (Mailpit).
+For an existing `.env`, set `SMTP_HOST=127.0.0.1`, `SMTP_PORT=1025`, `SMTP_SECURE=false`,
+`SMTP_ALLOW_PLAINTEXT=true`, and leave `SMTP_USER` / `SMTP_PASSWORD` empty.
+
+Use `npm run bootstrap -- --skip-install` to reuse installed npm dependencies, or `--skip-docker`
+to reuse running services and an existing bucket. Both flags can be combined. For native services,
+set their addresses in `.env` first. See [`docs/12 §12.5`](./docs/12-build-config-run.md#125-local-development).
+
 | Command | What it does |
 |---|---|
+| `npm run bootstrap` | prepare local development without resetting data |
+| `npm run dev:up` / `dev:down` | start / stop the local Docker dependencies, including Mailpit |
 | `npm run dev` | one process on :3000 — Express + Nest `/api` + Next for everything else |
 | `npm run build` | `next build`, then the server to `dist/` |
 | `npm run typecheck` | `tsc --noEmit` over the app, the server and the tests |
