@@ -13,6 +13,20 @@
 #   docker buildx imagetools inspect stirlingtools/stirling-pdf:latest --format '{{.Manifest.Digest}}'
 FROM stirlingtools/stirling-pdf:2.14.3@sha256:3b3670fce70b396ec56ba380a3cc7858e0abf83fe13f31c88f7737847763a396
 
+# Keep the unmetered 2.x API while applying the security fixes in docs/12 §12.7. Replace whole
+# dependency families together, verify immutable bytes, and fail on base-image layout drift.
+COPY security-jars.txt /tmp/security-jars.txt
+RUN set -eu; \
+    while read -r previous artifact checksum; do \
+      test -f "/app/lib/${previous}"; \
+      curl -fsSL --retry 3 "https://repo.maven.apache.org/maven2/${artifact}" -o /tmp/security.jar; \
+      echo "${checksum}  /tmp/security.jar" | sha256sum -c -; \
+      rm "/app/lib/${previous}"; \
+      mv /tmp/security.jar "/app/lib/${artifact##*/}"; \
+      chmod 0644 "/app/lib/${artifact##*/}"; \
+    done < /tmp/security-jars.txt; \
+    rm /tmp/security-jars.txt
+
 # tessdata_fast: a few MB per language, and the accuracy difference against the full models is not
 # visible on document scans. 🔒 A commit, not `main`: the language data is parsed by tesseract's
 # native code inside the container that OCRs every document, so what it is depends on nothing that

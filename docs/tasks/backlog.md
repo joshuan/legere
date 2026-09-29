@@ -2102,3 +2102,19 @@ Production observation is read-only; source fixes are verified and committed on 
   `npm audit --omit=dev --audit-level=moderate` reports zero vulnerabilities. All 31 SMTP, email wiring,
   upload-body and upload e2e checks pass; typecheck and lint pass. The Nodemailer 10 runtime floor is
   Node 20, below this application's Node 26 requirement; its existing SMTP adapter remains compatible.
+
+- [x] **M68.2 — Clear parser image scans and publish a green maintenance release**
+  **Goal:** fix the Jackson, Netty and Bouncy Castle findings reported by the v0.37.0 parser scans.
+  **Docs:** [`12 §12.7`](../12-build-config-run.md), [`13 §13.3`](../13-ci-cd.md)
+  **Acceptance:** use verified, pinned patched dependencies or upstream images; remove obsolete
+  scan exceptions when their findings are fixed; preserve parser APIs, OCR languages and runtime
+  hardening. Exercise real PDF conversion and parsing, retain the scan severity threshold, and
+  publish a maintenance release with successful CI and all image scans.
+  **Validation:** the Stirling security overlay replaces 25 checksum-verified Maven artifacts;
+  its 24 real conversion/canonical-PDF tests pass under production container restrictions.
+  Docling 1.35.0 removes the unused Ray runtime; both real PDF/OCR and DOCX integration tests and
+  all 31 adapter regressions pass. Both containers retain the required OCR languages. Local Trivy
+  0.70.0 scans find zero fixed HIGH/CRITICAL findings in Docling without exclusions, and no new
+  findings in Stirling beyond its remaining recorded exceptions. Eighteen resolved Stirling and
+  all six Docling exceptions are deleted; no exclusions or relaxed thresholds are added. Typecheck
+  and lint pass. Publication follows the unchanged hosted CI and three-image scan workflow.

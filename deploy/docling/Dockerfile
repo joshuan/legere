@@ -11,7 +11,7 @@
 #
 #   docker buildx imagetools inspect quay.io/docling-project/docling-serve-cpu:latest \
 #     --format '{{.Manifest.Digest}}'
-FROM quay.io/docling-project/docling-serve-cpu:v1.31.0@sha256:32ba1a1dded8d8fd21f9d8da1b9837e04cfee164ef891d9513174c3d989dcee9
+FROM quay.io/docling-project/docling-serve-cpu:v1.35.0@sha256:79e5fcd19ab227ed36323fa5fa31820d14d53efc4f073417ba37be7931c7af0a
 
 # tessdata_fast: a few MB per language, and the accuracy difference against the full models is not
 # visible on document scans. 🔒 A commit, not `main`: the language data is parsed by tesseract's
@@ -21,6 +21,12 @@ ARG TESSDATA_REF=87416418657359cb625c412a48b6e1d6d41c29bd
 ARG LANGUAGES="rus ukr srp srp_latn deu fra spa ita pol tur"
 
 USER 0
+# The HTTP local engine does not use Ray. Its bundled JVM driver is vulnerable and unnecessary
+# here; remove the optional cluster runtime instead of carrying scan exceptions (docs/12 §12.7).
+ENV DOCLING_SERVE_ENG_KIND=local
+RUN python3 -m pip uninstall -y ray \
+    && python3 -c "import importlib.util; assert importlib.util.find_spec('ray') is None"
+
 RUN set -eu; \
     for lang in ${LANGUAGES}; do \
       curl -fsSL -o "/usr/share/tesseract/tessdata/${lang}.traineddata" \
