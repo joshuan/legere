@@ -2088,3 +2088,17 @@ Production observation is read-only; source fixes are verified and committed on 
   timing dependency. After waiting for that notice to expire naturally and reviewing the ten
   refreshed baselines, all ten service-page configurations passed twice without snapshot updates
   (21 checks including setup). Pixel tolerances, overflow and browser-error checks remain intact.
+
+## M68 — Release dependency maintenance
+
+- [x] **M68.1 — Clear the production dependency audit for the redesign release**
+  **Goal:** ship the redesign with patched upload and SMTP dependencies after the release gate
+  reported GHSA-3pph-fpjx-jg34 and GHSA-6vj9-mwq6-2f5v.
+  **Docs:** [`13 §13.1, §13.3a`](../13-ci-cd.md)
+  **Acceptance:** update Multer and Nodemailer, including the shared auth adapter's transitive
+  Nodemailer, without weakening the audit threshold; verify SMTP TLS behavior and uploads, typecheck,
+  and lint. Publication still requires the unchanged hosted CI gate.
+  **Validation:** Multer 2.4.0 and Nodemailer 10.0.12 resolve throughout the production tree;
+  `npm audit --omit=dev --audit-level=moderate` reports zero vulnerabilities. All 31 SMTP, email wiring,
+  upload-body and upload e2e checks pass; typecheck and lint pass. The Nodemailer 10 runtime floor is
+  Node 20, below this application's Node 26 requirement; its existing SMTP adapter remains compatible.
