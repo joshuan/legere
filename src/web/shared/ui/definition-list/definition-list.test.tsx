@@ -1,4 +1,4 @@
-import { render, screen, within, type RenderResult } from '@testing-library/react';
+import { render, screen, type RenderResult } from '@testing-library/react';
 import { NextIntlClientProvider } from 'next-intl';
 import type { ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
@@ -15,7 +15,7 @@ function renderList(ui: ReactElement): RenderResult {
   );
 }
 
-// Label · · · value (docs/11 §11.15).
+// Read-only metadata preserves semantic label/value pairs (docs/16 §16.5).
 describe('DefinitionList', () => {
   it('pairs every label with its value', () => {
     renderList(
@@ -60,16 +60,5 @@ describe('DefinitionList', () => {
 
     expect(screen.getByText('2 KB').className).toContain('is-emphasis');
     expect(screen.getByText('application/pdf').className).not.toContain('is-emphasis');
-  });
-
-  it('hides the leader from the accessibility tree, since it is decoration', () => {
-    const { container } = renderList(<DefinitionList items={[{ label: 'Size', value: '2 KB' }]} />);
-
-    const row = container.querySelector('.legere-definition');
-    if (!(row instanceof HTMLElement)) throw new Error('expected a row');
-    expect(within(row).getByText('Size')).toBeInTheDocument();
-    expect(row.querySelector('.legere-definition-leader')?.getAttribute('aria-hidden')).toBe(
-      'true',
-    );
   });
 });

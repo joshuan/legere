@@ -1,9 +1,10 @@
 'use client';
 
-import { CloseOutlined } from '@ant-design/icons';
+import { CloseOutlined, FilterOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Select, Space, Switch, Tag, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
+import { ControlPopover } from '../../shared/ui';
 import type { FileOrigin } from '../../../shared/contracts/enums';
 import type { DocumentFilters } from '../../entities/document';
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
@@ -13,12 +14,18 @@ import { useHydrated } from '../../shared/lib';
 export type DocumentFiltersProps = {
   value: DocumentFilters;
   searchOnly?: boolean;
+  compact?: boolean;
   onChange: (next: DocumentFilters) => void;
 };
 
 // The filter bar of docs/11 §11.3. It owns no state: the URL does, and this only reports changes —
 // so a filtered view is a link somebody can send to a colleague.
-export function DocumentFiltersBar({ value, onChange, searchOnly = false }: DocumentFiltersProps) {
+export function DocumentFiltersBar({
+  value,
+  onChange,
+  searchOnly = false,
+  compact = false,
+}: DocumentFiltersProps) {
   const t = useTranslations();
   const hydrated = useHydrated();
 
@@ -55,52 +62,65 @@ export function DocumentFiltersBar({ value, onChange, searchOnly = false }: Docu
 
   const active = Object.keys(value).length > 0;
 
-  return (
-    <Space wrap size="middle">
-      <Select
-        allowClear
-        style={{ width: 200, maxWidth: '100%' }}
-        placeholder={t('documents.filters.library')}
-        aria-label={t('documents.filters.library')}
-        loading={!hydrated || libraries.isPending}
-        value={value.libraryId ?? undefined}
-        onChange={(libraryId?: string) => set({ libraryId })}
-        options={(hydrated ? (libraries.data?.items ?? []) : []).map((library) => ({
-          value: library.id,
-          label: library.name,
-        }))}
-      />
+  const panel = (
+    <Space wrap size="middle" className={compact ? 'legere-filter-panel' : ''}>
+      <div className={compact ? 'legere-control-field' : undefined}>
+        {compact && <span className="legere-control-label">{t('documents.filters.library')}</span>}
+        <Select
+          allowClear
+          style={{ width: compact ? '100%' : 200, maxWidth: '100%' }}
+          placeholder={t('documents.filters.library')}
+          aria-label={t('documents.filters.library')}
+          loading={!hydrated || libraries.isPending}
+          value={value.libraryId ?? undefined}
+          onChange={(libraryId?: string) => set({ libraryId })}
+          options={(hydrated ? (libraries.data?.items ?? []) : []).map((library) => ({
+            value: library.id,
+            label: library.name,
+          }))}
+        />
+      </div>
 
-      <Select
-        allowClear
-        style={{ width: 180, maxWidth: '100%' }}
-        placeholder={t('documents.filters.documentType')}
-        aria-label={t('documents.filters.documentType')}
-        loading={!hydrated || documentTypes.isPending}
-        value={value.typeId ?? undefined}
-        onChange={(typeId?: string) => set({ typeId })}
-        options={(hydrated ? (documentTypes.data?.items ?? []) : []).map((documentType) => ({
-          value: documentType.id,
-          label: documentType.name,
-        }))}
-      />
+      <div className={compact ? 'legere-control-field' : undefined}>
+        {compact && (
+          <span className="legere-control-label">{t('documents.filters.documentType')}</span>
+        )}
+        <Select
+          allowClear
+          style={{ width: compact ? '100%' : 180, maxWidth: '100%' }}
+          placeholder={t('documents.filters.documentType')}
+          aria-label={t('documents.filters.documentType')}
+          loading={!hydrated || documentTypes.isPending}
+          value={value.typeId ?? undefined}
+          onChange={(typeId?: string) => set({ typeId })}
+          options={(hydrated ? (documentTypes.data?.items ?? []) : []).map((documentType) => ({
+            value: documentType.id,
+            label: documentType.name,
+          }))}
+        />
+      </div>
 
       {!searchOnly && (
         <>
           {/* Where the document's files came from, and nothing finer: a document that absorbed an
           upload does not change kind, so there are two answers, not three (docs/03 §3.3.16). */}
-          <Select
-            allowClear
-            style={{ width: 180, maxWidth: '100%' }}
-            placeholder={t('documents.filters.origin')}
-            aria-label={t('documents.filters.origin')}
-            value={value.origin ?? undefined}
-            onChange={(origin?: FileOrigin) => set({ origin })}
-            options={[
-              { value: 'LIBRARY', label: t('documents.filters.originLibrary') },
-              { value: 'MANAGED', label: t('documents.filters.originManaged') },
-            ]}
-          />
+          <div className={compact ? 'legere-control-field' : undefined}>
+            {compact && (
+              <span className="legere-control-label">{t('documents.filters.origin')}</span>
+            )}
+            <Select
+              allowClear
+              style={{ width: compact ? '100%' : 180, maxWidth: '100%' }}
+              placeholder={t('documents.filters.origin')}
+              aria-label={t('documents.filters.origin')}
+              value={value.origin ?? undefined}
+              onChange={(origin?: FileOrigin) => set({ origin })}
+              options={[
+                { value: 'LIBRARY', label: t('documents.filters.originLibrary') },
+                { value: 'MANAGED', label: t('documents.filters.originManaged') },
+              ]}
+            />
+          </div>
 
           <Space size="small">
             <Typography.Text type="secondary">
@@ -147,5 +167,12 @@ export function DocumentFiltersBar({ value, onChange, searchOnly = false }: Docu
 
       {active && <Button onClick={() => onChange({})}>{t('documents.filters.clear')}</Button>}
     </Space>
+  );
+  if (!compact) return panel;
+  const count = Object.keys(value).length - (value.stepStatus === undefined ? 0 : 1);
+  return (
+    <ControlPopover label={t('documents.filters.title')} icon={<FilterOutlined />} count={count}>
+      {panel}
+    </ControlPopover>
   );
 }

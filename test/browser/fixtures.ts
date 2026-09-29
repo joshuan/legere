@@ -115,6 +115,16 @@ export async function settle(page: Page): Promise<void> {
     )
     .toEqual([]);
   await expect(page.getByText('Something went wrong', { exact: true })).toHaveCount(0);
+  // A popup with a layout box can still be transparent during its enter transition. Do not accept
+  // an image of the page behind it as proof that a disclosure was reviewed.
+  for (const popup of await page
+    .locator(
+      '.ant-popover:not(.ant-popover-hidden), .ant-picker-dropdown:not(.ant-picker-dropdown-hidden)',
+    )
+    .all()) {
+    await expect(popup).toHaveCSS('opacity', '1');
+    await expect(popup).toBeInViewport();
+  }
 }
 
 export async function expectResponsive(page: Page): Promise<void> {

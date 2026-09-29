@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The completed implementation history and current work are tracked in `docs/tasks/backlog.md`.
 M0–M65, image orientation and the search page are implemented, including production follow-up and frontend verification.
 Every mandatory scenario of `docs/14 §14.8` is mapped to a test in
-`docs/tasks/scenario-coverage.md`. The specification (documents 01–15 in `docs/`) remains the source
+`docs/tasks/scenario-coverage.md`. The specification (documents 01–16 in `docs/`) remains the source
 of truth. Write a task before new work, tick it off in the same commit, and update affected contracts
 before implementation. The backlog is the authoritative status rather than a duplicated completion claim.
 

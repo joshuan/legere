@@ -899,6 +899,7 @@
     }
   },
   "documents": {
+    "viewSettings": "View",
     "badges": {
       "processing": "Processing",
       "unavailable": "Files missing",
@@ -906,6 +907,7 @@
       "partial": "Some files missing"
     },
     "filters": {
+      "title": "Filters",
       "library": "Library",
       "documentType": "Type",
       "unavailableOnly": "Missing files only",
@@ -966,7 +968,7 @@
       "expandAll": "Expand all"
     },
     "empty": {
-      "instance": "No documents yet. Ask your administrator to add a library.",
+      "instance": "Your archive is empty. Upload your first document to get started.",
       "filtered": "Nothing matches these filters.",
       "addLibrary": "Add a library"
     },
@@ -1059,6 +1061,7 @@
     "deleted": "Receipt deleted",
     "back": "All receipts",
     "filters": {
+      "title": "Filters",
       "vendor": "Search merchants",
       "purchaseDates": "Purchase date range",
       "dateFrom": "Purchased from",
@@ -1471,6 +1474,8 @@
     }
   },
   "nav": {
+    "menu": "Navigation",
+    "openMenu": "Open navigation",
     "documents": "Documents",
     "receipts": "Receipts",
     "browse": "Browse",

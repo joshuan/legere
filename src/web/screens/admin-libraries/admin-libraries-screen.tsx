@@ -1,8 +1,8 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Card, Popconfirm, Space, Switch, Tag, Typography } from 'antd';
-import { ResponsiveTable as Table, QueryError } from '../../shared/ui';
+import { App, Button, Popconfirm, Space, Switch, Tag, Typography } from 'antd';
+import { PageHeader, ResponsiveTable as Table, QueryError } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useCallback, useState } from 'react';
@@ -162,20 +162,21 @@ export function AdminLibrariesScreen() {
       {libraries.isError && <QueryError error={libraries.error} retry={libraries.refetch} />}
 
       <>
-        <Card
-          title={t('admin.libraries.title')}
-          extra={
-            <Button
-              type="primary"
-              onClick={() => {
-                setEditing(null);
-                setDrawerOpen(true);
-              }}
-            >
-              {t('admin.libraries.actions.create')}
-            </Button>
-          }
-        >
+        <section>
+          <PageHeader
+            title={t('admin.libraries.title')}
+            actions={
+              <Button
+                type="primary"
+                onClick={() => {
+                  setEditing(null);
+                  setDrawerOpen(true);
+                }}
+              >
+                {t('admin.libraries.actions.create')}
+              </Button>
+            }
+          />
           <Table
             rowKey="id"
             loading={libraries.isPending}
@@ -184,7 +185,7 @@ export function AdminLibrariesScreen() {
             pagination={false}
             locale={{ emptyText: t('admin.libraries.empty') }}
           />
-        </Card>
+        </section>
 
         <LibraryDrawer
           open={drawerOpen}

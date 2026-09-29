@@ -7,7 +7,6 @@ import {
   App,
   AutoComplete,
   Button,
-  Card,
   Form,
   Input,
   Modal,
@@ -18,7 +17,7 @@ import {
   type TableColumnType,
   type TableProps,
 } from 'antd';
-import { ResponsiveTable as Table } from '../../shared/ui';
+import { PageHeader, ResponsiveTable as Table } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ZodType } from 'zod';
@@ -639,7 +638,24 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
     // A flex column filling the shell's content area, so the action bar below stands at the foot of
     // the viewport even under a table shorter than the screen.
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-      <Card title={title}>
+      <PageHeader
+        title={title}
+        actions={
+          canCreate ? (
+            <Button
+              type="primary"
+              onClick={() => {
+                setEditing(null);
+                form.resetFields();
+                setOpen(true);
+              }}
+            >
+              {createLabel}
+            </Button>
+          ) : undefined
+        }
+      />
+      <div>
         {/* The screen notices first, where the screen has something to notice (docs/11 §11.12a). */}
         {canManage && suggestionsPanel()}
 
@@ -688,46 +704,36 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
             ...(canManage ? [actionsColumn] : []),
           ]}
         />
-      </Card>
-
-      {/* The actions stand at the foot of the screen, and stay there (docs/11 §11.12a): New always,
-          Merge the moment two or more rows are selected — a selection made at row three hundred
-          must not cost a scroll back to the top. Sticky and in flow rather than floating fixed:
-          the table ends above the bar, never under it. */}
-      <div
-        role="toolbar"
-        aria-label={t('admin.catalogues.actionsBar')}
-        style={{
-          position: 'sticky',
-          bottom: 0,
-          marginTop: 'auto',
-          padding: '12px 16px',
-          background: token.colorBgContainer,
-          borderTop: `1px solid ${token.colorBorderSecondary}`,
-          zIndex: 10,
-        }}
-      >
-        <Space>
-          {canCreate && (
-            <Button
-              type="primary"
-              onClick={() => {
-                setEditing(null);
-                form.resetFields();
-                setOpen(true);
-              }}
-            >
-              {createLabel}
-            </Button>
-          )}
-          {/* Only once there is something to fold together: a merge of one row is not a merge. */}
-          {canManage && merge !== undefined && selected.length > 1 && (
-            <Button onClick={openManualMerge}>
-              {t('admin.catalogues.actions.merge', { count: selected.length })}
-            </Button>
-          )}
-        </Space>
       </div>
+
+      {/* Selection actions remain beside a long table without hiding its final rows. */}
+      {canManage && selected.length > 0 && (
+        <div
+          role="toolbar"
+          aria-label={t('admin.catalogues.actionsBar')}
+          style={{
+            position: 'sticky',
+            bottom: 0,
+            marginTop: 'auto',
+            padding: '12px 16px',
+            background: token.colorBgContainer,
+            borderTop: `1px solid ${token.colorBorderSecondary}`,
+            zIndex: 10,
+          }}
+        >
+          <Space>
+            <Typography.Text type="secondary">
+              {t('documents.selection.count', { count: selected.length })}
+            </Typography.Text>
+            {/* Only once there is something to fold together: a merge of one row is not a merge. */}
+            {canManage && merge !== undefined && selected.length > 1 && (
+              <Button onClick={openManualMerge}>
+                {t('admin.catalogues.actions.merge', { count: selected.length })}
+              </Button>
+            )}
+          </Space>
+        </div>
+      )}
 
       {/* Which of these is the right name is the whole question a merge asks: the names on the
           selected rows are offered, and anything else can be typed over them (docs/11 §11.12a). */}

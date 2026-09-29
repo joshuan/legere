@@ -18,9 +18,11 @@ const ACCEPTED_FORMATS =
 export function UploadButton({
   onFiles,
   label,
+  primary = false,
 }: {
   onFiles: (file: File) => void;
   label?: string;
+  primary?: boolean;
 }) {
   const t = useTranslations();
 
@@ -36,7 +38,9 @@ export function UploadButton({
         return Upload.LIST_IGNORE;
       }}
     >
-      <Button icon={<UploadOutlined />}>{label ?? t('documents.upload.action')}</Button>
+      <Button type={primary ? 'primary' : 'default'} icon={<UploadOutlined />}>
+        {label ?? t('documents.upload.action')}
+      </Button>
     </Upload>
   );
 }

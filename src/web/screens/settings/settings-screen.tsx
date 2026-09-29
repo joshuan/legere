@@ -1,7 +1,7 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Card, Form, Input, Radio, Select, Space, Spin, Typography } from 'antd';
+import { App, Card, Form, Input, Radio, Select, Spin } from 'antd';
 import type { RadioChangeEvent } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
@@ -12,7 +12,7 @@ import type { UpdateMeRequest } from '../../../shared/contracts/users';
 import { sessionApi, sessionKeys } from '../../entities/session';
 import { useErrorMessage } from '../../shared/lib';
 import { useThemePreference } from '../../shared/providers';
-import { QueryError } from '../../shared/ui';
+import { PageHeader, QueryError } from '../../shared/ui';
 import { ApiTokensCard } from './api-tokens-card';
 import { PasswordCard } from './password-card';
 import { SessionsCard } from './sessions-card';
@@ -55,56 +55,62 @@ export function SettingsScreen() {
   if (isPending || me === undefined) return <Spin />;
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%', maxWidth: 720 }}>
+    <section>
+      <PageHeader title={t('settings.title')} />
       {error !== null && <QueryError error={error} retry={refetch} />}
-      <Card>
-        <Typography.Title level={4}>{t('settings.title')}</Typography.Title>
+      <div className="legere-settings-grid">
+        <div className="legere-settings-column">
+          <Card>
+            <Form layout="vertical" initialValues={me}>
+              <Form.Item label={t('settings.displayName')} name="displayName">
+                <Input
+                  aria-label={t('settings.displayName')}
+                  onBlur={(event) => {
+                    const displayName = event.target.value.trim();
+                    if (displayName !== '' && displayName !== me.displayName)
+                      patch({ displayName });
+                  }}
+                />
+              </Form.Item>
 
-        <Form layout="vertical" initialValues={me}>
-          <Form.Item label={t('settings.displayName')} name="displayName">
-            <Input
-              aria-label={t('settings.displayName')}
-              onBlur={(event) => {
-                const displayName = event.target.value.trim();
-                if (displayName !== '' && displayName !== me.displayName) patch({ displayName });
-              }}
-            />
-          </Form.Item>
+              <Form.Item label={t('settings.email')}>
+                <Input value={me.email} disabled aria-label={t('settings.email')} />
+              </Form.Item>
 
-          <Form.Item label={t('settings.email')}>
-            <Input value={me.email} disabled aria-label={t('settings.email')} />
-          </Form.Item>
+              <Form.Item label={t('settings.language')} name="language">
+                <Select
+                  aria-label={t('settings.language')}
+                  onChange={(language: 'EN' | 'RU') => patch({ language })}
+                  options={[
+                    { value: 'EN', label: 'English' },
+                    { value: 'RU', label: 'Русский' },
+                  ]}
+                />
+              </Form.Item>
 
-          <Form.Item label={t('settings.language')} name="language">
-            <Select
-              aria-label={t('settings.language')}
-              onChange={(language: 'EN' | 'RU') => patch({ language })}
-              options={[
-                { value: 'EN', label: 'English' },
-                { value: 'RU', label: 'Русский' },
-              ]}
-            />
-          </Form.Item>
+              <Form.Item label={t('settings.theme')} name="theme">
+                <Radio.Group
+                  onChange={(event: RadioChangeEvent) => {
+                    const theme = themeSchema.safeParse(event.target.value);
+                    if (theme.success) patch({ theme: theme.data });
+                  }}
+                  options={[
+                    { value: 'SYSTEM', label: t('settings.themes.SYSTEM') },
+                    { value: 'LIGHT', label: t('settings.themes.LIGHT') },
+                    { value: 'DARK', label: t('settings.themes.DARK') },
+                  ]}
+                />
+              </Form.Item>
+            </Form>
+          </Card>
 
-          <Form.Item label={t('settings.theme')} name="theme">
-            <Radio.Group
-              onChange={(event: RadioChangeEvent) => {
-                const theme = themeSchema.safeParse(event.target.value);
-                if (theme.success) patch({ theme: theme.data });
-              }}
-              options={[
-                { value: 'SYSTEM', label: t('settings.themes.SYSTEM') },
-                { value: 'LIGHT', label: t('settings.themes.LIGHT') },
-                { value: 'DARK', label: t('settings.themes.DARK') },
-              ]}
-            />
-          </Form.Item>
-        </Form>
-      </Card>
-
-      <PasswordCard />
-      <SessionsCard />
-      <ApiTokensCard />
-    </Space>
+          <PasswordCard />
+        </div>
+        <div className="legere-settings-column">
+          <SessionsCard />
+          <ApiTokensCard />
+        </div>
+      </div>
+    </section>
   );
 }

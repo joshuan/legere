@@ -1,7 +1,7 @@
 'use client';
 
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { Button, Card, Col, Empty, List, Row, Spin, Typography } from 'antd';
+import { Button, Card, Empty, List, Spin, Typography } from 'antd';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { documentApi, documentKeys, type DocumentFilters } from '../../entities/document';
@@ -9,7 +9,7 @@ import { documentTypeApi, documentTypeKeys } from '../../entities/document-type'
 import { personApi, personKeys } from '../../entities/person';
 import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
-import { QueryError } from '../../shared/ui';
+import { PageHeader, QueryError } from '../../shared/ui';
 import { DocumentCard } from '../../widgets/document-card';
 
 // Browsing by what a document *is about* rather than where its bytes are (docs/11 §11.4). Every
@@ -65,13 +65,9 @@ function FacetDocuments({ title, filters }: { title: string; filters: DocumentFi
   const items = documents.data?.pages.flatMap((page) => page.items) ?? [];
 
   return (
-    <Row gutter={[16, 16]}>
-      <Col span={24}>
-        <Typography.Title level={3} style={{ marginTop: 0 }}>
-          {title}
-        </Typography.Title>
-      </Col>
-      <Col span={24}>
+    <section>
+      <PageHeader title={title} />
+      <div>
         {documents.isError && documents.data !== undefined && (
           <QueryError error={documents.error} retry={documents.refetch} />
         )}
@@ -98,8 +94,8 @@ function FacetDocuments({ title, filters }: { title: string; filters: DocumentFi
             {t('browse.more')}
           </Button>
         )}
-      </Col>
-    </Row>
+      </div>
+    </section>
   );
 }
 
@@ -116,7 +112,8 @@ export function DocumentTypesFacetScreen() {
         <QueryError error={documentTypes.error} retry={documentTypes.refetch} />
       )}
 
-      <Card title={t('facets.types')}>
+      <PageHeader title={t('facets.types')} />
+      <Card size="small">
         <FolderList
           empty={t('facets.emptyTypes')}
           items={(documentTypes.data?.items ?? []).map((type) => ({
@@ -142,7 +139,8 @@ export function PeopleFacetScreen() {
     <>
       {people.isError && <QueryError error={people.error} retry={people.refetch} />}
 
-      <Card title={t('facets.people')}>
+      <PageHeader title={t('facets.people')} />
+      <Card size="small">
         <FolderList
           empty={t('facets.emptyPeople')}
           items={(people.data?.items ?? []).map((person) => ({
@@ -172,7 +170,8 @@ export function SubjectKindsFacetScreen() {
     <>
       {kinds.isError && <QueryError error={kinds.error} retry={kinds.refetch} />}
 
-      <Card title={t('facets.subjects')}>
+      <PageHeader title={t('facets.subjects')} />
+      <Card size="small">
         <FolderList
           empty={t('facets.emptySubjects')}
           items={(kinds.data?.items ?? []).map((kind) => ({
@@ -200,7 +199,8 @@ export function SubjectsOfKindFacetScreen({ kindId, title }: { kindId: string; t
     <>
       {subjects.isError && <QueryError error={subjects.error} retry={subjects.refetch} />}
 
-      <Card title={title}>
+      <PageHeader title={title} />
+      <Card size="small">
         <FolderList
           empty={t('facets.emptySubjects')}
           items={items.map((subject) => ({
@@ -226,7 +226,8 @@ export function YearsFacetScreen() {
     <>
       {years.isError && <QueryError error={years.error} retry={years.refetch} />}
 
-      <Card title={t('facets.years')}>
+      <PageHeader title={t('facets.years')} />
+      <Card size="small">
         <FolderList
           empty={t('facets.emptyYears')}
           items={(years.data?.items ?? []).map((entry) => ({

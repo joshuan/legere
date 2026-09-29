@@ -6,8 +6,9 @@ retry). All texts via i18n keys (en/ru).
 
 ## 11.1. Shell & navigation
 
-Authenticated layout: left **Sider** (collapsible) + content. On narrow viewports the column
-collapses automatically and content gutters shrink so controls and receipt cards remain readable.
+Authenticated layout: left **Sider** (collapsible) + content. On tablets the column
+collapses automatically; below 768 px it becomes a drawer opened from a compact mobile navigation
+row. Content gutters shrink and the phone retains its full width for documents and forms.
 
 The layout is fluid from 320 px through tablet and wide desktop sizes. At smaller widths, filters,
 toolbars and multi-column forms wrap or stack; long text breaks within its container; dialogs stay
@@ -49,27 +50,14 @@ environment variable somebody has to remember to set — so the number on the sc
 image cannot drift apart. Small and grey: nobody comes looking for it until something is wrong, and
 then it is the first thing asked for.
 
-🔒 **The control that narrows the column is the narrowest thing on it.** A hairline strip, not the
-48px slab a component library offers by default — that was the loudest element in a column of quiet
-type, spent on the least important decision on the screen (`§11.15`). It says what it is on hover and
-on focus, and never before.
+The collapse control is quiet but remains an accessible target: at least 32 px on desktop and
+44 px on coarse pointers. The sidebar menu scrolls independently from its brand and account footer.
 
-🔒 **There is no bar across the top of the content, on any screen.** The authenticated shell is the
-column and the content, and nothing else. What used to sit up there was a screen title, a contextual
-action or two and a search input, and each was wrong in its own way. The **title** repeated either
-the menu item already highlighted a few pixels to its left or the heading the screen drew for itself
-immediately underneath, and the same name twice on one screen is not emphasis. The **actions** were a
-long way from what they acted on — Upload above a grid it had nothing to do with, Invite user above a
-table of users it does not appear in — and each now sits in the block it belongs to (§11.3, §11.11).
-The **search input** was a field occupying the widest strip of the application at all times to answer
-a question nobody had asked yet; it now belongs to the dedicated search page (§11.1a). What the bar cost was the top of every screen, in the one
-product whose whole job is to show somebody else's documents at the size they were photographed.
-
-Each screen therefore owns its heading, inside its own content and **only where one earns its place**:
-a collection names itself because its name is a thing somebody chose (§11.7), the trash says what it
-is holding because that number is the reason to be there (§11.13b). A screen whose content already
-says what it is does not say it twice — the Files tab writes no heading under a tab labelled Files
-(§11.5a), and the documents grid is the archive rather than a page about the archive.
+**There is no global desktop header.** Each screen owns one concise heading and its contextual
+actions, with no duplicate heading in the first panel. This keeps navigation separate from the
+work itself. On a phone a compact product/navigation row opens the drawer; the screen below it
+still owns its title and actions. A document viewer uses its own workspace tabs and object title.
+Search remains a dedicated page and Cmd+K / Ctrl+K keeps its existing behavior.
 
 **A press is answered before the server is.** Walking from one section to another draws the next
 screen immediately: the column stays exactly where it is, because it belongs to the layout and not to
@@ -415,7 +403,7 @@ The open tab is the last segment of the address — `/documents/:id/text` — so
 be a link to its text, and a reload lands where it was left. `/documents/:id` opens the preview; an
 unknown tab is a 404 rather than a guess.
 
-**Two-pane layout, and the main column begins with the tabs.** Nothing stands above them: the tabs
+**Desktop two-pane layout, and the main column begins with the tabs.** Nothing stands above them: the tabs
 row is the one strip of chrome the document's own column spends, and the open tab takes the rest of
 the height the viewport has. 🔒 **On opening a document the reader should see as much of the document
 as the screen can give** — that is the whole purpose of the screen, and everything above the document
@@ -444,8 +432,9 @@ document ending there reads as continuing.
 The page behind all this does not scroll at all. What is longer than the window scrolls **inside its
 own pane** — the text of a forty-page scan, the log, the list of files — and so does the panel
 beside it, so the tabs row and the panel both stay where they are while a document is read. Below
-that width the viewer is one column above another and scrolls as an ordinary page, gutter and all: a
-document pinned to the height of a phone would be a worse read, not a better one.
+that width the title and description come first, followed by tabs and content, then supporting
+controls. The viewer scrolls as an ordinary page, gutter and all. The desktop sidebar is 280–320 px
+wide; the main pane uses the remaining width (`16 §16.3`).
 - **Left (main): tabs** — `Preview` (**the canonical PDF** in an `<object>`, for every document
   whatever it is made of, because by the time it is readable it is a PDF (`05 §5.5`); while the step
   has not finished, the preview image if there is one and a "Being assembled…" panel if there is
@@ -501,7 +490,8 @@ document pinned to the height of a phone would be a worse read, not a better one
   the rows of **What it says** into ordinary inputs, and **Save** at the bottom right of that same
   section that turns them back — rather than controls sitting in the page all the time:
   reading is the common case, and a page of live selects invites edits nobody meant to make. Every
-  input is one width; a place is two inputs sharing that one width, because it is one fact. A field
+  input fills its form column, with its label above it. At sufficient width the form has two
+  columns, and on narrow screens it stacks. A place is two inputs sharing one field. A field
   the pipeline read differently carries a **reset** next to it, which puts it back to what was read —
   travelling as a reset rather than as the same value typed in, so a reset document type becomes `AUTO`
   again instead of claiming somebody chose it.
@@ -609,7 +599,7 @@ document pinned to the height of a phone would be a worse read, not a better one
   **Processing** and **History** — and neither repeats the word on the tab.
   **Processing** is the panel of `05 §5.5`: six steps, one row each, and each row reads the way
   every label-and-value pair in Legere already reads (§11.15) — a status glyph, the step's name, a
-  dotted leader, and at the end of the line the state **in the reader's own words**, with the
+  quiet solid separator, and at the end of the line the state **in the reader's own words**, with the
   duration of the newest settled run beside it. A glyph and a word rather than the enum in a tag:
   `QUEUED` is schema vocabulary, and six identical grey pills of it were six repetitions of
   nothing. Each verdict keeps one shape and one colour — done, failed, running, queued, waiting,
@@ -1227,11 +1217,10 @@ A kinds merge folds shelves: the surviving kind receives every thing the others 
 both sides held under one name is folded along the way rather than left to violate the catalogue's
 own identity (03 §3.3.20a).
 
-**The actions stand at the foot of the screen, and stay there.** One bar, fixed to the bottom of
-the viewport, the same component on all three screens: **New** always, and **Merge (N)** the moment
-two or more rows are selected. A selection made at row three hundred must not cost a scroll back to
-the top to act on it — the bar is where the hands already are, and it never leaves. The table ends
-above the bar rather than under it: fixed means always visible, not covering the last row.
+**Create sits with the screen title.** Selection actions appear in a sticky bar only when rows
+are selected, with the selected count and Merge when at least two rows can be combined. The bar
+remains in flow so the last row stays reachable. This follows the common action hierarchy in
+[`16 §16.4`](./16-design-code.md#164-toolbars-filters-views-and-selection).
 
 **The duplicates panel is always there, and says when it looked.** An admin arriving at a catalogue
 of a hundred and thirty names should not have to read it like a proofreader — and should not be
@@ -1563,84 +1552,13 @@ An empty trash says so plainly rather than showing an empty table: nothing here 
   never drawn over a screen somebody is already on, and what the route-level one is allowed to cover
   is fixed in [`10 §10.2`](./10-frontend-architecture.md#102-routing-map).
 
-## 11.15. Visual identity — "the reading room"
+## 11.15. Visual identity — a clear working archive
 
-Legere is Latin for *to read*, and the product is a private archive: passports, contracts, invoices,
-the scans of a life. The interface is built to feel like a well-kept reading room rather than a SaaS
-dashboard — warm paper, ink, brass and verdigris, restraint in motion, and technical values set in a
-monospace face because here they carry meaning (hashes, paths, sizes, ids) rather than decorate.
-
-Everything below is expressed as antd theme tokens (`ConfigProvider`, `cssVar: true`) so components
-inherit it instead of each screen inventing colours. **No hex literals in components** — a screen that
-hardcodes `#fff` is a screen that turns white in dark mode.
-
-### Palette
-
-| Role | Paper (light) | Ink (dark) | Why |
-|---|---|---|---|
-| Page | `#F4F0E7` | `#141210` | Warm paper / warm black; neither is neutral grey |
-| Surface | `#FFFDF8` | `#1C1917` | Cards and the sider; what floats sits a step above |
-| Border | `#E3DBC9` | `#33302A` | Hairlines, never shadows-as-separators |
-| Text | `#1E1B16` | `#EDE7DA` | Ink on paper, and back |
-| Text secondary | `#6B6355` | `#A2998A` | |
-| **Primary** | `#2F6B5E` | `#4E9A87` | Verdigris — a library green, far from antd blue and from error red |
-| Accent | `#B7873A` | `#C89B4E` | Brass: highlights, the active shelf |
-| Success | `#5F8D4E` | `#7CA96A` | Moss, distinct from primary |
-| Warning | `#B7873A` | `#C89B4E` | Brass again — a warning is not a different world |
-| Error | `#B23B3B` | `#E07070` | Warm red, still unmistakably an error |
-
-### Type
-
-- **IBM Plex Sans** — everything. Humanist, slightly technical, legible at 13–14 px. Headings are
-  the same face, heavier and tighter. **No serif anywhere**: the display serif this spec used to
-  name gave the shell a title-page voice, which reads as decoration in a product whose whole job is
-  to show somebody else's documents — those are what should look like documents.
-- **IBM Plex Mono** — hashes, file paths, sizes, ids, error payloads. These are values people compare
-  character by character; proportional digits actively hurt.
-
-Loaded through `next/font` so Next self-hosts them in the bundle: a self-hosted instance on a private
-network must never call a font CDN at runtime.
-
-### The mark
-
-One monogram, in two places: the collapsed sider, and the tab. A verdigris tile with a paper `L` —
-the two colours the product is built from, and the pair that holds up against a light browser chrome
-and a dark one alike, which a glyph on transparency does not. Drawn as a path rather than as text:
-whatever renders a favicon has no reason to have IBM Plex Sans, and a monogram that falls back to
-Times is not the monogram. `icon.svg` for everything that takes one, `apple-icon.png` for the
-platform that wants a bitmap and no transparency.
-
-### Surfaces, depth, motion
-
-- Cards and panels: 1 px border in the **strong** border tone, radius 10, **no ambient shadow at
-  rest**. Hover lifts 2 px, warms the border to primary, and adds one soft shadow — depth is an
-  interaction, not a default. The border carries the whole separation, so it has to be seen: ~1.5:1
-  against the page, not the ~1.2:1 a hairline gives. Hairlines are for divisions *inside* a surface —
-  the rule under the wordmark, the line between a card's thumbnail and its body.
-- **What floats sits on the raised surface** — antd's own `colorBgElevated`, a step above the card
-  tone: modals, popovers, dropdowns and other transient panels. Something lifted over the page
-  should read as lifted, which is the rule above said in colour rather than in shadow. It is antd's
-  token and not one of ours, deliberately: an overlay takes the surface every modal in the product
-  already has, rather than every modal being repainted to match one overlay.
-- Label–value pairs are a **definition list with a dotted leader**, not a two-column table: the pairs
-  stay legible at any width, no column has to be agreed on, and the eye is carried across the gap
-  instead of jumping it. A missing value is an em dash — a blank reads as a rendering bug. Figures
-  are tabular so they line up under one another.
-- A thumbnail lies in a **well** (`--legere-well`), a tone mixed from the container and the text and
-  therefore distinct from both the page and the card. It must never be the page colour: a card whose
-  thumbnail area matches the background loses its top edge and stops looking like an object at all.
-- The page carries a faint procedural grain (inline SVG turbulence, ~3% opacity) so large empty areas
-  read as paper rather than as a colour swatch.
-- One orchestrated moment per screen: content rises 8 px and fades in, grid items staggered 40 ms
-  apart. Everything else is 140 ms ease-out hover/focus. All of it collapses to nothing under
-  `prefers-reduced-motion: reduce`.
-- Focus is always visible: a 2 px primary ring at 2 px offset, never `outline: none`.
-
-### Density
-
-Content column caps at 1440 px with 24–32 px gutters; controls are 36 px high; the grid breathes at
-16 px gaps. The sider is 240 px, the wordmark sits above a hairline rule, and collapsing it leaves the
-monogram — an "L", not a truncated word.
+The authoritative visual and interaction contract is [`16 — Design code`](./16-design-code.md).
+It replaces the earlier paper/ink reading-room treatment: neutral surfaces, the familiar green
+accent, IBM Plex Sans, full-width work areas, compact navigation, consistent forms and dialogs,
+and explicit scroll ownership. Shared Ant Design tokens and shared UI primitives implement it;
+screens must not introduce independent palettes or incompatible interaction patterns.
 
 ## 11.16. Open questions
 

@@ -25,6 +25,7 @@ documentation — report it (see [`../CLAUDE.md`](../CLAUDE.md)).
 | 13 | [`13-ci-cd.md`](./13-ci-cd.md) | GitHub Actions: PR checks and image publishing to GHCR |
 | 14 | [`14-coding-standards.md`](./14-coding-standards.md) | Code standards, ESLint boundaries, testing, Definition of Done |
 | 15 | [`15-receipts.md`](./15-receipts.md) | Receipts as a separate archive-item kind, pipeline, API and UI |
+| 16 | [`16-design-code.md`](./16-design-code.md) | Visual foundations, density, navigation, forms, scrolling, dialogs and tabs |
 
 The specification is **complete** — every document is written and all previously open questions are
 resolved (each document ends with its resolution notes).

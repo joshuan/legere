@@ -1,20 +1,12 @@
 'use client';
 
-import { DownOutlined, RightOutlined } from '@ant-design/icons';
+import { DownOutlined, RightOutlined, SettingOutlined } from '@ant-design/icons';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Col, Empty, Row, Select, Space, Spin, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-} from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_DOCUMENT_SORT,
   DOCUMENT_GROUP_BY,
@@ -50,15 +42,11 @@ import {
 import { UploadButton, UploadDropZone } from '../../features/document-upload';
 import { isSettled, useUploadQueue } from '../../features/upload-queue';
 import { useErrorMessage } from '../../shared/lib';
-import { QueryError } from '../../shared/ui';
+import { ControlPopover, PageHeader, QueryError } from '../../shared/ui';
 
 // While anything on screen is still being processed the list refreshes, so a document stops saying
 // "Processing" without the user reloading (docs/10 §10.5).
 const LIVE_REFRESH_MS = 5000;
-
-// How many cards take part in the entrance (docs/11 §11.15). Roughly a screenful at the widest
-// breakpoint: past that the animation would be a delay, not a flourish.
-const STAGGER_LIMIT = 18;
 
 // /documents (docs/11 §11.3): the home screen.
 export function DocumentsScreen() {
@@ -182,11 +170,13 @@ export function DocumentsScreen() {
     // where the eye happens to be, and "not over the grid" is not a reason to refuse it
     // (docs/11 §11.3).
     <UploadDropZone onFiles={send}>
-      {/* No heading: this grid is the archive rather than a page about the archive, and the menu
-          item a few pixels to its left already says which screen this is (docs/11 §11.1). */}
+      <PageHeader
+        title={t('nav.documents')}
+        actions={<UploadButton onFiles={sendToLibrary} primary />}
+      />
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Space wrap size="middle">
-          <DocumentFiltersBar value={filters} onChange={setFilters} />
+        <div className="legere-toolbar">
+          <DocumentFiltersBar value={filters} onChange={setFilters} compact />
           {/* Arranging the shelf, not narrowing it: the order sits beside the filters and outlives
               "Clear filters", which takes off what is in force rather than how it is laid out
               (docs/11 §11.3). */}
@@ -200,38 +190,48 @@ export function DocumentsScreen() {
               label: t(`documents.sort.options.${option}`),
             }))}
           />
-          {/* What the cards say about themselves. Not a filter either: it changes what is drawn on a
+          <ControlPopover label={t('documents.viewSettings')} icon={<SettingOutlined />}>
+            <div className="legere-control-panel">
+              {/* What the cards say about themselves. Not a filter either: it changes what is drawn on a
               card, not which cards there are, and it travels in the URL so a view stays one link
               (docs/11 §11.3). */}
-          <Select<DocumentCardField[]>
-            mode="multiple"
-            allowClear
-            maxTagCount="responsive"
-            style={{ width: 220, maxWidth: '100%' }}
-            aria-label={t('documents.card.label')}
-            placeholder={t('documents.card.none')}
-            value={[...fields]}
-            onChange={(next) => setView({ fields: next })}
-            options={DOCUMENT_CARD_FIELDS.map((option) => ({
-              value: option,
-              label: t(`documents.card.options.${option}`),
-            }))}
-          />
-          {/* Real shelves with real counts, from the server: not headers drawn over whatever this
+              <div className="legere-control-field">
+                <span className="legere-control-label">{t('documents.card.label')}</span>
+                <Select<DocumentCardField[]>
+                  mode="multiple"
+                  allowClear
+                  maxTagCount="responsive"
+                  style={{ width: '100%' }}
+                  aria-label={t('documents.card.label')}
+                  placeholder={t('documents.card.none')}
+                  value={[...fields]}
+                  onChange={(next) => setView({ fields: next })}
+                  options={DOCUMENT_CARD_FIELDS.map((option) => ({
+                    value: option,
+                    label: t(`documents.card.options.${option}`),
+                  }))}
+                />
+              </div>
+              {/* Real shelves with real counts, from the server: not headers drawn over whatever this
               page happened to hold (docs/11 §11.3). */}
-          <Select<DocumentGroupBy | ''>
-            style={{ width: 180, maxWidth: '100%' }}
-            aria-label={t('documents.groupBy.label')}
-            value={groupBy ?? ''}
-            onChange={(next) => setView({ groupBy: next === '' ? null : next })}
-            options={[
-              { value: '', label: t('documents.groupBy.none') },
-              ...DOCUMENT_GROUP_BY.map((option) => ({
-                value: option,
-                label: t(`documents.groupBy.options.${option}`),
-              })),
-            ]}
-          />
+              <div className="legere-control-field">
+                <span className="legere-control-label">{t('documents.groupBy.label')}</span>
+                <Select<DocumentGroupBy | ''>
+                  style={{ width: '100%' }}
+                  aria-label={t('documents.groupBy.label')}
+                  value={groupBy ?? ''}
+                  onChange={(next) => setView({ groupBy: next === '' ? null : next })}
+                  options={[
+                    { value: '', label: t('documents.groupBy.none') },
+                    ...DOCUMENT_GROUP_BY.map((option) => ({
+                      value: option,
+                      label: t(`documents.groupBy.options.${option}`),
+                    })),
+                  ]}
+                />
+              </div>
+            </div>
+          </ControlPopover>
           <Button
             onClick={() => {
               setSelecting((on) => !on);
@@ -256,12 +256,7 @@ export function DocumentsScreen() {
               </Button>
             </Space>
           )}
-          {/* At the end of the row carrying the order and the grouping, and not among the filters:
-              it is the one control here that makes something rather than narrowing what is already
-              there (docs/11 §11.3). Anyone may add a document of their own; the library is the
-              admin's business. */}
-          <UploadButton onFiles={sendToLibrary} />
-        </Space>
+        </div>
 
         {/* Above the grid, and only while nothing is being looked for in particular: a proposal
             about the whole shelf makes no sense over a filtered view of it (docs/11 §11.3). */}
@@ -295,17 +290,26 @@ export function DocumentsScreen() {
           <Spin />
         ) : items.length === 0 && !filling ? (
           <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={
               Object.keys(filters).length > 0
                 ? t('documents.empty.filtered')
                 : t('documents.empty.instance')
             }
           >
-            {/* No dark-pattern empty state: whoever can fix it is told how (docs/11 §11.14). */}
-            {Object.keys(filters).length === 0 && isAdmin && (
-              <Link href="/admin/libraries">
-                <Button type="primary">{t('documents.empty.addLibrary')}</Button>
-              </Link>
+            {Object.keys(filters).length > 0 ? (
+              <Button onClick={() => setView({ filters: {} })}>
+                {t('documents.filters.clear')}
+              </Button>
+            ) : (
+              <Space wrap>
+                <UploadButton primary onFiles={sendToLibrary} />
+                {isAdmin && (
+                  <Link href="/admin/libraries">
+                    <Button>{t('documents.empty.addLibrary')}</Button>
+                  </Link>
+                )}
+              </Space>
             )}
           </Empty>
         ) : (
@@ -313,11 +317,10 @@ export function DocumentsScreen() {
             {/* Real documents and nothing else: a file on its way is not one yet, and it is watched
                 in the panel rather than stood in the grid (docs/11 §11.3). */}
             <div className="legere-card-grid">
-              {items.map((document, index) => (
+              {items.map((document) => (
                 <div
                   key={document.id}
-                  className={cardClassName(index, justUploaded.has(document.id))}
-                  style={staggerStyle(index)}
+                  className={justUploaded.has(document.id) ? 'legere-just-uploaded' : undefined}
                 >
                   <DocumentCard
                     document={document}
@@ -838,24 +841,4 @@ function useJustUploaded(): ReadonlySet<string> {
       ),
     [items],
   );
-}
-
-// What a card in the grid is wearing, which is at most two things and often neither. The entrance is
-// the one orchestrated moment of the screen (docs/11 §11.15) — the grid deals itself out 40 ms at a
-// time, and only the first screenful takes part, because a card arriving on page seven should appear
-// rather than perform. The highlight is the other one: it belongs to the card a queued file has just
-// become, and runs once (docs/11 §11.3).
-function cardClassName(index: number, landed: boolean): string | undefined {
-  const names = [
-    ...(index < STAGGER_LIMIT ? ['legere-enter'] : []),
-    ...(landed ? ['legere-just-uploaded'] : []),
-  ];
-  return names.length === 0 ? undefined : names.join(' ');
-}
-
-// `--legere-index` drives the animation delay in CSS. React types style as CSSProperties, which has
-// no room for custom properties, so it is built as a Record and handed over as one.
-function staggerStyle(index: number): CSSProperties {
-  const custom: Record<string, string> = { '--legere-index': String(index % STAGGER_LIMIT) };
-  return custom;
 }

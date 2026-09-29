@@ -28,6 +28,8 @@ import { DocumentFiltersBar } from '../../features/document-filters';
 import { SearchResultRow, useRecentDocuments, type DocumentFilters } from '../../entities/document';
 import { useErrorMessage } from '../../shared/lib';
 
+import { PageHeader } from '../../shared/ui';
+
 // The submitted search lives in the URL. Back/Forward restores both the form and the results.
 export function SearchScreen() {
   const t = useTranslations();
@@ -86,10 +88,10 @@ export function SearchScreen() {
   const error = q === '' ? recent.error : results.error;
 
   return (
-    <section aria-label={t('search.resultsLabel')} style={{ width: '100%', maxWidth: 1200 }}>
+    <section aria-label={t('search.resultsLabel')} style={{ width: '100%' }}>
+      <PageHeader title={t('nav.search')} description={t('search.reach')} />
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <SearchQueryInput key={q} query={q} onSearch={(value) => navigate({ q: value.trim() })} />
-        <Typography.Text type="secondary">{t('search.reach')}</Typography.Text>
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           <Space wrap size="middle" style={{ width: '100%', justifyContent: 'space-between' }}>
             <Radio.Group

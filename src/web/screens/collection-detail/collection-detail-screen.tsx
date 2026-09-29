@@ -61,10 +61,10 @@ export function CollectionDetailScreen({ id }: { id: string }) {
       {detail.isError && <QueryError error={detail.error} retry={detail.refetch} />}
 
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Space style={{ width: '100%', justifyContent: 'space-between' }} align="start">
+        <header className="legere-page-head" style={{ marginBottom: 0 }}>
           <Space direction="vertical" size={0}>
             <Typography.Title
-              level={3}
+              level={1}
               style={{ margin: 0 }}
               editable={
                 isOwner
@@ -91,7 +91,7 @@ export function CollectionDetailScreen({ id }: { id: string }) {
           {isOwner && (
             <Button onClick={() => setSharing(true)}>{t('collections.actions.share')}</Button>
           )}
-        </Space>
+        </header>
 
         {items.length === 0 ? (
           <Empty description={t('collections.emptyItems')} />

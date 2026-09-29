@@ -2054,3 +2054,37 @@ Production observation is read-only; source fixes are verified and committed on 
   lint, Compose validation, a message captured through `SmtpEmailSender`, and a successful local
   bootstrap with `--skip-install --skip-docker` against existing services (Prisma + queue migrations
   and seed).
+
+## M67 — A clear working archive
+
+- [x] **M67.1 — Shared design code and application shell**
+  **Goal:** a coherent, quiet interface with full-width work areas and usable mobile navigation.
+  **Docs:** [`16`](../16-design-code.md), [`11 §11.1, §11.15`](../11-ui-ux-spec.md)
+  **Acceptance:** shared palettes, typography, spacing, controls, focus and motion; documented rules
+  for forms, scrolling, dialogs and tabs; compact desktop navigation and a mobile drawer; both themes.
+- [x] **M67.2 — Archive, browse, collections, receipts and search**
+  **Goal:** prioritize finding and reading content over controls and decoration.
+  **Docs:** [`16 §16.4, §16.7`](../16-design-code.md)
+  **Acceptance:** consistent page actions and content surfaces, usable filters/view controls,
+  readable cards/results/receipts, responsive layout, and useful empty/error/loading states.
+- [x] **M67.3 — Reading, editing and administrative workspaces**
+  **Goal:** predictable forms, tabs, scroll regions and dialogs throughout the service.
+  **Docs:** [`16 §16.5–§16.7`](../16-design-code.md)
+  **Acceptance:** document workspace uses available space; catalogues, settings, administration and
+  authentication follow the same design code; existing permissions, validation and data flows hold.
+- [x] **M67.4 — Populated browser review and regression verification**
+  **Goal:** verify the redesign as a working service, including touch and keyboard use.
+  **Docs:** [`16 §16.8`](../16-design-code.md), [`14 §14.8`](../14-coding-standards.md)
+  **Acceptance:** local synthetic data and representative interactive checks; updated and inspected
+  canonical screenshots, then clean comparison; typecheck, lint and full automated tests pass.
+  **Validation:** typecheck and lint pass; the full suite passes with 2545 tests and 16
+  optional-service cases skipped. A contrast regression checks secondary text on working and
+  feedback surfaces in both themes. Browser checks cover English/Russian layouts, filter/view
+  disclosures and keyboard return, mobile navigation, editing and cancellation, drawer footers,
+  bounded date pickers, page cropping, and independent desktop document scrolling. Manual review
+  uses an isolated local database and synthetic documents, receipts and previews.
+  The pinned Docker matrix covers 559 applicable checks with 12 viewport-specific skips. Its
+  comparison passed 558 cases; the remaining service-page comparison exposed a transient toast
+  timing dependency. After waiting for that notice to expire naturally and reviewing the ten
+  refreshed baselines, all ten service-page configurations passed twice without snapshot updates
+  (21 checks including setup). Pixel tolerances, overflow and browser-error checks remain intact.

@@ -9,7 +9,7 @@ import { useSearchParams } from 'next/navigation';
 import { useMemo } from 'react';
 import { libraryApi, libraryKeys } from '../../entities/library';
 import { useHydrated } from '../../shared/lib';
-import { QueryError } from '../../shared/ui';
+import { PageHeader, QueryError } from '../../shared/ui';
 import { DocumentCard } from '../../widgets/document-card';
 
 // /browse/:libraryId?path= (docs/11 §11.4): the mounted folder structure, one level at a time.
@@ -45,6 +45,7 @@ export function BrowseScreen({ libraryId }: { libraryId: string }) {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <PageHeader title={segments.at(-1) ?? libraryName ?? t('browse.library')} />
       <Breadcrumb
         items={[
           {

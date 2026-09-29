@@ -7,18 +7,16 @@ import {
   App,
   Button,
   Card,
-  Col,
   Empty,
   Modal,
   Popconfirm,
-  Row,
   Space,
   Tag,
   Tooltip,
   Typography,
   theme,
 } from 'antd';
-import { ResponsiveTable as Table } from '../../shared/ui';
+import { ResponsiveTable as Table, PageHeader } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useCallback, useMemo, useState } from 'react';
@@ -246,25 +244,14 @@ export function AdminTrashScreen() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Row align="middle" justify="space-between" gutter={[16, 8]}>
-        <Col>
-          <Typography.Title level={4} style={{ marginBottom: 4 }}>
-            {t('admin.trash.title')}
-          </Typography.Title>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            {t('admin.trash.lead')}
-          </Typography.Paragraph>
-        </Col>
-        {total !== null && (
-          <Col>
+      <PageHeader
+        title={t('admin.trash.title')}
+        description={t('admin.trash.lead')}
+        actions={
+          total !== null && (
             <Space size="middle" wrap>
-              {/* What the trash costs, over the whole of it — the number that is the reason to open
-                  this screen at all (docs/11 §11.13b). */}
-              <Typography.Text strong style={{ fontSize: 16 }}>
-                {t('admin.trash.summary', {
-                  items: total.items,
-                  size: formatBytes(total.bytes),
-                })}
+              <Typography.Text strong>
+                {t('admin.trash.summary', { items: total.items, size: formatBytes(total.bytes) })}
               </Typography.Text>
               {total.items > 0 && (
                 <Button danger onClick={() => setEmptying(true)}>
@@ -272,9 +259,9 @@ export function AdminTrashScreen() {
                 </Button>
               )}
             </Space>
-          </Col>
-        )}
-      </Row>
+          )
+        }
+      />
 
       {trash.isError && (
         <Alert

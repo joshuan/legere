@@ -1,6 +1,6 @@
 'use client';
 
-import { Alert, Button, Card, Form, Input, Steps, Typography } from 'antd';
+import { Alert, Button, Form, Input, Steps, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -14,6 +14,8 @@ import { sessionApi } from '../../entities/session';
 import { isApiError } from '../../shared/api';
 import { safeReturnTo, useErrorMessage } from '../../shared/lib';
 import { isTurnstileConfigured, TurnstileWidget } from '../../shared/captcha';
+
+import { AuthFrame } from '../../shared/ui';
 
 // The one wizard behind onboarding, invite acceptance and password reset (docs/11 §11.2): the three
 // flows differ only in which token they carry and whether the address is fixed.
@@ -150,11 +152,10 @@ export function AuthWizard({
   );
 
   return (
-    <Card
-      className="legere-auth-card"
-      style={{ maxWidth: 480, width: 'calc(100% - 32px)', margin: 'clamp(16px, 6vh, 48px) auto' }}
-    >
-      <Typography.Title level={3}>{t(`auth.wizard.title.${mode}`)}</Typography.Title>
+    <AuthFrame width={480}>
+      <Typography.Title level={1} style={{ fontSize: 24, marginTop: 0 }}>
+        {t(`auth.wizard.title.${mode}`)}
+      </Typography.Title>
 
       <Steps
         current={step}
@@ -195,7 +196,7 @@ export function AuthWizard({
       )}
 
       {step === 2 && <PasswordStep busy={busy} onSubmit={submitPassword} />}
-    </Card>
+    </AuthFrame>
   );
 }
 

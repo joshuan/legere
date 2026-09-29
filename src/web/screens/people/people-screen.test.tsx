@@ -536,7 +536,7 @@ describe('PeopleScreen', () => {
     await waitFor(() => expect(name).toHaveFocus());
   });
 
-  it('stands its actions at the foot of the screen, Merge arriving with a selection (docs/11 §11.12a)', async () => {
+  it('keeps Create in the heading and reveals batch actions for a selection', async () => {
     server.use(
       http.get('/api/people', () =>
         HttpResponse.json(envelope({ nextCursor: null, items: [person, twin] })),
@@ -546,18 +546,23 @@ describe('PeopleScreen', () => {
     renderWithProviders(<PeopleScreen />, { user: TEST_ADMIN });
     await screen.findAllByText(/Marija Petrovi/);
 
-    const bar = screen.getByRole('toolbar', { name: enMessages.admin.catalogues.actionsBar });
-    // New always; Merge only once there is a selection worth merging.
     expect(
-      within(bar).getByRole('button', { name: enMessages.admin.people.actions.create }),
+      screen.queryByRole('toolbar', { name: enMessages.admin.catalogues.actionsBar }),
+    ).toBeNull();
+    // Creation remains available without entering selection mode.
+    expect(
+      screen.getByRole('button', { name: enMessages.admin.people.actions.create }),
     ).toBeInTheDocument();
-    expect(within(bar).queryByRole('button', { name: /Merge/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Merge/ })).toBeNull();
 
     const [selectAll] = screen.getAllByRole('checkbox');
     if (selectAll === undefined) throw new Error('expected a selection checkbox');
     await userEvent.click(selectAll);
 
-    // The button names its count, in the bar where the hands already are.
+    const bar = await screen.findByRole('toolbar', {
+      name: enMessages.admin.catalogues.actionsBar,
+    });
+    // The button names its count, beside the selected rows.
     expect(await within(bar).findByRole('button', { name: /Merge 2/ })).toBeInTheDocument();
 
     // Sticky and in flow, not a fixed overlay: the bar keeps its own room in the column, so the

@@ -3,7 +3,7 @@
 import { PlusOutlined } from '@ant-design/icons';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { Button, Card, Empty, Select, Space, Spin, Typography } from 'antd';
-import { ResponsiveTable as Table, QueryError } from '../../shared/ui';
+import { PageHeader, ResponsiveTable as Table, QueryError } from '../../shared/ui';
 import type { ColumnsType } from 'antd/es/table';
 import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -123,12 +123,14 @@ export function ReceiptsScreen() {
     {
       title: t('fields.total'),
       key: 'total',
+      align: 'right',
       width: 130,
       render: (_, receipt) => moneyValue(receipt.extracted?.values.total, locale) ?? '—',
     },
     {
       title: t('fields.taxAmount'),
       key: 'tax',
+      align: 'right',
       width: 110,
       render: (_, receipt) => receiptTaxValue(receipt, locale) ?? '—',
     },
@@ -164,41 +166,43 @@ export function ReceiptsScreen() {
   return (
     <UploadDropZone onFiles={uploads.send} hint={t('dropHint')}>
       <div style={{ width: '100%', minWidth: 0 }}>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*,application/pdf"
+          multiple
+          hidden
+          onChange={(event) => {
+            const files = Array.from(event.currentTarget.files ?? []);
+            event.currentTarget.value = '';
+            uploads.send(files);
+          }}
+        />
         <Space direction="vertical" size={20} style={{ width: '100%' }}>
-          <ReceiptUploadPanel items={uploads.items} busy={uploads.busy} onClose={uploads.clear} />
-          <div
-            style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}
-          >
-            <div>
-              <Typography.Title level={2} style={{ margin: 0 }}>
-                {t('title')}
-              </Typography.Title>
-              <Typography.Text type="secondary">{t('uploadHint')}</Typography.Text>
-            </div>
-            <Button
-              type="primary"
-              icon={<PlusOutlined aria-hidden />}
-              loading={uploads.busy}
-              onClick={() => inputRef.current?.click()}
-            >
-              {t('upload')}
-            </Button>
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/*,application/pdf"
-              multiple
-              hidden
-              onChange={(event) => {
-                const files = Array.from(event.currentTarget.files ?? []);
-                event.currentTarget.value = '';
-                uploads.send(files);
-              }}
-            />
-          </div>
+          {uploads.items.length > 0 && (
+            <ReceiptUploadPanel items={uploads.items} busy={uploads.busy} onClose={uploads.clear} />
+          )}
+          <PageHeader
+            title={t('title')}
+            description={t('uploadHint')}
+            actions={
+              <Button
+                type="primary"
+                icon={<PlusOutlined aria-hidden />}
+                loading={uploads.busy}
+                onClick={() => inputRef.current?.click()}
+              >
+                {t('upload')}
+              </Button>
+            }
+          />
 
           <Space wrap size="middle">
-            <ReceiptFiltersBar value={filters} onChange={(next) => setView({ filters: next })} />
+            <ReceiptFiltersBar
+              compact
+              value={filters}
+              onChange={(next) => setView({ filters: next })}
+            />
             <Select<ReceiptSort>
               style={{ width: 220, maxWidth: '100%' }}
               aria-label={t('sort.label')}

@@ -8,7 +8,7 @@ import { useState } from 'react';
 import type { CollectionDto } from '../../../shared/contracts/collections';
 import { collectionApi, collectionKeys } from '../../entities/collection';
 import { useErrorMessage } from '../../shared/lib';
-import { QueryError } from '../../shared/ui';
+import { PageHeader, QueryError } from '../../shared/ui';
 
 type FormValues = { name: string; description: string };
 
@@ -49,14 +49,14 @@ export function CollectionsScreen() {
       {collections.isError && <QueryError error={collections.error} retry={collections.refetch} />}
 
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-          <Typography.Title level={3} style={{ margin: 0 }}>
-            {t('collections.title')}
-          </Typography.Title>
-          <Button type="primary" onClick={() => setOpen(true)}>
-            {t('collections.actions.create')}
-          </Button>
-        </Space>
+        <PageHeader
+          title={t('collections.title')}
+          actions={
+            <Button type="primary" onClick={() => setOpen(true)}>
+              {t('collections.actions.create')}
+            </Button>
+          }
+        />
 
         <Card title={t('collections.mine')} loading={collections.isPending}>
           <Group items={mine} empty={t('collections.emptyMine')} />

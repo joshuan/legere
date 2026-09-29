@@ -1,7 +1,5 @@
-// The palette of docs/11 §11.15, as data. Two families that share a temperature: paper is warm, ink
-// is a warm black — neither is the neutral grey every dashboard defaults to. Verdigris carries the
-// product (a library green, nowhere near antd's blue), brass highlights, and error stays a red no
-// one can mistake for either.
+// Shared archive colors (docs/16 §16.2). Neutral working surfaces keep scans in focus;
+// green identifies interaction, while status colors retain their own meaning.
 export type Palette = {
   page: string;
   surface: string;
@@ -21,39 +19,39 @@ export type Palette = {
 };
 
 export const PAPER: Palette = {
-  page: '#F4F0E7',
-  surface: '#FFFDF8',
+  page: '#F5F7F8',
+  surface: '#FFFFFF',
   surfaceRaised: '#FFFFFF',
-  border: '#E3DBC9',
-  borderStrong: '#CFC4AC',
-  text: '#1E1B16',
-  textSecondary: '#6B6355',
-  primary: '#2F6B5E',
-  primaryHover: '#3A8272',
-  primaryActive: '#25564B',
-  accent: '#B7873A',
-  success: '#5F8D4E',
-  warning: '#B7873A',
-  error: '#B23B3B',
-  info: '#2F6B5E',
+  border: '#DEE5E8',
+  borderStrong: '#BCC9CF',
+  text: '#24323B',
+  textSecondary: '#63747D',
+  primary: '#247463',
+  primaryHover: '#2E8874',
+  primaryActive: '#195A4D',
+  accent: '#936719',
+  success: '#34764A',
+  warning: '#936719',
+  error: '#B43F4D',
+  info: '#247463',
 };
 
 export const INK: Palette = {
-  page: '#141210',
-  surface: '#1C1917',
-  surfaceRaised: '#232019',
-  border: '#33302A',
-  borderStrong: '#4A453C',
-  text: '#EDE7DA',
-  textSecondary: '#A2998A',
-  primary: '#4E9A87',
-  primaryHover: '#63B39E',
-  primaryActive: '#3D7D6D',
-  accent: '#C89B4E',
-  success: '#7CA96A',
-  warning: '#C89B4E',
-  error: '#E07070',
-  info: '#4E9A87',
+  page: '#121A1E',
+  surface: '#1A252B',
+  surfaceRaised: '#223139',
+  border: '#30434B',
+  borderStrong: '#58707B',
+  text: '#E7EFF2',
+  textSecondary: '#A2B3BA',
+  primary: '#73C4AF',
+  primaryHover: '#94D7C5',
+  primaryActive: '#56A68F',
+  accent: '#E0B56C',
+  success: '#88C89E',
+  warning: '#E0B56C',
+  error: '#EC939A',
+  info: '#73C4AF',
 };
 
 export const paletteFor = (dark: boolean): Palette => (dark ? INK : PAPER);

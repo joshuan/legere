@@ -474,7 +474,7 @@ describe('DocumentViewerScreen', () => {
       renderWithProviders(<DocumentViewerScreen id={ID} />);
 
       const tabs = await screen.findByRole('tablist');
-      const main = tabs.closest('.ant-col');
+      const main = tabs.closest('.legere-viewer-main');
       if (!(main instanceof HTMLElement)) throw new Error('expected the main column');
 
       // 🔒 Nothing whatever above them: the tabs are the first thing the column draws, so the open
@@ -493,42 +493,16 @@ describe('DocumentViewerScreen', () => {
       renderWithProviders(<DocumentViewerScreen id={ID} />);
 
       const tabs = await screen.findByRole('tablist');
-      const main = tabs.closest('.ant-col');
+      const main = tabs.closest('.legere-viewer-main');
       if (!(main instanceof HTMLElement)) throw new Error('expected the main column');
 
       // 🔒 The argument above, in width rather than in height: a frame around the whole zone is a
       // frame around the one thing the screen exists to show (docs/11 §11.5).
       expect(main.querySelector('.ant-card')).toBeNull();
       // The panel beside it keeps its cards, because those are objects laid on a page.
-      const side = screen.getByText(detail.title).closest('.ant-col');
+      const side = screen.getByText(detail.title).closest('.legere-viewer-side');
       expect(side).not.toBe(main);
       expect(side?.querySelector('.ant-card')).not.toBeNull();
-    });
-
-    it('hangs the height chain on the row and its two columns, so the tab can take the rest', async () => {
-      renderWithProviders(<DocumentViewerScreen id={ID} />);
-
-      const tabs = await screen.findByRole('tablist');
-      const main = tabs.closest('.ant-col');
-      if (!(main instanceof HTMLElement)) throw new Error('expected the main column');
-
-      // The chain the stylesheet hangs the viewport height from (docs/11 §11.5): the row, the column
-      // the document is in, and the panel that scrolls beside it. jsdom computes no layout, so what
-      // is asserted here is that every link of it is present and named.
-      const row = main.parentElement;
-      expect(main).toHaveClass('legere-viewer-main');
-      expect(row).toHaveClass('legere-viewer');
-      expect(row?.querySelector('.legere-viewer-side')).not.toBeNull();
-      // And the tabs are that column's own child, with nothing in between to break the chain.
-      expect(main.firstElementChild).toHaveClass('ant-tabs');
-
-      // 🔒 The vertical inset of this screen is the stylesheet's to give away — the row takes the
-      // top and bottom edges of the window with a negative margin, which an inline one would fight
-      // and win (docs/11 §11.5). The gutter antd writes inline is the horizontal one, and it stays.
-      if (!(row instanceof HTMLElement)) throw new Error('expected the row');
-      expect(row.style.marginTop).toBe('');
-      expect(row.style.marginBottom).toBe('');
-      expect(row.style.marginLeft).not.toBe('');
     });
 
     it('gives the canonical the height of its pane rather than a fixed slice of the window', async () => {

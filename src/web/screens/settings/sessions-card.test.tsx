@@ -16,7 +16,8 @@ vi.mock('next/navigation', () => ({
 
 const other = {
   id: 'aaaaaaaa-1111-4111-8111-111111111111',
-  userAgent: 'Mozilla/5.0 (a phone)',
+  userAgent:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/153.0.0.0 Safari/537.36',
   current: false,
   createdAt: '2026-01-01T00:00:00.000Z',
   expiresAt: '2026-01-31T00:00:00.000Z',
@@ -46,7 +47,7 @@ describe('SessionsCard', () => {
   it('lists the signed-in devices and marks the one asking', async () => {
     renderWithProviders(<SessionsCard />);
 
-    expect(await screen.findByText('Mozilla/5.0 (a phone)')).toBeInTheDocument();
+    expect(await screen.findByText('Chrome · macOS')).toBeInTheDocument();
     // A session that never carried a user agent still has a row to revoke.
     expect(screen.getByText(enMessages.settings.sessions.unknownDevice)).toBeInTheDocument();
     expect(screen.getByText(enMessages.settings.sessions.current)).toBeInTheDocument();

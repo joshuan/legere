@@ -1,12 +1,14 @@
 'use client';
 
-import { Alert, Button, Card, Form, Input, Tooltip, Typography } from 'antd';
+import { Alert, Button, Form, Input, Tooltip, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import { sessionApi } from '../../entities/session';
 import { safeReturnTo, useErrorMessage } from '../../shared/lib';
 import { isTurnstileConfigured, TurnstileWidget } from '../../shared/captcha';
+
+import { AuthFrame } from '../../shared/ui';
 
 // Login card (docs/11 §11.2). Errors are localized by code and shown inline; there is no
 // self-service recovery in the MVP, so "forgot password" is a static hint (docs/08 §8.1.7).
@@ -52,11 +54,10 @@ export function LoginForm({ returnTo }: { returnTo?: string }) {
   );
 
   return (
-    <Card
-      className="legere-auth-card"
-      style={{ maxWidth: 400, width: 'calc(100% - 32px)', margin: 'clamp(16px, 8vh, 64px) auto' }}
-    >
-      <Typography.Title level={3}>{t('auth.login.title')}</Typography.Title>
+    <AuthFrame width={440}>
+      <Typography.Title level={1} style={{ fontSize: 24, marginTop: 0 }}>
+        {t('auth.login.title')}
+      </Typography.Title>
 
       {error !== null && (
         <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} role="alert" />
@@ -100,6 +101,6 @@ export function LoginForm({ returnTo }: { returnTo?: string }) {
           {t('auth.login.forgot')}
         </Typography.Link>
       </Tooltip>
-    </Card>
+    </AuthFrame>
   );
 }

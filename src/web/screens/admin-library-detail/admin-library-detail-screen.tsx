@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Descriptions, Space, Tag, Typography } from 'antd';
-import { ResponsiveTable as Table, QueryError } from '../../shared/ui';
+import { ResponsiveTable as Table, PageHeader, QueryError } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import type { ScanRunDto } from '../../../shared/contracts/libraries';
@@ -113,10 +113,9 @@ export function AdminLibraryDetailScreen({ id }: { id: string }) {
       {scans.isError && <QueryError error={scans.error} retry={scans.refetch} />}
 
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Card
+        <PageHeader
           title={library.data?.name ?? t('common.loading')}
-          loading={library.isPending}
-          extra={
+          actions={
             <Space>
               <Link href="/admin/libraries">{t('admin.libraries.backToList')}</Link>
               <Button type="primary" onClick={() => scanNow.mutate()} loading={scanNow.isPending}>
@@ -124,9 +123,14 @@ export function AdminLibraryDetailScreen({ id }: { id: string }) {
               </Button>
             </Space>
           }
-        >
+        />
+        <Card loading={library.isPending}>
           {library.data !== undefined && (
-            <Descriptions column={1} size="small">
+            <Descriptions
+              column={{ xs: 1, sm: 1, md: 2, lg: 2, xl: 3 }}
+              layout="vertical"
+              size="small"
+            >
               <Descriptions.Item label={t('admin.libraries.fields.rootPath')}>
                 <Typography.Text code>
                   {library.data.rootPath === '' ? '/' : library.data.rootPath}

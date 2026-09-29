@@ -1,6 +1,7 @@
 'use client';
 
-import { SearchOutlined } from '@ant-design/icons';
+import { ControlPopover } from '../../shared/ui';
+import { FilterOutlined, SearchOutlined } from '@ant-design/icons';
 import { Button, DatePicker, Input, InputNumber, Select, Space } from 'antd';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -19,7 +20,9 @@ export type ReceiptsView = { filters: ReceiptFilters; sort: ReceiptSort };
 export function ReceiptFiltersBar({
   value,
   onChange,
+  compact = false,
 }: {
+  compact?: boolean;
   value: ReceiptFilters;
   onChange: (next: ReceiptFilters) => void;
 }) {
@@ -49,6 +52,79 @@ export function ReceiptFiltersBar({
           value.purchasedTo === undefined ? null : dayjs(value.purchasedTo),
         ];
 
+  const advanced = (
+    <Space wrap size="middle" className={compact ? 'legere-filter-panel' : ''}>
+      <div className={compact ? 'legere-control-field' : undefined}>
+        {compact && <span className="legere-control-label">{t('filters.purchaseDates')}</span>}
+        <DatePicker.RangePicker
+          style={{ width: compact ? '100%' : undefined }}
+          allowEmpty={[true, true]}
+          aria-label={t('filters.purchaseDates')}
+          placeholder={[t('filters.dateFrom'), t('filters.dateTo')]}
+          value={range}
+          onChange={(dates) =>
+            set({
+              purchasedFrom: dates?.[0]?.format('YYYY-MM-DD'),
+              purchasedTo: dates?.[1]?.format('YYYY-MM-DD'),
+            })
+          }
+        />
+      </div>
+      <div className={compact ? 'legere-control-field' : undefined}>
+        {compact && <span className="legere-control-label">{t('filters.country')}</span>}
+        <Select
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          style={{ width: compact ? '100%' : 170, maxWidth: '100%' }}
+          aria-label={t('filters.country')}
+          placeholder={t('filters.country')}
+          value={value.country}
+          options={countries}
+          onChange={(country?: string) => set({ country })}
+        />
+      </div>
+      <div className={compact ? 'legere-control-field' : undefined}>
+        {compact && <span className="legere-control-label">{t('filters.currency')}</span>}
+        <Select
+          allowClear
+          showSearch
+          style={{ width: compact ? '100%' : 130 }}
+          aria-label={t('filters.currency')}
+          placeholder={t('filters.currency')}
+          value={value.currency}
+          options={currencies.map((currency) => ({ value: currency, label: currency }))}
+          onChange={(currency?: string) => set({ currency })}
+        />
+      </div>
+      <div className={compact ? 'legere-control-field' : undefined}>
+        {compact && <span className="legere-control-label">{t('filters.amountMin')}</span>}
+        <InputNumber<number>
+          controls={false}
+          style={{ width: compact ? '100%' : 155 }}
+          aria-label={t('filters.amountMin')}
+          placeholder={t('filters.amountMin')}
+          value={value.amountMin ?? null}
+          onChange={(amountMin) => set({ amountMin: amountMin ?? undefined })}
+        />
+      </div>
+      <div className={compact ? 'legere-control-field' : undefined}>
+        {compact && <span className="legere-control-label">{t('filters.amountMax')}</span>}
+        <InputNumber<number>
+          controls={false}
+          style={{ width: compact ? '100%' : 155 }}
+          aria-label={t('filters.amountMax')}
+          placeholder={t('filters.amountMax')}
+          value={value.amountMax ?? null}
+          onChange={(amountMax) => set({ amountMax: amountMax ?? undefined })}
+        />
+      </div>
+      {Object.keys(value).length > 0 && (
+        <Button onClick={() => onChange({})}>{t('filters.clear')}</Button>
+      )}
+    </Space>
+  );
+
   return (
     <Space wrap size="middle">
       <Input
@@ -64,57 +140,16 @@ export function ReceiptFiltersBar({
           set({ q: q === '' ? undefined : q });
         }}
       />
-      <DatePicker.RangePicker
-        allowEmpty={[true, true]}
-        aria-label={t('filters.purchaseDates')}
-        placeholder={[t('filters.dateFrom'), t('filters.dateTo')]}
-        value={range}
-        onChange={(dates) =>
-          set({
-            purchasedFrom: dates?.[0]?.format('YYYY-MM-DD'),
-            purchasedTo: dates?.[1]?.format('YYYY-MM-DD'),
-          })
-        }
-      />
-      <Select
-        allowClear
-        showSearch
-        optionFilterProp="label"
-        style={{ width: 170, maxWidth: '100%' }}
-        aria-label={t('filters.country')}
-        placeholder={t('filters.country')}
-        value={value.country}
-        options={countries}
-        onChange={(country?: string) => set({ country })}
-      />
-      <Select
-        allowClear
-        showSearch
-        style={{ width: 130 }}
-        aria-label={t('filters.currency')}
-        placeholder={t('filters.currency')}
-        value={value.currency}
-        options={currencies.map((currency) => ({ value: currency, label: currency }))}
-        onChange={(currency?: string) => set({ currency })}
-      />
-      <InputNumber<number>
-        controls={false}
-        style={{ width: 155 }}
-        aria-label={t('filters.amountMin')}
-        placeholder={t('filters.amountMin')}
-        value={value.amountMin ?? null}
-        onChange={(amountMin) => set({ amountMin: amountMin ?? undefined })}
-      />
-      <InputNumber<number>
-        controls={false}
-        style={{ width: 155 }}
-        aria-label={t('filters.amountMax')}
-        placeholder={t('filters.amountMax')}
-        value={value.amountMax ?? null}
-        onChange={(amountMax) => set({ amountMax: amountMax ?? undefined })}
-      />
-      {Object.keys(value).length > 0 && (
-        <Button onClick={() => onChange({})}>{t('filters.clear')}</Button>
+      {compact ? (
+        <ControlPopover
+          label={t('filters.title')}
+          icon={<FilterOutlined />}
+          count={Object.keys(value).length}
+        >
+          {advanced}
+        </ControlPopover>
+      ) : (
+        advanced
       )}
     </Space>
   );

@@ -2,7 +2,12 @@
 
 import { useMutation, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Form, Modal, Popconfirm, Select, Space, Tag } from 'antd';
-import { ResponsiveTable as Table, OneTimeLinkModal, QueryError } from '../../shared/ui';
+import {
+  PageHeader,
+  ResponsiveTable as Table,
+  OneTimeLinkModal,
+  QueryError,
+} from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import { useCallback, useState } from 'react';
 import type { UserRole } from '../../../shared/contracts/enums';
@@ -209,14 +214,15 @@ export function AdminUsersScreen() {
       {invites.isError && <QueryError error={invites.error} retry={invites.refetch} />}
 
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Card
-          title={t('admin.users.title')}
-          extra={
-            <Button type="primary" onClick={() => setInviteOpen(true)}>
-              {t('admin.invites.actions.create')}
-            </Button>
-          }
-        >
+        <section>
+          <PageHeader
+            title={t('admin.users.title')}
+            actions={
+              <Button type="primary" onClick={() => setInviteOpen(true)}>
+                {t('admin.invites.actions.create')}
+              </Button>
+            }
+          />
           <Table
             rowKey="id"
             loading={users.isPending}
@@ -230,7 +236,7 @@ export function AdminUsersScreen() {
               {t('browse.more')}
             </Button>
           )}
-        </Card>
+        </section>
 
         <Card title={t('admin.invites.title')}>
           <Table

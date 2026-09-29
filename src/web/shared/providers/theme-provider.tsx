@@ -16,6 +16,7 @@ import type { Theme } from '../../../shared/contracts/enums';
 import { legereTheme } from '../theme';
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 const ThemePreferenceContext = createContext<(preference: Theme) => void>(() => {});
 
@@ -38,6 +39,16 @@ function systemPrefersDark(): boolean {
   return window.matchMedia(DARK_QUERY).matches;
 }
 
+// Disable component transitions at their source; shortening CSS animations alone leaves an
+// entering popup briefly scaled to zero for people who requested reduced motion.
+function subscribeToMotion(onChange: () => void): () => void {
+  const query = window.matchMedia(REDUCED_MOTION_QUERY);
+  query.addEventListener('change', onChange);
+  return () => query.removeEventListener('change', onChange);
+}
+
+const prefersReducedMotion = (): boolean => window.matchMedia(REDUCED_MOTION_QUERY).matches;
+
 // The server cannot know the client's colour scheme; light is the neutral first paint.
 const serverSnapshot = (): boolean => false;
 
@@ -55,10 +66,19 @@ export function ThemeProvider({
     [selectedPreference],
   );
   const dark = useSyncExternalStore(subscribeToColorScheme, getSnapshot, serverSnapshot);
+  const reducedMotion = useSyncExternalStore(
+    subscribeToMotion,
+    prefersReducedMotion,
+    serverSnapshot,
+  );
+  const appearance = legereTheme(dark);
 
   return (
     <ThemePreferenceContext value={setSelectedPreference}>
-      <ConfigProvider locale={locale === 'ru' ? ruRU : enUS} theme={legereTheme(dark)}>
+      <ConfigProvider
+        locale={locale === 'ru' ? ruRU : enUS}
+        theme={{ ...appearance, token: { ...appearance.token, motion: !reducedMotion } }}
+      >
         {children}
       </ConfigProvider>
     </ThemePreferenceContext>

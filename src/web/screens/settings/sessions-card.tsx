@@ -67,7 +67,11 @@ export function SessionsCard() {
                     size={4}
                     style={{ maxWidth: 260, overflowWrap: 'anywhere', whiteSpace: 'normal' }}
                   >
-                    <span>{userAgent ?? t('settings.sessions.unknownDevice')}</span>
+                    <span title={userAgent ?? undefined}>
+                      {userAgent === null
+                        ? t('settings.sessions.unknownDevice')
+                        : deviceLabel(userAgent)}
+                    </span>
                     {session.current ? (
                       <Tag color="green">{t('settings.sessions.current')}</Tag>
                     ) : null}
@@ -110,4 +114,28 @@ export function SessionsCard() {
       </Card>
     </>
   );
+}
+
+// A readable device identity; retain the original agent on hover and for unrecognized clients.
+function deviceLabel(agent: string): string {
+  const browser = [
+    [/Edg(?:e|A|iOS)?\//, 'Edge'],
+    [/OPR\/|Opera\//, 'Opera'],
+    [/Firefox\/|FxiOS\//, 'Firefox'],
+    [/Chrome\/|CriOS\//, 'Chrome'],
+    [/Safari\//, 'Safari'],
+  ].find(([pattern]) => pattern instanceof RegExp && pattern.test(agent))?.[1];
+  const platform = [
+    [/iPad/, 'iPad'],
+    [/iPhone|iPod/, 'iPhone'],
+    [/Android/, 'Android'],
+    [/Windows/, 'Windows'],
+    [/Macintosh|Mac OS X/, 'macOS'],
+    [/Linux/, 'Linux'],
+  ].find(([pattern]) => pattern instanceof RegExp && pattern.test(agent))?.[1];
+  return typeof browser === 'string'
+    ? typeof platform === 'string'
+      ? `${browser} · ${platform}`
+      : browser
+    : agent;
 }

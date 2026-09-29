@@ -84,6 +84,7 @@ disagree, the doc wins — and report the discrepancy.
 | M64 | September service audit | identity and privacy, recoverable UI, reliable installation and current documentation |
 | M65 | Production follow-up and frontend verification | stranded receipt recovery, enforced FSD, responsive themes and browser screenshot coverage |
 | M66 | Local development bootstrap | Mailpit, one-command setup, readiness, migrations and idempotent seed |
+| M67 | A clear working archive | shared design code, responsive workspaces and consistent interaction rules |
 
 Milestones and tasks are ordered by dependency. The owner may authorize independent audit
 work in parallel; integration and verification still precede completion.

@@ -1,8 +1,8 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Card, Form, Input, Modal, Popconfirm, Space, Typography } from 'antd';
-import { ResponsiveTable as Table, QueryError } from '../../shared/ui';
+import { App, Button, Form, Input, Modal, Popconfirm, Space, Typography } from 'antd';
+import { PageHeader, ResponsiveTable as Table, QueryError } from '../../shared/ui';
 import { useTranslations } from 'next-intl';
 import { useCallback, useState } from 'react';
 import type { DocumentTypeDto } from '../../../shared/contracts/document-types';
@@ -149,16 +149,17 @@ export function DocumentTypesScreen() {
         <QueryError error={documentTypes.error} retry={documentTypes.refetch} />
       )}
 
-      <Card
-        title={t('admin.documentTypes.title')}
-        extra={
-          isAdmin ? (
-            <Button type="primary" onClick={openCreate}>
-              {t('admin.documentTypes.actions.create')}
-            </Button>
-          ) : null
-        }
-      >
+      <section>
+        <PageHeader
+          title={t('admin.documentTypes.title')}
+          actions={
+            isAdmin ? (
+              <Button type="primary" onClick={openCreate}>
+                {t('admin.documentTypes.actions.create')}
+              </Button>
+            ) : null
+          }
+        />
         <Table
           rowKey="id"
           loading={documentTypes.isPending}
@@ -220,7 +221,7 @@ export function DocumentTypesScreen() {
             </Form.Item>
           </Form>
         </Modal>
-      </Card>
+      </section>
     </>
   );
 }

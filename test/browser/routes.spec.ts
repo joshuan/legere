@@ -83,6 +83,11 @@ for (const [name, path, content] of routes) {
       // Zero page overflow alone can still hide text compressed to a single-letter column.
       expect((await title.boundingBox())?.width).toBeGreaterThanOrEqual(100);
     }
+    if (name === 'processing-services') {
+      // Opening this tab checks services automatically. Compare the settled table after its
+      // temporary completion message expires, not whichever side of the two-second timer won.
+      await expect(page.getByText('Service checks completed', { exact: true })).toBeHidden();
+    }
     await screenshot(page, name, testInfo);
   });
 }
@@ -115,14 +120,20 @@ test('documents and search retain their own query data during client navigation'
     await expect(
       page.getByText('Riverside apartment rental agreement', { exact: true }),
     ).toBeVisible();
-    await page.locator('a[href="/search"]').first().click();
+    const menu = page.getByRole('button', { name: 'Open navigation', exact: true });
+    if (await menu.isVisible()) await menu.click();
+    await page.locator('a[href="/search"]').filter({ visible: true }).first().click();
     await expect(page).toHaveURL(/\/search$/);
     await expect(
       page.getByText('Riverside apartment rental agreement', { exact: true }),
     ).toBeVisible();
     await settle(page);
     await expectResponsive(page);
-    await page.locator('a[href="/documents"]').first().click();
+    if (await menu.isVisible()) await menu.click();
+    await page
+      .getByRole('link', { name: 'Documents', exact: true })
+      .filter({ visible: true })
+      .click();
     await expect(page).toHaveURL(/\/documents$/);
     await settle(page);
   }
@@ -180,4 +191,141 @@ test('document page arrangement and crop remain available on touch widths', asyn
   await screenshot(page, 'document-page-crop', testInfo);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('toolbar disclosures preserve filters and return keyboard focus', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/documents?origin=MANAGED');
+  await settle(page);
+  const filters = page.getByRole('button', { name: /^Filters/ });
+  await filters.click();
+  const panel = page.getByRole('group', { name: 'Filters', exact: true });
+  await expect(panel.getByRole('combobox', { name: 'Origin', exact: true })).toBeVisible();
+  await screenshot(page, 'document-filters', testInfo);
+  await panel.getByRole('button', { name: 'Clear filters' }).focus();
+  await page.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
+  await expect(filters).toBeFocused();
+  await expect(page).toHaveURL(/origin=MANAGED/);
+  const view = page.getByRole('button', { name: 'View', exact: true });
+  await view.click();
+  await expect(page.getByRole('group', { name: 'View', exact: true })).toBeVisible();
+  await screenshot(page, 'document-view-controls', testInfo);
+  await view.press('Escape');
+  await expect(view).toBeFocused();
+});
+
+test('document editing keeps fields and cancellation available', async ({ page }, testInfo) => {
+  await page.goto(`/documents/${VISUAL_IDS.document}/details`);
+  await settle(page);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
+  await screenshot(page, 'document-editing', testInfo);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
+});
+
+test('library drawer keeps its footer inside the viewport', async ({ page }, testInfo) => {
+  await page.goto('/admin/libraries');
+  await settle(page);
+  await page.getByRole('button', { name: /Add library/ }).click();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer).toBeVisible();
+  await settle(page);
+  const save = drawer.getByRole('button', { name: 'Save', exact: true });
+  await expect(save).toBeInViewport();
+  await screenshot(page, 'library-form', testInfo);
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
+});
+
+test('mobile navigation closes with Escape and after choosing a screen', async ({
+  page,
+}, testInfo) => {
+  test.skip((testInfo.project.use.viewport?.width ?? 1440) >= 768, 'drawer is a phone layout');
+  await page.goto('/documents');
+  await settle(page);
+  const trigger = page.getByRole('button', { name: 'Open navigation', exact: true });
+  await trigger.click();
+  const drawer = page.getByRole('dialog', { name: 'Navigation', exact: true });
+  await expect(drawer).toBeVisible();
+  await screenshot(page, 'mobile-navigation', testInfo);
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await drawer.getByRole('link', { name: 'Receipts', exact: true }).click();
+  await expect(page).toHaveURL(/\/receipts$/);
+  await expect(drawer).toBeHidden();
+  await expect(page.getByRole('heading', { name: 'Receipts', exact: true })).toBeVisible();
+});
+
+test('Russian headings, navigation and filters fit the same layout', async ({ page }, testInfo) => {
+  await page.context().addCookies([
+    {
+      name: 'NEXT_LOCALE',
+      value: 'ru',
+      url: testInfo.project.use.baseURL ?? 'http://127.0.0.1:3012',
+    },
+  ]);
+  await page.goto('/documents');
+  await settle(page);
+  await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
+  await screenshot(page, 'documents-ru', testInfo);
+  await page.getByRole('button', { name: 'Фильтры', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Фильтры', exact: true })).toBeVisible();
+  await screenshot(page, 'document-filters-ru', testInfo);
+});
+
+test('long document text scrolls inside its pane while tabs stay visible', async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    (testInfo.project.use.viewport?.width ?? 1440) < 992,
+    'phones use ordinary page scrolling',
+  );
+  await page.route(`**/api/documents/${VISUAL_IDS.document}/markdown`, (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          markdown: Array.from(
+            { length: 80 },
+            (_, i) =>
+              `## Section ${i + 1}\n\nA synthetic paragraph for verifying independent document scrolling.`,
+          ).join('\n\n'),
+        },
+      },
+    }),
+  );
+  await page.goto(`/documents/${VISUAL_IDS.document}/text`);
+  await settle(page);
+  const pane = page.getByRole('tabpanel', { name: 'Text', exact: true });
+  await pane.hover();
+  await page.mouse.wheel(0, 700);
+  await expect.poll(() => pane.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
+  await expect(page.getByRole('tab', { name: 'Text', exact: true })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(
+    (testInfo.project.use.viewport?.height ?? 960) + 1,
+  );
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test('receipt date range picker stays within the viewport', async ({ page }, testInfo) => {
+  await page.goto('/receipts');
+  await settle(page);
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await page.getByPlaceholder('Purchased from', { exact: true }).click();
+  await expect(page.locator('.ant-picker-dropdown')).toBeVisible();
+  await screenshot(page, 'receipt-date-filter', testInfo);
+  const bounds = await page.locator('.ant-picker-panel-container').boundingBox();
+  expect(bounds).not.toBeNull();
+  if (bounds !== null) {
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(
+      (testInfo.project.use.viewport?.width ?? 1440) + 1,
+    );
+  }
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.ant-picker-dropdown')).toBeHidden();
 });

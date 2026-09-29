@@ -131,6 +131,7 @@ describe('DocumentsScreen', () => {
     renderWithProviders(<DocumentsScreen />);
     await screen.findByText('Document 1');
 
+    await userEvent.click(screen.getByRole('button', { name: /^Filters/ }));
     await userEvent.click(
       screen.getByRole('combobox', { name: enMessages.documents.filters.origin }),
     );
@@ -143,6 +144,7 @@ describe('DocumentsScreen', () => {
     renderWithProviders(<DocumentsScreen />);
     await screen.findByText('Document 1');
 
+    await userEvent.click(screen.getByRole('button', { name: /^Filters/ }));
     await userEvent.click(
       screen.getByRole('switch', { name: enMessages.documents.filters.processingOnly }),
     );
@@ -167,6 +169,7 @@ describe('DocumentsScreen', () => {
     expect(seen[0]).toContain('step=preview');
     expect(seen[0]).toContain('stepStatus=FAILED');
     // In words, not in the API's spelling — and named as the counter that was pressed names it.
+    await userEvent.click(screen.getByRole('button', { name: /^Filters/ }));
     expect(screen.getByText('Preview: failed')).toBeInTheDocument();
 
     await userEvent.click(screen.getByLabelText(enMessages.documents.filters.stepClear));
@@ -198,6 +201,7 @@ describe('DocumentsScreen', () => {
     renderWithProviders(<DocumentsScreen />);
     await screen.findByText('Document 1');
 
+    await userEvent.click(screen.getByRole('button', { name: /^Filters/ }));
     await userEvent.click(
       screen.getByRole('switch', { name: enMessages.documents.filters.processingOnly }),
     );
@@ -238,6 +242,7 @@ describe('DocumentsScreen', () => {
     renderWithProviders(<DocumentsScreen />);
     await screen.findByText('Document 1');
 
+    await userEvent.click(screen.getByRole('button', { name: /^Filters/ }));
     await userEvent.click(
       screen.getByRole('switch', { name: enMessages.documents.filters.processingOnly }),
     );
@@ -299,6 +304,9 @@ describe('DocumentsScreen', () => {
       await screen.findByText('Document 1');
 
       await userEvent.click(
+        screen.getByRole('button', { name: enMessages.documents.viewSettings }),
+      );
+      await userEvent.click(
         screen.getByRole('combobox', { name: enMessages.documents.card.label }),
       );
       await userEvent.click(await screen.findByTitle(enMessages.documents.card.options.people));
@@ -327,6 +335,9 @@ describe('DocumentsScreen', () => {
       renderWithProviders(<DocumentsScreen />);
       await screen.findByText('Document 1');
 
+      await userEvent.click(
+        screen.getByRole('button', { name: enMessages.documents.viewSettings }),
+      );
       await userEvent.click(
         screen.getByRole('combobox', { name: enMessages.documents.card.label }),
       );

@@ -3,3 +3,6 @@ export { OneTimeLinkModal } from './one-time-link-modal';
 export { QueryError } from './query-error';
 export { DefinitionList, type Definition } from './definition-list';
 export { ResponsiveTable } from './responsive-table';
+export { PageHeader } from './page-header';
+export { AuthFrame } from './auth-frame';
+export { ControlPopover } from './control-popover';

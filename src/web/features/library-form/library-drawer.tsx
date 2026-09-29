@@ -14,7 +14,7 @@ import {
   Switch,
 } from 'antd';
 import { useTranslations } from 'next-intl';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { LibraryVisibility } from '../../../shared/contracts/enums';
 import type { LibraryAdminDto } from '../../../shared/contracts/libraries';
 import { libraryApi, libraryKeys } from '../../entities/library';
@@ -65,6 +65,7 @@ export function LibraryDrawer({
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
   const [form] = Form.useForm<FormValues>();
+  const formId = useId();
 
   const isEdit = library !== null;
   const [rootPath, setRootPath] = useState(library?.rootPath ?? '');
@@ -121,12 +122,23 @@ export function LibraryDrawer({
       onClose={onClose}
       width={520}
       title={isEdit ? t('admin.libraries.editTitle') : t('admin.libraries.createTitle')}
+      footer={
+        <div className="legere-form-actions">
+          <Space>
+            <Button onClick={onClose}>{t('common.actions.cancel')}</Button>
+            <Button type="primary" htmlType="submit" form={formId} loading={save.isPending}>
+              {t('common.actions.save')}
+            </Button>
+          </Space>
+        </div>
+      }
     >
       {error !== null && (
         <Alert type="error" showIcon role="alert" message={error} style={{ marginBottom: 16 }} />
       )}
 
       <Form<FormValues>
+        id={formId}
         form={form}
         layout="vertical"
         initialValues={{
@@ -206,7 +218,12 @@ export function LibraryDrawer({
         >
           {/* InputNumber, not Input type=number: the contract wants a number and a text input
               would submit a string, which the server would reject as VALIDATION_FAILED. */}
-          <InputNumber min={1} max={10080} aria-label={t('admin.libraries.fields.scanInterval')} />
+          <InputNumber
+            style={{ width: '100%' }}
+            min={1}
+            max={10080}
+            aria-label={t('admin.libraries.fields.scanInterval')}
+          />
         </Form.Item>
 
         <Form.Item
@@ -221,13 +238,6 @@ export function LibraryDrawer({
             tokenSeparators={[',']}
           />
         </Form.Item>
-
-        <Space>
-          <Button type="primary" htmlType="submit" loading={save.isPending}>
-            {t('common.actions.save')}
-          </Button>
-          <Button onClick={onClose}>{t('common.actions.cancel')}</Button>
-        </Space>
       </Form>
     </Drawer>
   );

@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { analysisSettingsApi, queueKeys } from '../../entities/queue';
 import { processingApi, processingKeys } from '../../entities/processing';
+import { PageHeader } from '../../shared/ui';
 import { useErrorMessage } from '../../shared/lib';
 import {
   adminProcessingHref,
@@ -156,21 +157,21 @@ export function ProcessingDashboard({ tab = 'overview' }: { tab?: AdminProcessin
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Space align="center" style={{ width: '100%', justifyContent: 'space-between' }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>
-          {t('admin.queue.title')}
-        </Typography.Title>
-        <Space>
-          <Typography.Text type="secondary">{t('admin.queue.autoRefresh')}</Typography.Text>
-          <Switch
-            checked={live}
-            onChange={setLive}
-            aria-label={t('admin.queue.autoRefresh')}
-            checkedChildren={t('admin.queue.refresh.on')}
-            unCheckedChildren={t('admin.queue.refresh.off')}
-          />
-        </Space>
-      </Space>
+      <PageHeader
+        title={t('admin.queue.title')}
+        actions={
+          <Space>
+            <Typography.Text type="secondary">{t('admin.queue.autoRefresh')}</Typography.Text>
+            <Switch
+              checked={live}
+              onChange={setLive}
+              aria-label={t('admin.queue.autoRefresh')}
+              checkedChildren={t('admin.queue.refresh.on')}
+              unCheckedChildren={t('admin.queue.refresh.off')}
+            />
+          </Space>
+        }
+      />
 
       {snapshot.isError && <Alert type="error" showIcon message={describeError(snapshot.error)} />}
       {data !== undefined && <ControlPlaneState snapshot={data} />}

@@ -18,9 +18,7 @@ export type Definition = {
   note?: ReactNode;
 };
 
-// Label, leader, value (docs/11 §11.15). A dotted leader beats a two-column table here: the pairs
-// stay legible at any width, nothing has to agree on a column, and the eye is carried across a long
-// gap instead of having to jump it.
+// Read-only labels and values share an alignment grid and stack inside narrow panels (docs/16).
 export function DefinitionList({ items }: { items: Definition[] }) {
   const t = useTranslations();
   return (
@@ -28,7 +26,6 @@ export function DefinitionList({ items }: { items: Definition[] }) {
       {items.map((item) => (
         <div className="legere-definition" key={definitionKey(item)}>
           <dt className="legere-definition-label">{item.label}</dt>
-          <span className="legere-definition-leader" aria-hidden />
           <dd className={`legere-definition-value${item.emphasis === true ? ' is-emphasis' : ''}`}>
             {item.pending !== undefined && (
               // The same words the processing panel uses, deliberately: one vocabulary for one

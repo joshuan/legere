@@ -131,16 +131,16 @@ describe('SubjectKindsScreen', () => {
     expect(screen.queryByRole('link', { name: '0' })).toBeNull();
   });
 
-  it('stands its actions at the foot of the screen (docs/11 §11.12a)', async () => {
+  it('keeps Create in the heading without an empty batch toolbar', async () => {
     renderWithProviders(<SubjectKindsScreen />, { user: TEST_ADMIN });
     await screen.findByText('apartment');
 
-    const bar = screen.getByRole('toolbar', { name: enMessages.admin.catalogues.actionsBar });
     expect(
-      within(bar).getByRole('button', { name: enMessages.admin.subjectKinds.actions.create }),
+      screen.queryByRole('toolbar', { name: enMessages.admin.catalogues.actionsBar }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('button', { name: enMessages.admin.subjectKinds.actions.create }),
     ).toBeInTheDocument();
-    // Sticky and in flow, not a fixed overlay: the table ends above the bar rather than under it.
-    expect(bar).toHaveStyle({ position: 'sticky' });
   });
 
   it('says a kind still holding things cannot simply be deleted', async () => {

@@ -10,7 +10,7 @@ import type {
 } from '../../../shared/contracts/instance';
 import { instanceApi, instanceKeys } from '../../entities/instance';
 import { useErrorMessage } from '../../shared/lib';
-import { DefinitionList, type Definition } from '../../shared/ui';
+import { PageHeader, DefinitionList, type Definition } from '../../shared/ui';
 
 // Where a value came from, as a tag. A secret has no source worth reporting — that it is a secret
 // is the whole answer — so SET and UNSET both read as one word and the value cell carries the state.
@@ -75,20 +75,14 @@ export function AdminInstanceScreen() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <div>
-        <Typography.Title level={4} style={{ marginBottom: 4 }}>
-          {t('admin.instance.title')}
-        </Typography.Title>
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          {t('admin.instance.subtitle')}
-        </Typography.Paragraph>
+      <PageHeader title={t('admin.instance.title')} description={t('admin.instance.subtitle')} />
+      <div className="legere-settings-panels">
+        {instance.data.groups.map((group) => (
+          <Card key={group.key} title={t(`admin.instance.groups.${group.key}`)}>
+            <DefinitionList items={group.settings.map((setting) => row(setting, t))} />
+          </Card>
+        ))}
       </div>
-
-      {instance.data.groups.map((group) => (
-        <Card key={group.key} title={t(`admin.instance.groups.${group.key}`)}>
-          <DefinitionList items={group.settings.map((setting) => row(setting, t))} />
-        </Card>
-      ))}
     </Space>
   );
 }

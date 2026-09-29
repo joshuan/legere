@@ -383,14 +383,14 @@ export function DetailsPane({
     control: ReactNode,
     differs: boolean,
   ): ReactNode => (
-    <Space size={4} wrap>
+    <div className="legere-field-with-reset">
       {control}
       {differs && !fields.some((field) => reset.includes(field)) && (
         <Button size="small" type="link" onClick={() => resetFields(fields)}>
           {t('viewer.details.reset')}
         </Button>
       )}
-    </Space>
+    </div>
   );
 
   // One key of the fields draft, replaced wholesale: each control writes its own kind back.
@@ -543,7 +543,12 @@ export function DetailsPane({
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       {/* 1. What it says — every row a machine read off the page, and the only section of the three
           anybody may correct (docs/11 §11.5). */}
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space
+        direction="vertical"
+        size="middle"
+        className={editing ? 'legere-details-form is-editing' : 'legere-details-form'}
+        style={{ width: '100%' }}
+      >
         {/* 🔒 The Edit button stands in this section's own heading and not above the pane: a control
             belongs over the rows it acts on and over no others, and the two sections below hold
             nothing it could touch (docs/11 §11.5). */}

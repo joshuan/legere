@@ -91,7 +91,7 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
   const raw = data.extracted === null ? null : JSON.stringify(data.extracted, null, 2);
 
   return (
-    <div style={{ maxWidth: 1320, margin: '0 auto', width: '100%', minWidth: 0 }}>
+    <div className="legere-receipt-workspace" style={{ width: '100%', minWidth: 0 }}>
       {receipt.isError && <QueryError error={receipt.error} retry={receipt.refetch} />}
       <Space direction="vertical" size={18} style={{ width: '100%' }}>
         <div
@@ -101,7 +101,7 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
             <Link href="/receipts">
               <ArrowLeftOutlined aria-hidden /> {t('back')}
             </Link>
-            <Typography.Title level={2} style={{ margin: 0 }}>
+            <Typography.Title level={1} style={{ fontSize: 24, margin: 0 }}>
               {textValue(data.extracted?.values.vendor) ?? t('unknownVendor')}
             </Typography.Title>
             <Typography.Text type="secondary">{data.fileName}</Typography.Text>

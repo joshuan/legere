@@ -9,6 +9,7 @@ import {
   InfoCircleOutlined,
   LeftOutlined,
   LogoutOutlined,
+  MenuOutlined,
   SearchOutlined,
   ShoppingOutlined,
   RightOutlined,
@@ -18,11 +19,11 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Layout, Menu, Space, Tag, Typography, theme } from 'antd';
+import { App, Button, Drawer, Layout, Menu, Space, Tag, Typography, theme } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { UserDto } from '../../../shared/contracts/auth';
 import { libraryApi, libraryKeys } from '../../entities/library';
 import { sessionApi } from '../../entities/session';
@@ -30,10 +31,7 @@ import { SearchShortcut, useShortcutHint } from '../../features/search-shortcut'
 import { useThemePreference } from '../../shared/providers';
 import { endSession, useErrorMessage } from '../../shared/lib';
 
-// The authenticated shell (docs/11 §11.1): a collapsible sider with the product's sections, and the
-// content. 🔒 Nothing across the top of it — the screen title repeated the menu item beside it, the
-// actions sat a screen's width from what they acted on, and the search input occupied the widest
-// strip of the application to answer a question nobody had asked yet (docs/11 §11.1a).
+// Navigation stays separate from each screen’s working area (docs/16 §16.3).
 export function AppShell({
   user,
   version,
@@ -49,6 +47,10 @@ export function AppShell({
   const router = useRouter();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [navigationAt, setNavigationAt] = useState<string | null>(null);
+  const navigationOpen = navigationAt === pathname;
+  const mobile = useSyncExternalStore(subscribeMobile, isMobile, () => false);
+  if (navigationAt !== null && (navigationAt !== pathname || !mobile)) setNavigationAt(null);
   const { token } = theme.useToken();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
@@ -212,139 +214,174 @@ export function AppShell({
       : []),
   ];
 
-  return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <SearchShortcut />
-      <a href="#main-content" className="legere-skip-link">
-        {t('nav.skipContent')}
-      </a>
-      <Layout.Sider
-        className="legere-sider"
-        width={240}
-        breakpoint="lg"
-        collapsedWidth={64}
-        collapsible
-        collapsed={collapsed}
-        onCollapse={setCollapsed}
-        // Ant's own trigger is a 48px slab across the foot of the menu — the loudest thing in a
-        // column of quiet type, for the least important control on it (docs/11 §11.15). Ours is a
-        // hairline strip at the very bottom instead.
-        trigger={null}
-        style={{
-          borderInlineEnd: `1px solid ${token.colorBorderSecondary}`,
-          // 🔒 The column does not travel with the page (docs/11 §11.1): it is the height of the
-          // window and stays there, so its foot — who is signed in, which build this is, the way to
-          // narrow it — is on the screen at the bottom of a long grid as well as at the top of it.
-          // A menu longer than the window scrolls inside the column instead.
-          position: 'sticky',
-          top: 0,
-          height: '100vh',
-        }}
-      >
-        {/* The wordmark in the display face, over a hairline — a title page, not a logo slot
+  const navigation = (compact: boolean) => (
+    <>
+      {/* The wordmark in the display face, over a hairline — a title page, not a logo slot
             (docs/11 §11.15). Collapsed, it keeps the monogram rather than a truncated word. */}
+      {!mobile && (
         <div
           style={{
-            padding: collapsed ? '18px 0' : '18px 20px',
+            padding: compact ? '16px 0' : '16px 20px',
             marginBottom: 8,
-            textAlign: collapsed ? 'center' : 'start',
+            textAlign: compact ? 'center' : 'start',
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
           <span
             style={{
               fontFamily: 'var(--font-sans)',
-              fontSize: collapsed ? 24 : 26,
+              fontSize: compact ? 22 : 24,
               fontWeight: 600,
               letterSpacing: '-0.02em',
               color: token.colorText,
             }}
           >
-            {collapsed ? 'L' : t('common.appName')}
+            {compact ? 'L' : t('common.appName')}
           </span>
         </div>
-        <Menu
-          mode="inline"
-          // The deepest matching route wins, so /admin/libraries/:id keeps its parent highlighted.
-          selectedKeys={[selectedKey(pathname, items)]}
-          items={items}
-        />
-        {/* The foot of the column: who is signed in, the two things they may do about it, which
+      )}
+      <Menu
+        className="legere-navigation"
+        onClick={() => setNavigationAt(null)}
+        mode="inline"
+        // The deepest matching route wins, so /admin/libraries/:id keeps its parent highlighted.
+        selectedKeys={[selectedKey(pathname, items)]}
+        items={items}
+      />
+      {/* The foot of the column: who is signed in, the two things they may do about it, which
             build this is, and the way to narrow the column — in that order, ending with the
             quietest (docs/11 §11.1). Pushed to the bottom rather than following the menu, so it sits
             still while the menu grows. */}
-        <div style={{ marginTop: 'auto' }}>
-          <div
-            style={{
-              padding: collapsed ? '12px 0' : '12px 20px',
-              borderTop: `1px solid ${token.colorBorderSecondary}`,
-              textAlign: collapsed ? 'center' : 'start',
-            }}
-          >
-            {collapsed ? (
-              // Collapsed, a name would be a truncated word; an initial is still the person.
-              <Typography.Text strong title={user.displayName}>
-                {user.displayName.slice(0, 1).toUpperCase()}
-              </Typography.Text>
-            ) : (
-              <Space size={8} wrap>
-                <Typography.Text style={{ fontWeight: 500 }}>{user.displayName}</Typography.Text>
-                {user.role === 'ADMIN' && (
-                  <Tag color="gold" style={{ marginInlineEnd: 0 }}>
-                    {t('nav.administration')}
-                  </Tag>
-                )}
-              </Space>
-            )}
-          </div>
-          <Menu
-            mode="inline"
-            selectable={false}
-            items={[
-              {
-                key: 'settings',
-                icon: <SettingOutlined />,
-                label: <Link href="/settings">{t('nav.settings')}</Link>,
-              },
-              {
-                key: 'logout',
-                icon: <LogoutOutlined />,
-                label: t('nav.logout'),
-                disabled: logout.isPending,
-                onClick: () => logout.mutate(),
-              },
-            ]}
-          />
-          {/* Which build this is. Small and grey on purpose: nobody comes looking for it until
-              something is wrong, and then it is the first thing asked for (docs/11 §11.1). */}
-          {!collapsed && (
-            <div style={{ padding: '4px 20px 0' }}>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                {t('nav.version', { version })}
-              </Typography.Text>
-            </div>
+      <div style={{ marginTop: 'auto', flexShrink: 0 }}>
+        <div
+          style={{
+            padding: compact ? '12px 0' : '12px 20px',
+            borderTop: `1px solid ${token.colorBorderSecondary}`,
+            textAlign: compact ? 'center' : 'start',
+          }}
+        >
+          {compact ? (
+            // Collapsed, a name would be a truncated word; an initial is still the person.
+            <Typography.Text strong title={user.displayName}>
+              {user.displayName.slice(0, 1).toUpperCase()}
+            </Typography.Text>
+          ) : (
+            <Space size={8} wrap>
+              <Typography.Text style={{ fontWeight: 500 }}>{user.displayName}</Typography.Text>
+              {user.role === 'ADMIN' && (
+                <Tag bordered={false} style={{ marginInlineEnd: 0 }}>
+                  {t('nav.administration')}
+                </Tag>
+              )}
+            </Space>
           )}
+        </div>
+        <Menu
+          onClick={() => setNavigationAt(null)}
+          mode="inline"
+          selectable={false}
+          items={[
+            {
+              key: 'settings',
+              icon: <SettingOutlined />,
+              label: <Link href="/settings">{t('nav.settings')}</Link>,
+            },
+            {
+              key: 'logout',
+              icon: <LogoutOutlined />,
+              label: t('nav.logout'),
+              disabled: logout.isPending,
+              onClick: () => logout.mutate(),
+            },
+          ]}
+        />
+        {/* Which build this is. Small and grey on purpose: nobody comes looking for it until
+              something is wrong, and then it is the first thing asked for (docs/11 §11.1). */}
+        {!compact && (
+          <div style={{ padding: '4px 20px 0' }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {t('nav.version', { version })}
+            </Typography.Text>
+          </div>
+        )}
+        {!mobile && (
           <button
             type="button"
-            aria-label={collapsed ? t('nav.expand') : t('nav.collapse')}
-            aria-expanded={!collapsed}
-            onClick={() => setCollapsed(!collapsed)}
+            aria-label={compact ? t('nav.expand') : t('nav.collapse')}
+            aria-expanded={!compact}
+            onClick={() => setCollapsed(!compact)}
             className="legere-sider-trigger"
             style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }}
           >
-            {collapsed ? <RightOutlined /> : <LeftOutlined />}
+            {compact ? <RightOutlined /> : <LeftOutlined />}
           </button>
-        </div>
-      </Layout.Sider>
+        )}
+      </div>
+    </>
+  );
 
-      <Layout>
-        {/* A reading column: wide enough for a six-card grid, never edge to edge on a 4K display.
-            It starts at the top of the window — what the bar used to cost was the top of every
-            screen, in a product whose whole job is to show documents at the size they were
-            photographed (docs/11 §11.1). A flex column, so a screen that wants the rest of the
-            window's height can ask for it and actually be given it (docs/11 §11.5). */}
+  return (
+    <Layout style={{ minHeight: '100dvh' }}>
+      <SearchShortcut />
+      <a href="#main-content" className="legere-skip-link">
+        {t('nav.skipContent')}
+      </a>
+      {!mobile && (
+        <Layout.Sider
+          className="legere-sider"
+          width={216}
+          breakpoint="lg"
+          collapsedWidth={60}
+          collapsible
+          collapsed={collapsed}
+          onCollapse={setCollapsed}
+          trigger={null}
+          style={{
+            borderInlineEnd: `1px solid ${token.colorBorderSecondary}`,
+            position: 'sticky',
+            top: 0,
+            height: '100vh',
+          }}
+        >
+          {navigation(collapsed)}
+        </Layout.Sider>
+      )}
+      {mobile && (
+        <Drawer
+          className="legere-navigation-drawer"
+          title={t('nav.menu')}
+          placement="left"
+          width={280}
+          open={navigationOpen}
+          onClose={() => setNavigationAt(null)}
+          styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column' } }}
+        >
+          {navigation(false)}
+        </Drawer>
+      )}
+      <Layout style={{ minWidth: 0 }}>
+        {mobile && (
+          <div className="legere-mobile-bar">
+            <Button
+              type="text"
+              icon={<MenuOutlined />}
+              aria-label={t('nav.openMenu')}
+              aria-expanded={navigationOpen}
+              onClick={() => setNavigationAt(pathname)}
+            />
+            <Link href="/documents" className="legere-mobile-brand">
+              {t('common.appName')}
+            </Link>
+            <Button
+              type="text"
+              icon={<SearchOutlined />}
+              aria-label={t('nav.search')}
+              onClick={() => router.push('/search')}
+            />
+          </div>
+        )}
         <Layout.Content id="main-content" tabIndex={-1} className="legere-main">
-          <div className="legere-enter legere-content">{children}</div>
+          <div className="legere-content">{children}</div>
         </Layout.Content>
       </Layout>
     </Layout>
@@ -363,4 +400,16 @@ function selectedKey(
       .filter((key) => pathname === key || pathname.startsWith(`${key}/`))
       .sort((a, b) => b.length - a.length)[0] ?? ''
   );
+}
+
+const MOBILE_QUERY = '(max-width: 767.98px)';
+
+function isMobile(): boolean {
+  return window.matchMedia(MOBILE_QUERY).matches;
+}
+
+function subscribeMobile(notify: () => void): () => void {
+  const query = window.matchMedia(MOBILE_QUERY);
+  query.addEventListener('change', notify);
+  return () => query.removeEventListener('change', notify);
 }
