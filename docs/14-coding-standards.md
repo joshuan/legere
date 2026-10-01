@@ -119,6 +119,9 @@ are created and compared with the same pinned Linux browser image, stable fonts/
 animations. Every route family is exercised; screenshots complement checks for browser exceptions,
 page overflow, navigation and reachable actions. In particular, archive → search → archive must
 work without a reload so incompatible query-cache shapes cannot hide behind isolated page tests.
+The screenshot helper stabilizes only the release-number digits to the fixture version (0.39.0),
+then restores the live label. Release bumps must not invalidate unrelated layouts.
+
 Inspect changed screenshots before accepting a baseline update. CI retains differences and traces
 when a browser test fails; production documents and private screenshots never become test fixtures.
 Full-page capture must preserve the CSS viewport and touch emulation. The pinned Chromium's

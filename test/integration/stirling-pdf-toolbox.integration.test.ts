@@ -50,6 +50,25 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
     );
   }
 
+  itWithStirling('combines receipt originals as an image followed by every PDF page', async () => {
+    const image = await colorImage('#ff8800', 300, 600);
+    const pdf = pdfWithText(['TERMINAL FRONT', 'TERMINAL BACK']);
+    const imageBefore = Buffer.from(image);
+    const pdfBefore = Buffer.from(pdf);
+    const imagePart = await pdfs.imagesToPdf([{ body: image, fileName: 'till-receipt.jpg' }]);
+    const combined = await pdfs.mergePdfs([imagePart, pdf]);
+    expect(combined.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(await pdfs.pdfPageCount(combined)).toBe(3);
+    const text = await pdfs.pdfToMarkdown(combined);
+    expect(text).toContain('TERMINAL FRONT');
+    expect(text.indexOf('TERMINAL BACK')).toBeGreaterThan(text.indexOf('TERMINAL FRONT'));
+    const first = await sharp(await pdfs.pdfPageJpg(combined, { page: 1, dpi: 72 })).stats();
+    expect(first.channels[0]?.mean).toBeGreaterThan(240);
+    expect(first.channels[2]?.mean).toBeLessThan(20);
+    expect(image).toEqual(imageBefore);
+    expect(pdf).toEqual(pdfBefore);
+  });
+
   itWithStirling('counts the pages of a PDF', async () => {
     expect(await pdfs.pdfPageCount(pdfWithText(['one', 'two', 'three']))).toBe(3);
   });

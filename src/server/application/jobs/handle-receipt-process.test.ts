@@ -53,6 +53,12 @@ function receiptFixture(overrides: Partial<Receipt> = {}): Receipt {
 }
 
 class InMemoryReceiptRepository extends ReceiptRepository {
+  lockByIds(): Promise<void> {
+    throw new Error('unused');
+  }
+  restore(): Promise<void> {
+    throw new Error('unused');
+  }
   lockStaleUnstarted(): ReturnType<ReceiptRepository['lockStaleUnstarted']> {
     throw new Error('unused');
   }

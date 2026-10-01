@@ -8,7 +8,9 @@ different representation and a different processing lifecycle.
 
 - A receipt enters Legere only through the explicit receipt upload surface. Library scanning always
   creates documents; it never guesses that a file is a receipt.
-- A receipt has exactly one `MANAGED` original file. Images and PDFs are accepted; office, text,
+- A receipt has exactly one `MANAGED` original file. An explicitly combined receipt has a new PDF
+  original; [manual review](./21-receipt-duplicates.md) preserves its source receipts and files.
+  Images and PDFs are accepted; office, text,
   SVG and unknown formats are refused before storage.
 - A PDF may have several pages. Every page is rendered to a JPEG for viewing and extraction, while
   the original PDF stays unchanged in S3.
@@ -268,7 +270,8 @@ conversion boundary. Existing receipt documents are not migrated automatically.
 - Receipt libraries or copying a library original into S3.
 - Vectors, document-wide text search, Markdown, OCR text, canonical PDFs, collections or sharing for
   receipts.
-- Editing or normalising receipt values in Legere.
+- Editing receipt values in Legere. [Duplicate review and combining parts](./21-receipt-duplicates.md)
+  compare extracted facts and can create a new PDF receipt for ordinary re-extraction.
 - General-purpose write tokens, webhooks, external ids or callbacks. Scoped app-to-app inbox
   uploads are supported through the separate ingestion endpoints (`07 §7.3`).
 

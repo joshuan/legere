@@ -580,6 +580,16 @@ function fieldsSystemMessage(
       'changes nothing here, nothing is re-run because of it, and nobody is judging you by it. Leave',
       'it out entirely rather than guessing at one.',
     ].join(' '),
+    schema.typeSlug === 'receipt'
+      ? [
+          'The pages may contain a till receipt and a bank terminal slip for the same purchase.',
+          'Read them as one purchase: the till receipt supplies the items and purchase total;',
+          'the terminal slip supplies payment method and masked card details.',
+          'Never add the terminal amount to the till total, and never duplicate the same item rows.',
+          'If the papers disagree, prefer the itemized till receipt for the purchase total and items;',
+          'do not invent or average a value to reconcile them.',
+        ].join(' ')
+      : '',
     `Fields:\n${schema.fields.map(fieldInstruction).join('\n')}`,
     dataChannelNotice(nonce),
     confirmedNotice(nonce, confirmed),

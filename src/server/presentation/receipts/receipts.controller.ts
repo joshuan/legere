@@ -1,4 +1,16 @@
 import {
+  ReadReceiptDuplicates,
+  ResolveReceiptDuplicates,
+} from '../../application/receipts/review-receipt-duplicates';
+import {
+  receiptDuplicateQuerySchema,
+  receiptPairQuerySchema,
+  resolveReceiptPairSchema,
+  type ReceiptDuplicateQuery,
+  type ReceiptPairQuery,
+  type ResolveReceiptPair,
+} from '../../../shared/contracts/receipt-duplicates';
+import {
   Controller,
   Delete,
   Get,
@@ -53,6 +65,8 @@ export class ReceiptsController {
     private readonly upload: UploadReceipt,
     private readonly remove: DeleteReceipt,
     private readonly artifacts: GetReceiptArtifactUrl,
+    private readonly duplicateReader: ReadReceiptDuplicates,
+    private readonly duplicateResolver: ResolveReceiptDuplicates,
   ) {}
 
   @Post()
@@ -79,6 +93,57 @@ export class ReceiptsController {
     @ZodQuery(listReceiptsQuerySchema) query: ListReceiptsQuery,
   ): Promise<Envelope<ListReceiptsResponse>> {
     return successEnvelope(await this.list.execute(user, query));
+  }
+
+  @Get('duplicates')
+  async duplicates(
+    @CurrentUser() user: User,
+    @ZodQuery(receiptDuplicateQuerySchema) query: ReceiptDuplicateQuery,
+  ) {
+    return successEnvelope(await this.duplicateReader.list(user, query.cursor));
+  }
+
+  @Get('duplicates/compare')
+  async compareDuplicates(
+    @CurrentUser() user: User,
+    @ZodQuery(receiptPairQuerySchema) query: ReceiptPairQuery,
+  ) {
+    return successEnvelope(await this.duplicateReader.compare(user, query));
+  }
+
+  @Post('duplicates/resolve')
+  @HttpCode(200)
+  async resolveDuplicates(
+    @CurrentUser() user: User,
+    @ZodBody(resolveReceiptPairSchema) body: ResolveReceiptPair,
+  ) {
+    return successEnvelope(await this.duplicateResolver.execute(user, body));
+  }
+
+  @Get('duplicates/history')
+  async duplicateHistory(
+    @CurrentUser() user: User,
+    @ZodQuery(receiptDuplicateQuerySchema) query: ReceiptDuplicateQuery,
+  ) {
+    return successEnvelope(await this.duplicateReader.history(user, query));
+  }
+
+  @Post('duplicates/history/:id/undo')
+  @HttpCode(200)
+  async undoDuplicateDecision(
+    @CurrentUser() user: User,
+    @UuidParam('id', 'RECEIPT_NOT_FOUND', 'Receipt review') id: string,
+  ) {
+    return successEnvelope(await this.duplicateResolver.undo(user, id));
+  }
+
+  @Get('duplicates/history/:id/originals/:side')
+  async duplicateOriginal(
+    @CurrentUser() user: User,
+    @UuidParam('id', 'RECEIPT_NOT_FOUND', 'Receipt review') id: string,
+    @PageIndexParam('side') side: number,
+  ) {
+    return successEnvelope(await this.duplicateReader.original(user, id, side));
   }
 
   @Get(':id')

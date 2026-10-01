@@ -1,3 +1,9 @@
+import { ReceiptReviewRepository } from '../../domain/repositories/receipt-review.repository';
+import { PdfToolbox } from '../../application/ports/pdf-toolbox';
+import {
+  ReadReceiptDuplicates,
+  ResolveReceiptDuplicates,
+} from '../../application/receipts/review-receipt-duplicates';
 import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
 import { RECEIPT_SOURCE_TEXT_MAX_CHARS } from '../../../shared/contracts/receipts';
@@ -40,6 +46,55 @@ import { ApiTokenScopeGuard } from '../auth/api-token-scope.guard';
   providers: [
     ...sessionGuardProviders,
     ApiTokenScopeGuard,
+    {
+      provide: ReadReceiptDuplicates,
+      inject: [ReceiptRepository, ReceiptReviewRepository, FileStorage, AppConfig],
+      useFactory: (
+        receipts: ReceiptRepository,
+        reviews: ReceiptReviewRepository,
+        storage: FileStorage,
+        config: AppConfig,
+      ) => new ReadReceiptDuplicates(receipts, reviews, storage, config.get('SIGNED_URL_TTL_SEC')),
+    },
+    {
+      provide: ResolveReceiptDuplicates,
+      inject: [
+        ReceiptRepository,
+        ReceiptReviewRepository,
+        FileRepository,
+        FileStorage,
+        PdfToolbox,
+        JobQueue,
+        DocumentEventRepository,
+        UnitOfWork,
+        Clock,
+        AppConfig,
+      ],
+      useFactory: (
+        receipts: ReceiptRepository,
+        reviews: ReceiptReviewRepository,
+        files: FileRepository,
+        storage: FileStorage,
+        pdfs: PdfToolbox,
+        queue: JobQueue,
+        events: DocumentEventRepository,
+        unitOfWork: UnitOfWork,
+        clock: Clock,
+        config: AppConfig,
+      ) =>
+        new ResolveReceiptDuplicates(
+          receipts,
+          reviews,
+          files,
+          storage,
+          pdfs,
+          queue,
+          events,
+          unitOfWork,
+          clock,
+          config.get('UPLOAD_MAX_BYTES'),
+        ),
+    },
     {
       provide: ListReceipts,
       useFactory: (receipts: ReceiptRepository): ListReceipts => new ListReceipts(receipts),

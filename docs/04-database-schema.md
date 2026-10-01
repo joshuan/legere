@@ -156,21 +156,23 @@ model User {
   updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  sessions         Session[]
-  apiTokens        ApiToken[]
-  integrations     Integration[]
-  oauthGrants      OAuthGrant[]
-  createdInvites   UserInvite[]      @relation("InviteCreator")
-  acceptedInvites  UserInvite[]      @relation("InviteAcceptor")
-  passwordResets   PasswordReset[]   @relation("ResetTarget")
-  createdResets    PasswordReset[]   @relation("ResetCreator")
-  documentLinks    DocumentLink[]
-  derivedDocuments Document[]        @relation("DocumentCreatorLegacy")
-  libraryAccess    LibraryAccess[]
-  collections      Collection[]
-  collectionShares CollectionShare[]
-  archiveItems     ArchiveItem[]
-  documentEvents   DocumentEvent[]
+  sessions            Session[]
+  apiTokens           ApiToken[]
+  integrations        Integration[]
+  oauthGrants         OAuthGrant[]
+  createdInvites      UserInvite[]      @relation("InviteCreator")
+  acceptedInvites     UserInvite[]      @relation("InviteAcceptor")
+  passwordResets      PasswordReset[]   @relation("ResetTarget")
+  createdResets       PasswordReset[]   @relation("ResetCreator")
+  documentLinks       DocumentLink[]
+  derivedDocuments    Document[]        @relation("DocumentCreatorLegacy")
+  libraryAccess       LibraryAccess[]
+  collections         Collection[]
+  collectionShares    CollectionShare[]
+  archiveItems        ArchiveItem[]
+  documentEvents      DocumentEvent[]
+  receiptReviewsOwned ReceiptReview[]   @relation("ReceiptReviewOwner")
+  receiptReviewsMade  ReceiptReview[]   @relation("ReceiptReviewActor")
 
   @@map("users")
 }
@@ -533,7 +535,32 @@ model Receipt {
   @@index([totalAmount(sort: Desc), id(sort: Desc)])
   @@index([country])
   @@index([currency])
+  @@index([purchasedAt, currency, totalAmount, id])
   @@map("receipts")
+}
+
+// Immutable source identities/snapshots deliberately survive later deletion or kind conversion.
+model ReceiptReview {
+  id        String    @id @db.Uuid
+  position  BigInt    @unique @default(autoincrement())
+  ownerId   String    @map("owner_id") @db.Uuid
+  actorId   String    @map("actor_id") @db.Uuid
+  firstId   String    @map("first_id") @db.Uuid
+  secondId  String    @map("second_id") @db.Uuid
+  revision  String    @db.Char(64)
+  action    String    @db.VarChar(16)
+  reverse   Boolean   @default(false)
+  pair      Json
+  resultId  String?   @map("result_id") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  undoneAt  DateTime? @map("undone_at") @db.Timestamptz(6)
+  owner     User      @relation("ReceiptReviewOwner", fields: [ownerId], references: [id])
+  actor     User      @relation("ReceiptReviewActor", fields: [actorId], references: [id])
+
+  @@index([ownerId, position(sort: Desc)])
+  @@index([firstId, secondId, position(sort: Desc)])
+  @@index([resultId])
+  @@map("receipt_reviews")
 }
 
 model DocumentEvent {
@@ -1390,6 +1417,8 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 | receipt list by purchase date or unconverted amount | `receipts(purchased_at DESC, id DESC)`, `receipts(total_amount DESC, id DESC)`; nullable extracted values sort last |
 | filter receipts by country or currency | `receipts(country)`, `receipts(currency)` |
 | search receipts by extracted vendor | case-insensitive substring over the bounded `receipts.vendor` projection; no document FTS or receipt body text is involved |
+| duplicate receipt candidates | `receipts(purchased_at, currency, total_amount, id)`; same-owner live profiles, with bounded pair scanning (`21`) |
+| receipt decision history | `receipt_reviews(owner_id, position DESC)` and `(first_id, second_id, position DESC)`; monotonic decision order also governs undo dependencies |
 | receipt by original | `receipts(file_id)` unique index |
 | admin scan journal | `scan_runs(library_id, started_at DESC)` |
 | at most one RUNNING scan per library | `scan_runs_running_uq` partial unique index |

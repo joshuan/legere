@@ -22,8 +22,9 @@ import { decodeReceiptCursor, encodeReceiptCursor, type ReceiptCursor } from './
 import { clientOf, isPrismaTx } from './prisma-client';
 import { assertReceiptFile } from './file-product-home';
 import { PrismaService } from './prisma.service';
+import { ConflictError } from '../../domain/errors/domain-error';
 
-const RECEIPT_INCLUDE = {
+export const RECEIPT_INCLUDE = {
   file: true,
   archiveItem: { include: { createdBy: { select: { id: true, displayName: true } } } },
 } satisfies Prisma.ReceiptInclude;
@@ -52,7 +53,7 @@ const RETRYABLE_RECEIPT = Prisma.sql`
 
 type ReceiptRow = Prisma.ReceiptGetPayload<{ include: typeof RECEIPT_INCLUDE }>;
 
-function toDomain(row: ReceiptRow): Receipt {
+export function toDomain(row: ReceiptRow): Receipt {
   const owner = row.archiveItem.createdBy;
   if (owner === null) throw new Error(`Receipt ${row.id} has no owner`);
   const extracted = receiptExtractionSchema.safeParse(row.extracted);
@@ -221,6 +222,32 @@ function projectionOf(extracted: ReceiptExtraction | null): {
 export class PrismaReceiptRepository extends ReceiptRepository {
   constructor(private readonly prisma: PrismaService) {
     super();
+  }
+
+  async lockByIds(ids: string[], tx: TransactionHandle): Promise<void> {
+    if (ids.length === 0) return;
+    try {
+      await clientOf(this.prisma, tx).$queryRaw(Prisma.sql`
+        SELECT r.id FROM receipts r JOIN archive_items a ON a.id = r.id
+        WHERE r.id IN (${Prisma.join([...new Set(ids)].sort().map((id) => Prisma.sql`${id}::uuid`))})
+        ORDER BY r.id FOR UPDATE OF r, a NOWAIT
+      `);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.meta?.['code'] === '55P03'
+      ) {
+        throw new ConflictError('RECEIPT_CHANGED', 'Another operation is changing this receipt');
+      }
+      throw error;
+    }
+  }
+
+  async restore(id: string, tx: TransactionHandle): Promise<void> {
+    await clientOf(this.prisma, tx).archiveItem.updateMany({
+      where: { id, kind: 'RECEIPT' },
+      data: { deletedAt: null },
+    });
   }
 
   async countProcessing(): Promise<ReceiptProcessingCounts> {

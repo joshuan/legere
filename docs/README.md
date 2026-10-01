@@ -100,3 +100,5 @@ off in the same commit; the temporary direct-to-`main` workflow in ADR-014 appli
 - "Open question" — a decision that needs human confirmation; collected at the end of each document.
 
 [20. Shared ecosystem design](./20-ecosystem-design.md)
+
+[21. Receipt duplicate review](./21-receipt-duplicates.md) specifies data-based matching, manual decisions, preserved originals and ordered PDF merges.

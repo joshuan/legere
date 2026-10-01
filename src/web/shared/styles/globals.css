@@ -1256,3 +1256,129 @@ textarea.ant-input {
 .ant-modal-confirm .ant-modal-body {
   padding: 0;
 }
+
+.receipt-duplicate-screen {
+  display: grid;
+  gap: 20px;
+  max-width: 1200px;
+  margin-inline: auto;
+}
+.receipt-review-intro,
+.receipt-review-history-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.receipt-review-intro h2 {
+  margin-top: 0;
+}
+.receipt-review-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.receipt-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.receipt-comparison .ant-card-head-title {
+  white-space: normal;
+}
+.receipt-comparison-preview {
+  height: 320px;
+  background: var(--legere-well);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+}
+.receipt-comparison-pages {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-block: 12px;
+}
+.receipt-comparison-facts {
+  margin: 0 0 20px;
+}
+.receipt-comparison-facts > div {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.9fr) minmax(0, 1.1fr);
+  gap: 16px;
+  padding-block: 10px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+.receipt-comparison-facts dt {
+  color: var(--ant-color-text-secondary);
+}
+.receipt-comparison-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+.receipt-comparison-total dd {
+  font-size: 22px;
+  font-weight: 600;
+}
+.receipt-comparison-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.receipt-comparison-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 6px;
+  overflow-wrap: anywhere;
+}
+.receipt-review-decision {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 12px;
+  background: var(--ant-color-bg-container);
+}
+.receipt-review-decision h3 {
+  margin-top: 0;
+}
+.receipt-review-merge {
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+  padding-top: 20px;
+  border-top: 1px solid var(--ant-color-border-secondary);
+}
+.receipt-review-file-names {
+  overflow-wrap: anywhere;
+  margin-top: 12px;
+}
+.receipt-review-loading {
+  padding: 64px;
+  text-align: center;
+}
+@media (max-width: 767px) {
+  .receipt-comparison-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .receipt-review-decision {
+    padding: 16px;
+  }
+  .receipt-review-merge .ant-radio-wrapper {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+  }
+  .receipt-comparison .ant-card-body {
+    padding: 16px;
+  }
+}

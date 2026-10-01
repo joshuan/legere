@@ -84,7 +84,11 @@
       "LINK_SELF": "A document cannot be linked to itself.",
       "CANONICAL_NOT_READY": "The document is still being assembled. Try again in a moment.",
       "FILE_NOT_IMAGE": "Only an image can be cropped or turned as one picture.",
-      "FILE_NOT_PDF": "Only a PDF has pages to put in order and to turn."
+      "FILE_NOT_PDF": "Only a PDF has pages to put in order and to turn.",
+      "RECEIPT_CHANGED": "These receipts or this decision have changed. Refresh the comparison before confirming.",
+      "RECEIPT_MERGE_LIMIT": "These originals are not ready or exceed the PDF merge limits.",
+      "RECEIPT_MERGE_BUSY": "Another receipt PDF is being assembled. Please retry shortly.",
+      "RECEIPT_REVIEW_DEPENDENCY": "Undo the later decisions involving this result first."
     }
   },
   "auth": {
@@ -1637,5 +1641,85 @@
     "allow": "Allow access",
     "deny": "Cancel",
     "invalidRequest": "This authorization request is invalid or incomplete."
+  },
+  "receiptDuplicates": {
+    "find": "Find duplicates",
+    "title": "Review receipt duplicates",
+    "description": "Compare purchase data, resolve duplicates and combine parts of one receipt.",
+    "selectManually": "Choose two receipts",
+    "selectHint": "Choose two processed receipts from the same owner to compare or combine.",
+    "selected": "Selected: {count} of 2",
+    "selectReceipt": "Select {name}",
+    "compare": "Compare selected",
+    "cancel": "Cancel",
+    "refresh": "Search again",
+    "review": "To review",
+    "history": "Decision history",
+    "historyHint": "Original files stay available here. Undo a decision to return the hidden receipts to your archive.",
+    "historyEmpty": "No decisions yet.",
+    "undone": "Undone",
+    "undo": "Undo decision",
+    "undoConfirm": "Restore the receipts hidden by this decision? A merged receipt will be hidden. Undo any later decisions involving its result first.",
+    "downloadSource": "Original {side}",
+    "loadMore": "Load more",
+    "receipt": "Receipt {side}",
+    "previousPage": "Previous page of receipt {side}",
+    "nextPage": "Next page of receipt {side}",
+    "page": "{page} / {total}",
+    "fileSize": "{size} KB",
+    "noItems": "No item lines extracted.",
+    "openResult": "Open receipt",
+    "saved": "Decision saved",
+    "invalidPair": "Choose two different receipts from the archive.",
+    "reviewHint": "These are suggestions. Check the originals and the extracted facts before confirming.",
+    "loaded": "{count, plural, one {# pair loaded} other {# pairs loaded}}",
+    "matches": "Matching data",
+    "noMatches": "No reliable matches. You can still review these receipts manually.",
+    "conflicts": "Check these differences",
+    "decision": "How should these receipts be kept?",
+    "preserveHint": "Hidden originals remain in decision history. You can undo any decision.",
+    "mergeHint": "Parts of one purchase? Combine all pages into one PDF.",
+    "pageOrder": "Page order",
+    "orderFirst": "Receipt 1, then receipt 2",
+    "orderSecond": "Receipt 2, then receipt 1",
+    "empty": "No unreviewed matches found. For missing or incorrect data, choose two receipts manually.",
+    "scanMore": "No unreviewed matches in this batch. Continue searching the archive.",
+    "continueScan": "Search next batch",
+    "confirm": "Confirm decision",
+    "kinds": {
+      "duplicate": "Likely duplicate receipts",
+      "parts": "Possibly parts of one purchase",
+      "possible": "Possible match",
+      "manual": "Manual comparison"
+    },
+    "facts": {
+      "date": "Purchase date",
+      "total": "Total",
+      "currency": "Currency",
+      "merchant": "Merchant",
+      "taxId": "Merchant tax ID",
+      "number": "Receipt number",
+      "time": "Time",
+      "card": "Card ending",
+      "items": "Items"
+    },
+    "actions": {
+      "KEEP_FIRST": "Keep receipt 1",
+      "KEEP_SECOND": "Keep receipt 2",
+      "DISMISS": "Different purchases",
+      "MERGE": "Combine into one PDF"
+    },
+    "confirmations": {
+      "KEEP_FIRST": "Keep receipt 1 in the archive and hide receipt 2? Its original and data will remain in decision history.",
+      "KEEP_SECOND": "Keep receipt 2 in the archive and hide receipt 1? Its original and data will remain in decision history.",
+      "DISMISS": "Mark these as different purchases? Both remain in the archive and this pair will no longer be suggested unless its data changes.",
+      "MERGE": "Create a new receipt containing every page of both originals, in the chosen order? The two source receipts will be hidden and can be restored from history. Data extraction will run on the new PDF; purchase totals are not added together."
+    },
+    "mergeBlocked": {
+      "preview": "Both receipts need a completed preview before their pages can be combined.",
+      "pages": "The combined receipt would exceed 100 pages.",
+      "size": "The originals exceed the 128 MB merge limit."
+    },
+    "nextPair": "Next pair"
   }
 }

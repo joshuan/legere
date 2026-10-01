@@ -1,14 +1,14 @@
 'use client';
 
-import { PlusOutlined } from '@ant-design/icons';
+import { CopyOutlined, PlusOutlined } from '@ant-design/icons';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { Button, Card, Empty, Select, Space, Spin, Typography } from 'antd';
+import { Alert, Button, Card, Checkbox, Empty, Select, Space, Spin, Typography } from 'antd';
 import { PageHeader, ResponsiveTable as Table, QueryError } from '../../shared/ui';
 import type { ColumnsType } from 'antd/es/table';
 import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_RECEIPT_SORT,
   RECEIPT_SORTS,
@@ -43,6 +43,20 @@ export function ReceiptsScreen() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const td = useTranslations('receiptDuplicates');
+  const selecting = searchParams.get('compare') === '1';
+  const [selected, setSelected] = useState<ReceiptListItemDto[]>([]);
+  const unavailable = (receipt: ReceiptListItemDto) =>
+    receipt.processing ||
+    (!selected.some((item) => item.id === receipt.id) &&
+      (selected.length >= 2 ||
+        (selected[0] !== undefined && selected[0].owner.id !== receipt.owner.id)));
+  const toggle = (receipt: ReceiptListItemDto, checked: boolean) =>
+    setSelected((previous) =>
+      checked
+        ? [...previous.filter((item) => item.id !== receipt.id), receipt].slice(0, 2)
+        : previous.filter((item) => item.id !== receipt.id),
+    );
   const inputRef = useRef<HTMLInputElement>(null);
   const view = useMemo(() => parseReceiptsView(searchParams), [searchParams]);
   const { filters, sort } = view;
@@ -50,6 +64,7 @@ export function ReceiptsScreen() {
     (patch: Partial<ReceiptsView>) => {
       const next = { ...view, ...patch };
       const params = new URLSearchParams();
+      if (selecting) params.set('compare', '1');
       for (const [key, value] of Object.entries(next.filters)) {
         if (value !== undefined) params.set(key, String(value));
       }
@@ -57,7 +72,7 @@ export function ReceiptsScreen() {
       const query = params.toString();
       router.replace(query === '' ? pathname : `${pathname}?${query}`);
     },
-    [pathname, router, view],
+    [pathname, router, selecting, view],
   );
   const uploads = useReceiptUploads(sort === 'createdAt');
   const receipts = useInfiniteQuery({
@@ -186,17 +201,49 @@ export function ReceiptsScreen() {
             title={t('title')}
             description={t('uploadHint')}
             actions={
-              <Button
-                type="primary"
-                icon={<PlusOutlined aria-hidden />}
-                loading={uploads.busy}
-                onClick={() => inputRef.current?.click()}
-              >
-                {t('upload')}
-              </Button>
+              <Space wrap>
+                <Link href="/receipts/duplicates">
+                  <Button icon={<CopyOutlined aria-hidden />}>{td('find')}</Button>
+                </Link>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined aria-hidden />}
+                  loading={uploads.busy}
+                  onClick={() => inputRef.current?.click()}
+                >
+                  {t('upload')}
+                </Button>
+              </Space>
             }
           />
 
+          {selecting && (
+            <Alert
+              type="info"
+              title={td('selectHint')}
+              description={
+                <Space wrap>
+                  <Typography.Text>{td('selected', { count: selected.length })}</Typography.Text>
+                  <Button
+                    type="primary"
+                    disabled={selected.length !== 2}
+                    onClick={() => {
+                      const [first, second] = selected;
+                      if (first !== undefined && second !== undefined)
+                        router.push(
+                          `/receipts/duplicates?firstId=${first.id}&secondId=${second.id}`,
+                        );
+                    }}
+                  >
+                    {td('compare')}
+                  </Button>
+                  <Link href="/receipts/duplicates">
+                    <Button>{td('cancel')}</Button>
+                  </Link>
+                </Space>
+              }
+            />
+          )}
           <Space wrap size="middle">
             <ReceiptFiltersBar
               compact
@@ -232,8 +279,21 @@ export function ReceiptsScreen() {
           ) : (
             <>
               <div className="receipt-desktop-list">
-                <Table
+                <Table<ReceiptListItemDto>
                   rowKey="id"
+                  {...(selecting
+                    ? {
+                        rowSelection: {
+                          selectedRowKeys: selected.map((item) => item.id),
+                          hideSelectAll: true,
+                          getCheckboxProps: (receipt) => ({
+                            disabled: unavailable(receipt),
+                            'aria-label': td('selectReceipt', { name: receipt.fileName }),
+                          }),
+                          onSelect: toggle,
+                        },
+                      }
+                    : {})}
                   columns={columns}
                   dataSource={items}
                   pagination={false}
@@ -243,9 +303,20 @@ export function ReceiptsScreen() {
               <div className="receipt-mobile-list">
                 <Space orientation="vertical" size={12} style={{ width: '100%' }}>
                   {items.map((receipt) => (
-                    <Link key={receipt.id} href={`/receipts/${receipt.id}`}>
-                      <Card size="small">
-                        <div style={{ display: 'flex', gap: 14 }}>
+                    <Card key={receipt.id} size="small">
+                      <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                        {selecting && (
+                          <Checkbox
+                            aria-label={td('selectReceipt', { name: receipt.fileName })}
+                            checked={selected.some((item) => item.id === receipt.id)}
+                            disabled={unavailable(receipt)}
+                            onChange={(event) => toggle(receipt, event.target.checked)}
+                          />
+                        )}
+                        <Link
+                          href={`/receipts/${receipt.id}`}
+                          style={{ display: 'flex', gap: 14, minWidth: 0, flex: 1 }}
+                        >
                           <ReceiptThumbnail receipt={receipt} />
                           <Space orientation="vertical" size={2} style={{ minWidth: 0 }}>
                             <Typography.Text strong ellipsis>
@@ -262,9 +333,9 @@ export function ReceiptsScreen() {
                             </Typography.Text>
                             <ReceiptStatus receipt={receipt} />
                           </Space>
-                        </div>
-                      </Card>
-                    </Link>
+                        </Link>
+                      </div>
+                    </Card>
                   ))}
                 </Space>
               </div>

@@ -174,7 +174,28 @@ export async function screenshot(page: Page, name: string, testInfo: TestInfo): 
   const brightness = channels.reduce((sum, value) => sum + value, 0) / 3;
   if (testInfo.project.name.endsWith('-dark')) expect(brightness).toBeLessThan(70);
   else expect(brightness).toBeGreaterThan(200);
-  const captured = await captureFullPage(page);
+  // Release numbers are fixture data, like the clock and signed storage URLs. Verify a real
+  // version is rendered, then stabilize only its digits during capture so releases cannot
+  // invalidate unrelated visual baselines. Restore the live label before further interaction.
+  const version = page.getByText(/^(Version|Версия) \d+\.\d+\.\d+$/).filter({ visible: true });
+  const versionLabels = await version.allTextContents();
+  await version.evaluateAll((elements) =>
+    elements.forEach((element) => {
+      element.textContent = (element.textContent ?? '').replace(/\d+\.\d+\.\d+$/, '0.39.0');
+    }),
+  );
+  let captured: Buffer;
+  try {
+    captured = await captureFullPage(page);
+  } finally {
+    await version.evaluateAll(
+      (elements, labels) =>
+        elements.forEach((element, index) => {
+          element.textContent = labels[index] ?? element.textContent;
+        }),
+      versionLabels,
+    );
+  }
   if (process.env.BROWSER_CAPTURE_ONLY === '1') {
     await testInfo.attach(name, { body: captured, contentType: 'image/png' });
   } else {

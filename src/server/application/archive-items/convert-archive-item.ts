@@ -112,6 +112,15 @@ export class ConvertArchiveItem {
       );
     }
     await this.unitOfWork.run(async (tx) => {
+      await this.receipts.lockByIds([id], tx);
+      const current = await this.receipts.findReadableById(id, viewer, tx);
+      if (
+        current === null ||
+        isReceiptProcessing(current) ||
+        current.updatedAt.getTime() !== receipt.updatedAt.getTime()
+      ) {
+        throw new ConflictError('RECEIPT_CHANGED', 'The receipt changed before conversion');
+      }
       await this.archiveItems.receiptToDocument(
         {
           id,

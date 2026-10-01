@@ -2301,3 +2301,19 @@ Production observation is read-only; source fixes are verified and committed on 
   GHCR `0.40.1` and `latest` match for the application, Docling and Stirling; the application digest is
   `sha256:f288068ef97e35b05d8e0d5d0d2dfe3fb5efe22075996c45f4ff965598a4c30a`.
   No deployment or identity migration was performed.
+
+## M74 — Receipt duplicates and complementary parts (2026-10-01)
+
+- [x] **M74.1 — Data-based matching and reversible review decisions.**
+  [Contract 21](../21-receipt-duplicates.md): bounded discovery, owner-scoped history, explicit
+  survivor selection, persistent dismissals and undo.
+- [x] **M74.2 — Combine receipt parts into one preserved PDF receipt.**
+  Ordered original pages, bounded Stirling work, atomic publication/archiving, replay and rollback,
+  ordinary extraction without adding terminal and till totals together.
+- [x] **M74.3 — Receipt shelf entry, review interface and acceptance.**
+  `/receipts/duplicates`, manual pair selection, previews/facts, confirmations, history, English/
+  Russian, light/dark responsive review and type/lint/coverage/API/browser checks.
+
+  Validation: typecheck and lint; server coverage 97.4% (2,050 tests); receipt matching/review UI
+  tests; real Stirling image + multipage PDF merge; canonical responsive snapshots and browser
+  navigation/confirmation/history/undo in ten viewport/theme combinations.

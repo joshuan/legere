@@ -43,6 +43,10 @@ export const ERROR_CODES = [
   'CATALOGUE_FULL',
   'DOCUMENT_DUPLICATE',
   'RECEIPT_DUPLICATE',
+  'RECEIPT_CHANGED',
+  'RECEIPT_MERGE_LIMIT',
+  'RECEIPT_MERGE_BUSY',
+  'RECEIPT_REVIEW_DEPENDENCY',
   'ARCHIVE_KIND_CONFLICT',
   // 🔒 An upload the pipeline could never render is refused at the door (docs/05 §5.1a); a library
   // file of the same kind is merely registered, because a scan has nobody to answer.

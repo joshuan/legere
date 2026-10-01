@@ -28,6 +28,8 @@ export type ReceiptListInput = ReceiptFilters & {
 export type ReceiptProcessingState = Pick<Receipt, 'id' | 'previewStatus' | 'extractionStatus'>;
 
 export abstract class ReceiptRepository {
+  abstract lockByIds(ids: string[], tx: TransactionHandle): Promise<void>;
+  abstract restore(id: string, tx: TransactionHandle): Promise<void>;
   abstract countProcessing(): Promise<ReceiptProcessingCounts>;
   // Terminal input/extraction failures are deliberately excluded from automatic recovery.
   abstract lockStaleUnstarted(

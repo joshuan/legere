@@ -1,3 +1,5 @@
+import { ReceiptReviewRepository } from '../../domain/repositories/receipt-review.repository';
+import { PrismaReceiptReviewRepository } from './prisma-receipt-review.repository';
 import { PersonalArchiveRepository } from '../../domain/repositories/personal-archive.repository';
 import { PrismaPersonalArchiveRepository } from './prisma-personal-archive.repository';
 import { OAuthRepository } from '../../domain/repositories/oauth.repository';
@@ -57,6 +59,7 @@ import { PrismaService } from './prisma.service';
 // ports bound to their Prisma implementations. Global so feature modules inject repositories
 // without importing it explicitly.
 const REPOSITORIES = [
+  { provide: ReceiptReviewRepository, useClass: PrismaReceiptReviewRepository },
   { provide: OAuthRepository, useClass: PrismaOAuthRepository },
   { provide: IntegrationRepository, useClass: PrismaIntegrationRepository },
   { provide: UserRepository, useClass: PrismaUserRepository },
@@ -88,6 +91,7 @@ const REPOSITORIES = [
 @Module({
   providers: [PrismaService, { provide: UnitOfWork, useClass: PrismaUnitOfWork }, ...REPOSITORIES],
   exports: [
+    ReceiptReviewRepository,
     PrismaService,
     UnitOfWork,
     UserRepository,

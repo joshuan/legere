@@ -1,4 +1,12 @@
 import {
+  receiptDuplicatePageSchema,
+  receiptDuplicatePairSchema,
+  receiptReviewSchema,
+  receiptReviewPageSchema,
+  type ReceiptPairQuery,
+  type ResolveReceiptPair,
+} from '../../../shared/contracts/receipt-duplicates';
+import {
   convertArchiveItemResponseSchema,
   listReceiptsResponseSchema,
   receiptArtifactUrlSchema,
@@ -19,6 +27,9 @@ import { apiClient, ApiError, type UploadProgress } from '../../shared/api';
 export const receiptKeys = {
   all: ['receipts'] as const,
   lists: ['receipts', 'list'] as const,
+  duplicates: ['receipts', 'duplicates'] as const,
+  comparison: (pair: ReceiptPairQuery | null) => ['receipts', 'comparison', pair] as const,
+  reviews: ['receipts', 'reviews'] as const,
   list: (filters: ReceiptFilters, sort: ReceiptSort) =>
     ['receipts', 'list', filters, sort] as const,
   detail: (id: string) => ['receipts', 'detail', id] as const,
@@ -26,6 +37,34 @@ export const receiptKeys = {
 };
 
 export const receiptApi = {
+  duplicates: (cursor?: string) =>
+    apiClient.get('/api/receipts/duplicates', {
+      schema: receiptDuplicatePageSchema,
+      query: { cursor: cursor === '' ? undefined : cursor },
+    }),
+  compare: (pair: ReceiptPairQuery) =>
+    apiClient.get('/api/receipts/duplicates/compare', {
+      schema: receiptDuplicatePairSchema,
+      query: pair,
+    }),
+  resolve: (body: ResolveReceiptPair) =>
+    apiClient.post('/api/receipts/duplicates/resolve', {
+      schema: receiptReviewSchema,
+      body,
+    }),
+  reviews: (cursor?: string) =>
+    apiClient.get('/api/receipts/duplicates/history', {
+      schema: receiptReviewPageSchema,
+      query: { cursor: cursor === '' ? undefined : cursor },
+    }),
+  undoReview: (id: string) =>
+    apiClient.post(`/api/receipts/duplicates/history/${id}/undo`, {
+      schema: receiptReviewSchema,
+    }),
+  reviewOriginal: (id: string, side: 0 | 1) =>
+    apiClient.get(`/api/receipts/duplicates/history/${id}/originals/${side}`, {
+      schema: receiptArtifactUrlSchema,
+    }),
   upload: (
     file: File,
     onProgress?: UploadProgress,

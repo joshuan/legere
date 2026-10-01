@@ -134,13 +134,16 @@ export class DeleteReceipt {
     if (receipt === null) throw new NotFoundError('RECEIPT_NOT_FOUND', 'Receipt not found');
     const at = this.clock.now();
     await this.unitOfWork.run(async (tx) => {
+      await this.receipts.lockByIds([id], tx);
+      const current = await this.receipts.findReadableById(id, viewer, tx);
+      if (current === null) throw new NotFoundError('RECEIPT_NOT_FOUND', 'Receipt not found');
       await this.files.trash(
         {
-          fileIds: [receipt.fileId],
+          fileIds: [current.fileId],
           reason: 'RECEIPT_DELETED',
-          trashedFrom: receipt.file.name,
+          trashedFrom: current.file.name,
           archiveKind: 'RECEIPT',
-          ownerId: receipt.createdById,
+          ownerId: current.createdById,
           at,
         },
         tx,

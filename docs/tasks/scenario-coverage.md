@@ -335,3 +335,16 @@ its lines were false. A claim nobody can run is a claim nobody is checking.
 | Strict validation, no-store errors and standard retry hints | `test/e2e/archive-integration.e2e.test.ts` — unknown fields, malformed IDs/cursors, null error details, per-user quota, Retry-After and a second user's independent allowance |
 | OpenAPI declares the separate OAuth security scheme and exact DTOs | `test/e2e/archive-integration.e2e.test.ts`; existing namespace OpenAPI regression |
 | Consent and connection settings distinguish personal archive and MCP permissions | `src/web/screens/oauth-consent/oauth-consent-screen.test.tsx`, `src/web/screens/settings/integrations-card.test.tsx`; ten reviewed `oauth-personal-archive-consent` baselines and real browser denial callback checks |
+
+## Receipt duplicate review (document 21)
+
+| Scenario | Evidence |
+| --- | --- |
+| Find by purchase data; reject date/amount-only, distant purchases and sparse item matches | `src/server/domain/services/receipt-matching.test.ts` |
+| Pairwise bounded discovery, manual comparison, revision-aware dismissal and history pagination | `test/e2e/receipt-duplicates.e2e.test.ts` |
+| Keep/merge/undo preserves originals, enforces owner/admin scope, and refuses READ-token mutations | `test/e2e/receipt-duplicates.e2e.test.ts` |
+| Stale/concurrent decisions, delete/convert locks, undo dependencies and PDF assembly bounds | `test/e2e/receipt-duplicates.e2e.test.ts` |
+| Queue rollback, lost commit acknowledgement, replay and remerging an expired hidden job | `test/e2e/receipt-duplicates.e2e.test.ts` |
+| Real image plus multipage PDF retains all pages, order and unchanged source buffers | `test/integration/stirling-pdf-toolbox.integration.test.ts` — combines receipt originals |
+| Confirm before mutation, reuse operation ID on retry, partial scans and noncommittal browsing | `src/web/screens/receipt-duplicates/receipt-duplicates-screen.test.tsx` |
+| Shelf selection, comparison, confirmation, history/undo and Russian layout at every width/theme | `test/browser/receipt-duplicates.spec.ts`; reviewed canonical `receipt-duplicates*` baselines |
