@@ -2290,5 +2290,14 @@ Production observation is read-only; source fixes are verified and committed on 
   Typecheck/lint pass; the production audit has zero findings. Canonical Legere navigation passes
   11 checks across all ten viewport/theme projects without baseline changes; Rent passes 50
   navigation/version and en/ru/sr route checks. Its 1079 unit/component tests also pass.
-- [ ] **M73.2 — Release the correction and verify GitHub/GHCR.**
+- [x] **M73.2 — Release the correction and verify GitHub/GHCR.**
   Follow docs 13 for a patch release; existing published tags stay immutable.
+
+  **Release acceptance:** [v0.40.1](https://github.com/joshuan/legere/releases/tag/v0.40.1)
+  is published from `03567e6`. [CI 36879221100](https://github.com/joshuan/legere/actions/runs/36879221100)
+  passes 2599 tests (39 external-service skips), production build and all 609 browser cases
+  (12 planned skips), without baseline updates. All 13 jobs in
+  [Release 36879221493](https://github.com/joshuan/legere/actions/runs/36879221493) pass.
+  GHCR `0.40.1` and `latest` match for the application, Docling and Stirling; the application digest is
+  `sha256:f288068ef97e35b05d8e0d5d0d2dfe3fb5efe22075996c45f4ff965598a4c30a`.
+  No deployment or identity migration was performed.
