@@ -40,6 +40,8 @@ function receiptFixture(): Receipt {
     updatedAt: new Date('2026-09-25T00:00:00Z'),
     lastEventAt: new Date('2026-09-25T00:00:00Z'),
     deletedAt: null,
+    reviewState: 'ACTIVE',
+    reviewId: null,
     owner: { id: VIEWER.id, displayName: 'Owner' },
   };
 }
@@ -47,7 +49,7 @@ function receiptFixture(): Receipt {
 describe('UploadReceipt', () => {
   const receipts = {
     lockByIds: vi.fn<ReceiptRepository['lockByIds']>(),
-    restore: vi.fn<ReceiptRepository['restore']>(),
+    setReviewState: vi.fn<ReceiptRepository['setReviewState']>(),
     countProcessing: vi.fn<ReceiptRepository['countProcessing']>(),
     lockStaleUnstarted: vi.fn<ReceiptRepository['lockStaleUnstarted']>(),
     lockFailedForRetry: vi.fn<ReceiptRepository['lockFailedForRetry']>(),
@@ -58,7 +60,6 @@ describe('UploadReceipt', () => {
     list: vi.fn<ReceiptRepository['list']>(),
     updateProcessing: vi.fn<ReceiptRepository['updateProcessing']>(),
     filterExistingIds: vi.fn<ReceiptRepository['filterExistingIds']>(),
-    softDelete: vi.fn<ReceiptRepository['softDelete']>(),
     hardDelete: vi.fn<ReceiptRepository['hardDelete']>(),
   } satisfies ReceiptRepository;
   const queue = {

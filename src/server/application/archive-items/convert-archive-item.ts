@@ -105,6 +105,12 @@ export class ConvertArchiveItem {
         return { id, kind: 'DOCUMENT' };
       throw new NotFoundError('RECEIPT_NOT_FOUND', 'Receipt not found');
     }
+    if (receipt.reviewState !== 'ACTIVE') {
+      throw new ConflictError(
+        'RECEIPT_CHANGED',
+        'Undo the review decision before converting its preserved receipt',
+      );
+    }
     if (isReceiptProcessing(receipt)) {
       throw new ConflictError(
         'ARCHIVE_KIND_CONFLICT',
@@ -117,7 +123,8 @@ export class ConvertArchiveItem {
       if (
         current === null ||
         isReceiptProcessing(current) ||
-        current.updatedAt.getTime() !== receipt.updatedAt.getTime()
+        current.updatedAt.getTime() !== receipt.updatedAt.getTime() ||
+        current.reviewState !== 'ACTIVE'
       ) {
         throw new ConflictError('RECEIPT_CHANGED', 'The receipt changed before conversion');
       }

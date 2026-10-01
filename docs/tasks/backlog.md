@@ -2317,3 +2317,20 @@ Production observation is read-only; source fixes are verified and committed on 
   Validation: typecheck and lint; server coverage 97.4% (2,050 tests); receipt matching/review UI
   tests; real Stirling image + multipage PDF merge; canonical responsive snapshots and browser
   navigation/confirmation/history/undo in ten viewport/theme combinations.
+
+## M75 — Compact receipt review and durable receipt references (2026-10-01)
+
+- [x] **M75.1 — Preserve receipt identities across duplicate decisions.**
+  Separate review disposition from deletion, backfill existing decisions, expose explicit
+  replacement/undone-merge references through receipt detail and OpenAPI, retain original artifacts,
+  and cover ownership, chained decisions, undo, retries and old data migrations.
+- [x] **M75.2 — Fit review facts and decisions into the browser viewport.**
+  Compact toolbar, aligned comparison matrix, adaptive original previews and fixed decision area;
+  bounded item/history scrolling, localized reference notices and confirmations. Verify narrow and
+  short windows with canonical screenshots, API tests, types, lint and coverage.
+
+  Validation: typecheck/lint; 2,056 server tests with 97.63% line coverage and 591 web tests.
+  The canonical receipt browser matrix passes 33 cases (8 planned skips), including all scalar
+  facts and decisions at 1366×768/1280×720 in both languages/themes, bounded long item lists,
+  mobile summary/actions and original previews. All 50 changed/new review screenshots were
+  inspected; unchanged shelf-selection baselines are retained for regression comparison.

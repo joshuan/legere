@@ -1115,7 +1115,17 @@
     },
     "copyFailed": "Could not copy JSON. Download it instead.",
     "previewUnavailable": "Preview is not available.",
-    "pageAlt": "{fileName}, page {page}"
+    "pageAlt": "{fileName}, page {page}",
+    "reference": {
+      "replaced": "This receipt was replaced",
+      "mergeUndone": "The combination was undone",
+      "preserved": "You are viewing the original receipt. Its data, file and saved links remain available.",
+      "openReplacement": "Open replacement receipt",
+      "openSource": "Open restored receipt {side}",
+      "unavailable": "The related receipt is no longer available.",
+      "undoFirst": "Undo the review decision before changing this preserved receipt.",
+      "history": "Decision history"
+    }
   },
   "viewer": {
     "previewUnavailable": "Preview is not available.",
@@ -1659,7 +1669,7 @@
     "historyEmpty": "No decisions yet.",
     "undone": "Undone",
     "undo": "Undo decision",
-    "undoConfirm": "Restore the receipts hidden by this decision? A merged receipt will be hidden. Undo any later decisions involving its result first.",
+    "undoConfirm": "Restore the source receipts to the list? The combined receipt and its saved links remain available with a notice that the combination was undone. Undo later decisions involving the result first.",
     "downloadSource": "Original {side}",
     "loadMore": "Load more",
     "receipt": "Receipt {side}",
@@ -1710,16 +1720,24 @@
       "MERGE": "Combine into one PDF"
     },
     "confirmations": {
-      "KEEP_FIRST": "Keep receipt 1 in the archive and hide receipt 2? Its original and data will remain in decision history.",
-      "KEEP_SECOND": "Keep receipt 2 in the archive and hide receipt 1? Its original and data will remain in decision history.",
+      "KEEP_FIRST": "Keep receipt 1 as current and mark receipt 2 as replaced? Receipt 2 keeps its original data, file and existing links. You can undo this decision.",
+      "KEEP_SECOND": "Keep receipt 2 as current and mark receipt 1 as replaced? Receipt 1 keeps its original data, file and existing links. You can undo this decision.",
       "DISMISS": "Mark these as different purchases? Both remain in the archive and this pair will no longer be suggested unless its data changes.",
-      "MERGE": "Create a new receipt containing every page of both originals, in the chosen order? The two source receipts will be hidden and can be restored from history. Data extraction will run on the new PDF; purchase totals are not added together."
+      "MERGE": "Combine every original page into one new PDF? Both source IDs and originals stay available, with links to the combined receipt. Extraction runs again without adding purchase totals. You can undo this decision."
     },
     "mergeBlocked": {
       "preview": "Both receipts need a completed preview before their pages can be combined.",
       "pages": "The combined receipt would exceed 100 pages.",
       "size": "The originals exceed the 128 MB merge limit."
     },
-    "nextPair": "Next pair"
+    "nextPair": "Next pair",
+    "comparison": "Receipt comparison",
+    "field": "Field",
+    "originals": "Originals",
+    "itemCounts": "Receipt 1: {first} · Receipt 2: {second}",
+    "itemsFor": "Items in receipt {side}",
+    "itemDifferences": "Items differ",
+    "pairPosition": "{current} / {count}",
+    "closeNotice": "Dismiss notice"
   }
 }

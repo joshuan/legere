@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import request from 'supertest';
+import { z } from 'zod';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PdfToolbox } from '../../src/server/application/ports/pdf-toolbox';
 import { toBuffer } from '../../src/server/application/ports/binary-source';
@@ -17,7 +18,11 @@ import {
   type ReceiptDuplicatePair,
   type ReceiptReviewAction,
 } from '../../src/shared/contracts/receipt-duplicates';
-import { receiptArtifactUrlSchema } from '../../src/shared/contracts/receipts';
+import {
+  receiptArtifactUrlSchema,
+  receiptDetailSchema,
+  listReceiptsResponseSchema,
+} from '../../src/shared/contracts/receipts';
 import {
   createApiTokenResponseSchema,
   createInviteResponseSchema,
@@ -162,7 +167,11 @@ describe('Receipt duplicate review (e2e)', () => {
     };
   }
   async function liveIds() {
-    return (await testPrisma().receipt.findMany({ where: { archiveItem: { deletedAt: null } } }))
+    return (
+      await testPrisma().receipt.findMany({
+        where: { reviewState: 'ACTIVE', archiveItem: { deletedAt: null } },
+      })
+    )
       .map((row) => row.id)
       .sort();
   }
@@ -223,6 +232,144 @@ describe('Receipt duplicate review (e2e)', () => {
     expect(await testPrisma().receiptReview.count()).toBe(2);
   });
 
+  async function detail(id: string, session = cookie) {
+    return expectData(
+      await api(app).get(`/api/receipts/${id}`).set('Cookie', session),
+      receiptDetailSchema,
+    );
+  }
+
+  it('documents receipt reads with their own token scheme and replacement contract', async () => {
+    const spec = z
+      .object({
+        paths: z.record(
+          z.object({ get: z.object({ security: z.unknown() }).passthrough() }).passthrough(),
+        ),
+        components: z.object({
+          securitySchemes: z.record(z.unknown()),
+          schemas: z.record(z.unknown()),
+        }),
+      })
+      .parse((await request(app.baseUrl).get('/api/openapi.json').expect(200)).body);
+    for (const suffix of ['', '/original', '/download', '/thumbnail', '/pages/{page}']) {
+      expect(spec.paths[`/api/receipts/{id}${suffix}`]?.get.security).toEqual([
+        { personalReadToken: [] },
+      ]);
+    }
+    expect(spec.components.securitySchemes.personalReadToken).toMatchObject({
+      type: 'http',
+      scheme: 'bearer',
+    });
+    expect(spec.components.schemas.ReceiptReference).toMatchObject({
+      required: ['state', 'replacementId', 'restoredReceiptIds', 'reviewId'],
+      properties: { state: { enum: ['ACTIVE', 'REPLACED', 'MERGE_UNDONE'] } },
+    });
+  });
+
+  it('keeps chained references readable to READ clients without replacing their data or widening ownership', async () => {
+    const a = await seed();
+    const b = await seed();
+    const c = await seed();
+    const pair = await compare(a.id, b.id);
+    const first = expectData(
+      await api(app).post(`${ROOT}/resolve`, input(pair, 'KEEP_SECOND')).set('Cookie', cookie),
+      receiptReviewSchema,
+    );
+    const original = await detail(pair.first.id);
+    expect(original.reference).toEqual({
+      state: 'REPLACED',
+      replacementId: pair.second.id,
+      restoredReceiptIds: [],
+      reviewId: first.id,
+    });
+    expect(original.id).toBe(pair.first.id);
+    expect(original.extracted).toEqual(pair.first.extracted);
+    expect(
+      (await testPrisma().archiveItem.findUniqueOrThrow({ where: { id: pair.first.id } }))
+        .deletedAt,
+    ).toBeNull();
+    const nextPair = await compare(pair.second.id, c.id);
+    const action = nextPair.first.id === c.id ? 'KEEP_FIRST' : 'KEEP_SECOND';
+    const second = expectData(
+      await api(app).post(`${ROOT}/resolve`, input(nextPair, action)).set('Cookie', cookie),
+      receiptReviewSchema,
+    );
+    expect((await detail(pair.first.id)).reference.replacementId).toBe(pair.second.id);
+    expect((await detail(pair.second.id)).reference.replacementId).toBe(c.id);
+    const token = expectData(
+      await api(app)
+        .post('/api/me/api-tokens', { name: 'Receipt reference reader', scope: 'READ' })
+        .set('Cookie', cookie),
+      createApiTokenResponseSchema,
+    );
+    const read = expectData(
+      await api(app)
+        .get(`/api/receipts/${pair.first.id}`)
+        .set('Authorization', `Bearer ${token.token}`),
+      receiptDetailSchema,
+    );
+    expect(read.reference).toEqual(original.reference);
+    for (const suffix of ['original', 'download', 'thumbnail', 'pages/0']) {
+      const artifact = expectData(
+        await api(app)
+          .get(`/api/receipts/${pair.first.id}/${suffix}`)
+          .set('Authorization', `Bearer ${token.token}`),
+        receiptArtifactUrlSchema,
+      );
+      expect(artifact.url).toContain(
+        suffix === 'original' || suffix === 'download'
+          ? pair.first.id === a.id
+            ? a.fileId
+            : b.fileId
+          : pair.first.id,
+      );
+    }
+    const user = await otherUser();
+    await api(app).get(`/api/receipts/${pair.first.id}`).set('Cookie', user.cookie).expect(404);
+    await api(app)
+      .get(`/api/receipts/${pair.first.id}/original`)
+      .set('Cookie', user.cookie)
+      .expect(404);
+    await api(app).delete(`/api/receipts/${pair.first.id}`).set('Cookie', cookie).expect(409);
+    await api(app)
+      .patch(`/api/archive-items/${pair.first.id}/kind`, { kind: 'DOCUMENT' })
+      .set('Cookie', cookie)
+      .expect(409);
+    await api(app)
+      .get(`${ROOT}/compare?firstId=${pair.first.id}&secondId=${c.id}`)
+      .set('Cookie', cookie)
+      .expect(409);
+    const shelf = expectData(
+      await api(app).get('/api/receipts').set('Cookie', cookie),
+      listReceiptsResponseSchema,
+    );
+    expect(shelf.items.map((item) => item.id)).toEqual([c.id]);
+    await api(app).post(`${ROOT}/history/${second.id}/undo`).set('Cookie', cookie).expect(200);
+    await api(app).post(`${ROOT}/history/${first.id}/undo`).set('Cookie', cookie).expect(200);
+    expect((await detail(pair.first.id)).reference).toEqual({
+      state: 'ACTIVE',
+      replacementId: null,
+      restoredReceiptIds: [],
+      reviewId: null,
+    });
+  });
+
+  it('keeps a source readable when its active replacement is explicitly deleted', async () => {
+    const a = await seed();
+    const b = await seed();
+    const pair = await compare(a.id, b.id);
+    await api(app)
+      .post(`${ROOT}/resolve`, input(pair, 'KEEP_SECOND'))
+      .set('Cookie', cookie)
+      .expect(200);
+    await api(app).delete(`/api/receipts/${pair.second.id}`).set('Cookie', cookie).expect(200);
+    expect((await detail(pair.first.id)).reference).toMatchObject({
+      state: 'REPLACED',
+      replacementId: null,
+    });
+    await api(app).get(`/api/receipts/${pair.first.id}/original`).set('Cookie', cookie).expect(200);
+  });
+
   it('keeps one, preserves hidden data and downloads, and restores it through history', async () => {
     const a = await seed();
     const b = await seed();
@@ -233,7 +380,7 @@ describe('Receipt duplicate review (e2e)', () => {
       receiptReviewSchema,
     );
     expect(await liveIds()).toEqual([pair.second.id]);
-    await api(app).get(`/api/receipts/${pair.first.id}`).set('Cookie', cookie).expect(404);
+    await api(app).get(`/api/receipts/${pair.first.id}`).set('Cookie', cookie).expect(200);
     const download = expectData(
       await api(app).get(`${ROOT}/history/${review.id}/originals/0`).set('Cookie', cookie),
       receiptArtifactUrlSchema,
@@ -289,6 +436,18 @@ describe('Receipt duplicate review (e2e)', () => {
     expect(merge).toHaveBeenCalledTimes(1);
     await api(app).post(`${ROOT}/history/${review.id}/undo`).set('Cookie', cookie).expect(200);
     expect(await liveIds()).toEqual([a.id, b.id].sort());
+    expect((await detail(resultId)).processing).toBe(false);
+    expect((await detail(resultId)).reference).toEqual({
+      state: 'MERGE_UNDONE',
+      replacementId: null,
+      restoredReceiptIds: [pair.second.id, pair.first.id],
+      reviewId: review.id,
+    });
+    const preservedPdf = expectData(
+      await api(app).get(`/api/receipts/${resultId}/original`).set('Cookie', cookie),
+      receiptArtifactUrlSchema,
+    );
+    expect(preservedPdf.url).toContain(result.fileId);
     // The hidden result's old job can have completed and expired without changing its checkpoint.
     await testPrisma().$executeRawUnsafe('DELETE FROM pgboss.job');
     const again = expectData(
@@ -298,6 +457,9 @@ describe('Receipt duplicate review (e2e)', () => {
       receiptReviewSchema,
     );
     expect(again.resultId).toBe(resultId);
+    expect((await detail(resultId)).reference.state).toBe('ACTIVE');
+    expect((await detail(a.id)).reference.replacementId).toBe(resultId);
+    expect((await detail(b.id)).reference.replacementId).toBe(resultId);
     expect(
       await testPrisma().$queryRaw`SELECT data FROM pgboss.job WHERE name = 'receipt-process'`,
     ).toEqual([{ data: { receiptId: resultId } }]);

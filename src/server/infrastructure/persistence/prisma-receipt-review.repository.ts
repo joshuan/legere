@@ -64,6 +64,7 @@ export class PrismaReceiptReviewRepository extends ReceiptReviewRepository {
         ORDER BY position DESC LIMIT 1
       ) decision ON TRUE
       WHERE l.preview_status = 'DONE' AND r.preview_status = 'DONE'
+        AND l.review_state = 'ACTIVE' AND r.review_state = 'ACTIVE'
         AND l.extraction_status = 'DONE' AND r.extraction_status = 'DONE'
         AND l.extracted IS NOT NULL AND r.extracted IS NOT NULL
         AND ${viewer.role === 'ADMIN' ? Prisma.sql`TRUE` : Prisma.sql`a.created_by_id = ${viewer.id}::uuid`}
@@ -75,6 +76,7 @@ export class PrismaReceiptReviewRepository extends ReceiptReviewRepository {
     const receipts = await this.prisma.receipt.findMany({
       where: {
         id: { in: ids },
+        reviewState: 'ACTIVE',
         archiveItem: {
           deletedAt: null,
           ...(viewer.role === 'ADMIN' ? {} : { createdById: viewer.id }),

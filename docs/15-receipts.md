@@ -218,7 +218,7 @@ steps. Only administrators operate the shared trash, as before.
 |---|---|
 | `POST /api/receipts` | Upload one image/PDF receipt |
 | `GET /api/receipts` | Filtered, ordered cursor page |
-| `GET /api/receipts/:id` | Receipt detail |
+| `GET /api/receipts/:id` | Requested receipt detail and explicit replacement/undo reference |
 | `GET /api/receipts/:id/thumbnail` | First-page list thumbnail URL |
 | `GET /api/receipts/:id/pages/:page` | Derived page JPEG URL; zero-based page index |
 | `GET /api/receipts/:id/original` | Inline-capable original URL for the viewer |
@@ -237,6 +237,19 @@ complete answer shown to a reader.
 Cursors carry the named order and its last nullable key plus the id tiebreak. Malformed or stale
 cursors restart at the first page; a cursor from another order is refused with
 `CURSOR_SORT_MISMATCH`.
+
+### 15.8a. References after duplicate review
+
+[Contract 21](21-receipt-duplicates.md#durable-receipt-references) distinguishes ACTIVE, REPLACED
+and MERGE_UNDONE from deletion. Receipt detail always includes `reference`; old IDs and their
+original/download/thumbnail/page reads remain usable after review or undo. The ordinary list and
+processing recovery include only ACTIVE receipts. Consumers explicitly follow replacement links,
+retain the originally attached ID and never infer identity from temporary signed URLs. The public
+OpenAPI document includes these read operations under personal READ token authentication;
+document-only OAuth/integration eligibility remains unchanged. Preserved receipts must be restored
+through review undo before deletion or conversion. Existing review-hidden rows are migrated using
+their history.
+
 
 ## 15.9. UI
 

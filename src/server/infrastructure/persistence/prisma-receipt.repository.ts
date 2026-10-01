@@ -6,8 +6,10 @@ import { moneyValueSchema } from '../../../shared/contracts/document-fields';
 import {
   DEFAULT_RECEIPT_SORT,
   receiptExtractionSchema,
+  receiptReviewStateSchema,
   type ReceiptExtraction,
   type ReceiptSort,
+  type ReceiptReviewState,
 } from '../../../shared/contracts/receipts';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import { RECEIPT_RECOVERY_GRACE_MS, type Receipt } from '../../domain/entities/receipt';
@@ -94,6 +96,8 @@ export function toDomain(row: ReceiptRow): Receipt {
     updatedAt: row.archiveItem.updatedAt,
     lastEventAt: row.archiveItem.lastEventAt,
     deletedAt: row.archiveItem.deletedAt,
+    reviewState: receiptReviewStateSchema.parse(row.reviewState),
+    reviewId: row.reviewId,
     owner,
   };
 }
@@ -243,11 +247,16 @@ export class PrismaReceiptRepository extends ReceiptRepository {
     }
   }
 
-  async restore(id: string, tx: TransactionHandle): Promise<void> {
-    await clientOf(this.prisma, tx).archiveItem.updateMany({
-      where: { id, kind: 'RECEIPT' },
-      data: { deletedAt: null },
-    });
+  async setReviewState(
+    id: string,
+    state: ReceiptReviewState,
+    reviewId: string | null,
+    at: Date,
+    tx: TransactionHandle,
+  ): Promise<void> {
+    const client = clientOf(this.prisma, tx);
+    await client.receipt.update({ where: { id }, data: { reviewState: state, reviewId } });
+    await client.archiveItem.update({ where: { id }, data: { updatedAt: at } });
   }
 
   async countProcessing(): Promise<ReceiptProcessingCounts> {
@@ -259,7 +268,8 @@ export class PrismaReceiptRepository extends ReceiptRepository {
           WHEN r.preview_status = 'DONE' AND r.extraction_status = 'DONE' THEN 'done'
           WHEN r.preview_status = 'SKIPPED' OR r.extraction_status = 'SKIPPED' THEN 'skipped'
           ELSE 'queued' END AS status, (${RETRYABLE_RECEIPT}) AS retryable
-        FROM receipts r JOIN archive_items a ON a.id = r.id WHERE a.deleted_at IS NULL
+        FROM receipts r JOIN archive_items a ON a.id = r.id
+        WHERE a.deleted_at IS NULL AND r.review_state = 'ACTIVE'
       )
       SELECT count(*)::int AS total,
         count(*) FILTER (WHERE status = 'done')::int AS done,
@@ -279,7 +289,7 @@ export class PrismaReceiptRepository extends ReceiptRepository {
     >(Prisma.sql`
       SELECT r.id, r.preview_status AS "previewStatus", r.extraction_status AS "extractionStatus"
       FROM receipts r JOIN archive_items a ON a.id = r.id
-      WHERE a.deleted_at IS NULL AND ${RETRYABLE_RECEIPT}
+      WHERE a.deleted_at IS NULL AND r.review_state = 'ACTIVE' AND ${RETRYABLE_RECEIPT}
       ORDER BY a.created_at, r.id LIMIT ${limit} FOR UPDATE OF r, a SKIP LOCKED
     `);
   }
@@ -292,7 +302,7 @@ export class PrismaReceiptRepository extends ReceiptRepository {
     return clientOf(this.prisma, tx).$queryRaw<ReceiptProcessingState[]>(Prisma.sql`
       SELECT r.id, r.preview_status AS "previewStatus", r.extraction_status AS "extractionStatus"
       FROM receipts r JOIN archive_items a ON a.id = r.id
-      WHERE a.deleted_at IS NULL AND a.updated_at < ${olderThan}
+      WHERE a.deleted_at IS NULL AND r.review_state = 'ACTIVE' AND a.updated_at < ${olderThan}
         AND ${UNFINISHED_RECEIPT}
         AND r.preview_status <> 'FAILED' AND r.extraction_status <> 'FAILED'
         AND ${NO_LIVE_RECEIPT_JOB}
@@ -370,6 +380,7 @@ export class PrismaReceiptRepository extends ReceiptRepository {
     const rows = await clientOf(this.prisma, tx).receipt.findMany({
       where: {
         AND: [
+          { reviewState: 'ACTIVE' },
           { archiveItem: { deletedAt: null, ...readableBy(viewer) } },
           listFilters(query),
           ...(cursor === null ? [] : [cursorFilter(cursor)]),
@@ -435,13 +446,6 @@ export class PrismaReceiptRepository extends ReceiptRepository {
       select: { id: true },
     });
     return rows.map((row) => row.id);
-  }
-
-  async softDelete(id: string, at: Date, tx?: TransactionHandle): Promise<void> {
-    await clientOf(this.prisma, tx).archiveItem.updateMany({
-      where: { id, kind: 'RECEIPT', deletedAt: null },
-      data: { deletedAt: at },
-    });
   }
 
   async hardDelete(id: string, tx?: TransactionHandle): Promise<void> {

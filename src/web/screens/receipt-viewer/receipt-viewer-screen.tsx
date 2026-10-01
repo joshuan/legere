@@ -122,7 +122,7 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
             <Button
               icon={<FileTextOutlined aria-hidden />}
               loading={convert.isPending}
-              disabled={data.processing}
+              disabled={data.processing || data.reference.state !== 'ACTIVE'}
               onClick={() => {
                 modal.confirm({
                   title: t('moveToDocuments'),
@@ -138,6 +138,7 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
               danger
               icon={<DeleteOutlined aria-hidden />}
               loading={remove.isPending}
+              disabled={data.reference.state !== 'ACTIVE'}
               onClick={() => {
                 modal.confirm({
                   title: t('delete'),
@@ -153,6 +154,38 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
           </Space>
         </div>
 
+        {data.reference.state !== 'ACTIVE' && (
+          <Alert
+            type="info"
+            showIcon
+            title={t(
+              data.reference.state === 'REPLACED' ? 'reference.replaced' : 'reference.mergeUndone',
+            )}
+            description={
+              <Space orientation="vertical" size={6}>
+                <span>{t('reference.preserved')}</span>
+                <Space wrap>
+                  {data.reference.replacementId !== null && (
+                    <Link href={`/receipts/${data.reference.replacementId}`}>
+                      {t('reference.openReplacement')}
+                    </Link>
+                  )}
+                  {data.reference.restoredReceiptIds.map((sourceId, side) => (
+                    <Link key={sourceId} href={`/receipts/${sourceId}`}>
+                      {t('reference.openSource', { side: side + 1 })}
+                    </Link>
+                  ))}
+                  {data.reference.replacementId === null &&
+                    data.reference.restoredReceiptIds.length === 0 && (
+                      <span>{t('reference.unavailable')}</span>
+                    )}
+                  <Link href="/receipts/duplicates?tab=history">{t('reference.history')}</Link>
+                </Space>
+                <Typography.Text type="secondary">{t('reference.undoFirst')}</Typography.Text>
+              </Space>
+            }
+          />
+        )}
         {data.processingError !== null && (
           <Alert type="error" showIcon title={t('failed')} description={data.processingError} />
         )}

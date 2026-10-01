@@ -1,3 +1,8 @@
+import {
+  receiptOpenApiPaths,
+  receiptOpenApiSchemas,
+  receiptReadTokenScheme,
+} from '../receipts/receipt-openapi';
 import { archiveOpenApiPaths, archiveOpenApiSchemas, archiveOAuthScheme } from './archive-openapi';
 import { stepStatusSchema } from '../../../shared/contracts/enums';
 // Public contract for service integrations. Responses are verified against these schemas in e2e.
@@ -52,14 +57,15 @@ export function integrationOpenApi(baseUrl: string) {
     openapi: '3.1.0',
     info: {
       title: 'Legere service integrations',
-      version: '1.1.0',
+      version: '1.2.0',
       description:
-        'Create a named integration in Settings, then issue its token. Keep the token in your service backend. All endpoints are restricted to this integration and its owning user, even when the owner is an administrator. Rotation preserves the namespace: issue a new token on the same integration and revoke the old token. This contract covers the external service API; browser/account endpoints and the MCP JSON-RPC protocol are separate. MCP OAuth discovery: /.well-known/oauth-authorization-server and /.well-known/oauth-protected-resource/api/mcp; MCP URL: /api/mcp, scope mcp:read. Existing personal documents use the independent /api/integrations/archive resource and documents:read OAuth permission; discover /.well-known/oauth-protected-resource/api/integrations/archive.',
+        'Create a named integration in Settings, then issue its token. Keep the token in your service backend. Integration document endpoints are restricted to this integration and its owning user, even when the owner is an administrator. Rotation preserves the namespace: issue a new token on the same integration and revoke the old token. Receipt detail and original-artifact reads use the separate personal READ token scheme documented on those operations. Other browser/account endpoints and the MCP JSON-RPC protocol are separate. MCP OAuth discovery: /.well-known/oauth-authorization-server and /.well-known/oauth-protected-resource/api/mcp; MCP URL: /api/mcp, scope mcp:read. Existing personal documents use the independent /api/integrations/archive resource and documents:read OAuth permission; discover /.well-known/oauth-protected-resource/api/integrations/archive.',
     },
     servers: [{ url: baseUrl.replace(/\/+$/, '') }],
     security: [{ integrationToken: [] }],
     paths: {
       ...archiveOpenApiPaths,
+      ...receiptOpenApiPaths,
       '/api/integrations/documents': {
         post: {
           operationId: 'uploadDocument',
@@ -145,6 +151,7 @@ export function integrationOpenApi(baseUrl: string) {
     },
     components: {
       securitySchemes: {
+        personalReadToken: receiptReadTokenScheme,
         personalArchiveOAuth: archiveOAuthScheme(baseUrl),
         integrationToken: {
           type: 'http',
@@ -156,6 +163,7 @@ export function integrationOpenApi(baseUrl: string) {
       },
       schemas: {
         ...archiveOpenApiSchemas,
+        ...receiptOpenApiSchemas,
         Document: {
           type: 'object',
           required: [

@@ -53,6 +53,7 @@ const receipt: ReceiptDetailDto = {
   updatedAt: '2026-09-08T18:00:00.000Z',
   lastEventAt: '2026-09-08T18:00:00.000Z',
   sourceText: SOURCE_TEXT,
+  reference: { state: 'ACTIVE', replacementId: null, restoredReceiptIds: [], reviewId: null },
   owner: { id: 'bbbbbbbb-2222-4222-8222-222222222222', displayName: 'Reader' },
 };
 
@@ -97,6 +98,47 @@ describe('ReceiptViewerScreen', () => {
     await userEvent.click(screen.getByText(enMessages.receipts.sourceText));
     expect(await screen.findByText(SOURCE_TEXT)).toBeInTheDocument();
   });
+  it.each(['REPLACED', 'MERGE_UNDONE'] as const)(
+    'keeps the original visible and explains %s with related links',
+    async (state) => {
+      const related = '33333333-3333-4333-8333-333333333333';
+      server.use(
+        http.get(`/api/receipts/${ID}`, () =>
+          HttpResponse.json(
+            envelope({
+              ...receipt,
+              reference: {
+                state,
+                replacementId: state === 'REPLACED' ? related : null,
+                restoredReceiptIds: state === 'MERGE_UNDONE' ? [related] : [],
+                reviewId: '44444444-4444-4444-8444-444444444444',
+              },
+            }),
+          ),
+        ),
+      );
+      renderWithProviders(<ReceiptViewerScreen id={ID} />);
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        enMessages.receipts.reference.preserved,
+      );
+      const link = screen.getByRole('link', {
+        name:
+          state === 'REPLACED'
+            ? enMessages.receipts.reference.openReplacement
+            : enMessages.receipts.reference.openSource.replace('{side}', '1'),
+      });
+      expect(link).toHaveAttribute('href', `/receipts/${related}`);
+      expect(screen.getByRole('button', { name: enMessages.receipts.delete })).toBeDisabled();
+      expect(
+        screen.getByRole('button', { name: enMessages.receipts.moveToDocuments }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole('button', { name: enMessages.receipts.downloadOriginal }),
+      ).toBeEnabled();
+      expect(screen.getByText('Coffee')).toBeInTheDocument();
+    },
+  );
+
   it('recovers a failed receipt read through the inline retry action', async () => {
     let failing = true;
     server.use(

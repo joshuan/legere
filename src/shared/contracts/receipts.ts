@@ -106,9 +106,22 @@ export type ListReceiptsQuery = z.infer<typeof listReceiptsQuerySchema>;
 export const listReceiptsResponseSchema = paginatedSchema(receiptListItemSchema);
 export type ListReceiptsResponse = z.infer<typeof listReceiptsResponseSchema>;
 
+export const receiptReviewStateSchema = z.enum(['ACTIVE', 'REPLACED', 'MERGE_UNDONE']);
+export type ReceiptReviewState = z.infer<typeof receiptReviewStateSchema>;
+
+// These links describe the requested identity. Artifacts never silently follow replacements.
+export const receiptReferenceSchema = z.object({
+  state: receiptReviewStateSchema,
+  replacementId: z.string().uuid().nullable(),
+  restoredReceiptIds: z.array(z.string().uuid()),
+  reviewId: z.string().uuid().nullable(),
+});
+export type ReceiptReference = z.infer<typeof receiptReferenceSchema>;
+
 export const receiptDetailSchema = receiptListItemSchema.extend({
   lastEventAt: z.string().datetime(),
   sourceText: z.string().nullable(),
+  reference: receiptReferenceSchema,
 });
 export type ReceiptDetailDto = z.infer<typeof receiptDetailSchema>;
 

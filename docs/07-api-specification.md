@@ -576,7 +576,8 @@ the tool's schema.
 
 The endpoint/authorization contract is in [`17`](./17-agent-identity-and-integrations.md); the
 complete operational guide is [`18`](./18-service-integration-guide.md). `GET /api/openapi.json`
-publishes OpenAPI 3.1 for the dedicated integration upload/list/detail/PDF/JPEG API. Its responses
+publishes OpenAPI 3.1 for integration documents, delegated personal documents and personal receipt
+reads, each with its own security scheme. Its responses
 use the normal envelope. OAuth discovery, registration, token and revocation endpoints instead
 use standard OAuth JSON bodies and OAuth errors; they do not use the REST envelope.
 
@@ -611,3 +612,15 @@ The five OAuth-only `/api/integrations/archive` GET routes, strict DTOs, eligibi
 search, cursor and error contract are defined in [19 §19.2](19-personal-archive-integration.md#192-read-api).
 Unlike ordinary document routes, malformed UUIDs return 422 here. Public OpenAPI
 includes both service namespaces and personal archive references with separate security schemes.
+
+## Receipt identities after duplicate review
+
+`GET /api/receipts/:id` adds `reference: { state, replacementId, restoredReceiptIds, reviewId }`.
+State is ACTIVE, REPLACED or MERGE_UNDONE. The response and artifact endpoints always refer to the
+requested original, including preserved receipts. Replacement links are explicit, owner-scoped
+and can be followed through later decisions. A reversed merge names readable restored sources
+in original page order. Missing/deleted/converted targets are omitted, never silently substituted.
+Lists/discovery/recovery include ACTIVE receipts only; preserved receipt mutations return
+409 RECEIPT_CHANGED until review undo. This does not widen the document-only integration APIs.
+Personal READ token security and receipt detail/artifact schemas are published in `/api/openapi.json`.
+See [21](21-receipt-duplicates.md#durable-receipt-references) for migration, undo and consumer rules.

@@ -109,7 +109,13 @@ async function readPair(
   if (first === null || second === null || first.createdById !== second.createdById) {
     throw new NotFoundError('RECEIPT_NOT_FOUND', 'Receipt pair not found');
   }
-  if (isReceiptProcessing(first) || isReceiptProcessing(second)) throw changed();
+  if (
+    first.reviewState !== 'ACTIVE' ||
+    second.reviewState !== 'ACTIVE' ||
+    isReceiptProcessing(first) ||
+    isReceiptProcessing(second)
+  )
+    throw changed();
   return [first, second];
 }
 
@@ -127,7 +133,9 @@ export class ReadReceiptDuplicates {
       if (
         isReceiptProcessing(first) ||
         isReceiptProcessing(second) ||
-        first.createdById !== second.createdById
+        first.createdById !== second.createdById ||
+        first.reviewState !== 'ACTIVE' ||
+        second.reviewState !== 'ACTIVE'
       )
         return [];
       const pair = receiptPairOf(first, second);
@@ -201,26 +209,31 @@ export class ResolveReceiptDuplicates {
         const at = this.clock.now();
         const resultId =
           input.action === 'KEEP_FIRST' ? a.id : input.action === 'KEEP_SECOND' ? b.id : null;
-        if (resultId !== null)
-          await this.receipts.softDelete(resultId === a.id ? b.id : a.id, at, tx);
-        return dto(
-          await this.reviews.create(
-            {
-              id: input.operationId,
-              ownerId: a.createdById,
-              actorId: viewer.id,
-              firstId: a.id,
-              secondId: b.id,
-              revision: input.revision,
-              pair: current,
-              action: input.action,
-              reverse: false,
-              resultId,
-              createdAt: at,
-            },
-            tx,
-          ),
+        const review = await this.reviews.create(
+          {
+            id: input.operationId,
+            ownerId: a.createdById,
+            actorId: viewer.id,
+            firstId: a.id,
+            secondId: b.id,
+            revision: input.revision,
+            pair: current,
+            action: input.action,
+            reverse: false,
+            resultId,
+            createdAt: at,
+          },
+          tx,
         );
+        if (resultId !== null)
+          await this.receipts.setReviewState(
+            resultId === a.id ? b.id : a.id,
+            'REPLACED',
+            review.id,
+            at,
+            tx,
+          );
+        return dto(review);
       });
     }
 
@@ -271,13 +284,14 @@ export class ResolveReceiptDuplicates {
         let result = await this.receipts.findByFileId(file.id, tx);
         if (result !== null) {
           if (
-            result.deletedAt === null ||
+            result.deletedAt !== null ||
+            result.reviewState !== 'MERGE_UNDONE' ||
             result.createdById !== a.createdById ||
             !(await this.reviews.reusableResult(result.id, a.id, b.id, tx))
           )
             throw changed();
           await this.receipts.lockByIds([result.id], tx);
-          await this.receipts.restore(result.id, tx);
+          await this.receipts.setReviewState(result.id, 'ACTIVE', null, this.clock.now(), tx);
           if (!isReceiptProcessing(result)) {
             await this.receipts.updateProcessing(
               result.id,
@@ -326,26 +340,25 @@ export class ResolveReceiptDuplicates {
           tx,
         );
         const at = this.clock.now();
-        await this.receipts.softDelete(a.id, at, tx);
-        await this.receipts.softDelete(b.id, at, tx);
-        return dto(
-          await this.reviews.create(
-            {
-              id: input.operationId,
-              ownerId: a.createdById,
-              actorId: viewer.id,
-              firstId: a.id,
-              secondId: b.id,
-              revision: input.revision,
-              pair: current,
-              action: 'MERGE',
-              reverse: input.reverse,
-              resultId: result.id,
-              createdAt: at,
-            },
-            tx,
-          ),
+        const review = await this.reviews.create(
+          {
+            id: input.operationId,
+            ownerId: a.createdById,
+            actorId: viewer.id,
+            firstId: a.id,
+            secondId: b.id,
+            revision: input.revision,
+            pair: current,
+            action: 'MERGE',
+            reverse: input.reverse,
+            resultId: result.id,
+            createdAt: at,
+          },
+          tx,
         );
+        await this.receipts.setReviewState(a.id, 'REPLACED', review.id, at, tx);
+        await this.receipts.setReviewState(b.id, 'REPLACED', review.id, at, tx);
+        return dto(review);
       });
     } finally {
       this.merging = false;
@@ -390,14 +403,24 @@ export class ResolveReceiptDuplicates {
             : review.action === 'MERGE'
               ? [review.firstId, review.secondId]
               : [];
+      const at = this.clock.now();
       for (const sourceId of restoreIds) {
         const receipt = await this.receipts.findById(sourceId, tx);
-        if (receipt === null || receipt.createdById !== review.ownerId) throw changed();
-        await this.receipts.restore(sourceId, tx);
+        if (
+          receipt === null ||
+          receipt.createdById !== review.ownerId ||
+          receipt.deletedAt !== null ||
+          receipt.reviewState !== 'REPLACED' ||
+          receipt.reviewId !== review.id
+        )
+          throw changed();
+        await this.receipts.setReviewState(sourceId, 'ACTIVE', null, at, tx);
       }
-      const at = this.clock.now();
       if (review.action === 'MERGE' && review.resultId !== null) {
-        await this.receipts.softDelete(review.resultId, at, tx);
+        const result = await this.receipts.findById(review.resultId, tx);
+        if (result !== null && result.deletedAt === null && result.createdById === review.ownerId) {
+          await this.receipts.setReviewState(result.id, 'MERGE_UNDONE', review.id, at, tx);
+        }
       }
       return dto(await this.reviews.undo(review.id, at, tx));
     });

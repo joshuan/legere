@@ -1,8 +1,13 @@
 'use client';
 
-import { ReloadOutlined } from '@ant-design/icons';
+import {
+  ArrowLeftOutlined,
+  CloseOutlined,
+  ReloadOutlined,
+  SelectOutlined,
+} from '@ant-design/icons';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Empty, Modal, Radio, Space, Spin, Tabs, Tag, Typography } from 'antd';
+import { Alert, Button, Empty, Modal, Radio, Space, Spin, Tabs, Typography } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -16,7 +21,7 @@ import {
 } from '../../../shared/contracts/receipt-duplicates';
 import { receiptApi, receiptKeys } from '../../entities/receipt';
 import { useErrorMessage } from '../../shared/lib';
-import { PageHeader, QueryError } from '../../shared/ui';
+import { QueryError } from '../../shared/ui';
 import { ReceiptComparison } from './receipt-comparison';
 import { ReviewHistory } from './review-history';
 
@@ -37,7 +42,7 @@ export function ReceiptDuplicatesScreen() {
     secondId: params.get('secondId'),
   });
   const query = parsed.success ? parsed.data : null;
-  const [tab, setTab] = useState('review');
+  const [tab, setTab] = useState(params.get('tab') === 'history' ? 'history' : 'review');
   const [reverse, setReverse] = useState(false);
   const [pairIndex, setPairIndex] = useState(0);
   const [command, setCommand] = useState<ResolveReceiptPair | null>(null);
@@ -97,47 +102,45 @@ export function ReceiptDuplicatesScreen() {
   const active = manual ? comparison : suggestions;
   return (
     <div className="receipt-duplicate-screen">
-      <PageHeader
-        title={t('title')}
-        description={t('description')}
-        actions={
-          <Space wrap>
-            <Link href="/receipts">
-              <Button>{tr('back')}</Button>
-            </Link>
-            <Link href="/receipts?compare=1">
-              <Button>{t('selectManually')}</Button>
-            </Link>
-            <Button
-              aria-label={t('refresh')}
-              icon={<ReloadOutlined aria-hidden />}
-              onClick={refresh}
-              loading={active.isFetching}
-            >
-              {t('refresh')}
+      <header className="receipt-review-toolbar">
+        <Typography.Title level={1}>{t('title')}</Typography.Title>
+        <div className="receipt-review-toolbar-actions">
+          <Link href="/receipts" aria-label={tr('back')} title={tr('back')}>
+            <Button icon={<ArrowLeftOutlined aria-hidden />}>
+              <span className="receipt-toolbar-text">{tr('back')}</span>
             </Button>
-          </Space>
-        }
-      />
+          </Link>
+          <Link
+            href="/receipts?compare=1"
+            aria-label={t('selectManually')}
+            title={t('selectManually')}
+          >
+            <Button icon={<SelectOutlined aria-hidden />}>
+              <span className="receipt-toolbar-text">{t('selectManually')}</span>
+            </Button>
+          </Link>
+          <Button
+            aria-label={t('refresh')}
+            title={t('refresh')}
+            icon={<ReloadOutlined aria-hidden />}
+            onClick={refresh}
+            loading={active.isFetching}
+          />
+        </div>
+      </header>
       {result !== null && (
-        <Alert
-          type="success"
-          showIcon
-          closable
-          onClose={() => setResult(null)}
-          title={t('saved')}
-          description={
-            <Space wrap>
-              {t(`actions.${result.action}`)}
-              {result.resultId !== null && (
-                <Link href={`/receipts/${result.resultId}`}>{t('openResult')}</Link>
-              )}
-              <Button type="link" onClick={() => setTab('history')}>
-                {t('history')}
-              </Button>
-            </Space>
-          }
-        />
+        <div className="receipt-review-saved" role="status">
+          <span>{t('saved')}</span>
+          {result.resultId !== null && (
+            <Link href={`/receipts/${result.resultId}`}>{t('openResult')}</Link>
+          )}
+          <Button
+            type="text"
+            aria-label={t('closeNotice')}
+            icon={<CloseOutlined aria-hidden />}
+            onClick={() => setResult(null)}
+          />
+        </div>
       )}
       <Tabs
         activeKey={tab}
@@ -151,7 +154,7 @@ export function ReceiptDuplicatesScreen() {
             key: 'review',
             label: t('review'),
             children: (
-              <Space orientation="vertical" size={20} style={{ width: '100%' }}>
+              <div className="receipt-review-panel">
                 {manual && query === null ? (
                   <Alert type="error" title={t('invalidPair')} />
                 ) : (
@@ -164,14 +167,16 @@ export function ReceiptDuplicatesScreen() {
                     ) : pair !== undefined ? (
                       <>
                         <div className="receipt-review-intro">
-                          <div>
-                            <Typography.Title level={2}>{t(`kinds.${pair.kind}`)}</Typography.Title>
-                            <Typography.Paragraph type="secondary">
-                              {t('reviewHint')}
-                            </Typography.Paragraph>
-                          </div>
-                          <Space wrap>
-                            <Tag>{t('loaded', { count: manual ? 1 : available.length })}</Tag>
+                          <Typography.Title level={2} title={t('reviewHint')}>
+                            {t(`kinds.${pair.kind}`)}
+                          </Typography.Title>
+                          <Space>
+                            <Typography.Text type="secondary">
+                              {t('pairPosition', {
+                                current: position + 1,
+                                count: manual ? 1 : available.length,
+                              })}
+                            </Typography.Text>
                             {!manual && available.length > 1 && (
                               <Button
                                 onClick={() => {
@@ -182,44 +187,22 @@ export function ReceiptDuplicatesScreen() {
                                 {t('nextPair')}
                               </Button>
                             )}
+                            {!manual && suggestions.hasNextPage && (
+                              <Button
+                                aria-label={t('continueScan')}
+                                title={t('continueScan')}
+                                icon={<ReloadOutlined aria-hidden />}
+                                loading={suggestions.isFetchingNextPage}
+                                onClick={() => void suggestions.fetchNextPage()}
+                              >
+                                <span className="receipt-toolbar-text">{t('continueScan')}</span>
+                              </Button>
+                            )}
                           </Space>
                         </div>
-                        <div>
-                          <Typography.Text strong>{t('matches')}</Typography.Text>
-                          <div className="receipt-review-tags">
-                            {pair.reasons.length === 0 ? (
-                              <Typography.Text type="secondary">{t('noMatches')}</Typography.Text>
-                            ) : (
-                              pair.reasons.map((reason) => (
-                                <Tag key={reason} color="success">
-                                  {t(`facts.${reason}`)}
-                                </Tag>
-                              ))
-                            )}
-                          </div>
-                        </div>
-                        {pair.conflicts.length > 0 && (
-                          <Alert
-                            type="warning"
-                            showIcon
-                            title={t('conflicts')}
-                            description={pair.conflicts
-                              .map((conflict) => t(`facts.${conflict}`))
-                              .join(' · ')}
-                          />
-                        )}
-                        <div className="receipt-comparison-grid">
-                          <ReceiptComparison key={pair.first.id} receipt={pair.first} side={1} />
-                          <ReceiptComparison key={pair.second.id} receipt={pair.second} side={2} />
-                        </div>
-                        <div className="receipt-review-decision">
-                          <div>
-                            <Typography.Title level={3}>{t('decision')}</Typography.Title>
-                            <Typography.Paragraph type="secondary">
-                              {t('preserveHint')}
-                            </Typography.Paragraph>
-                          </div>
-                          <Space wrap>
+                        <ReceiptComparison key={keyOf(pair)} pair={pair} />
+                        <footer className="receipt-review-decision" aria-label={t('decision')}>
+                          <div className="receipt-review-decision-actions">
                             <Button onClick={() => choose('KEEP_FIRST')}>
                               {t('actions.KEEP_FIRST')}
                             </Button>
@@ -229,9 +212,16 @@ export function ReceiptDuplicatesScreen() {
                             <Button onClick={() => choose('DISMISS')}>
                               {t('actions.DISMISS')}
                             </Button>
-                          </Space>
+                            <Button
+                              type="primary"
+                              disabled={pair.mergeBlocked !== null}
+                              onClick={() => choose('MERGE')}
+                            >
+                              {t('actions.MERGE')}
+                            </Button>
+                          </div>
                           <div className="receipt-review-merge">
-                            <Typography.Text strong>{t('mergeHint')}</Typography.Text>
+                            <Typography.Text type="secondary">{t('pageOrder')}</Typography.Text>
                             <Radio.Group
                               value={reverse}
                               aria-label={t('pageOrder')}
@@ -245,15 +235,8 @@ export function ReceiptDuplicatesScreen() {
                                 {t(`mergeBlocked.${pair.mergeBlocked}`)}
                               </Typography.Text>
                             )}
-                            <Button
-                              type="primary"
-                              disabled={pair.mergeBlocked !== null}
-                              onClick={() => choose('MERGE')}
-                            >
-                              {t('actions.MERGE')}
-                            </Button>
                           </div>
-                        </div>
+                        </footer>
                       </>
                     ) : !active.isError ? (
                       <Empty
@@ -263,7 +246,7 @@ export function ReceiptDuplicatesScreen() {
                         }
                       />
                     ) : null}
-                    {!manual && suggestions.hasNextPage && (
+                    {!manual && pair === undefined && suggestions.hasNextPage && (
                       <Button
                         loading={suggestions.isFetchingNextPage}
                         onClick={() => void suggestions.fetchNextPage()}
@@ -273,10 +256,18 @@ export function ReceiptDuplicatesScreen() {
                     )}
                   </>
                 )}
-              </Space>
+              </div>
             ),
           },
-          { key: 'history', label: t('history'), children: <ReviewHistory /> },
+          {
+            key: 'history',
+            label: t('history'),
+            children: (
+              <div className="receipt-review-history-scroll">
+                <ReviewHistory />
+              </div>
+            ),
+          },
         ]}
       />
       <Modal

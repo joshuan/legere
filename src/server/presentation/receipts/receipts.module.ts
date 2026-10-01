@@ -102,8 +102,9 @@ import { ApiTokenScopeGuard } from '../auth/api-token-scope.guard';
     },
     {
       provide: GetReceipt,
-      useFactory: (receipts: ReceiptRepository): GetReceipt => new GetReceipt(receipts),
-      inject: [ReceiptRepository],
+      useFactory: (receipts: ReceiptRepository, reviews: ReceiptReviewRepository): GetReceipt =>
+        new GetReceipt(receipts, reviews),
+      inject: [ReceiptRepository, ReceiptReviewRepository],
     },
     {
       provide: UploadReceipt,

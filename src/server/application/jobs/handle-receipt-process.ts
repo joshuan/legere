@@ -60,7 +60,7 @@ export class HandleReceiptProcess extends JobHandler {
 
   private async run(receiptId: string): Promise<void> {
     const receipt = await this.receipts.findById(receiptId);
-    if (receipt === null || receipt.deletedAt !== null) return;
+    if (receipt === null || receipt.deletedAt !== null || receipt.reviewState !== 'ACTIVE') return;
     if (receipt.previewStatus === 'DONE' && receipt.extractionStatus === 'DONE') return;
 
     // Persisted previews are a checkpoint. AI retries need only resized display images.

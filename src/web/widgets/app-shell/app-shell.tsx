@@ -308,7 +308,11 @@ export function AppShell({
           />
         }
       >
-        <Layout.Content id="main-content" tabIndex={-1} className="legere-main">
+        <Layout.Content
+          id="main-content"
+          tabIndex={-1}
+          className={`legere-main${pathname === '/receipts/duplicates' ? ' legere-main-review' : ''}`}
+        >
           <div className="legere-content">{children}</div>
         </Layout.Content>
       </NavigationFrame>

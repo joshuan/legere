@@ -47,6 +47,8 @@ function receiptFixture(overrides: Partial<Receipt> = {}): Receipt {
     updatedAt: new Date('2026-09-08T00:00:00.000Z'),
     lastEventAt: new Date('2026-09-08T00:00:00.000Z'),
     deletedAt: null,
+    reviewState: 'ACTIVE',
+    reviewId: null,
     owner: { id: OWNER_ID, displayName: 'Receipt owner' },
     ...overrides,
   };
@@ -56,7 +58,7 @@ class InMemoryReceiptRepository extends ReceiptRepository {
   lockByIds(): Promise<void> {
     throw new Error('unused');
   }
-  restore(): Promise<void> {
+  setReviewState(): Promise<void> {
     throw new Error('unused');
   }
   lockStaleUnstarted(): ReturnType<ReceiptRepository['lockStaleUnstarted']> {
@@ -104,10 +106,6 @@ class InMemoryReceiptRepository extends ReceiptRepository {
     );
   }
 
-  softDelete(): Promise<void> {
-    throw new Error('softDelete is not used by receipt processing');
-  }
-
   hardDelete(): Promise<void> {
     throw new Error('hardDelete is not used by receipt processing');
   }
@@ -141,6 +139,18 @@ describe('HandleReceiptProcess', () => {
       analystPageImageMaxDim: 1400,
     });
   });
+
+  it.each(['REPLACED', 'MERGE_UNDONE'] as const)(
+    'does not process a preserved %s receipt',
+    async (reviewState) => {
+      receipts.receipt = receiptFixture({
+        reviewState,
+        reviewId: '99999999-9999-4999-8999-999999999999',
+      });
+      await handler.handle({ receiptId: RECEIPT_ID });
+      expect(receipts.updates).toEqual([]);
+    },
+  );
 
   it('renders every PDF page and sends the caller text beside those images to field extraction', async () => {
     pdfs.pageCount = 2;

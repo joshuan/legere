@@ -494,7 +494,7 @@ describe('Isolated service integrations and attribution (e2e)', () => {
       })
       .parse((await request(app.baseUrl).get('/api/openapi.json').expect(200)).body);
     expect(
-      Object.keys(schema.paths).filter((path) => !path.startsWith('/api/integrations/archive')),
+      Object.keys(schema.paths).filter((path) => path.startsWith('/api/integrations/documents')),
     ).toEqual([
       '/api/integrations/documents',
       '/api/integrations/documents/{id}',

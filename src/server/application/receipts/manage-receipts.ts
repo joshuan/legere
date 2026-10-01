@@ -4,12 +4,14 @@ import type {
   ReceiptArtifactUrl,
   ReceiptDetailDto,
   ReceiptListItemDto,
+  ReceiptReference,
 } from '../../../shared/contracts/receipts';
 import { isReceiptProcessing, type Receipt } from '../../domain/entities/receipt';
-import { NotFoundError } from '../../domain/errors/domain-error';
+import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
 import type { Viewer } from '../../domain/repositories/document.repository';
 import type { FileRepository } from '../../domain/repositories/file.repository';
 import type { ReceiptRepository } from '../../domain/repositories/receipt.repository';
+import type { ReceiptReviewRepository } from '../../domain/repositories/receipt-review.repository';
 import type { Clock } from '../ports/clock';
 import type { FileStorage } from '../ports/file-storage';
 import type { UnitOfWork } from '../ports/unit-of-work';
@@ -25,7 +27,7 @@ export function toReceiptListDto(receipt: Receipt): ReceiptListItemDto {
     pageCount: receipt.pageCount,
     previewStatus: receipt.previewStatus,
     extractionStatus: receipt.extractionStatus,
-    processing: isReceiptProcessing(receipt),
+    processing: receipt.reviewState === 'ACTIVE' && isReceiptProcessing(receipt),
     extracted: receipt.extracted,
     processingError: receipt.processingError,
     createdAt: receipt.createdAt.toISOString(),
@@ -45,7 +47,10 @@ export class ListReceipts {
 }
 
 export class GetReceipt {
-  constructor(private readonly receipts: ReceiptRepository) {}
+  constructor(
+    private readonly receipts: ReceiptRepository,
+    private readonly reviews: ReceiptReviewRepository,
+  ) {}
 
   async execute(viewer: Viewer, id: string): Promise<ReceiptDetailDto> {
     const receipt = await this.read(viewer, id);
@@ -53,6 +58,38 @@ export class GetReceipt {
       ...toReceiptListDto(receipt),
       lastEventAt: receipt.lastEventAt.toISOString(),
       sourceText: receipt.sourceText,
+      reference: await this.reference(viewer, receipt),
+    };
+  }
+
+  private async reference(viewer: Viewer, receipt: Receipt): Promise<ReceiptReference> {
+    const reference: ReceiptReference = {
+      state: receipt.reviewState,
+      replacementId: null,
+      restoredReceiptIds: [],
+      reviewId: receipt.reviewId,
+    };
+    if (receipt.reviewId === null) return reference;
+    const review = await this.reviews.find(receipt.reviewId, viewer);
+    if (review === null || review.ownerId !== receipt.createdById)
+      return { ...reference, reviewId: null };
+    const ids =
+      receipt.reviewState === 'REPLACED'
+        ? review.resultId === null
+          ? []
+          : [review.resultId]
+        : review.reverse
+          ? [review.secondId, review.firstId]
+          : [review.firstId, review.secondId];
+    const readable: string[] = [];
+    for (const id of ids) {
+      const target = await this.receipts.findReadableById(id, viewer);
+      if (target !== null && target.createdById === receipt.createdById) readable.push(id);
+    }
+    return {
+      ...reference,
+      replacementId: receipt.reviewState === 'REPLACED' ? (readable[0] ?? null) : null,
+      restoredReceiptIds: receipt.reviewState === 'MERGE_UNDONE' ? readable : [],
     };
   }
 
@@ -137,6 +174,11 @@ export class DeleteReceipt {
       await this.receipts.lockByIds([id], tx);
       const current = await this.receipts.findReadableById(id, viewer, tx);
       if (current === null) throw new NotFoundError('RECEIPT_NOT_FOUND', 'Receipt not found');
+      if (current.reviewState !== 'ACTIVE')
+        throw new ConflictError(
+          'RECEIPT_CHANGED',
+          'Undo the review decision before deleting its preserved receipt',
+        );
       await this.files.trash(
         {
           fileIds: [current.fileId],

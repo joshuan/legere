@@ -348,3 +348,18 @@ its lines were false. A claim nobody can run is a claim nobody is checking.
 | Real image plus multipage PDF retains all pages, order and unchanged source buffers | `test/integration/stirling-pdf-toolbox.integration.test.ts` — combines receipt originals |
 | Confirm before mutation, reuse operation ID on retry, partial scans and noncommittal browsing | `src/web/screens/receipt-duplicates/receipt-duplicates-screen.test.tsx` |
 | Shelf selection, comparison, confirmation, history/undo and Russian layout at every width/theme | `test/browser/receipt-duplicates.spec.ts`; reviewed canonical `receipt-duplicates*` baselines |
+
+## M75 — Receipt references and viewport review
+
+- Stable receipt IDs, original artifact identity, READ tokens, owner isolation, chained replacements,
+  unavailable targets, undo/remerge and mutation guards: `test/e2e/receipt-duplicates.e2e.test.ts`.
+- Published receipt reference/security contract: the same API suite; document namespace regressions
+  remain in `test/e2e/integrations.e2e.test.ts` and `test/e2e/archive-integration.e2e.test.ts`.
+- Existing review-history backfill, reused PDFs and unrelated deletions:
+  `test/integration/receipt-review-reference-migration.integration.test.ts`.
+- Preserved receipt jobs do no work: `handle-receipt-process.test.ts`; active-only counts and recovery
+  use the receipt repository filters.
+- Reference notices, original access and disabled mutations: `receipt-viewer-screen.test.tsx`.
+- Visible facts/actions without document overflow at 1366×768 and 1280×720, long item scrolling,
+  phone original previews, localized decision/history flow and ten theme/width snapshots:
+  `test/browser/receipt-duplicates.spec.ts`.

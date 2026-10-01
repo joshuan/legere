@@ -217,3 +217,20 @@ are not advertised; use DCR or preregistration instead.
 
 Protocol references: [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
 and [OpenAI OAuth integration](https://developers.openai.com/plugins/build/auth).
+
+## Personal receipt references
+
+Receipt references use the existing owner/admin receipt API and a personal READ token; neither
+an integration token nor `documents:read` OAuth grants receipt access. OpenAPI identifies these
+operations with the separate `personalReadToken` security scheme. Keep the token on a trusted
+backend. Persist issuer + the selected receipt ID.
+
+A confirmed duplicate remains readable at `GET /api/receipts/:id`, including its original
+artifacts. Inspect `data.reference.state`: REPLACED supplies a readable `replacementId`;
+MERGE_UNDONE supplies `restoredReceiptIds` in original order. Follow related IDs explicitly,
+checking their own state for later decisions; an unavailable target is null/absent. The response
+never changes identity and artifact reads never redirect. Preserve the attachment's original
+ID even when displaying the replacement. Previously copied amounts require an explicit consumer
+refresh; there is no change feed or webhook. Explicit deletion, conversion, revoked credentials
+and permission loss still make reads unavailable. Details and examples are in
+[receipt review](21-receipt-duplicates.md#durable-receipt-references).

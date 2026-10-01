@@ -1,5 +1,5 @@
 import type { AgentIdentity } from '../../../shared/contracts/identity';
-import type { ReceiptExtraction } from '../../../shared/contracts/receipts';
+import type { ReceiptExtraction, ReceiptReviewState } from '../../../shared/contracts/receipts';
 import type { StepStatus } from '../../../shared/contracts/enums';
 import type { File } from './file';
 
@@ -28,6 +28,8 @@ export type Receipt = {
   updatedAt: Date;
   lastEventAt: Date;
   deletedAt: Date | null;
+  reviewState: ReceiptReviewState;
+  reviewId: string | null;
   owner: { id: string; displayName: string };
 };
 

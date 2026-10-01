@@ -3,6 +3,7 @@ import type {
   ReceiptExtraction,
   ReceiptFilters,
   ReceiptSort,
+  ReceiptReviewState,
 } from '../../../shared/contracts/receipts';
 import type { StepStatus } from '../../../shared/contracts/enums';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
@@ -29,7 +30,13 @@ export type ReceiptProcessingState = Pick<Receipt, 'id' | 'previewStatus' | 'ext
 
 export abstract class ReceiptRepository {
   abstract lockByIds(ids: string[], tx: TransactionHandle): Promise<void>;
-  abstract restore(id: string, tx: TransactionHandle): Promise<void>;
+  abstract setReviewState(
+    id: string,
+    state: ReceiptReviewState,
+    reviewId: string | null,
+    at: Date,
+    tx: TransactionHandle,
+  ): Promise<void>;
   abstract countProcessing(): Promise<ReceiptProcessingCounts>;
   // Terminal input/extraction failures are deliberately excluded from automatic recovery.
   abstract lockStaleUnstarted(
@@ -75,6 +82,5 @@ export abstract class ReceiptRepository {
     tx?: TransactionHandle,
   ): Promise<Receipt>;
   abstract filterExistingIds(ids: string[], tx?: TransactionHandle): Promise<string[]>;
-  abstract softDelete(id: string, at: Date, tx?: TransactionHandle): Promise<void>;
   abstract hardDelete(id: string, tx?: TransactionHandle): Promise<void>;
 }
