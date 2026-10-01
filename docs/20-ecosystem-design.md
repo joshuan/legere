@@ -27,7 +27,7 @@ explicit account linking, no matching by email or shared cookies. No auth/schema
 See [OIDC Core](https://openid.net/specs/openid-connect-core-1_0.html) and
 [OAuth Security BCP](https://www.rfc-editor.org/rfc/rfc9700.html).
 
-Both applications install the exact public npm dependency `@joshuan/design-system@0.2.0`.
+Both applications install the exact public npm dependency `@joshuan/design-system@0.2.1`.
 The package is released from js-lib through Changesets and GitHub Actions OIDC with provenance.
 The temporary vendor archive and its Docker COPY steps have been removed. A clean checkout
 requires only the registry dependency; production deployment remains a separate operation.
@@ -44,3 +44,8 @@ an icon and name; the compact rail shows the icon with the full accessible name.
 route changes, Escape and widening the viewport close the drawer. The toggle is 44 px at the foot
 of the sidebar in both products. This supersedes the wordmark-only treatment in docs 11/16.
 Application releases follow docs 13, including green hosted checks and registry verification.
+
+The shared stylesheet bundles the verified IBM Plex WOFF2 files, SIL OFL license and SHA-256
+manifest, and defines both font variables with the original fallback metrics. Neither build nor
+runtime fetches Google Fonts. This avoids [Next.js issue 99114](https://github.com/vercel/next.js/issues/99114)
+without changing the accepted typography. Canonical baselines must compare without updates.

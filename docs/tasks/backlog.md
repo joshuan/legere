@@ -2264,11 +2264,31 @@ Production observation is read-only; source fixes are verified and committed on 
   cases pass (12 planned skips); every updated 320/390/768/1024/1440 light/dark baseline was reviewed.
   Hosted [CI 36859066528](https://github.com/joshuan/legere/actions/runs/36859066528) passes
   on `b62a8c7`, including the full comparison without baseline updates.
-- [ ] **M72.2 — Publish shared design and verify both GitHub releases.**
+- [x] **M72.2 — Publish shared design and verify both GitHub releases.**
   Remove the vendor bridge after npm publication; record local and hosted checks, immutable releases
   and registry evidence. Follow docs 13 for Legere's release command.
 
   **M72.2 progress:** `@joshuan/design-system@0.2.0` is published from js-lib `c072ffa`
   through OIDC. Its compiled files match the reviewed archive byte for byte. Both consumers
   now use the exact registry version; vendor archives and Docker COPY steps are removed.
-  Application release and final hosted verification are pending.
+  Released [Legere v0.40.0](https://github.com/joshuan/legere/releases/tag/v0.40.0) and
+  [Rent Manager v0.2.0](https://github.com/joshuan/rent-manage/releases/tag/v0.2.0).
+  Legere [CI 36869624698](https://github.com/joshuan/legere/actions/runs/36869624698) and
+  [Release 36869622705](https://github.com/joshuan/legere/actions/runs/36869622705) are green;
+  Rent Manager [Release 36872244097](https://github.com/joshuan/rent-manage/actions/runs/36872244097)
+  passes both CI jobs and image publication. Each application's GHCR latest matches its release.
+  A separate fresh Rent build exposed the intermittent Google font loader failure tracked in M73.
+
+## M73 — Reproducible shared fonts (2026-10-01)
+
+- [x] **M73.1 — Bundle the accepted IBM Plex files in the shared package.**
+  Next.js issue 99114 intermittently breaks Google font loading during a clean build, reproduced
+  in Rent Manager CI on `1be882f`. Use the exact verified font bytes, license and SHA-256 manifest
+  from js-lib, remove Google loaders in both applications and compare the canonical baselines.
+  **Validation:** design-system 0.2.1 is published with provenance; Node 24/26 CI and installed
+  package checks verify the font files and license. Both apps use the exact registry version.
+  Typecheck/lint pass; the production audit has zero findings. Canonical Legere navigation passes
+  11 checks across all ten viewport/theme projects without baseline changes; Rent passes 50
+  navigation/version and en/ru/sr route checks. Its 1079 unit/component tests also pass.
+- [ ] **M73.2 — Release the correction and verify GitHub/GHCR.**
+  Follow docs 13 for a patch release; existing published tags stay immutable.

@@ -43,7 +43,7 @@
     "@joshuan/auth-adapters": "0.1.2",
     "@joshuan/auth-core": "0.1.1",
     "@joshuan/config": "0.1.1",
-    "@joshuan/design-system": "0.2.0",
+    "@joshuan/design-system": "0.2.1",
     "@joshuan/http": "0.1.1",
     "@joshuan/next-config": "0.1.0",
     "@joshuan/next-nest": "0.1.1",
