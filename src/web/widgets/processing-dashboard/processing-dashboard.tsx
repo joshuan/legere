@@ -128,7 +128,7 @@ export function ProcessingDashboard({ tab = 'overview' }: { tab?: AdminProcessin
     data === undefined ? (
       <Spin />
     ) : (
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="large" style={{ width: '100%' }}>
         <PipelineSettings
           snapshot={data}
           language={language}
@@ -156,7 +156,7 @@ export function ProcessingDashboard({ tab = 'overview' }: { tab?: AdminProcessin
     );
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="large" style={{ width: '100%' }}>
       <PageHeader
         title={t('admin.queue.title')}
         actions={
@@ -173,7 +173,7 @@ export function ProcessingDashboard({ tab = 'overview' }: { tab?: AdminProcessin
         }
       />
 
-      {snapshot.isError && <Alert type="error" showIcon message={describeError(snapshot.error)} />}
+      {snapshot.isError && <Alert type="error" showIcon title={describeError(snapshot.error)} />}
       {data !== undefined && <ControlPlaneState snapshot={data} />}
 
       <Tabs

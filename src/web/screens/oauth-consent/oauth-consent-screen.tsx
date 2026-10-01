@@ -36,14 +36,14 @@ export function OAuthConsentScreen() {
       void message.error(describe(error));
     },
   });
-  if (!parsed.success) return <Alert type="error" showIcon message={t('invalidRequest')} />;
+  if (!parsed.success) return <Alert type="error" showIcon title={t('invalidRequest')} />;
   if (preview.isPending) return <Spin />;
   if (preview.isError) return <QueryError error={preview.error} retry={preview.refetch} />;
   return (
     <section style={{ maxWidth: 680, margin: '0 auto', width: '100%' }}>
       <PageHeader title={t('authorize')} />
       <Card>
-        <Space direction="vertical" size={20} style={{ width: '100%' }}>
+        <Space orientation="vertical" size={20} style={{ width: '100%' }}>
           <div>
             <Typography.Title level={3} style={{ marginTop: 0 }}>
               {preview.data.clientName}
@@ -55,7 +55,7 @@ export function OAuthConsentScreen() {
           <Alert
             type="info"
             showIcon
-            message={t(preview.data.scope === 'documents:read' ? 'archiveReadScope' : 'readScope')}
+            title={t(preview.data.scope === 'documents:read' ? 'archiveReadScope' : 'readScope')}
             description={t(
               preview.data.scope === 'documents:read' ? 'archiveScopeDetail' : 'scopeDetail',
             )}

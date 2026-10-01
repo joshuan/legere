@@ -513,7 +513,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
         type={unavailable ? 'warning' : 'info'}
         showIcon
         style={{ marginBottom: 16 }}
-        message={
+        title={
           <Space wrap>
             {showsGroups && (
               <Button
@@ -543,7 +543,7 @@ export function CatalogueManager<Row extends { id: string }, Values extends obje
           ? {}
           : {
               description: (
-                <Space direction="vertical" size="small">
+                <Space orientation="vertical" size="small">
                   <Typography.Text strong>{suggestions.title}</Typography.Text>
                   {groups.map((group) => (
                     <Space key={group.ids.join(':')} wrap>

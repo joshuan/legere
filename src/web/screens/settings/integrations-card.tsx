@@ -86,7 +86,7 @@ export function IntegrationsCard() {
           locale={{ emptyText: t('integrations.empty') }}
           renderItem={(item) => (
             <List.Item key={item.id}>
-              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+              <Space orientation="vertical" size={6} style={{ width: '100%' }}>
                 <Space wrap>
                   <Typography.Text strong>{item.name}</Typography.Text>
                   <Tag>{t('integrations.documents', { count: item.documentCount })}</Tag>

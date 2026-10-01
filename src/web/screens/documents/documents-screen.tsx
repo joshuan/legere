@@ -174,7 +174,7 @@ export function DocumentsScreen() {
         title={t('nav.documents')}
         actions={<UploadButton onFiles={sendToLibrary} primary />}
       />
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="large" style={{ width: '100%' }}>
         <div className="legere-toolbar">
           <DocumentFiltersBar value={filters} onChange={setFilters} compact />
           {/* Arranging the shelf, not narrowing it: the order sits beside the filters and outlives
@@ -572,7 +572,7 @@ function DocumentGroupSections({
     <>
       {groups.isError && <QueryError error={groups.error} retry={groups.refetch} />}
 
-      <Space direction="vertical" size={24} style={{ width: '100%' }}>
+      <Space orientation="vertical" size={24} style={{ width: '100%' }}>
         {/* Over the grid rather than in the filter bar: folding is not a filter, it narrows nothing,
           and "Clear filters" leaves it alone (docs/11 §11.3). */}
         <Space size="small">
@@ -756,13 +756,13 @@ function GroupingSuggestions({
   if (visible.length === 0) return null;
 
   return (
-    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="small" style={{ width: '100%' }}>
       <Typography.Text type="secondary">{t('documents.suggestions.title')}</Typography.Text>
       <Row gutter={[16, 16]}>
         {visible.map((suggestion) => (
           <Col key={keyOf(suggestion)} xs={24} md={12} xl={8}>
             <Card size="small">
-              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <Space orientation="vertical" size={8} style={{ width: '100%' }}>
                 <Space size={4} wrap>
                   {suggestion.documentIds.slice(0, SUGGESTION_THUMBS).map((documentId) => (
                     // An API route that 302s to a signed URL (docs/10 §10.8).

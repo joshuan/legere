@@ -343,7 +343,7 @@ export function CropEditor({ open, documentId, page, file, onSaved, onClose }: C
         </Button>,
       ]}
     >
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
         <Space wrap>
           {/* 🔒 Only for an image: the detector reads a photograph of a page, and the endpoint
               refuses anything else (docs/05 §5.6). A button that only ever failed would be worse
@@ -375,7 +375,7 @@ export function CropEditor({ open, documentId, page, file, onSaved, onClose }: C
           <Alert
             showIcon
             type={proposal === 'EDGES' ? 'info' : 'warning'}
-            message={
+            title={
               proposal === 'EDGES' ? t('viewer.crop.autoDetected') : t('viewer.crop.autoFailed')
             }
           />

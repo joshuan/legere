@@ -48,7 +48,7 @@ export function OAuthGrantsCard() {
                 : 'ACTIVE';
           return (
             <List.Item key={grant.id}>
-              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+              <Space orientation="vertical" size={6} style={{ width: '100%' }}>
                 <Space wrap>
                   <Typography.Text strong>{grant.clientName}</Typography.Text>
                   <Tag>{t(`settings.apiTokens.statuses.${status}`)}</Tag>

@@ -168,7 +168,7 @@ export function TurnstileWidget({ onToken, resetKey }: TurnstileWidgetProps) {
           type="error"
           role="alert"
           showIcon
-          message={t('auth.captcha.unreachable')}
+          title={t('auth.captcha.unreachable')}
           description={t('auth.captcha.unreachableHint')}
         />
       )}

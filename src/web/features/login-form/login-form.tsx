@@ -60,7 +60,7 @@ export function LoginForm({ returnTo }: { returnTo?: string }) {
       </Typography.Title>
 
       {error !== null && (
-        <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} role="alert" />
+        <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} role="alert" />
       )}
 
       <Form

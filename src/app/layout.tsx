@@ -3,6 +3,7 @@ import { getLocale, getMessages } from 'next-intl/server';
 import type { ReactNode } from 'react';
 import { TIME_ZONE } from '../i18n/request';
 import { AppProviders } from '../web/shared/providers';
+import '@joshuan/design-system/styles.css';
 import '../web/shared/styles/globals.css';
 
 // The two faces of docs/11 §11.15 — one sans for everything a person reads, one mono for anything

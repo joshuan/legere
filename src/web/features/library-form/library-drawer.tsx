@@ -120,7 +120,7 @@ export function LibraryDrawer({
     <Drawer
       open={open}
       onClose={onClose}
-      width={520}
+      size={520}
       title={isEdit ? t('admin.libraries.editTitle') : t('admin.libraries.createTitle')}
       footer={
         <div className="legere-form-actions">
@@ -134,7 +134,7 @@ export function LibraryDrawer({
       }
     >
       {error !== null && (
-        <Alert type="error" showIcon role="alert" message={error} style={{ marginBottom: 16 }} />
+        <Alert type="error" showIcon role="alert" title={error} style={{ marginBottom: 16 }} />
       )}
 
       <Form<FormValues>

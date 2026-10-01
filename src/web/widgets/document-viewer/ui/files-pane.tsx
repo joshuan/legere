@@ -110,7 +110,7 @@ export function FilesPane({
   const busy = replace.isPending;
 
   return (
-    <Space direction="vertical" size="small" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="small" style={{ width: '100%' }}>
       {/* The two things that can be done with the document as a whole, and then — under both — the
           price of touching anything below (docs/11 §11.5a). No heading of its own: the tab is
           called Files, and a title under its own label is the same word twice. */}
@@ -231,7 +231,7 @@ export function FilesPane({
                 </Space>
               }
               description={
-                <Space direction="vertical" size={0}>
+                <Space orientation="vertical" size={0}>
                   {/* What it is and what it weighs. The kind is the mime type rather than the
                       extension: the name above already ends in `.jpg`. */}
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -303,9 +303,9 @@ function EarlierVersions({
           key: 'versions',
           label: t('viewer.files.versions', { count: versions.length }),
           children: (
-            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            <Space orientation="vertical" size={8} style={{ width: '100%' }}>
               {versions.map((version) => (
-                <Space key={version.id} direction="vertical" size={0}>
+                <Space key={version.id} orientation="vertical" size={0}>
                   <Space size={4} wrap>
                     <span>{version.name}</span>
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>

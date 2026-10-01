@@ -46,7 +46,7 @@ export function SessionsCard() {
       {sessions.isError && <QueryError error={sessions.error} retry={sessions.refetch} />}
 
       <Card title={t('settings.sessions.title')}>
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
           <Typography.Text type="secondary">{t('settings.sessions.description')}</Typography.Text>
 
           <Table<SessionDto>
@@ -63,7 +63,7 @@ export function SessionsCard() {
                 width: 260,
                 render: (userAgent: string | null, session: SessionDto) => (
                   <Space
-                    direction="vertical"
+                    orientation="vertical"
                     size={4}
                     style={{ maxWidth: 260, overflowWrap: 'anywhere', whiteSpace: 'normal' }}
                   >

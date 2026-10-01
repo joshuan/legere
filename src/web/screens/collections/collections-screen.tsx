@@ -48,7 +48,7 @@ export function CollectionsScreen() {
     <>
       {collections.isError && <QueryError error={collections.error} retry={collections.refetch} />}
 
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="large" style={{ width: '100%' }}>
         <PageHeader
           title={t('collections.title')}
           actions={

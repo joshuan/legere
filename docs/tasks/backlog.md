@@ -2225,3 +2225,31 @@ Production observation is read-only; source fixes are verified and committed on 
   both parser images also have matching `latest` and `0.39.0` digests.
   [CI on the version commit](https://github.com/joshuan/legere/actions/runs/36839117868)
   passes both the full suite and browser checks.
+
+## M71 — Shared ecosystem design
+
+- [x] **M71.1 — Extract the common design into js-lib and migrate both consumers.**
+  **Docs:** [20](../20-ecosystem-design.md). Align the UI stack, use shared themes/headings/appearance,
+  document further extraction and the optional passport boundary; preserve product authorisation.
+  **Implementation:** `@joshuan/design-system` owns tokens, AntD 6 themes, PageHeader and live OS
+  appearance. Legere uses Next 16.3.6 / React 19.2.7 / AntD 6.5.0, matching Rent Manager's UI stack.
+  The v5 patch and duplicated foundations are removed. Viewer, modal and compact navigation
+  behaviours are migrated to the new DOM; notification timing in browser fixtures now advances.
+  Both consumers install the same unreleased tarball from js-lib `ccec62e`, with provenance in
+  vendor/README.md. The extraction audit and passport proposal introduce no auth or schema changes.
+- [x] **M71.2 — Verify the package, applications and responsive visual changes.**
+  Record checks and actual limitations; no publication or deployment without a release request.
+  **Local validation:** js-lib CI passes typecheck, lint, build, 41 tests and installed ESM/CJS/types/CSS
+  pack checks. Application typecheck, lint and production builds pass. Legere's web suite passes
+  583 tests; the server suite passes 2036 with 18 optional-service skips and one fixture-name failure.
+  That instance test expected `legere_test`, while the disposable database had a different name;
+  both instance tests pass after migrating a correctly named database in the same throwaway container
+  (2037 distinct server cases verified). The final theme and page-editor regressions also pass.
+  **Visual validation:** reviewed the light/dark matrix at 320/390/768/1024/1440 px. The full comparison
+  passes 595 cases with 12 viewport skips and exposes four dark touch crop-tooltip differences.
+  Dismissing page-action hints when a dialog opens fixes the overlap. The affected images were
+  reviewed and the final 21-case crop/tooltip matrix passes without updating baselines, covering
+  all remaining differences. Together these runs verify all 599 applicable browser cases.
+  Computed contrast covers both accents, text/buttons/feedback and tooltips; a browser check verifies
+  actual tooltip CSS. npm publication, hosted CI, deployment and production acceptance remain outside
+  this local change. The tarball is an explicit temporary distribution mechanism.

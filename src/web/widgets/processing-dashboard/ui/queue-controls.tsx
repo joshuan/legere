@@ -36,7 +36,7 @@ export function QueueControls({ row, revision }: { row: QueueRow; revision: numb
   });
   const control = row.control.concurrency;
   return (
-    <Space direction="vertical" size={4}>
+    <Space orientation="vertical" size={4}>
       <Space size={4} wrap>
         <InputNumber
           min={1}

@@ -61,7 +61,7 @@ export function DeleteSection({ document }: { document: DocumentDetailDto }) {
         onCancel={() => setAsking(false)}
         onOk={() => remove.mutate()}
       >
-        <Space direction="vertical" size="small">
+        <Space orientation="vertical" size="small">
           <Typography.Text>
             {t('viewer.delete.goes', {
               files: document.files.length,

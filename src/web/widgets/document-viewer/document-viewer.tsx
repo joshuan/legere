@@ -319,9 +319,9 @@ export function DocumentViewer({ id, tab = 'preview' }: { id: string; tab?: View
 
           {detail.documentType?.slug === 'receipt' && (
             <Card>
-              <Space direction="vertical" size={10} style={{ width: '100%' }}>
+              <Space orientation="vertical" size={10} style={{ width: '100%' }}>
                 {detail.origin === 'LIBRARY' ? (
-                  <Alert type="warning" showIcon message={t('viewer.moveToReceiptsLibrary')} />
+                  <Alert type="warning" showIcon title={t('viewer.moveToReceiptsLibrary')} />
                 ) : detail.files.length !== 1 || detail.processing ? (
                   <Typography.Text type="secondary">
                     {t('viewer.moveToReceiptsUnavailable')}

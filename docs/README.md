@@ -98,3 +98,5 @@ off in the same commit; the temporary direct-to-`main` workflow in ADR-014 appli
 - `UPPER_CASE` — enum values. `code` — identifiers/commands.
 - "Invariant" blocks — rules the code must guarantee. 🔒 — security/access related.
 - "Open question" — a decision that needs human confirmation; collected at the end of each document.
+
+[20. Shared ecosystem design](./20-ecosystem-design.md)

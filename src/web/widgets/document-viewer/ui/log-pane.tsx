@@ -63,10 +63,10 @@ export function LogPane({
   }
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="large" style={{ width: '100%' }}>
       <ProcessingSection document={document} events={items} isAdmin={isAdmin} />
 
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
         <Typography.Title level={5} style={{ margin: 0 }}>
           {t('viewer.log.history')}
         </Typography.Title>

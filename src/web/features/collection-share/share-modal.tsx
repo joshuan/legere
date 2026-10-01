@@ -60,7 +60,7 @@ export function ShareModal({
 
   return (
     <Modal open={open} title={t('collections.share.title')} onCancel={onClose} footer={null}>
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
         <AutoComplete
           style={{ width: '100%' }}
           value={term}

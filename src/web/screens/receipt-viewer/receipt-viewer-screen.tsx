@@ -93,11 +93,11 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
   return (
     <div className="legere-receipt-workspace" style={{ width: '100%', minWidth: 0 }}>
       {receipt.isError && <QueryError error={receipt.error} retry={receipt.refetch} />}
-      <Space direction="vertical" size={18} style={{ width: '100%' }}>
+      <Space orientation="vertical" size={18} style={{ width: '100%' }}>
         <div
           style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}
         >
-          <Space direction="vertical" size={2}>
+          <Space orientation="vertical" size={2}>
             <Link href="/receipts">
               <ArrowLeftOutlined aria-hidden /> {t('back')}
             </Link>
@@ -154,7 +154,7 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
         </div>
 
         {data.processingError !== null && (
-          <Alert type="error" showIcon message={t('failed')} description={data.processingError} />
+          <Alert type="error" showIcon title={t('failed')} description={data.processingError} />
         )}
 
         <Row gutter={[18, 18]} align="top">
@@ -171,7 +171,7 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
             </Card>
           </Col>
           <Col xs={24} lg={11}>
-            <Space direction="vertical" size={18} style={{ width: '100%' }}>
+            <Space orientation="vertical" size={18} style={{ width: '100%' }}>
               <Card title={t('details')}>
                 {data.extracted === null ? (
                   <Typography.Text type="secondary">{t('noData')}</Typography.Text>
@@ -312,7 +312,7 @@ function ReceiptImages({
     );
   }
   return (
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+    <Space orientation="vertical" size={12} style={{ width: '100%' }}>
       {pageQueries.map((page, index) =>
         page.isError ? (
           // eslint-disable-next-line @eslint-react/no-array-index-key
@@ -352,7 +352,7 @@ function ReceiptFields({ values }: { values: Record<string, unknown> }) {
   });
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space orientation="vertical" size={16} style={{ width: '100%' }}>
       <Descriptions column={1} size="small">
         {descriptions}
       </Descriptions>

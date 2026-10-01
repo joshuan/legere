@@ -42,7 +42,9 @@ export const test = base.extend({
         errors.push(message.text());
       }
     });
-    await page.clock.setFixedTime(new Date(VISUAL_NOW));
+    // Ant Design 6 measures notice lifetimes with Date.now() inside animation frames.
+    // Keep the fixture's calendar date, but let elapsed time advance so notices can close.
+    await page.clock.install({ time: new Date(VISUAL_NOW) });
     await page.route('http://in-memory-storage.test/**', async (route) => {
       const path = new URL(route.request().url()).pathname;
       const pdf = path.endsWith('.pdf');
@@ -87,9 +89,7 @@ export async function settle(page: Page): Promise<void> {
   await page.mouse.move(0, 0);
   await expect(page.locator('.ant-spin-spinning')).toHaveCount(0);
   await expect(
-    page.locator(
-      '.ant-select-arrow-loading:visible, .anticon-loading:visible, .ant-btn-loading:visible',
-    ),
+    page.locator('.ant-select-loading:visible, .anticon-loading:visible, .ant-btn-loading:visible'),
   ).toHaveCount(0);
   await page.evaluate(async () => {
     await document.fonts.ready;

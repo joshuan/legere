@@ -4,19 +4,11 @@ import { ConfigProvider } from 'antd';
 import enUS from 'antd/locale/en_US';
 import ruRU from 'antd/locale/ru_RU';
 import { useLocale } from 'next-intl';
-import {
-  createContext,
-  useCallback,
-  use,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from 'react';
+import { createContext, use, useState, type ReactNode } from 'react';
 import type { Theme } from '../../../shared/contracts/enums';
 import { legereTheme } from '../theme';
 
-const DARK_QUERY = '(prefers-color-scheme: dark)';
-const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+import { useSystemAppearance } from '@joshuan/design-system/react';
 
 const ThemePreferenceContext = createContext<(preference: Theme) => void>(() => {});
 
@@ -24,33 +16,6 @@ const ThemePreferenceContext = createContext<(preference: Theme) => void>(() => 
 export function useThemePreference(): (preference: Theme) => void {
   return use(ThemePreferenceContext);
 }
-
-// The OS colour scheme is an external store, so it is read through useSyncExternalStore: the theme
-// keeps following the system setting live rather than sampling it once (docs/10 §10.4).
-function subscribeToColorScheme(onChange: () => void): () => void {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return () => {};
-  const query = window.matchMedia(DARK_QUERY);
-  query.addEventListener('change', onChange);
-  return () => query.removeEventListener('change', onChange);
-}
-
-function systemPrefersDark(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
-  return window.matchMedia(DARK_QUERY).matches;
-}
-
-// Disable component transitions at their source; shortening CSS animations alone leaves an
-// entering popup briefly scaled to zero for people who requested reduced motion.
-function subscribeToMotion(onChange: () => void): () => void {
-  const query = window.matchMedia(REDUCED_MOTION_QUERY);
-  query.addEventListener('change', onChange);
-  return () => query.removeEventListener('change', onChange);
-}
-
-const prefersReducedMotion = (): boolean => window.matchMedia(REDUCED_MOTION_QUERY).matches;
-
-// The server cannot know the client's colour scheme; light is the neutral first paint.
-const serverSnapshot = (): boolean => false;
 
 export function ThemeProvider({
   children,
@@ -61,23 +26,16 @@ export function ThemeProvider({
 }) {
   const locale = useLocale();
   const [selectedPreference, setSelectedPreference] = useState(preference);
-  const getSnapshot = useCallback(
-    () => (selectedPreference === 'SYSTEM' ? systemPrefersDark() : selectedPreference === 'DARK'),
-    [selectedPreference],
-  );
-  const dark = useSyncExternalStore(subscribeToColorScheme, getSnapshot, serverSnapshot);
-  const reducedMotion = useSyncExternalStore(
-    subscribeToMotion,
-    prefersReducedMotion,
-    serverSnapshot,
-  );
-  const appearance = legereTheme(dark);
+  const system = useSystemAppearance();
+  const dark = selectedPreference === 'DARK' || (selectedPreference === 'SYSTEM' && system.dark);
+  const appearance = legereTheme(dark, system.reducedMotion);
 
   return (
     <ThemePreferenceContext value={setSelectedPreference}>
       <ConfigProvider
         locale={locale === 'ru' ? ruRU : enUS}
-        theme={{ ...appearance, token: { ...appearance.token, motion: !reducedMotion } }}
+        theme={appearance}
+        modal={{ styles: { wrapper: { colorScheme: dark ? 'dark' : 'light' } } }}
       >
         {children}
       </ConfigProvider>

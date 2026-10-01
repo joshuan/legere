@@ -4,6 +4,10 @@ Legere is a place to find, read and organize private documents and receipts. The
 make those objects easy to work with for hours. It is not a dashboard of decorative metrics.
 This contract applies to every screen, both themes and every viewport from 320 px upward.
 
+The shared foundations are maintained in `@joshuan/design-system` from js-lib, not in this
+application. [Document 20](./20-ecosystem-design.md) records the coordinated UI-stack migration and
+which contracts belong to the ecosystem. The archive-specific composition below remains local.
+
 ## 16.1. Direction and design review
 
 Keep the recognizable green accent and the legible, self-hosted IBM Plex family. Replace simulated
@@ -53,7 +57,7 @@ touch targets too small. Large displays may show supporting sections beside a fo
 | Surface | `#FFFFFF` | `#1A252B` |
 | Raised surface | `#FFFFFF` | `#223139` |
 | Text | `#24323B` | `#E7EFF2` |
-| Secondary text | `#63747D` | `#A2B3BA` |
+| Secondary text | `#5F7079` | `#A2B3BA` |
 | Divider | `#DEE5E8` | `#30434B` |
 | Control border | `#BCC9CF` | `#58707B` |
 | Primary action | `#247463` | `#73C4AF` |
@@ -69,7 +73,7 @@ by lightening the dark accent with the component library's default palette gener
   for screen headings; 16 px / 1.4 for section headings. Normal sentence case throughout.
 - IBM Plex Mono only for paths, hashes, code and identifiers. Numeric columns use tabular figures
   in the body face. Body text uses lining figures rather than old-style numerals.
-- Spacing: 4, 8, 12, 16, 20, 24, 32 px. Controls 36 px high on desktop; primary touch controls
+- Spacing: 4, 8, 12, 16, 20, 24, 32 px. Controls 40 px high on desktop; primary touch controls
   and icon hit areas at least 44 px on coarse pointers. No invisible 20 px collapse target.
 - Corners: 6 px for controls, 8 px for content surfaces, 12 px for dialogs. Shadows belong to
   floating overlays, not every content block. Do not wrap a single already-framed table in a card.
@@ -78,7 +82,7 @@ by lightening the dark accent with the component library's default palette gener
 
 ## 16.3. Navigation, layout and scrolling
 
-- Desktop navigation is a 216 px column, collapsible to 60 px. The menu alone scrolls if needed;
+- Desktop navigation is a 240 px column, collapsible to 64 px. The menu alone scrolls if needed;
   identity and account controls stay visible. Selected route and its parent are apparent.
 - Below 768 px navigation becomes a drawer, with a small mobile navigation row. Selecting a route
   closes the drawer; Escape closes it, focus returns to the trigger, and the background does not

@@ -41,7 +41,7 @@ export function DirectoryPicker({
       />
 
       {error !== null && (
-        <Alert type="error" showIcon style={{ marginTop: 8 }} message={describeError(error)} />
+        <Alert type="error" showIcon style={{ marginTop: 8 }} title={describeError(error)} />
       )}
 
       {isPending ? (

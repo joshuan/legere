@@ -121,7 +121,7 @@ export function MovePagesDialog({
       okButtonProps={{ disabled: !ready, loading: move.isPending }}
       onOk={() => move.mutate()}
     >
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
         {/* 🔒 Which pages are leaving, by the numbers the tiles they were ticked on carry
             (docs/11 §11.5a). A tile's own Move and a Move of twelve ticked pages are the same
             dialog, and without this it was the same *generic* dialog: a confirmation that does not
@@ -136,7 +136,7 @@ export function MovePagesDialog({
             setDestination(event.target.value === 'existing' ? 'existing' : 'new')
           }
         >
-          <Space direction="vertical" size={4}>
+          <Space orientation="vertical" size={4}>
             <Radio value="new">{t('viewer.pages.moveToNew')}</Radio>
             <Radio value="existing">{t('viewer.pages.moveToExisting')}</Radio>
           </Space>

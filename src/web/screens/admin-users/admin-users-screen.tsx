@@ -213,7 +213,7 @@ export function AdminUsersScreen() {
       {users.isError && <QueryError error={users.error} retry={users.refetch} />}
       {invites.isError && <QueryError error={invites.error} retry={invites.refetch} />}
 
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="large" style={{ width: '100%' }}>
         <section>
           <PageHeader
             title={t('admin.users.title')}

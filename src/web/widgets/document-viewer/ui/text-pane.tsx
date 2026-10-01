@@ -48,7 +48,7 @@ export function TextPane({
   if (loading) return <Spin />;
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
       {/* 🔒 Above the text and above the *absence* of it. A document whose recognition returned
           nothing is the case this warning exists for, and it is exactly the case with no text to
           stand under: drawn after the empty state, it would never appear on the one document that
@@ -57,7 +57,7 @@ export function TextPane({
         <Alert
           type="warning"
           showIcon
-          message={verdict}
+          title={verdict}
           description={t('viewer.textQuality.explained')}
           {...(isAdmin && onReadAgain !== undefined
             ? {

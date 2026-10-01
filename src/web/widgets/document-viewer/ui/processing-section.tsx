@@ -104,7 +104,7 @@ export function ProcessingSection({
   });
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
       {/* A heading rather than a card: the main column draws the document on the page itself, and
           a box inside a tab would be a frame around one half of it (docs/11 §11.5). The panel's own
           controls sit at the end of its head row: Reprocess everything is what the visit is for

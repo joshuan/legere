@@ -75,7 +75,7 @@ export function ApiTokensCard() {
           </Button>
         }
       >
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
           <Typography.Text type="secondary">{t('settings.apiTokens.description')}</Typography.Text>
 
           <Table<ApiTokenDto>

@@ -19,7 +19,7 @@ export function ScreenSkeleton() {
 
   return (
     <div role="status" aria-live="polite" aria-label={t('common.loading')}>
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="large" style={{ width: '100%' }}>
         <Skeleton active title={{ width: 220 }} paragraph={{ rows: 1, width: ['30%'] }} />
         <div className="legere-card-grid">
           {Array.from({ length: CARDS }, (_, index) => (

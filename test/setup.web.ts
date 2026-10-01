@@ -1,6 +1,15 @@
 // jsdom test setup: register jest-dom matchers (toBeInTheDocument, etc.) for the `web` project.
-import '@ant-design/v5-patch-for-react-19';
 import '@testing-library/jest-dom/vitest';
+
+// Ant Design 6 uses the browser's native ResizeObserver. jsdom has no layout engine;
+// geometry and responsive behaviour are exercised in the canonical Chromium suite.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class implements ResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  };
+}
 
 // jsdom reports every standards-valid pseudo-element argument as a noisy "not implemented" error.
 // Ant Design asks for one only to measure the scrollbar; the base element's computed style is the

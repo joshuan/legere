@@ -5,7 +5,7 @@ import { CurrentUserProvider } from '../../web/entities/user';
 import { UploadQueueProvider } from '../../web/features/upload-queue';
 import { AppShell } from '../../web/widgets/app-shell';
 import { UploadPanelLayout } from '../../web/widgets/upload-panel';
-import { PATHNAME_HEADER } from '../../middleware';
+import { PATHNAME_HEADER } from '../../proxy';
 import { APP_VERSION } from '../_server/app-version';
 import { currentUser } from '../_server/current-user';
 
@@ -19,7 +19,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // handed to the client tree rather than asked for again by every page under it (docs/10 §10.2).
   const user = await currentUser();
   if (user === null) {
-    // Set by middleware, since a server component cannot see its own request path.
+    // Set by the Next proxy, since a server component cannot see its own request path.
     const returnTo = (await headers()).get(PATHNAME_HEADER) ?? '/documents';
     redirect(`/login?returnTo=${encodeURIComponent(returnTo)}`);
   }

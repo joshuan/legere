@@ -169,7 +169,7 @@ export function AuthWizard({
       />
 
       {error !== null && (
-        <Alert type="error" message={error} showIcon style={{ marginBottom: 16 }} role="alert" />
+        <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} role="alert" />
       )}
 
       {step === 0 && (
@@ -265,7 +265,7 @@ function CodeStep({
   return (
     <div>
       {notice !== null && (
-        <Alert type="info" message={notice} showIcon style={{ marginBottom: 16 }} />
+        <Alert type="info" title={notice} showIcon style={{ marginBottom: 16 }} />
       )}
 
       <Typography.Paragraph type="secondary">

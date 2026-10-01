@@ -60,9 +60,9 @@ export function CollectionDetailScreen({ id }: { id: string }) {
     <>
       {detail.isError && <QueryError error={detail.error} retry={detail.refetch} />}
 
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="large" style={{ width: '100%' }}>
         <header className="legere-page-head" style={{ marginBottom: 0 }}>
-          <Space direction="vertical" size={0}>
+          <Space orientation="vertical" size={0}>
             <Typography.Title
               level={1}
               style={{ margin: 0 }}
@@ -99,7 +99,7 @@ export function CollectionDetailScreen({ id }: { id: string }) {
           <div className="legere-card-grid">
             {items.map((document) => (
               <div key={document.id}>
-                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Space orientation="vertical" size={4} style={{ width: '100%' }}>
                   <DocumentCard document={document} />
                   {isOwner && (
                     <Popconfirm

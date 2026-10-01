@@ -59,7 +59,7 @@ export function ReceiptProcessingTab({
       <Alert
         type="error"
         showIcon
-        message={describeError(counts.error)}
+        title={describeError(counts.error)}
         action={<Button onClick={() => void counts.refetch()}>{common('retry')}</Button>}
       />
     );
@@ -95,13 +95,13 @@ export function ReceiptProcessingTab({
       <Card title={t('retryTitle')}>
         <div className={styles.cardContent}>
           <Typography.Paragraph style={{ marginBottom: 0 }}>{t('retryHint')}</Typography.Paragraph>
-          {paused && <Alert type="warning" showIcon message={t('paused')} />}
-          {!extractorConfigured && <Alert type="warning" showIcon message={t('notConfigured')} />}
+          {paused && <Alert type="warning" showIcon title={t('paused')} />}
+          {!extractorConfigured && <Alert type="warning" showIcon title={t('notConfigured')} />}
           {!paused && extractorConfigured && queue?.runtime.registered !== true && (
-            <Alert type="warning" showIcon message={t('noWorker')} />
+            <Alert type="warning" showIcon title={t('noWorker')} />
           )}
           {totals.retryable > 0 && queue?.runtime.queued === 0 && queue.runtime.active === 0 && (
-            <Alert type="info" showIcon message={t('emptyQueue')} />
+            <Alert type="info" showIcon title={t('emptyQueue')} />
           )}
           <Typography.Text>{t('eligible', { count: totals.retryable })}</Typography.Text>
           <Space wrap>

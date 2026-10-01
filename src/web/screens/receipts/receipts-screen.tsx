@@ -178,7 +178,7 @@ export function ReceiptsScreen() {
             uploads.send(files);
           }}
         />
-        <Space direction="vertical" size={20} style={{ width: '100%' }}>
+        <Space orientation="vertical" size={20} style={{ width: '100%' }}>
           {uploads.items.length > 0 && (
             <ReceiptUploadPanel items={uploads.items} busy={uploads.busy} onClose={uploads.clear} />
           )}
@@ -241,13 +241,13 @@ export function ReceiptsScreen() {
                 />
               </div>
               <div className="receipt-mobile-list">
-                <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Space orientation="vertical" size={12} style={{ width: '100%' }}>
                   {items.map((receipt) => (
                     <Link key={receipt.id} href={`/receipts/${receipt.id}`}>
                       <Card size="small">
                         <div style={{ display: 'flex', gap: 14 }}>
                           <ReceiptThumbnail receipt={receipt} />
-                          <Space direction="vertical" size={2} style={{ minWidth: 0 }}>
+                          <Space orientation="vertical" size={2} style={{ minWidth: 0 }}>
                             <Typography.Text strong ellipsis>
                               {vendorOf(receipt) ?? t('unknownVendor')}
                             </Typography.Text>

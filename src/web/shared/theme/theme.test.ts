@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { theme } from 'antd';
-import { INK, PAPER } from './palette';
+import { paletteFor } from '@joshuan/design-system';
 import { legereTheme } from './theme';
+
+const PAPER = paletteFor(false, 'green');
+const INK = paletteFor(true, 'green');
 
 function luminance(hex: string): number {
   const channel = (start: number): number => {
@@ -56,12 +59,14 @@ describe('legereTheme', () => {
   it('binds the two faces through CSS variables the layout defines', () => {
     const { token } = legereTheme(false);
 
-    expect(token?.fontFamily).toBe('var(--font-sans)');
-    expect(token?.fontFamilyCode).toBe('var(--font-mono)');
+    expect(token?.fontFamily).toBe(
+      'var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif)',
+    );
+    expect(token?.fontFamilyCode).toBe('var(--font-mono, ui-monospace, monospace)');
   });
 
   it('exposes tokens as CSS variables, which is what the stylesheet dresses the page with', () => {
-    expect(legereTheme(false).cssVar).toBe(true);
+    expect(legereTheme(false).cssVar).toEqual({ prefix: 'ant' });
   });
 
   it('gives the layout chrome its own surfaces instead of antd defaults', () => {

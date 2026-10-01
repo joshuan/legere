@@ -13,7 +13,7 @@ export function QueryError({ error, retry }: { error: unknown; retry: () => unkn
       type="error"
       showIcon
       role="alert"
-      message={describeError(error)}
+      title={describeError(error)}
       action={
         <Button
           onClick={() => {

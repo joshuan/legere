@@ -358,7 +358,7 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
         background: 'var(--legere-well)',
       }}
     >
-      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+      <Space orientation="vertical" size={8} style={{ width: '100%' }}>
         <Space wrap size={8} align="center">
           <Typography.Text strong>{t('viewer.pages.heading', { count: total })}</Typography.Text>
           {!readOnly && selected.size > 0 && (
@@ -405,6 +405,7 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
                   readOnly={readOnly}
                   sending={sending}
                   onlyPage={total <= 1}
+                  dialogOpen={cropping !== null || moving !== null}
                   registerTile={registerTile(pageId)}
                   onPointerDown={startDrag(pageId)}
                   onPointerMove={drag}
@@ -514,6 +515,7 @@ function Tile({
   readOnly,
   sending,
   onlyPage,
+  dialogOpen,
   registerTile,
   onPointerDown,
   onPointerMove,
@@ -536,6 +538,7 @@ function Tile({
   readOnly: boolean;
   sending: boolean;
   onlyPage: boolean;
+  dialogOpen: boolean;
   registerTile: (element: HTMLButtonElement | null) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onPointerMove: (event: ReactPointerEvent<HTMLButtonElement>) => void;
@@ -586,7 +589,7 @@ function Tile({
     .join(' ');
 
   const action = (label: string, icon: ReactNode, onClick: () => void, disabled: boolean) => (
-    <Tooltip title={label}>
+    <Tooltip title={label} open={dialogOpen ? false : undefined}>
       <Button
         size="small"
         type="text"
@@ -653,7 +656,7 @@ function Tile({
           ) : (
             // 🔒 A file nobody has counted the pages of: one entry standing for the whole of it, and
             // the strip says so rather than drawing a page it cannot name (docs/03 §3.3.17).
-            <Space direction="vertical" size={0} align="center">
+            <Space orientation="vertical" size={0} align="center">
               <FileUnknownOutlined
                 style={{ fontSize: 24, color: token.colorTextQuaternary }}
                 aria-hidden
@@ -677,7 +680,7 @@ function Tile({
       </Typography.Paragraph>
 
       {!readOnly && (
-        <Space direction="vertical" size={0} style={{ width: '100%' }} align="center">
+        <Space orientation="vertical" size={0} style={{ width: '100%' }} align="center">
           <Space size={0} wrap style={{ justifyContent: 'center' }}>
             <Checkbox
               checked={selected}

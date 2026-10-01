@@ -67,14 +67,14 @@ export function AdminInstanceScreen() {
       <Alert
         type="error"
         showIcon
-        message={t('errors.title')}
+        title={t('errors.title')}
         description={describeError(instance.error)}
       />
     );
   }
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="large" style={{ width: '100%' }}>
       <PageHeader title={t('admin.instance.title')} description={t('admin.instance.subtitle')} />
       <div className="legere-settings-panels">
         {instance.data.groups.map((group) => (

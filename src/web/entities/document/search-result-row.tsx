@@ -81,7 +81,7 @@ function MatchedIn({ fields }: { fields: readonly SearchMatchField[] }) {
         {t('search.why')}
       </Typography.Text>
       {fields.map((field) => (
-        <Tag key={field} bordered={false}>
+        <Tag key={field} variant="filled">
           {t(`search.matchedIn.${field}`)}
         </Tag>
       ))}

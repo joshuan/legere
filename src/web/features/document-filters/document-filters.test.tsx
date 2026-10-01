@@ -30,12 +30,12 @@ describe('DocumentFiltersBar hydration', () => {
     const container = document.createElement('div');
     container.innerHTML = renderToString(ui(serverClient));
     document.body.append(container);
-    expect(container.querySelectorAll('.ant-select-arrow-loading')).toHaveLength(2);
+    expect(container.querySelectorAll('.ant-select-loading')).toHaveLength(2);
 
     const root = hydrateRoot(container, ui(browserClient));
     try {
       await act(() => Promise.resolve());
-      expect(container.querySelectorAll('.ant-select-arrow-loading')).toHaveLength(0);
+      expect(container.querySelectorAll('.ant-select-loading')).toHaveLength(0);
       await userEvent.click(within(container).getByRole('combobox', { name: 'Library' }));
       await userEvent.click(within(document.body).getByText('Family archive'));
       expect(change).toHaveBeenCalledWith({ libraryId: 'library-1' });

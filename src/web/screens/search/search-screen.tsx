@@ -90,9 +90,9 @@ export function SearchScreen() {
   return (
     <section aria-label={t('search.resultsLabel')} style={{ width: '100%' }}>
       <PageHeader title={t('nav.search')} description={t('search.reach')} />
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="large" style={{ width: '100%' }}>
         <SearchQueryInput key={q} query={q} onSearch={(value) => navigate({ q: value.trim() })} />
-        <Space direction="vertical" size="small" style={{ width: '100%' }}>
+        <Space orientation="vertical" size="small" style={{ width: '100%' }}>
           <Space wrap size="middle" style={{ width: '100%', justifyContent: 'space-between' }}>
             <Radio.Group
               value={mode}
@@ -132,10 +132,10 @@ export function SearchScreen() {
           />
         </Space>
         {!semanticAvailable && (
-          <Alert type="info" showIcon message={t('search.semanticUnavailable')} />
+          <Alert type="info" showIcon title={t('search.semanticUnavailable')} />
         )}
         {semanticAvailable && results.data?.semanticFallback && (
-          <Alert type="warning" showIcon message={t('search.semanticFallback')} />
+          <Alert type="warning" showIcon title={t('search.semanticFallback')} />
         )}
         {mode !== 'text' && semanticAvailable && sort !== 'relevance' && (
           <Typography.Text type="secondary">{t('search.semanticSortHint')}</Typography.Text>
@@ -144,7 +144,7 @@ export function SearchScreen() {
           <Alert
             type="error"
             showIcon
-            message={describeError(error)}
+            title={describeError(error)}
             action={
               <Button
                 onClick={() => {

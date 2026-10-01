@@ -115,7 +115,7 @@ function PipelineConcurrency({
     },
   });
   return (
-    <Space direction="vertical" size={4}>
+    <Space orientation="vertical" size={4}>
       <Typography.Text>{t('admin.queue.settings.unitConcurrency')}</Typography.Text>
       <Space size={4}>
         <InputNumber
@@ -260,7 +260,7 @@ function StepIdentity({
 }) {
   const t = useTranslations();
   return (
-    <Space direction="vertical" size={3}>
+    <Space orientation="vertical" size={3}>
       <Space size={5} wrap>
         <StepPause row={row} revision={revision} />
         <Typography.Text strong>{t(`viewer.steps.${row.step}`)}</Typography.Text>

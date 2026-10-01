@@ -110,7 +110,7 @@ export function DocumentCard({
 
       <Space size={[4, 4]} wrap>
         {shows('ext') && document.primaryExt !== '' && (
-          <Tag bordered={false} style={{ fontSize: 12 }}>
+          <Tag variant="filled" style={{ fontSize: 12 }}>
             {document.primaryExt.toUpperCase()}
           </Tag>
         )}
@@ -120,7 +120,7 @@ export function DocumentCard({
           <Tag>{t('documents.badges.files', { count: document.fileCount })}</Tag>
         )}
         {shows('type') && document.documentType !== null && (
-          <Tag bordered={false}>{document.documentType.name}</Tag>
+          <Tag variant="filled">{document.documentType.name}</Tag>
         )}
         {/* The date written on the paper, not the day it was filed (docs/03 §3.3.10) — absent
               from the badge row entirely while nobody has read one. */}

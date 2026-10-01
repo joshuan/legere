@@ -112,7 +112,7 @@ export function AdminLibraryDetailScreen({ id }: { id: string }) {
       {library.isError && <QueryError error={library.error} retry={library.refetch} />}
       {scans.isError && <QueryError error={scans.error} retry={scans.refetch} />}
 
-      <Space direction="vertical" size="large" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="large" style={{ width: '100%' }}>
         <PageHeader
           title={library.data?.name ?? t('common.loading')}
           actions={

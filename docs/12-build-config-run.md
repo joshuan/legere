@@ -1,5 +1,11 @@
 # 12. Build, Configuration, Run
 
+The 2026-10-01 ecosystem migration aligns the frontend with Rent Manager: Next 16.3.6,
+React/React DOM 19.2.7, Ant Design 6.5.0, icons 6.3.2 and SSR registry 1.3.0. The v5 React
+patch is removed; Next request-path forwarding now uses `src/proxy.ts`. Versions in package.json
+and package-lock.json are authoritative. Earlier release notes below describe their historical changes.
+
+
 ## 12.1. Toolchain
 
 - Node **26** (exact version pinned in `.nvmrc` at scaffolding; always `nvm use`).

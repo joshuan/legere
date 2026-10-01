@@ -540,11 +540,11 @@ export function DetailsPane({
   const autoPlace = placeOf(document.auto.city ?? null, document.auto.country ?? null);
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="large" style={{ width: '100%' }}>
       {/* 1. What it says — every row a machine read off the page, and the only section of the three
           anybody may correct (docs/11 §11.5). */}
       <Space
-        direction="vertical"
+        orientation="vertical"
         size="middle"
         className={editing ? 'legere-details-form is-editing' : 'legere-details-form'}
         style={{ width: '100%' }}
@@ -984,7 +984,7 @@ const WhatItIsSection = memo(function WhatItIsSection({
   const size = useMemo(() => formatBytes(document.sizeBytes), [document.sizeBytes]);
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
       <Typography.Title level={5} style={{ margin: 0 }}>
         {t('viewer.details.is')}
       </Typography.Title>
@@ -1058,7 +1058,7 @@ const StepCostSection = memo(function StepCostSection({ documentId }: { document
   if (rows.length === 0) return null;
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
       <Typography.Title level={5} style={{ margin: 0 }}>
         {t('viewer.details.cost')}
       </Typography.Title>

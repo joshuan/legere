@@ -130,7 +130,7 @@ export function AdminTrashScreen() {
               />
             )}
           </div>
-          <Space direction="vertical" size={0}>
+          <Space orientation="vertical" size={0}>
             <Space size={4} wrap>
               <Typography.Text>{item.name}</Typography.Text>
               {item.archiveKind === 'RECEIPT' && <Tag>{t('receipts.singular')}</Tag>}
@@ -149,7 +149,7 @@ export function AdminTrashScreen() {
       title: t('admin.trash.columns.from'),
       key: 'from',
       render: (_: unknown, item: TrashItemDto) => (
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           {/* A record rather than a link: that document is usually gone by the time anybody reads
               this (docs/05 §5.7a). */}
           <Typography.Text>{item.trashedFrom ?? t('admin.trash.unknownDocument')}</Typography.Text>
@@ -173,7 +173,7 @@ export function AdminTrashScreen() {
         // because Legere may not (ADR-007), and a date that will never arrive is a promise the
         // product cannot keep (docs/11 §11.13b).
         item.purgeAfter === null ? (
-          <Space direction="vertical" size={2}>
+          <Space orientation="vertical" size={2}>
             <Typography.Text>{t('admin.trash.goesOnVolume')}</Typography.Text>
             {item.refs.map((ref) => (
               <Typography.Text
@@ -243,7 +243,7 @@ export function AdminTrashScreen() {
   ];
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="large" style={{ width: '100%' }}>
       <PageHeader
         title={t('admin.trash.title')}
         description={t('admin.trash.lead')}
@@ -267,7 +267,7 @@ export function AdminTrashScreen() {
         <Alert
           type="error"
           showIcon
-          message={t('errors.title')}
+          title={t('errors.title')}
           description={describeError(trash.error)}
         />
       )}
@@ -278,7 +278,7 @@ export function AdminTrashScreen() {
           // sentence does (docs/11 §11.13b).
           <Empty description={t('admin.trash.empty')} />
         ) : (
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
             <Table<TrashItemDto>
               rowKey="id"
               dataSource={items}

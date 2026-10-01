@@ -42,7 +42,7 @@ export function PreviewPane({ document }: { document: DocumentDetailDto }) {
   // what this is, so nobody reads a one-page preview as the whole document.
   if (document.hasPreview) {
     return (
-      <Space direction="vertical" size="small" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="small" style={{ width: '100%' }}>
         <Typography.Text type="secondary">{t('viewer.canonical.assembling')}</Typography.Text>
         <DocumentImage
           key={document.steps.preview}

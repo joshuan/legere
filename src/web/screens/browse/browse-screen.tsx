@@ -44,7 +44,7 @@ export function BrowseScreen({ libraryId }: { libraryId: string }) {
   const segments = path === '' ? [] : path.split('/');
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="large" style={{ width: '100%' }}>
       <PageHeader title={segments.at(-1) ?? libraryName ?? t('browse.library')} />
       <Breadcrumb
         items={[

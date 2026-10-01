@@ -26,9 +26,9 @@ export function ControlPlaneState({ snapshot }: { snapshot: ProcessingSnapshotRe
     <Alert
       type={type}
       showIcon
-      message={t(`admin.queue.apply.${status}`)}
+      title={t(`admin.queue.apply.${status}`)}
       description={
-        <Space direction="vertical" size={2}>
+        <Space orientation="vertical" size={2}>
           <Typography.Text>
             {t('admin.queue.apply.revisions', {
               desired: snapshot.apply.desiredRevision,
@@ -58,7 +58,7 @@ export function OverviewTab({ snapshot }: { snapshot: ProcessingSnapshotResponse
   const t = useTranslations();
   const storage = snapshot.storage;
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="large" style={{ width: '100%' }}>
       <TopologyStrip topology={snapshot.topology} />
       <section aria-label={t('admin.queue.stages.title')} className={styles.queueGrid}>
         {snapshot.queues.map((row) => (
@@ -187,7 +187,7 @@ function TopologyStrip({ topology }: { topology: ProcessingTopologyDto }) {
 function QueueIdentity({ row, topology }: { row: QueueRow; topology: QueueTopology | undefined }) {
   const t = useTranslations();
   return (
-    <Space direction="vertical" size={0}>
+    <Space orientation="vertical" size={0}>
       <Space size={6} wrap>
         <Typography.Text strong>{t(`admin.queue.names.${row.name}`)}</Typography.Text>
         <Typography.Text code type="secondary">

@@ -181,7 +181,7 @@ export function RelatedPane({
   };
 
   return (
-    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+    <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
       {/* Above the list rather than under it, for the reason Add files stands above the file rows:
           the thing somebody came to do is not at the bottom of what is already done. */}
       <Select

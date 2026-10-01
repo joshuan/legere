@@ -41,7 +41,7 @@ export function ServicesTab({
         </Button>
       }
     >
-      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
         <Typography.Text type="secondary">{t('admin.queue.services.hint')}</Typography.Text>
         <Table<ServiceRow>
           size="small"
@@ -91,7 +91,7 @@ function ServiceIdentity({
 }) {
   const t = useTranslations();
   return (
-    <Space direction="vertical" size={0}>
+    <Space orientation="vertical" size={0}>
       <Space size={6}>
         <Typography.Text strong>{t(`admin.queue.services.names.${row.service}`)}</Typography.Text>
         <Typography.Text code type="secondary">
@@ -160,7 +160,7 @@ function ServiceControls({ row, revision }: { row: ServiceRow; revision: number 
       ...change,
     }));
   return (
-    <Space direction="vertical" size={5}>
+    <Space orientation="vertical" size={5}>
       <Space size={6} wrap>
         <InputNumber
           min={0}
@@ -249,7 +249,7 @@ function GateState({ row }: { row: ServiceRow }) {
     return <Typography.Text type="secondary">{t('admin.queue.services.ungated')}</Typography.Text>;
   }
   return (
-    <Space direction="vertical" size={0}>
+    <Space orientation="vertical" size={0}>
       {gate.throttledUntil === null ? (
         <Typography.Text>
           {t('admin.queue.services.inFlight', { count: gate.inFlight })}
@@ -287,7 +287,7 @@ function ServiceState({ health }: { health: ServiceRow['health'] }) {
     return <Tag>{t(`admin.queue.services.freshness.${health.freshness}`)}</Tag>;
   }
   return (
-    <Space direction="vertical" size={2}>
+    <Space orientation="vertical" size={2}>
       <Tooltip title={<ServiceStateDetail health={health.value} />}>
         <Tag color={HEALTH_COLORS[health.value.status]}>
           {t(`admin.queue.services.health.${health.value.status}`)}
@@ -303,7 +303,7 @@ function ServiceState({ health }: { health: ServiceRow['health'] }) {
 function ServiceStateDetail({ health }: { health: ServiceHealth }) {
   const t = useTranslations();
   return (
-    <Space direction="vertical" size={0}>
+    <Space orientation="vertical" size={0}>
       <span>{t(`admin.queue.services.healthHints.${health.status}`)}</span>
       {health.httpStatus !== null && (
         <span>{t('admin.queue.services.httpCode', { code: health.httpStatus })}</span>

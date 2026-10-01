@@ -188,6 +188,7 @@ test('document page arrangement and crop remain available on touch widths', asyn
   if (testInfo.project.use.hasTouch) await crop.tap();
   else await crop.click();
   await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByRole('tooltip')).toBeHidden();
   await screenshot(page, 'document-page-crop', testInfo);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);

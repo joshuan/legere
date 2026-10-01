@@ -1,5 +1,7 @@
 'use client';
 
+import { dimensions } from '@joshuan/design-system';
+
 import {
   AppstoreOutlined,
   DatabaseOutlined,
@@ -126,12 +128,13 @@ export function AppShell({
       key: '/search',
       icon: <SearchOutlined />,
       label: (
-        <Link
-          href="/search"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-        >
+        <Link href="/search">
           {t('nav.search')}
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          <Typography.Text
+            className="legere-search-shortcut"
+            type="secondary"
+            style={{ fontSize: 12, marginInlineStart: 12 }}
+          >
             {shortcut}
           </Typography.Text>
         </Link>
@@ -269,7 +272,7 @@ export function AppShell({
             <Space size={8} wrap>
               <Typography.Text style={{ fontWeight: 500 }}>{user.displayName}</Typography.Text>
               {user.role === 'ADMIN' && (
-                <Tag bordered={false} style={{ marginInlineEnd: 0 }}>
+                <Tag variant="filled" style={{ marginInlineEnd: 0 }}>
                   {t('nav.administration')}
                 </Tag>
               )}
@@ -329,9 +332,9 @@ export function AppShell({
       {!mobile && (
         <Layout.Sider
           className="legere-sider"
-          width={216}
+          width={dimensions.sidebar}
           breakpoint="lg"
-          collapsedWidth={60}
+          collapsedWidth={dimensions.sidebarCollapsed}
           collapsible
           collapsed={collapsed}
           onCollapse={setCollapsed}
@@ -351,7 +354,7 @@ export function AppShell({
           className="legere-navigation-drawer"
           title={t('nav.menu')}
           placement="left"
-          width={280}
+          size={dimensions.navigationDrawer}
           open={navigationOpen}
           onClose={() => setNavigationAt(null)}
           styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column' } }}
