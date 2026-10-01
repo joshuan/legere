@@ -27,9 +27,10 @@ explicit account linking, no matching by email or shared cookies. No auth/schema
 See [OIDC Core](https://openid.net/specs/openid-connect-core-1_0.html) and
 [OAuth Security BCP](https://www.rfc-editor.org/rfc/rfc9700.html).
 
-Until a requested library release, a reproducible tarball in vendor/ makes clean checkout and Docker
-builds self-contained. It must be generated from js-lib, with provenance/digest, and replaced by an
-exact registry dependency after publication. No npm publication or deployment is implicit.
+Both applications install the exact public npm dependency `@joshuan/design-system@0.2.0`.
+The package is released from js-lib through Changesets and GitHub Actions OIDC with provenance.
+The temporary vendor archive and its Docker COPY steps have been removed. A clean checkout
+requires only the registry dependency; production deployment remains a separate operation.
 
 Acceptance: package type/lint/unit/pack checks, both application type/lint/unit suites, production
 builds and canonical responsive browser suites. Review screenshots before updating baselines and
@@ -42,5 +43,4 @@ collapse choice survives client navigation and desktop resizing. Every brand is 
 an icon and name; the compact rail shows the icon with the full accessible name. Mobile links,
 route changes, Escape and widening the viewport close the drawer. The toggle is 44 px at the foot
 of the sidebar in both products. This supersedes the wordmark-only treatment in docs 11/16.
-The requested release publishes the shared package, removes the temporary archive once npm is
-available and follows docs 13, including green hosted checks and registry verification.
+Application releases follow docs 13, including green hosted checks and registry verification.

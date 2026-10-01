@@ -2235,8 +2235,8 @@ Production observation is read-only; source fixes are verified and committed on 
   appearance. Legere uses Next 16.3.6 / React 19.2.7 / AntD 6.5.0, matching Rent Manager's UI stack.
   The v5 patch and duplicated foundations are removed. Viewer, modal and compact navigation
   behaviours are migrated to the new DOM; notification timing in browser fixtures now advances.
-  Both consumers install the same unreleased tarball from js-lib `ccec62e`, with provenance in
-  vendor/README.md. The extraction audit and passport proposal introduce no auth or schema changes.
+  Initially both consumers installed the same unreleased tarball from js-lib `ccec62e`;
+  M72 replaces that temporary distribution with the public npm package. The extraction audit and passport proposal introduce no auth or schema changes.
 - [x] **M71.2 — Verify the package, applications and responsive visual changes.**
   Record checks and actual limitations; no publication or deployment without a release request.
   **Local validation:** js-lib CI passes typecheck, lint, build, 41 tests and installed ESM/CJS/types/CSS
@@ -2262,7 +2262,13 @@ Production observation is read-only; source fixes are verified and committed on 
   existing product marks, home links, keyboard and resize regression tests.
   **Validation:** typecheck/lint and 583 web tests pass. Canonical Docker build and all 609 browser
   cases pass (12 planned skips); every updated 320/390/768/1024/1440 light/dark baseline was reviewed.
-  Hosted CI will compare the accepted baselines without update before release.
+  Hosted [CI 36859066528](https://github.com/joshuan/legere/actions/runs/36859066528) passes
+  on `b62a8c7`, including the full comparison without baseline updates.
 - [ ] **M72.2 — Publish shared design and verify both GitHub releases.**
   Remove the vendor bridge after npm publication; record local and hosted checks, immutable releases
   and registry evidence. Follow docs 13 for Legere's release command.
+
+  **M72.2 progress:** `@joshuan/design-system@0.2.0` is published from js-lib `c072ffa`
+  through OIDC. Its compiled files match the reviewed archive byte for byte. Both consumers
+  now use the exact registry version; vendor archives and Docker COPY steps are removed.
+  Application release and final hosted verification are pending.

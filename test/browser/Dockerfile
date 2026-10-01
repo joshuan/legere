@@ -4,7 +4,6 @@ FROM mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b7
 COPY --from=node /usr/local /usr/local
 WORKDIR /app
 COPY package.json package-lock.json ./
-COPY vendor/ ./vendor/
 RUN npm ci --ignore-scripts
 COPY . .
 ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=""

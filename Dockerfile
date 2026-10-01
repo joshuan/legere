@@ -1,7 +1,6 @@
 FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-COPY vendor/ ./vendor/
 RUN npm ci
 
 FROM node:26-alpine AS build
