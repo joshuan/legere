@@ -13,6 +13,14 @@
 #   docker buildx imagetools inspect stirlingtools/stirling-pdf:latest --format '{{.Manifest.Digest}}'
 FROM stirlingtools/stirling-pdf:2.14.3@sha256:3b3670fce70b396ec56ba380a3cc7858e0abf83fe13f31c88f7737847763a396
 
+# The pinned base predates Ubuntu's DTLS security fix (CVE-2026-84782). Upgrade the matched
+# library/CLI pair from signed Noble repositories; never fall back to the vulnerable base version.
+ARG OPENSSL_VERSION=3.0.13-0ubuntu3.16
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+      "openssl=${OPENSSL_VERSION}" "libssl3t64=${OPENSSL_VERSION}" \
+    && rm -rf /var/lib/apt/lists/*
+
 # Keep the unmetered 2.x API while applying the security fixes in docs/12 §12.7. Replace whole
 # dependency families together, verify immutable bytes, and fail on base-image layout drift.
 COPY security-jars.txt /tmp/security-jars.txt

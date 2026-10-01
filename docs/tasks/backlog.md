@@ -2160,3 +2160,19 @@ Production observation is read-only; source fixes are verified and committed on 
   themes at 320, 390, 768, 1024 and 1440 pixels. The full comparison passed 561 cases; its remaining
   18 differences were the new attribution in expanded receipts and document editing. All 20
   configurations of those two states then passed without updates after the reviewed baseline refresh.
+  **Release follow-up:** v0.38.0 was published, but its fresh Stirling scan reported
+  CVE-2026-84782 in OpenSSL and CVE-2026-91776/CVE-2026-91777 in Jackson. M69.5 addresses these
+  findings before this release milestone can be closed.
+
+- [x] **M69.5 — Patch the parser dependencies reported by the release scan**
+  **Goal:** ship the identity features with a green Stirling image scan.
+  **Docs:** [`12 §12.7`](../12-build-config-run.md), [`13 §13.3`](../13-ci-cd.md).
+  **Acceptance:** verified Jackson security patch families and Ubuntu OpenSSL security packages;
+  real PDF/office conversion and canonical-document tests; no new scan exclusions or weaker gates;
+  the repair is ready for a patch release through the normal CI and release command.
+  **Validation:** Jackson 2.21.7/3.1.7 artifacts are checked against Maven Central and pinned by
+  SHA-256; Ubuntu OpenSSL/libssl3t64 are pinned to 3.0.13-0ubuntu3.16. The rebuilt ARM64 image
+  passes all 24 real PDF, Office, OCR, preview and canonical-composition tests under the shipped
+  non-root/read-only restrictions. Trivy 0.70.0 with the refreshed October 1 database passes the
+  existing HIGH/CRITICAL gate and secret scan, without changing exclusions. Typecheck and lint pass.
+  Hosted publication and all-architecture scans remain the final gate of M69.4.

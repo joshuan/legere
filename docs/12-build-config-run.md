@@ -686,10 +686,17 @@ the comment above each `FROM`.
 upgrading it is a separate product decision. The pinned 2.x image instead receives Maven Central
 artifacts with committed SHA-256 checksums in `deploy/stirling/security-jars.txt`: all bundled
 Netty 4.2 modules move together to 4.2.17.Final, the Bouncy Castle family to 1.85, and Jackson's
-2.21/3.1 families to 2.21.6/3.1.6. The build verifies every download before replacing its old JAR
+2.21/3.1 families to 2.21.7/3.1.7. The build verifies every download before replacing its old JAR
 and fails if the expected original is absent. This patches CVE-2026-68497, CVE-2026-75595,
 CVE-2026-8763 and CVE-2026-13506 without changing Stirling's API or automation allowance.
 The overlay must be reviewed whenever the base pin moves; it is not a second floating update path.
+The Jackson patch families also fix CVE-2026-91776 and CVE-2026-91777
+([2.21.7 notes](https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.21.7),
+[3.1.7 notes](https://github.com/FasterXML/jackson/wiki/Jackson-Release-3.1.7)).
+The same image installs `openssl` and `libssl3t64` at `3.0.13-0ubuntu3.16` from Ubuntu's signed
+Noble repositories, fixing [CVE-2026-84782](https://ubuntu.com/security/CVE-2026-84782). Both OS
+packages have an explicit version pin; the build fails instead of silently retaining vulnerable
+base-image packages if that version is unavailable. No additional scan exceptions are introduced.
 
 **Docling uses the local engine.** The image is pinned to docling-serve-cpu v1.35.0 and removes the
 optional Ray package, including its unused JVM driver and vendored dependencies. Legere submits
