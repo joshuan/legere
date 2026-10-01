@@ -2203,7 +2203,7 @@ Production observation is read-only; source fixes are verified and committed on 
   exclusions, literal Unicode search, microsecond-safe cursors, strict DTOs and artifact readiness
   are covered through HTTP against PostgreSQL. OpenAPI declares the five operations and a separate
   OAuth security scheme. Ten new consent baselines were reviewed in both themes at five widths.
-- [ ] **M70.3 — Verified green release**
+- [x] **M70.3 — Verified green release**
   **Docs:** [`13`](../13-ci-cd.md), [`19`](../19-personal-archive-integration.md).
   **Acceptance:** schema verification, typecheck, lint, coverage, reviewed browser checks and
   hosted CI; publish through npm run release and wait for all image scans and registry checks.
@@ -2212,4 +2212,16 @@ Production observation is read-only; source fixes are verified and committed on 
   local Docker workloads pass in the subsequent 185-test HTTP/auth/persistence regression run.
   The browser comparison passes 586 cases with 12 viewport skips; its three initial timeouts all
   pass unchanged in a separate pinned-image comparison. All ten new consent states pass and their
-  baselines have been visually reviewed. Hosted coverage and publication remain the release gate.
+  baselines have been visually reviewed. Hosted coverage and publication are the release gate.
+  **Hosted validation:** [CI on the feature commit](https://github.com/joshuan/legere/actions/runs/36837660524)
+  passes 2599 tests with 39 optional-service skips and all 589 applicable browser checks
+  (12 viewport-specific skips). Coverage is 97.39% lines/statements, 90.92% branches and
+  98.73% functions. `npm run release` publishes
+  [v0.39.0](https://github.com/joshuan/legere/releases/tag/v0.39.0); all 13 jobs in the
+  [tag workflow](https://github.com/joshuan/legere/actions/runs/36839117293) pass, including
+  both architectures, all three image scans and publication. Registry verification confirms
+  that `legere:latest` and `legere:0.39.0` resolve to
+  `sha256:3b7fd688d825d54919619913381ec8e7ed5aa04819b10d40b3c368236446f4ad`;
+  both parser images also have matching `latest` and `0.39.0` digests.
+  [CI on the version commit](https://github.com/joshuan/legere/actions/runs/36839117868)
+  passes both the full suite and browser checks.

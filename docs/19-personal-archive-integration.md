@@ -1,5 +1,7 @@
 # 19. Personal archive references
 
+Available since [v0.39.0](https://github.com/joshuan/legere/releases/tag/v0.39.0).
+
 This contract implements the Legere requirements in Rent Manage's
 `docs/23-legere-documents.md`. It complements the isolated upload namespace in
 [18](18-service-integration-guide.md): a service can obtain explicit permission to
