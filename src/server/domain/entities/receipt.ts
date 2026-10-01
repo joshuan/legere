@@ -1,3 +1,4 @@
+import type { AgentIdentity } from '../../../shared/contracts/identity';
 import type { ReceiptExtraction } from '../../../shared/contracts/receipts';
 import type { StepStatus } from '../../../shared/contracts/enums';
 import type { File } from './file';
@@ -20,6 +21,8 @@ export type Receipt = {
   sourceText: string | null;
   processingError: string | null;
   failedStep: string | null;
+  createdVia?: AgentIdentity | null;
+  integrationId?: string | null;
   createdById: string;
   createdAt: Date;
   updatedAt: Date;

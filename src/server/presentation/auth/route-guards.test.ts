@@ -8,6 +8,8 @@ import {
 import { describe, expect, it } from 'vitest';
 import { AppModule } from '../../app.module';
 import { DocumentAccessGuard } from '../documents/document-access.guard';
+import { IntegrationGuard } from '../integrations/integration.guard';
+import { McpAuthGuard } from '../mcp/mcp-auth.guard';
 import { ApiTokenScopeGuard } from './api-token-scope.guard';
 import { ROLES_KEY, RolesGuard } from './roles.guard';
 import { SessionGuard } from './session.guard';
@@ -47,6 +49,21 @@ const PUBLIC_ROUTES = new Map<string, string>([
   ['AuthController.signIn', 'login itself'],
   ['InvitesController.preview', 'the invite landing page; throttled per IP instead (§8.4)'],
   ['PasswordResetsController.preview', 'the reset landing page; throttled per IP instead (§8.4)'],
+  ['OAuthController.metadata', 'public OAuth authorization-server discovery (17 §17.2)'],
+  ['OAuthController.resourceMetadata', 'public MCP protected-resource discovery (17 §17.2)'],
+  [
+    'OAuthController.register',
+    'bounded and throttled public client registration; no archive access',
+  ],
+  [
+    'OAuthController.token',
+    'OAuth authenticates its registered client and one-time grant in the application layer',
+  ],
+  [
+    'OAuthController.revoke',
+    'OAuth client authentication; unknown tokens have an idempotent response',
+  ],
+  ['OpenApiController.get', 'public schemas and endpoint documentation; no account data'],
 ]);
 
 const routes = collectRoutes();
@@ -64,7 +81,10 @@ describe('the route table (🔒 docs/08 §8.6)', () => {
       .filter((route) => !PUBLIC_ROUTES.has(route.id))
       .filter(
         (route) =>
-          !route.guards.includes(SessionGuard) && !route.guards.includes(ApiTokenScopeGuard),
+          !route.guards.includes(SessionGuard) &&
+          !route.guards.includes(ApiTokenScopeGuard) &&
+          !route.guards.includes(IntegrationGuard) &&
+          !route.guards.includes(McpAuthGuard),
       )
       .map((route) => `${route.id} (${route.path})`);
 
@@ -76,6 +96,19 @@ describe('the route table (🔒 docs/08 §8.6)', () => {
     const stale = [...PUBLIC_ROUTES.keys()].filter((id) => !known.has(id));
 
     expect(stale).toEqual([]);
+  });
+
+  it('uses the dedicated scope guards for integrations and MCP and session auth for OAuth consent', () => {
+    for (const route of routes.filter((route) => route.path.startsWith('integrations/documents'))) {
+      expect(route.guards, route.id).toContain(IntegrationGuard);
+    }
+    for (const route of routes.filter((route) => route.path === 'mcp')) {
+      expect(route.guards, route.id).toContain(McpAuthGuard);
+    }
+    for (const route of routes.filter((route) => route.path.startsWith('oauth/authorize'))) {
+      expect(route.guards, route.id).toContain(SessionGuard);
+      expect(PUBLIC_ROUTES.has(route.id)).toBe(false);
+    }
   });
 
   it('lets nothing under /api/admin through without RolesGuard and the ADMIN role it enforces', () => {

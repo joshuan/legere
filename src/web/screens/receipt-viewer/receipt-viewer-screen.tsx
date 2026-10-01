@@ -23,7 +23,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { ResponsiveTable as Table, QueryError } from '../../shared/ui';
+import { ResponsiveTable as Table, QueryError, UserAttribution } from '../../shared/ui';
 import type { ColumnsType } from 'antd/es/table';
 import { useFormatter, useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -185,7 +185,9 @@ export function ReceiptViewerScreen({ id }: { id: string }) {
                   <Descriptions.Item label={t('pageCount')}>
                     {data.pageCount === null ? '—' : t('pages', { count: data.pageCount })}
                   </Descriptions.Item>
-                  <Descriptions.Item label={t('owner')}>{data.owner.displayName}</Descriptions.Item>
+                  <Descriptions.Item label={t('owner')}>
+                    <UserAttribution name={data.owner.displayName} agent={data.createdVia} />
+                  </Descriptions.Item>
                   <Descriptions.Item label={t('added')}>
                     {format.dateTime(new Date(data.createdAt), {
                       dateStyle: 'medium',

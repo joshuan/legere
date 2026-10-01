@@ -1,3 +1,4 @@
+import { agentIdentitySchema } from './identity';
 import { z } from 'zod';
 import { paginatedSchema, paginationQuerySchema } from './common';
 import { stepStatusSchema } from './enums';
@@ -23,6 +24,7 @@ export const receiptListItemSchema = z.object({
   processingError: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  createdVia: agentIdentitySchema.nullable().optional(),
   owner: z.object({ id: z.string().uuid(), displayName: z.string() }),
 });
 export type ReceiptListItemDto = z.infer<typeof receiptListItemSchema>;

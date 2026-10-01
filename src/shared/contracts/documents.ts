@@ -1,3 +1,4 @@
+import { agentIdentitySchema } from './identity';
 import { z } from 'zod';
 import { paginatedSchema, paginationQuerySchema } from './common';
 import { extractedFieldsSchema, extractedSummarySchema } from './document-fields';
@@ -500,6 +501,7 @@ export const documentDetailDtoSchema = documentListDtoSchema.extend({
   // composition endpoints address, because a position is a place in this list (docs/07 §7.3).
   pages: z.array(documentPageDtoSchema),
   files: z.array(documentFileDtoSchema),
+  createdVia: agentIdentitySchema.nullable().optional(),
   createdBy: z.object({ id: z.string().uuid(), displayName: z.string() }).nullable(),
   // The whole typed-fields answer (docs/03 §3.3.10a): which schema, the values, and who decided
   // each. Null until the `fields` step first writes it or a person does.
@@ -745,6 +747,7 @@ export const documentEventDtoSchema = z.object({
   at: z.string(),
   // Null is the pipeline acting on its own.
   actor: z.string().nullable(),
+  actorAgent: agentIdentitySchema.nullable().optional(),
   payload: z.object({
     step: z.string().optional(),
     status: z.string().optional(),

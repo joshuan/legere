@@ -142,7 +142,7 @@ export type ListApiTokensResponse = z.infer<typeof listApiTokensResponseSchema>;
 // POST /api/me/api-tokens — a lifetime the owner picks, or the instance default.
 export const createApiTokenRequestSchema = z.object({
   name: z.string().trim().min(1).max(128),
-  scope: apiTokenScopeSchema.optional(),
+  scope: z.enum(['READ', 'DOCUMENTS_INGEST', 'RECEIPTS_INGEST']).optional(),
   expiresInDays: z.number().int().min(1).max(365).optional(),
 });
 export type CreateApiTokenRequest = z.infer<typeof createApiTokenRequestSchema>;

@@ -1,3 +1,5 @@
+import { OAuthModule } from './presentation/oauth/oauth.module';
+import { IntegrationsModule } from './presentation/integrations/integrations.module';
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -53,9 +55,11 @@ import { UsersModule } from './presentation/users/users.module';
     AiModule,
     QueueModule,
     AuthModule,
+    OAuthModule,
     UsersModule,
     LibrariesModule,
     DocumentsModule,
+    IntegrationsModule,
     ReceiptsModule,
     ArchiveItemsModule,
     DocumentTypesModule,

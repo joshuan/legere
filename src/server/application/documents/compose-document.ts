@@ -426,7 +426,12 @@ export class SplitDocumentFile {
       // §3.4a), so taking the caller's id here handed a reader a private document of their own made
       // out of somebody else's uploaded page, which its owner could then no longer read (SEC-47).
       const created = await this.documents.create(
-        { title: titleOf(file.name), createdById: detail.document.createdById },
+        {
+          title: titleOf(file.name),
+          createdById: detail.document.createdById,
+          integrationId: detail.document.integrationId ?? null,
+          createdVia: detail.document.createdVia ?? null,
+        },
         tx,
       );
       await this.files.replacePages(
@@ -732,6 +737,7 @@ export class CombineDocuments {
       const source = await this.documents.findReadableById(documentId, viewer);
       if (source === null) throw new NotFoundError('DOCUMENT_NOT_FOUND', 'Document not found');
       assertMayDestroy(viewer, source);
+      assertSameIntegration(detail, source);
       sources.push(source);
     }
 
@@ -871,6 +877,14 @@ export function assertMayDestroy(viewer: Viewer, detail: DocumentDetail): void {
 // belong to — the source it takes from, and every part it makes — *before* the write, because the
 // alternative is what this code used to do: commit, then find on the way out that the document was
 // no longer readable, and answer 404 for a change that had already happened.
+export function assertSameIntegration(left: DocumentDetail, right: DocumentDetail): void {
+  if ((left.document.integrationId ?? null) !== (right.document.integrationId ?? null)) {
+    throw new ForbiddenError(
+      'Documents from different integrations cannot be combined or moved between namespaces',
+    );
+  }
+}
+
 export function assertKeepsItsReaders(
   createdById: string | null,
   origins: readonly FileOrigin[],

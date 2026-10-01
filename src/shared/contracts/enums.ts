@@ -11,7 +11,13 @@ export type Language = z.infer<typeof languageSchema>;
 export const themeSchema = z.enum(['SYSTEM', 'LIGHT', 'DARK']);
 export type Theme = z.infer<typeof themeSchema>;
 
-export const apiTokenScopeSchema = z.enum(['READ', 'DOCUMENTS_INGEST', 'RECEIPTS_INGEST']);
+export const apiTokenScopeSchema = z.enum([
+  'READ',
+  'DOCUMENTS_INGEST',
+  'RECEIPTS_INGEST',
+  'MCP',
+  'INTEGRATION',
+]);
 export type ApiTokenScope = z.infer<typeof apiTokenScopeSchema>;
 
 export const libraryVisibilitySchema = z.enum(['ALL_USERS', 'RESTRICTED']);

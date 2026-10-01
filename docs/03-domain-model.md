@@ -763,14 +763,18 @@ the first control-plane write; no database migration is needed.
 
 ### 3.3.22. ApiToken
 
-A credential a user issues to themselves so that something other than a browser can **read** this
-instance: a script, a scheduled export, an assistant. Every token this instance issues is read-only —
-there is no scope field, because there is no second kind ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)).
+An opaque credential delegated by a user to a script, importer, assistant or service. Its scope is
+`READ`, `DOCUMENTS_INGEST`, `RECEIPTS_INGEST`, `MCP` or `INTEGRATION`. The last two require a live
+OAuth grant or integration binding; they cannot be minted through the personal-token endpoint.
+See [`17`](./17-agent-identity-and-integrations.md) for immutable agent attribution and bindings.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | uuid | |
-| userId | uuid | the owner; the token acts as them and sees exactly what they see |
+| userId | uuid | the responsible user; scope and integration binding can further restrict visibility |
+| scope | ApiTokenScope | READ, DOCUMENTS_INGEST, RECEIPTS_INGEST, MCP or INTEGRATION |
+| integrationId | uuid? | required only for INTEGRATION; stable service namespace |
+| oauthGrantId | uuid? | required only for MCP; user-approved client/resource grant |
 | name | string | what it is for, written by the owner ("laptop export script"); 1–128 chars |
 | tokenHash | string | unique; sha256 of the opaque bearer token, which is shown once and never stored |
 | expiresAt | timestamptz | required; `API_TOKEN_TTL_DAYS` (default 90) unless the owner chose otherwise, max 365 |
@@ -782,8 +786,10 @@ Usable token = not revoked, not expired, owner active and not deactivated — th
 a session answers (§3.3.2), asked of a different credential.
 
 **Invariants:**
-- 🔒 A token authorizes **safe HTTP methods only**. A mutating request carrying one is refused with
-  `READ_ONLY_TOKEN` before it reaches a controller, whether or not the token itself is valid.
+- 🔒 Bearer mutations are denied before routing except the explicitly scoped inbox/integration
+  uploads and read-only MCP POST. Every exception authenticates its own allowed scope.
+- MCP and integration tokens require an active binding owned by the same user; OAuth access also
+  expires with its grant. Integration access is checked before any administrator privilege.
 - Deactivating or soft-deleting a user revokes their tokens, exactly as it revokes their sessions.
 - The plaintext token exists in one response and nowhere else: not in the database, not in a log,
   not in a later listing.
@@ -800,6 +806,7 @@ before somebody corrected it, who corrected it, or when the item changed product
 | documentId | uuid | compatibility property mapped to `archive_item_id`; cascade on physical archive-item delete |
 | type | DocumentEventType | `CREATED`, `FILE_ATTACHED`, `FILE_MISSING`, `QUEUED`, `STEP_STARTED`, `STEP_FINISHED`, `META_CHANGED`, `LINKED`, `UNLINKED`, `KIND_CHANGED` |
 | actorId | uuid? | who did it; **null is the pipeline acting on its own** |
+| actorAgent | json? | immutable non-secret credential/application snapshot; null for browser, pipeline or legacy activity (`17 §17.1`) |
 | payload | json | what the entry needs to be readable: `step`, `status`, `reason`, `error`, `steps`, `source`, `path`, `changes` (field → `{from, to}`), for a link: `otherDocumentId` and `otherTitle` (a record, not a live reference — the other side may be gone by the time this is read), and for a step: `service`, `endpoint`, `requestId`, what it cost — `durationMs`, `chars`, `pages`, `ocrUsed`, `promptTokens`, `completionTokens` — and what it made of its own work: `legibility` and `extraction` on the analysis, `confidence` on the fields (§3.3.10) |
 | at | timestamptz | |
 
@@ -1196,8 +1203,10 @@ unlinkDocuments(user, a, b):   canEditDocumentMeta(user, a) or canEditDocumentMe
 # a listed link shows its other side only where canReadDocument holds for it — both ends, always
 ```
 
-An `ApiToken` (§3.3.22) adds no rule to this table: it resolves to its owner and then every check
-above runs unchanged — with one subtraction, that the caller may only read.
+A personal READ token resolves to its owner and applies these read rules. MCP OAuth applies the
+same document visibility only at the bound MCP resource. An INTEGRATION token instead requires
+`archiveItem.integrationId == token.integrationId` and the same owning user, before administrator
+or sharing rules; it cannot reach personal or other-service documents (`17 §17.3`).
 
 ### 3.4a. Composing a library document, and the one thing a reader may not do to it
 

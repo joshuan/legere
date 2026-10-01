@@ -2118,3 +2118,45 @@ Production observation is read-only; source fixes are verified and committed on 
   findings in Stirling beyond its remaining recorded exceptions. Eighteen resolved Stirling and
   all six Docling exceptions are deleted; no exclusions or relaxed thresholds are added. Typecheck
   and lint pass. Publication follows the unchanged hosted CI and three-image scan workflow.
+
+## M69 — Agent identity and delegated integrations
+
+- [x] **M69.1 — Durable agent attribution**
+  **Goal:** show the responsible user and credential/application on machine-created documents,
+  receipts and history. **Docs:** [`17 §17.1`](../17-agent-identity-and-integrations.md).
+  **Acceptance:** immutable non-secret snapshots, shared accessible UI, legacy compatibility,
+  conversion and revocation persistence, API and UI regression coverage.
+  **Validation:** real HTTP uploads preserve personal-token and integration identities through
+  history, conversion and credential revocation; shared UI regressions cover legacy records and
+  readable secondary attribution. Browser fixtures exercise both themes at five viewport widths.
+- [x] **M69.2 — OAuth for remote MCP clients**
+  **Goal:** connect cloud agents through an explicit user-approved OAuth grant.
+  **Docs:** [`17 §17.2`](../17-agent-identity-and-integrations.md).
+  **Acceptance:** discovery, DCR, consent, S256 PKCE, audience binding, one-time code exchange,
+  rotating refresh tokens, replay protection, revocation UI, reset/deactivation coverage and
+  protocol tests without weakening existing sessions or personal tokens.
+  **Validation:** 23 OAuth HTTP scenarios cover public/confidential clients, concurrent exchange,
+  replay-family revocation, password reset/deactivation, resource isolation and bounded DCR.
+  Consent and disconnect UI tests pass; browser consent checks preserve denial state.
+- [x] **M69.3 — Isolated service document API**
+  **Goal:** Rent Manage and other services can store and display only their own documents.
+  **Docs:** [`17 §17.3–17.4`](../17-agent-identity-and-integrations.md).
+  **Acceptance:** integration/token management, namespace enforcement independent of user role,
+  upload/dedup, list/detail/artifact access, attribution, published OpenAPI and integration guide,
+  adversarial isolation and concurrency tests.
+  **Validation:** 11 integration HTTP scenarios and the 24 existing MCP scenarios pass, including
+  administrator isolation, concurrent deduplication, rotation, signed artifact readiness,
+  cross-namespace composition rejection and inherited split provenance. OpenAPI is published at
+  `/api/openapi.json`; the implementation guide is `docs/18-service-integration-guide.md`.
+- [ ] **M69.4 — Integrated verification and green release**
+  **Goal:** publish all three features with the unchanged release gates passing.
+  **Docs:** [`13`](../13-ci-cd.md), [`17 §17.4`](../17-agent-identity-and-integrations.md).
+  **Acceptance:** typecheck, lint, coverage, relevant browser review and full hosted CI pass;
+  release via `npm run release`, verify publication and all image scans.
+  **Local validation:** 2589 tests pass, with 18 optional-service cases skipped; coverage is 97.37%
+  lines/statements, 90.78% branches and 98.72% functions. The migrated test database matches the
+  Prisma schema and documentation, and the production dependency audit reports no vulnerabilities.
+  Typecheck and lint pass. Eighty updated/new browser baselines were visually reviewed in both
+  themes at 320, 390, 768, 1024 and 1440 pixels. The full comparison passed 561 cases; its remaining
+  18 differences were the new attribution in expanded receipts and document editing. All 20
+  configurations of those two states then passed without updates after the reviewed baseline refresh.

@@ -96,6 +96,7 @@ export class UploadReceipt {
           {
             fileId: file.id,
             createdById: viewer.id,
+            createdVia: viewer.agent ?? null,
             ...(input.sourceText === undefined ? {} : { sourceText: input.sourceText }),
           },
           tx,
@@ -106,12 +107,18 @@ export class UploadReceipt {
             documentId: receipt.id,
             type: 'CREATED',
             actorId: viewer.id,
+            actorAgent: viewer.agent ?? null,
             payload: { source: 'UPLOAD', path: file.name },
           },
           tx,
         );
         await this.events.record(
-          { documentId: receipt.id, type: 'QUEUED', actorId: viewer.id },
+          {
+            documentId: receipt.id,
+            type: 'QUEUED',
+            actorId: viewer.id,
+            actorAgent: viewer.agent ?? null,
+          },
           tx,
         );
         return { receipt, created: true, fileCreated: created };

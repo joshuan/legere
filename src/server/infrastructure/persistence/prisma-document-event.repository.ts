@@ -1,3 +1,4 @@
+import { agentIdentityOf } from '../../../shared/contracts/identity';
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
@@ -66,6 +67,7 @@ export class PrismaDocumentEventRepository extends DocumentEventRepository {
         documentId: event.documentId,
         type: event.type,
         actorId: event.actorId ?? null,
+        ...(event.actorAgent == null ? {} : { actorAgent: event.actorAgent }),
         payload: event.payload ?? {},
       },
     });
@@ -121,6 +123,7 @@ export class PrismaDocumentEventRepository extends DocumentEventRepository {
         documentId: row.documentId,
         type: row.type,
         actorId: row.actorId,
+        actorAgent: agentIdentityOf(row.actorAgent),
         payload: toPayload(row.payload),
         at: row.at,
         actorName: row.actor?.displayName ?? null,

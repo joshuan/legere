@@ -6,3 +6,4 @@ export { ResponsiveTable } from './responsive-table';
 export { PageHeader } from './page-header';
 export { AuthFrame } from './auth-frame';
 export { ControlPopover } from './control-popover';
+export { UserAttribution } from './user-attribution';

@@ -12,12 +12,24 @@ export type ApiToken = {
   lastUsedAt: Date | null;
   revokedAt: Date | null;
   createdAt: Date;
+  integrationId?: string | null;
+  integrationName?: string | null;
+  oauthGrantId?: string | null;
+  oauthClientId?: string | null;
+  oauthResource?: string | null;
+  bindingActive?: boolean;
+  bindingExpiresAt?: Date | null;
 };
 
 // Usable = not revoked, not expired. Whether the owner is still an active account is a separate
 // question, asked of the user (docs/03 §3.3.22), exactly as for a session.
 export function isApiTokenUsable(token: ApiToken, now: Date): boolean {
-  return token.revokedAt === null && token.expiresAt.getTime() > now.getTime();
+  return (
+    (token.bindingExpiresAt == null || token.bindingExpiresAt.getTime() > now.getTime()) &&
+    token.bindingActive !== false &&
+    token.revokedAt === null &&
+    token.expiresAt.getTime() > now.getTime()
+  );
 }
 
 export type CreateApiTokenInput = {
@@ -26,6 +38,8 @@ export type CreateApiTokenInput = {
   scope?: ApiTokenScope;
   tokenHash: string;
   expiresAt: Date;
+  integrationId?: string;
+  oauthGrantId?: string;
 };
 
 export abstract class ApiTokenRepository {

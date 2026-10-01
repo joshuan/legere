@@ -6,6 +6,11 @@ function isAutomationIngestRoute(method: string, path: string): boolean {
   if (method.toUpperCase() !== 'POST') return false;
   const normalized = path.replace(/\/+$/, '').toLowerCase();
   return [
+    '/api/oauth/register',
+    '/api/oauth/token',
+    '/api/oauth/revoke',
+    '/api/integrations/documents',
+    '/integrations/documents',
     '/api/incoming/documents',
     '/api/incoming/receipts',
     '/incoming/documents',

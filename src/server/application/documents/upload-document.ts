@@ -91,17 +91,20 @@ export class UploadDocument {
 
       const home = await this.files.findDocumentIdForFile(file.id, tx);
       if (home !== null) {
-        // Two browsers sent the same bytes at the same moment and the other one won. A file has
-        // exactly one home, so this request has nothing left to create (docs/03 §3.3.16).
-        throw new ConflictError(
-          'DOCUMENT_DUPLICATE',
-          'This content already exists on this instance',
-        );
+        const existing = await this.documents.findReadableById(home, viewer, tx);
+        if (existing === null)
+          throw new ConflictError('DOCUMENT_DUPLICATE', 'This content already exists');
+        return { document: existing.document, file, created: false, existing };
       }
       if (file.trashedAt !== null) await this.files.untrash(file.id, tx);
 
       const document = await this.documents.create(
-        { title: titleOf(input.fileName), createdById: viewer.id },
+        {
+          title: titleOf(input.fileName),
+          createdById: viewer.id,
+          createdVia: viewer.agent ?? null,
+          integrationId: viewer.integrationId ?? null,
+        },
         tx,
       );
       // Its pages, in a document that has none: an append, and the entries are computed here
@@ -116,6 +119,7 @@ export class UploadDocument {
           documentId: document.id,
           type: 'CREATED',
           actorId: viewer.id,
+          actorAgent: viewer.agent ?? null,
           payload: { source: 'UPLOAD', path: input.fileName },
         },
         tx,
@@ -125,13 +129,22 @@ export class UploadDocument {
           documentId: document.id,
           type: 'FILE_ATTACHED',
           actorId: viewer.id,
+          actorAgent: viewer.agent ?? null,
           payload: { source: 'UPLOAD', path: file.name },
         },
         tx,
       );
-      await this.events.record({ documentId: document.id, type: 'QUEUED', actorId: viewer.id }, tx);
+      await this.events.record(
+        {
+          documentId: document.id,
+          type: 'QUEUED',
+          actorId: viewer.id,
+          actorAgent: viewer.agent ?? null,
+        },
+        tx,
+      );
 
-      return { document, file, created };
+      return { document, file, created, existing: null };
     });
 
     if (!stored.created) {
@@ -139,6 +152,10 @@ export class UploadDocument {
       // check above and the insert. What was just written belongs to nobody, and the sweep that
       // exists for a rolled-back transaction collects it for the same reason (docs/09 §9.5).
       await this.storage.delete(storageKey).catch(() => undefined);
+    }
+
+    if (stored.existing !== null) {
+      return { document: toListDto(listItemOf(stored.existing)), created: false };
     }
 
     // Freshly created: nothing is processed yet, no documentType, no preview — but the grid can show

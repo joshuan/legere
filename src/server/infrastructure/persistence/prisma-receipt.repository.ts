@@ -1,3 +1,4 @@
+import { agentIdentityOf, type AgentIdentity } from '../../../shared/contracts/identity';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { ReceiptProcessingCounts } from '../../../shared/contracts/receipt-processing';
@@ -86,6 +87,8 @@ function toDomain(row: ReceiptRow): Receipt {
     processingError: row.processingError,
     failedStep: row.failedStep,
     createdById: owner.id,
+    createdVia: agentIdentityOf(row.archiveItem.createdVia),
+    integrationId: row.archiveItem.integrationId,
     createdAt: row.archiveItem.createdAt,
     updatedAt: row.archiveItem.updatedAt,
     lastEventAt: row.archiveItem.lastEventAt,
@@ -271,7 +274,12 @@ export class PrismaReceiptRepository extends ReceiptRepository {
   }
 
   async create(
-    input: { fileId: string; createdById: string; sourceText?: string | undefined },
+    input: {
+      fileId: string;
+      createdById: string;
+      sourceText?: string | undefined;
+      createdVia?: AgentIdentity | null;
+    },
     tx?: TransactionHandle,
   ): Promise<Receipt> {
     if (!isPrismaTx(tx)) {
@@ -280,7 +288,11 @@ export class PrismaReceiptRepository extends ReceiptRepository {
     const client = clientOf(this.prisma, tx);
     await assertReceiptFile(client, input.fileId);
     const archiveItem = await client.archiveItem.create({
-      data: { kind: 'RECEIPT', createdById: input.createdById },
+      data: {
+        kind: 'RECEIPT',
+        createdById: input.createdById,
+        ...(input.createdVia == null ? {} : { createdVia: input.createdVia }),
+      },
     });
     const row = await client.receipt.create({
       data: {

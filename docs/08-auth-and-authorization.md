@@ -226,7 +226,8 @@ credential which leaks costs its owner nothing but a revocation and can never ch
   standing beside `csrfOriginCheck` — before routing, without looking the token up, so a route that
   forgot its guard is still covered. `SessionGuard` behind it refuses to resolve a bearer credential
   on an unsafe method at all, and refuses it *before* the lookup, so neither layer turns an honest
-  refusal into "invalid token". The only write exceptions are the two routes of §8.2b, each guarded
+  refusal into "invalid token". The write exceptions are the two routes of §8.2b and the isolated
+  integration upload of §8.2c, each guarded
   after lookup by its own token scope. Fail-closed, like the origin check it stands next to, and proven by
   a test that stands the guard up with the middleware removed.
 - **Authorization.** The token resolves to its owner and inherits **their** role and visibility: an
@@ -253,10 +254,8 @@ credential which leaks costs its owner nothing but a revocation and can never ch
   weakened, it is inapplicable. And the tools it dispatches to are a closed list over read use
   cases, so "read-only" there is a property of the registry rather than a promise about whatever is
   mounted next.
-- **Not in this feature:** scopes narrower than "read what the owner reads", per-token IP limits,
-  and machine accounts without a human owner. Each is a real thing to want; none is needed to let a
-  script read an archive, and none can be added silently — a token's authority is exactly its
-  owner's, and that is a sentence users can hold in their heads.
+- Narrower credentials are explicitly defined in §8.2b–c. They never inherit the personal READ
+  scope implicitly. Per-token IP restrictions and ownerless machine accounts are not supported.
 
 ## 8.2b. Scoped inbox tokens (n8n / mailbox automation)
 
@@ -267,6 +266,20 @@ once and is revoked through the ordinary token list. It authenticates as its own
 normal upload result, but grants no access to read/download routes, metadata mutations, deletion or
 queue control; a `READ` token cannot upload. The two endpoints are exempt from CSRF only because they require that
 explicit bearer header, which a cross-origin form cannot attach.
+
+## 8.2c. MCP OAuth and service integration bindings
+
+[`17`](./17-agent-identity-and-integrations.md) defines OAuth authorization-code delegation with
+S256 PKCE, exact redirects, resource binding, rotating refresh tokens and replay-family revocation.
+It also defines integration namespaces, checked before administrator/library/collection access.
+Both require an active Legere user and an active binding on every authenticated request.
+Account deactivation and admin-issued password reset revoke OAuth grants and all API tokens.
+
+Public OAuth discovery and client registration never grant archive access. Session-authenticated
+consent is protected by the normal Origin check. Only registration, token exchange and revocation
+are machine OAuth POST exceptions: they do not authenticate with cookies. Integration upload
+likewise accepts only its dedicated bearer scope. OAuth tokens cannot access ordinary REST routes,
+while integration tokens cannot access MCP or the personal archive routes.
 
 ## 8.3. Roles
 
@@ -289,7 +302,8 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   check is mounted above the `/api` dispatcher, not on `/api`: which requests may change state is
   not a question of where a route happens to be mounted, and a Next route handler or server action
   added later would otherwise inherit the session cookie with no check at all. The only exceptions
-  are the credential-only MCP POST of §8.2a and the scoped-token inbox uploads of §8.2b.
+  are the credential-only MCP POST of §8.2a, scoped inbox uploads of §8.2b, and the integration
+  upload and machine OAuth endpoints of §8.2c. Consent is not exempt.
 - 🔒 **The per-address caps are per *purpose*.** A sign-up letter and a reset letter draw on separate
   daily allowances, and where an address has both an active registration and an active reset series,
   the **reset** is the one a code is checked against. Both follow from the same attack: an invite

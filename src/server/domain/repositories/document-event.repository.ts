@@ -1,3 +1,4 @@
+import type { AgentIdentity } from '../../../shared/contracts/identity';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { DocumentEvent, DocumentEventPayload } from '../entities/document-event';
 import type { DocumentEventType } from '../../../shared/contracts/enums';
@@ -6,6 +7,7 @@ export type NewDocumentEvent = {
   documentId: string;
   type: DocumentEventType;
   actorId?: string | null;
+  actorAgent?: AgentIdentity | null;
   payload?: DocumentEventPayload;
 };
 

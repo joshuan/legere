@@ -112,6 +112,36 @@ export async function seedBrowserData(): Promise<string[]> {
     },
   });
   const keys: string[] = [];
+  await prisma.integration.create({
+    data: {
+      id: VISUAL_IDS.integration,
+      userId: VISUAL_IDS.user,
+      name: 'Rent Manage',
+      createdAt: now,
+    },
+  });
+  await prisma.oAuthClient.create({
+    data: {
+      id: VISUAL_IDS.oauthClient,
+      name: 'Cloud archive assistant',
+      redirectUris: ['https://agent.example/callback'],
+      authMethod: 'none',
+      createdAt: now,
+    },
+  });
+  await prisma.oAuthGrant.create({
+    data: {
+      id: VISUAL_IDS.oauthGrant,
+      userId: VISUAL_IDS.user,
+      clientId: VISUAL_IDS.oauthClient,
+      clientName: 'Cloud archive assistant',
+      resource: `${process.env.APP_BASE_URL}/api/mcp`,
+      scope: 'mcp:read',
+      createdAt: now,
+      expiresAt: new Date('2026-12-25T12:00:00.000Z'),
+    },
+  });
+  const createdVia = { kind: 'API_TOKEN', id: VISUAL_IDS.agentToken, name: 'Codex token' };
   const titles = [
     'Riverside apartment rental agreement',
     'September electricity invoice',
@@ -159,6 +189,19 @@ export async function seedBrowserData(): Promise<string[]> {
     await prisma.documentPerson.create({
       data: { documentId: document.id, personId: VISUAL_IDS.person, createdAt: now },
     });
+    if (index === 0) {
+      await prisma.archiveItem.update({ where: { id: document.id }, data: { createdVia } });
+      await prisma.documentEvent.create({
+        data: {
+          documentId: document.id,
+          actorId: VISUAL_IDS.user,
+          actorAgent: createdVia,
+          type: 'CREATED',
+          at: now,
+          payload: { source: 'UPLOAD', path: 'household-record-1.pdf' },
+        },
+      });
+    }
     await prisma.documentSubject.create({
       data: { documentId: document.id, subjectId: VISUAL_IDS.subject, createdAt: now },
     });
@@ -204,6 +247,7 @@ export async function seedBrowserData(): Promise<string[]> {
         id: receiptId,
         kind: 'RECEIPT',
         createdById: VISUAL_IDS.user,
+        createdVia,
         lastEventAt: now,
         ...dates,
       },

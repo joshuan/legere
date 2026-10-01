@@ -21,6 +21,7 @@ import {
 } from '../model/events';
 import { ProcessingSection } from './processing-section';
 import { stepGlyph } from './status-glyph';
+import { UserAttribution } from '../../../shared/ui';
 
 // What is being done to the document and what has been done to it, in that order (docs/11 §11.5):
 // the pipeline's own panel above, the history below. They are one question asked twice — "is it
@@ -175,7 +176,12 @@ function JournalMoment({ event }: { event: DocumentEventDto }) {
   return (
     <>
       <Typography.Text>{describeEvent(event, t)}</Typography.Text>
-      {event.actor !== null && <Typography.Text type="secondary"> — {event.actor}</Typography.Text>}
+      {event.actor !== null && (
+        <Typography.Text type="secondary">
+          {' '}
+          — <UserAttribution name={event.actor} agent={event.actorAgent} />
+        </Typography.Text>
+      )}
     </>
   );
 }

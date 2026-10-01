@@ -1,3 +1,7 @@
+import { OAuthRepository } from '../../domain/repositories/oauth.repository';
+import { PrismaOAuthRepository } from './prisma-oauth.repository';
+import { IntegrationRepository } from '../../domain/repositories/integration.repository';
+import { PrismaIntegrationRepository } from './prisma-integration.repository';
 import { Global, Module } from '@nestjs/common';
 import { UnitOfWork } from '../../application/ports/unit-of-work';
 import { DocumentTypeRepository } from '../../domain/repositories/document-type.repository';
@@ -51,6 +55,8 @@ import { PrismaService } from './prisma.service';
 // ports bound to their Prisma implementations. Global so feature modules inject repositories
 // without importing it explicitly.
 const REPOSITORIES = [
+  { provide: OAuthRepository, useClass: PrismaOAuthRepository },
+  { provide: IntegrationRepository, useClass: PrismaIntegrationRepository },
   { provide: UserRepository, useClass: PrismaUserRepository },
   { provide: SessionRepository, useClass: PrismaSessionRepository },
   { provide: ApiTokenRepository, useClass: PrismaApiTokenRepository },
@@ -84,6 +90,8 @@ const REPOSITORIES = [
     UserRepository,
     SessionRepository,
     ApiTokenRepository,
+    OAuthRepository,
+    IntegrationRepository,
     EmailVerificationRepository,
     UserInviteRepository,
     PasswordResetRepository,

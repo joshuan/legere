@@ -125,6 +125,7 @@ export class ListDocumentEvents {
         type: event.type,
         at: event.at.toISOString(),
         actor: event.actorName,
+        actorAgent: event.actorAgent ?? null,
         payload: asAdmin ? event.payload : redactForReader(event.payload, readable),
       })),
       nextCursor: page.nextCursor,
@@ -717,6 +718,7 @@ export function toDetailDto(
     pages: orderedPages(detail.files).map(toPageDto),
     files: detail.files.map(toFileDto),
     createdBy: detail.createdBy,
+    createdVia: document.createdVia ?? null,
     extracted: document.extracted,
   };
 }

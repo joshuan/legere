@@ -1,3 +1,4 @@
+import type { AgentIdentity } from '../../../shared/contracts/identity';
 import type { DocumentEventType } from '../../../shared/contracts/enums';
 
 // One thing that happened to a document (docs/03 §3.3.18). The document row carries the *current*
@@ -9,6 +10,7 @@ export type DocumentEvent = {
   type: DocumentEventType;
   // Null is the pipeline acting on its own; a user id is somebody who pressed something.
   actorId: string | null;
+  actorAgent?: AgentIdentity | null;
   payload: DocumentEventPayload;
   at: Date;
 };

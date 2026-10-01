@@ -14,12 +14,12 @@ import type {
 } from '../../../shared/contracts/receipts';
 import { UploadReceipt } from '../../application/receipts/upload-receipt';
 import { ValidationFailedError } from '../../domain/errors/domain-error';
-import { CurrentUser } from '../auth/current-user';
+import { CurrentActor } from '../auth/current-user';
 import { ApiTokenScopeGuard } from '../auth/api-token-scope.guard';
 import { successEnvelope } from '../http/envelope';
 import { ZodBody } from '../http/zod-validation.pipe';
 import { uploadReceiptFieldsSchema } from '../../../shared/contracts/receipts';
-import type { User } from '../../domain/entities/user';
+import type { Viewer } from '../../domain/repositories/document.repository';
 
 type MultipartReceiptFile = { buffer: Buffer; originalname: string };
 
@@ -33,7 +33,7 @@ export class ReceiptIngestController {
   @HttpCode(201)
   @UseInterceptors(FileInterceptor('file'))
   async uploadReceipt(
-    @CurrentUser() user: User,
+    @CurrentActor() user: Viewer,
     @UploadedFile() file: MultipartReceiptFile | undefined,
     @ZodBody(uploadReceiptFieldsSchema) fields: UploadReceiptFields,
   ): Promise<Envelope<UploadReceiptResponse>> {

@@ -24,7 +24,14 @@ export function OneTimeLinkModal({
   const t = useTranslations();
 
   return (
-    <Modal open={open} title={title} onCancel={onClose} onOk={onClose} footer={null}>
+    <Modal
+      open={open}
+      title={title}
+      onCancel={onClose}
+      onOk={onClose}
+      footer={null}
+      destroyOnHidden
+    >
       <Alert type="warning" showIcon message={labels?.warning ?? t('admin.oneTimeLink.warning')} />
       <Typography.Paragraph style={{ marginTop: 16 }}>
         <Input.TextArea value={url ?? ''} readOnly autoSize aria-label={title} />

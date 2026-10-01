@@ -31,6 +31,7 @@ export function toReceiptListDto(receipt: Receipt): ReceiptListItemDto {
     createdAt: receipt.createdAt.toISOString(),
     updatedAt: receipt.updatedAt.toISOString(),
     owner: receipt.owner,
+    createdVia: receipt.createdVia ?? null,
   };
 }
 

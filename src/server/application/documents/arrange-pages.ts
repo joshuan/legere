@@ -32,6 +32,7 @@ import type { JobQueue } from '../ports/job-queue';
 import type { UnitOfWork } from '../ports/unit-of-work';
 import {
   assertKeepsItsReaders,
+  assertSameIntegration,
   assertMayCompose,
   assertMayDestroy,
   assertMayMirror,
@@ -352,6 +353,8 @@ export class SplitDocumentAtPages {
           {
             title: titleOf(nameOfFirstFile(detail, part)),
             createdById: detail.document.createdById,
+            integrationId: detail.document.integrationId ?? null,
+            createdVia: detail.document.createdVia ?? null,
           },
           tx,
         );
@@ -499,7 +502,10 @@ export class MoveDocumentPages {
     if (input.documentId !== null && target === null) {
       throw new NotFoundError('DOCUMENT_NOT_FOUND', 'Document not found');
     }
-    if (target !== null) assertMayCompose(viewer, target);
+    if (target !== null) {
+      assertMayCompose(viewer, target);
+      assertSameIntegration(detail, target);
+    }
 
     // 🔒 Both ends keep their readers (docs/03 §3.4a). The source may not be stripped of the last
     // page that reads a library file, and a **new** document made to hold the movers takes this
@@ -532,6 +538,8 @@ export class MoveDocumentPages {
                 title: titleOf(nameOfFirstFile(detail, moving)),
                 // The source's owner, exactly as a split's parts take the original's (docs/05 §5.6).
                 createdById: detail.document.createdById,
+                integrationId: detail.document.integrationId ?? null,
+                createdVia: detail.document.createdVia ?? null,
               },
               tx,
             )

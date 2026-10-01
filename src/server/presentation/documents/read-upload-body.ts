@@ -20,6 +20,7 @@ export const ATTACHED_FILENAME_HEADER = 'x-file-name';
 // worked, attaching the same file to a document did not, and nothing said why. One list, so adding a
 // third raw-body route is a line here rather than a bug that surfaces months later.
 const RAW_BODY_ROUTES: readonly { method: string; path: RegExp }[] = [
+  { method: 'POST', path: /^\/integrations\/documents\/?$/ },
   // POST /api/documents — a new document from an uploaded file.
   { method: 'POST', path: /^\/documents\/?$/ },
   // POST /api/incoming/documents — a narrowly authenticated automation upload.

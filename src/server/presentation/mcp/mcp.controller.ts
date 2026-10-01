@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Delete, HttpCode, Post, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
 import {
@@ -13,7 +13,7 @@ import {
 import { ArchiveTools } from '../../application/mcp/archive-tools';
 import type { User } from '../../domain/entities/user';
 import { CurrentUser } from '../auth/current-user';
-import { SessionGuard } from '../auth/session.guard';
+import { McpAuthGuard } from './mcp-auth.guard';
 import { Throttled } from '../http/throttling';
 
 // The version this server reports as its own when a client asks for one it has never heard of.
@@ -29,9 +29,23 @@ const SERVER_INFO = { name: 'legere', title: 'Legere archive' } as const;
 // JSON-RPC error object with an HTTP 200, because that is the layer the client is reading, and only
 // authentication — which happens above — is allowed to be an HTTP failure.
 @Controller('mcp')
-@UseGuards(SessionGuard)
+@UseGuards(McpAuthGuard)
 export class McpController {
   constructor(private readonly tools: ArchiveTools) {}
+
+  @Get()
+  @HttpCode(405)
+  unsupportedGet(@Res({ passthrough: true }) response: Response) {
+    response.setHeader('Allow', 'POST');
+    return { error: 'This MCP server supports POST requests' };
+  }
+
+  @Delete()
+  @HttpCode(405)
+  unsupportedDelete(@Res({ passthrough: true }) response: Response) {
+    response.setHeader('Allow', 'POST');
+    return { error: 'This MCP server has no transport sessions' };
+  }
 
   // 🔒 The `search` budget of docs/08 §8.4, shared with GET /api/search and counted against the
   // token's owner rather than the machine the assistant runs on: `search_documents` is that same

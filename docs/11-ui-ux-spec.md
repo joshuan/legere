@@ -1155,8 +1155,24 @@ of the user's own tokens — name, status tag (Active/Expired/Revoked), created,
 **Create token** button above. Creating opens a modal asking for a name and a lifetime in days
 (default `API_TOKEN_TTL_DAYS`); on success the modal turns into the one and only sight of the token:
 the string in a read-only field, a copy button, and a plain warning that closing the modal ends the
-only chance to copy it. The card says in one line what a token is for — reading this instance from
-outside, never writing — because a credential nobody can explain is a credential nobody should make.
+only chance to copy it. The scope is shown explicitly: personal read access, document ingest or
+receipt ingest. Integration tokens appear here for individual revocation; ephemeral OAuth access
+tokens do not.
+
+**Connected applications:** application name, registered client ID, scope, status and a confirmed
+disconnect action. Show a copyable MCP URL. **Service integrations:** stable name/ID, document
+count, token issuance, confirmed disable, and a public OpenAPI link. A token is shown only once,
+with a backend-only storage explanation. Both follow the shared dialog/scroll rules of `16`.
+
+**OAuth consent (`/oauth/authorize`):** after login, show the acting user, self-declared app name,
+registered callback origin and client ID, read scope and explicit Allow/Cancel buttons. The login
+return path preserves OAuth query parameters. Never redirect an invalid request to an unvalidated
+callback.
+
+**Historical user attribution:** document creator, receipt owner and journal actor show the
+responsible user first and a 12 px secondary line `via {agent}` below it when a credential snapshot
+exists. The caption wraps rather than clipping; its tooltip identifies the token, integration or
+OAuth client without exposing a secret. Legacy/browser rows have no invented agent label (`17`).
 
 ## 11.10. Admin: Libraries (`/admin/libraries`, `/admin/libraries/:id`)
 

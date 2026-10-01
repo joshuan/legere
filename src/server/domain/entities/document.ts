@@ -1,3 +1,4 @@
+import type { AgentIdentity } from '../../../shared/contracts/identity';
 import type { ExtractedFields } from '../../../shared/contracts/document-fields';
 import {
   DOCUMENT_STEPS,
@@ -65,6 +66,8 @@ export type Document = {
   // The typed fields of the document's type (docs/03 §3.3.10a); null until the fields step first
   // writes it or a person does.
   extracted: ExtractedFields | null;
+  createdVia?: AgentIdentity | null;
+  integrationId?: string | null;
   createdById: string | null;
   createdAt: Date;
   // The newest entry in the document's journal, of any kind (docs/03 §3.3.18); never null — a

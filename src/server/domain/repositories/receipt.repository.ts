@@ -1,3 +1,4 @@
+import type { AgentIdentity } from '../../../shared/contracts/identity';
 import type {
   ReceiptExtraction,
   ReceiptFilters,
@@ -46,7 +47,12 @@ export abstract class ReceiptRepository {
     }>
   >;
   abstract create(
-    input: { fileId: string; createdById: string; sourceText?: string | undefined },
+    input: {
+      fileId: string;
+      createdById: string;
+      sourceText?: string | undefined;
+      createdVia?: AgentIdentity | null;
+    },
     tx?: TransactionHandle,
   ): Promise<Receipt>;
   abstract findById(id: string, tx?: TransactionHandle): Promise<Receipt | null>;

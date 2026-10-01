@@ -15,7 +15,8 @@ human-readable index and must stay in sync with them.
   ([`08 §8.2a`](./08-auth-and-authorization.md#82a-api-tokens-read-only)). 🔒 = requires session;
   🔒ᴬ = requires role ADMIN. A bearer token satisfies 🔒/🔒ᴬ on safe methods as its owner would;
   on any other method the request is refused with `READ_ONLY_TOKEN`, except the two explicitly
-  scoped inbox uploads below. Mutations additionally pass the fail-closed Origin check
+  scoped inbox uploads and integration upload (`17`). MCP OAuth and integration credentials are
+  accepted only on their dedicated routes. Mutations additionally pass the fail-closed Origin check
   ([`08 §8.4`](./08-auth-and-authorization.md#84-csrf-rate-limiting-captcha)).
 - **Pagination:** cursor-based: request `?limit=` (default 30, max 100) `&cursor=` (opaque);
   response `{ data: { items: [...], nextCursor: string | null } }`. An **aggregate** is not a list of
@@ -110,10 +111,10 @@ human-readable index and must stay in sync with them.
 | `GET /api/me/sessions` | 🔒 session | own live sessions, newest first → `{ items: SessionDto[] }` |
 | `DELETE /api/me/sessions/:id` | 🔒 session, owner | revoke → `{ ok: true }`; already revoked is not an error, `404 SESSION_NOT_FOUND` for somebody else's; revoking the current one is allowed and clears `sid` |
 | `GET /api/me/api-tokens` | 🔒 | own tokens, newest first; usable ones and the recently dead alike, never a secret → `{ items: ApiTokenDto[] }` |
-| `POST /api/me/api-tokens` | 🔒 | `{ name, expiresInDays? }` (1…365, default `API_TOKEN_TTL_DAYS`) → `{ token, apiToken: ApiTokenDto }` — `token` appears in this response and nowhere else |
+| `POST /api/me/api-tokens` | 🔒 | `{ name, scope?: READ | DOCUMENTS_INGEST | RECEIPTS_INGEST, expiresInDays? }` (1…365, default `API_TOKEN_TTL_DAYS`) → `{ token, apiToken: ApiTokenDto }` — `token` appears in this response and nowhere else |
 | `DELETE /api/me/api-tokens/:id` | 🔒 owner | revoke → `{ ok: true }`; already revoked is not an error, `404 API_TOKEN_NOT_FOUND` for somebody else's |
 
-`ApiTokenDto` = `{ id, name, createdAt, expiresAt, lastUsedAt, revokedAt, status: 'ACTIVE' | 'EXPIRED' | 'REVOKED' }`.
+`ApiTokenDto` = `{ id, name, scope, createdAt, expiresAt, lastUsedAt, revokedAt, status: 'ACTIVE' | 'EXPIRED' | 'REVOKED' }`.
 `status` is derived on read rather than stored, so a token that expired while nobody was looking
 reports as expired.
 
@@ -537,8 +538,8 @@ JSON request, a JSON response, no SSE stream, no session id, nothing kept betwee
 | `tools/list` | the three tools below, each with its JSON Schema |
 | `tools/call` | `{ content: [{ type: 'text', text }], isError? }` — the tool's answer as one JSON text block, which is what a model reads best |
 
-🔒 **The credential is a read-only API token and nothing else** (`08 §8.2a`): `Authorization: Bearer
-legere_…`. A session cookie is refused here even when it is valid, which is what keeps the CSRF rule
+🔒 **The credential is a personal READ token or a resource-bound MCP OAuth token**
+(`08 §8.2a`, `17 §17.2`): `Authorization: Bearer legere_…`. A session cookie is refused here even when it is valid, which is what keeps the CSRF rule
 of `08 §8.4` intact rather than excepted — a browser cannot be induced into a call whose only
 credential it does not hold. The caller is the token's owner: every tool runs under that person's
 access rule, so an assistant sees exactly the archive its owner sees, and a document in a library
@@ -563,6 +564,18 @@ sentence and not from a transport error. Everything that is not a tool's busines
 `-32700` for unparsable JSON, `-32600` for a request that is not one (a batch among them — this
 protocol version has none), `-32601` for an unknown method, `-32602` for parameters that do not fit
 the tool's schema.
+
+## 7.3b. Delegated OAuth and service integrations
+
+The endpoint/authorization contract is in [`17`](./17-agent-identity-and-integrations.md); the
+complete operational guide is [`18`](./18-service-integration-guide.md). `GET /api/openapi.json`
+publishes OpenAPI 3.1 for the dedicated integration upload/list/detail/PDF/JPEG API. Its responses
+use the normal envelope. OAuth discovery, registration, token and revocation endpoints instead
+use standard OAuth JSON bodies and OAuth errors; they do not use the REST envelope.
+
+`createdVia` on document/receipt details and `actorAgent` on journal entries are nullable historical
+agent snapshots. They never contain token secrets or hashes. OAuth grants are managed through
+`/api/me/oauth-grants`; integrations through `/api/me/integrations`, both with session credentials.
 
 ## 7.4. DTO serialization
 

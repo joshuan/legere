@@ -224,7 +224,9 @@
       "scopes": {
         "READ": "Read archive",
         "DOCUMENTS_INGEST": "Add documents from automation",
-        "RECEIPTS_INGEST": "Add receipts from automation"
+        "RECEIPTS_INGEST": "Add receipts from automation",
+        "MCP": "MCP application",
+        "INTEGRATION": "Service integration"
       }
     }
   },
@@ -1597,5 +1599,40 @@
     "emptySubjects": "Nothing yet",
     "emptyYears": "No dated documents yet",
     "emptyDocuments": "Nothing here yet"
+  },
+  "identity": {
+    "via": "via {agent}",
+    "creator": "Uploaded by"
+  },
+  "integrations": {
+    "title": "Service integrations",
+    "description": "Give a service access to documents uploaded through its integration. Your other documents stay outside its access.",
+    "create": "Add integration",
+    "name": "Service name",
+    "empty": "No service integrations yet.",
+    "documents": "{count} documents",
+    "issue": "Create token",
+    "issueFor": "Token for {name}",
+    "tokenHelp": "Keep this token on the service backend. Create a replacement here before revoking an old token in the API token list.",
+    "revoke": "Disable integration",
+    "revokeConfirm": "Disable this integration and all its tokens? Its documents will stay in your archive.",
+    "openapi": "OpenAPI documentation"
+  },
+  "oauth": {
+    "connections": "Connected applications",
+    "connectionHelp": "Connect a cloud agent to the MCP address below using OAuth. Each connection requires your approval.",
+    "empty": "No connected applications.",
+    "clientId": "Client ID",
+    "readScope": "Read and search your accessible documents",
+    "revokeConfirm": "Disconnect this application? Its access and refresh tokens will stop working.",
+    "revoke": "Disconnect",
+    "authorize": "Connect an application",
+    "actingFor": "This application is requesting access as {name}.",
+    "scopeDetail": "It can search and read the documents you can access through MCP. It cannot upload, edit, delete or share them. You can disconnect it in Settings.",
+    "callback": "Authorization returns to",
+    "clientNameNotice": "The application supplies its name. Check the destination above before allowing access.",
+    "allow": "Allow access",
+    "deny": "Cancel",
+    "invalidRequest": "This authorization request is invalid or incomplete."
   }
 }

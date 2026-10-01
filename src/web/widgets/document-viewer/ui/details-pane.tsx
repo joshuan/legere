@@ -12,7 +12,7 @@ import {
   Tooltip,
   Typography,
 } from 'antd';
-import { ResponsiveTable as Table, DefinitionList } from '../../../shared/ui';
+import { ResponsiveTable as Table, DefinitionList, UserAttribution } from '../../../shared/ui';
 import dayjs from 'dayjs';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -1002,6 +1002,19 @@ const WhatItIsSection = memo(function WhatItIsSection({
             label: t('viewer.details.created'),
             value: new Date(document.createdAt).toLocaleString(),
           },
+          ...(document.createdBy === null
+            ? []
+            : [
+                {
+                  label: t('identity.creator'),
+                  value: (
+                    <UserAttribution
+                      name={document.createdBy.displayName}
+                      agent={document.createdVia}
+                    />
+                  ),
+                },
+              ]),
           {
             label: t('viewer.details.ocr'),
             value: document.ocrUsed ? t('common.yes') : t('common.no'),

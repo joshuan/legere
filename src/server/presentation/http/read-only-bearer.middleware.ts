@@ -33,5 +33,9 @@ export function readOnlyBearer(req: Request, res: Response, next: NextFunction):
 function isAutomationIngestRoute(method: string, path: string): boolean {
   if (method !== 'POST') return false;
   const normalized = path.replace(/\/+$/, '').toLowerCase();
-  return normalized === '/incoming/documents' || normalized === '/incoming/receipts';
+  return (
+    normalized === '/incoming/documents' ||
+    normalized === '/incoming/receipts' ||
+    normalized === '/integrations/documents'
+  );
 }

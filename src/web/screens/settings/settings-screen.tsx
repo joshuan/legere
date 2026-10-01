@@ -16,6 +16,8 @@ import { PageHeader, QueryError } from '../../shared/ui';
 import { ApiTokensCard } from './api-tokens-card';
 import { PasswordCard } from './password-card';
 import { SessionsCard } from './sessions-card';
+import { IntegrationsCard } from './integrations-card';
+import { OAuthGrantsCard } from './oauth-grants-card';
 
 // /settings (docs/11 §11.9). Every control saves on change — there is no Save button — and a
 // language switch takes effect immediately: the server rewrites NEXT_LOCALE and router.refresh()
@@ -109,6 +111,8 @@ export function SettingsScreen() {
         <div className="legere-settings-column">
           <SessionsCard />
           <ApiTokensCard />
+          <OAuthGrantsCard />
+          <IntegrationsCard />
         </div>
       </div>
     </section>

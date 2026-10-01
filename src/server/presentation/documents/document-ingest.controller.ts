@@ -6,9 +6,9 @@ import { UploadDocument } from '../../application/documents/upload-document';
 import { AppConfig } from '../../infrastructure/config/app-config';
 import { successEnvelope } from '../http/envelope';
 import { readUploadBody, uploadFileName } from './read-upload-body';
-import { CurrentUser } from '../auth/current-user';
+import { CurrentActor } from '../auth/current-user';
 import { ApiTokenScopeGuard } from '../auth/api-token-scope.guard';
-import type { User } from '../../domain/entities/user';
+import type { Viewer } from '../../domain/repositories/document.repository';
 
 // POST /api/incoming/documents. The body is the attachment itself, exactly like POST /documents;
 // only this route accepts a bearer token with DOCUMENTS_INGEST instead of a browser session.
@@ -24,7 +24,7 @@ export class DocumentIngestController {
   @UseGuards(ApiTokenScopeGuard)
   async uploadDocument(
     @Req() req: Request,
-    @CurrentUser() user: User,
+    @CurrentActor() user: Viewer,
   ): Promise<Envelope<UploadDocumentResponse>> {
     const bytes = await readUploadBody(req, this.config.get('UPLOAD_MAX_BYTES'));
     return successEnvelope(

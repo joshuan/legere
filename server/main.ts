@@ -49,6 +49,17 @@ export async function wireServer(
   options: { dev?: boolean } = {},
 ): Promise<void> {
   const config = nestApp.get(AppConfig);
+  // RFC discovery URLs are aliases of the API handlers, before Next and API dispatch.
+  const discoveryRoutes: Readonly<Record<string, string>> = {
+    '/.well-known/oauth-authorization-server': '/api/oauth/metadata',
+    '/.well-known/oauth-protected-resource': '/api/oauth/resource-metadata',
+    '/.well-known/oauth-protected-resource/api/mcp': '/api/oauth/resource-metadata',
+  };
+  server.use((req, _res, next) => {
+    const target = discoveryRoutes[req.path];
+    if (target !== undefined && (req.method === 'GET' || req.method === 'HEAD')) req.url = target;
+    next();
+  });
   // 🔒 Off unless the operator says otherwise (docs/12 §12.8). Express reads `req.ip` from
   // `X-Forwarded-For` once this is set, and every per-IP limit in the app reads `req.ip` — so
   // trusting the header with nothing in front to rewrite it means a caller picks their own bucket.

@@ -1,3 +1,4 @@
+import type { AgentIdentity } from '../../../shared/contracts/identity';
 import type { ExtractedFields } from '../../../shared/contracts/document-fields';
 import type {
   AutoValues,
@@ -25,6 +26,8 @@ import type { DocumentFile, FileRefView } from './file.repository';
 export type CreateDocumentInput = {
   title: string;
   createdById?: string | null;
+  createdVia?: AgentIdentity | null;
+  integrationId?: string | null;
 };
 
 // What the pipeline writes back as it goes (docs/05 §5.5). Every field is optional: a step records
@@ -77,6 +80,8 @@ export type StaleDocument = {
 export type Viewer = {
   id: string;
   role: UserRole;
+  agent?: AgentIdentity | null;
+  integrationId?: string;
 };
 
 export type DocumentCategory = {

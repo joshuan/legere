@@ -51,6 +51,8 @@ enum ApiTokenScope {
   READ
   DOCUMENTS_INGEST
   RECEIPTS_INGEST
+  MCP
+  INTEGRATION
 }
 
 enum LibraryVisibility {
@@ -155,6 +157,8 @@ model User {
 
   sessions         Session[]
   apiTokens        ApiToken[]
+  integrations     Integration[]
+  oauthGrants      OAuthGrant[]
   createdInvites   UserInvite[]      @relation("InviteCreator")
   acceptedInvites  UserInvite[]      @relation("InviteAcceptor")
   passwordResets   PasswordReset[]   @relation("ResetTarget")
@@ -187,20 +191,97 @@ model Session {
 
 // A bearer credential with one narrow scope, issued by its owner (docs/03 §3.3.22, docs/08 §8.2).
 model ApiToken {
-  id         String    @id @default(uuid()) @db.Uuid
-  userId     String    @map("user_id") @db.Uuid
-  name       String
-  scope      ApiTokenScope @default(READ)
-  tokenHash  String    @unique @map("token_hash")
-  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
-  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
-  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id            String        @id @default(uuid()) @db.Uuid
+  userId        String        @map("user_id") @db.Uuid
+  name          String
+  scope         ApiTokenScope @default(READ)
+  tokenHash     String        @unique @map("token_hash")
+  expiresAt     DateTime      @map("expires_at") @db.Timestamptz(6)
+  lastUsedAt    DateTime?     @map("last_used_at") @db.Timestamptz(6)
+  revokedAt     DateTime?     @map("revoked_at") @db.Timestamptz(6)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  integrationId String?       @map("integration_id") @db.Uuid
+  oauthGrantId  String?       @map("oauth_grant_id") @db.Uuid
 
-  user User @relation(fields: [userId], references: [id])
+  user        User         @relation(fields: [userId], references: [id])
+  integration Integration? @relation(fields: [integrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  oauthGrant  OAuthGrant?  @relation(fields: [oauthGrantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([userId])
+  @@index([integrationId])
+  @@index([oauthGrantId])
   @@map("api_tokens")
+}
+
+model Integration {
+  id        String        @id @default(uuid()) @db.Uuid
+  userId    String        @map("user_id") @db.Uuid
+  name      String
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt DateTime?     @map("revoked_at") @db.Timestamptz(6)
+  user      User          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tokens    ApiToken[]
+  items     ArchiveItem[]
+
+  @@index([userId])
+  @@map("integrations")
+}
+
+model OAuthClient {
+  id           String       @id @default(uuid()) @db.Uuid
+  name         String
+  redirectUris String[]     @map("redirect_uris")
+  authMethod   String       @map("auth_method")
+  secretHash   String?      @map("secret_hash")
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  grants       OAuthGrant[]
+
+  @@map("oauth_clients")
+}
+
+model OAuthGrant {
+  id            String              @id @default(uuid()) @db.Uuid
+  userId        String              @map("user_id") @db.Uuid
+  clientId      String              @map("client_id") @db.Uuid
+  clientName    String              @map("client_name")
+  resource      String
+  scope         String
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt     DateTime            @map("expires_at") @db.Timestamptz(6)
+  revokedAt     DateTime?           @map("revoked_at") @db.Timestamptz(6)
+  user          User                @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  client        OAuthClient         @relation(fields: [clientId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  codes         OAuthCode[]
+  refreshTokens OAuthRefreshToken[]
+  accessTokens  ApiToken[]
+
+  @@index([userId])
+  @@index([clientId])
+  @@map("oauth_grants")
+}
+
+model OAuthCode {
+  hash          String     @id
+  grantId       String     @map("grant_id") @db.Uuid
+  redirectUri   String     @map("redirect_uri")
+  codeChallenge String     @map("code_challenge")
+  expiresAt     DateTime   @map("expires_at") @db.Timestamptz(6)
+  consumedAt    DateTime?  @map("consumed_at") @db.Timestamptz(6)
+  grant         OAuthGrant @relation(fields: [grantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([grantId])
+  @@map("oauth_codes")
+}
+
+model OAuthRefreshToken {
+  hash       String     @id
+  grantId    String     @map("grant_id") @db.Uuid
+  expiresAt  DateTime   @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime?  @map("consumed_at") @db.Timestamptz(6)
+  grant      OAuthGrant @relation(fields: [grantId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([grantId])
+  @@map("oauth_refresh_tokens")
 }
 
 model EmailVerification {
@@ -332,22 +413,26 @@ model FileRef {
 // The stable identity shared by mutually exclusive product profiles (docs/15 §15.2). A kind
 // conversion keeps this row and swaps only the profile below it.
 model ArchiveItem {
-  id          String          @id @default(uuid()) @db.Uuid
-  kind        ArchiveItemKind
-  createdById String?         @map("created_by_id") @db.Uuid
-  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  lastEventAt DateTime        @default(now()) @map("last_event_at") @db.Timestamptz(6)
-  deletedAt   DateTime?       @map("deleted_at") @db.Timestamptz(6)
+  id            String          @id @default(uuid()) @db.Uuid
+  kind          ArchiveItemKind
+  createdById   String?         @map("created_by_id") @db.Uuid
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  lastEventAt   DateTime        @default(now()) @map("last_event_at") @db.Timestamptz(6)
+  deletedAt     DateTime?       @map("deleted_at") @db.Timestamptz(6)
+  createdVia    Json?           @map("created_via")
+  integrationId String?         @map("integration_id") @db.Uuid
 
-  createdBy User?           @relation(fields: [createdById], references: [id])
-  document  Document?
-  receipt   Receipt?
-  events    DocumentEvent[]
+  createdBy   User?           @relation(fields: [createdById], references: [id])
+  integration Integration?    @relation(fields: [integrationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  document    Document?
+  receipt     Receipt?
+  events      DocumentEvent[]
 
   @@index([kind, createdAt(sort: Desc), id(sort: Desc)])
   @@index([createdById, kind])
   @@index([lastEventAt(sort: Desc)])
+  @@index([integrationId, createdAt(sort: Desc), id(sort: Desc)])
   @@map("archive_items")
 }
 
@@ -455,6 +540,7 @@ model DocumentEvent {
   type       DocumentEventType
   // Who did it; null is the pipeline acting on its own.
   actorId    String?           @map("actor_id") @db.Uuid
+  actorAgent Json?             @map("actor_agent")
   // What the event needs to be readable: the step, the values that changed, the error.
   payload    Json              @default("{}")
   at         DateTime          @default(now()) @db.Timestamptz(6)

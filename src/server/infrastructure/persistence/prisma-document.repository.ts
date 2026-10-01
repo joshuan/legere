@@ -1,3 +1,4 @@
+import { agentIdentityOf } from '../../../shared/contracts/identity';
 import { Injectable } from '@nestjs/common';
 import { Prisma, type Document as PrismaDocument } from '@prisma/client';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
@@ -64,7 +65,11 @@ import { clientOf } from './prisma-client';
 import type { PrismaTx } from './prisma-unit-of-work';
 import { PrismaService } from './prisma.service';
 
-function toDomain(row: PrismaDocument): Document {
+function toDomain(
+  row: PrismaDocument & {
+    archiveItem?: { createdVia: unknown; integrationId: string | null } | null;
+  },
+): Document {
   return {
     id: row.id,
     pageCount: row.pageCount,
@@ -97,6 +102,8 @@ function toDomain(row: PrismaDocument): Document {
     typeId: row.typeId,
     typeSource: row.typeSource,
     createdById: row.createdById,
+    createdVia: agentIdentityOf(row.archiveItem?.createdVia),
+    integrationId: row.archiveItem?.integrationId ?? null,
     createdAt: row.createdAt,
     deletedAt: row.deletedAt,
   };
@@ -107,6 +114,7 @@ function toDomain(row: PrismaDocument): Document {
 // Those are fetched for the whole page at once rather than per row (see `toItems`); only the
 // documentType still travels with the row itself.
 const LIST_INCLUDE = {
+  archiveItem: true,
   documentType: { select: { id: true, slug: true, name: true } },
 } as const;
 
@@ -175,7 +183,7 @@ const UNREADABLE_FILE: Prisma.FileWhereInput = {
 type ShareReach = ReadonlyArray<{ ownerId: string; collectionIds: string[] }>;
 
 async function shareReach(client: PrismaTx, viewer: Viewer): Promise<ShareReach> {
-  if (viewer.role === 'ADMIN') return [];
+  if (viewer.role === 'ADMIN' || viewer.integrationId !== undefined) return [];
 
   const rows = await client.collection.findMany({
     where: {
@@ -203,6 +211,14 @@ async function shareReach(client: PrismaTx, viewer: Viewer): Promise<ShareReach>
 // The access rule of docs/03 §3.4, expressed once, in SQL, so a page of results never has to be
 // filtered afterwards — and no route can forget to apply it.
 function readableBy(viewer: Viewer, reach: ShareReach): Prisma.DocumentWhereInput {
+  if (viewer.integrationId !== undefined)
+    return {
+      archiveItem: {
+        integrationId: viewer.integrationId,
+        createdById: viewer.id,
+        integration: { revokedAt: null, userId: viewer.id },
+      },
+    };
   if (viewer.role === 'ADMIN') return {};
 
   const branches: Prisma.DocumentWhereInput[] = [
@@ -475,6 +491,8 @@ function availabilityFilter(availability: Availability): Prisma.DocumentWhereInp
 // beside `readableBy`, the query-builder twin it has to say the same thing as. It constrains the
 // alias `d`: whoever uses it joins `documents d`.
 export function readableSql(viewer: Viewer): Prisma.Sql {
+  if (viewer.integrationId !== undefined)
+    return Prisma.sql`d.deleted_at IS NULL AND EXISTS (SELECT 1 FROM archive_items ai JOIN integrations integration ON integration.id = ai.integration_id WHERE ai.id = d.id AND ai.integration_id = ${viewer.integrationId}::uuid AND ai.created_by_id = ${viewer.id}::uuid AND integration.user_id = ${viewer.id}::uuid AND integration.revoked_at IS NULL)`;
   if (viewer.role === 'ADMIN') return Prisma.sql`d.deleted_at IS NULL`;
 
   return Prisma.sql`
@@ -853,14 +871,22 @@ export class PrismaDocumentRepository implements DocumentRepository {
   }
 
   async findById(id: string, tx?: TransactionHandle): Promise<Document | null> {
-    const row = await clientOf(this.prisma, tx).document.findUnique({ where: { id } });
+    const row = await clientOf(this.prisma, tx).document.findUnique({
+      where: { id },
+      include: { archiveItem: true },
+    });
     return row === null ? null : toDomain(row);
   }
 
   async create(input: CreateDocumentInput, tx?: TransactionHandle): Promise<Document> {
     const client = clientOf(this.prisma, tx);
     const archiveItem = await client.archiveItem.create({
-      data: { kind: 'DOCUMENT', createdById: input.createdById ?? null },
+      data: {
+        kind: 'DOCUMENT',
+        createdById: input.createdById ?? null,
+        integrationId: input.integrationId ?? null,
+        ...(input.createdVia == null ? {} : { createdVia: input.createdVia }),
+      },
     });
     const row = await client.document.create({
       data: {
@@ -871,7 +897,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
         lastEventAt: archiveItem.lastEventAt,
       },
     });
-    return toDomain(row);
+    return toDomain({ ...row, archiveItem });
   }
 
   async updateProcessing(

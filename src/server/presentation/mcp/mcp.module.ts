@@ -1,3 +1,4 @@
+import { McpAuthGuard } from './mcp-auth.guard';
 import { Module } from '@nestjs/common';
 import { ArchiveTools } from '../../application/mcp/archive-tools';
 import { EmbeddingProvider } from '../../application/ports/embedding-provider';
@@ -15,6 +16,7 @@ import { McpController } from './mcp.controller';
   controllers: [McpController],
   providers: [
     ...sessionGuardProviders,
+    McpAuthGuard,
     {
       provide: SearchDocuments,
       useFactory: (documents: DocumentRepository, embeddings: EmbeddingProvider): SearchDocuments =>

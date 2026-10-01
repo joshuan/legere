@@ -298,3 +298,22 @@ its lines were false. A claim nobody can run is a claim nobody is checking.
 | Installer preserves literals, secrets and existing configuration | `test/integration/deployment-init.integration.test.ts` — creates private secrets and removes all staging files; leaves no partial deployment when a download fails; preserves an existing configuration; preserves special characters through real Compose interpolation |
 | Queue migration environment and cleanup | `test/integration/queue-migration-runner.integration.test.ts` — local dotenv/export precedence; `server/migrate-queue.test.ts` — creates and updates each fixed queue before closing the pool; failure table for start/create/update |
 | Release gates and publication refs | `test/integration/release-script.integration.test.ts` — pushes only main and the new tag in one atomic update; refuses failed/disappearing CI or changed checkout; reports a cancelled workflow even if all listed jobs were skipped |
+
+## Agent identity and delegated integrations (M69)
+
+| Scenario | Evidence |
+| --- | --- |
+| Attribution survives token revocation and archive-kind conversion | `test/e2e/integrations.e2e.test.ts` — immutable token attribution on documents/receipts; stable integration attribution on conversion and split parts |
+| User and agent remain visibly distinct, including legacy rows | `src/web/shared/ui/user-attribution.test.tsx`; pinned `document-details`, `document-log` and `receipt` browser baselines |
+| Public OAuth discovery, PKCE, exact redirect and audience checks | `test/e2e/oauth.e2e.test.ts` — discovery, public/confidential clients, valid exchange and rejected verifier/redirect/client/scope/resource combinations |
+| Codes and refresh tokens cannot be replayed or redeemed concurrently | `test/e2e/oauth.e2e.test.ts` — concurrent code/refresh redemption and committed family revocation |
+| Recovery, deactivation and explicit disconnect end delegated access | `test/e2e/oauth.e2e.test.ts` — account reset/deactivation, access/refresh revocation, grant ownership and expiry |
+| Public registration is bounded atomically | `test/e2e/oauth.e2e.test.ts` — concurrent requests at the 10,000-client ceiling |
+| Consent requires a session, same-origin request and an explicit decision | `test/e2e/oauth.e2e.test.ts`; `src/web/screens/oauth-consent/oauth-consent-screen.test.tsx`; `test/browser/identity.spec.ts` |
+| Service namespace beats administrator, personal and sharing access | `test/e2e/integrations.e2e.test.ts` — same-owner/different-service, personal/foreign documents, forged filters and ordinary-route/MCP rejection |
+| Upload retries return the existing authorized ID without disclosing another namespace | `test/e2e/integrations.e2e.test.ts` — sequential/concurrent dedup, foreign duplicate conflicts, pagination and bounded projections |
+| PDF/JPEG access is scoped, readiness-gated and expires | `test/e2e/integrations.e2e.test.ts` — artifact boundaries, content types, signing and expiry |
+| Namespace cannot be widened by document composition | `test/e2e/integrations.e2e.test.ts` — cross-namespace combine/move refusal and split inheritance |
+| Token rotation preserves access; disabling a service ends all tokens | `test/e2e/integrations.e2e.test.ts`; `src/web/screens/settings/integrations-card.test.tsx` |
+| New routes keep their dedicated authentication boundary | `src/server/presentation/auth/route-guards.test.ts` — whole-route inventory plus explicit MCP/integration/consent guard assertions |
+| Settings and consent remain responsive in both themes | `test/browser/identity.spec.ts`, `test/browser/routes.spec.ts` — five widths, light/dark, real login/API and reviewed screenshots |

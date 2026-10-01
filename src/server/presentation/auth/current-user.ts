@@ -2,6 +2,8 @@ import { createParamDecorator, type ExecutionContext } from '@nestjs/common';
 import type { Request } from 'express';
 import type { AuthenticatedCaller } from '../../application/auth/authenticate-session';
 import { ForbiddenError } from '../../domain/errors/domain-error';
+import type { Viewer } from '../../domain/repositories/document.repository';
+import type { AgentIdentity } from '../../../shared/contracts/identity';
 
 // SessionGuard attaches the resolved caller here so controllers and use cases never re-fetch it
 // (docs/06 §6.4).
@@ -18,6 +20,38 @@ export function callerOf(req: Request): AuthenticatedCaller | undefined {
   const source: RequestWithCaller = req;
   return source[CALLER_KEY];
 }
+
+export function actorOf(caller: AuthenticatedCaller): Viewer {
+  if (caller.kind === 'SESSION') return { id: caller.user.id, role: caller.user.role };
+  const token = caller.apiToken;
+  let agent: AgentIdentity = { kind: 'API_TOKEN', id: token.id, name: token.name };
+  if (token.oauthGrantId != null) {
+    agent = {
+      kind: 'OAUTH',
+      id: token.oauthGrantId,
+      name: token.name,
+      ...(token.oauthClientId == null ? {} : { clientId: token.oauthClientId }),
+    };
+  } else if (token.integrationId != null) {
+    agent = {
+      kind: 'INTEGRATION',
+      id: token.integrationId,
+      name: token.integrationName ?? token.name,
+    };
+  }
+  return {
+    id: caller.user.id,
+    role: caller.user.role,
+    agent,
+    ...(token.integrationId == null ? {} : { integrationId: token.integrationId }),
+  };
+}
+
+export const CurrentActor = createParamDecorator((_data: unknown, context: ExecutionContext) => {
+  const caller = callerOf(context.switchToHttp().getRequest<Request>());
+  if (caller === undefined) throw new Error('CurrentActor used without authentication');
+  return actorOf(caller);
+});
 
 // @CurrentUser() — the authenticated user; only usable on routes behind SessionGuard.
 export const CurrentUser = createParamDecorator((_data: unknown, context: ExecutionContext) => {
