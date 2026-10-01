@@ -52,6 +52,7 @@ enum ApiTokenScope {
   DOCUMENTS_INGEST
   RECEIPTS_INGEST
   MCP
+  ARCHIVE
   INTEGRATION
 }
 
@@ -228,6 +229,7 @@ model Integration {
 }
 
 model OAuthClient {
+  scope        String       @default("mcp:read")
   id           String       @id @default(uuid()) @db.Uuid
   name         String
   redirectUris String[]     @map("redirect_uris")

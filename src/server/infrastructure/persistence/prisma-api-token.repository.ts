@@ -21,6 +21,7 @@ function toDomain(
     oauthGrantId: row.oauthGrantId,
     oauthClientId: row.oauthGrant?.clientId ?? null,
     oauthResource: row.oauthGrant?.resource ?? null,
+    oauthScope: row.oauthGrant?.scope ?? null,
     bindingExpiresAt: row.oauthGrant?.expiresAt ?? null,
     bindingActive:
       (row.integrationId === null ||

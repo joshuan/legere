@@ -28,6 +28,7 @@ documentation — report it (see [`../CLAUDE.md`](../CLAUDE.md)).
 | 16 | [`16-design-code.md`](./16-design-code.md) | Visual foundations, density, navigation, forms, scrolling, dialogs and tabs |
 | 17 | [`17-agent-identity-and-integrations.md`](./17-agent-identity-and-integrations.md) | Agent attribution, OAuth MCP and isolated service namespaces |
 | 18 | [`18-service-integration-guide.md`](./18-service-integration-guide.md) | Rent Manage upload/display examples, credential setup and OAuth connection guide |
+| 19 | [`19-personal-archive-integration.md`](./19-personal-archive-integration.md) | OAuth personal archive references, strict read API and consumer responsibilities |
 
 The specification is **complete** — every document is written and all previously open questions are
 resolved (each document ends with its resolution notes).
@@ -71,7 +72,7 @@ off in the same commit; the temporary direct-to-`main` workflow in ADR-014 appli
   everything Legere produces goes to S3. Code access — only through the `FileStorage` port.
 - **Authentication:** **email + password** (Argon2id) + server-side sessions (httpOnly cookie); account
   setup requires **email verification by code**; the first user becomes the administrator, afterwards —
-  invite links from an admin only. OAuth delegates MCP access to registered applications with user
+  invite links from an admin only. OAuth delegates MCP or personal archive read access to registered applications with user
   consent; it does not add an external login provider.
 - **Authorization:** `ADMIN`/`USER` roles; document access — via library visibility and explicit sharing
   of folders/collections (details in 03).

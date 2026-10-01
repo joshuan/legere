@@ -597,3 +597,10 @@ validates responses with them (fail loudly on drift).
 ## 7.6. Open questions
 
 None.
+
+## Personal archive integration
+
+The five OAuth-only `/api/integrations/archive` GET routes, strict DTOs, eligibility,
+search, cursor and error contract are defined in [19 §19.2](19-personal-archive-integration.md#192-read-api).
+Unlike ordinary document routes, malformed UUIDs return 422 here. Public OpenAPI
+includes both service namespaces and personal archive references with separate security schemes.

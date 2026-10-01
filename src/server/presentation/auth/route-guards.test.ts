@@ -8,6 +8,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import { AppModule } from '../../app.module';
 import { DocumentAccessGuard } from '../documents/document-access.guard';
+import { ArchiveGuard } from '../integrations/archive.guard';
 import { IntegrationGuard } from '../integrations/integration.guard';
 import { McpAuthGuard } from '../mcp/mcp-auth.guard';
 import { ApiTokenScopeGuard } from './api-token-scope.guard';
@@ -50,6 +51,7 @@ const PUBLIC_ROUTES = new Map<string, string>([
   ['InvitesController.preview', 'the invite landing page; throttled per IP instead (§8.4)'],
   ['PasswordResetsController.preview', 'the reset landing page; throttled per IP instead (§8.4)'],
   ['OAuthController.metadata', 'public OAuth authorization-server discovery (17 §17.2)'],
+  ['OAuthController.archiveResourceMetadata', 'public personal archive discovery (19 §19.1)'],
   ['OAuthController.resourceMetadata', 'public MCP protected-resource discovery (17 §17.2)'],
   [
     'OAuthController.register',
@@ -84,6 +86,7 @@ describe('the route table (🔒 docs/08 §8.6)', () => {
           !route.guards.includes(SessionGuard) &&
           !route.guards.includes(ApiTokenScopeGuard) &&
           !route.guards.includes(IntegrationGuard) &&
+          !route.guards.includes(ArchiveGuard) &&
           !route.guards.includes(McpAuthGuard),
       )
       .map((route) => `${route.id} (${route.path})`);
@@ -101,6 +104,9 @@ describe('the route table (🔒 docs/08 §8.6)', () => {
   it('uses the dedicated scope guards for integrations and MCP and session auth for OAuth consent', () => {
     for (const route of routes.filter((route) => route.path.startsWith('integrations/documents'))) {
       expect(route.guards, route.id).toContain(IntegrationGuard);
+    }
+    for (const route of routes.filter((route) => route.path.startsWith('integrations/archive'))) {
+      expect(route.guards, route.id).toContain(ArchiveGuard);
     }
     for (const route of routes.filter((route) => route.path === 'mcp')) {
       expect(route.guards, route.id).toContain(McpAuthGuard);

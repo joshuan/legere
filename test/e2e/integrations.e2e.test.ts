@@ -493,7 +493,9 @@ describe('Isolated service integrations and attribution (e2e)', () => {
         components: z.object({ securitySchemes: z.record(z.unknown()) }),
       })
       .parse((await request(app.baseUrl).get('/api/openapi.json').expect(200)).body);
-    expect(Object.keys(schema.paths)).toEqual([
+    expect(
+      Object.keys(schema.paths).filter((path) => !path.startsWith('/api/integrations/archive')),
+    ).toEqual([
       '/api/integrations/documents',
       '/api/integrations/documents/{id}',
       '/api/integrations/documents/{id}/canonical',

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The completed implementation history and current work are tracked in `docs/tasks/backlog.md`.
 M0–M65, image orientation and the search page are implemented, including production follow-up and frontend verification.
 Every mandatory scenario of `docs/14 §14.8` is mapped to a test in
-`docs/tasks/scenario-coverage.md`. The specification (documents 01–18 in `docs/`) remains the source
+`docs/tasks/scenario-coverage.md`. The specification (documents 01–19 in `docs/`) remains the source
 of truth. Write a task before new work, tick it off in the same commit, and update affected contracts
 before implementation. The backlog is the authoritative status rather than a duplicated completion claim.
 
@@ -71,8 +71,8 @@ push is the point of no return — Ctrl-C after it loses the report, not the rel
    (+pgvector), pg-boss, S3 (private bucket) for derived artifacts, Zod contracts in
    `src/shared/contracts`, Ant Design, TanStack Query, next-intl.
 7. **Do not simplify auth:** email+password (Argon2id) + server-side sessions + email verification by
-   code; closed registration (first admin + invites). OAuth delegates MCP access to applications
-   (`docs/17`); it does not replace login. No external OAuth login, JWT sessions or passport.
+   code; closed registration (first admin + invites). OAuth delegates MCP and personal archive read
+   access to applications (`docs/17`, `docs/19`); it does not replace login. No external OAuth login, JWT sessions or passport.
 8. **The DB schema changes only via forward-only Prisma migrations** (auto-applied on container
    start); `prisma db push`/reset against a live instance are forbidden. **Soft delete** instead of
    physical deletion — with the one deliberate exception `02` ADR-015 (as amended) documents: an

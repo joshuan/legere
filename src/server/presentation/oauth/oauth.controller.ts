@@ -44,6 +44,11 @@ export class OAuthController {
   resourceMetadata() {
     return this.oauth.resourceMetadata();
   }
+  @Get('archive-resource-metadata')
+  @Header('Cache-Control', 'public, max-age=300')
+  archiveResourceMetadata() {
+    return this.oauth.resourceMetadata(true);
+  }
   @Post('register')
   @Throttled('auth')
   @Header('Cache-Control', 'no-store')

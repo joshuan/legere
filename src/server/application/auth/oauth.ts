@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import {
   MCP_OAUTH_SCOPE,
+  ARCHIVE_OAUTH_SCOPE,
   type OAuthAuthorization,
   type OAuthRegistration,
   type OAuthTokenRequest,
@@ -55,6 +56,7 @@ const CODE_TTL_MS = 2 * 60_000;
 export class OAuth {
   readonly issuer: string;
   readonly resource: string;
+  readonly archiveResource: string;
   constructor(
     private readonly repository: OAuthRepository,
     private readonly apiTokens: ApiTokenRepository,
@@ -66,6 +68,7 @@ export class OAuth {
   ) {
     this.issuer = baseUrl.replace(/\/+$/, '');
     this.resource = `${this.issuer}/api/mcp`;
+    this.archiveResource = `${this.issuer}/api/integrations/archive`;
   }
 
   metadata() {
@@ -75,7 +78,7 @@ export class OAuth {
       token_endpoint: `${this.issuer}/api/oauth/token`,
       registration_endpoint: `${this.issuer}/api/oauth/register`,
       revocation_endpoint: `${this.issuer}/api/oauth/revoke`,
-      scopes_supported: [MCP_OAUTH_SCOPE],
+      scopes_supported: [MCP_OAUTH_SCOPE, ARCHIVE_OAUTH_SCOPE],
       response_types_supported: ['code'],
       grant_types_supported: ['authorization_code', 'refresh_token'],
       token_endpoint_auth_methods_supported: ['none', 'client_secret_basic', 'client_secret_post'],
@@ -88,12 +91,12 @@ export class OAuth {
       authorization_response_iss_parameter_supported: true,
     };
   }
-  resourceMetadata() {
+  resourceMetadata(archive = false) {
     return {
-      resource: this.resource,
-      resource_name: 'Legere archive',
+      resource: archive ? this.archiveResource : this.resource,
+      resource_name: archive ? 'Legere personal documents' : 'Legere archive',
       authorization_servers: [this.issuer],
-      scopes_supported: [MCP_OAUTH_SCOPE],
+      scopes_supported: [archive ? ARCHIVE_OAUTH_SCOPE : MCP_OAUTH_SCOPE],
       bearer_methods_supported: ['header'],
     };
   }
@@ -105,6 +108,7 @@ export class OAuth {
       input.token_endpoint_auth_method === 'none' ? null : this.secrets.generate().token;
     const client = await this.repository.register({
       name: input.client_name,
+      scope: input.scope,
       redirectUris: [...new Set(input.redirect_uris)],
       authMethod: input.token_endpoint_auth_method,
       secretHash: secret === null ? null : this.secrets.hash(secret),
@@ -122,7 +126,7 @@ export class OAuth {
       token_endpoint_auth_method: client.authMethod,
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
-      scope: MCP_OAUTH_SCOPE,
+      scope: client.scope,
       client_id_issued_at: Math.floor(client.createdAt.getTime() / 1000),
       ...(secret === null ? {} : { client_secret: secret, client_secret_expires_at: 0 }),
     };
@@ -133,7 +137,7 @@ export class OAuth {
       clientId: client.id,
       clientName: client.name,
       redirectOrigin: new URL(input.redirect_uri).origin,
-      scope: MCP_OAUTH_SCOPE,
+      scope: input.scope,
     };
   }
   async authorize(userId: string, input: OAuthAuthorization, decision: 'approve' | 'deny') {
@@ -153,8 +157,8 @@ export class OAuth {
           userId,
           clientId: client.id,
           clientName: client.name,
-          resource: this.resource,
-          scope: MCP_OAUTH_SCOPE,
+          resource: input.resource,
+          scope: input.scope,
           expiresAt: new Date(now.getTime() + GRANT_TTL_MS),
         },
         tx,
@@ -180,7 +184,7 @@ export class OAuth {
   ): Promise<OAuthTokenResponse> {
     const client = await this.authenticateClient(credentials);
     this.assertResource(input.resource);
-    if (input.scope !== undefined) this.assertScope(input.scope);
+    if (input.scope !== undefined) this.assertScope(input.scope, input.resource);
     const result = await this.unitOfWork.run(async (tx) => {
       if (input.grant_type === 'authorization_code') return this.exchangeCode(client, input, tx);
       return this.exchangeRefresh(client, input, tx);
@@ -230,25 +234,19 @@ export class OAuth {
     if (!client.redirectUris.includes(input.redirect_uri))
       throw new OAuthError('invalid_redirect_uri', 'Redirect URI is not registered');
     this.assertResource(input.resource);
-    this.assertScope(input.scope);
+    this.assertScope(input.scope, input.resource);
+    if (client.scope !== input.scope)
+      throw new OAuthError('invalid_scope', 'Scope is not registered for this client');
     return client;
   }
   private assertResource(resource: string): void {
-    let canonical: string;
-    try {
-      canonical = new URL(resource).href;
-    } catch {
-      throw new OAuthError('invalid_target', 'Invalid resource');
-    }
-    if (canonical !== this.resource)
-      throw new OAuthError(
-        'invalid_target',
-        'This authorization server only issues MCP resource tokens',
-      );
+    if (resource !== this.resource && resource !== this.archiveResource)
+      throw new OAuthError('invalid_target', 'Unknown resource');
   }
-  private assertScope(scope: string): void {
-    if (scope.trim() !== MCP_OAUTH_SCOPE)
-      throw new OAuthError('invalid_scope', 'Only mcp:read is supported');
+  private assertScope(scope: string, resource: string): void {
+    const expected = resource === this.archiveResource ? ARCHIVE_OAUTH_SCOPE : MCP_OAUTH_SCOPE;
+    if (scope !== expected)
+      throw new OAuthError('invalid_scope', 'Scope does not match the requested resource');
   }
   private async authenticateClient(credentials: OAuthClientCredentials): Promise<OAuthClient> {
     if (credentials.id === undefined)
@@ -269,14 +267,17 @@ export class OAuth {
   private async activeGrant(
     id: string,
     client: OAuthClient,
+    input: OAuthTokenRequest,
     tx: TransactionHandle,
   ): Promise<OAuthGrant | null> {
     const grant = await this.repository.lockGrant(id, tx);
     if (
       grant === null ||
       grant.clientId !== client.id ||
-      grant.resource !== this.resource ||
-      grant.scope !== MCP_OAUTH_SCOPE ||
+      grant.resource !== input.resource ||
+      grant.scope !== client.scope ||
+      grant.scope !==
+        (input.resource === this.archiveResource ? ARCHIVE_OAUTH_SCOPE : MCP_OAUTH_SCOPE) ||
       grant.revokedAt !== null ||
       grant.expiresAt.getTime() <= this.clock.now().getTime()
     )
@@ -299,7 +300,7 @@ export class OAuth {
     const hash = this.secrets.hash(input.code);
     const found = await this.repository.findCode(hash, tx);
     if (found === null) return invalidGrant();
-    const grant = await this.activeGrant(found.grantId, client, tx);
+    const grant = await this.activeGrant(found.grantId, client, input, tx);
     if (grant === null) return invalidGrant();
     // Read again after acquiring the shared grant lock; a concurrent exchange may have won.
     const code = await this.repository.findCode(hash, tx);
@@ -329,7 +330,7 @@ export class OAuth {
     const hash = this.secrets.hash(input.refresh_token);
     const found = await this.repository.findRefresh(hash, tx);
     if (found === null) return invalidGrant();
-    const grant = await this.activeGrant(found.grantId, client, tx);
+    const grant = await this.activeGrant(found.grantId, client, input, tx);
     if (grant === null) return invalidGrant();
     const refresh = await this.repository.findRefresh(hash, tx);
     if (refresh === null || refresh.expiresAt.getTime() <= this.clock.now().getTime())
@@ -352,7 +353,7 @@ export class OAuth {
       {
         userId: grant.userId,
         name: grant.clientName,
-        scope: 'MCP',
+        scope: grant.scope === ARCHIVE_OAUTH_SCOPE ? 'ARCHIVE' : 'MCP',
         oauthGrantId: grant.id,
         tokenHash: this.secrets.hash(token),
         expiresAt,

@@ -281,6 +281,14 @@ are machine OAuth POST exceptions: they do not authenticate with cookies. Integr
 likewise accepts only its dedicated bearer scope. OAuth tokens cannot access ordinary REST routes,
 while integration tokens cannot access MCP or the personal archive routes.
 
+The personal archive extension in [`19`](./19-personal-archive-integration.md) adds the
+`ARCHIVE` credential scope bound to `documents:read` and `/api/integrations/archive`.
+Each registered client and grant has one scope; code/refresh exchanges verify the exact
+resource/scope pair. Archive credentials only reach the five read routes in §19.2.
+The dedicated guard validates both grant fields, the account and token on every request.
+Cookies and other bearer scopes are refused. All archive responses use `no-store`;
+reads use a separate per-user archive throttle (120 requests per minute) and return Retry-After on exhaustion.
+
 ## 8.3. Roles
 
 | Capability | USER | ADMIN |
@@ -314,7 +322,7 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   the attempt counter is the only gate, and a comparison in front of it would be a guess that was
   tested without being counted — and the series a caller is measured against is the first one they
   can prove they hold (§8.1.3 step 2).
-- **Rate limiting:** layer 1 — in-memory budgets (`@nestjs/throttler`), four of them, each counted
+- **Rate limiting:** layer 1 — in-memory budgets (`@nestjs/throttler`), five of them, each counted
   separately:
 
   | Budget | Where | Allowance |
@@ -323,6 +331,7 @@ The role is stored on the user (`User.role`); checked by `RolesGuard` on top of 
   | `catalogue` | `POST /api/people`, `/api/subjects`, `/api/subject-kinds` | 30 / 60 s |
   | `password` | `POST /api/me/password` | 5 / 60 s |
   | `search` | `GET /api/search`, `POST /api/mcp` | 30 / 60 s |
+  | `archive` | the five `GET /api/integrations/archive` routes | 120 / 60 s |
 
   `auth` is the Argon2-flooding brake the login path leans on (§8.4.1a). `catalogue` is fast enough
   for a person correcting an archive and far too slow to fill by script a namespace every other user
@@ -559,7 +568,7 @@ fixed; the habit that let them sit here unnoticed is what
 - [x] A user can list and end their own sessions, and change their own password with the current one
       — which ends every other session of theirs and keeps the one that asked (§8.1.6a, §8.2).
 - [x] Mutations — fail-closed `csrfOriginCheck`, above the dispatcher rather than on `/api` (§8.4);
-      four named rate-limit budgets counted per caller (per IP where there is none) + per-email
+      five named rate-limit budgets counted per caller (per IP where there is none) + per-email
       limits; CAPTCHA on login/start — the widget mints the token on the client and the server
       verifies it, so the control is whole where both keys are set and absent where neither is (§8.4).
 - [x] API tokens: hashed at rest, shown once, mandatory expiry, revoked with the owner and with the

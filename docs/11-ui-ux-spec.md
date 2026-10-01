@@ -1579,3 +1579,10 @@ screens must not introduce independent palettes or incompatible interaction patt
 ## 11.16. Open questions
 
 None.
+
+### Personal archive OAuth consent
+
+For `documents:read`, consent explicitly describes the user’s own documents, PDFs and
+JPEG previews, excluded libraries/receipts/other owners/integrations, read-only access
+and Settings disconnect. Connected applications show the grant’s actual permission.
+MCP consent retains its existing explanation. Both variants use the current en/ru layout.

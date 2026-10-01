@@ -97,38 +97,48 @@ describe('Integration and OAuth settings', () => {
     await waitFor(() => expect(revoked).toBe(true));
   });
 
-  it('shows registered application identity and disconnects only the selected grant', async () => {
-    let revokedId: string | null = null;
-    server.use(
-      http.get('/api/me/oauth-grants', () =>
-        HttpResponse.json(
-          envelope({
-            items: [
-              {
-                id,
-                clientId: id,
-                clientName: 'Cloud agent',
-                scope: 'mcp:read',
-                createdAt,
-                expiresAt: '2099-01-01T00:00:00.000Z',
-                revokedAt: null,
-              },
-            ],
-          }),
+  it.each(['mcp:read', 'documents:read'])(
+    'shows the %s permission and disconnects only the selected grant',
+    async (scope) => {
+      let revokedId: string | null = null;
+      server.use(
+        http.get('/api/me/oauth-grants', () =>
+          HttpResponse.json(
+            envelope({
+              items: [
+                {
+                  id,
+                  clientId: id,
+                  clientName: 'Cloud agent',
+                  scope,
+                  createdAt,
+                  expiresAt: '2099-01-01T00:00:00.000Z',
+                  revokedAt: null,
+                },
+              ],
+            }),
+          ),
         ),
-      ),
-      http.delete('/api/me/oauth-grants/:id', ({ params }) => {
-        revokedId = String(params['id']);
-        return HttpResponse.json(envelope({ ok: true }));
-      }),
-    );
-    const user = userEvent.setup();
-    renderWithProviders(<OAuthGrantsCard />);
-    expect(await screen.findByText('Cloud agent')).toBeInTheDocument();
-    expect(screen.getByText(`Client ID: ${id}`)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: enMessages.oauth.revoke }));
-    expect(revokedId).toBeNull();
-    await user.click(await screen.findByRole('button', { name: 'OK' }));
-    await waitFor(() => expect(revokedId).toBe(id));
-  });
+        http.delete('/api/me/oauth-grants/:id', ({ params }) => {
+          revokedId = String(params['id']);
+          return HttpResponse.json(envelope({ ok: true }));
+        }),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<OAuthGrantsCard />);
+      expect(await screen.findByText('Cloud agent')).toBeInTheDocument();
+      expect(screen.getByText(`Client ID: ${id}`)).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          scope === 'documents:read'
+            ? enMessages.oauth.archiveReadScope
+            : enMessages.oauth.readScope,
+        ),
+      ).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: enMessages.oauth.revoke }));
+      expect(revokedId).toBeNull();
+      await user.click(await screen.findByRole('button', { name: 'OK' }));
+      await waitFor(() => expect(revokedId).toBe(id));
+    },
+  );
 });

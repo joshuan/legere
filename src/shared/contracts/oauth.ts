@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 export const MCP_OAUTH_SCOPE = 'mcp:read';
+export const ARCHIVE_OAUTH_SCOPE = 'documents:read';
+export const oauthScopeSchema = z.enum([MCP_OAUTH_SCOPE, ARCHIVE_OAUTH_SCOPE]);
 export const oauthClientAuthMethodSchema = z.enum([
   'none',
   'client_secret_basic',
@@ -31,7 +33,7 @@ export const oauthRegistrationSchema = z.object({
     .min(1)
     .optional(),
   response_types: z.array(z.literal('code')).length(1).optional(),
-  scope: z.literal(MCP_OAUTH_SCOPE).optional(),
+  scope: oauthScopeSchema.default(MCP_OAUTH_SCOPE),
 });
 export type OAuthRegistration = z.infer<typeof oauthRegistrationSchema>;
 

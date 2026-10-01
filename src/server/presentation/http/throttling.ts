@@ -1,16 +1,21 @@
 import { createHash } from 'node:crypto';
-import { applyDecorators, UseGuards, type ExecutionContext } from '@nestjs/common';
-import { SkipThrottle, ThrottlerGuard, type ThrottlerModuleOptions } from '@nestjs/throttler';
-import type { Request } from 'express';
+import { applyDecorators, Injectable, UseGuards, type ExecutionContext } from '@nestjs/common';
+import {
+  SkipThrottle,
+  ThrottlerGuard,
+  type ThrottlerModuleOptions,
+  type ThrottlerLimitDetail,
+} from '@nestjs/throttler';
+import type { Request, Response } from 'express';
 import { SlidingWindowThrottlerStorage } from '../../infrastructure/throttling/sliding-window-throttler-storage';
 import { callerOf } from '../auth/current-user';
 
-// The four named budgets of docs/08 §8.4, in one place because a route asks for one of them by name
+// The named budgets of docs/08 §8.4, in one place because a route asks for one of them by name
 // and every other one has to be skipped for it — a list kept in two places is a route that quietly
 // acquires a budget nobody meant it to have.
 export type ThrottleBudget = { ttl: number; limit: number };
 
-export const THROTTLE_NAMES = ['auth', 'catalogue', 'password', 'search'] as const;
+export const THROTTLE_NAMES = ['auth', 'catalogue', 'password', 'search', 'archive'] as const;
 export type ThrottleName = (typeof THROTTLE_NAMES)[number];
 
 export const THROTTLE_BUDGETS: Record<ThrottleName, ThrottleBudget> = {
@@ -28,6 +33,8 @@ export const THROTTLE_BUDGETS: Record<ThrottleName, ThrottleBudget> = {
   // embeddings call on the operator's provider and a turn at the pipeline's embeddings gate, so a
   // read that costs money off-instance is metered like a write.
   search: { ttl: 60_000, limit: 30 },
+  // Listing one maximum-size personal archive page plus its previews fits this budget.
+  archive: { ttl: 60_000, limit: 120 },
 };
 
 // 🔒 A budget is counted against the caller, not the address they arrived from (docs/08 §8.4). The
@@ -66,7 +73,22 @@ export function throttlerOptions(
   };
 }
 
-// Puts one named budget in front of a route and takes the other three off it. The guard walks every
+// Nest suffixes Retry-After with the budget name. External clients need the standard header.
+@Injectable()
+class HttpThrottlerGuard extends ThrottlerGuard {
+  protected override async throwThrottlingException(
+    context: ExecutionContext,
+    detail: ThrottlerLimitDetail,
+  ): Promise<void> {
+    context
+      .switchToHttp()
+      .getResponse<Response>()
+      .setHeader('Retry-After', detail.timeToBlockExpire);
+    return super.throwThrottlingException(context, detail);
+  }
+}
+
+// Puts one named budget in front of a route and takes the other budgets off it. The guard walks every
 // configured throttler on every request it covers, so opting in without opting out would charge a
 // catalogue write against the login budget as well.
 export function Throttled(name: ThrottleName): ReturnType<typeof applyDecorators> {
@@ -74,5 +96,5 @@ export function Throttled(name: ThrottleName): ReturnType<typeof applyDecorators
   for (const other of THROTTLE_NAMES) {
     if (other !== name) skipped[other] = true;
   }
-  return applyDecorators(UseGuards(ThrottlerGuard), SkipThrottle(skipped));
+  return applyDecorators(UseGuards(HttpThrottlerGuard), SkipThrottle(skipped));
 }

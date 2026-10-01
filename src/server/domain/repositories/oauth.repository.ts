@@ -4,6 +4,7 @@ import type { TransactionHandle } from '../../application/ports/unit-of-work';
 export type OAuthClient = {
   id: string;
   name: string;
+  scope: string;
   redirectUris: string[];
   authMethod: OAuthClientAuthMethod;
   secretHash: string | null;

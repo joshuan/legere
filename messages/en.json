@@ -1623,6 +1623,8 @@
     "connectionHelp": "Connect a cloud agent to the MCP address below using OAuth. Each connection requires your approval.",
     "empty": "No connected applications.",
     "clientId": "Client ID",
+    "archiveReadScope": "Read your personal documents",
+    "archiveScopeDetail": "This application can list, search and read documents you uploaded, including their canonical PDFs and JPEG previews. Library documents, receipts, documents from other integrations and documents owned by other people are excluded. It cannot upload, change or delete anything. You can disconnect it in Settings.",
     "readScope": "Read and search your accessible documents",
     "revokeConfirm": "Disconnect this application? Its access and refresh tokens will stop working.",
     "revoke": "Disconnect",

@@ -54,6 +54,8 @@ export async function wireServer(
     '/.well-known/oauth-authorization-server': '/api/oauth/metadata',
     '/.well-known/oauth-protected-resource': '/api/oauth/resource-metadata',
     '/.well-known/oauth-protected-resource/api/mcp': '/api/oauth/resource-metadata',
+    '/.well-known/oauth-protected-resource/api/integrations/archive':
+      '/api/oauth/archive-resource-metadata',
   };
   server.use((req, _res, next) => {
     const target = discoveryRoutes[req.path];

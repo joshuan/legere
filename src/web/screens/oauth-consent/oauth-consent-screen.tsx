@@ -52,7 +52,14 @@ export function OAuthConsentScreen() {
               {t('actingFor', { name: user.displayName })}
             </Typography.Paragraph>
           </div>
-          <Alert type="info" showIcon message={t('readScope')} description={t('scopeDetail')} />
+          <Alert
+            type="info"
+            showIcon
+            message={t(preview.data.scope === 'documents:read' ? 'archiveReadScope' : 'readScope')}
+            description={t(
+              preview.data.scope === 'documents:read' ? 'archiveScopeDetail' : 'scopeDetail',
+            )}
+          />
           <div>
             <Typography.Paragraph>
               <Typography.Text strong>{t('callback')}</Typography.Text>

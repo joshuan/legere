@@ -1,3 +1,7 @@
+import { ArchiveController } from './archive.controller';
+import { ArchiveGuard } from './archive.guard';
+import { PersonalArchive } from '../../application/integrations/personal-archive';
+import { PersonalArchiveRepository } from '../../domain/repositories/personal-archive.repository';
 import { Module } from '@nestjs/common';
 import { ManageIntegrations } from '../../application/integrations/manage-integrations';
 import { IntegrationDocuments } from '../../application/integrations/integration-documents';
@@ -21,10 +25,33 @@ import {
 
 @Module({
   imports: [DocumentsModule],
-  controllers: [MeIntegrationsController, IntegrationDocumentsController, OpenApiController],
+  controllers: [
+    ArchiveController,
+    MeIntegrationsController,
+    IntegrationDocumentsController,
+    OpenApiController,
+  ],
   providers: [
     ...sessionGuardProviders,
     IntegrationGuard,
+    ArchiveGuard,
+    {
+      provide: PersonalArchive,
+      useFactory: (
+        documents: PersonalArchiveRepository,
+        storage: FileStorage,
+        clock: Clock,
+        config: AppConfig,
+      ) =>
+        new PersonalArchive(
+          documents,
+          storage,
+          clock,
+          config.get('APP_BASE_URL'),
+          config.get('SIGNED_URL_TTL_SEC'),
+        ),
+      inject: [PersonalArchiveRepository, FileStorage, Clock, AppConfig],
+    },
     {
       provide: ManageIntegrations,
       useFactory: (

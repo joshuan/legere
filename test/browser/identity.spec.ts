@@ -53,3 +53,42 @@ test('integration token form explains its scope and fits every viewport', async 
   await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeHidden();
 });
+
+test('personal archive OAuth consent explains the limited document access', async ({
+  page,
+  request,
+}, testInfo) => {
+  const metadata = z
+    .object({ resource: z.string() })
+    .parse(
+      await (
+        await request.get('/.well-known/oauth-protected-resource/api/integrations/archive')
+      ).json(),
+    );
+  const query = new URLSearchParams({
+    client_id: VISUAL_IDS.archiveClient,
+    redirect_uri: 'https://rent.example/callback',
+    resource: metadata.resource,
+    response_type: 'code',
+    scope: 'documents:read',
+    state: 'archive-consent-state',
+    code_challenge: createHash('sha256')
+      .update('browser-verifier-0123456789012345678901234567890123456789')
+      .digest('base64url'),
+    code_challenge_method: 'S256',
+  });
+  await page.goto(`/oauth/authorize?${query}`);
+  await expect(page.getByRole('heading', { name: 'Rent Manage', exact: true })).toBeVisible();
+  await expect(page.getByText('Read your personal documents', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(/Library documents, receipts, documents from other integrations/),
+  ).toBeVisible();
+  await screenshot(page, 'oauth-personal-archive-consent', testInfo);
+  await page.route('https://rent.example/callback**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<p>Application callback</p>' }),
+  );
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page).toHaveURL(/https:\/\/rent\.example\/callback\?.*error=access_denied/);
+  expect(new URL(page.url()).searchParams.get('state')).toBe('archive-consent-state');
+  expect(new URL(page.url()).searchParams.get('iss')).toBe(new URL(metadata.resource).origin);
+});

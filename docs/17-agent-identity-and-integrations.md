@@ -24,7 +24,7 @@ This is the explicitly requested extension to the earlier no-OAuth rule in docs/
 The public resource is `APP_BASE_URL/api/mcp`. Discovery is available at
 `/.well-known/oauth-protected-resource/api/mcp` (also the root protected-resource alias) and
 `/.well-known/oauth-authorization-server`. Unauthenticated MCP requests include a Bearer
-`WWW-Authenticate` challenge naming that metadata. OAuth grants only `mcp:read`: the existing
+`WWW-Authenticate` challenge naming that metadata. MCP OAuth grants only `mcp:read`: the existing
 read-only archive tools, under the consenting user's current visibility. Personal `READ` API
 tokens remain supported. OAuth tokens cannot read other REST routes or mint credentials.
 
@@ -100,3 +100,6 @@ code, token, refresh and MCP call; PKCE, redirect, audience and replay failures;
 account recovery; two integrations for one owner and integrations owned by an administrator;
 dedup races, pagination, canonical/preview boundaries, ordinary-route rejection and OpenAPI.
 The normal typecheck, lint, coverage, browser, dependency and release-image gates remain intact.
+
+The separate personal archive resource and `documents:read` permission are specified in
+[`19`](19-personal-archive-integration.md). They do not expand MCP or namespace credentials.

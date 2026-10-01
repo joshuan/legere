@@ -317,3 +317,21 @@ its lines were false. A claim nobody can run is a claim nobody is checking.
 | Token rotation preserves access; disabling a service ends all tokens | `test/e2e/integrations.e2e.test.ts`; `src/web/screens/settings/integrations-card.test.tsx` |
 | New routes keep their dedicated authentication boundary | `src/server/presentation/auth/route-guards.test.ts` — whole-route inventory plus explicit MCP/integration/consent guard assertions |
 | Settings and consent remain responsive in both themes | `test/browser/identity.spec.ts`, `test/browser/routes.spec.ts` — five widths, light/dark, real login/API and reviewed screenshots |
+
+
+## Personal archive references (M70)
+
+| Scenario | Evidence |
+| --- | --- |
+| Resource discovery and scope-bound registration/consent | `test/e2e/archive-integration.e2e.test.ts` — independent metadata, exact resource/scope/callback, denied consent, session/CSRF boundary |
+| Subject survives refresh, renaming and a new grant | `test/e2e/archive-integration.e2e.test.ts` — immutable `/me` subject and independent connections |
+| Wrong PKCE/client/audience cannot consume a valid code; replay ends the family | `test/e2e/archive-integration.e2e.test.ts` — invalid exchange table, concurrent code/refresh winners revoked, serialized refresh and replay |
+| Only the new OAuth permission reaches the five read routes | `test/e2e/archive-integration.e2e.test.ts` — cookie/personal/MCP/namespace rejection on every route, ordinary REST and mutation refusal; route inventory audit |
+| Personal ownership is enforced before pagination, regardless of administrator or sharing privileges | `test/e2e/archive-integration.e2e.test.ts` — ADMIN/USER matrix excluding foreign/shared/library/mixed/receipt/deleted/namespace documents in list/detail/PDF/JPEG |
+| DTOs reveal only the agreed fields, with nullable type/date metadata | `test/e2e/archive-integration.e2e.test.ts` — strict DTO parsing and excluded OCR/source information |
+| Literal search and stable keyset pagination | `test/e2e/archive-integration.e2e.test.ts` — title/description, SQL metacharacters, Unicode, PostgreSQL microseconds, UUID ties, deleted boundary and subject/query cursor mismatch |
+| Readiness is independent for each artifact; current eligibility is rechecked | `test/e2e/archive-integration.e2e.test.ts` — mixed DONE/FAILED/QUEUED states, signed URL TTL/content type, changed title and newly introduced library page |
+| Live grant/account checks and disconnect | `test/e2e/archive-integration.e2e.test.ts` — access/grant expiry, binding mutation, settings/access/refresh revocation, account recovery and deactivation |
+| Strict validation, no-store errors and standard retry hints | `test/e2e/archive-integration.e2e.test.ts` — unknown fields, malformed IDs/cursors, null error details, per-user quota, Retry-After and a second user's independent allowance |
+| OpenAPI declares the separate OAuth security scheme and exact DTOs | `test/e2e/archive-integration.e2e.test.ts`; existing namespace OpenAPI regression |
+| Consent and connection settings distinguish personal archive and MCP permissions | `src/web/screens/oauth-consent/oauth-consent-screen.test.tsx`, `src/web/screens/settings/integrations-card.test.tsx`; ten reviewed `oauth-personal-archive-consent` baselines and real browser denial callback checks |

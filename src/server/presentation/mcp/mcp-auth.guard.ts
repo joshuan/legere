@@ -21,6 +21,7 @@ export class McpAuthGuard implements CanActivate {
         (caller.apiToken.scope !== 'READ' &&
           !(
             caller.apiToken.scope === 'MCP' &&
+            caller.apiToken.oauthScope === 'mcp:read' &&
             caller.apiToken.oauthGrantId != null &&
             caller.apiToken.oauthResource ===
               `${this.config.get('APP_BASE_URL').replace(/\/+$/, '')}/api/mcp`

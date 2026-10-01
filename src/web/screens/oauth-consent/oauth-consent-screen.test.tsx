@@ -47,6 +47,26 @@ describe('OAuth consent', () => {
     expect(screen.getByRole('button', { name: enMessages.oauth.allow })).toBeEnabled();
     expect(screen.getByRole('button', { name: enMessages.oauth.deny })).toBeEnabled();
   });
+  it('explains personal-only document access for an archive grant', async () => {
+    navigation.params.set('resource', 'https://legere.example/api/integrations/archive');
+    navigation.params.set('scope', 'documents:read');
+    server.use(
+      http.get('/api/oauth/authorize/preview', () =>
+        HttpResponse.json(
+          envelope({
+            clientId,
+            clientName: 'Rent Manage',
+            redirectOrigin: 'https://rent.example',
+            scope: 'documents:read',
+          }),
+        ),
+      ),
+    );
+    renderWithProviders(<OAuthConsentScreen />);
+    expect(await screen.findByText(enMessages.oauth.archiveReadScope)).toBeInTheDocument();
+    expect(screen.getByText(enMessages.oauth.archiveScopeDetail)).toBeInTheDocument();
+    expect(screen.queryByText(enMessages.oauth.readScope)).not.toBeInTheDocument();
+  });
   it.each(['approve', 'deny'] as const)(
     'submits an explicit %s decision preserving PKCE and state',
     async (decision) => {

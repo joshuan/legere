@@ -2184,3 +2184,32 @@ Production observation is read-only; source fixes are verified and committed on 
   The obsolete CVE-2026-45447 OpenSSL exception is removed together with its documentation;
   the rebuilt image also passes the stricter scan without that entry. Hosted publication and
   all-architecture scans are recorded under M69.4.
+
+## M70 — Personal archive references for external services
+
+- [x] **M70.1 — Resource-bound personal archive OAuth**
+  **Docs:** [`19 §19.1`](../19-personal-archive-integration.md).
+  **Acceptance:** discoverable documents:read resource, explicit personal-archive consent,
+  client/PKCE/resource/scope binding, stable subject, rotation/revocation and MCP compatibility.
+  **Validation:** the 29 new HTTP scenarios exercise confidential clients, exact scope/resource
+  binding, stable subject, code/refresh races, expiry, disconnect, recovery and deactivation.
+  The existing 23 OAuth and 24 MCP scenarios retain their original boundaries.
+- [x] **M70.2 — Strict personal document read API and OpenAPI**
+  **Docs:** [`19 §19.2–19.3`](../19-personal-archive-integration.md).
+  **Acceptance:** five OAuth-only routes; ownership and library/namespace exclusion before
+  pagination; literal search, bound cursors, minimal DTOs and independent artifact readiness;
+  adversarial HTTP coverage and a complete consumer guide.
+  **Validation:** ADMIN/USER ownership matrices, shared/library/mixed/receipt/deleted/namespace
+  exclusions, literal Unicode search, microsecond-safe cursors, strict DTOs and artifact readiness
+  are covered through HTTP against PostgreSQL. OpenAPI declares the five operations and a separate
+  OAuth security scheme. Ten new consent baselines were reviewed in both themes at five widths.
+- [ ] **M70.3 — Verified green release**
+  **Docs:** [`13`](../13-ci-cd.md), [`19`](../19-personal-archive-integration.md).
+  **Acceptance:** schema verification, typecheck, lint, coverage, reviewed browser checks and
+  hosted CI; publish through npm run release and wait for all image scans and registry checks.
+  **Local validation:** schema/doc/migration comparison, typecheck and lint pass. The full
+  run passes 2618 tests with 18 optional-service skips; two PostgreSQL timeouts during concurrent
+  local Docker workloads pass in the subsequent 185-test HTTP/auth/persistence regression run.
+  The browser comparison passes 586 cases with 12 viewport skips; its three initial timeouts all
+  pass unchanged in a separate pinned-image comparison. All ten new consent states pass and their
+  baselines have been visually reviewed. Hosted coverage and publication remain the release gate.

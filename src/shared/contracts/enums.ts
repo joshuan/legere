@@ -16,6 +16,7 @@ export const apiTokenScopeSchema = z.enum([
   'DOCUMENTS_INGEST',
   'RECEIPTS_INGEST',
   'MCP',
+  'ARCHIVE',
   'INTEGRATION',
 ]);
 export type ApiTokenScope = z.infer<typeof apiTokenScopeSchema>;

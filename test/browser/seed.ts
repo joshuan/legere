@@ -129,6 +129,16 @@ export async function seedBrowserData(): Promise<string[]> {
       createdAt: now,
     },
   });
+  await prisma.oAuthClient.create({
+    data: {
+      id: VISUAL_IDS.archiveClient,
+      name: 'Rent Manage',
+      scope: 'documents:read',
+      redirectUris: ['https://rent.example/callback'],
+      authMethod: 'none',
+      createdAt: now,
+    },
+  });
   await prisma.oAuthGrant.create({
     data: {
       id: VISUAL_IDS.oauthGrant,

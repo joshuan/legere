@@ -1,3 +1,4 @@
+import { archiveOpenApiPaths, archiveOpenApiSchemas, archiveOAuthScheme } from './archive-openapi';
 import { stepStatusSchema } from '../../../shared/contracts/enums';
 // Public contract for service integrations. Responses are verified against these schemas in e2e.
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
@@ -51,13 +52,14 @@ export function integrationOpenApi(baseUrl: string) {
     openapi: '3.1.0',
     info: {
       title: 'Legere service integrations',
-      version: '1.0.0',
+      version: '1.1.0',
       description:
-        'Create a named integration in Settings, then issue its token. Keep the token in your service backend. All endpoints are restricted to this integration and its owning user, even when the owner is an administrator. Rotation preserves the namespace: issue a new token on the same integration and revoke the old token. This contract covers the external service API; browser/account endpoints and the MCP JSON-RPC protocol are separate. MCP OAuth discovery: /.well-known/oauth-authorization-server and /.well-known/oauth-protected-resource/api/mcp; MCP URL: /api/mcp, scope mcp:read.',
+        'Create a named integration in Settings, then issue its token. Keep the token in your service backend. All endpoints are restricted to this integration and its owning user, even when the owner is an administrator. Rotation preserves the namespace: issue a new token on the same integration and revoke the old token. This contract covers the external service API; browser/account endpoints and the MCP JSON-RPC protocol are separate. MCP OAuth discovery: /.well-known/oauth-authorization-server and /.well-known/oauth-protected-resource/api/mcp; MCP URL: /api/mcp, scope mcp:read. Existing personal documents use the independent /api/integrations/archive resource and documents:read OAuth permission; discover /.well-known/oauth-protected-resource/api/integrations/archive.',
     },
     servers: [{ url: baseUrl.replace(/\/+$/, '') }],
     security: [{ integrationToken: [] }],
     paths: {
+      ...archiveOpenApiPaths,
       '/api/integrations/documents': {
         post: {
           operationId: 'uploadDocument',
@@ -143,6 +145,7 @@ export function integrationOpenApi(baseUrl: string) {
     },
     components: {
       securitySchemes: {
+        personalArchiveOAuth: archiveOAuthScheme(baseUrl),
         integrationToken: {
           type: 'http',
           scheme: 'bearer',
@@ -152,6 +155,7 @@ export function integrationOpenApi(baseUrl: string) {
         },
       },
       schemas: {
+        ...archiveOpenApiSchemas,
         Document: {
           type: 'object',
           required: [

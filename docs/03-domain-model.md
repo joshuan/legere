@@ -764,7 +764,7 @@ the first control-plane write; no database migration is needed.
 ### 3.3.22. ApiToken
 
 An opaque credential delegated by a user to a script, importer, assistant or service. Its scope is
-`READ`, `DOCUMENTS_INGEST`, `RECEIPTS_INGEST`, `MCP` or `INTEGRATION`. The last two require a live
+`READ`, `DOCUMENTS_INGEST`, `RECEIPTS_INGEST`, `MCP`, `ARCHIVE` or `INTEGRATION`. The last three require a live
 OAuth grant or integration binding; they cannot be minted through the personal-token endpoint.
 See [`17`](./17-agent-identity-and-integrations.md) for immutable agent attribution and bindings.
 
@@ -772,9 +772,9 @@ See [`17`](./17-agent-identity-and-integrations.md) for immutable agent attribut
 |-------|------|-------|
 | id | uuid | |
 | userId | uuid | the responsible user; scope and integration binding can further restrict visibility |
-| scope | ApiTokenScope | READ, DOCUMENTS_INGEST, RECEIPTS_INGEST, MCP or INTEGRATION |
+| scope | ApiTokenScope | READ, DOCUMENTS_INGEST, RECEIPTS_INGEST, MCP, ARCHIVE or INTEGRATION |
 | integrationId | uuid? | required only for INTEGRATION; stable service namespace |
-| oauthGrantId | uuid? | required only for MCP; user-approved client/resource grant |
+| oauthGrantId | uuid? | required for MCP and ARCHIVE; user-approved client/resource grant |
 | name | string | what it is for, written by the owner ("laptop export script"); 1–128 chars |
 | tokenHash | string | unique; sha256 of the opaque bearer token, which is shown once and never stored |
 | expiresAt | timestamptz | required; `API_TOKEN_TTL_DAYS` (default 90) unless the owner chose otherwise, max 365 |
@@ -788,7 +788,7 @@ a session answers (§3.3.2), asked of a different credential.
 **Invariants:**
 - 🔒 Bearer mutations are denied before routing except the explicitly scoped inbox/integration
   uploads and read-only MCP POST. Every exception authenticates its own allowed scope.
-- MCP and integration tokens require an active binding owned by the same user; OAuth access also
+- MCP, archive and integration tokens require an active binding owned by the same user; OAuth access also
   expires with its grant. Integration access is checked before any administrator privilege.
 - Deactivating or soft-deleting a user revokes their tokens, exactly as it revokes their sessions.
 - The plaintext token exists in one response and nowhere else: not in the database, not in a log,
@@ -1207,6 +1207,8 @@ A personal READ token resolves to its owner and applies these read rules. MCP OA
 same document visibility only at the bound MCP resource. An INTEGRATION token instead requires
 `archiveItem.integrationId == token.integrationId` and the same owning user, before administrator
 or sharing rules; it cannot reach personal or other-service documents (`17 §17.3`).
+ARCHIVE OAuth reaches only owned personal DOCUMENT profiles without library pages,
+independently of ADMIN and shares (`19 §19.2`).
 
 ### 3.4a. Composing a library document, and the one thing a reader may not do to it
 
@@ -1279,3 +1281,10 @@ before it writes, of the document it takes from and of every part it makes, and 
 
 None — previously open items are resolved in the corresponding documents (see 01 §1.7 note, 05 §5.9,
 08 §8.7).
+
+### Personal archive delegation
+
+An OAuth client declares a single scope at registration (legacy clients default to `mcp:read`).
+`documents:read` grants produce `ARCHIVE` API credentials bound to the personal archive
+resource. Eligibility ignores roles and shares: only the subject’s live personal DOCUMENT
+profiles without library-origin pages are exposed. See [19](19-personal-archive-integration.md).

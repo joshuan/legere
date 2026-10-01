@@ -1,5 +1,9 @@
 # Connecting applications to Legere
 
+For references to documents already in a user’s personal archive, use the separate
+[personal archive OAuth contract](19-personal-archive-integration.md). This chapter
+covers documents uploaded into an isolated service namespace.
+
 This guide covers service-owned documents and OAuth MCP. The [identity and authorization
 contract](17-agent-identity-and-integrations.md) defines the security boundaries.
 

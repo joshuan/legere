@@ -80,6 +80,7 @@ export type TestAppOptions = {
   passwordThrottle?: ThrottleBudget;
   // …and for GET /api/search and POST /api/mcp (SEC-74).
   searchThrottle?: ThrottleBudget;
+  archiveThrottle?: ThrottleBudget;
   // The catalogue suggester's analyst (docs/05 §5.6c). Left alone, the real adapter is bound and
   // reports itself unconfigured, since no suite may reach a provider; a suite that wants to see
   // what a *configured* analyst does — above all, what happens when it cannot answer — puts its
@@ -128,6 +129,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
         catalogue: options.catalogueThrottle ?? UNTHROTTLED,
         password: options.passwordThrottle ?? UNTHROTTLED,
         search: options.searchThrottle ?? UNTHROTTLED,
+        archive: options.archiveThrottle ?? UNTHROTTLED,
       }),
     )
     .compile();

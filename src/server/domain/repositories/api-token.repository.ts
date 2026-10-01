@@ -17,6 +17,7 @@ export type ApiToken = {
   oauthGrantId?: string | null;
   oauthClientId?: string | null;
   oauthResource?: string | null;
+  oauthScope?: string | null;
   bindingActive?: boolean;
   bindingExpiresAt?: Date | null;
 };

@@ -59,7 +59,11 @@ export function OAuthGrantsCard() {
                 >
                   {t('oauth.clientId')}: {grant.clientId}
                 </Typography.Text>
-                <Typography.Text type="secondary">{t('oauth.readScope')}</Typography.Text>
+                <Typography.Text type="secondary">
+                  {t(
+                    grant.scope === 'documents:read' ? 'oauth.archiveReadScope' : 'oauth.readScope',
+                  )}
+                </Typography.Text>
                 {status === 'ACTIVE' && (
                   <Popconfirm
                     title={t('oauth.revokeConfirm')}

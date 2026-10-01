@@ -1,3 +1,5 @@
+import { PersonalArchiveRepository } from '../../domain/repositories/personal-archive.repository';
+import { PrismaPersonalArchiveRepository } from './prisma-personal-archive.repository';
 import { OAuthRepository } from '../../domain/repositories/oauth.repository';
 import { PrismaOAuthRepository } from './prisma-oauth.repository';
 import { IntegrationRepository } from '../../domain/repositories/integration.repository';
@@ -67,6 +69,7 @@ const REPOSITORIES = [
   { provide: ScanRunRepository, useClass: PrismaScanRunRepository },
   { provide: FileRefRepository, useClass: PrismaFileRefRepository },
   { provide: FileRepository, useClass: PrismaFileRepository },
+  { provide: PersonalArchiveRepository, useClass: PrismaPersonalArchiveRepository },
   { provide: DocumentRepository, useClass: PrismaDocumentRepository },
   { provide: ReceiptRepository, useClass: PrismaReceiptRepository },
   { provide: ArchiveItemRepository, useClass: PrismaArchiveItemRepository },
@@ -99,6 +102,7 @@ const REPOSITORIES = [
     ScanRunRepository,
     FileRefRepository,
     FileRepository,
+    PersonalArchiveRepository,
     DocumentRepository,
     ReceiptRepository,
     ArchiveItemRepository,
