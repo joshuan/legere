@@ -2253,3 +2253,16 @@ Production observation is read-only; source fixes are verified and committed on 
   Computed contrast covers both accents, text/buttons/feedback and tooltips; a browser check verifies
   actual tooltip CSS. npm publication, hosted CI, deployment and production acceptance remain outside
   this local change. The tarball is an explicit temporary distribution mechanism.
+
+
+## M72 — Shared navigation and ecosystem releases
+
+- [x] **M72.1 — Complete the shared navigation frame and clickable brands.**
+  **Docs:** [20](../20-ecosystem-design.md). Same rail/drawer/collapse behaviour in both applications,
+  existing product marks, home links, keyboard and resize regression tests.
+  **Validation:** typecheck/lint and 583 web tests pass. Canonical Docker build and all 609 browser
+  cases pass (12 planned skips); every updated 320/390/768/1024/1440 light/dark baseline was reviewed.
+  Hosted CI will compare the accepted baselines without update before release.
+- [ ] **M72.2 — Publish shared design and verify both GitHub releases.**
+  Remove the vendor bridge after npm publication; record local and hosted checks, immutable releases
+  and registry evidence. Follow docs 13 for Legere's release command.

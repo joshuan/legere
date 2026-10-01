@@ -1502,7 +1502,8 @@
     "version": "Версия {version}",
     "collapse": "Свернуть меню",
     "expand": "Развернуть меню",
-    "skipContent": "Перейти к содержимому"
+    "skipContent": "Перейти к содержимому",
+    "closeMenu": "Закрыть навигацию"
   },
   "browse": {
     "library": "Библиотека",

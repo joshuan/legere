@@ -7,3 +7,4 @@ export { PageHeader } from './page-header';
 export { AuthFrame } from './auth-frame';
 export { ControlPopover } from './control-popover';
 export { UserAttribution } from './user-attribution';
+export { BrandMark } from './brand-mark';

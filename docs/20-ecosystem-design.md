@@ -34,3 +34,13 @@ exact registry dependency after publication. No npm publication or deployment is
 Acceptance: package type/lint/unit/pack checks, both application type/lint/unit suites, production
 builds and canonical responsive browser suites. Review screenshots before updating baselines and
 rerun comparisons without update. Record actual results and limitations in the backlog.
+
+
+Navigation completion (2026-10-01): both applications use the shared NavigationFrame. The sidebar
+is 240/64 px, initially compact at 768–1023 px; below 768 px it becomes a 280 px drawer. Explicit
+collapse choice survives client navigation and desktop resizing. Every brand is a home link with
+an icon and name; the compact rail shows the icon with the full accessible name. Mobile links,
+route changes, Escape and widening the viewport close the drawer. The toggle is 44 px at the foot
+of the sidebar in both products. This supersedes the wordmark-only treatment in docs 11/16.
+The requested release publishes the shared package, removes the temporary archive once npm is
+available and follows docs 13, including green hosted checks and registry verification.

@@ -569,19 +569,7 @@ pre,
   border-top: 1px solid var(--ant-color-border);
 }
 
-/* The sider is a column with a foot: the menu takes the room it needs, and what is under it — who
-   is signed in, which build this is, the way to narrow the column — sits at the bottom whatever the
-   menu's length (docs/11 §11.1). The column is the height of the window and does not travel with
-   the page, so a menu longer than the screen scrolls in here rather than pushing the foot out of
-   sight. */
-.legere-sider .ant-layout-sider-children {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-}
-
-:is(.legere-sider, .legere-navigation-drawer) .legere-navigation {
+:is(.jui-sidebar, .jui-navigation-drawer) .legere-navigation {
   min-height: 0;
   flex: 1 1 auto;
   overflow-x: hidden;
@@ -605,32 +593,6 @@ pre,
   min-width: 0;
   overflow-wrap: anywhere;
   margin: 0 auto;
-}
-
-/* The narrowest control on the screen, for the least important decision on it. A hairline strip
-   rather than Ant's 48px slab, which was the loudest thing in a column of quiet type
-   (docs/11 §11.15). It says what it is on hover and on focus, and never before. */
-.legere-sider-trigger {
-  display: block;
-  width: 100%;
-  height: 32px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--ant-color-text-secondary);
-  font-size: 10px;
-  line-height: 32px;
-  cursor: pointer;
-  opacity: 0.8;
-  transition:
-    opacity 0.15s ease,
-    background-color 0.15s ease;
-}
-
-.legere-sider-trigger:hover,
-.legere-sider-trigger:focus-visible {
-  opacity: 1;
-  background-color: var(--ant-color-fill-tertiary);
 }
 
 /* The screen and the upload panel as two columns of one page (docs/11 §11.3). Which way they sit is
@@ -1106,32 +1068,6 @@ textarea.ant-input {
   }
 }
 
-.legere-mobile-bar {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 52px;
-  padding: 0 8px;
-  background: var(--ant-color-bg-container);
-  border-bottom: 1px solid var(--ant-color-border-secondary);
-}
-
-.legere-mobile-bar .ant-btn {
-  width: 44px;
-  height: 44px;
-}
-
-.legere-mobile-brand {
-  flex: 1 1 auto;
-  color: var(--ant-color-text);
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
 .legere-control-panel,
 .legere-filter-panel.ant-space {
   display: flex;
@@ -1184,19 +1120,6 @@ textarea.ant-input {
   font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.02em;
-}
-
-.legere-brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  color: var(--ant-color-text-light-solid);
-  background: var(--ant-color-primary);
-  font-size: 24px;
-  line-height: 1;
 }
 
 .legere-auth-card .ant-card-body {
@@ -1324,7 +1247,7 @@ textarea.ant-input {
 }
 
 @media (pointer: coarse) {
-  :is(.legere-sider, .legere-navigation-drawer) :is(.ant-menu-item, .ant-menu-submenu-title) {
+  :is(.jui-sidebar, .jui-navigation-drawer) :is(.ant-menu-item, .ant-menu-submenu-title) {
     min-height: 44px;
     line-height: 44px;
   }

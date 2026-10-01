@@ -207,7 +207,7 @@ describe('AppShell', () => {
     // the moment somebody scrolls a long grid (docs/11 §11.1). jsdom computes no layout, so what is
     // asserted is the rule that pins it.
     const sider = (await screen.findByText(USER.displayName)).closest('aside');
-    expect(sider).toHaveStyle({ position: 'sticky', top: '0px', height: '100vh' });
+    expect(sider).toHaveStyle({ position: 'sticky', top: '0px', height: '100dvh' });
   });
 
   it('narrows the column with a control that says what it does', async () => {

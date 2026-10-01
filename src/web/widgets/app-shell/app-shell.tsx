@@ -1,6 +1,6 @@
 'use client';
 
-import { dimensions } from '@joshuan/design-system';
+import { AppBrand, NavigationFrame } from '@joshuan/design-system/react';
 
 import {
   AppstoreOutlined,
@@ -9,29 +9,27 @@ import {
   FileTextOutlined,
   FolderOpenOutlined,
   InfoCircleOutlined,
-  LeftOutlined,
   LogoutOutlined,
-  MenuOutlined,
   SearchOutlined,
   ShoppingOutlined,
-  RightOutlined,
   SettingOutlined,
   TagsOutlined,
   TeamOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Drawer, Layout, Menu, Space, Tag, Typography, theme } from 'antd';
+import { App, Button, Layout, Menu, Space, Tag, Typography, theme } from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { UserDto } from '../../../shared/contracts/auth';
 import { libraryApi, libraryKeys } from '../../entities/library';
 import { sessionApi } from '../../entities/session';
 import { SearchShortcut, useShortcutHint } from '../../features/search-shortcut';
 import { useThemePreference } from '../../shared/providers';
 import { endSession, useErrorMessage } from '../../shared/lib';
+import { BrandMark } from '../../shared/ui';
 
 // Navigation stays separate from each screen’s working area (docs/16 §16.3).
 export function AppShell({
@@ -48,11 +46,6 @@ export function AppShell({
   const t = useTranslations();
   const router = useRouter();
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
-  const [navigationAt, setNavigationAt] = useState<string | null>(null);
-  const navigationOpen = navigationAt === pathname;
-  const mobile = useSyncExternalStore(subscribeMobile, isMobile, () => false);
-  if (navigationAt !== null && (navigationAt !== pathname || !mobile)) setNavigationAt(null);
   const { token } = theme.useToken();
   const queryClient = useQueryClient();
   const describeError = useErrorMessage();
@@ -219,33 +212,8 @@ export function AppShell({
 
   const navigation = (compact: boolean) => (
     <>
-      {/* The wordmark in the display face, over a hairline — a title page, not a logo slot
-            (docs/11 §11.15). Collapsed, it keeps the monogram rather than a truncated word. */}
-      {!mobile && (
-        <div
-          style={{
-            padding: compact ? '16px 0' : '16px 20px',
-            marginBottom: 8,
-            textAlign: compact ? 'center' : 'start',
-            borderBottom: `1px solid ${token.colorBorderSecondary}`,
-          }}
-        >
-          <span
-            style={{
-              fontFamily: 'var(--font-sans)',
-              fontSize: compact ? 22 : 24,
-              fontWeight: 600,
-              letterSpacing: '-0.02em',
-              color: token.colorText,
-            }}
-          >
-            {compact ? 'L' : t('common.appName')}
-          </span>
-        </div>
-      )}
       <Menu
         className="legere-navigation"
-        onClick={() => setNavigationAt(null)}
         mode="inline"
         // The deepest matching route wins, so /admin/libraries/:id keeps its parent highlighted.
         selectedKeys={[selectedKey(pathname, items)]}
@@ -280,7 +248,6 @@ export function AppShell({
           )}
         </div>
         <Menu
-          onClick={() => setNavigationAt(null)}
           mode="inline"
           selectable={false}
           items={[
@@ -307,87 +274,45 @@ export function AppShell({
             </Typography.Text>
           </div>
         )}
-        {!mobile && (
-          <button
-            type="button"
-            aria-label={compact ? t('nav.expand') : t('nav.collapse')}
-            aria-expanded={!compact}
-            onClick={() => setCollapsed(!compact)}
-            className="legere-sider-trigger"
-            style={{ borderTop: `1px solid ${token.colorBorderSecondary}` }}
-          >
-            {compact ? <RightOutlined /> : <LeftOutlined />}
-          </button>
-        )}
       </div>
     </>
   );
 
   return (
-    <Layout style={{ minHeight: '100dvh' }}>
+    <>
       <SearchShortcut />
       <a href="#main-content" className="legere-skip-link">
         {t('nav.skipContent')}
       </a>
-      {!mobile && (
-        <Layout.Sider
-          className="legere-sider"
-          width={dimensions.sidebar}
-          breakpoint="lg"
-          collapsedWidth={dimensions.sidebarCollapsed}
-          collapsible
-          collapsed={collapsed}
-          onCollapse={setCollapsed}
-          trigger={null}
-          style={{
-            borderInlineEnd: `1px solid ${token.colorBorderSecondary}`,
-            position: 'sticky',
-            top: 0,
-            height: '100vh',
-          }}
-        >
-          {navigation(collapsed)}
-        </Layout.Sider>
-      )}
-      {mobile && (
-        <Drawer
-          className="legere-navigation-drawer"
-          title={t('nav.menu')}
-          placement="left"
-          size={dimensions.navigationDrawer}
-          open={navigationOpen}
-          onClose={() => setNavigationAt(null)}
-          styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column' } }}
-        >
-          {navigation(false)}
-        </Drawer>
-      )}
-      <Layout style={{ minWidth: 0 }}>
-        {mobile && (
-          <div className="legere-mobile-bar">
-            <Button
-              type="text"
-              icon={<MenuOutlined />}
-              aria-label={t('nav.openMenu')}
-              aria-expanded={navigationOpen}
-              onClick={() => setNavigationAt(pathname)}
-            />
-            <Link href="/documents" className="legere-mobile-brand">
-              {t('common.appName')}
-            </Link>
-            <Button
-              type="text"
-              icon={<SearchOutlined />}
-              aria-label={t('nav.search')}
-              onClick={() => router.push('/search')}
-            />
-          </div>
-        )}
+      <NavigationFrame
+        pathname={pathname}
+        brand={
+          <Link href="/documents" aria-label={t('common.appName')} title={t('common.appName')}>
+            <AppBrand name={t('common.appName')} mark={<BrandMark />} />
+          </Link>
+        }
+        navigation={navigation}
+        labels={{
+          navigation: t('nav.menu'),
+          open: t('nav.openMenu'),
+          close: t('nav.closeMenu'),
+          collapse: t('nav.collapse'),
+          expand: t('nav.expand'),
+        }}
+        mobileActions={
+          <Button
+            type="text"
+            icon={<SearchOutlined />}
+            aria-label={t('nav.search')}
+            onClick={() => router.push('/search')}
+          />
+        }
+      >
         <Layout.Content id="main-content" tabIndex={-1} className="legere-main">
           <div className="legere-content">{children}</div>
         </Layout.Content>
-      </Layout>
-    </Layout>
+      </NavigationFrame>
+    </>
   );
 }
 
@@ -403,16 +328,4 @@ function selectedKey(
       .filter((key) => pathname === key || pathname.startsWith(`${key}/`))
       .sort((a, b) => b.length - a.length)[0] ?? ''
   );
-}
-
-const MOBILE_QUERY = '(max-width: 767.98px)';
-
-function isMobile(): boolean {
-  return window.matchMedia(MOBILE_QUERY).matches;
-}
-
-function subscribeMobile(notify: () => void): () => void {
-  const query = window.matchMedia(MOBILE_QUERY);
-  query.addEventListener('change', notify);
-  return () => query.removeEventListener('change', notify);
 }
