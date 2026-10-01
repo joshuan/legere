@@ -697,6 +697,7 @@ The same image installs `openssl` and `libssl3t64` at `3.0.13-0ubuntu3.16` from 
 Noble repositories, fixing [CVE-2026-84782](https://ubuntu.com/security/CVE-2026-84782). Both OS
 packages have an explicit version pin; the build fails instead of silently retaining vulnerable
 base-image packages if that version is unavailable. No additional scan exceptions are introduced.
+This also removes the earlier `CVE-2026-45447` PKCS7 exception, fixed in Ubuntu 3.0.13-0ubuntu3.11.
 
 **Docling uses the local engine.** The image is pinned to docling-serve-cpu v1.35.0 and removes the
 optional Ray package, including its unused JVM driver and vendored dependencies. Legere submits
@@ -722,13 +723,6 @@ both leave when the pin move that clears them lands — Dependabot's, usually.
   over plain TCP on 8080, and TLS itself is the fronting proxy's job (§12.8). Reachable if Node ever
   served QUIC/HTTP3 through OpenSSL here. Clears when upstream rebuilds `node:26-alpine` over the
   fixed Alpine package — still 3.5.7-r0 on 2026-08-29.
-- **`legere-stirling` — `CVE-2026-45447`**, Ubuntu's `libssl3t64`/`openssl` 3.0.13-0ubuntu3.7 (fixed
-  in 3.0.13-0ubuntu3.11): heap use-after-free in `PKCS7_verify()`. PKCS7 verification happens in
-  Stirling's signature routes, which the pipeline never calls — [`05 §5.5`](./05-library-and-processing.md)
-  asks for conversion, OCR and page work, and the only thing that can ask for anything is the app
-  container: Stirling publishes no port and sits on the internal network (ADR-012). Reachable if
-  that port were published or `STIRLING_URL` pointed somewhere shared. Clears when upstream rebuilds
-  on the fixed Ubuntu package.
 - **`legere-stirling` — eighteen advisories in the remaining web stack** (`app/lib/*.jar`):
   five in Spring (`CVE-2026-41842`, `-41845`, `-41850` in webmvc/expression 7.0.7;
   `CVE-2026-41695`, `-41716` in spring-data-commons 4.0.5), three in the SAML2 service provider 7.0.5

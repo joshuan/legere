@@ -3,12 +3,7 @@
 # image, why it is not reachable in this deployment, what would make it reachable — and is deleted
 # when the pin move that clears it lands (deploy/stirling/Dockerfile; Dependabot watches it). The
 # base is stirlingtools/stirling-pdf:2.14.3 with a checksum-pinned Java security overlay.
-# Fixed Netty and Jackson findings have been removed. Record for the remaining entries: docs/12 §12.7.
-
-# --- Ubuntu base: openssl heap use-after-free in PKCS7_verify() (libssl3t64/openssl
-# 3.0.13-0ubuntu3.7, fixed in 3.0.13-0ubuntu3.11). Signature routes the pipeline never calls;
-# no published port.
-CVE-2026-45447
+# Fixed Netty, Jackson and OpenSSL findings have been removed. Remaining entries: docs/12 §12.7.
 
 # --- Stirling's own web stack (app/lib/*.jar) — faces only the app container's fixed calls
 # (docs/05 §5.5); bounded by SEC-78. Replaceable only by a newer upstream Stirling.

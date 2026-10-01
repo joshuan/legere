@@ -2148,7 +2148,7 @@ Production observation is read-only; source fixes are verified and committed on 
   administrator isolation, concurrent deduplication, rotation, signed artifact readiness,
   cross-namespace composition rejection and inherited split provenance. OpenAPI is published at
   `/api/openapi.json`; the implementation guide is `docs/18-service-integration-guide.md`.
-- [ ] **M69.4 — Integrated verification and green release**
+- [x] **M69.4 — Integrated verification and green release**
   **Goal:** publish all three features with the unchanged release gates passing.
   **Docs:** [`13`](../13-ci-cd.md), [`17 §17.4`](../17-agent-identity-and-integrations.md).
   **Acceptance:** typecheck, lint, coverage, relevant browser review and full hosted CI pass;
@@ -2162,7 +2162,13 @@ Production observation is read-only; source fixes are verified and committed on 
   configurations of those two states then passed without updates after the reviewed baseline refresh.
   **Release follow-up:** v0.38.0 was published, but its fresh Stirling scan reported
   CVE-2026-84782 in OpenSSL and CVE-2026-91776/CVE-2026-91777 in Jackson. M69.5 addresses these
-  findings before this release milestone can be closed.
+  findings in the green v0.38.1 follow-up.
+  **Hosted validation:** the feature and parser-fix CI runs pass, including all 579 applicable
+  browser checks (12 viewport-specific skips). `npm run release -- patch` publishes
+  [v0.38.1](https://github.com/joshuan/legere/releases/tag/v0.38.1); all 13 jobs in its
+  [release run](https://github.com/joshuan/legere/actions/runs/36827606673) pass, including both
+  architectures and the three image scans. Registry verification confirms that `latest` and
+  `0.38.1` resolve to `sha256:7897cd36fad47a069382237dea870ee4e695de2e4ac589a0928b9ed0fe1d077e`.
 
 - [x] **M69.5 — Patch the parser dependencies reported by the release scan**
   **Goal:** ship the identity features with a green Stirling image scan.
@@ -2175,4 +2181,6 @@ Production observation is read-only; source fixes are verified and committed on 
   passes all 24 real PDF, Office, OCR, preview and canonical-composition tests under the shipped
   non-root/read-only restrictions. Trivy 0.70.0 with the refreshed October 1 database passes the
   existing HIGH/CRITICAL gate and secret scan, without changing exclusions. Typecheck and lint pass.
-  Hosted publication and all-architecture scans remain the final gate of M69.4.
+  The obsolete CVE-2026-45447 OpenSSL exception is removed together with its documentation;
+  the rebuilt image also passes the stricter scan without that entry. Hosted publication and
+  all-architecture scans are recorded under M69.4.
