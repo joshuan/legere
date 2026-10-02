@@ -11,7 +11,7 @@
 # digest is what a person reads and what Dependabot rewrites together with it. Moving it by hand:
 #
 #   docker buildx imagetools inspect stirlingtools/stirling-pdf:latest --format '{{.Manifest.Digest}}'
-FROM stirlingtools/stirling-pdf:2.14.3@sha256:3b3670fce70b396ec56ba380a3cc7858e0abf83fe13f31c88f7737847763a396
+FROM stirlingtools/stirling-pdf:3.0.0@sha256:66b6edb8ee62e307a8b335166e8931a6e65b39c9bf73b5e517fbfe9c613ba221
 
 # The pinned base predates Ubuntu's DTLS security fix (CVE-2026-84782). Upgrade the matched
 # library/CLI pair from signed Noble repositories; never fall back to the vulnerable base version.
