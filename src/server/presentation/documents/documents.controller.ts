@@ -49,6 +49,8 @@ import {
   splitDocumentRequestSchema,
   updateDocumentFileRequestSchema,
   updateDocumentPageRequestSchema,
+  updateDocumentPreviewRequestSchema,
+  type UpdateDocumentPreviewRequest,
   type AddDocumentFileQuery,
   type CombineDocumentsRequest,
   type CropSuggestionResponse,
@@ -104,6 +106,7 @@ import {
   ListDocumentLinks,
   SuggestDocumentLinks,
 } from '../../application/documents/document-links';
+import { SelectDocumentPreviewPage } from '../../application/documents/select-preview-page';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
 import { GetDocumentProcessingState } from '../../application/documents/get-document-processing-state';
 import { SuggestGroupings } from '../../application/documents/suggest-groupings';
@@ -163,6 +166,7 @@ export class DocumentsController {
     private readonly reorderFiles: ReorderDocumentFiles,
     private readonly reorderPages: ReorderDocumentPages,
     private readonly updatePage: UpdateDocumentPage,
+    private readonly selectPreviewPage: SelectDocumentPreviewPage,
     private readonly removePage: RemoveDocumentPage,
     private readonly splitAtPages: SplitDocumentAtPages,
     private readonly movePages: MoveDocumentPages,
@@ -366,6 +370,16 @@ export class DocumentsController {
     @ZodBody(reorderDocumentPagesRequestSchema) body: ReorderDocumentPagesRequest,
   ): Promise<Envelope<DocumentDetailDto>> {
     return successEnvelope(await this.reorderPages.execute(user, document, body));
+  }
+
+  @Patch(':id/preview-page')
+  @UseGuards(DocumentAccessGuard)
+  async patchPreviewPage(
+    @CurrentUser() user: User,
+    @CurrentDocument() document: DocumentDetail,
+    @ZodBody(updateDocumentPreviewRequestSchema) body: UpdateDocumentPreviewRequest,
+  ): Promise<Envelope<DocumentDetailDto>> {
+    return successEnvelope(await this.selectPreviewPage.execute(user, document, body));
   }
 
   // How one page lies and how much of it is paper (docs/03 §3.3.17). A crop is taken on any page —

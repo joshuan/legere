@@ -615,6 +615,9 @@ describe('Building the canonical PDF (integration, Stirling-PDF)', () => {
 // business (docs/05 §5.5 step 1).
 function documentRow(id: string) {
   return {
+    previewPageId: null,
+    canonicalPageIds: [],
+    previewRevision: 0,
     id,
     pageCount: null,
     title: 'Document',

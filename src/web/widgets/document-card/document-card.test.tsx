@@ -10,6 +10,7 @@ vi.mock('next/link', () => ({
 }));
 
 const base: DocumentListDto = {
+  previewRevision: 0,
   id: 'aaaaaaaa-1111-4111-8111-111111111111',
   title: 'Rental agreement 2026',
   fileCount: 1,
@@ -37,7 +38,7 @@ describe('DocumentCard', () => {
 
     const image = screen.getByRole('presentation', { hidden: true });
     // A plain <img> at the API, which 302s to a signed URL (docs/10 §10.8).
-    expect(image).toHaveAttribute('src', `/api/documents/${base.id}/thumb`);
+    expect(image).toHaveAttribute('src', `/api/documents/${base.id}/thumb?v=0`);
     expect(screen.getByText('Rental agreement 2026')).toBeInTheDocument();
     expect(screen.getByText('PDF')).toBeInTheDocument();
     expect(screen.getByText('Contract')).toBeInTheDocument();
@@ -56,6 +57,16 @@ describe('DocumentCard', () => {
 
     // Better than a broken-image glyph: the artifact may have been swept or the document deleted.
     expect(screen.queryByRole('presentation', { hidden: true })).not.toBeInTheDocument();
+  });
+
+  it('loads a rebuilt preview on a mounted card, including after an earlier image failure', () => {
+    const { rerender } = renderWithProviders(<DocumentCard document={base} />);
+    fireEvent.error(screen.getByRole('presentation', { hidden: true }));
+    rerender(<DocumentCard document={{ ...base, previewRevision: 1 }} />);
+    expect(screen.getByRole('presentation', { hidden: true })).toHaveAttribute(
+      'src',
+      `/api/documents/${base.id}/thumb?v=1`,
+    );
   });
 
   it('badges a document the pipeline is still working on', () => {

@@ -732,6 +732,40 @@ describe('HandleDocumentProcess', () => {
       );
     });
 
+    it('renders the selected stored canonical page even while live pages are reordered', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf', pageCount: 3 } }]);
+      pdfs.pageCount = 3;
+      await run();
+      const held = await fileRepo.listPagesForDocument(DOCUMENT_ID);
+      const selected = held[1]?.id ?? '';
+      expect(stateOf().canonicalPageIds).toEqual(held.map((page) => page.id));
+      documents.add({ ...stateOf(), previewPageId: selected });
+      await fileRepo.replacePages(DOCUMENT_ID, {
+        expecting: null,
+        pages: [held[1], held[0], held[2]].filter((page) => page !== undefined),
+      });
+      pdfs.calls.length = 0;
+      const revision = stateOf().previewRevision;
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['preview'] });
+      expect(pdfs.calls).toEqual([{ method: 'pdfPageJpg', fileName: 'page:2' }]);
+      expect(stateOf().previewRevision).toBe(revision + 1);
+      expect(analyst.calls).toHaveLength(1);
+      documents.add({ ...stateOf(), previewPageId: null });
+      pdfs.calls.length = 0;
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['preview'] });
+      expect(pdfs.calls).toEqual([{ method: 'pdfPageJpg', fileName: 'page:1' }]);
+    });
+
+    it('does not advance the image revision when rendering fails', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' } }]);
+      await run();
+      const revision = stateOf().previewRevision;
+      pdfs.failOn('pdfPageJpg');
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['preview'] });
+      expect(stateOf().previewRevision).toBe(revision);
+      expect(stateOf().steps.preview).toBe('FAILED');
+    });
+
     it('previews an image document the same way as any other, because it is a PDF by now', async () => {
       await givenDocument([{ file: { mimeType: 'image/jpeg', ext: 'jpg' }, bytes: 'photo' }]);
 

@@ -40,6 +40,7 @@ import {
   type DownloadSettings,
   type PageThumbSettings,
 } from '../../application/documents/download-document';
+import { SelectDocumentPreviewPage } from '../../application/documents/select-preview-page';
 import { ReprocessDocument } from '../../application/documents/reprocess-document';
 import { GetDocumentProcessingState } from '../../application/documents/get-document-processing-state';
 import {
@@ -102,6 +103,18 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
       inject: [DocumentRepository],
     },
     { provide: GetDocument, useFactory: (): GetDocument => new GetDocument() },
+    {
+      provide: SelectDocumentPreviewPage,
+      useFactory: (
+        documents: DocumentRepository,
+        files: FileRepository,
+        events: DocumentEventRepository,
+        queue: JobQueue,
+        unitOfWork: UnitOfWork,
+      ): SelectDocumentPreviewPage =>
+        new SelectDocumentPreviewPage(documents, files, events, queue, unitOfWork),
+      inject: [DocumentRepository, FileRepository, DocumentEventRepository, JobQueue, UnitOfWork],
+    },
     {
       provide: UploadDocument,
       useFactory: (

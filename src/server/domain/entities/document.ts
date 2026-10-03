@@ -35,6 +35,9 @@ export type Document = {
   id: string;
   // Pages of the canonical PDF; null until it has been built (docs/03 §3.3.10).
   pageCount: number | null;
+  previewPageId: string | null;
+  canonicalPageIds: string[];
+  previewRevision: number;
   title: string;
   // What this document is, for somebody who has never seen it (docs/03 §3.3.10).
   description: string | null;

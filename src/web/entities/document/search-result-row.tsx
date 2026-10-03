@@ -35,7 +35,7 @@ export function SearchResultRow({
       avatar={
         item.hasPreview ? (
           <DocumentImage
-            src={documentFiles.thumb(item.id)}
+            src={documentFiles.thumb(item.id, item.previewRevision)}
             alt=""
             width={48}
             height={64}

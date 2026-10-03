@@ -71,6 +71,7 @@ human-readable index and must stay in sync with them.
 | 409 | `FILE_ALREADY_IN_DOCUMENT` | attaching bytes that are already a live file of **another** document — moving them is `combine` or a page move (`05 §5.6`). Not the same question as "may one file be read twice": since ADR-025 several pages, in several documents, may read one file (a split, a move) — what is refused is *bringing in from outside* bytes that already have a home |
 | 409 | `DOCUMENT_CHANGED` | a composition edit whose rewrite was computed from a reading of the document's page list that is no longer the list ([`03 §3.3.17`](./03-domain-model.md), `05 §5.6`). Nothing is written; the caller re-reads the document and asks again. Every edit that answers with a whole list carries this risk, and refusing is the alternative to writing an older list back over a newer one |
 | 409 | `FILE_READ_ELSEWHERE` | a replacement whose bytes are also read by a document the caller may not destroy content in, or may not read at all (ADR-025, `03 §3.4a`). A replacement reaches every page reading those bytes, so it is refused whole rather than applied to the part of the archive the caller happens to reach |
+| 409 | `PREVIEW_PAGE_NOT_READY` | the selected entry has not been counted or cannot be rendered |
 | 409 | `CANONICAL_NOT_READY` | the canonical PDF has not been built yet |
 | 409 | `DOCUMENT_UNAVAILABLE` | source download when all refs MISSING |
 | 409 | `STEPS_PAUSED` | a reprocess whose every requested step is paused ([`05 §5.4d`](./05-library-and-processing.md#54d-a-step-can-be-paused)) — the job would do nothing, so it is refused rather than enqueued |
@@ -362,6 +363,20 @@ Hybrid and semantic queries fall back to text on provider failure, while the UI 
 | `GET /api/users/lookup?q=` | 🔒 | minimal directory for the share picker: `[{ id, displayName, email }]`, max 10, active users only |
 
 ### Document pages and files
+
+`PATCH /api/documents/:id/preview-page` accepts `{ pageId: uuid | null }` and returns the updated
+`DocumentDetailDto`, including `previewPageId`. Requires read access and `canEditDocumentMeta`.
+List and detail DTOs include `previewRevision`, an integer image cache version. Clients include it
+in preview/thumbnail URLs and invalidate document/search queries after choosing a page.
+The page must belong to this document and be a counted, renderable page (`PAGE_NOT_FOUND` or
+`PREVIEW_PAGE_NOT_READY` otherwise); null resets to the first canonical page. Validate membership
+and write under the composition lock. Save the choice, queue image regeneration and record a
+`META_CHANGED` event in one transaction (`changes.previewPage` snapshots the old/new one-based
+page numbers as strings; null denotes the default first page). Selecting the same value is a no-op. A page identity
+follows reordering and cropping; removing, replacing or moving it away resets the source document
+without changing the receiving document's choice. This changes neither reading order nor metadata
+analysis. The selected page uses the crop and rotation already applied to the canonical PDF.
+
 
 A document is an ordered list of **pages** (`03 §3.3.17`, ADR-025), each read out of a file; the
 routes below are the two ways of saying so — by page, and by the file a run of pages comes from.

@@ -244,9 +244,16 @@ export function describeEvent(
           : t(`viewer.details.${field}`),
         from:
           change.from === null || change.from === undefined || change.from === ''
-            ? '—'
+            ? field === 'previewPage'
+              ? t('viewer.pages.firstPreview')
+              : '—'
             : change.from,
-        to: change.to === null || change.to === undefined || change.to === '' ? '—' : change.to,
+        to:
+          change.to === null || change.to === undefined || change.to === ''
+            ? field === 'previewPage'
+              ? t('viewer.pages.firstPreview')
+              : '—'
+            : change.to,
       }),
     )
     .join('; ');

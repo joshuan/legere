@@ -48,6 +48,7 @@ export const documentNameSchema = z.object({ id: z.string().uuid(), name: z.stri
 export type DocumentName = z.infer<typeof documentNameSchema>;
 
 export const documentListDtoSchema = z.object({
+  previewRevision: z.number().int().nonnegative(),
   id: z.string().uuid(),
   title: z.string(),
   // How many files the document is made of, and what they weigh together (docs/07 §7.3).
@@ -465,6 +466,7 @@ export const autoValuesSchema = z.object({
 export type AutoValues = z.infer<typeof autoValuesSchema>;
 
 export const documentDetailDtoSchema = documentListDtoSchema.extend({
+  previewPageId: z.string().uuid().nullable(),
   auto: autoValuesSchema,
   // Who the document is about (docs/03 §3.3.19), in catalogue order. The same list the card gets,
   // plus what only the viewer needs: `deleted` says the catalogue no longer holds this name. The

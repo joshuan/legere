@@ -88,7 +88,8 @@
       "RECEIPT_CHANGED": "These receipts or this decision have changed. Refresh the comparison before confirming.",
       "RECEIPT_MERGE_LIMIT": "These originals are not ready or exceed the PDF merge limits.",
       "RECEIPT_MERGE_BUSY": "Another receipt PDF is being assembled. Please retry shortly.",
-      "RECEIPT_REVIEW_DEPENDENCY": "Undo the later decisions involving this result first."
+      "RECEIPT_REVIEW_DEPENDENCY": "Undo the later decisions involving this result first.",
+      "PREVIEW_PAGE_NOT_READY": "Wait for the page to finish processing, then select it again."
     }
   },
   "auth": {
@@ -1238,7 +1239,8 @@
       "deletedName": "No longer in the catalogue. It stays on this document as a record.",
       "says": "What it says",
       "is": "What it is",
-      "cost": "What it cost"
+      "cost": "What it cost",
+      "previewPage": "Preview page"
     },
     "fields": {
       "receipt": {
@@ -1461,7 +1463,13 @@
       "insert": "Insert files at position {position}",
       "save": "Save",
       "cancel": "Cancel",
-      "saved": "The pages are saved; the document is being rebuilt."
+      "saved": "The pages are saved; the document is being rebuilt.",
+      "usePreview": "Use page {position} for preview",
+      "previewAction": "Use for preview",
+      "previewLabel": "Preview",
+      "resetPreview": "Use first page for preview",
+      "previewSaved": "Preview page saved. Images are being updated.",
+      "firstPreview": "First page"
     },
     "textQuality": {
       "PARTIAL": "Some of this document was not read",

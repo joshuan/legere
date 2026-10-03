@@ -823,6 +823,13 @@ re-rendered.
 
 **And the rest of what can be done to one page, in place, from the tile:**
 
+- **Use for preview** — choose this page for the document's card, search thumbnail and preview
+  image, without moving it or changing the PDF's reading order. The chosen tile has a visible
+  **Preview** marker. This is always a manual choice, available to editors after pages are known;
+  a whole uncounted file cannot be selected. **Use first page** resets to the default. Choosing or
+  resetting saves immediately and queues image regeneration, without repeating analysis or text
+  extraction. Pending arrangement edits must be saved or cancelled first. A removed or moved-out
+  choice falls back to the first page; the receiving document keeps its own choice.
 - **Crop** — the editor of §11.5c, for **any** page there is a picture of. Which way up and how much
   of it is paper are one question about one page, and that editor is where both are answered — for a
   page of a PDF exactly as for a photograph, because the crop is written on the entry and the build

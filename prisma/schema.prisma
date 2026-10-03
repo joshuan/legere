@@ -425,6 +425,9 @@ model ArchiveItem {
 model Document {
   id                  String                   @id @default(uuid()) @db.Uuid
   pageCount           Int?                     @map("page_count")
+  previewPageId       String?                  @map("preview_page_id") @db.Uuid
+  canonicalPageIds    String[]                 @default([]) @map("canonical_page_ids") @db.Uuid
+  previewRevision     Int                      @default(0) @map("preview_revision")
   title               String
   // What this document is, for somebody who has never seen it (docs/03 §3.3.10). Null until the
   // analysis writes it, or where nobody has.
@@ -471,6 +474,7 @@ model Document {
   archiveItem     ArchiveItem?      @relation(fields: [id], references: [id], onDelete: Cascade)
   createdBy       User?             @relation("DocumentCreatorLegacy", fields: [createdById], references: [id])
   documentType    DocumentType?     @relation(fields: [typeId], references: [id])
+  previewPage     DocumentPage?     @relation("DocumentPreview", fields: [previewPageId], references: [id], onDelete: SetNull)
   pages           DocumentPage[]
   chunks          DocumentChunk[]
   people          DocumentPerson[]
@@ -834,8 +838,9 @@ model DocumentPage {
   crop       Json?
   cropSource ValueSource @default(NONE) @map("crop_source")
 
-  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  file     File     @relation(fields: [fileId], references: [id])
+  document   Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  file       File       @relation(fields: [fileId], references: [id])
+  previewFor Document[] @relation("DocumentPreview")
 
   @@unique([documentId, position])
   @@index([fileId])

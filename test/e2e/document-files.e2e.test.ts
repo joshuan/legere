@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import sharp from 'sharp';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
 import {
@@ -15,6 +15,7 @@ import {
   splitDocumentFileResponseSchema,
 } from '../../src/shared/contracts/files';
 import { createInviteResponseSchema } from '../../src/shared/contracts/users';
+import { JobQueue } from '../../src/server/application/ports/job-queue';
 import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
 import { api, createTestApp, tokenFromFragmentUrl, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
@@ -508,6 +509,171 @@ describe('Document files (e2e)', () => {
         })),
       });
     };
+
+    describe('the manually chosen preview page', () => {
+      function refused(
+        response: Parameters<typeof expectError>[0],
+        status: number,
+        code: string,
+      ): void {
+        expect(response.status).toBe(status);
+        expect(expectError(response).code).toBe(code);
+      }
+      async function countedDocument() {
+        const fixture = await givenLibraryDocument({ files: [{ name: 'passport.pdf' }] });
+        await givenCountedPages(fixture.documentId, fixture.fileIds[0] ?? '', 3);
+        const detail = await detailOf(fixture.documentId);
+        const pageIds = detail.pages.map((page) => page.id);
+        await testPrisma().document.update({
+          where: { id: fixture.documentId },
+          data: {
+            canonicalPageIds: pageIds,
+            pageCount: pageIds.length,
+          },
+        });
+        return { ...fixture, pageIds };
+      }
+      const select = (documentId: string, pageId: string | null, cookie = adminCookie) =>
+        api(app)
+          .patch(`/api/documents/${documentId}/preview-page`, { pageId })
+          .set('Cookie', cookie);
+
+      it('persists the photo page, queues only previews, and treats the same choice as a no-op', async () => {
+        const { documentId, pageIds } = await countedDocument();
+        const pageId = pageIds[1] ?? '';
+        const result = expectData(await select(documentId, pageId), documentDetailDtoSchema);
+        expect(result.previewPageId).toBe(pageId);
+        expect(result.previewRevision).toBe(0);
+        expect(result.pages.map((page) => page.id)).toEqual(pageIds);
+        expect(result.steps).toMatchObject({
+          canonical: 'DONE',
+          preview: 'QUEUED',
+          markdown: 'DONE',
+          analysis: 'DONE',
+        });
+        expect(await processJobs(documentId)).toEqual([
+          expect.objectContaining({ data: { documentId, steps: ['preview'] } }),
+        ]);
+        expect((await select(documentId, pageId)).status).toBe(200);
+        expect(await processJobs(documentId)).toHaveLength(1);
+        const journal = await testPrisma().documentEvent.findMany({
+          where: { documentId, type: 'META_CHANGED' },
+        });
+        expect(journal).toHaveLength(1);
+        expect(journal[0]?.payload).toEqual({ changes: { previewPage: { from: null, to: '2' } } });
+        expect(
+          expectData(await select(documentId, null), documentDetailDtoSchema).previewPageId,
+        ).toBeNull();
+      });
+
+      it('keeps the choice through reorder and rotation, then resets when the page is removed', async () => {
+        const { documentId, pageIds } = await countedDocument();
+        const pageId = pageIds[1] ?? '';
+        await select(documentId, pageId);
+        const reordered = await api(app)
+          .patch(`/api/documents/${documentId}/pages`, { order: [...pageIds].reverse() })
+          .set('Cookie', adminCookie);
+        expect(expectData(reordered, documentDetailDtoSchema).previewPageId).toBe(pageId);
+        const turned = await api(app)
+          .patch(`/api/documents/${documentId}/pages/${pageId}`, {
+            turn: { quarterTurns: 1, mirrored: false },
+          })
+          .set('Cookie', adminCookie);
+        expect(expectData(turned, documentDetailDtoSchema).previewPageId).toBe(pageId);
+        const removed = await api(app)
+          .delete(`/api/documents/${documentId}/pages/${pageId}`)
+          .set('Cookie', adminCookie);
+        expect(expectData(removed, documentDetailDtoSchema).previewPageId).toBeNull();
+      });
+
+      it('resets a moved choice without changing the destination preview', async () => {
+        const source = await countedDocument();
+        const target = await countedDocument();
+        const movedId = source.pageIds[1] ?? '';
+        const keptId = target.pageIds[2] ?? '';
+        await select(source.documentId, movedId);
+        await select(target.documentId, keptId);
+        const moved = await api(app)
+          .post(`/api/documents/${source.documentId}/pages/move`, {
+            pageIds: [movedId],
+            documentId: target.documentId,
+          })
+          .set('Cookie', adminCookie);
+        expect(moved.status).toBe(200);
+        expect((await detailOf(source.documentId)).previewPageId).toBeNull();
+        expect((await detailOf(target.documentId)).previewPageId).toBe(keptId);
+      });
+
+      it('rebuilds only the canonical and previews when the selected page has no stored mapping', async () => {
+        const { documentId, pageIds } = await countedDocument();
+        await testPrisma().document.update({
+          where: { id: documentId },
+          data: { canonicalPageIds: [] },
+        });
+        expect((await select(documentId, pageIds[1] ?? '')).status).toBe(200);
+        expect(await processJobs(documentId)).toEqual([
+          expect.objectContaining({ data: { documentId, steps: ['canonical', 'preview'] } }),
+        ]);
+      });
+
+      it('refuses unknown entries, foreign pages, uncounted pages, and malformed bodies without writing', async () => {
+        const own = await countedDocument();
+        const other = await countedDocument();
+        const uncounted = await givenLibraryDocument();
+        const unknownPage = (await detailOf(uncounted.documentId)).pages[0]?.id ?? '';
+        refused(await select(own.documentId, other.pageIds[0] ?? ''), 404, 'PAGE_NOT_FOUND');
+        refused(await select(uncounted.documentId, unknownPage), 409, 'PREVIEW_PAGE_NOT_READY');
+        refused(
+          await api(app)
+            .patch(`/api/documents/${own.documentId}/preview-page`, {})
+            .set('Cookie', adminCookie),
+          422,
+          'VALIDATION_FAILED',
+        );
+        refused(await select(own.documentId, 'invalid'), 422, 'VALIDATION_FAILED');
+        expect(await processJobs(own.documentId)).toHaveLength(0);
+        expect((await detailOf(own.documentId)).previewPageId).toBeNull();
+      });
+
+      it('requires document visibility and permits an ordinary library reader to choose a page', async () => {
+        const reader = await inviteUser(`preview-reader-${seq}@legere.local`);
+        const own = await countedDocument();
+        expect((await select(own.documentId, own.pageIds[1] ?? '', reader.cookie)).status).toBe(
+          200,
+        );
+        const hidden = await givenLibraryDocument({ visibility: 'RESTRICTED' });
+        const hiddenPage = (await detailOf(hidden.documentId)).pages[0]?.id ?? '';
+        refused(
+          await select(hidden.documentId, hiddenPage, reader.cookie),
+          404,
+          'DOCUMENT_NOT_FOUND',
+        );
+        refused(
+          await api(app).patch(`/api/documents/${own.documentId}/preview-page`, {
+            pageId: own.pageIds[0],
+          }),
+          401,
+          'UNAUTHENTICATED',
+        );
+      });
+
+      it('rolls the selection, status and journal back when enqueueing fails', async () => {
+        const { documentId, pageIds } = await countedDocument();
+        const enqueue = vi
+          .spyOn(app.nestApp.get(JobQueue), 'enqueueAfterTx')
+          .mockRejectedValueOnce(new Error('queue unavailable'));
+        try {
+          expect((await select(documentId, pageIds[1] ?? '')).status).toBe(500);
+        } finally {
+          enqueue.mockRestore();
+        }
+        const detail = await detailOf(documentId);
+        expect(detail.previewPageId).toBeNull();
+        expect(detail.steps.preview).toBe('DONE');
+        expect(await testPrisma().documentEvent.count({ where: { documentId } })).toBe(0);
+        expect(await processJobs(documentId)).toHaveLength(0);
+      });
+    });
 
     it('stores the order a person chose and rebuilds the document', async () => {
       const { documentId, fileIds } = await givenLibraryDocument({ files: [{ name: 'scan.pdf' }] });

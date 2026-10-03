@@ -524,11 +524,25 @@ export class PrismaFileRepository implements FileRepository {
     documentId: string,
     pages: readonly PageEntry[],
   ): Promise<void> {
+    // The FK clears a removed choice. A wholesale rewrite restores a retained page's identity.
+    const document = await client.document.findUniqueOrThrow({
+      where: { id: documentId },
+      select: { previewPageId: true },
+    });
     await client.documentPage.deleteMany({ where: { documentId } });
     if (pages.length === 0) return;
     await client.documentPage.createMany({
       data: pages.map((page, position) => rowOf(documentId, position, page)),
     });
+    if (
+      document.previewPageId !== null &&
+      pages.some((page) => page.id === document.previewPageId)
+    ) {
+      await client.document.update({
+        where: { id: documentId },
+        data: { previewPageId: document.previewPageId },
+      });
+    }
   }
 
   async listForDocument(documentId: string, tx?: TransactionHandle): Promise<DocumentFile[]> {

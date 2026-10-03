@@ -171,6 +171,9 @@ export function documentFixture(overrides: Partial<Document> = {}): Document {
     id: DOCUMENT_ID,
     description: null,
     pageFormat: 'AUTO',
+    previewPageId: null,
+    canonicalPageIds: [],
+    previewRevision: 0,
     titleSource: 'NONE',
     pageCount: null,
     title: 'Invoice 2026-01',
@@ -246,6 +249,8 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       ...existing,
       steps,
       skipReasons,
+      canonicalPageIds: update.canonicalPageIds ?? existing.canonicalPageIds,
+      previewRevision: existing.previewRevision + (update.steps?.preview === 'DONE' ? 1 : 0),
       ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
       ...(update.languages === undefined ? {} : { languages: update.languages }),
       // Merged, like the column: each step adds what it worked out (docs/03 §3.3.10).

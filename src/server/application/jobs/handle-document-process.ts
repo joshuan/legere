@@ -408,6 +408,7 @@ export class HandleDocumentProcess extends JobHandler {
           steps: { canonical: 'SKIPPED' },
           skipReasons: { canonical: 'UNSUPPORTED_FORMAT' },
           pageCount: null,
+          canonicalPageIds: [],
         });
         return { kind: 'nothing' };
       }
@@ -421,6 +422,7 @@ export class HandleDocumentProcess extends JobHandler {
         skipReasons: { canonical: built.unsupported > 0 ? 'UNSUPPORTED_FORMAT' : null },
         // The count belongs to the canonical, because the canonical is the document (docs/03 §3.3.10).
         pageCount: built.pageCount,
+        canonicalPageIds: built.pageIds,
         ocrUsed: built.ocrUsed,
       });
       return { kind: 'ready', pageCount: built.pageCount, ocrUsed: built.ocrUsed };
@@ -430,9 +432,8 @@ export class HandleDocumentProcess extends JobHandler {
     }
   }
 
-  // Step 2. The first page of the canonical, rasterized once and resized twice (docs/09 §9.2:
-  // preview.jpg at PREVIEW_MAX_DIM, thumb.jpg at THUMB_MAX_DIM). One rule for every document,
-  // because by this point every document is a PDF.
+  // Step 2. The manually chosen canonical page (first by default), resized for the viewer and shelf.
+  // Resolve against the built artifact's page identities, never the mutable live page positions.
   private async renderPreviews(document: Document, canonical: Canonical): Promise<void> {
     if (canonical.kind === 'nothing') {
       await this.write(document.id, {
@@ -449,7 +450,15 @@ export class HandleDocumentProcess extends JobHandler {
     }
 
     try {
-      const page = await this.pdfs.pdfPageJpg(await this.openCanonical(document));
+      const current = await this.documents.findById(document.id);
+      if (current === null || current.deletedAt !== null) return;
+      const selected =
+        current.previewPageId === null
+          ? -1
+          : current.canonicalPageIds.indexOf(current.previewPageId);
+      const page = await this.pdfs.pdfPageJpg(await this.openCanonical(document), {
+        page: Math.max(0, selected) + 1,
+      });
 
       const [preview, thumb] = await Promise.all([
         this.images.toJpegPreview(page, {

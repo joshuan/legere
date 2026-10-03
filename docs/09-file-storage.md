@@ -42,7 +42,7 @@ Two distinct storages with opposite rules:
 
 ```
 documents/{documentId}/canonical.pdf   # always — every document is a PDF (05 §5.5)
-documents/{documentId}/preview.jpg     # first page of the canonical
+documents/{documentId}/preview.jpg     # manually selected canonical page, otherwise the first
 documents/{documentId}/thumb.jpg       # the same, smaller, for lists
 files/{fileId}/original.{ext}          # a managed file's own bytes: an upload, or something we made
 files/{fileId}/pages/{n}.jpg           # one page of that file's own original, small, 0-based

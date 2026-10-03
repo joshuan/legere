@@ -17,6 +17,7 @@ export const ERROR_CODES = [
   // A page of another document, or of none at all (docs/03 §3.3.17): an entry is addressed inside
   // the document that holds it, so one that is not this document's is simply not there.
   'PAGE_NOT_FOUND',
+  'PREVIEW_PAGE_NOT_READY',
   'INVITE_NOT_FOUND',
   'API_TOKEN_NOT_FOUND',
   // 🔒 Somebody else's session is not found rather than forbidden: that it exists at all is none

@@ -6,6 +6,7 @@ import {
   ExportOutlined,
   FileUnknownOutlined,
   PlusOutlined,
+  PictureOutlined,
   RotateLeftOutlined,
   RotateRightOutlined,
   ScissorOutlined,
@@ -248,7 +249,21 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
     onError: (error: unknown) => void message.error(describeError(error)),
   });
 
-  const busy = save.isPending || remove.isPending || split.isPending;
+  const preview = useMutation({
+    mutationFn: (pageId: string | null) => documentApi.selectPreviewPage(document.id, pageId),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(documentKeys.detail(document.id), updated);
+      void message.success(t('viewer.pages.previewSaved'), 3);
+      refresh();
+      void queryClient.invalidateQueries({ queryKey: ['search'] });
+    },
+    onError: (error: unknown) => void message.error(describeError(error)),
+  });
+  const defaultPreview = document.pages.find(
+    (page) => page.pageIndex !== null && hasPicture(page, filesById.get(page.fileId)),
+  )?.id;
+  const previewPageId = document.previewPageId ?? defaultPreview;
+  const busy = save.isPending || remove.isPending || split.isPending || preview.isPending;
   // 🔒 A position is a place in the list the server was last shown (docs/03 §3.3.17), so everything
   // that names one goes quiet while the strip holds an order nobody has sent. Save or Cancel first —
   // which is "nothing is sent until it is saved" said from the other side.
@@ -361,6 +376,11 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
       <Space orientation="vertical" size={8} style={{ width: '100%' }}>
         <Space wrap size={8} align="center">
           <Typography.Text strong>{t('viewer.pages.heading', { count: total })}</Typography.Text>
+          {!readOnly && document.previewPageId !== null && (
+            <Button size="small" disabled={sending} onClick={() => preview.mutate(null)}>
+              {t('viewer.pages.resetPreview')}
+            </Button>
+          )}
           {!readOnly && selected.size > 0 && (
             <>
               <Typography.Text type="secondary">
@@ -402,6 +422,9 @@ export function PageStrip({ document, onInsertFiles, readOnly = false }: PageStr
                   total={total}
                   turn={shownTurn}
                   selected={selected.has(pageId)}
+                  isPreview={previewPageId === pageId}
+                  previewChosen={document.previewPageId === pageId}
+                  onPreview={() => preview.mutate(pageId)}
                   readOnly={readOnly}
                   sending={sending}
                   onlyPage={total <= 1}
@@ -512,6 +535,9 @@ function Tile({
   total,
   turn,
   selected,
+  isPreview,
+  previewChosen,
+  onPreview,
   readOnly,
   sending,
   onlyPage,
@@ -535,6 +561,9 @@ function Tile({
   total: number;
   turn: Rotation | null;
   selected: boolean;
+  isPreview: boolean;
+  previewChosen: boolean;
+  onPreview: () => void;
   readOnly: boolean;
   sending: boolean;
   onlyPage: boolean;
@@ -668,7 +697,16 @@ function Tile({
           )}
         </div>
         {/* Where it stands in the **document**, which is the number a person counts by here. */}
-        <Typography.Text style={{ fontSize: 12 }}>{position + 1}</Typography.Text>
+        <Typography.Text
+          style={{
+            fontSize: 12,
+            color: isPreview ? token.colorPrimaryText : token.colorText,
+            fontWeight: isPreview ? 600 : 400,
+          }}
+        >
+          {position + 1}
+          {isPreview ? ` · ${t('viewer.pages.previewLabel')}` : ''}
+        </Typography.Text>
       </button>
 
       <Typography.Paragraph
@@ -681,6 +719,17 @@ function Tile({
 
       {!readOnly && (
         <Space orientation="vertical" size={0} style={{ width: '100%' }} align="center">
+          <Button
+            size="small"
+            type="text"
+            icon={<PictureOutlined />}
+            style={{ fontSize: 12 }}
+            aria-label={t('viewer.pages.usePreview', { position: position + 1 })}
+            disabled={sending || previewChosen || page.pageIndex === null || !picture}
+            onClick={onPreview}
+          >
+            {t('viewer.pages.previewAction')}
+          </Button>
           <Space size={0} wrap style={{ justifyContent: 'center' }}>
             <Checkbox
               checked={selected}

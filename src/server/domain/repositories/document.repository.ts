@@ -41,6 +41,7 @@ export type ProcessingUpdate = {
   // (docs/03 §3.3.10). Setting a step's reason to null clears it, which is what a re-run does.
   skipReasons?: Partial<Record<keyof DocumentSteps, StepSkipReason | null>>;
   pageCount?: number | null;
+  canonicalPageIds?: string[];
   languages?: string[];
   country?: string | null;
   city?: string | null;
@@ -214,6 +215,7 @@ export type DocumentListPage = {
 };
 
 export type UpdateDocumentMetaInput = {
+  previewPageId?: string | null;
   title?: string;
   titleSource?: ValueSource;
   description?: string | null;

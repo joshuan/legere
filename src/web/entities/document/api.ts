@@ -33,6 +33,7 @@ import {
   splitDocumentFileResponseSchema,
   splitDocumentResponseSchema,
   updateDocumentPageRequestSchema,
+  updateDocumentPreviewRequestSchema,
   type CombineDocumentsRequest,
   type GroupingSuggestionsResponse,
   type MoveDocumentPagesRequest,
@@ -109,6 +110,12 @@ export const documentApi = {
 
   update: (id: string, body: UpdateDocumentRequest): Promise<DocumentDetailDto> =>
     apiClient.patch(`/api/documents/${id}`, { schema: documentDetailDtoSchema, body }),
+
+  selectPreviewPage: (id: string, pageId: string | null): Promise<DocumentDetailDto> =>
+    apiClient.patch(`/api/documents/${id}/preview-page`, {
+      schema: documentDetailDtoSchema,
+      body: updateDocumentPreviewRequestSchema.parse({ pageId }),
+    }),
 
   remove: (id: string): Promise<OkResponse> =>
     apiClient.delete(`/api/documents/${id}`, { schema: okResponseSchema }),
@@ -270,8 +277,10 @@ export const documentApi = {
 // The bytes are plain URLs, not fetches: an <img> or <object> points straight at them and the
 // browser follows the 302 to the signed URL itself (docs/10 §10.8).
 export const documentFiles = {
-  thumb: (id: string) => `/api/documents/${id}/thumb`,
-  preview: (id: string) => `/api/documents/${id}/preview`,
+  thumb: (id: string, revision?: number) =>
+    `/api/documents/${id}/thumb${revision === undefined ? '' : `?v=${revision}`}`,
+  preview: (id: string, revision?: number) =>
+    `/api/documents/${id}/preview${revision === undefined ? '' : `?v=${revision}`}`,
   // The document as one piece. `download` asks for it as an attachment rather than inline, which is
   // the only difference between reading it and keeping it (docs/11 §11.5b).
   canonical: (id: string, options: { download?: boolean } = {}) =>

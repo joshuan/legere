@@ -2353,3 +2353,28 @@ Production observation is read-only; source fixes are verified and committed on 
   intentional skips, both when refreshing the theme baselines and when comparing without updates.
   All 614 changed screenshots were reviewed at 320/390/768/1024/1440 px in both appearances;
   rendered contrast checks cover actions, hover states, status tags and selected navigation metadata.
+
+## M77 — Manually choose a document's preview page (2026-10-03)
+
+- [x] **M77.1 — Persist and render the selected page.**
+  Store a stable page identity, preserve it across reorders and rebuilds, clear it when the page
+  leaves the document, and render both preview sizes from that page of the canonical PDF.
+  Save the canonical page identity order so pending composition edits cannot shift the selection
+  onto a different page. Keep authorization, transactional queueing and the journal consistent.
+- [x] **M77.2 — Offer the choice in the page strip.**
+  Add a localized manual action, current-cover marker and reset to the first page; refresh displayed
+  previews after processing. Verify API permissions, persistence, rendering, component interactions
+  and responsive screenshots in both themes.
+  Server validation passes 2,065 tests (31 environment-dependent skips), including API transactions,
+  the migrated schema/documentation check and canonical rendering; application/domain line coverage
+  is 97.64%. All 592 web tests are covered by the full run and corrected-suite reruns. The pinned
+  Docker browser matrix passes all 31 affected tests both with baseline updates and with comparison
+  only. All 40 affected screenshots were reviewed across five widths and both appearances.
+
+## M78 — Personal ID documents view (planned)
+
+- [ ] **M78.1 — Add a dedicated visual section for personal identity documents.**
+  Present passports, identity cards, driving licences and similar government-issued personal
+  documents grouped by person. Keep contracts in the general document experience. Reuse existing
+  document types and person associations; this is a navigation/presentation change with no database
+  schema changes or duplicate document records. Implement after the current PDF-preview discussion.

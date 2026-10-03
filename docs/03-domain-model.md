@@ -237,6 +237,9 @@ artifact and never a source.
 |-------|------|-------|
 | id | uuid | |
 | pageCount | int? | pages of the **canonical PDF**; `NULL` until it has been built |
+| previewPageId | uuid? | manually selected `DocumentPage`; `NULL` uses the first canonical page. The identity survives a reorder, crop and rebuild; removal, replacement or moving the selected page away clears the choice. It is never selected by analysis |
+| canonicalPageIds | uuid[] | page identities in the exact order of the stored canonical PDF, written by its build. This artifact metadata does not change when the live page order changes |
+| previewRevision | int | starts at zero, advances when both preview images are successfully written; exposed in list/detail DTOs and used in image URLs so an already-mounted image reloads |
 | title | string | initial = the name of the first file, without its extension. Named by the analysis where nobody has chosen one; editable |
 | description | text? | a few hundred characters answering "what is this": what the document is, between whom, what for. Read by the analysis where the field is empty; editable |
 | markdown | text? | the extracted Markdown representation |

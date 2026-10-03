@@ -363,3 +363,13 @@ its lines were false. A claim nobody can run is a claim nobody is checking.
 - Visible facts/actions without document overflow at 1366×768 and 1280×720, long item scrolling,
   phone original previews, localized decision/history flow and ten theme/width snapshots:
   `test/browser/receipt-duplicates.spec.ts`.
+
+## M77 — Manually selected document previews
+
+| Scenario | Evidence |
+| --- | --- |
+| Select/reset without reordering or analysis, no-op, permission and input validation, transactional queue rollback | `test/e2e/document-files.e2e.test.ts` — manually chosen preview page |
+| Preserve the identity through reordering/rotation; clear a removed/moved choice and preserve the destination's choice | Same API suite against real Prisma/PostgreSQL |
+| Resolve a chosen page against the stored canonical order while live pages change; publish an image revision only after rendering succeeds | `src/server/application/jobs/handle-document-process.test.ts` — preview |
+| Choose/reset, read-only and unsaved-arrangement controls, localized errors and history, retry an image after a new revision | `page-strip.test.tsx`, `document-card.test.tsx`, `document-viewer-screen.test.tsx` |
+| Choice marker, reset and reading order at all five widths in both appearances | `test/browser/routes.spec.ts` — preview page; canonical `document-preview-page-selected` screenshots |

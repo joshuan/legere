@@ -918,11 +918,18 @@ they are served to the client via short-lived signed URLs after an access check.
    6. **Metadata is stamped**: the document's title and its creation date, best-effort — a failure
       here is logged and does not fail the step, because a PDF with the wrong `/Title` is still the
       document.
-   The result is written to `documents/{id}/canonical.pdf` and its page count onto the document.
+   The result is written to `documents/{id}/canonical.pdf`; its page count and ordered source page
+   identities are stored together on the document as `pageCount` and `canonicalPageIds`.
    Rebuilding is a normal operation, not a repair: any change to the composition (§5.6) enqueues it.
-2. **First-page JPG preview:** the canonical PDF → Stirling-PDF (PDF→IMG, first page) → `sharp`
+2. **Selected-page JPG preview:** the canonical PDF → Stirling-PDF (PDF→IMG) → `sharp`
    (resize/JPEG). Artifacts `preview.jpg` (+ a smaller `thumb.jpg` for lists). One rule for every
-   document, because by this point every document is a PDF.
+   document, because by this point every document is a PDF. `previewPageId` selects the page by its
+   identity in `canonicalPageIds`, never by its current live position. With no selection, use page
+   one. The choice is manual, survives rebuilding and reordering, and is cleared if its page leaves
+   the document. Choosing another page queues only `preview`; if the existing canonical lacks a
+   page identity map or does not yet contain the selected page, rebuild `canonical` and `preview`
+   to establish it. Text extraction, analysis,
+   fields and vectors are not reprocessed by a preview choice.
 3. **Markdown extraction** — normally the canonical PDF goes through **Docling** (ADR-018), which has a layout model:
    headings stay headings and tables stay tables, instead of being flattened into a wall of text.
    **Word documents:** both legacy `.doc` and `.docx` are accepted by upload and library ingest and

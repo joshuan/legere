@@ -38,7 +38,7 @@ export function PreviewPane({ document }: { document: DocumentDetailDto }) {
     );
   }
 
-  // The first page, while the whole of it is still being put together — with a line saying that is
+  // The chosen preview page, while the whole document is still being put together — saying that is
   // what this is, so nobody reads a one-page preview as the whole document.
   if (document.hasPreview) {
     return (
@@ -46,7 +46,7 @@ export function PreviewPane({ document }: { document: DocumentDetailDto }) {
         <Typography.Text type="secondary">{t('viewer.canonical.assembling')}</Typography.Text>
         <DocumentImage
           key={document.steps.preview}
-          src={documentFiles.preview(document.id)}
+          src={documentFiles.preview(document.id, document.previewRevision)}
           alt={document.title}
           style={{ maxWidth: '100%' }}
         />
@@ -65,7 +65,7 @@ export function PreviewPane({ document }: { document: DocumentDetailDto }) {
   );
 }
 
-// The other document's first page, at the size of a row (docs/11 §11.5e) — what the sidebar card
+// The other document's chosen preview page, at the size of a row (docs/11 §11.5e) — what the sidebar card
 // never had the width for, and the fastest answer to "which act was that". The same fallback the
 // file rows use: an artifact can be missing even where the step says it was made.
 export function DocumentThumb({ document }: { document: DocumentListDto }) {
@@ -85,7 +85,7 @@ export function DocumentThumb({ document }: { document: DocumentListDto }) {
     >
       {document.hasPreview ? (
         <DocumentImage
-          src={documentFiles.thumb(document.id)}
+          src={documentFiles.thumb(document.id, document.previewRevision)}
           alt=""
           width={44}
           height={56}

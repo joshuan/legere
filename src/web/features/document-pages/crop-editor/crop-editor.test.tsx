@@ -88,6 +88,8 @@ function makeFile(crop: Crop | null, rotation: Rotation | null = null): Document
 // What `PATCH …/files/:fileId` answers with: the whole document (docs/07 §7.3). The client
 // validates it against the contract, so it has to be a real one.
 const rebuilt: DocumentDetailDto = {
+  previewPageId: null,
+  previewRevision: 0,
   id: DOCUMENT_ID,
   title: 'Passport',
   fileCount: 1,

@@ -564,6 +564,7 @@ export function toListDto(item: DocumentListItem): DocumentListDto {
     primaryExt: item.primaryExt,
     sizeBytes: item.sizeBytes.toString(),
     pageCount: document.pageCount,
+    previewRevision: document.previewRevision,
     documentType: item.documentType,
     availability: item.availability,
     processing: isProcessing(document.steps),
@@ -702,6 +703,7 @@ export function toDetailDto(
   return {
     ...toListDto(listItemOf(detail)),
     ocrUsed: document.ocrUsed,
+    previewPageId: document.previewPageId,
     description: document.description,
     pageFormat: document.pageFormat,
     titleSource: document.titleSource,

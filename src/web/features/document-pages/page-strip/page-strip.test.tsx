@@ -67,6 +67,8 @@ function makeFile(id: string, overrides: Partial<DocumentFileDto> = {}): Documen
 // what the whole milestone is about — the strip reads across the boundary between them.
 function makeDocument(overrides: Partial<DocumentDetailDto> = {}): DocumentDetailDto {
   return {
+    previewPageId: null,
+    previewRevision: 0,
     id: DOCUMENT_ID,
     title: 'Lease',
     fileCount: 2,
@@ -231,6 +233,84 @@ function open(document: DocumentDetailDto = makeDocument(), onInsertFiles = vi.f
 }
 
 describe('PageStrip', () => {
+  describe('choosing the preview', () => {
+    it('sends the stable page id immediately without saving a new arrangement', async () => {
+      let body: unknown;
+      server.use(
+        http.patch(`/api/documents/${DOCUMENT_ID}/preview-page`, async ({ request }) => {
+          body = await request.json();
+          return HttpResponse.json(envelope(makeDocument({ previewPageId: pageId(1) })));
+        }),
+      );
+      open();
+      await userEvent.click(
+        screen.getByRole('button', { name: say('usePreview', { position: 2 }) }),
+      );
+      await waitFor(() => expect(body).toEqual({ pageId: pageId(1) }));
+      expect(await screen.findByText(strings.previewSaved)).toBeVisible();
+      expect(stripOrder()).toEqual([
+        say('tile', { position: 1, total: 3, source: source.pdf(1) }),
+        say('tile', { position: 2, total: 3, source: source.pdf(2) }),
+        say('tile', { position: 3, total: 3, source: source.jpg() }),
+      ]);
+    });
+
+    it('marks the chosen page and lets the user reset to the first page', async () => {
+      let body: unknown;
+      server.use(
+        http.patch(`/api/documents/${DOCUMENT_ID}/preview-page`, async ({ request }) => {
+          body = await request.json();
+          return HttpResponse.json(envelope(makeDocument()));
+        }),
+      );
+      open(makeDocument({ previewPageId: pageId(1) }));
+      expect(
+        within(tile(2, 3, source.pdf(2))).getByText(`2 · ${strings.previewLabel}`),
+      ).toBeVisible();
+      expect(
+        screen.getByRole('button', { name: say('usePreview', { position: 2 }) }),
+      ).toBeDisabled();
+      await userEvent.click(screen.getByRole('button', { name: strings.resetPreview }));
+      await waitFor(() => expect(body).toEqual({ pageId: null }));
+    });
+
+    it('waits for pending arrangement changes and hides actions for read-only access', async () => {
+      const { unmount } = open();
+      await userEvent.click(
+        screen.getByRole('button', { name: say('turnRight', { position: 1 }) }),
+      );
+      expect(
+        screen.getByRole('button', { name: say('usePreview', { position: 2 }) }),
+      ).toBeDisabled();
+      unmount();
+      renderWithProviders(
+        <PageStrip
+          document={makeDocument({ previewPageId: pageId(1) })}
+          onInsertFiles={vi.fn()}
+          readOnly
+        />,
+      );
+      expect(screen.queryByRole('button', { name: /Use page .* for preview/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: strings.resetPreview })).toBeNull();
+    });
+
+    it('reports a refused choice and keeps the current preview marker', async () => {
+      server.use(
+        http.patch(`/api/documents/${DOCUMENT_ID}/preview-page`, () =>
+          HttpResponse.json(errorEnvelope('PREVIEW_PAGE_NOT_READY'), { status: 409 }),
+        ),
+      );
+      open();
+      await userEvent.click(
+        screen.getByRole('button', { name: say('usePreview', { position: 2 }) }),
+      );
+      expect(await screen.findByText(enMessages.errors.codes.PREVIEW_PAGE_NOT_READY)).toBeVisible();
+      expect(
+        within(tile(1, 3, source.pdf(1))).getByText(`1 · ${strings.previewLabel}`),
+      ).toBeVisible();
+    });
+  });
+
   it('draws every page of both files in document order, each saying where it came from', () => {
     const { container } = open();
 

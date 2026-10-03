@@ -1,3 +1,6 @@
+import { z } from 'zod';
+import { documentDetailDtoSchema } from '../../src/shared/contracts/documents';
+import { updateDocumentPreviewRequestSchema } from '../../src/shared/contracts/files';
 import {
   test,
   expect,
@@ -170,6 +173,43 @@ test('collection sharing dialog stays usable and can be cancelled', async ({ pag
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(page).toHaveURL(new RegExp(`/collections/${VISUAL_IDS.collection}$`));
+});
+
+test('a preview page can be chosen and reset independently of reading order', async ({
+  page,
+}, testInfo) => {
+  // This interaction has browser-local state so parallel viewport projects do not change each
+  // other's shared document. The real API/persistence transaction is covered by document-files e2e.
+  const path = `/api/documents/${VISUAL_IDS.document}`;
+  const response = await page.request.get(path);
+  const initial = z.object({ data: documentDetailDtoSchema }).parse(await response.json()).data;
+  let previewPageId = initial.previewPageId;
+  await page.route(`**${path}`, (route) =>
+    route.fulfill({ json: { data: { ...initial, previewPageId } } }),
+  );
+  await page.route(`**${path}/preview-page`, async (route) => {
+    previewPageId = updateDocumentPreviewRequestSchema.parse(route.request().postDataJSON()).pageId;
+    await route.fulfill({ json: { data: { ...initial, previewPageId } } });
+  });
+  await page.goto(`/documents/${VISUAL_IDS.document}/files`);
+  await settle(page);
+  await page.getByRole('button', { name: 'Use page 2 for preview', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Use page 2 for preview', exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByRole('button', { name: /^Page 2 of 2/ })).toContainText('2 · Preview');
+  await expect(page.getByRole('button', { name: /^Page 1 of 2/ })).toContainText('1');
+  await expect(page.getByText('Preview page saved. Images are being updated.')).toBeHidden();
+  await screenshot(page, 'document-preview-page-selected', testInfo);
+  await page.reload();
+  await settle(page);
+  await expect(page.getByRole('button', { name: /^Page 2 of 2/ })).toContainText('2 · Preview');
+  await page.getByRole('button', { name: 'Use first page for preview', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^Page 1 of 2/ })).toContainText('1 · Preview');
+  await expect(
+    page.getByRole('button', { name: 'Use first page for preview', exact: true }),
+  ).toHaveCount(0);
+  await expectResponsive(page);
 });
 
 test('document page arrangement and crop remain available on touch widths', async ({

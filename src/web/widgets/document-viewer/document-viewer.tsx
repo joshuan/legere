@@ -378,7 +378,7 @@ export function DocumentViewer({ id, tab = 'preview' }: { id: string; tab?: View
           {detail.hasPreview && (
             <Card styles={{ body: { padding: 8 } }}>
               <DocumentImage
-                src={documentFiles.preview(detail.id)}
+                src={documentFiles.preview(detail.id, detail.previewRevision)}
                 alt=""
                 loading="lazy"
                 style={{

@@ -37,6 +37,7 @@ export type CanonicalBuild =
       kind: 'built';
       pdf: Buffer;
       pageCount: number;
+      pageIds: string[];
       // Whether the text layer had to be recognised rather than read. This is where `ocrUsed` is
       // decided; until this release the OCR pass was run and thrown away (docs/05 §5.5).
       ocrUsed: boolean;
@@ -143,6 +144,9 @@ export class BuildCanonical {
       kind: 'built',
       pdf: await this.stamp(document, shaped),
       pageCount,
+      pageIds: runs.flatMap((run, index) =>
+        parts[index] === null ? [] : run.pages.map((page) => page.id),
+      ),
       ocrUsed: readable.ocrUsed,
       unsupported,
     };

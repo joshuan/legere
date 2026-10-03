@@ -35,6 +35,7 @@ const document1 = {
   availability: 'AVAILABLE',
   processing: false,
   origin: 'LIBRARY',
+  previewRevision: 0,
   hasPreview: false,
   createdAt: '2026-01-01T00:00:00.000Z',
   // What a card may show (docs/07 §7.3): carried on every row, drawn only where a screen asks for

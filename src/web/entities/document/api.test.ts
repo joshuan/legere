@@ -22,6 +22,8 @@ afterAll(() => server.close());
 function detail(): Record<string, unknown> {
   return {
     id: ID,
+    previewPageId: null,
+    previewRevision: 0,
     title: 'Lease',
     fileCount: 1,
     primaryExt: 'pdf',

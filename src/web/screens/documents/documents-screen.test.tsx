@@ -29,6 +29,7 @@ vi.mock('next/navigation', () => ({
 
 function documentAt(index: number, overrides: Partial<DocumentListDto> = {}): DocumentListDto {
   return {
+    previewRevision: 0,
     id: `aaaaaaaa-1111-4111-8111-00000000000${index}`,
     title: `Document ${index}`,
     fileCount: 1,
@@ -1069,6 +1070,7 @@ describe('DocumentsScreen', () => {
 function detailOf(index: number): Record<string, unknown> {
   return {
     ...documentAt(index),
+    previewPageId: null,
     auto: {},
     // The detail says in addition whether the catalogue still holds each name (docs/03 §3.3.19).
     people: [],

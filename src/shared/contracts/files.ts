@@ -30,6 +30,11 @@ export const addDocumentFileQuerySchema = z.object({
 });
 export type AddDocumentFileQuery = z.infer<typeof addDocumentFileQuerySchema>;
 
+export const updateDocumentPreviewRequestSchema = z
+  .object({ pageId: z.string().uuid().nullable() })
+  .strict();
+export type UpdateDocumentPreviewRequest = z.infer<typeof updateDocumentPreviewRequestSchema>;
+
 // PATCH /api/documents/:id/pages — the complete order, every page of the document exactly once. One
 // request and one truth: a partial order would leave the rest somewhere nobody chose, and "move this
 // page to position 3" is this request with the resulting order in it rather than an endpoint of its

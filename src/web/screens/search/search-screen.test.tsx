@@ -37,6 +37,7 @@ const hit = {
     availability: 'AVAILABLE',
     processing: false,
     origin: 'LIBRARY',
+    previewRevision: 0,
     hasPreview: true,
     createdAt: '2026-01-01T00:00:00.000Z',
     // What a card may show (docs/07 §7.3); the results keep the arrangement they have always had.

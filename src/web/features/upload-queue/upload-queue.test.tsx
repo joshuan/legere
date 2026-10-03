@@ -27,6 +27,8 @@ function listDto(id: string): Record<string, unknown> {
     availability: 'AVAILABLE',
     processing: false,
     origin: 'MANAGED',
+    previewRevision: 0,
+    previewPageId: null,
     hasPreview: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     documentDate: null,

@@ -37,9 +37,10 @@ export function DocumentCard({
   const locale = useLocale();
   // A thumbnail can be missing even when the step says DONE — an artifact swept from the bucket, a
   // document deleted mid-scroll. The icon is the honest fallback rather than a broken image.
-  const [thumbFailed, setThumbFailed] = useState(false);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const thumbSource = documentFiles.thumb(document.id, document.previewRevision);
   const { token } = theme.useToken();
-  const showThumb = document.hasPreview && !thumbFailed;
+  const showThumb = document.hasPreview && failedSource !== thumbSource;
   const shows = (field: DocumentCardField): boolean => fields.includes(field);
   // As a person would say where something is, and only the halves that are known.
   const place = [document.city, document.country].filter((part) => part !== null).join(', ');
@@ -77,10 +78,10 @@ export function DocumentCard({
             // cache private content through a shared optimizer (docs/10 §10.8).
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={documentFiles.thumb(document.id)}
+              src={thumbSource}
               alt=""
               loading="lazy"
-              onError={() => setThumbFailed(true)}
+              onError={() => setFailedSource(thumbSource)}
               style={{
                 maxHeight: '100%',
                 maxWidth: '100%',

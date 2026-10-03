@@ -21,6 +21,7 @@ export const ERROR_MESSAGE_KEYS: Record<ErrorCode | 'NETWORK', string> = {
   COLLECTION_NOT_FOUND: 'errors.codes.COLLECTION_NOT_FOUND',
   FILE_NOT_FOUND: 'errors.codes.FILE_NOT_FOUND',
   PAGE_NOT_FOUND: 'errors.codes.PAGE_NOT_FOUND',
+  PREVIEW_PAGE_NOT_READY: 'errors.codes.PREVIEW_PAGE_NOT_READY',
   INVITE_NOT_FOUND: 'errors.codes.INVITE_NOT_FOUND',
   API_TOKEN_NOT_FOUND: 'errors.codes.API_TOKEN_NOT_FOUND',
   SESSION_NOT_FOUND: 'errors.codes.SESSION_NOT_FOUND',

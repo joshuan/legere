@@ -102,6 +102,8 @@ function versionOf(
 }
 
 const detail: DocumentDetailDto = {
+  previewPageId: null,
+  previewRevision: 0,
   id: ID,
   title: 'Rental agreement',
   fileCount: 1,
@@ -617,7 +619,10 @@ describe('DocumentViewerScreen', () => {
     // The first page is honest company for that line; an <object> pointing at a PDF that does not
     // exist yet is a dead embed the browser never retries (docs/10 §10.5).
     expect(document.querySelector('object')).toBeNull();
-    expect(document.querySelector('img')).toHaveAttribute('src', `/api/documents/${ID}/preview`);
+    expect(document.querySelector('img')).toHaveAttribute(
+      'src',
+      `/api/documents/${ID}/preview?v=0`,
+    );
   });
 
   it('renders the extracted text, without letting raw HTML through', async () => {
@@ -1158,6 +1163,7 @@ describe('DocumentViewerScreen', () => {
       city: { from: 'Podgorica', to: 'Bar' },
       documentDate: { from: null, to: '2026-05-12' },
       pageFormat: { from: 'AUTO', to: 'A4' },
+      previewPage: { from: null, to: '2' },
     };
     server.use(
       http.get(`/api/documents/${ID}/events`, () =>
@@ -1181,6 +1187,7 @@ describe('DocumentViewerScreen', () => {
     renderWithProviders(<DocumentViewerScreen id={ID} tab="log" />);
 
     expect(await screen.findByText(/Title: Ticket → Lease/)).toBeInTheDocument();
+    expect(screen.getByText(/Preview page: First page → 2/)).toBeInTheDocument();
     // And not one of the seven left saying its own key path.
     expect(screen.queryByText(/viewer\.details\./)).not.toBeInTheDocument();
   });
@@ -2909,6 +2916,7 @@ describe('DocumentViewerScreen', () => {
   describe('the Related tab (docs/03 §3.3.23, docs/11 §11.5e)', () => {
     const OTHER_ID = 'bbbbbbbb-9999-4999-8999-999999999999';
     const otherDocument: DocumentListDto = {
+      previewRevision: 0,
       id: OTHER_ID,
       title: 'Act of acceptance',
       fileCount: 1,

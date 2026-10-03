@@ -73,6 +73,9 @@ function toDomain(
   return {
     id: row.id,
     pageCount: row.pageCount,
+    previewPageId: row.previewPageId,
+    canonicalPageIds: row.canonicalPageIds,
+    previewRevision: row.previewRevision,
     title: row.title,
     markdown: row.markdown,
     steps: {
@@ -950,6 +953,10 @@ export class PrismaDocumentRepository implements DocumentRepository {
       data: {
         ...(steps.canonical === undefined ? {} : { canonicalStatus: steps.canonical }),
         ...(steps.preview === undefined ? {} : { previewStatus: steps.preview }),
+        ...(steps.preview === 'DONE' ? { previewRevision: { increment: 1 } } : {}),
+        ...(update.canonicalPageIds === undefined
+          ? {}
+          : { canonicalPageIds: update.canonicalPageIds }),
         ...(steps.markdown === undefined ? {} : { markdownStatus: steps.markdown }),
         ...(steps.analysis === undefined ? {} : { analysisStatus: steps.analysis }),
         ...(steps.fields === undefined ? {} : { fieldsStatus: steps.fields }),
@@ -1704,6 +1711,7 @@ export class PrismaDocumentRepository implements DocumentRepository {
     const row = await client.document.update({
       where: { id },
       data: {
+        ...(input.previewPageId === undefined ? {} : { previewPageId: input.previewPageId }),
         ...(input.title === undefined ? {} : { title: input.title }),
         ...(input.fieldsStatus === undefined ? {} : { fieldsStatus: input.fieldsStatus }),
         ...(input.languages === undefined ? {} : { languages: input.languages }),
