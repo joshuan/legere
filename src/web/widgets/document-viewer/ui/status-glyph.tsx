@@ -23,7 +23,7 @@ export function stepGlyph(kind: StepStatus | 'INTERRUPTED' | 'PAUSED'): ReactNod
     case 'FAILED':
       return <CloseCircleOutlined style={{ color: 'var(--ant-color-error)' }} />;
     case 'RUNNING':
-      return <SyncOutlined spin style={{ color: 'var(--ant-color-primary)' }} />;
+      return <SyncOutlined spin style={{ color: 'var(--ant-color-primary-text)' }} />;
     case 'QUEUED':
       return <ClockCircleOutlined style={{ color: 'var(--ant-color-text-tertiary)' }} />;
     case 'PENDING':

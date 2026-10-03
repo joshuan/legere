@@ -258,7 +258,7 @@ function StatusIcon({ status }: { status: UploadStatus }) {
     return (
       <LoadingOutlined
         aria-label={t('documents.upload.panel.uploading')}
-        style={{ ...shape, color: token.colorPrimary }}
+        style={{ ...shape, color: token.colorPrimaryText }}
       />
     );
   }

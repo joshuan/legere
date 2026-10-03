@@ -474,7 +474,7 @@ export function CropEditor({ open, documentId, page, file, onSaved, onClose }: C
                   marginTop: -HANDLE_SIZE / 2,
                   padding: 0,
                   borderRadius: '50%',
-                  border: `2px solid ${token.colorWhite}`,
+                  border: `2px solid ${token.colorTextLightSolid}`,
                   background: token.colorPrimary,
                   boxShadow: token.boxShadowSecondary,
                   cursor: 'grab',

@@ -151,7 +151,7 @@ export function UploadDropZone({
             alignItems: 'center',
             justifyContent: 'center',
             borderRadius: token.borderRadiusLG,
-            border: `2px dashed ${token.colorPrimary}`,
+            border: `2px dashed ${token.colorPrimaryText}`,
             background: token.colorBgMask,
           }}
         >
@@ -165,7 +165,7 @@ export function UploadDropZone({
             }}
           >
             <InboxOutlined
-              style={{ fontSize: 40, color: token.colorPrimary, display: 'block' }}
+              style={{ fontSize: 40, color: token.colorPrimaryText, display: 'block' }}
               aria-hidden
             />
             <Typography.Text style={{ display: 'block', marginTop: 8 }}>

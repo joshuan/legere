@@ -3,8 +3,15 @@
 Decision 2026-10-01: Legere and Rent Manager share one design system in `js-lib`.
 The user explicitly permits coordinated stack upgrades; no Ant Design 5 compatibility layer.
 
+Brand refinement 2026-10-03: the shared package replaces the muted foundations with contrasting
+light/dark palettes and coordinated action, text, selection, focus and semantic states. Legere
+selects the warm amber brand. The package owns all theme rules and ships the consumer migration
+guide in its npm archive; Legere keeps no local palette or compatibility theme. Other consumers
+upgrade independently, retaining their own accent choice. Typography, dimensions and navigation
+behavior remain shared.
+
 `@joshuan/design-system` owns palettes, Ant Design configuration, dimensions, page headings and
-OS appearance subscriptions. Legere keeps green, Rent Manager blue; both use IBM Plex Sans/Mono,
+OS appearance subscriptions. Legere uses amber, Rent Manager blue; both use IBM Plex Sans/Mono,
 neutral surfaces, 40 px controls, 24 px headings (20 on phones), 240 px navigation and 6/8/12 px
 corners. This supersedes differing values in docs 11/16. Local components own routes, translations,
 auth policy, document composition and apartment workflows. Existing domain rules remain unchanged.

@@ -617,7 +617,7 @@ function Tile({
         style={{
           width: '100%',
           padding: 2,
-          border: `1px solid ${selected ? token.colorPrimary : token.colorBorder}`,
+          border: `1px solid ${selected ? token.colorPrimaryText : token.colorBorder}`,
           borderRadius: token.borderRadiusSM,
           background: token.colorBgContainer,
           cursor: readOnly ? 'default' : 'grab',
@@ -818,7 +818,7 @@ function Seam({
         borderRadius: token.borderRadiusSM,
         // Quiet until it matters: a seam that shouted would make the strip a column of plus signs.
         background: active ? token.colorPrimaryBg : 'transparent',
-        outline: active ? `2px dashed ${token.colorPrimary}` : 'none',
+        outline: active ? `2px dashed ${token.colorPrimaryText}` : 'none',
       }}
     >
       <Upload

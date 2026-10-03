@@ -55,7 +55,7 @@ export function DocumentCard({
       // itself so that a glance over a full screen answers "which ones did I take?".
       style={
         selection?.picked === true
-          ? { outline: `2px solid ${token.colorPrimary}`, outlineOffset: -2 }
+          ? { outline: `2px solid ${token.colorPrimaryText}`, outlineOffset: -2 }
           : {}
       }
       cover={

@@ -18,7 +18,7 @@
   /* Two declarations on purpose: a browser without color-mix keeps the first, rather than dropping
      the property and painting the well transparent. */
   --legere-well: var(--ant-color-fill-secondary);
-  --legere-well: color-mix(in srgb, var(--ant-color-bg-container) 93%, var(--ant-color-text) 7%);
+  --legere-well: color-mix(in srgb, var(--ant-color-bg-container) 88%, var(--ant-color-text) 12%);
 }
 
 html,
@@ -105,11 +105,11 @@ pre,
    rather than the space reserved for it. */
 @keyframes legere-landed {
   from {
-    box-shadow: 0 0 0 2px var(--ant-color-primary, #1677ff);
+    box-shadow: 0 0 0 2px var(--ant-color-primary-text);
   }
 
   60% {
-    box-shadow: 0 0 0 2px var(--ant-color-primary, #1677ff);
+    box-shadow: 0 0 0 2px var(--ant-color-primary-text);
   }
 
   to {
@@ -166,18 +166,6 @@ pre,
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
   }
-}
-
-/* Focus is always visible — never `outline: none` (docs/11 §11.15). */
-:focus-visible {
-  outline: 2px solid var(--ant-color-primary);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-::selection {
-  background: var(--ant-color-primary);
-  color: var(--ant-color-bg-container);
 }
 
 /* A scrollbar in the product's own colours rather than the platform's grey. */
@@ -775,7 +763,7 @@ pre,
 }
 
 .legere-row-button:focus-visible {
-  outline: 2px solid var(--ant-color-primary);
+  outline: 2px solid var(--ant-color-primary-text);
   outline-offset: 2px;
 }
 

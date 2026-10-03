@@ -2334,3 +2334,22 @@ Production observation is read-only; source fixes are verified and committed on 
   facts and decisions at 1366×768/1280×720 in both languages/themes, bounded long item lists,
   mobile summary/actions and original previews. All 50 changed/new review screenshots were
   inspected; unchanged shelf-selection baselines are retained for regression comparison.
+
+## M76 — A brighter, more contrasting Legere theme (2026-10-03)
+
+- [x] **M76.1 — Implement contrasting shared themes and Legere's amber identity.**
+  Replace the shared package palette and component theme, document consumer migration inside
+  the published package, keep Legere as a small accent adapter,
+  strengthen text/surface/control contrast, and coordinate navigation, selection, focus,
+  semantic feedback and the application mark in both appearances.
+  Published from js-lib commit `fb2622f` as `@joshuan/design-system@0.3.0`, including the packaged
+  README and migration guide. Legere pins that registry version. Its SHA-512 integrity is identical
+  to the prepared archive used in the validation below; no sibling checkout or tarball is needed.
+- [x] **M76.2 — Verify theme contrast and responsive screens.**
+  Check text and interactive-state contrast, run types/lint/web tests and inspect canonical
+  light/dark browser captures before accepting the intentional visual baseline changes.
+  Package types/build/lint, all 64 js-lib tests and packed-consumer checks pass. Legere types/lint
+  and all 587 web tests pass. The pinned browser Docker environment passes 651 tests with 20
+  intentional skips, both when refreshing the theme baselines and when comparing without updates.
+  All 614 changed screenshots were reviewed at 320/390/768/1024/1440 px in both appearances;
+  rendered contrast checks cover actions, hover states, status tags and selected navigation metadata.

@@ -1571,7 +1571,7 @@ An empty trash says so plainly rather than showing an empty table: nothing here 
 ## 11.15. Visual identity — a clear working archive
 
 The authoritative visual and interaction contract is [`16 — Design code`](./16-design-code.md).
-It replaces the earlier paper/ink reading-room treatment: neutral surfaces, the familiar green
+It replaces the earlier paper/ink reading-room treatment: contrasting neutral surfaces, a warm amber
 accent, IBM Plex Sans, full-width work areas, compact navigation, consistent forms and dialogs,
 and explicit scroll ownership. Shared Ant Design tokens and shared UI primitives implement it;
 screens must not introduce independent palettes or incompatible interaction patterns.

@@ -4,19 +4,22 @@ Legere is a place to find, read and organize private documents and receipts. The
 make those objects easy to work with for hours. It is not a dashboard of decorative metrics.
 This contract applies to every screen, both themes and every viewport from 320 px upward.
 
-The shared foundations are maintained in `@joshuan/design-system` from js-lib, not in this
-application. [Document 20](./20-ecosystem-design.md) records the coordinated UI-stack migration and
-which contracts belong to the ecosystem. The archive-specific composition below remains local.
+The shared layout, typography, palettes and component foundations are maintained in
+`@joshuan/design-system` from js-lib. Legere selects `accent: 'amber'` in its small theme adapter.
+The package ships its own README and migration guide; applications do not layer local palette or
+component overrides over it. [Document 20](./20-ecosystem-design.md) records the ecosystem boundaries.
+The archive-specific composition below remains local.
 
 ## 16.1. Direction and design review
 
-Keep the recognizable green accent and the legible, self-hosted IBM Plex family. Replace simulated
-paper, background grain, ornamental leaders and repeated framed cards with quiet neutral surfaces,
-clear alignment and deliberate grouping. Document scans supply the visual variety.
+Use a warm amber brand accent and the legible, self-hosted IBM Plex family. Cool neutral
+surfaces, dark ink and visible borders make documents and controls distinct. Document scans supply
+the visual variety; the selected navigation item and primary action carry the strongest color.
 
-The initial alternative was a general blue/grey application kit. It would be clean, but would lose
-Legere's identity without making the archive easier to read. The chosen direction keeps the green,
-gives documents the largest uninterrupted area, and expresses hierarchy through type and spacing.
+The amber accent identifies Legere through bright golden action fills and dark labels, with
+separate orange warnings and green success feedback. Following [Gravity UI's branding model](https://gravity-ui.com/design/branding/branding),
+action fills, brand text, selected surfaces and contrasting text have separate coordinated tokens.
+Documents retain the largest uninterrupted area, with hierarchy through type, spacing and contrast.
 No decorative statistics, introductory banners, gradients or animated card entrances.
 
 ```text
@@ -53,21 +56,28 @@ touch targets too small. Large displays may show supporting sections beside a fo
 
 | Role | Light | Dark |
 |---|---|---|
-| Canvas | `#F5F7F8` | `#121A1E` |
-| Surface | `#FFFFFF` | `#1A252B` |
-| Raised surface | `#FFFFFF` | `#223139` |
-| Text | `#24323B` | `#E7EFF2` |
-| Secondary text | `#5F7079` | `#A2B3BA` |
-| Divider | `#DEE5E8` | `#30434B` |
-| Control border | `#BCC9CF` | `#58707B` |
-| Primary action | `#247463` | `#73C4AF` |
+| Canvas | `#EDF1F5` | `#10171F` |
+| Surface | `#FFFFFF` | `#1C2834` |
+| Raised surface | `#FFFFFF` | `#263646` |
+| Text | `#14212D` | `#F2F6FA` |
+| Secondary text | `#46586A` | `#B9C8D6` |
+| Divider | `#C6D0DA` | `#405469` |
+| Control border | `#7D8C9B` | `#7B90A3` |
+| Primary action | `#FFBD3E` | `#FFBD3E` |
+| Brand text / focus | `#805000` | `#FFD16E` |
+| Selected surface | `#FFF0CB` | `#48361C` |
+| Text on primary action | `#332100` | `#332100` |
 
-Semantic red, amber and green distinguish failure, caution and success. Status always includes
+Semantic red, orange and green distinguish failure, caution and success. Status always includes
 text or an icon; color is never the sole signal. The page and controls use theme tokens, including
 overlays. A white document page is document content, not application chrome.
-Light feedback surfaces use explicit pale tints (information `#F2F9F6`, success `#F1F9F3`,
-warning `#FCF8EE`, failure `#FDF5F6`), with readable body text; do not derive their backgrounds
-by lightening the dark accent with the component library's default palette generator.
+Feedback surfaces use explicit tints with readable body and status text in both themes; do not
+derive their backgrounds by lightening a dark accent with the component library's palette generator.
+Information is blue, success green, caution orange and failure red. Small text, including placeholders,
+links, selected labels and primary actions in every enabled state, maintains at least 4.5:1 contrast.
+Form boundaries and keyboard focus maintain at least 3:1 against their adjacent working surfaces.
+The selected navigation route uses a solid brand fill and semibold label; tabs use an underline,
+and selected rows and segmented controls use the lighter selected surface.
 
 - IBM Plex Sans: 14 px / 1.5 for controls and tables; 13 px for secondary metadata; 20–24 px / 1.3
   for screen headings; 16 px / 1.4 for section headings. Normal sentence case throughout.
@@ -77,7 +87,7 @@ by lightening the dark accent with the component library's default palette gener
   and icon hit areas at least 44 px on coarse pointers. No invisible 20 px collapse target.
 - Corners: 6 px for controls, 8 px for content surfaces, 12 px for dialogs. Shadows belong to
   floating overlays, not every content block. Do not wrap a single already-framed table in a card.
-- Focus: visible 2 px primary outline with 2 px offset. Hover changes color, never position.
+- Focus: visible 2 px brand-text outline with 2 px offset. Hover changes color, never position.
   Motion answers interaction, lasts about 140 ms, and honors reduced-motion preferences.
 
 ## 16.3. Navigation, layout and scrolling
