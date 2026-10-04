@@ -2398,10 +2398,20 @@ Production observation is read-only; source fixes are verified and committed on 
   2,000-character chunks returned four 1,024-dimensional vectors in 1.76 seconds. Recovery details
   and remaining source-file/deployment requirements are recorded in
   [the recovery runbook](processing-recovery-2026-09.md#october-4-verification).
-  Code changes are local; production remains on 0.42.0 pending release and deployment.
+  Full CI, including browser visual checks, passed on `ec5d539`. The normal release published
+  0.42.1, all release checks passed, and the application was deployed with its prior image retained
+  for rollback. Browser navigation, PDF viewing, journal labels and runtime health were verified.
 
-- [ ] **M79.4 — Deploy and verify the recovery patch.**
+- [x] **M79.4 — Deploy and verify the recovery patch.**
   Publish through the normal CI-gated release command, retain the previous application image,
   deploy only the application, and verify the long document's vectorization. Apply the approved
   single-request embeddings limit. Validate a small historical receipt recovery batch before
   queueing the remaining backlog through the administrator action.
+
+  Production 0.42.1 completed the 544-page document in about 14 minutes: 400 successful requests,
+  1,600 saved chunks, and no repeated completed document stages. Five trial receipts completed,
+  then 949 remaining failed profiles were queued in bounded administrator batches. Background
+  progress continued after one inference timeout; the 13:27 UTC checkpoint had 6,900 completed
+  receipts, 950 queued, two running and no failed profiles, including five new archive arrivals.
+  Two documents still require a complete original or an unlocked original PDF. Their shared
+  downstream failures account for the remaining canonical/preview/Markdown counts of 2/2/2.

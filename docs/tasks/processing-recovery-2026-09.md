@@ -15,7 +15,7 @@ and transactional recovery of stale document stages which have no live queue del
 ## Deployment and recovery order
 
 1. Use an administrator session to pause `document-process` and `receipt-process` in
-   `/admin/processing/queues`. Pausing stops fetching, not callbacks already running. Retain the
+   `/admin/processing`. Pausing stops fetching, not callbacks already running. Retain the
    previous image digest and the normal database backup. Do not clear jobs, statuses or files.
 2. Verify the AI gateway's inference quota/credentials. A successful `/models` health check is
    not evidence that an inference request will succeed. Legere cannot repair a provider quota or
@@ -49,7 +49,7 @@ runtime credentials to bypass those boundaries.
 
 ## Verification
 
-- `GET /api/admin/processing` is the unified snapshot. `/admin/processing/queues` shows queued,
+- `GET /api/admin/processing` is the unified snapshot. `/admin/processing` shows queued,
   active and recently failed jobs, last completion and completions in the last hour.
 - `/admin/processing/services` shows actual in-flight calls, waiting callers and `throttledUntil`.
   A provider hold may leave a job active while no request is in flight; that is expected.
@@ -89,33 +89,59 @@ Repeated pipeline retries cannot supply missing source bytes or a password.
 The 20 retained receipt job failures involved ten receipt IDs, all now successfully extracted;
 two outstanding receipts completed at 14:02–14:03 local time. This history is distinct from 954
 older failed receipt profiles: 941 record September service/429 interruptions and 13 record empty
-structured extraction. Those profiles were not bulk requeued during the document recovery.
+structured extraction. Their separate recovery is described below.
 
 A separate 544-page document repeatedly exhausted the embeddings request's two-minute timeout.
 The HTTP adapter sent all document chunks in one request. M79 bounds requests to four chunks,
 with separate gate admission and timeout per batch and atomic replacement only after all succeed.
-The patch is local and requires normal release/deployment before that document is retried again.
-The monitoring SSH identity cannot deploy it. Production embeddings concurrency remained five;
-a reduction to one was proposed but was not applied. Add free-space monitoring for the Mac's
-temporary volume, and distinguish historical job failures from current document/profile failures
-when assessing whether recovery worked.
+The patch was published as 0.42.1 through the normal CI-gated release command and deployed with
+an authorized operator SSH identity on October 4 at 13:04 UTC. The previous application image
+and environment file were retained for rollback. Only the application container was replaced;
+the native parsing services remained in place. Document and receipt queues were drained and
+temporarily paused, then both resumed. The running container and browser report 0.42.1, and
+the database and queue health checks pass. The approved embeddings concurrency is now one.
+The long document completed vectorization in 841,509 ms (about 14 minutes): all 400 requests
+succeeded and all 1,600 chunks were committed. Its completed PDF, preview and Markdown stages
+were preserved. The archive now has 4,723 vectorized documents and 65,406 chunks.
+Add free-space monitoring for the Mac's temporary volume, and distinguish historical
+job failures from current document/profile failures when assessing whether recovery worked.
 
 The browser journal also logged missing `viewer.details.crop` and `viewer.details.turn`
-translations in Russian. Both labels are restored in the English and Russian catalogs in the
-local patch. This was a reproducible journal-label error; it was not evidence of a server outage.
+translations in Russian. Both labels are restored in the English and Russian catalogs in 0.42.1;
+the historical crop event now displays both labels without a browser localization error.
+This was a reproducible journal-label error; it was not evidence of a server outage.
+
+A five-receipt trial from the historical backlog completed successfully, increasing the completed
+count from 6,893 to 6,898 and reducing failed profiles from 954 to 949. The 13 empty-result sources
+include readable receipts and bank payment confirmations, alongside a severely faded receipt;
+an empty model answer is not by itself evidence of a corrupt original.
+
+After the long document completed, the remaining 949 failed receipt profiles were queued through
+the administrator action in five batches (200, 200, 200, 200 and 149). This preserves originals
+and completed previews. The transition to queued is not a successful extraction: completion and
+new errors must be assessed independently while the backlog drains.
+At 13:27 UTC the completed count had risen to 6,900. A five-minute inference timeout was followed
+by the existing 30-second breaker and then successful 33- and 15-second extractions. No new
+terminal failed jobs were recorded at that checkpoint. Five newly discovered receipts also entered
+the archive during recovery: the live totals were 7,852 receipts, 6,900 done, 950 queued, two
+running and zero failed profiles. This is a verified background recovery, not a claim that every
+queued receipt has finished. The original timeout remains subject to the normal retry policy.
 
 Further findings from the retained server logs:
 
 - Receipt timeouts were followed by many fast unavailable-breaker refusals. These consume retry
-  attempts while the service's 30-second unavailable window is still open; deferring that work
-  until the breaker deadline remains a separate resilience improvement.
-- The older 941 receipt failures need controlled recovery through the existing administrator
-  action (at most 200 per batch), with successful extraction verified between batches. The 13
-  empty structured results need individual source/extraction review if they recur.
+  attempts while the service's 30-second unavailable window is still open; exponential retries
+  allowed work to resume in the observed recovery. Deferring work until the breaker deadline
+  remains a separate resilience improvement that would avoid those redundant failed attempts.
+- The older receipt failures were admitted through the existing administrator action after the
+  successful five-receipt trial. The 13 empty structured results need individual
+  source/extraction review if they recur.
 - Nine Caddy 502 responses coincided with the October 3 app replacement, around 18:22:25–32 UTC.
   They do not establish a continuing outage. The current app had no container restart or OOM.
-- `TRUST_PROXY` was unset although requests arrive through Caddy; review the trusted proxy
-  topology before changing it so client rate limits use the intended address safely.
+- `TRUST_PROXY` was unset although requests arrive through Caddy. The verified deployment has
+  one host-network Caddy forwarding to a loopback-only application port, without upstream trusted
+  proxies. The application now trusts only the exact Docker host gateway address, preserving
+  client rate-limit identities without trusting arbitrary peers or widening the published port.
 - Four preview 404s matched failed document rebuilds. Stream-cancellation warnings can occur when
   a reader cancels a download or navigates away. Neither category alone proves a service outage.
 - Three processing-control 409 responses were revision conflicts. UI controls share one aggregate
