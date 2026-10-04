@@ -34,8 +34,8 @@ function provider(
 
 const vector = (start: number): number[] => [start, start + 0.5, start + 1];
 
-function requestOf(spy: FetchSpy): { url: string; body: unknown; headers: Headers } {
-  const [url, init] = spy.mock.calls[0] ?? [];
+function requestOf(spy: FetchSpy, index = 0): { url: string; body: unknown; headers: Headers } {
+  const [url, init] = spy.mock.calls[index] ?? [];
   if (typeof url !== 'string') throw new Error('expected a string URL');
   const body = init instanceof Object && 'body' in init ? init.body : undefined;
   if (typeof body !== 'string') throw new Error('expected a JSON body');
@@ -95,6 +95,56 @@ describe('OpenAiCompatEmbeddings', () => {
 
     expect(await provider().embed([])).toEqual([]);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('splits a large document sequentially and preserves chunk order across shuffled batches', async () => {
+    const gates = new ServiceGates(new FixedClock());
+    const run = vi.spyOn(gates, 'run');
+    const texts = Array.from({ length: 9 }, (_, index) => `chunk ${index}`);
+    const response = (offset: number, count: number): Response =>
+      Response.json({
+        data: Array.from({ length: count }, (_, index) => ({
+          index,
+          embedding: vector(offset + index),
+        })).reverse(),
+      });
+    let resolveFirst = (_response: Response): void => {};
+    const first = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockReturnValueOnce(first)
+      .mockResolvedValueOnce(response(4, 4))
+      .mockResolvedValueOnce(response(8, 1));
+
+    const pending = provider({}, gates).embed(texts);
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    resolveFirst(response(0, 4));
+
+    expect(await pending).toEqual(texts.map((_, index) => vector(index)));
+    expect(spy).toHaveBeenCalledTimes(3);
+    expect(run.mock.calls.map(([service]) => service)).toEqual([
+      'embeddings',
+      'embeddings',
+      'embeddings',
+    ]);
+    for (const [index, input] of [texts.slice(0, 4), texts.slice(4, 8), texts.slice(8)].entries()) {
+      expect(requestOf(spy, index).body).toEqual({ model: 'text-embedding-3-small', input });
+    }
+  });
+
+  it('stops at an interrupted batch instead of returning partial vectors or sending later chunks', async () => {
+    const first = Array.from({ length: 4 }, (_, index) => ({ index, embedding: vector(index) }));
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(Response.json({ data: first }))
+      .mockResolvedValueOnce(new Response('Service Unavailable', { status: 503 }));
+
+    await expect(provider().embed(Array.from({ length: 40 }, () => 'text'))).rejects.toBeInstanceOf(
+      ServiceUnavailableError,
+    );
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 
   it('refuses a batch whose vectors do not fit the column', async () => {

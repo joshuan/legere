@@ -1223,6 +1223,8 @@
       "addPerson": "Add “{name}”",
       "documentDate": "Date",
       "pageFormat": "Page format",
+      "crop": "Crop",
+      "turn": "Rotation",
       "pageFormats": {
         "AUTO": "Automatic",
         "A4": "A4",

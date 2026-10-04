@@ -1223,6 +1223,8 @@
       "addPerson": "Добавить «{name}»",
       "documentDate": "Дата документа",
       "pageFormat": "Формат страницы",
+      "crop": "Обрезка",
+      "turn": "Поворот",
       "pageFormats": {
         "AUTO": "Автоматически",
         "A4": "A4",

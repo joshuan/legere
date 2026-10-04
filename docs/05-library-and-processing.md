@@ -244,7 +244,7 @@ them. Each budget is what the work costs on the slowest hardware this is meant t
 | Docling: submitting the canonical PDF / one long poll / collecting the result | 5 min / 30 s / 2 min — the HTTP exchanges that carry one window (§5.5 step 3) |
 | Docling: one window's conversion, between those exchanges | 60 s per page of the window, floored at 2 min for Docling's own queue and warm-up, which a one-page window pays like any other. Set by measuring rather than reasoning, twice: a dense-table scan — a bank statement, a credit-bureau report — parses at 23–25 s/page, and the flat 5 minutes this first was worked out to 12.5 s/page over a full window, starving exactly those documents whenever one arrived as a single window while longer siblings passed, windowed; then a phone bill's call detail measured ~46 s/page, and the 30 s/page that followed stopped polling a 12-page window at 360 s that Docling finished, successfully, at 549 — a budget that throws away a parse that succeeds is measuring the wrong documents. A window-less request is budgeted by the page count it knows, and by a full window's worth where nothing counted anything. With captions on, 55 min flat: a vision model runs once per picture, and pages say nothing about pictures. The whole parse shares one 55-minute deadline across its windows, under the job's hour — and when what is left of *that* is less than the two-minute floor, the parse **ends there rather than spending an upload**: the remainder used to be handed over as a budget whatever it was, so a window with seconds left was sent the whole canonical PDF, polled once and failed as `Docling did not finish within 0 minutes` — the parse's own arithmetic wearing the parser's words. What it says instead is the deadline it hit and the pages it never reached (`Docling ran out of the parse's 55-minute deadline with pages 13–30 unread`), which is what somebody looking at a half-read document needs. A window that still has the floor runs on what is left of the deadline, clamped, exactly as before |
 | The analyst reading one document — the analysis, and the fields step again | 5 min each |
-| One batch of embeddings | 2 min |
+| One batch of embeddings (at most 4 text chunks) | 2 min |
 | The captcha check on the login path | 5 s |
 
 The captcha is the odd one out and the reason it is in this list at all: it is not a queue job but an
@@ -1225,7 +1225,13 @@ because a run that told us nothing new happened to it.
    is not a zero**, and it gates nothing (step 4).
 6. **Vectorization:** chunking of the Markdown (by headings/paragraphs, with overlap) →
    `EmbeddingProvider` → chunk vectors into pgvector, replacing whatever the document had in one
-   transaction (03 §3.3.11). **Each chunk is stored with the name of the model that embedded it**,
+   transaction (03 §3.3.11). The HTTP adapter sends at most 4 chunks per request, sequentially
+   within one document. Each request acquires the embeddings service gate separately and has its
+   own two-minute timeout. Results preserve the original chunk order even when a response is
+   shuffled; a failed batch aborts the run before any stored vectors are replaced. A large document
+   must not send every chunk in one request and consume the request timeout before smaller
+   documents or searches can use the provider.
+   **Each chunk is stored with the name of the model that embedded it**,
    because a table holding two models' vectors is a search with no meaning in its distances
    (03 §3.3.11, 04 §4.5). Provider not configured → `SKIPPED` (graceful degradation: semantic
    search unavailable, everything else works); text extracted and empty → `SKIPPED` with `NO_TEXT`,

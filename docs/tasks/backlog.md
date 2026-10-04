@@ -2378,3 +2378,30 @@ Production observation is read-only; source fixes are verified and committed on 
   documents grouped by person. Keep contracts in the general document experience. Reuse existing
   document types and person associations; this is a navigation/presentation change with no database
   schema changes or duplicate document records. Implement after the current PDF-preview discussion.
+
+## M79 — Processing recovery and bounded embedding requests
+
+- [x] **M79.1 — Bound embedding requests for large documents.**
+  Split document vectors into sequential requests of at most 4 chunks. Acquire the service gate
+  and apply the timeout per request, preserve input order across responses, and retain the atomic
+  document-vector replacement when any request fails. Verify batching, ordering and interruption.
+- [x] **M79.2 — Verify the October processing recovery.**
+  Recover documents affected by exhausted local temporary storage, rebuild the oversized legacy
+  preview, distinguish failed job history from current document failures, and record remaining
+  source-file and deployment requirements.
+- [x] **M79.3 — Restore crop and turn journal labels.**
+  Add the missing English and Russian labels used by historical metadata events; the browser
+  currently reports `MISSING_MESSAGE` for both keys when those document journals open.
+
+  Validation: 17 HTTP embedding adapter tests and 147 document-handler tests pass; typecheck,
+  targeted ESLint and changed-file formatting pass. A real bge-m3 request containing four synthetic
+  2,000-character chunks returned four 1,024-dimensional vectors in 1.76 seconds. Recovery details
+  and remaining source-file/deployment requirements are recorded in
+  [the recovery runbook](processing-recovery-2026-09.md#october-4-verification).
+  Code changes are local; production remains on 0.42.0 pending release and deployment.
+
+- [ ] **M79.4 — Deploy and verify the recovery patch.**
+  Publish through the normal CI-gated release command, retain the previous application image,
+  deploy only the application, and verify the long document's vectorization. Apply the approved
+  single-request embeddings limit. Validate a small historical receipt recovery batch before
+  queueing the remaining backlog through the administrator action.

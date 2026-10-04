@@ -29,9 +29,12 @@ const embeddingsResponseSchema = z.object({
 // step fails and retries rather than occupying a worker.
 const TIMEOUT_MS = 2 * 60_000;
 
-// 🔒 And how much may come back. A batch answers with one vector per text — a thousand numbers, roughly
-// 30 KB of JSON each — so a batch of a few hundred is a handful of megabytes. 64 MiB leaves room for
-// any batch size this instance uses and refuses a provider that answers with a stream instead.
+// A book can produce thousands of chunks. Bound each request so the timeout applies to a small
+// unit of work and the service gate can admit another document or search between batches.
+const MAX_BATCH_CHUNKS = 4;
+
+// 🔒 A small batch should produce a small response. Keep the existing absolute ceiling as a
+// backstop against a provider that streams an unbounded body instead of returning vectors.
 const MAX_ANSWER_BYTES = 64 * 1024 * 1024;
 // An error detail is a sentence, and it is truncated to 300 characters below in any case, so a
 // provider answering a failure with a gigabyte is refused at the first chunk past this.
@@ -78,7 +81,16 @@ export class OpenAiCompatEmbeddings extends EmbeddingProvider {
     // four batches asks the provider four times, and each one waits its turn. The whole exchange is
     // classified (docs/05 §5.4e): the transport failing is the provider being away, not this
     // document failing.
-    return this.gates.run('embeddings', () => reachService('embeddings', () => this.ask(texts)));
+    const vectors: number[][] = [];
+    for (let offset = 0; offset < texts.length; offset += MAX_BATCH_CHUNKS) {
+      const batch = texts.slice(offset, offset + MAX_BATCH_CHUNKS);
+      vectors.push(
+        ...(await this.gates.run('embeddings', () =>
+          reachService('embeddings', () => this.ask(batch)),
+        )),
+      );
+    }
+    return vectors;
   }
 
   private async ask(texts: readonly string[]): Promise<number[][]> {
