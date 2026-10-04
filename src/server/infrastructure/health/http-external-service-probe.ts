@@ -15,6 +15,8 @@ const PROBE_PATHS: Record<ServiceName, string> = {
   transcriber: '/models',
   embeddings: '/models',
   'receipt-extractor': '/models',
+  'google-document-ai': '/',
+  'yandex-vision': '/',
 };
 
 // 🔒 Short, and shorter than anything the pipeline allows itself. This one runs while somebody is
@@ -60,10 +62,16 @@ export class HttpExternalServiceProbe extends ExternalServiceProbe {
       await response.body?.cancel().catch(() => undefined);
       return {
         url,
-        status: statusOf(response.status),
+        status:
+          service === 'google-document-ai' || service === 'yandex-vision'
+            ? 'ANSWERED'
+            : statusOf(response.status),
         httpStatus: response.status,
         latencyMs,
-        detail: null,
+        detail:
+          service === 'google-document-ai' || service === 'yandex-vision'
+            ? 'Endpoint reachable; credentials are checked when recognition runs'
+            : null,
       };
     } catch (error) {
       // Refused, unresolved, or past the timeout — the three ways nothing comes back. The transport's

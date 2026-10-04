@@ -36,7 +36,7 @@ import { BuildCanonical } from '../documents/build-canonical';
 import { DocumentMarkdownSource } from '../documents/document-markdown-source';
 import { readOriginalFile } from '../documents/read-original-file';
 import { toBuffer } from '../ports/binary-source';
-import { artifactKeys, originalKeyOf } from '../storage/artifact-keys';
+import { artifactKeys, canonicalKeyOf, originalKeyOf } from '../storage/artifact-keys';
 import { AnalysisSettings } from '../settings/analysis-settings';
 import { FixedClock } from '../../../../test/helpers/fakes';
 import { ServiceThrottledError } from '../ports/service-unavailable';
@@ -244,7 +244,7 @@ describe('HandleDocumentProcess', () => {
   };
 
   const canonicalOf = (id = DOCUMENT_ID): string =>
-    storage.get(artifactKeys.canonicalPdf(id)).body.toString();
+    storage.get(canonicalKeyOf(stateOf(id))).body.toString();
 
   const methodsCalled = (): string[] => pdfs.calls.map((call) => call.method);
 
@@ -805,7 +805,7 @@ describe('HandleDocumentProcess', () => {
       // 🔒 Step isolation (docs/05 §5.5): the canonical PDF was produced and stays DONE.
       expect(document.steps.canonical).toBe('DONE');
       expect(document.steps.preview).toBe('FAILED');
-      expect(storage.keys()).toEqual([artifactKeys.canonicalPdf(DOCUMENT_ID)]);
+      expect(storage.keys()).toEqual([canonicalKeyOf(document)]);
     });
 
     it('reports a page the resizer cannot read as a preview failure', async () => {
@@ -2417,19 +2417,25 @@ describe('HandleDocumentProcess', () => {
   });
 
   describe('idempotency', () => {
-    it('rewrites artifacts and statuses on a re-run without duplicating anything', async () => {
+    it('publishes immutable canonical revisions while replacing the previews', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
 
       await run();
+      const firstKey = canonicalKeyOf(stateOf());
+      const firstBytes = storage.get(firstKey).body;
       await run();
-
-      expect(storage.keys()).toEqual([
-        artifactKeys.canonicalPdf(DOCUMENT_ID),
-        artifactKeys.preview(DOCUMENT_ID),
-        artifactKeys.thumbnail(DOCUMENT_ID),
-      ]);
+      expect(canonicalKeyOf(stateOf())).not.toBe(firstKey);
+      expect(storage.get(firstKey).body).toEqual(firstBytes);
+      expect(storage.keys()).toEqual(
+        [
+          firstKey,
+          artifactKeys.preview(DOCUMENT_ID),
+          artifactKeys.thumbnail(DOCUMENT_ID),
+          canonicalKeyOf(stateOf()),
+        ].sort(),
+      );
       expect(stateOf().steps.preview).toBe('DONE');
-      // Twice through the same path: two renders, two pairs of resizes, one set of objects.
+      // Twice through the same path: two renders, two pairs of resizes, two retained canonical revisions.
       expect(pdfs.calls.filter((call) => call.method === 'pdfPageJpg')).toHaveLength(2);
       expect(images.resizes).toHaveLength(4);
       expect(stateOf().steps.markdown).toBe('DONE');

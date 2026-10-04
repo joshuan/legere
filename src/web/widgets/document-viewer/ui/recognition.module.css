@@ -1,0 +1,157 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 560px;
+  padding-bottom: 16px;
+}
+.intro {
+  margin: 0 !important;
+  max-width: 80ch;
+}
+.launch,
+.toolbar,
+.resultStatus {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.launch {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+.history {
+  min-width: 190px;
+  max-width: 100%;
+}
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  gap: 16px;
+  flex: 1;
+  min-height: 360px;
+}
+.stage {
+  background: var(--legere-well);
+  overflow: auto;
+  min-width: 0;
+  min-height: 360px;
+  padding: 12px;
+}
+.paper {
+  position: relative;
+  background: white;
+  min-width: 160px;
+}
+.overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.region {
+  cursor: pointer;
+}
+.region:focus {
+  outline: none;
+}
+.region:focus polygon {
+  stroke: var(--ant-color-primary);
+  stroke-width: 3px;
+}
+.desktopText {
+  min-height: 0;
+  overflow: auto;
+}
+.textPanel {
+  min-width: 0;
+}
+.textHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 12px;
+}
+.textLine {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.65;
+  padding: 7px 10px;
+  margin: 0;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.textLine:hover {
+  background: var(--legere-well);
+}
+.textLine:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: -2px;
+}
+.selectedLine {
+  background: var(--ant-color-primary-bg);
+  border-left-color: var(--ant-color-primary);
+}
+.confidence {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--ant-color-text-tertiary);
+}
+.root .mobileText {
+  display: none;
+}
+@media (max-width: 767px) {
+  .workspace {
+    display: block;
+  }
+  .stage {
+    height: 65dvh;
+    min-height: 320px;
+    padding: 6px;
+  }
+  .desktopText {
+    display: none;
+  }
+  .root .mobileText {
+    display: inline-flex;
+  }
+  .root {
+    min-height: 0;
+    height: auto;
+  }
+}
+
+.newRun > summary {
+  cursor: pointer;
+  color: var(--ant-color-text);
+  width: fit-content;
+  padding: 4px 0;
+  font-weight: 600;
+}
+.newRun > summary:focus-visible {
+  outline: 2px solid var(--ant-color-primary);
+  outline-offset: 2px;
+}
+.newRun[open] > summary {
+  margin-bottom: 12px;
+}
+@media (max-width: 767px) {
+  .history {
+    min-width: 160px;
+    width: 168px;
+  }
+}

@@ -53,6 +53,8 @@ export const ERROR_MESSAGE_KEYS: Record<ErrorCode | 'NETWORK', string> = {
   LINK_EXISTS: 'errors.codes.LINK_EXISTS',
   LINK_NOT_FOUND: 'errors.codes.LINK_NOT_FOUND',
   LINK_SELF: 'errors.codes.LINK_SELF',
+  OCR_NOT_CONFIGURED: 'errors.codes.OCR_NOT_CONFIGURED',
+  OCR_NOT_READY: 'errors.codes.OCR_NOT_READY',
   CANONICAL_NOT_READY: 'errors.codes.CANONICAL_NOT_READY',
   DOCUMENT_UNAVAILABLE: 'errors.codes.DOCUMENT_UNAVAILABLE',
   STEPS_PAUSED: 'errors.codes.STEPS_PAUSED',

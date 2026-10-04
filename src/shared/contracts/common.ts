@@ -82,6 +82,8 @@ export const ERROR_CODES = [
   'LINK_NOT_FOUND',
   'LINK_SELF',
   'CANONICAL_NOT_READY',
+  'OCR_NOT_CONFIGURED',
+  'OCR_NOT_READY',
   'DOCUMENT_UNAVAILABLE',
   // 🔒 A step this instance is holding is not run for the asking (docs/05 §5.4d): a reprocess whose
   // every step is paused would enqueue a job that does nothing, so it is refused instead.

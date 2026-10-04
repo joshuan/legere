@@ -5,7 +5,12 @@ import { toBuffer } from '../ports/binary-source';
 import { safeDownloadFileName, type Delivery, type FileStorage } from '../ports/file-storage';
 import type { ImageTool } from '../ports/image-tool';
 import type { PdfToolbox } from '../ports/pdf-toolbox';
-import { artifactKeys, originalDelivery, originalKeyOf } from '../storage/artifact-keys';
+import {
+  artifactKeys,
+  canonicalKeyOf,
+  originalDelivery,
+  originalKeyOf,
+} from '../storage/artifact-keys';
 import { assertPdf, fileOf } from './compose-document';
 import type { DocumentFileBytes } from './document-file-bytes';
 import { wholeFileReads } from './whole-file-reads';
@@ -63,7 +68,7 @@ export class DownloadDocumentCanonical {
       throw new ConflictError('CANONICAL_NOT_READY', 'The canonical PDF has not been built yet');
     }
 
-    const key = artifactKeys.canonicalPdf(document.id);
+    const key = canonicalKeyOf(document);
     if (!download) {
       // Viewed rather than saved: this is what the `<object>` on the page points at, and a signed URL
       // serves the range requests a PDF viewer makes without going through us (docs/09 §9.2). The one

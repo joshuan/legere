@@ -250,6 +250,9 @@ export class InMemoryDocumentRepository extends DocumentRepository {
       steps,
       skipReasons,
       canonicalPageIds: update.canonicalPageIds ?? existing.canonicalPageIds,
+      ...(update.canonicalStorageKey === undefined
+        ? {}
+        : { canonicalStorageKey: update.canonicalStorageKey }),
       previewRevision: existing.previewRevision + (update.steps?.preview === 'DONE' ? 1 : 0),
       ...(update.pageCount === undefined ? {} : { pageCount: update.pageCount }),
       ...(update.languages === undefined ? {} : { languages: update.languages }),

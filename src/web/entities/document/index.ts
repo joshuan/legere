@@ -10,3 +10,5 @@ export { useRecentDocuments } from './recent';
 export { SearchResultRow } from './search-result-row';
 export { isViewerTab, VIEWER_TABS, type ViewerTab } from './viewer-tab';
 export { DocumentImage } from './document-image';
+
+export { documentOcrApi } from './ocr-api';

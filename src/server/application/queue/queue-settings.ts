@@ -25,8 +25,8 @@ export const QUEUE_SETTINGS_KEY = 'queue';
 const SETTINGS_SCHEMA_VERSION = 2;
 
 export type QueueDefaults = {
-  concurrency: Record<Exclude<QueueName, 'receipt-process'>, number> &
-    Partial<Record<'receipt-process', number>>;
+  concurrency: Record<Exclude<QueueName, 'receipt-process' | 'page-ocr'>, number> &
+    Partial<Record<'receipt-process' | 'page-ocr', number>>;
   unitConcurrency: number;
   services: Record<ServiceName, ServiceGateDto>;
 };
@@ -62,6 +62,8 @@ export function ungatedServices(): Record<ServiceName, ServiceGateDto> {
     transcriber: { concurrency: 0, cooldownSeconds: 0 },
     embeddings: { concurrency: 0, cooldownSeconds: 0 },
     'receipt-extractor': { concurrency: 0, cooldownSeconds: 0 },
+    'google-document-ai': { concurrency: 0, cooldownSeconds: 0 },
+    'yandex-vision': { concurrency: 0, cooldownSeconds: 0 },
   };
 }
 
@@ -244,7 +246,7 @@ export class QueueSettings {
     if (queue === 'receipt-process') {
       return this.defaults.concurrency[queue] ?? this.defaults.concurrency['document-process'];
     }
-    return this.defaults.concurrency[queue];
+    return this.defaults.concurrency[queue] ?? 2;
   }
 
   private async persist(state: QueueSettingsState): Promise<void> {

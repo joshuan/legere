@@ -1646,3 +1646,7 @@ textarea.ant-input {
     gap: 4px 8px;
   }
 }
+
+.legere-viewer.legere-viewer-ocr {
+  grid-template-columns: minmax(0, 1fr);
+}

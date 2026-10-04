@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { BuildCanonical } from '../../src/server/application/documents/build-canonical';
 import { HandleDocumentProcess } from '../../src/server/application/jobs/handle-document-process';
-import { artifactKeys } from '../../src/server/application/storage/artifact-keys';
+import { artifactKeys, canonicalKeyOf } from '../../src/server/application/storage/artifact-keys';
 import { QueueSettings, ungatedServices } from '../../src/server/application/queue/queue-settings';
 import { DocumentTypeRepository } from '../../src/server/domain/repositories/document-type.repository';
 import {
@@ -241,7 +241,7 @@ describe('Document processing (integration)', () => {
     expect(row.processingError).toBeNull();
     // 🔒 Every document has a canonical PDF, and the previews are rendered from it (ADR-021).
     expect(files.keys()).toEqual([
-      artifactKeys.canonicalPdf(documentId),
+      canonicalKeyOf(row),
       artifactKeys.preview(documentId),
       artifactKeys.thumbnail(documentId),
     ]);
@@ -536,7 +536,7 @@ describe('Document processing (integration)', () => {
     const row = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
     expect(row.canonicalStatus).toBe('DONE');
     // 🔒 Page order is position order (docs/05 §5.5 step 1).
-    expect(files.get(artifactKeys.canonicalPdf(documentId)).body.toString()).toBe(
+    expect(files.get(canonicalKeyOf(row)).body.toString()).toBe(
       'merged(source-bytes,second-bytes)',
     );
   });

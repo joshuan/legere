@@ -238,6 +238,7 @@ artifact and never a source.
 | id | uuid | |
 | pageCount | int? | pages of the **canonical PDF**; `NULL` until it has been built |
 | previewPageId | uuid? | manually selected `DocumentPage`; `NULL` uses the first canonical page. The identity survives a reorder, crop and rebuild; removal, replacement or moving the selected page away clears the choice. It is never selected by analysis |
+| canonicalStorageKey | string? | immutable canonical PDF key published with its page map; null reads the legacy key (22) |
 | canonicalPageIds | uuid[] | page identities in the exact order of the stored canonical PDF, written by its build. This artifact metadata does not change when the live page order changes |
 | previewRevision | int | starts at zero, advances when both preview images are successfully written; exposed in list/detail DTOs and used in image URLs so an already-mounted image reloads |
 | title | string | initial = the name of the first file, without its extension. Named by the analysis where nobody has chosen one; editable |
@@ -406,7 +407,7 @@ files its pages are read from, in the order those pages first name them (§3.3.1
   is a record of where they came from.
 
 **Artifact keys (deterministic, no DB columns — see 09):**
-`documents/{id}/canonical.pdf`, `documents/{id}/preview.jpg`, `documents/{id}/thumb.jpg`.
+`documents/{id}/canonical/{revision}.pdf`, `documents/{id}/preview.jpg`, `documents/{id}/thumb.jpg`. Legacy canonicals remain readable through the fallback key. Manual OCR runs, page rasters and provider results are separate records, described in [22](22-page-ocr.md).
 A document owns no source bytes of its own: those belong to its files
 (`files/{fileId}/original.{ext}` for managed ones, a path on a volume for library ones).
 

@@ -1593,3 +1593,12 @@ For `documents:read`, consent explicitly describes the user’s own documents, P
 JPEG previews, excluded libraries/receipts/other owners/integrations, read-only access
 and Settings disconnect. Connected applications show the grant’s actual permission.
 MCP consent retains its existing explanation. Both variants use the current en/ru layout.
+
+## Manual page OCR inspection
+
+The viewer adds `/documents/:id/ocr`, labeled Recognition / Распознавание, after Text. The page
+uses the full viewer width with an image stage and linked text panel; mobile opens text in a drawer.
+Admins select providers and a Yandex model, recognize the page or document, or explicitly force a
+new paid request. Readers inspect saved runs. Page/provider/history selection, outlines/text/original,
+line/word detail, zoom, copy and JSON download share one toolbar. Confidence remains provider-specific.
+Old revisions retain their input image and show a warning. See [22](22-page-ocr.md).

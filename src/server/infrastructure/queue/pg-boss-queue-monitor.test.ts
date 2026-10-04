@@ -66,6 +66,15 @@ describe('PgBossQueueMonitor', () => {
         completedLastHour: 0,
       },
       {
+        name: 'page-ocr',
+        queued: 0,
+        active: 0,
+        failedRecent: 0,
+        oldestQueuedAt: null,
+        lastCompletedAt: null,
+        completedLastHour: 0,
+      },
+      {
         name: 'maintenance',
         queued: 0,
         active: 0,

@@ -24,6 +24,8 @@ import type { ConfigValues } from './config.schema';
 // client bundle — but it is still a key, and what an operator needs from this page is "a CAPTCHA is
 // configured", which SET says in full.
 export const SECRET_KEYS: ReadonlySet<keyof ConfigValues> = new Set([
+  'GOOGLE_OCR_CREDENTIALS_JSON',
+  'YANDEX_OCR_API_KEY',
   'AUTH_SECRET',
   'TURNSTILE_SECRET_KEY',
   'NEXT_PUBLIC_TURNSTILE_SITE_KEY',
@@ -80,6 +82,12 @@ export function describeInstance(config: AppConfig): InstanceResponse {
       {
         key: 'processing',
         settings: [
+          s('GOOGLE_OCR_PROJECT'),
+          s('GOOGLE_OCR_LOCATION'),
+          s('GOOGLE_OCR_PROCESSOR'),
+          s('GOOGLE_OCR_VERSION'),
+          s('GOOGLE_OCR_CREDENTIALS_JSON'),
+          s('YANDEX_OCR_API_KEY'),
           s('STIRLING_URL'),
           s('DOCLING_URL', when(blank('DOCLING_URL'), 'MARKDOWN_FALLS_BACK_TO_STIRLING')),
           s('DOCLING_PICTURE_DESCRIPTION'),

@@ -577,6 +577,8 @@ describe('ServiceGates', () => {
         'transcriber',
         'embeddings',
         'receipt-extractor',
+        'google-document-ai',
+        'yandex-vision',
       ]);
       expect(snapshot.find((row) => row.service === 'stirling')?.gated).toBe(true);
       // 🔒 Nothing is being metered there, which is not the same as nothing waiting: three zeroes

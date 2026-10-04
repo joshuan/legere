@@ -45,6 +45,15 @@ export const PROCESSING_TOPOLOGY = {
       expireInSeconds: 60 * 60,
     },
     {
+      name: 'page-ocr',
+      kind: 'PIPELINE',
+      produces: [],
+      concurrencyConfigurable: true,
+      policy: 'short',
+      // The shared provider gate can wait through a Retry-After of up to three hours.
+      expireInSeconds: 3 * 60 * 60,
+    },
+    {
       name: 'maintenance',
       kind: 'HOUSEKEEPING',
       produces: ['document-process'],
@@ -122,7 +131,7 @@ export const PROCESSING_TOPOLOGY = {
     {
       service: 'stirling',
       steps: ['canonical', 'preview', 'markdown', 'analysis', 'fields'],
-      otherConsumers: ['receipts'],
+      otherConsumers: ['receipts', 'page-ocr'],
     },
     { service: 'docling', steps: ['markdown'], otherConsumers: [] },
     {
@@ -134,6 +143,8 @@ export const PROCESSING_TOPOLOGY = {
     { service: 'transcriber', steps: ['markdown'], otherConsumers: [] },
     { service: 'embeddings', steps: ['vectorization'], otherConsumers: ['semantic-search'] },
     { service: 'receipt-extractor', steps: [], otherConsumers: ['receipts'] },
+    { service: 'google-document-ai', steps: [], otherConsumers: ['page-ocr'] },
+    { service: 'yandex-vision', steps: [], otherConsumers: ['page-ocr'] },
   ],
 } as const satisfies ProcessingTopologyDto;
 

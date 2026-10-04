@@ -11,6 +11,7 @@ export const EXPIRE_IN_SECONDS: Readonly<Record<QueueName, number>> = {
   'file-ingest': queueDefinition('file-ingest').expireInSeconds,
   'document-process': queueDefinition('document-process').expireInSeconds,
   'receipt-process': queueDefinition('receipt-process').expireInSeconds,
+  'page-ocr': queueDefinition('page-ocr').expireInSeconds,
   maintenance: queueDefinition('maintenance').expireInSeconds,
 };
 

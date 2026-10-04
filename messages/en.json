@@ -89,7 +89,9 @@
       "RECEIPT_MERGE_LIMIT": "These originals are not ready or exceed the PDF merge limits.",
       "RECEIPT_MERGE_BUSY": "Another receipt PDF is being assembled. Please retry shortly.",
       "RECEIPT_REVIEW_DEPENDENCY": "Undo the later decisions involving this result first.",
-      "PREVIEW_PAGE_NOT_READY": "Wait for the page to finish processing, then select it again."
+      "PREVIEW_PAGE_NOT_READY": "Wait for the page to finish processing, then select it again.",
+      "OCR_NOT_CONFIGURED": "Configure the selected OCR providers first.",
+      "OCR_NOT_READY": "Recognition is not ready yet."
     }
   },
   "auth": {
@@ -359,7 +361,13 @@
         "TRANSCRIBER_MODEL": "Transcriber model",
         "TRANSCRIBER_MAX_PAGES": "Pages a document may have transcribed",
         "TRANSCRIBER_PAGE_IMAGE_MAX_DIM": "Page image size for transcription, px",
-        "IMAGE_PAGE_CORRECTION": "Correct photographed pages"
+        "IMAGE_PAGE_CORRECTION": "Correct photographed pages",
+        "GOOGLE_OCR_PROJECT": "Google OCR project",
+        "GOOGLE_OCR_LOCATION": "Google OCR region",
+        "GOOGLE_OCR_PROCESSOR": "Google OCR processor",
+        "GOOGLE_OCR_VERSION": "Google OCR processor version",
+        "GOOGLE_OCR_CREDENTIALS_JSON": "Google service-account credentials",
+        "YANDEX_OCR_API_KEY": "Yandex OCR API key"
       }
     },
     "users": {
@@ -587,7 +595,9 @@
           "classifier": "The analyst",
           "receipt-extractor": "Receipt extractor",
           "transcriber": "The transcriber",
-          "embeddings": "Embeddings"
+          "embeddings": "Embeddings",
+          "google-document-ai": "Google Document AI",
+          "yandex-vision": "Yandex Vision OCR"
         },
         "hints": {
           "stirling": "Converts uploads to PDF, merges pages, renders previews and runs OCR.",
@@ -595,7 +605,9 @@
           "classifier": "Reads a document and says what it is: type, title, description, date, people, places.",
           "receipt-extractor": "Reads receipt images through a dedicated provider, independently of document analysis. Configure RECEIPT_API_BASE_URL and RECEIPT_MODEL to enable it.",
           "transcriber": "The recogniser of last resort: a vision model reading the pages OCR could not.",
-          "embeddings": "Turns the text into vectors for semantic search. One batch counts as one call."
+          "embeddings": "Turns the text into vectors for semantic search. One batch counts as one call.",
+          "google-document-ai": "Recognizes individual pages on explicit request. Credentials are configured on the server.",
+          "yandex-vision": "Recognizes individual pages on explicit request. Credentials are configured on the server."
         },
         "gateState": "Right now",
         "gateStateHint": "What the gate is doing this instant: how many calls are in flight, and how many are waiting for a slot. One in flight with others waiting is a throttle doing its job; several in flight is a limit that never took effect.",
@@ -615,14 +627,16 @@
         "library-scan": "Scanning libraries",
         "file-ingest": "Taking in files",
         "document-process": "Processing documents",
-        "maintenance": "Housekeeping"
+        "maintenance": "Housekeeping",
+        "page-ocr": "Page recognition"
       },
       "hints": {
         "receipt-process": "Creates previews and reads receipts. Retries preserve a completed preview when extraction fails.",
         "library-scan": "Walks the attached folders and notices files that are new, changed or gone.",
         "file-ingest": "Hashes each file, deduplicates it, and makes a document out of it.",
         "document-process": "The six steps below: the canonical PDF, its preview, its text, the analysis, extracted fields, and vectors.",
-        "maintenance": "Hourly: expires one-time credentials, sweeps orphaned artifacts, and picks up documents nobody is coming for."
+        "maintenance": "Hourly: expires one-time credentials, sweeps orphaned artifacts, and picks up documents nobody is coming for.",
+        "page-ocr": "Manual cloud OCR. Each job reads one page with one provider; saved results remain separate from search."
       },
       "tabs": {
         "receipts": "Receipts",
@@ -1154,7 +1168,8 @@
       "related": "Related",
       "details": "Details",
       "files": "Files",
-      "log": "Log"
+      "log": "Log",
+      "ocr": "Recognition"
     },
     "steps": {
       "canonical": "Canonical PDF",
@@ -1497,6 +1512,65 @@
       "duplicateConfirm": "Delete “{title}” as a duplicate of this document?",
       "duplicateNote": "The {files, plural, one {# file} other {# files}} it is made of go — {size} in all. Originals in a library stay on the volume and Legere will not read them again. This cannot be undone.",
       "duplicateDone": "The duplicate is deleted."
+    },
+    "ocr": {
+      "intro": "Inspect what each service read, directly on the page. Recognition is saved separately from document text and search.",
+      "recognizedText": "Recognized text",
+      "copy": "Copy recognized text",
+      "copied": "Text copied",
+      "copyFailed": "Could not copy text. Select and copy it manually.",
+      "emptyPage": "No text found on this page",
+      "confidenceHint": "Provider confidence, not a measured accuracy score",
+      "textHint": "Select a result to inspect its text. Click a line to find it on the page.",
+      "model": "Yandex model",
+      "models": {
+        "page": "General text",
+        "table": "Tables",
+        "handwritten": "Handwriting"
+      },
+      "force": "Recognize again (new request)",
+      "recognizePage": "Recognize page",
+      "recognizeDocument": "Recognize document",
+      "sendCount": "Selected services: {providers}. Page: 1 image per service; document: {pages} images per service.",
+      "notConfigured": "External OCR is not configured",
+      "configureHint": "Configure Google Document AI or Yandex Vision in the server environment. Provider settings are listed under Instance settings.",
+      "canonicalPending": "The canonical PDF must be ready before recognition can start.",
+      "previous": "Previous page",
+      "next": "Next page",
+      "page": "Page",
+      "pageNumber": "Page {page}",
+      "history": "Recognition history",
+      "oldVersion": "previous version",
+      "provider": "Recognition provider",
+      "display": "Page display",
+      "original": "Original",
+      "boxes": "Outlines",
+      "overlay": "Text overlay",
+      "granularity": "Recognition detail",
+      "lines": "Lines",
+      "words": "Words",
+      "zoomOut": "Zoom out",
+      "zoomIn": "Zoom in",
+      "stale": "This result belongs to a previous document version. The saved input image is shown.",
+      "status": {
+        "QUEUED": "Queued",
+        "RUNNING": "Recognizing",
+        "DONE": "Ready",
+        "FAILED": "Failed"
+      },
+      "cached": "Saved result reused",
+      "rawJson": "Provider JSON",
+      "json": "Legere JSON",
+      "retryFailed": "Retry failed pages",
+      "mayBeBilled": "The request was submitted. The provider may charge for interrupted attempts.",
+      "preparing": "Preparing the page for recognition…",
+      "choosePage": "Choose a page to inspect",
+      "currentDocument": "Current document",
+      "duration": "{seconds} s",
+      "attempts": "Submission attempts: {count}",
+      "newRecognition": "New recognition",
+      "prepareHint": "Prepare the pages of this older PDF before recognizing them. Document text and search are preserved.",
+      "preparePages": "Prepare pages"
     }
   },
   "nav": {

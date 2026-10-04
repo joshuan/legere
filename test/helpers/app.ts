@@ -12,6 +12,10 @@ import {
   type ThrottleBudget,
 } from '../../src/server/presentation/http/throttling';
 import { CatalogueAnalyst } from '../../src/server/application/ports/catalogue-analyst';
+import {
+  OcrProviders,
+  OcrPageRenderer,
+} from '../../src/server/application/ports/page-ocr-provider';
 import { Clock } from '../../src/server/application/ports/clock';
 import { EmailSender, type EmailMessage } from '../../src/server/application/ports/email-sender';
 import { FileStorage } from '../../src/server/application/ports/file-storage';
@@ -64,6 +68,8 @@ export type TestApp = {
 };
 
 export type TestAppOptions = {
+  ocrProviders?: OcrProviders;
+  ocrRenderer?: OcrPageRenderer;
   // Browser tests render real Next server components, whose API loopback uses PORT.
   port?: number;
   clock?: Clock;
@@ -116,6 +122,10 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
   if (options.analyst !== undefined) {
     builder.overrideProvider(CatalogueAnalyst).useValue(options.analyst);
   }
+  if (options.ocrProviders !== undefined)
+    builder.overrideProvider(OcrProviders).useValue(options.ocrProviders);
+  if (options.ocrRenderer !== undefined)
+    builder.overrideProvider(OcrPageRenderer).useValue(options.ocrRenderer);
   if (options.clock !== undefined) builder.overrideProvider(Clock).useValue(options.clock);
   const moduleRef = await builder
     .overrideProvider(getOptionsToken())

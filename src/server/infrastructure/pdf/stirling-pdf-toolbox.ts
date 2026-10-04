@@ -107,10 +107,25 @@ export class StirlingPdfToolbox extends PdfToolbox {
   }
 
   async pdfPageJpg(source: BinarySource, options: PageRenderOptions = {}): Promise<Buffer> {
+    return this.renderPageImage(source, options, 'jpeg');
+  }
+
+  override async pdfPagePng(
+    source: BinarySource,
+    options: PageRenderOptions = {},
+  ): Promise<Buffer> {
+    return this.renderPageImage(source, options, 'png');
+  }
+
+  private async renderPageImage(
+    source: BinarySource,
+    options: PageRenderOptions,
+    format: string,
+  ): Promise<Buffer> {
     const form = new FormData();
     form.append('fileInput', await blobOf(source), 'input.pdf');
     form.append('pageNumbers', String(options.page ?? 1));
-    form.append('imageFormat', 'jpeg');
+    form.append('imageFormat', format);
     // "single" returns the image itself; "multiple" would wrap even a one-page result in a zip.
     form.append('singleOrMultiple', 'single');
     form.append('colorType', 'color');

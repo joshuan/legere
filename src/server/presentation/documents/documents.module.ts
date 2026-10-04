@@ -1,3 +1,4 @@
+import { PageOcrModule } from './page-ocr.module';
 import { Module } from '@nestjs/common';
 import {
   DeleteDocument,
@@ -88,6 +89,7 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
 // Documents (docs/06 §6.5): the read model, the bytes, the composition of files, metadata editing,
 // deletion and reprocessing.
 @Module({
+  imports: [PageOcrModule],
   exports: [UploadDocument],
   controllers: [DocumentsController, DocumentIngestController],
   providers: [

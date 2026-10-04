@@ -475,3 +475,13 @@ outage must not restart the app).
 ## 6.11. Open questions
 
 None.
+
+## Manual page OCR inspection
+
+`PageOcrModule` binds the `ManagePageOcr`, `PrepareOcrPage`, and `HandlePageOcr` use cases to
+`PageOcrRepository`, `OcrPageRenderer`, and the `OcrProviders` registry. Provider-specific REST/JSON
+code lives under infrastructure/ocr. `page-ocr` uses the shared short queue policy, five retries and
+three-hour delivery expiry (including provider Retry-After holds). Ten-minute result leases refresh every 30 seconds and fence stale writes.
+The existing single-process deployment serializes matching image/provider/settings work before
+cache lookup and submission. These in-memory cache locks do not promise cross-instance deduplication.
+See [22](22-page-ocr.md).

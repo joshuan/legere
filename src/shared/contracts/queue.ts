@@ -43,6 +43,8 @@ export const SERVICE_NAMES = [
   'transcriber',
   'embeddings',
   'receipt-extractor',
+  'google-document-ai',
+  'yandex-vision',
 ] as const;
 export type ServiceName = (typeof SERVICE_NAMES)[number];
 

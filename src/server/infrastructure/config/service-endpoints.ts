@@ -16,6 +16,23 @@ export type ServiceEndpoint = {
 };
 
 export function serviceEndpoint(config: AppConfig, service: ServiceName): ServiceEndpoint {
+  if (service === 'google-document-ai')
+    return {
+      baseUrl: [
+        config.get('GOOGLE_OCR_PROJECT'),
+        config.get('GOOGLE_OCR_PROCESSOR'),
+        config.get('GOOGLE_OCR_VERSION'),
+        config.get('GOOGLE_OCR_CREDENTIALS_JSON'),
+      ].some((value) => value === '')
+        ? ''
+        : `https://${config.get('GOOGLE_OCR_LOCATION')}-documentai.googleapis.com`,
+      apiKey: '',
+    };
+  if (service === 'yandex-vision')
+    return {
+      baseUrl: config.get('YANDEX_OCR_API_KEY') === '' ? '' : 'https://ai.api.cloud.yandex.net',
+      apiKey: '',
+    };
   if (service === 'receipt-extractor') {
     return {
       baseUrl: trimmed(config.get('RECEIPT_API_BASE_URL')),

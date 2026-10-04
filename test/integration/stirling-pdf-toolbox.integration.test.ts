@@ -32,6 +32,17 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
     stirling.up = await reachable(`${STIRLING_URL}/api/v1/info/status`);
   });
 
+  itWithStirling('renders the selected page as lossless OCR input at 300 DPI', async () => {
+    const pdf = pdfWithText(['FIRST PAGE', 'SECOND PAGE']);
+    const bytes = await pdfs.pdfPagePng(pdf, { page: 2, dpi: 300 });
+    const metadata = await sharp(bytes).metadata();
+    expect(metadata.format).toBe('png');
+    expect(metadata.width).toBeGreaterThan(2000);
+    expect(metadata.height).toBeGreaterThan(3000);
+    const first = await pdfs.pdfPagePng(pdf, { page: 1, dpi: 300 });
+    expect(bytes.equals(first)).toBe(false);
+  });
+
   for (const format of ['doc', 'docx'] as const) {
     itWithStirling(
       `converts a real ${format.toUpperCase()} to readable PDF and a first-page preview`,

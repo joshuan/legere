@@ -41,7 +41,11 @@ Two distinct storages with opposite rules:
   older version keeps resolving after the layout changes and no object ever has to be moved:
 
 ```
-documents/{documentId}/canonical.pdf   # always — every document is a PDF (05 §5.5)
+documents/{documentId}/canonical.pdf   # legacy fallback, never overwritten by new builds
+documents/{documentId}/canonical/{revision}.pdf # immutable; key published with canonicalPageIds
+documents/{documentId}/ocr/images/{sha256}.png  # exact input to each OCR provider
+documents/{documentId}/ocr/results/{resultId}/{leaseToken}-raw.json
+documents/{documentId}/ocr/results/{resultId}/{leaseToken}.json
 documents/{documentId}/preview.jpg     # manually selected canonical page, otherwise the first
 documents/{documentId}/thumb.jpg       # the same, smaller, for lists
 files/{fileId}/original.{ext}          # a managed file's own bytes: an upload, or something we made
@@ -210,3 +214,8 @@ tests for `S3FileStorage` run against MinIO locally ([`14 §14.8`](./14-coding-s
 ## 9.6. Open questions
 
 None.
+
+OCR images and responses follow [22](22-page-ocr.md). Historical canonical revisions are retained
+so queued runs and old overlays continue reading the same input. The existing orphan-document
+sweep removes their entire document prefix after deletion. JSON downloads use attachment delivery;
+PNGs use inline delivery. All entry points recheck document access before issuing a signed URL.

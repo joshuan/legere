@@ -46,6 +46,12 @@ export abstract class PdfToolbox {
   // pages the analyst is shown (step 4). Defaults to the first.
   abstract pdfPageJpg(source: BinarySource, options?: PageRenderOptions): Promise<Buffer>;
 
+  // Lossless page pixels for independent OCR inspection. Existing test/tool implementations
+  // that never provide OCR need not emulate a format they do not support.
+  pdfPagePng(_source: BinarySource, _options?: PageRenderOptions): Promise<Buffer> {
+    return Promise.reject(new Error('Lossless page rendering is not supported by this toolbox'));
+  }
+
   // Adds a text layer to a scanned PDF (step 3), with tesseract language codes such as ['rus','eng'].
   abstract ocrPdf(source: BinarySource, languages: readonly string[]): Promise<Buffer>;
 

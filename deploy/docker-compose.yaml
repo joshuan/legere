@@ -91,6 +91,12 @@ services:
       SMTP_ALLOW_PLAINTEXT: ${SMTP_ALLOW_PLAINTEXT:-false}
       ALLOW_UNCONFIGURED_EMAIL: ${ALLOW_UNCONFIGURED_EMAIL:-false}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
+      GOOGLE_OCR_PROJECT: ${GOOGLE_OCR_PROJECT:-}
+      GOOGLE_OCR_LOCATION: ${GOOGLE_OCR_LOCATION:-eu}
+      GOOGLE_OCR_PROCESSOR: ${GOOGLE_OCR_PROCESSOR:-}
+      GOOGLE_OCR_VERSION: ${GOOGLE_OCR_VERSION:-}
+      GOOGLE_OCR_CREDENTIALS_JSON: ${GOOGLE_OCR_CREDENTIALS_JSON:-}
+      YANDEX_OCR_API_KEY: ${YANDEX_OCR_API_KEY:-}
       OCR_LANGUAGES: ${OCR_LANGUAGES:-rus+eng}
       # The HTTP body cap is set explicitly rather than silently falling back to the application's
       # 100 MiB development default. It must not exceed the pipeline's 256 MiB whole-file ceiling.

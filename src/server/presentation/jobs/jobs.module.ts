@@ -1,3 +1,5 @@
+import { HandlePageOcr } from '../../application/ocr/handle-page-ocr';
+import { PageOcrModule } from '../documents/page-ocr.module';
 import { Module, type OnModuleInit } from '@nestjs/common';
 import { HandleDocumentProcess } from '../../application/jobs/handle-document-process';
 import { HandleFileIngest } from '../../application/jobs/handle-file-ingest';
@@ -77,6 +79,7 @@ export const PROCESSING_WORKER_BINDINGS = [
   { queue: 'file-ingest', handler: HandleFileIngest },
   { queue: 'document-process', handler: HandleDocumentProcess },
   { queue: 'receipt-process', handler: HandleReceiptProcess },
+  { queue: 'page-ocr', handler: HandlePageOcr, concurrency: 2 },
   { queue: 'maintenance', handler: HandleMaintenance, concurrency: 1 },
 ] satisfies readonly WorkerBinding[];
 
@@ -84,7 +87,7 @@ export const PROCESSING_WORKER_BINDINGS = [
   // The correlation id a pipeline step is run under (docs/03 §3.3.18) comes from here, and so does
   // the account journal; a job and an HTTP request open the same kind of context (docs/06 §6.7).
   // Named explicitly although the module is global, so this graph stands up on its own in a test.
-  imports: [LoggingModule],
+  imports: [LoggingModule, PageOcrModule],
   providers: [
     // What the analysis writes in (docs/05 §5.5); read per run, so a change needs no restart.
     {

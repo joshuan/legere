@@ -1729,3 +1729,11 @@ None. Previously open items — resolved:
 5. **HEIC:** attempt `sharp` decode; if the runtime build lacks HEIC support, preview/markdown steps
    are `SKIPPED` for that document (documented limitation; the file remains registered and
    downloadable).
+
+## Manual page OCR inspection
+
+Manual page OCR is a separate `page-ocr` queue (concurrency 2 by default), not a document step.
+An admin chooses at most 2000 canonical pages per run and one or both providers. Each provider has
+its own service gate, initially one in-flight call. Google/Yandex appear in Processing alongside
+existing services; their free health probe reports endpoint reachability only, not valid credentials.
+See [22](22-page-ocr.md) for caching, lease recovery and potentially billed retries.

@@ -286,6 +286,7 @@ describe('Reprocess and queue administration (e2e)', () => {
         'file-ingest',
         'document-process',
         'receipt-process',
+        'page-ocr',
         'maintenance',
       ]);
       expect(overview.documents.total).toBe(1);
@@ -853,6 +854,8 @@ describe('Reprocess and queue administration (e2e)', () => {
       transcriber: { concurrency: 0, cooldownSeconds: 0 },
       embeddings: { concurrency: 0, cooldownSeconds: 0 },
       'receipt-extractor': { concurrency: 1, cooldownSeconds: 0 },
+      'google-document-ai': { concurrency: 1, cooldownSeconds: 0 },
+      'yandex-vision': { concurrency: 1, cooldownSeconds: 0 },
     });
 
     const saved = await api(app)

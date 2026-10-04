@@ -10,7 +10,9 @@ import { PersonalArchiveRepository } from '../../domain/repositories/personal-ar
 import { UnprocessableError, ValidationFailedError } from '../../domain/errors/domain-error';
 import { PrismaService } from './prisma.service';
 
-const rowSchema = archiveDocumentSchema.omit({ processing: true, url: true });
+const rowSchema = archiveDocumentSchema
+  .omit({ processing: true, url: true })
+  .extend({ canonicalStorageKey: z.string().nullable() });
 const cursorSchema = z
   .object({
     version: z.literal(1),
@@ -30,7 +32,7 @@ function eligible(subject: string) {
 }
 // Preserve PostgreSQL timestamp precision in both the DTO and keyset cursor. Converting the
 // boundary through a JavaScript Date would skip documents created within the same millisecond.
-const SELECT = Prisma.sql`SELECT d.id, d.title, d.description,
+const SELECT = Prisma.sql`SELECT d.id, d.title, d.description, d.canonical_storage_key AS "canonicalStorageKey",
   to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "createdAt",
   to_char(d.document_date, 'YYYY-MM-DD') AS "documentDate", d.page_count AS "pageCount",
   CASE WHEN t.id IS NULL THEN NULL ELSE jsonb_build_object('id', t.id, 'slug', t.slug, 'name', t.name) END AS "documentType",

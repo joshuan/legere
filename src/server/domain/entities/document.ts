@@ -37,6 +37,7 @@ export type Document = {
   pageCount: number | null;
   previewPageId: string | null;
   canonicalPageIds: string[];
+  canonicalStorageKey?: string | null;
   previewRevision: number;
   title: string;
   // What this document is, for somebody who has never seen it (docs/03 §3.3.10).

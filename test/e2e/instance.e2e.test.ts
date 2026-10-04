@@ -90,7 +90,9 @@ describe('The instance view (e2e)', () => {
     expect(rowFor('APP_BASE_URL')).toMatchObject({ value: 'http://localhost:3000', source: 'ENV' });
     // The connection string is decomposed; the database it names is the test one.
     expect(rowFor('DATABASE_URL')).toBeUndefined();
-    expect(rowFor('DATABASE_NAME')?.value).toBe('legere_test');
+    expect(rowFor('DATABASE_NAME')?.value).toBe(
+      new URL(process.env.DATABASE_URL ?? '').pathname.slice(1),
+    );
     // 🔒 The signing secret this very session is authenticated with says only that it exists.
     expect(rowFor('AUTH_SECRET')).toMatchObject({ value: null, source: 'SET' });
 

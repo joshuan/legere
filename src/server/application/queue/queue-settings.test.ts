@@ -40,6 +40,7 @@ describe('QueueSettings', () => {
       'file-ingest': 4,
       'document-process': 2,
       'receipt-process': 2,
+      'page-ocr': 2,
       maintenance: 1,
     });
     expect(read.unitConcurrency).toBe(1);
@@ -52,6 +53,8 @@ describe('QueueSettings', () => {
       transcriber: { concurrency: 0, cooldownSeconds: 0 },
       embeddings: { concurrency: 0, cooldownSeconds: 0 },
       'receipt-extractor': { concurrency: 0, cooldownSeconds: 0 },
+      'google-document-ai': { concurrency: 0, cooldownSeconds: 0 },
+      'yandex-vision': { concurrency: 0, cooldownSeconds: 0 },
     });
   });
 
@@ -100,9 +103,11 @@ describe('QueueSettings', () => {
       'classifier',
       'docling',
       'embeddings',
+      'google-document-ai',
       'receipt-extractor',
       'stirling',
       'transcriber',
+      'yandex-vision',
     ]);
   });
 

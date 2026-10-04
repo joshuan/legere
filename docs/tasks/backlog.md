@@ -2431,3 +2431,22 @@ Production observation is read-only; source fixes are verified and committed on 
   and XLSX conversion, text from both sheets, JPEG previews and unchanged originals. Typecheck,
   changed-file lint and formatting pass. No database migration or upload-interface change is
   required; the existing file picker already includes both extensions.
+
+## M81 — Page OCR inspection
+
+- [x] **M81.1 — Implement manual Google/Yandex page OCR and inspection.**
+  Implement [the page OCR contract](../22-page-ocr.md): immutable canonical inputs, persistent
+  per-page results, bounded cloud adapters, queue controls, authorized APIs, and a responsive
+  Recognition tab with text/geometry overlays and history. Preserve the existing text/search
+  pipeline. Validate adapters, persistence, job recovery, access checks and browser interaction.
+
+  Implemented both provider adapters, immutable page images and canonical revisions, original and
+  normalized JSON, idempotent page jobs with leases and retry checkpoints, service controls, and
+  the localized viewer with linked overlays, history and a mobile text drawer. Legacy documents
+  can explicitly prepare their stable page map without submitting cloud work.
+
+  Validation: typecheck, lint, forward migration/schema drift checks, 195 focused server checks,
+  and 152 targeted browser scenarios across ten viewport/theme combinations pass. A native
+  Stirling integration test verifies the selected page's 300 DPI PNG. The complete coverage and
+  browser suites remain release gates. Live provider accuracy and billing evaluation require
+  configured cloud accounts; no real cloud OCR was submitted during implementation.

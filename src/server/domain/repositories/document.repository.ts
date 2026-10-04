@@ -42,6 +42,7 @@ export type ProcessingUpdate = {
   skipReasons?: Partial<Record<keyof DocumentSteps, StepSkipReason | null>>;
   pageCount?: number | null;
   canonicalPageIds?: string[];
+  canonicalStorageKey?: string | null;
   languages?: string[];
   country?: string | null;
   city?: string | null;

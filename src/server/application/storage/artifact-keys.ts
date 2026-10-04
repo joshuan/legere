@@ -8,6 +8,8 @@ import type { Delivery } from '../ports/file-storage';
 export const artifactKeys = {
   // Canonicalized PDF: every document has one, built from its files (docs/05 §5.5).
   canonicalPdf: (documentId: string): string => `documents/${documentId}/canonical.pdf`,
+  canonicalRevision: (documentId: string, revision: string): string =>
+    `documents/${documentId}/canonical/${revision}.pdf`,
   // First page, PREVIEW_MAX_DIM.
   preview: (documentId: string): string => `documents/${documentId}/preview.jpg`,
   // First page, THUMB_MAX_DIM.
@@ -90,4 +92,11 @@ export function originalDelivery(file: { mimeType: string; name: string }): Deli
     contentType: servableContentType(file.mimeType),
     fileName: file.name,
   };
+}
+
+export function canonicalKeyOf(document: {
+  id: string;
+  canonicalStorageKey?: string | null;
+}): string {
+  return document.canonicalStorageKey ?? artifactKeys.canonicalPdf(document.id);
 }

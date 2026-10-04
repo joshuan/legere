@@ -65,6 +65,8 @@ describe('describeInstance', () => {
           EMBEDDINGS_API_KEY: 'sk-embeddings-nobody-may-see',
           CLASSIFIER_API_KEY: 'sk-classifier-nobody-may-see',
           RECEIPT_API_KEY: 'sk-receipt-nobody-may-see',
+          GOOGLE_OCR_CREDENTIALS_JSON: 'private-service-account-json',
+          YANDEX_OCR_API_KEY: 'private-yandex-ocr-key',
           TURNSTILE_SECRET_KEY: 'turnstile-secret-nobody-may-see',
           NEXT_PUBLIC_TURNSTILE_SITE_KEY: 'turnstile-site-key',
         }),
@@ -79,6 +81,8 @@ describe('describeInstance', () => {
         'sk-embeddings-nobody-may-see',
         'sk-classifier-nobody-may-see',
         'sk-receipt-nobody-may-see',
+        'private-service-account-json',
+        'private-yandex-ocr-key',
         'turnstile-secret-nobody-may-see',
         'turnstile-site-key',
       ]) {

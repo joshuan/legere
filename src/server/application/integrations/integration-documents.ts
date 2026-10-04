@@ -4,7 +4,7 @@ import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
 import type { DocumentRepository, Viewer } from '../../domain/repositories/document.repository';
 import type { FileStorage } from '../ports/file-storage';
 import type { Clock } from '../ports/clock';
-import { artifactKeys } from '../storage/artifact-keys';
+import { artifactKeys, canonicalKeyOf } from '../storage/artifact-keys';
 import type { UploadDocument } from '../documents/upload-document';
 import type { UploadedFile } from '../documents/compose-document';
 
@@ -45,7 +45,7 @@ export class IntegrationDocuments {
     const contentType =
       kind === 'canonical' ? ('application/pdf' as const) : ('image/jpeg' as const);
     const url = await this.storage.getSignedUrl(
-      kind === 'canonical' ? artifactKeys.canonicalPdf(id) : artifactKeys.preview(id),
+      kind === 'canonical' ? canonicalKeyOf(document) : artifactKeys.preview(id),
       this.ttlSec,
       { disposition: 'inline', contentType },
     );

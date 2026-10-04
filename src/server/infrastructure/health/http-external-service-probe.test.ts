@@ -39,6 +39,15 @@ afterEach(() => {
 });
 
 describe('HttpExternalServiceProbe', () => {
+  it('checks cloud reachability without paid work or claims about credential validity', async () => {
+    const spy = answers(403);
+    const result = await probe({ YANDEX_OCR_API_KEY: 'private-key' }).check('yandex-vision');
+    expect(result).toMatchObject({ status: 'ANSWERED', httpStatus: 403 });
+    expect(result.detail).toContain('credentials are checked when recognition runs');
+    expect(spy.mock.calls[0]?.[1]?.method).toBe('GET');
+    expect(new Headers(spy.mock.calls[0]?.[1]?.headers).get('authorization')).toBeNull();
+    expect(await probe().check('google-document-ai')).toMatchObject({ status: 'NOT_CONFIGURED' });
+  });
   describe('what it asks, and where', () => {
     it('asks each service the question that service publishes', async () => {
       const fetchSpy = answers(200);

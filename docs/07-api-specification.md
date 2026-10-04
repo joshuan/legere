@@ -639,3 +639,21 @@ Lists/discovery/recovery include ACTIVE receipts only; preserved receipt mutatio
 409 RECEIPT_CHANGED until review undo. This does not widen the document-only integration APIs.
 Personal READ token security and receipt detail/artifact schemas are published in `/api/openapi.json`.
 See [21](21-receipt-duplicates.md#durable-receipt-references) for migration, undo and consumer rules.
+
+## Manual page OCR inspection
+
+All routes below use normal session/read-token and document-access checks. Mutations additionally
+require ADMIN; read-only tokens cannot submit cloud work. Unknown or cross-document IDs return 404.
+
+| Method | Document-relative path | Result |
+|---|---|---|
+| POST | `ocr-runs` | `{ requestId, pageIds?, providers, yandexModel?, force? }` → run; omitted pages means all, at most 2000 |
+| GET | `ocr-runs` | `{ pages: [{id,number}], providers, runs }`; latest 30 runs, no secret values |
+| GET | `ocr-runs/:runId` | Run, per-page/provider progress, attempts, duration, artifact availability, stale flag |
+| POST | `ocr-runs/:runId/retry` | Retry only failed results; preserved raw JSON is reparsed without resubmission |
+| GET | `ocr-pages/:pageId/image` | Local rasterization of a current canonical page; private 302; no cloud request |
+| GET | `ocr-results/:resultId` | Normalized JSON v1 |
+| GET | `ocr-results/:resultId/:kind` | `image`, `raw`, or `json`; authorized private 302 |
+
+`OCR_NOT_CONFIGURED` and `OCR_NOT_READY` are 409 conflicts. Canonical readiness uses
+`CANONICAL_NOT_READY`. The shared Zod contracts and [22](22-page-ocr.md) define the response shapes.

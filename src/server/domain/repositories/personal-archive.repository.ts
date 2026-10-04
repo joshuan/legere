@@ -3,7 +3,9 @@ import type {
   ArchiveDocumentsQuery,
 } from '../../../shared/contracts/archive-integration';
 
-export type PersonalArchiveDocument = Omit<ArchiveDocumentDto, 'processing' | 'url'>;
+export type PersonalArchiveDocument = Omit<ArchiveDocumentDto, 'processing' | 'url'> & {
+  canonicalStorageKey?: string | null;
+};
 
 // A separate read model: neither administrator roles nor shares can broaden this permission.
 export abstract class PersonalArchiveRepository {

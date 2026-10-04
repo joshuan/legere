@@ -59,7 +59,7 @@ import type { DocumentParser } from '../ports/document-parser';
 import type { PdfToolbox } from '../ports/pdf-toolbox';
 import { ServiceUnavailableError } from '../ports/service-unavailable';
 import type { UnitOfWork } from '../ports/unit-of-work';
-import { artifactKeys } from '../storage/artifact-keys';
+import { artifactKeys, canonicalKeyOf } from '../storage/artifact-keys';
 import type { AnalysisSettings } from '../settings/analysis-settings';
 import type { QueueSettings } from '../queue/queue-settings';
 import { JobHandler, type JobDelivery } from './job-handler';
@@ -409,11 +409,13 @@ export class HandleDocumentProcess extends JobHandler {
           skipReasons: { canonical: 'UNSUPPORTED_FORMAT' },
           pageCount: null,
           canonicalPageIds: [],
+          canonicalStorageKey: null,
         });
         return { kind: 'nothing' };
       }
 
-      await this.files.put(artifactKeys.canonicalPdf(document.id), built.pdf, 'application/pdf');
+      const canonicalStorageKey = artifactKeys.canonicalRevision(document.id, randomUUID());
+      await this.files.put(canonicalStorageKey, built.pdf, 'application/pdf');
       await this.write(document.id, {
         steps: { canonical: 'DONE' },
         metrics: { pages: built.pageCount, ocrUsed: built.ocrUsed },
@@ -423,6 +425,7 @@ export class HandleDocumentProcess extends JobHandler {
         // The count belongs to the canonical, because the canonical is the document (docs/03 §3.3.10).
         pageCount: built.pageCount,
         canonicalPageIds: built.pageIds,
+        canonicalStorageKey,
         ocrUsed: built.ocrUsed,
       });
       return { kind: 'ready', pageCount: built.pageCount, ocrUsed: built.ocrUsed };
@@ -1069,8 +1072,9 @@ export class HandleDocumentProcess extends JobHandler {
 
   // The one thing every step after the first reads (ADR-021). A fresh stream each time: a stream is
   // good for one read, and both the preview and the text extraction need their own.
-  private openCanonical(document: Document): Promise<BinarySource> {
-    return this.files.getStream(artifactKeys.canonicalPdf(document.id));
+  private async openCanonical(document: Document): Promise<BinarySource> {
+    const current = await this.documents.findById(document.id);
+    return this.files.getStream(canonicalKeyOf(current ?? document));
   }
 
   // `failedStep` names the step in the admin panel, and the step's own status turns FAILED — the

@@ -21,11 +21,14 @@ function queueDefaults(config: AppConfig): QueueDefaults {
       'file-ingest': config.get('QUEUE_CONCURRENCY_INGEST'),
       'document-process': config.get('QUEUE_CONCURRENCY_PROCESS'),
       'receipt-process': config.get('QUEUE_CONCURRENCY_PROCESS'),
+      'page-ocr': 2,
       maintenance: 1,
     },
     unitConcurrency: config.get('QUEUE_UNIT_CONCURRENCY'),
     // Existing service gates default to zero; dedicated receipt vision starts at one call.
     services: {
+      'google-document-ai': { concurrency: 1, cooldownSeconds: 0 },
+      'yandex-vision': { concurrency: 1, cooldownSeconds: 0 },
       stirling: {
         concurrency: config.get('SERVICE_CONCURRENCY_STIRLING'),
         cooldownSeconds: config.get('SERVICE_COOLDOWN_STIRLING'),

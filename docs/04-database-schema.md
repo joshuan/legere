@@ -445,6 +445,7 @@ model Document {
   pageCount           Int?                     @map("page_count")
   previewPageId       String?                  @map("preview_page_id") @db.Uuid
   canonicalPageIds    String[]                 @default([]) @map("canonical_page_ids") @db.Uuid
+  canonicalStorageKey String?                  @map("canonical_storage_key")
   previewRevision     Int                      @default(0) @map("preview_revision")
   title               String
   // What this document is, for somebody who has never seen it (docs/03 §3.3.10). Null until the
@@ -494,6 +495,8 @@ model Document {
   documentType    DocumentType?     @relation(fields: [typeId], references: [id])
   previewPage     DocumentPage?     @relation("DocumentPreview", fields: [previewPageId], references: [id], onDelete: SetNull)
   pages           DocumentPage[]
+  ocrRuns         OcrRun[]
+  ocrImages       OcrPageImage[]
   chunks          DocumentChunk[]
   people          DocumentPerson[]
   subjects        DocumentSubject[]
@@ -874,6 +877,65 @@ model Setting {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("settings")
+}
+
+// Independent OCR inspection; never projected into document Markdown or search.
+model OcrRun {
+  id String @id @db.Uuid
+  documentId String @map("document_id") @db.Uuid
+  actorId String @map("actor_id") @db.Uuid
+  canonicalKey String @map("canonical_key")
+  languages String[]
+  force Boolean @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  pages OcrPageResult[]
+  @@index([documentId, createdAt(sort: Desc)])
+  @@map("ocr_runs")
+}
+
+model OcrPageImage {
+  id String @id @default(uuid()) @db.Uuid
+  documentId String @map("document_id") @db.Uuid
+  canonicalKey String @map("canonical_key")
+  pageId String @map("page_id") @db.Uuid
+  imageKey String @map("image_key")
+  imageHash String @map("image_hash") @db.Char(64)
+  width Int
+  height Int
+  dpi Int
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  @@unique([documentId, canonicalKey, pageId])
+  @@map("ocr_page_images")
+}
+
+model OcrPageResult {
+  id String @id @db.Uuid
+  runId String @map("run_id") @db.Uuid
+  pageId String @map("page_id") @db.Uuid
+  pageNumber Int @map("page_number")
+  provider String
+  model String
+  settingsHash String @map("settings_hash") @db.Char(64)
+  status String @default("QUEUED")
+  attempts Int @default(0)
+  submittedAttempts Int @default(0) @map("submitted_attempts")
+  cached Boolean @default(false)
+  imageKey String? @map("image_key")
+  imageHash String? @map("image_hash") @db.Char(64)
+  width Int?
+  height Int?
+  rawKey String? @map("raw_key")
+  resultKey String? @map("result_key")
+  error String?
+  durationMs Int? @map("duration_ms")
+  leaseToken String? @map("lease_token") @db.Uuid
+  leaseUntil DateTime? @map("lease_until") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  run OcrRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  @@unique([runId, pageId, provider])
+  @@index([imageHash, provider, settingsHash, status])
+  @@map("ocr_page_results")
 }
 ```
 
@@ -1501,3 +1563,14 @@ is a sequential scan of the archive on a request any signed-in user can repeat.
 ## 4.7. Open questions
 
 None.
+
+## Manual page OCR records
+
+See [22](22-page-ocr.md). `ocr_runs` captures the actor, document, immutable canonical key,
+languages and force policy. Its UUID is the caller's idempotency key. `ocr_page_results` has one
+row per `(run_id, page_id, provider)`, including settings hash, state, fenced lease, attempts,
+possible submissions, duration and private artifact keys. `ocr_page_images` uniquely maps
+`(document_id, canonical_key, page_id)` to a SHA-256 PNG and its width/height/DPI.
+All three tables cascade when their document/run is deleted. Page IDs and actor IDs are historical
+identities, not cascading references to mutable live pages. Migration `20261004193000_page_ocr`
+is additive and schedules no work. The Prisma schema holds the exact column/index declarations.

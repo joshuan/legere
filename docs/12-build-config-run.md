@@ -996,3 +996,14 @@ repository's business.
 ## 12.9. Open questions
 
 None.
+
+## Manual page OCR inspection
+
+Cloud OCR is disabled unless its server-side credentials are set. Google requires
+`GOOGLE_OCR_PROJECT`, `GOOGLE_OCR_LOCATION` (`eu` default or `us`), `GOOGLE_OCR_PROCESSOR`,
+`GOOGLE_OCR_VERSION` (a pinned Enterprise Document OCR version), and `GOOGLE_OCR_CREDENTIALS_JSON`
+(single-line service-account JSON with permission to invoke the processor). Yandex requires
+`YANDEX_OCR_API_KEY` for a service account with OCR access. Enable billing and the relevant provider
+API before a manual pilot. Secrets are redacted from Instance settings and are never sent to clients.
+Deployment Compose passes these variables through. No startup or migration submits documents.
+Configure provider gates and the `page-ocr` queue in Processing. See [22](22-page-ocr.md).

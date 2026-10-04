@@ -75,6 +75,7 @@ function toDomain(
     pageCount: row.pageCount,
     previewPageId: row.previewPageId,
     canonicalPageIds: row.canonicalPageIds,
+    canonicalStorageKey: row.canonicalStorageKey,
     previewRevision: row.previewRevision,
     title: row.title,
     markdown: row.markdown,
@@ -954,6 +955,9 @@ export class PrismaDocumentRepository implements DocumentRepository {
         ...(steps.canonical === undefined ? {} : { canonicalStatus: steps.canonical }),
         ...(steps.preview === undefined ? {} : { previewStatus: steps.preview }),
         ...(steps.preview === 'DONE' ? { previewRevision: { increment: 1 } } : {}),
+        ...(update.canonicalStorageKey === undefined
+          ? {}
+          : { canonicalStorageKey: update.canonicalStorageKey }),
         ...(update.canonicalPageIds === undefined
           ? {}
           : { canonicalPageIds: update.canonicalPageIds }),

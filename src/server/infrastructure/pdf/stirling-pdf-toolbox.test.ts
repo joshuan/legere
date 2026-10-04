@@ -83,6 +83,16 @@ describe('StirlingPdfToolbox', () => {
     expect(form.get('dpi')).toBe('150');
   });
 
+  it('renders one numbered lossless PNG for OCR', async () => {
+    const spy = mockStirling(new Response('png-bytes'));
+    await toolbox().pdfPagePng(Buffer.from('%PDF-'), { page: 3, dpi: 300 });
+    const { form } = sentRequest(spy);
+    expect(form.get('imageFormat')).toBe('png');
+    expect(form.get('pageNumbers')).toBe('3');
+    expect(form.get('dpi')).toBe('300');
+    expect(form.get('singleOrMultiple')).toBe('single');
+  });
+
   it('renders at the requested resolution when one is given', async () => {
     const spy = mockStirling(new Response('jpeg-bytes'));
 

@@ -10,7 +10,7 @@ import { isProcessing } from '../../domain/entities/document';
 import { ConflictError, NotFoundError } from '../../domain/errors/domain-error';
 import type { FileStorage } from '../ports/file-storage';
 import type { Clock } from '../ports/clock';
-import { artifactKeys } from '../storage/artifact-keys';
+import { artifactKeys, canonicalKeyOf } from '../storage/artifact-keys';
 
 export class PersonalArchive {
   constructor(
@@ -37,7 +37,7 @@ export class PersonalArchive {
     const contentType =
       kind === 'canonical' ? ('application/pdf' as const) : ('image/jpeg' as const);
     const url = await this.storage.getSignedUrl(
-      kind === 'canonical' ? artifactKeys.canonicalPdf(id) : artifactKeys.preview(id),
+      kind === 'canonical' ? canonicalKeyOf(document) : artifactKeys.preview(id),
       this.ttlSec,
       { disposition: 'inline', contentType },
     );
@@ -53,8 +53,9 @@ export class PersonalArchive {
     return document;
   }
   private dto(document: PersonalArchiveDocument): ArchiveDocumentDto {
+    const { canonicalStorageKey: _key, ...publicDocument } = document;
     return {
-      ...document,
+      ...publicDocument,
       processing: isProcessing(document.steps),
       url: `${this.baseUrl.replace(/\/+$/, '')}/documents/${document.id}`,
     };

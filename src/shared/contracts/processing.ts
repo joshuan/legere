@@ -17,6 +17,7 @@ export const PROCESSING_QUEUE_NAMES = [
   'file-ingest',
   'document-process',
   'receipt-process',
+  'page-ocr',
   'maintenance',
 ] as const;
 export const processingQueueNameSchema = z.enum(PROCESSING_QUEUE_NAMES);
