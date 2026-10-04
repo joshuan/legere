@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Readable } from 'node:stream';
-import { wordFixture } from '../../../../test/fixtures/office';
+import { spreadsheetFixture, wordFixture } from '../../../../test/fixtures/office';
 import { FileTypeMimeDetector } from './file-type-mime-detector';
 
 const detector = new FileTypeMimeDetector();
@@ -20,6 +20,46 @@ const PNG = Buffer.concat([
 // Content decides, the extension is only the fallback where there are no magic bytes
 // (docs/06 §6.3.3, docs/03 §3.3.10).
 describe('FileTypeMimeDetector', () => {
+  it('recognizes legacy XLS with uppercase extensions and XLSX from its package contents', async () => {
+    expect(await detector.detect(await spreadsheetFixture('xls'), 'inventory.XLS')).toEqual({
+      mime: 'application/vnd.ms-excel',
+      ext: 'xls',
+    });
+    for (const format of ['xlsx', 'late-xlsx'] as const) {
+      expect(await detector.detect(await spreadsheetFixture(format), 'renamed.bin')).toEqual({
+        mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ext: 'xlsx',
+      });
+    }
+  });
+
+  it('detects an XLSX whose package metadata is beyond the library ingest head', async () => {
+    const bytes = await spreadsheetFixture('late-xlsx');
+    const source = Readable.from([bytes]);
+    expect(
+      await detector.detect(bytes.subarray(0, 4100), 'inventory.XLSX', () =>
+        Promise.resolve(source),
+      ),
+    ).toEqual({
+      mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ext: 'xlsx',
+    });
+    expect(source.destroyed).toBe(true);
+  });
+
+  it('does not treat renamed arbitrary bytes or ZIPs as spreadsheets', async () => {
+    const zip = Buffer.alloc(22);
+    zip.writeUInt32LE(0x06054b50);
+    expect((await detector.detect(zip, 'fake.xlsx')).mime).toBe('application/zip');
+    expect((await detector.detect(Buffer.from([1, 0, 2, 3]), 'fake.xls')).mime).toBe(
+      'application/octet-stream',
+    );
+    const legacy = await spreadsheetFixture('xls');
+    for (const fileName of ['unknown.bin', 'unknown.constructor']) {
+      expect((await detector.detect(legacy, fileName)).mime).toBe('application/x-cfb');
+    }
+  });
+
   it('recognizes real legacy DOC and DOCX, including uppercase extensions and late ZIP metadata', async () => {
     expect(await detector.detect(await wordFixture('doc'), 'contract.DOC')).toEqual({
       mime: 'application/msword',

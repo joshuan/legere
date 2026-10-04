@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, rename, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, rename, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Test, type TestingModule } from '@nestjs/testing';
@@ -26,7 +26,7 @@ import { StorageModule } from '../../src/server/infrastructure/storage/storage.m
 import { QueueModule } from '../../src/server/infrastructure/queue/queue.module';
 import { JobsModule } from '../../src/server/presentation/jobs/jobs.module';
 import { disconnectTestPrisma, truncateAll } from '../helpers/db';
-import { wordFixture } from '../fixtures/office';
+import { spreadsheetFixture, wordFixture } from '../fixtures/office';
 
 // The core promise of the product (docs/05 §5.2–5.4, §5.7, docs/03 §3.3.9–3.3.10): a mounted folder
 // becomes deduplicated documents. Exercised over real files with the real database and queue.
@@ -169,6 +169,33 @@ describe('Scan and ingest (integration)', () => {
           ? 'application/msword'
           : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       );
+      expect(await countProcessJobs()).toBe(1);
+    },
+  );
+
+  it.each(['xls', 'xlsx', 'late-xlsx'] as const)(
+    'ingests real %s spreadsheet bytes without modifying the library original',
+    async (format) => {
+      const libraryId = await createLibrary();
+      const ext = format === 'xls' ? 'xls' : 'xlsx';
+      const bytes = await spreadsheetFixture(format);
+      const path = join(root, `inventory.${ext.toUpperCase()}`);
+      await writeFile(path, bytes);
+      await scan.handle({ libraryId });
+      expect(await runIngests()).toBe(1);
+      const file = await prisma.file.findFirstOrThrow();
+      expect(file.ext).toBe(ext);
+      expect(file.origin).toBe('LIBRARY');
+      expect(file.mimeType).toBe(
+        ext === 'xls'
+          ? 'application/vnd.ms-excel'
+          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      expect(await countProcessJobs()).toBe(1);
+      expect(await readFile(path)).toEqual(bytes);
+      await scan.handle({ libraryId });
+      expect(await runIngests()).toBe(0);
+      expect(await prisma.file.count()).toBe(1);
       expect(await countProcessJobs()).toBe(1);
     },
   );

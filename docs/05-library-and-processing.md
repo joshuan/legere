@@ -932,6 +932,11 @@ they are served to the client via short-lived signed URLs after an access check.
    fields and vectors are not reprocessed by a preview choice.
 3. **Markdown extraction** — normally the canonical PDF goes through **Docling** (ADR-018), which has a layout model:
    headings stay headings and tables stay tables, instead of being flattened into a wall of text.
+   **Excel intake:** both legacy `.xls` and `.xlsx` are accepted by upload and library ingest.
+   One workbook enters as one document and its original bytes remain available for download even
+   if a processing stage fails. They use the existing Office-to-PDF path for now, followed by PDF
+   preview and text extraction. Spreadsheet-specific print layout, native cell extraction and
+   a dedicated sheet viewer are deferred; acceptance does not promise a particular PDF layout.
    **Word documents:** both legacy `.doc` and `.docx` are accepted by upload and library ingest and
    always receive a canonical PDF through Stirling/LibreOffice, with previews from that PDF.
    For a document containing exactly one complete DOCX, Docling reads the original DOCX directly,

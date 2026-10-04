@@ -10,7 +10,7 @@ import { artifactKeys } from '../../src/server/application/storage/artifact-keys
 import { api, createTestApp, tokenFromFragmentUrl, type TestApp } from '../helpers/app';
 import { disconnectTestPrisma, testPrisma, truncateAll } from '../helpers/db';
 import { cookieNamed, expectData, expectError } from '../helpers/http';
-import { wordFixture } from '../fixtures/office';
+import { spreadsheetFixture, wordFixture } from '../fixtures/office';
 
 const PASSWORD = 'a-decent-passphrase';
 // A real PDF header, so content detection has something to recognise.
@@ -105,6 +105,54 @@ describe('Uploads (e2e)', () => {
           ? 'application/msword'
           : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       );
+      expect(app.files.get(file.storageKey ?? '').body).toEqual(bytes);
+    },
+  );
+
+  it.each(['xls', 'xlsx', 'late-xlsx'] as const)(
+    'preserves a real %s upload, deduplicates it and serves its original after conversion fails',
+    async (format) => {
+      const ext = format === 'xls' ? 'xls' : 'xlsx';
+      const bytes = await spreadsheetFixture(format);
+      const first = expectData(
+        await upload(adminCookie, bytes, `inventory.${ext.toUpperCase()}`),
+        uploadDocumentResponseSchema,
+      );
+      expect(first.created).toBe(true);
+      expect(first.document.primaryExt).toBe(ext);
+      expect(await processJobs()).toEqual([{ data: { documentId: first.document.id } }]);
+      const file = await testPrisma().file.findFirstOrThrow();
+      expect(file.mimeType).toBe(
+        ext === 'xls'
+          ? 'application/vnd.ms-excel'
+          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      expect(app.files.get(file.storageKey ?? '').body).toEqual(bytes);
+
+      const second = expectData(
+        await upload(adminCookie, bytes, `copy.${ext}`),
+        uploadDocumentResponseSchema,
+      );
+      expect(second.created).toBe(false);
+      expect(second.document.id).toBe(first.document.id);
+      expect(await testPrisma().file.count()).toBe(1);
+      expect(await processJobs()).toHaveLength(1);
+
+      await testPrisma().document.update({
+        where: { id: first.document.id },
+        data: {
+          canonicalStatus: 'FAILED',
+          failedStep: 'canonical',
+          processingError: 'Conversion failed',
+        },
+      });
+      const original = await api(app)
+        .get(`/api/documents/${first.document.id}/files/${file.id}/content`)
+        .set('Cookie', adminCookie)
+        .redirects(0);
+      expect(original.status).toBe(302);
+      expect(original.headers.location).toContain(file.storageKey);
+      expect(original.headers['content-disposition']).toContain('attachment');
       expect(app.files.get(file.storageKey ?? '').body).toEqual(bytes);
     },
   );

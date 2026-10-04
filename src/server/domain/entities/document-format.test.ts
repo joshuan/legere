@@ -13,6 +13,7 @@ describe('classifyFormat', () => {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       'application/msword',
+      'application/vnd.ms-excel',
       'application/vnd.oasis.opendocument.text',
     ]) {
       expect(classifyFormat(mime)).toBe('OFFICE');

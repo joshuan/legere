@@ -37,6 +37,10 @@ const TEXT_EXTENSIONS: Record<string, string> = {
 };
 
 const FALLBACK: DetectedType = { mime: 'application/octet-stream', ext: '' };
+const LEGACY_OFFICE_MIMES: ReadonlyMap<string, string> = new Map([
+  ['doc', 'application/msword'],
+  ['xls', 'application/vnd.ms-excel'],
+]);
 
 @Injectable()
 export class FileTypeMimeDetector extends MimeDetector {
@@ -49,7 +53,7 @@ export class FileTypeMimeDetector extends MimeDetector {
     // truncated — a two-byte file must fall through to the extension, not fail the ingest.
     const { fileTypeFromBuffer, fileTypeFromStream } = await loadFileType();
     let detected = await fileTypeFromBuffer(head).catch(() => undefined);
-    // A DOCX is a ZIP package; its content-types entry can follow a large embedded picture.
+    // OOXML files are ZIP packages; their content-types entry can follow a large embedded picture.
     // Ingest hashes without retaining the file. Only an ambiguous ZIP needs another streaming read.
     if (detected?.mime === 'application/zip' && openSource !== undefined) {
       const source = await openSource();
@@ -62,10 +66,12 @@ export class FileTypeMimeDetector extends MimeDetector {
       }
     }
     if (detected !== undefined) {
-      // CFB is shared by legacy Office formats. Only a CFB file actually named .doc enters Word;
+      // CFB is shared by legacy Office formats. Its extension selects Word or Excel;
       // arbitrary bytes and ordinary ZIPs cannot acquire Office support by being renamed.
-      if (detected.mime === 'application/x-cfb' && extensionOf(fileName) === 'doc') {
-        return { mime: 'application/msword', ext: 'doc' };
+      if (detected.mime === 'application/x-cfb') {
+        const ext = extensionOf(fileName);
+        const mime = LEGACY_OFFICE_MIMES.get(ext);
+        if (mime !== undefined) return { mime, ext };
       }
       return { mime: detected.mime, ext: detected.ext.toLowerCase() };
     }

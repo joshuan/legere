@@ -8,6 +8,14 @@ export function wordFixture(format: 'doc' | 'docx' | 'late-docx'): Promise<Buffe
   return readFile(`test/fixtures/${name}`);
 }
 
+// Synthetic workbooks with Inventory and Summary sheets and distinct searchable headings.
+// XLSX was generated with openpyxl; XLS is its LibreOffice Excel 97 conversion. The late-metadata
+// variant inserts an uncompressed 16 KiB ZIP entry before the workbook metadata.
+export function spreadsheetFixture(format: 'xls' | 'xlsx' | 'late-xlsx'): Promise<Buffer> {
+  const name = format === 'late-xlsx' ? 'workbook-late-metadata.xlsx' : `workbook.${format}`;
+  return readFile(`test/fixtures/${name}`);
+}
+
 // The smallest office document that is still a real one: RTF is a text format LibreOffice converts
 // through exactly the same filter chain as DOCX, so the office → PDF path can be exercised without
 // checking a binary blob into the repository.

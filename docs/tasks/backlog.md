@@ -2415,3 +2415,19 @@ Production observation is read-only; source fixes are verified and committed on 
   receipts, 950 queued, two running and no failed profiles, including five new archive arrivals.
   Two documents still require a complete original or an unlocked original PDF. Their shared
   downstream failures account for the remaining canonical/preview/Markdown counts of 2/2/2.
+
+## M80 — Basic Excel intake
+
+- [x] **M80.1 — Accept and preserve XLS/XLSX originals.**
+  Accept real legacy XLS and OOXML XLSX through uploads and library ingest, including uppercase
+  extensions and ZIP metadata beyond the ingest prefix. Reuse the existing Office conversion
+  pipeline; preserve the original independently of conversion success. Verify stored bytes,
+  download access, queueing and deduplication with real synthetic workbooks. Defer spreadsheet
+  layout rules, native cell extraction and a dedicated table viewer until representative data
+  has been collected.
+
+  Validation: 21 format/detection tests and 49 upload/scan integration tests pass against an
+  isolated test database. Two additional tests against the native Stirling service verify XLS
+  and XLSX conversion, text from both sheets, JPEG previews and unchanged originals. Typecheck,
+  changed-file lint and formatting pass. No database migration or upload-interface change is
+  required; the existing file picker already includes both extensions.
