@@ -16,6 +16,7 @@ import { MAX_BINARY_BYTES, toBuffer, type BinarySource } from '../ports/binary-s
 import type { FileStorage } from '../ports/file-storage';
 import type { ImageTool } from '../ports/image-tool';
 import type { LibraryReader } from '../ports/library-reader';
+import type { EmailParser } from '../ports/email-parser';
 import type { PdfToolbox } from '../ports/pdf-toolbox';
 import type { ProcessingSettings } from '../jobs/processing-settings';
 import type { QueueSettings } from '../queue/queue-settings';
@@ -24,7 +25,7 @@ import { readOriginalFile } from './read-original-file';
 // Step 1 of the pipeline, on its own (docs/05 §5.5): the pages of a document, in their order, become
 // one PDF. Six passes — every file opened once and its pages counted, every page turned into a part,
 // the parts merged, a text layer ensured, the format applied, the metadata stamped — and the result
-// is the canonical. Markdown may use the original only for a complete, unchanged DOCX.
+// is the canonical. Markdown may use the original for a complete, unchanged DOCX or EML.
 //
 // Written as a service rather than as a method of the job handler because it is the one part of the
 // pipeline that knows what a document is *made of*; the handler knows what a document has *been
@@ -91,6 +92,7 @@ export class BuildCanonical {
     private readonly pdfs: PdfToolbox,
     private readonly queueSettings: QueueSettings,
     private readonly settings: ProcessingSettings,
+    private readonly emails?: EmailParser,
   ) {}
 
   async execute(document: Document): Promise<CanonicalBuild> {
@@ -127,7 +129,9 @@ export class BuildCanonical {
         ? (built[0]?.pdf ?? Buffer.alloc(0))
         : await this.pdfs.mergePdfs(built.map((part) => part.pdf));
     const pageCount = await this.pdfs.pdfPageCount(merged);
-    const readable = await this.ensureTextLayer(document, merged, pageCount);
+    const readable = distinct.every((file) => classifyFormat(file.mimeType) === 'EMAIL')
+      ? { pdf: merged, ocrUsed: false }
+      : await this.ensureTextLayer(document, merged, pageCount);
 
     // 🔒 The format is applied *after* the text layer exists, never before. Recognition happens in
     // the shape the page was made in — a page that is half white margin defeats the recognizer
@@ -164,6 +168,13 @@ export class BuildCanonical {
 
     if (format === 'PDF') {
       const pdf = await toBuffer(await this.read(file));
+      return { kind: 'pdf', pdf, pageCount: await this.pdfs.pdfPageCount(pdf) };
+    }
+
+    if (format === 'EMAIL') {
+      if (this.emails === undefined) throw new Error('Email parser is not configured');
+      const email = await this.emails.parse(await this.read(file));
+      const pdf = await this.pdfs.toPdf({ body: Buffer.from(email.html), fileName: 'email.html' });
       return { kind: 'pdf', pdf, pageCount: await this.pdfs.pdfPageCount(pdf) };
     }
 

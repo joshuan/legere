@@ -24,6 +24,7 @@ function loadFileType(): Promise<FileTypeModule> {
 // what a browser is told the bytes are. Serving normalizes it against a render allow-list, at the
 // two ends of the object's life (`servableContentType`, docs/09 §9.2, SEC-03).
 const TEXT_EXTENSIONS: Record<string, string> = {
+  eml: 'message/rfc822',
   txt: 'text/plain',
   text: 'text/plain',
   md: 'text/markdown',

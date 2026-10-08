@@ -1,6 +1,6 @@
 // How a document travels through the pipeline is decided by its detected content type, not by its
-// extension (docs/03 §3.3.10). Step 1 of docs/05 §5.5 branches on exactly these five cases.
-export type DocumentFormat = 'PDF' | 'OFFICE' | 'IMAGE' | 'TEXT' | 'UNSUPPORTED';
+// extension (docs/03 §3.3.10). Step 1 of docs/05 §5.5 branches on these six cases.
+export type DocumentFormat = 'PDF' | 'OFFICE' | 'IMAGE' | 'TEXT' | 'EMAIL' | 'UNSUPPORTED';
 
 const PDF_MIME = 'application/pdf';
 
@@ -21,8 +21,7 @@ const OFFICE_MIMES: ReadonlySet<string> = new Set([
   'text/html',
 ]);
 
-// Formats whose bytes are already readable text: no canonicalization, no preview, passed through to
-// Markdown as they are (docs/05 §5.5).
+// Readable text formats are converted to PDF through the shared conversion path (docs/05 §5.5).
 const TEXT_MIMES: ReadonlySet<string> = new Set([
   'text/plain',
   'text/markdown',
@@ -35,6 +34,7 @@ const TEXT_MIMES: ReadonlySet<string> = new Set([
 export function classifyFormat(mimeType: string): DocumentFormat {
   const mime = mimeType.split(';')[0]?.trim().toLowerCase() ?? '';
 
+  if (mime === 'message/rfc822') return 'EMAIL';
   if (mime === PDF_MIME) return 'PDF';
   // Checked before the text/* rule below: RTF and HTML are text on the wire but office documents to
   // the converter, and reading them raw would put markup into the search index.

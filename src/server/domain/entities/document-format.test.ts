@@ -55,3 +55,7 @@ describe('classifyFormat', () => {
     expect(classifyFormat('')).toBe('UNSUPPORTED');
   });
 });
+
+it('classifies RFC 822 email separately from plain text', () => {
+  expect(classifyFormat('message/rfc822; charset=UTF-8')).toBe('EMAIL');
+});

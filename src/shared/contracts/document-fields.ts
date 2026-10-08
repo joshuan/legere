@@ -37,6 +37,70 @@ export type DocumentFieldSchema = {
 };
 
 export const DOCUMENT_FIELD_SCHEMAS: readonly DocumentFieldSchema[] = [
+  {
+    typeSlug: 'letter',
+    version: 1,
+    fields: [
+      {
+        key: 'subject',
+        kind: 'string',
+        searchable: true,
+        summary: true,
+        hint: 'Decoded email subject or letter heading',
+      },
+      {
+        key: 'sender',
+        kind: 'string',
+        searchable: true,
+        summary: true,
+        hint: 'Sender name and email address',
+      },
+      {
+        key: 'recipients',
+        kind: 'string',
+        searchable: true,
+        hint: 'Primary recipients, with names and email addresses',
+      },
+      { key: 'cc', kind: 'string', searchable: true, hint: 'Carbon copy recipients' },
+      {
+        key: 'bcc',
+        kind: 'string',
+        searchable: true,
+        hint: 'Blind carbon copy recipients explicitly present in the original',
+      },
+      { key: 'replyTo', kind: 'string', searchable: true, hint: 'Reply-To addresses' },
+      {
+        key: 'sentAt',
+        kind: 'string',
+        searchable: true,
+        summary: true,
+        hint: 'Sent timestamp as ISO 8601 including timezone',
+      },
+      { key: 'messageId', kind: 'string', searchable: true, hint: 'Original Message-ID' },
+      {
+        key: 'inReplyTo',
+        kind: 'string',
+        searchable: true,
+        hint: 'Original In-Reply-To message identifier',
+      },
+      {
+        key: 'references',
+        kind: 'string',
+        searchable: true,
+        hint: 'Original References message identifiers in order',
+      },
+      {
+        key: 'attachments',
+        kind: 'table',
+        hint: 'Attachments in the original email',
+        columns: [
+          { key: 'name', kind: 'string', searchable: true, hint: 'Decoded attachment filename' },
+          { key: 'contentType', kind: 'string', hint: 'Attachment MIME type' },
+          { key: 'sizeBytes', kind: 'number', hint: 'Decoded attachment size in bytes' },
+        ],
+      },
+    ],
+  },
   // v3 (docs/03 §3.3.10a): beside the statement match added at v2, a receipt now says where the
   // particular shop stands and carries the tax attribution printed for each line item.
   {

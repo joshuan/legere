@@ -82,6 +82,34 @@ describe('Uploads (e2e)', () => {
       .set('Cookie', cookie)
       .set('X-Legere-Filename', encodeURIComponent(fileName));
 
+  it('stores EML originals, queues processing, deduplicates and allows original download', async () => {
+    const bytes = Buffer.from('From: sender@example.com\r\nSubject: Saved email\r\n\r\nBody');
+    const first = expectData(
+      await upload(adminCookie, bytes, 'Letter.EML'),
+      uploadDocumentResponseSchema,
+    );
+    expect(first.created).toBe(true);
+    expect(first.document.primaryExt).toBe('eml');
+    expect(await processJobs()).toEqual([{ data: { documentId: first.document.id } }]);
+    const file = await testPrisma().file.findFirstOrThrow();
+    expect(file.mimeType).toBe('message/rfc822');
+    expect(app.files.get(file.storageKey ?? '').body).toEqual(bytes);
+    const second = expectData(
+      await upload(adminCookie, bytes, 'copy.eml'),
+      uploadDocumentResponseSchema,
+    );
+    expect(second.document.id).toBe(first.document.id);
+    expect(second.created).toBe(false);
+    expect(await testPrisma().file.count()).toBe(1);
+    const original = await api(app)
+      .get(`/api/documents/${first.document.id}/files/${file.id}/content`)
+      .set('Cookie', adminCookie)
+      .redirects(0);
+    expect(original.status).toBe(302);
+    expect(original.headers['content-disposition']).toContain('attachment');
+    expect(app.files.get(file.storageKey ?? '').body).toEqual(bytes);
+  });
+
   it.each(['doc', 'docx', 'late-docx'] as const)(
     'accepts a real %s upload and queues canonical processing',
     async (format) => {

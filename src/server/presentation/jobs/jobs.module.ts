@@ -1,3 +1,4 @@
+import { EmailParser } from '../../application/ports/email-parser';
 import { HandlePageOcr } from '../../application/ocr/handle-page-ocr';
 import { PageOcrModule } from '../documents/page-ocr.module';
 import { Module, type OnModuleInit } from '@nestjs/common';
@@ -176,6 +177,7 @@ export const PROCESSING_WORKER_BINDINGS = [
         pdfs: PdfToolbox,
         queueSettings: QueueSettings,
         config: AppConfig,
+        emails: EmailParser,
       ): BuildCanonical =>
         new BuildCanonical(
           files,
@@ -187,6 +189,7 @@ export const PROCESSING_WORKER_BINDINGS = [
           pdfs,
           queueSettings,
           processingSettings(config),
+          emails,
         ),
       inject: [
         FileRepository,
@@ -198,6 +201,7 @@ export const PROCESSING_WORKER_BINDINGS = [
         PdfToolbox,
         QueueSettings,
         AppConfig,
+        EmailParser,
       ],
     },
     {
@@ -208,11 +212,21 @@ export const PROCESSING_WORKER_BINDINGS = [
         libraries: LibraryRepository,
         reader: LibraryReader,
         storage: FileStorage,
+        emails: EmailParser,
       ) =>
-        new DocumentMarkdownSource(files, (file) =>
-          readOriginalFile(file, fileRefs, libraries, reader, storage),
+        new DocumentMarkdownSource(
+          files,
+          (file) => readOriginalFile(file, fileRefs, libraries, reader, storage),
+          emails,
         ),
-      inject: [FileRepository, FileRefRepository, LibraryRepository, LibraryReader, FileStorage],
+      inject: [
+        FileRepository,
+        FileRefRepository,
+        LibraryRepository,
+        LibraryReader,
+        FileStorage,
+        EmailParser,
+      ],
     },
     {
       provide: HandleDocumentProcess,

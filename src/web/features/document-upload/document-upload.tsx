@@ -13,7 +13,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 // A hint for the picker, not the gate: the server refuses what it cannot render (docs/05 §5.1a),
 // and a drop cannot be filtered at all. Mirrors the formats of docs/05 §5.5.
 const ACCEPTED_FORMATS =
-  'application/pdf,image/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.epub,.html,.htm,.txt,.md,.markdown,.csv,.json,.xml,.log';
+  'application/pdf,message/rfc822,.eml,image/*,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.epub,.html,.htm,.txt,.md,.markdown,.csv,.json,.xml,.log';
 
 export function UploadButton({
   onFiles,

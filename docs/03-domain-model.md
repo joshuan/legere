@@ -422,13 +422,22 @@ reading: the facts that are typed because the *type* types them (ADR-022).
 field specs — key, kind, whether the value is searchable, whether it belongs on a card — kept in a
 registry in `src/shared/contracts`, keyed by the document type's slug. It is data, deliberately:
 today the registry is a constant and only `receipt`, `passport`, `id-card`, `flight`, `invoice`,
-`lab-report` and `civil-certificate` carry one; the day schemas become admin-editable they move into
+`lab-report`, `civil-certificate` and `letter` carry one; the day schemas become admin-editable they move into
 a table without the stored answers changing shape, because every answer already names the slug and
 version it speaks. Field **kinds** are the closed set `string`, `number`, `date` (a calendar day,
 the `documentDate` rule), `money` (`{ amount, currency }`, one fact — an amount without its currency
 is not a fact), and `table` (rows of `string`/`number` columns — the lines of a receipt). Field
 labels are not in the registry: they are message-catalog keys derived from the slug and the field
 key, localized like everything else (ADR-016).
+
+**Email correspondence fields.**
+
+The `letter` schema v1 stores decoded MIME metadata: `subject`, `sender`, `recipients`, `cc`,
+`bcc`, `replyTo`, `sentAt` (ISO timestamp), `messageId`, `inReplyTo`, `references` and an
+`attachments` table (`name`, `contentType`, `sizeBytes`). String fields and attachment names
+join the search projection; subject, sender and sentAt are card summary fields. An unchanged
+complete EML supplies these deterministically, with normal AUTO/MANUAL sources and per-field
+manual precedence. Paper letters use the existing analyst. See `05 §5.5` for the composition guard.
 
 **One `flight` for every paper an airline prints.** An e-ticket, an itinerary receipt and a boarding
 pass are one journey wearing three layouts: they differ in which fields they fill, not in what they

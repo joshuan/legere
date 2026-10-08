@@ -169,3 +169,17 @@ describe('FileTypeMimeDetector', () => {
     });
   });
 });
+
+it('detects uppercase EML by suffix but keeps binary magic authoritative', async () => {
+  const detector = new FileTypeMimeDetector();
+  expect(
+    await detector.detect(
+      Buffer.from('From: sender@example.com\r\nSubject: Hello\r\n\r\nText'),
+      'LETTER.EML',
+    ),
+  ).toEqual({ mime: 'message/rfc822', ext: 'eml' });
+  expect(await detector.detect(PNG, 'fake.eml')).toEqual({ mime: 'image/png', ext: 'png' });
+  expect((await detector.detect(Buffer.from([0, 1, 2]), 'fake.eml')).mime).toBe(
+    'application/octet-stream',
+  );
+});

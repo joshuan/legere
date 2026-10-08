@@ -2450,3 +2450,16 @@ Production observation is read-only; source fixes are verified and committed on 
   Stirling integration test verifies the selected page's 300 DPI PNG. The complete coverage and
   browser suites remain release gates. Live provider accuracy and billing evaluation require
   configured cloud accounts; no real cloud OCR was submitted during implementation.
+
+## M82 — Email document intake
+
+- [x] **M82.1 — Support EML in the shared document pipeline.**
+  Accept EML uploads and library files, preserve originals and deduplication, decode MIME headers
+  and bodies, build canonical PDFs and previews, extract native text, and populate correspondence
+  fields without an AI provider. Cover multipart, encoded content, HTML-only bodies, attachments,
+  manual corrections and page composition; update documentation and localized field labels.
+
+  Validation: 345 focused unit checks and 70 upload/library/Stirling integration checks pass.
+  The integration run used an isolated temporary PostgreSQL database and Stirling container;
+  generated PDFs preserve decoded headers, body text and Cyrillic, and previews render correctly.
+  Typecheck and changed-file ESLint/Prettier checks pass. No database migration is required.

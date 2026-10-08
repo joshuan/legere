@@ -152,6 +152,24 @@ describe('Scan and ingest (integration)', () => {
 
   // Tests -------------------------------------------------------------------
 
+  it('ingests and deduplicates EML from a read-only library with unchanged bytes', async () => {
+    const libraryId = await createLibrary();
+    const bytes = Buffer.from('From: sender@example.com\r\nSubject: Library email\r\n\r\nBody');
+    const path = join(root, 'Letter.EML');
+    await writeFile(path, bytes);
+    await scan.handle({ libraryId });
+    expect(await runIngests()).toBe(1);
+    const file = await prisma.file.findFirstOrThrow();
+    expect(file).toMatchObject({ ext: 'eml', origin: 'LIBRARY', mimeType: 'message/rfc822' });
+    expect(await readFile(path)).toEqual(bytes);
+    await writeFile(join(root, 'copy.eml'), bytes);
+    await scan.handle({ libraryId });
+    expect(await runIngests()).toBe(1);
+    expect(await prisma.file.count()).toBe(1);
+    expect(await prisma.document.count()).toBe(1);
+    expect(await countProcessJobs()).toBe(1);
+  });
+
   it.each(['doc', 'late-docx'] as const)(
     'ingests real %s Word bytes from the read-only library',
     async (format) => {

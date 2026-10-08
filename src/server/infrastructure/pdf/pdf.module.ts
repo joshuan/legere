@@ -1,3 +1,5 @@
+import { EmailParser } from '../../application/ports/email-parser';
+import { MimeEmailParser } from '../email/mime-email-parser';
 import { Global, Module } from '@nestjs/common';
 import { ImageTool } from '../../application/ports/image-tool';
 import { DocumentParser } from '../../application/ports/document-parser';
@@ -12,10 +14,11 @@ import { StirlingPdfToolbox } from './stirling-pdf-toolbox';
 @Global()
 @Module({
   providers: [
+    { provide: EmailParser, useClass: MimeEmailParser },
     { provide: PdfToolbox, useClass: StirlingPdfToolbox },
     { provide: ImageTool, useClass: SharpImageTool },
     { provide: DocumentParser, useClass: DoclingParser },
   ],
-  exports: [PdfToolbox, ImageTool, DocumentParser],
+  exports: [EmailParser, PdfToolbox, ImageTool, DocumentParser],
 })
 export class PdfModule {}

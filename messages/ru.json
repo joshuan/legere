@@ -1369,6 +1369,24 @@
         "eventDate": "Дата события",
         "eventPlace": "Место события",
         "issuedAt": "Дата выдачи"
+      },
+      "letter": {
+        "subject": "Тема",
+        "sender": "Отправитель",
+        "recipients": "Получатели",
+        "cc": "Копия",
+        "bcc": "Скрытая копия",
+        "replyTo": "Адрес для ответа",
+        "sentAt": "Дата отправки",
+        "messageId": "Идентификатор письма",
+        "inReplyTo": "Ответ на письмо",
+        "references": "Связанные письма",
+        "attachments": "Вложения",
+        "columns": {
+          "name": "Имя файла",
+          "contentType": "Тип содержимого",
+          "sizeBytes": "Размер (байты)"
+        }
       }
     },
     "addedToCollection": "Добавлено в коллекцию",

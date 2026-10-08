@@ -937,6 +937,36 @@ they are served to the client via short-lived signed URLs after an access check.
    if a processing stage fails. They use the existing Office-to-PDF path for now, followed by PDF
    preview and text extraction. Spreadsheet-specific print layout, native cell extraction and
    a dedicated sheet viewer are deferred; acceptance does not promise a particular PDF layout.
+   **Email documents:** `.eml` files are accepted through uploads and library ingest as
+   `message/rfc822`. MIME encoded headers, transfer encodings and character sets are decoded by
+   MailParser. A deterministic representation includes Subject, From, To, Cc, Bcc, Reply-To, Date,
+   Message-ID, In-Reply-To, References, the plain-text body (or text derived from HTML), and an
+   attachment inventory. Only escaped text is rendered to HTML for Stirling/LibreOffice PDF
+   conversion: original HTML, scripts, styles, remote images and embedded resources are never
+   rendered or fetched. Attachments remain in the unchanged downloadable EML; their names, MIME
+   types and sizes are listed, but their content is not imported as additional documents or pages.
+   Empty or invalid headerless messages fail canonicalization with an actionable error.
+
+   A complete unchanged single EML uses its Subject as the automatic title (up to 500 characters)
+   unless the title was set manually, and fills a missing document date from the sent timestamp
+   in UTC. It uses that decoded representation directly for Markdown,
+   independent of Docling/OCR configuration; the completion event records `sourceFormat: eml`.
+   An all-EML canonical contains generated text and skips OCR even for short messages.
+   Native extraction requires every converted page once in source order, without crop or turn.
+   Modified or composed documents read the canonical PDF, so excluded content stays excluded.
+   Input is bounded by the usual binary limit; decoded body/representation is limited to 8 MiB,
+   and attachment bytes are drained rather than retained during MIME parsing.
+
+   When an unchanged EML has no document type, native extraction assigns the existing `letter`
+   type if active. This is a default: manual classifications and subsequent semantic analysis
+   keep their normal precedence; an analysis with no valid classification retains the email default. The `letter` field schema v1 contains subject, sender, recipients,
+   cc, bcc, replyTo, sentAt (ISO timestamp), messageId, inReplyTo, references and attachments
+   (name, contentType, sizeBytes). In the fields step a complete EML classified as `letter` fills
+   these directly from MIME, even without an analyst, retaining manual corrections. Other types
+   keep their ordinary content-based field extraction. Native metadata never bypasses the
+   composition guard. Original storage, permissions, downloads, search and reprocessing follow
+   the same rules as other documents.
+
    **Word documents:** both legacy `.doc` and `.docx` are accepted by upload and library ingest and
    always receive a canonical PDF through Stirling/LibreOffice, with previews from that PDF.
    For a document containing exactly one complete DOCX, Docling reads the original DOCX directly,
@@ -1145,6 +1175,13 @@ because a run that told us nothing new happened to it.
    by how many documents name them, capped (60 things, 200 people) so an archive of a thousand rows
    does not push the document out of the context window — the cap falls on the tail nobody files by,
    not on the rows that recur.
+   An address proposed in a different Serbian script, with different punctuation or an issuer
+   prefixed to it, can resolve to an existing subject when two street words and the building/unit
+   numbers identify exactly one living row. For invoices, the analysed title supplies the same
+   evidence if the model names the supplier instead of the flat. The matcher also reads alternate
+   names in the subject's existing note. A merge keeps former names in that note, so later papers
+   using either address can recognise the survivor. Ambiguous or incomplete addresses stay as
+   proposals; an existing document-to-subject decision is never replaced by this step.
    🔒 **The catalogues travel inside the same nonce-fenced data channel as the document text**, in a
    fenced section of their own, never in the system message (SEC-55). Every signed-in user writes
    these rows and the analysis itself writes them back — a note on a flat is text somebody typed,
@@ -1175,13 +1212,6 @@ because a run that told us nothing new happened to it.
    text. A person typing a title is not a person writing instructions to a model: human-entered
    strings are data, whoever typed them, and a title that could give orders about how the next
    document is read would be an injection surface this product handed to itself. The fence holds in
-   An address proposed in a different Serbian script, with different punctuation or an issuer
-   prefixed to it, can resolve to an existing subject when two street words and the building/unit
-   numbers identify exactly one living row. For invoices, the analysed title supplies the same
-   evidence if the model names the supplier instead of the flat. The matcher also reads alternate
-   names in the subject's existing note. A merge keeps former names in that note, so later papers
-   using either address can recognise the survivor. Ambiguous or incomplete addresses stay as
-   proposals; an existing document-to-subject decision is never replaced by this step.
    the other direction too — a page that writes the confirmation markers into its own text forges
    nothing, because it cannot know the nonce, and the archive's own values are the only thing those
    two lines can ever contain.

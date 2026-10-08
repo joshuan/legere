@@ -1,3 +1,4 @@
+import { MimeEmailParser } from '../../infrastructure/email/mime-email-parser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DOCUMENT_ID,
@@ -159,6 +160,7 @@ describe('HandleDocumentProcess', () => {
         pdfs,
         queueSettingsFixture(),
         settings,
+        new MimeEmailParser(),
       ),
       storage,
       pdfs,
@@ -178,8 +180,10 @@ describe('HandleDocumentProcess', () => {
       queueSettings,
       settings,
       clock,
-      new DocumentMarkdownSource(fileRepo, (file) =>
-        readOriginalFile(file, fileRefs, libraries, reader, storage),
+      new DocumentMarkdownSource(
+        fileRepo,
+        (file) => readOriginalFile(file, fileRefs, libraries, reader, storage),
+        new MimeEmailParser(),
       ),
     );
   });
@@ -420,6 +424,115 @@ describe('HandleDocumentProcess', () => {
       expect(document.steps.fields).toBe('FAILED');
       expect(document.failedStep).toBe('fields');
       expect(document.processingError).toContain('Analyst request failed');
+    });
+  });
+
+  describe('email documents', () => {
+    const bytes =
+      'From: Sender <sender@example.com>\r\nTo: reader@example.com\r\nSubject: A stored letter\r\nDate: Tue, 06 Oct 2026 10:30:00 +0200\r\nMessage-ID: <one@example.com>\r\n\r\nThe complete original email body.';
+    const eml = { mimeType: 'message/rfc822', ext: 'eml', name: 'message.eml' };
+
+    it('builds PDF and previews and reads native text and fields without AI or Docling', async () => {
+      documentTypes.add('letter');
+      analyst.configured = false;
+      await givenDocument([{ file: eml, bytes }]);
+      await handler.handle({ documentId: DOCUMENT_ID });
+      const result = stateOf();
+      expect(result.steps).toMatchObject({
+        canonical: 'DONE',
+        preview: 'DONE',
+        markdown: 'DONE',
+        fields: 'DONE',
+      });
+      expect(result.title).toBe('A stored letter');
+      expect(result.titleSource).toBe('AUTO');
+      expect(result.documentDate).toBe('2026-10-06');
+      expect(result.markdown).toContain('The complete original email body.');
+      expect(result.extracted?.values).toMatchObject({
+        subject: 'A stored letter',
+        sender: '"Sender" <sender@example.com>',
+        sentAt: '2026-10-06T08:30:00.000Z',
+        messageId: '<one@example.com>',
+      });
+      expect(pdfs.calls).toContainEqual({ method: 'toPdf', fileName: 'email.html' });
+      expect(result.ocrUsed).toBe(false);
+    });
+
+    it('retains the letter default when AI has no valid classification', async () => {
+      documentTypes.add('letter');
+      await givenDocument([{ file: eml, bytes }]);
+      await handler.handle({ documentId: DOCUMENT_ID });
+      expect(stateOf().steps.fields).toBe('DONE');
+      expect(stateOf().extracted?.schema.slug).toBe('letter');
+      expect(analyst.fieldCalls).toHaveLength(0);
+    });
+
+    it('honors manual semantic types instead of forcing correspondence fields', async () => {
+      const invoice = (await documentTypes.listActive()).find((type) => type.slug === 'invoice');
+      if (invoice === undefined) throw new Error('Expected invoice type');
+      await givenDocument([{ file: eml, bytes }], { typeId: invoice.id, typeSource: 'MANUAL' });
+      await handler.handle({ documentId: DOCUMENT_ID });
+      expect(stateOf().typeId).toBe(invoice.id);
+      expect(stateOf().extracted?.schema.slug).toBe('invoice');
+      expect(analyst.fieldCalls).toHaveLength(1);
+    });
+
+    it('never OCRs a short digital email and leaves source bytes unchanged', async () => {
+      pdfs.defaultMarkdown = '';
+      analyst.configured = false;
+      await givenDocument([
+        { file: { ...eml, origin: 'MANAGED' }, bytes: 'Subject: Short\r\n\r\nHi' },
+      ]);
+      await handler.handle({ documentId: DOCUMENT_ID });
+      expect(stateOf().ocrUsed).toBe(false);
+      expect(stateOf().markdown).toContain('Hi');
+      expect(pdfs.calls.some((call) => call.method === 'ocrPdf')).toBe(false);
+      const file = (await fileRepo.listPagesForDocument(DOCUMENT_ID))[0]?.file;
+      if (file === undefined) throw new Error('Expected file');
+      expect(storage.get(originalKeyOf(file)).body.toString()).toBe('Subject: Short\r\n\r\nHi');
+    });
+
+    it('records malformed emails as canonical failures while preserving originals', async () => {
+      await givenDocument([{ file: eml, bytes: 'not an email' }]);
+      await handler.handle({ documentId: DOCUMENT_ID });
+      expect(stateOf().steps.canonical).toBe('FAILED');
+      expect(stateOf().processingError).toContain('Invalid EML');
+    });
+
+    it('retains manually corrected correspondence fields on reprocessing', async () => {
+      const type = documentTypes.add('letter');
+      await givenDocument([{ file: eml, bytes }], {
+        typeId: type.id,
+        typeSource: 'MANUAL',
+        title: 'My title',
+        titleSource: 'MANUAL',
+        documentDate: '2026-01-01',
+        extracted: {
+          schema: { slug: 'letter', version: 1 },
+          values: { subject: 'Corrected subject' },
+          sources: { subject: 'MANUAL' },
+        },
+      });
+      await handler.handle({ documentId: DOCUMENT_ID });
+      expect(stateOf().title).toBe('My title');
+      expect(stateOf().documentDate).toBe('2026-01-01');
+      expect(stateOf().extracted?.values.subject).toBe('Corrected subject');
+      expect(stateOf().extracted?.sources.subject).toBe('MANUAL');
+      expect(stateOf().extracted?.sources.sender).toBe('AUTO');
+    });
+
+    it('reads only canonical text after an email page is removed', async () => {
+      pdfs.pageCount = 2;
+      settings.pdfTextMinCharsPerPage = 1;
+      await givenDocument([{ file: eml, bytes }]);
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['canonical'] });
+      const pages = await fileRepo.listPagesForDocument(DOCUMENT_ID);
+      const first = pages[0];
+      if (first === undefined) throw new Error('Expected an email page');
+      await fileRepo.replacePages(DOCUMENT_ID, { expecting: null, pages: [first] });
+      await handler.handle({ documentId: DOCUMENT_ID, steps: ['canonical', 'markdown'] });
+      expect(stateOf().markdown).not.toContain('The complete original email body.');
+      expect(stateOf().markdown).toContain(TEXT_LAYER);
     });
   });
 
@@ -1592,6 +1705,27 @@ describe('HandleDocumentProcess', () => {
       ]);
     });
 
+    it('files an invoice by its address when the analyst names the supplier instead of the flat', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      const kind = await subjectKinds.create({ name: 'Жильё' });
+      const flat = await subjects.create({
+        kindId: kind.id,
+        name: 'Beograd, Cvetanova ćuprija 24Ђ/2',
+      });
+      analyst.answer = {
+        ...analyst.answer,
+        title: 'Счёт за газ, Cvetanova Ćuprija 24 Ć 2, ноябрь 2025',
+        typeSlug: 'invoice',
+        subjects: [{ kind: 'Компании', name: 'Cyrus Energy D.O.O., Cvetanova Ćuprija 24 Ć 2' }],
+      };
+
+      await run();
+
+      expect((await subjects.listForDocument(DOCUMENT_ID)).map((subject) => subject.id)).toEqual([
+        flat.id,
+      ]);
+    });
+
     it('takes the date the document carries, and leaves one that was set by hand', async () => {
       await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
       analyst.answer = {
@@ -1705,27 +1839,6 @@ describe('HandleDocumentProcess', () => {
       analyst.answer = { ...analyst.answer, title: 'Rental agreement, Njegoševa 12' };
 
       await run();
-    it('files an invoice by its address when the analyst names the supplier instead of the flat', async () => {
-      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
-      const kind = await subjectKinds.create({ name: 'Жильё' });
-      const flat = await subjects.create({
-        kindId: kind.id,
-        name: 'Beograd, Cvetanova ćuprija 24Ђ/2',
-      });
-      analyst.answer = {
-        ...analyst.answer,
-        title: 'Счёт за газ, Cvetanova Ćuprija 24 Ć 2, ноябрь 2025',
-        typeSlug: 'invoice',
-        subjects: [{ kind: 'Компании', name: 'Cyrus Energy D.O.O., Cvetanova Ćuprija 24 Ć 2' }],
-      };
-
-      await run();
-
-      expect((await subjects.listForDocument(DOCUMENT_ID)).map((subject) => subject.id)).toEqual([
-        flat.id,
-      ]);
-    });
-
 
       const document = stateOf();
       // 🔒 A title somebody typed is theirs (docs/03 §3.3.10).

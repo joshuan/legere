@@ -153,7 +153,8 @@ export class HandleDocumentProcess extends JobHandler {
     private readonly queueSettings: QueueSettings,
     private readonly settings: ProcessingSettings,
     private readonly clock: Clock,
-    private readonly markdownSource: Pick<DocumentMarkdownSource, 'open'>,
+    private readonly markdownSource: Pick<DocumentMarkdownSource, 'open'> &
+      Partial<Pick<DocumentMarkdownSource, 'openEmail'>>,
   ) {
     super();
   }
@@ -333,7 +334,7 @@ export class HandleDocumentProcess extends JobHandler {
           ...(status === 'FAILED' && update.processingError != null
             ? { error: update.processingError }
             : {}),
-          ...this.serviceOf(step),
+          ...(update.metrics?.sourceFormat === 'eml' ? {} : this.serviceOf(step)),
           ...(requestId === null ? {} : { requestId }),
           ...this.cost(status),
           ...(update.metrics ?? {}),
@@ -486,7 +487,7 @@ export class HandleDocumentProcess extends JobHandler {
     }
   }
 
-  // Step 3. A complete DOCX retains its native structure; otherwise read the canonical PDF,
+  // Step 3. Complete DOCX and EML retain native content; otherwise read the canonical PDF,
   // applying OCR where its text layer is insufficient (docs/05 §5.5 step 3).
   private async extractMarkdown(document: Document, canonical: Canonical): Promise<void> {
     if (canonical.kind === 'nothing') {
@@ -524,7 +525,7 @@ export class HandleDocumentProcess extends JobHandler {
         // and only one of them was ever written down (docs/03 §3.3.18).
         metrics: {
           chars: markdown.length,
-          sourceFormat: read.native ? 'docx' : 'pdf',
+          sourceFormat: read.native ?? 'pdf',
           ocrUsed,
           ...(transcribed === null ? {} : { transcribed: true, ...transcribed.usage }),
         },
@@ -580,7 +581,27 @@ export class HandleDocumentProcess extends JobHandler {
   private async readDocumentText(
     document: Document,
     canonical: { pageCount: number },
-  ): Promise<{ markdown: string; ocrUsed: boolean; native?: boolean }> {
+  ): Promise<{ markdown: string; ocrUsed: boolean; native?: 'docx' | 'eml' }> {
+    const email = await this.markdownSource.openEmail?.(document.id);
+    if (email != null) {
+      const letter =
+        document.typeId === null && document.typeSource !== 'MANUAL'
+          ? (await this.documentTypes.listActive()).find((type) => type.slug === 'letter')
+          : undefined;
+      const subject = email.fields.subject;
+      const sentAt = email.fields.sentAt;
+      const title = typeof subject === 'string' ? subject.slice(0, 500) : null;
+      const date = typeof sentAt === 'string' ? sentAt.slice(0, 10) : null;
+      await this.write(document.id, {
+        ...(letter === undefined ? {} : { typeId: letter.id, typeSource: 'AUTO' }),
+        ...(title === null || document.titleSource === 'MANUAL'
+          ? {}
+          : { title, titleSource: 'AUTO' }),
+        ...(date === null || document.documentDate !== null ? {} : { documentDate: date }),
+        auto: { ...(title === null ? {} : { title }), ...(date === null ? {} : { date }) },
+      });
+      return { markdown: email.markdown, ocrUsed: false, native: 'eml' };
+    }
     if (this.parser.isConfigured) {
       try {
         const source = await this.markdownSource.open(document.id);
@@ -592,7 +613,7 @@ export class HandleDocumentProcess extends JobHandler {
               pageCount: canonical.pageCount,
             }),
           );
-          if (markdown.trim() !== '') return { markdown, ocrUsed: false, native: true };
+          if (markdown.trim() !== '') return { markdown, ocrUsed: false, native: 'docx' };
         }
       } catch (error) {
         // A missing original or rejected native conversion still has a readable canonical PDF.
@@ -771,6 +792,9 @@ export class HandleDocumentProcess extends JobHandler {
       const documentTypes = await this.documentTypes.listActive();
       const kinds = await this.subjectKinds.listActive();
       const manualType = document.typeSource === 'MANUAL';
+      const knownSubjects = (await this.subjects.listActive()).sort(
+        (a, b) => b.documentCount - a.documentCount,
+      );
       const analysis = await this.analyst.analyze(
         analystExcerpt(document, this.settings.analystExcerptChars),
         documentTypes.map(({ slug: value, name, description }) => ({
@@ -790,9 +814,6 @@ export class HandleDocumentProcess extends JobHandler {
         // And the people likewise (docs/03 §3.3.19): a boarding pass files under the person the
         // archive already knows, not under a twenty-third spelling of him.
         (await this.people.listActive())
-      const knownSubjects = (await this.subjects.listActive()).sort(
-        (a, b) => b.documentCount - a.documentCount,
-      );
           .sort((a, b) => b.documentCount - a.documentCount)
           .map((person) => ({ name: person.name, note: person.note })),
         // Read per run rather than at start-up: changing it takes effect on the next document
@@ -821,8 +842,14 @@ export class HandleDocumentProcess extends JobHandler {
 
       // Second guard against a hallucinated slug: whatever came back has to match a documentType that
       // actually exists, or the document simply has none (docs/05 §5.5 step 4).
-      const chosen =
-        documentTypes.find((documentType) => documentType.slug === analysis.typeSlug) ?? null;
+      const suggested = documentTypes.find((type) => type.slug === analysis.typeSlug) ?? null;
+      const emailDefault =
+        suggested === null &&
+        slugOf(documentTypes, document.typeId) === 'letter' &&
+        (await this.markdownSource.openEmail?.(document.id)) != null
+          ? (documentTypes.find((type) => type.id === document.typeId) ?? null)
+          : null;
+      const chosen = suggested ?? emailDefault;
       // What this run thought of its own reading, in the two places it belongs: the journal, where
       // it stays attached to the run that said it, and the document, where the newest answer is
       // (docs/03 §3.3.10, §3.3.18). Nothing below branches on either of them.
@@ -891,6 +918,8 @@ export class HandleDocumentProcess extends JobHandler {
   private async linkSubjects(
     document: Document,
     subjects: readonly { kind: string; name: string }[],
+    knownSubjects: readonly SubjectWithCount[],
+    invoiceTitle: string | null,
   ): Promise<void> {
     if (subjects.length === 0 && invoiceTitle === null) return;
     const already = await this.subjects.listForDocument(document.id);
@@ -930,8 +959,6 @@ export class HandleDocumentProcess extends JobHandler {
     const slug =
       document.typeId === null
         ? null
-    knownSubjects: readonly SubjectWithCount[],
-    invoiceTitle: string | null,
         : (documentTypes.find((documentType) => documentType.id === document.typeId)?.slug ?? null);
     const schema = fieldSchemaFor(slug);
     if (schema === null) {
@@ -943,35 +970,40 @@ export class HandleDocumentProcess extends JobHandler {
       });
       return;
     }
-    if (!this.analyst.isConfigured) {
-      await this.write(document.id, {
-        steps: { fields: 'SKIPPED' },
-        skipReasons: { fields: 'NOT_CONFIGURED' },
-      });
-      return;
-    }
-    // The analysis's own page limit, lifted by the same asking: "read this one properly" means the
-    // fields too (docs/05 §5.5 step 5).
-    if (!analyseInFull && this.settings.analystAutoMaxPages > 0) {
-      const pages = document.pageCount ?? 0;
-      if (pages > this.settings.analystAutoMaxPages) {
-        await this.write(document.id, {
-          steps: { fields: 'SKIPPED' },
-          skipReasons: { fields: 'TOO_MANY_PAGES' },
-        });
-        return;
-      }
-    }
-
     try {
-      const answer = await this.analyst.extractFields(
-        schema,
-        analystExcerpt(document, this.settings.analystExcerptChars),
-        await this.pagesFor(document),
-        // The same block the analysis is shown, this document's own corrected fields included: the
-        // fields of one paper are read together (docs/05 §5.5 step 5).
-        await this.confirmedValues(document, document.typeSource === 'MANUAL' ? slug : null),
-      );
+      const email = slug === 'letter' ? await this.markdownSource.openEmail?.(document.id) : null;
+      if (email == null) {
+        if (!this.analyst.isConfigured) {
+          await this.write(document.id, {
+            steps: { fields: 'SKIPPED' },
+            skipReasons: { fields: 'NOT_CONFIGURED' },
+          });
+          return;
+        }
+        // The analysis's own page limit, lifted by the same asking: "read this one properly" means the
+        // fields too (docs/05 §5.5 step 5).
+        if (!analyseInFull && this.settings.analystAutoMaxPages > 0) {
+          const pages = document.pageCount ?? 0;
+          if (pages > this.settings.analystAutoMaxPages) {
+            await this.write(document.id, {
+              steps: { fields: 'SKIPPED' },
+              skipReasons: { fields: 'TOO_MANY_PAGES' },
+            });
+            return;
+          }
+        }
+      }
+      const answer =
+        email != null
+          ? { values: email.fields, confidence: null }
+          : await this.analyst.extractFields(
+              schema,
+              analystExcerpt(document, this.settings.analystExcerptChars),
+              await this.pagesFor(document),
+              // The same block the analysis is shown, this document's own corrected fields included: the
+              // fields of one paper are read together (docs/05 §5.5 step 5).
+              await this.confirmedValues(document, document.typeSource === 'MANUAL' ? slug : null),
+            );
       // Per-field validation, in code: an invented value in one field must not discard a good one
       // beside it (docs/03 §3.3.10a).
       const read = sanitizeFieldValues(schema, answer.values);
@@ -1011,7 +1043,11 @@ export class HandleDocumentProcess extends JobHandler {
       const marks = markUpdate({ confidence: answer.confidence });
       await this.write(document.id, {
         steps: { fields: 'DONE' },
-        metrics: { ...(answer.usage ?? {}), ...marks },
+        metrics: {
+          ...(answer.usage ?? {}),
+          ...marks,
+          ...(email == null ? {} : { sourceFormat: 'eml' }),
+        },
         extracted,
         // The projection the FTS column reads, rewritten with the answer it projects
         // (docs/04 §4.3).

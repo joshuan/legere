@@ -1,3 +1,4 @@
+import { MimeEmailParser } from '../../src/server/infrastructure/email/mime-email-parser';
 import sharp from 'sharp';
 import { beforeAll, describe, expect, it, type TestContext } from 'vitest';
 import { loadConfig } from '../../src/server/infrastructure/config/app-config';
@@ -42,6 +43,26 @@ describe('StirlingPdfToolbox (integration, Stirling-PDF)', () => {
     const first = await pdfs.pdfPagePng(pdf, { page: 1, dpi: 300 });
     expect(bytes.equals(first)).toBe(false);
   });
+
+  itWithStirling(
+    'converts decoded EML to a searchable PDF and preview with unchanged original',
+    async () => {
+      const original = Buffer.from(
+        'From: archive@example.com\r\nTo: reader@example.com\r\nSubject: EMAILSUBJECT\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>EMAILBODY Cyrillic: Привет мир</p>',
+      );
+      const unchanged = Buffer.from(original);
+      const email = await new MimeEmailParser().parse(original);
+      const pdf = await pdfs.toPdf({ body: Buffer.from(email.html), fileName: 'email.html' });
+      expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+      expect(await pdfs.pdfPageCount(pdf)).toBeGreaterThan(0);
+      const text = await pdfs.pdfToMarkdown(pdf);
+      expect(text).toContain('EMAILSUBJECT');
+      expect(text).toContain('EMAILBODY');
+      expect(text).toContain('Привет');
+      expect((await pdfs.pdfPageJpg(pdf)).subarray(0, 2)).toEqual(Buffer.from([0xff, 0xd8]));
+      expect(original).toEqual(unchanged);
+    },
+  );
 
   for (const format of ['doc', 'docx'] as const) {
     itWithStirling(
