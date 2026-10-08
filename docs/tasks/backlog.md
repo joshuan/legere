@@ -2463,3 +2463,8 @@ Production observation is read-only; source fixes are verified and committed on 
   The integration run used an isolated temporary PostgreSQL database and Stirling container;
   generated PDFs preserve decoded headers, body text and Cyrillic, and previews render correctly.
   Typecheck and changed-file ESLint/Prettier checks pass. No database migration is required.
+
+- [x] **M82.2 — Clear the release dependency audit.**
+  Update Next.js and its ESLint plugin to 16.3.8, sharp to 0.35.5, and locked proxy-addr and
+  source-map-js to their patched versions. The production dependency audit reports zero
+  vulnerabilities; retain the normal CI and image-scan gates before publication.

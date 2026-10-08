@@ -63,7 +63,7 @@
     "franc-min": "^6.2.0",
     "mailparser": "^3.9.37",
     "nestjs-pino": "^4.2.0",
-    "next": "16.3.6",
+    "next": "16.3.8",
     "next-intl": "^4.13.5",
     "nodemailer": "^10.0.12",
     "pg-boss": "^10.1.5",
@@ -79,7 +79,7 @@
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.0",
     "rxjs": "^7.8.1",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.5",
     "zod": "^3.24.1"
   },
   "overrides": {
@@ -95,7 +95,7 @@
     "@eslint/js": "^9.17.0",
     "@joshuan/tooling": "0.1.5",
     "@nestjs/testing": "^11.0.0",
-    "@next/eslint-plugin-next": "16.3.6",
+    "@next/eslint-plugin-next": "16.3.8",
     "@playwright/test": "1.63.0",
     "@swc-node/register": "^1.10.9",
     "@swc/core": "^1.10.1",
