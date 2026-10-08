@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   InMemorySubjectKindRepository,
   InMemorySubjectRepository,
+  ImmediateUnitOfWork,
 } from '../../../../test/helpers/processing-fakes';
+import { FixedClock } from '../../../../test/helpers/fakes';
 import { MAX_LIVING_SUBJECTS } from '../../domain/entities/subject';
 import { ConflictError, UnprocessableError } from '../../domain/errors/domain-error';
-import { CreateSubject } from './manage-subjects';
+import { CreateSubject, MergeSubjects } from './manage-subjects';
 
 type Seeded = {
   kinds: InMemorySubjectKindRepository;
@@ -59,5 +61,35 @@ describe('CreateSubject at the catalogue ceiling', () => {
 
     expect(created.name).toBe('Back In The Room');
     expect(await subjects.countActive()).toBe(MAX_LIVING_SUBJECTS);
+  });
+});
+
+describe('MergeSubjects address recognition', () => {
+  it('retains both former addresses in the existing note', async () => {
+    const kinds = new InMemorySubjectKindRepository();
+    const subjects = new InMemorySubjectRepository(kinds);
+    const kind = await kinds.create({ name: 'Жильё' });
+    const cvetanova = await subjects.create({
+      kindId: kind.id,
+      name: 'Beograd, Cvetanova ćuprija 24Ђ/2',
+    });
+    const srdjana = await subjects.create({
+      kindId: kind.id,
+      name: 'Srđana Kneževića 8,12, stan 2/8',
+    });
+
+    const merged = await new MergeSubjects(
+      subjects,
+      kinds,
+      new ImmediateUnitOfWork(),
+      new FixedClock(),
+    ).execute({
+      ids: [cvetanova.id, srdjana.id],
+      kindId: kind.id,
+      name: cvetanova.name,
+      note: null,
+    });
+
+    expect(merged.note).toContain('Srđana Kneževića 8,12, stan 2/8');
   });
 });

@@ -6,7 +6,9 @@ import type {
   SubjectDto,
   UpdateSubjectRequest,
 } from '../../../shared/contracts/subjects';
+import { SUBJECT_NOTE_LIMIT } from '../../../shared/contracts/subjects';
 import { MAX_LIVING_SUBJECTS } from '../../domain/entities/subject';
+import { foldName } from '../../domain/value-objects/name-fold';
 import { ConflictError, NotFoundError, UnprocessableError } from '../../domain/errors/domain-error';
 import type { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
 import type {
@@ -180,6 +182,19 @@ export class MergeSubjects {
     const survivor = [...found].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
     if (survivor === undefined) throw new NotFoundError('SUBJECT_NOT_FOUND', 'Subject not found');
     const merged = input.ids.filter((id) => id !== survivor.id);
+    // Merging two rows is a person's assertion that they are one thing. Keep their former names
+    // in the existing recognition note, so the next paper may use either spelling or address.
+    let note = input.note ?? survivor.note ?? '';
+    for (const row of found) {
+      if (
+        foldName(row.name) === foldName(input.name) ||
+        note.split('\n').some((line) => foldName(line) === foldName(`Also known as: ${row.name}`))
+      ) {
+        continue;
+      }
+      const next = `${note ? `${note}\n` : ''}Also known as: ${row.name}`;
+      if (next.length <= SUBJECT_NOTE_LIMIT) note = next;
+    }
 
     const now = this.clock.now();
     await this.unitOfWork.run(async (tx) => {
@@ -194,7 +209,7 @@ export class MergeSubjects {
         {
           kindId: kind.id,
           name: input.name,
-          ...(input.note === undefined ? {} : { note: input.note }),
+          note: note || null,
         },
         tx,
       );
@@ -207,7 +222,7 @@ export class MergeSubjects {
         kindId: kind.id,
         kind: kind.name,
         name: input.name,
-        note: input.note ?? survivor.note,
+        note: note || null,
         documentCount: 0,
         lastDocumentAt: null,
       },

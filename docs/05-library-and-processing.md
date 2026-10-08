@@ -1175,6 +1175,13 @@ because a run that told us nothing new happened to it.
    text. A person typing a title is not a person writing instructions to a model: human-entered
    strings are data, whoever typed them, and a title that could give orders about how the next
    document is read would be an injection surface this product handed to itself. The fence holds in
+   An address proposed in a different Serbian script, with different punctuation or an issuer
+   prefixed to it, can resolve to an existing subject when two street words and the building/unit
+   numbers identify exactly one living row. For invoices, the analysed title supplies the same
+   evidence if the model names the supplier instead of the flat. The matcher also reads alternate
+   names in the subject's existing note. A merge keeps former names in that note, so later papers
+   using either address can recognise the survivor. Ambiguous or incomplete addresses stay as
+   proposals; an existing document-to-subject decision is never replaced by this step.
    the other direction too — a page that writes the confirmation markers into its own text forges
    nothing, because it cannot know the nonce, and the archive's own values are the only thing those
    two lines can ever contain.

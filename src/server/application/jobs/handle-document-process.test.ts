@@ -1705,6 +1705,27 @@ describe('HandleDocumentProcess', () => {
       analyst.answer = { ...analyst.answer, title: 'Rental agreement, Njegoševa 12' };
 
       await run();
+    it('files an invoice by its address when the analyst names the supplier instead of the flat', async () => {
+      await givenDocument([{ file: { mimeType: 'application/pdf', ext: 'pdf' }, bytes: 'a-pdf' }]);
+      const kind = await subjectKinds.create({ name: 'Жильё' });
+      const flat = await subjects.create({
+        kindId: kind.id,
+        name: 'Beograd, Cvetanova ćuprija 24Ђ/2',
+      });
+      analyst.answer = {
+        ...analyst.answer,
+        title: 'Счёт за газ, Cvetanova Ćuprija 24 Ć 2, ноябрь 2025',
+        typeSlug: 'invoice',
+        subjects: [{ kind: 'Компании', name: 'Cyrus Energy D.O.O., Cvetanova Ćuprija 24 Ć 2' }],
+      };
+
+      await run();
+
+      expect((await subjects.listForDocument(DOCUMENT_ID)).map((subject) => subject.id)).toEqual([
+        flat.id,
+      ]);
+    });
+
 
       const document = stateOf();
       // 🔒 A title somebody typed is theirs (docs/03 §3.3.10).

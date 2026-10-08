@@ -38,7 +38,11 @@ import type {
 import type { DocumentEventRepository } from '../../domain/repositories/document-event.repository';
 import type { PersonRepository } from '../../domain/repositories/person.repository';
 import type { SubjectKindRepository } from '../../domain/repositories/subject-kind.repository';
-import type { SubjectRepository } from '../../domain/repositories/subject.repository';
+import type {
+  SubjectRepository,
+  SubjectWithCount,
+} from '../../domain/repositories/subject.repository';
+import { findUniqueSubjectByAddress } from '../../domain/value-objects/subject-reference';
 import type { BuildCanonical } from '../documents/build-canonical';
 import type { DocumentMarkdownSource } from '../documents/document-markdown-source';
 import type { BinarySource } from '../ports/binary-source';
@@ -778,16 +782,17 @@ export class HandleDocumentProcess extends JobHandler {
         // Most documents are about something already here; the model can only know that if it is
         // shown the catalogue (docs/03 §3.3.20). Most-filed first, because the adapter caps the
         // list and the cap must fall on the tail nobody files by (docs/05 §5.5 step 4).
-        (await this.subjects.listActive())
-          .sort((a, b) => b.documentCount - a.documentCount)
-          .map((subject) => ({
-            kind: subject.kind,
-            name: subject.name,
-            note: subject.note,
-          })),
+        knownSubjects.map((subject) => ({
+          kind: subject.kind,
+          name: subject.name,
+          note: subject.note,
+        })),
         // And the people likewise (docs/03 §3.3.19): a boarding pass files under the person the
         // archive already knows, not under a twenty-third spelling of him.
         (await this.people.listActive())
+      const knownSubjects = (await this.subjects.listActive()).sort(
+        (a, b) => b.documentCount - a.documentCount,
+      );
           .sort((a, b) => b.documentCount - a.documentCount)
           .map((person) => ({ name: person.name, note: person.note })),
         // Read per run rather than at start-up: changing it takes effect on the next document
@@ -803,7 +808,16 @@ export class HandleDocumentProcess extends JobHandler {
       );
 
       await this.linkPeople(document, analysis.people);
-      await this.linkSubjects(document, analysis.subjects);
+      await this.linkSubjects(
+        document,
+        analysis.subjects,
+        knownSubjects,
+        analysis.typeSlug === 'invoice' ||
+          (manualType &&
+            documentTypes.some((type) => type.id === document.typeId && type.slug === 'invoice'))
+          ? analysis.title
+          : null,
+      );
 
       // Second guard against a hallucinated slug: whatever came back has to match a documentType that
       // actually exists, or the document simply has none (docs/05 §5.5 step 4).
@@ -878,7 +892,7 @@ export class HandleDocumentProcess extends JobHandler {
     document: Document,
     subjects: readonly { kind: string; name: string }[],
   ): Promise<void> {
-    if (subjects.length === 0) return;
+    if (subjects.length === 0 && invoiceTitle === null) return;
     const already = await this.subjects.listForDocument(document.id);
     if (already.length > 0) return;
 
@@ -887,9 +901,21 @@ export class HandleDocumentProcess extends JobHandler {
       const kind = await this.subjectKinds.findByName(subject.kind);
       if (kind === null) continue;
       const existing = await this.subjects.findByKindAndName(kind.id, subject.name);
-      if (existing !== null) ids.push(existing.id);
+      if (existing !== null) {
+        ids.push(existing.id);
+      } else {
+        const recognised = findUniqueSubjectByAddress(
+          subject.name,
+          knownSubjects.filter((known) => known.kindId === kind.id),
+        );
+        if (recognised !== null) ids.push(recognised.id);
+      }
     }
-    if (ids.length > 0) await this.subjects.setForDocument(document.id, ids);
+    if (invoiceTitle !== null) {
+      const recognised = findUniqueSubjectByAddress(invoiceTitle, knownSubjects);
+      if (recognised !== null) ids.push(recognised.id);
+    }
+    if (ids.length > 0) await this.subjects.setForDocument(document.id, [...new Set(ids)]);
   }
 
   // Step 5. The one step that differs by document type, and it differs by data (ADR-022): the
@@ -904,6 +930,8 @@ export class HandleDocumentProcess extends JobHandler {
     const slug =
       document.typeId === null
         ? null
+    knownSubjects: readonly SubjectWithCount[],
+    invoiceTitle: string | null,
         : (documentTypes.find((documentType) => documentType.id === document.typeId)?.slug ?? null);
     const schema = fieldSchemaFor(slug);
     if (schema === null) {
