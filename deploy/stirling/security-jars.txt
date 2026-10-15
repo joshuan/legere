@@ -23,3 +23,17 @@ netty-resolver-dns-4.2.12.Final.jar io/netty/netty-resolver-dns/4.2.17.Final/net
 netty-transport-4.2.12.Final.jar io/netty/netty-transport/4.2.17.Final/netty-transport-4.2.17.Final.jar d2409ce3a735cbab4188d0ea5d82abed823a6a07a8389f49af4a9e1243a562bc
 netty-transport-classes-epoll-4.2.12.Final.jar io/netty/netty-transport-classes-epoll/4.2.17.Final/netty-transport-classes-epoll-4.2.17.Final.jar 4e21d8a2e3429d9de967a716d58119f57585786bd2f7213bf5b27770425269de
 netty-transport-native-unix-common-4.2.12.Final.jar io/netty/netty-transport-native-unix-common/4.2.17.Final/netty-transport-native-unix-common-4.2.17.Final.jar e01aa467b9104de54a57c08c290f70b22e53ec97cf5583c87c112170ef5832cc
+spring-aop-7.0.7.jar org/springframework/spring-aop/7.0.9/spring-aop-7.0.9.jar b8c5d6bfcb1f4993f2cc124f7ab7fac40edf5256b9e43c2f7250a733cb5510e9
+spring-aspects-7.0.7.jar org/springframework/spring-aspects/7.0.9/spring-aspects-7.0.9.jar 68247ea5d8cc7c2d06fb36b80b9e9692bddab72fffeac5e68f974d547fb28875
+spring-beans-7.0.7.jar org/springframework/spring-beans/7.0.9/spring-beans-7.0.9.jar ff218b827a25c9e8929b0cd56dfb56916cea9d5b669ed97dc7cb262508ff548b
+spring-context-7.0.7.jar org/springframework/spring-context/7.0.9/spring-context-7.0.9.jar 7552a2fcfa30cea53eb14d7a65a7a8e1b1dd82e832a7164fb7e6fb105f438858
+spring-context-support-7.0.7.jar org/springframework/spring-context-support/7.0.9/spring-context-support-7.0.9.jar 3c0c35a0371539f5e7d4e9d0226b9a009a4109cd0e20e805e27132dd6ae0727d
+spring-core-7.0.7.jar org/springframework/spring-core/7.0.9/spring-core-7.0.9.jar 5195f4722699b39878d99a832549fe65df2890b159d063b88fff31b1ca65ae36
+spring-expression-7.0.7.jar org/springframework/spring-expression/7.0.9/spring-expression-7.0.9.jar 046434c40f43819729b9b1db0e6c659dfa68184c1c2c2efa5f7b3a5b27c4e2e2
+spring-jdbc-7.0.7.jar org/springframework/spring-jdbc/7.0.9/spring-jdbc-7.0.9.jar ca0d9af1c5721eef8cac1f94c8b9d27a753248bc33c86e3472bd3d1dbd78f450
+spring-orm-7.0.7.jar org/springframework/spring-orm/7.0.9/spring-orm-7.0.9.jar d44082acd9377b67858ae207316057e2ef236a16c96e1b4fd8af8d43a6784b31
+spring-oxm-7.0.7.jar org/springframework/spring-oxm/7.0.9/spring-oxm-7.0.9.jar 213b742973516a7ae0846c79757cf905b634e2367ee0bdc0c34a067d365f922b
+spring-tx-7.0.7.jar org/springframework/spring-tx/7.0.9/spring-tx-7.0.9.jar bfb15da6e096e2c0752e9db9987d2415bf0da1d744efc988535c10c6b6c2eedd
+spring-web-7.0.7.jar org/springframework/spring-web/7.0.9/spring-web-7.0.9.jar 941ced476427bde2533872f293da535fd0258de3f3a650a7f1bfe01ed2927302
+spring-webmvc-7.0.7.jar org/springframework/spring-webmvc/7.0.9/spring-webmvc-7.0.9.jar 8f114c1461692c5e534e82b27de23b7fb23370db8dee7ce0c92d5106906c9555
+jsoup-1.15.4.jar org/jsoup/jsoup/1.23.2/jsoup-1.23.2.jar e9d8c856856680427f096d156f02a414289985c930998fcb519ce5be39b42003

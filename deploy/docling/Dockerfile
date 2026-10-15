@@ -21,11 +21,15 @@ ARG TESSDATA_REF=87416418657359cb625c412a48b6e1d6d41c29bd
 ARG LANGUAGES="rus ukr srp srp_latn deu fra spa ita pol tur"
 
 USER 0
-# The HTTP local engine does not use Ray. Its bundled JVM driver is vulnerable and unnecessary
-# here; remove the optional cluster runtime instead of carrying scan exceptions (docs/12 §12.7).
+# The HTTP local engine does not use Ray or its CodeFlare SDK. Remove both optional cluster
+# packages so dependency checks remain consistent after removing the vulnerable JVM driver.
 ENV DOCLING_SERVE_ENG_KIND=local
-RUN python3 -m pip uninstall -y ray \
-    && python3 -c "import importlib.util; assert importlib.util.find_spec('ray') is None"
+ARG DOCLING_VERSION=2.132.0
+RUN python3 -m pip uninstall -y ray codeflare-sdk \
+    && python3 -c "import importlib.util; assert importlib.util.find_spec('ray') is None" \
+    && python3 -m pip install --no-cache-dir --upgrade "docling==${DOCLING_VERSION}" "docling-slim==${DOCLING_VERSION}" \
+    && python3 -m pip check \
+    && python3 -c "import importlib.metadata as m; import importlib.util as u; assert m.version('docling') == '${DOCLING_VERSION}'; assert m.version('docling-slim') == '${DOCLING_VERSION}'; assert u.find_spec('ray') is None; assert u.find_spec('codeflare_sdk') is None"
 
 RUN set -eu; \
     for lang in ${LANGUAGES}; do \

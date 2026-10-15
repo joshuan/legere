@@ -11,6 +11,7 @@
 # digest is what a person reads and what Dependabot rewrites together with it. Moving it by hand:
 #
 #   docker buildx imagetools inspect stirlingtools/stirling-pdf:latest --format '{{.Manifest.Digest}}'
+FROM ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 AS python-installer
 FROM stirlingtools/stirling-pdf:2.14.3@sha256:3b3670fce70b396ec56ba380a3cc7858e0abf83fe13f31c88f7737847763a396
 
 # The pinned base predates Ubuntu's DTLS security fix (CVE-2026-84782). Upgrade the matched
@@ -20,6 +21,15 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       "openssl=${OPENSSL_VERSION}" "libssl3t64=${OPENSSL_VERSION}" \
     && rm -rf /var/lib/apt/lists/*
+
+# The base's Python environment intentionally omits pip. Use a pinned installer only during the
+# build and remove it after patching the Ghostscript image-loading vulnerability.
+COPY --from=python-installer /uv /tmp/uv
+ARG WEASYPRINT_VERSION=70.0
+RUN /tmp/uv pip install --python /opt/venv/bin/python --no-cache "weasyprint==${WEASYPRINT_VERSION}" \
+    && /tmp/uv pip check --python /opt/venv/bin/python \
+    && /opt/venv/bin/python -c "import importlib.metadata as m; assert m.version('weasyprint') == '${WEASYPRINT_VERSION}'" \
+    && rm /tmp/uv
 
 # Keep the unmetered 2.x API while applying the security fixes in docs/12 §12.7. Replace whole
 # dependency families together, verify immutable bytes, and fail on base-image layout drift.

@@ -2497,3 +2497,12 @@ Production observation is read-only; source fixes are verified and committed on 
   baselines and in a second comparison-only run. Reviewed every changed image in before/after
   contact sheets. The prior main CI failure was the same concurrent OCR call-order assertion;
   comparing sorted hashes preserves the image-sharing assertion without assuming delivery order.
+
+- [x] **M83.3 — Clear parser-image security blockers for the signature release.**
+  Address the v0.45.0 release scan's fixed findings by upgrading the complete Spring 7.0 family
+  to 7.0.9, jsoup to 1.23.2, WeasyPrint to 70.0, and Docling packages to 2.132.0. Preserve the
+  pinned parser bases and existing APIs, verify downloaded Java bytes, build both images and
+  exercise conversion before publishing a CI-gated patch release. Retain the existing scan gate.
+  Validation: both patched images built and passed the existing HIGH/CRITICAL archive scans
+  without new exceptions; 19 Stirling and 2 Docling native conversion tests passed. Typecheck,
+  lint and formatting checks passed.

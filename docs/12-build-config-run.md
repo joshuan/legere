@@ -696,6 +696,11 @@ Netty 4.2 modules move together to 4.2.17.Final, the Bouncy Castle family to 1.8
 and fails if the expected original is absent. This patches CVE-2026-68497, CVE-2026-75595,
 CVE-2026-8763 and CVE-2026-13506 without changing Stirling's API or automation allowance.
 The overlay must be reviewed whenever the base pin moves; it is not a second floating update path.
+The v0.45.0 image scan also requires the complete Spring Framework 7.0 family at 7.0.9 and jsoup
+1.23.2 (checksummed in the same manifest), plus WeasyPrint 70.0 in `/opt/venv`. These address
+CVE-2026-47884, CVE-2026-47890, CVE-2026-75140 and CVE-2026-106443 while retaining the 2.x API.
+WeasyPrint's pin is verified through installed distribution metadata; see its
+[upstream advisory](https://github.com/Kozea/WeasyPrint/security/advisories/GHSA-r543-q48m-4c9j).
 The Jackson patch families also fix CVE-2026-91776 and CVE-2026-91777
 ([2.21.7 notes](https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.21.7),
 [3.1.7 notes](https://github.com/FasterXML/jackson/wiki/Jackson-Release-3.1.7)).
@@ -706,10 +711,15 @@ base-image packages if that version is unavailable. No additional scan exception
 This also removes the earlier `CVE-2026-45447` PKCS7 exception, fixed in Ubuntu 3.0.13-0ubuntu3.11.
 
 **Docling uses the local engine.** The image is pinned to docling-serve-cpu v1.35.0 and removes the
-optional Ray package, including its unused JVM driver and vendored dependencies. Legere submits
+optional Ray package, including its unused JVM driver and vendored dependencies. The Ray-only
+CodeFlare SDK is removed with it so installed dependency metadata remains consistent. Legere submits
 jobs to the local asynchronous HTTP engine; the shipped image does not support Ray cluster mode.
 This removes CVE-2026-68497 and CVE-2026-54399 from the new base instead of exempting dead code.
 The default engine is explicitly `local`, and the build verifies that Ray is no longer importable.
+The image upgrades `docling` and `docling-slim` together to 2.132.0, verifies both installed
+versions and checks dependency consistency. This fixes
+[CVE-2026-105744](https://github.com/docling-project/docling/security/advisories/GHSA-x3q2-h9hx-4r4j)
+in the opt-in Tectonic backend without enabling that backend or changing the HTTP local engine.
 
 🔒 **Remaining recorded scan exceptions** ([`13 §13.3`](./13-ci-cd.md)).
 `v0.26.0` was the first release whose scan read all three images back, and it was red: HIGH findings
