@@ -52,6 +52,8 @@ export const ERROR_CODES = [
   // 🔒 An upload the pipeline could never render is refused at the door (docs/05 §5.1a); a library
   // file of the same kind is merely registered, because a scan has nobody to answer.
   'UNSUPPORTED_FORMAT',
+  'SIGNATURE_INVALID',
+  'SIGNATURE_MISMATCH',
   'COLLECTION_NAME_TAKEN',
   // 🔒 A document is emptied by deleting it, not by taking its parts away (docs/03 §3.3.10).
   'DOCUMENT_LAST_FILE',

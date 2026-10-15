@@ -95,6 +95,9 @@ human-readable index and must stay in sync with them.
 
 ## 7.3. Endpoints
 
+The original-file electronic signature endpoints (listing, raw CMS upload, download and removal)
+and their access/error contracts are specified in [23](23-electronic-signatures.md#api-and-access).
+
 ### Auth & account
 | Method & path | Auth | Body → Response (`data`) |
 |---------------|------|--------------------------|

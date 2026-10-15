@@ -193,6 +193,9 @@ function serve(
   state: DocumentProcessingStateResponse = processingState(),
 ): void {
   server.use(
+    http.get('/api/documents/:documentId/signatures', () =>
+      HttpResponse.json(envelope({ files: [] })),
+    ),
     http.get(`/api/documents/${ID}`, () => HttpResponse.json(envelope(document))),
     http.get('/api/documents/:documentId/processing-state', () =>
       HttpResponse.json(envelope(state)),

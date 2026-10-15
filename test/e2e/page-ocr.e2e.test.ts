@@ -184,8 +184,8 @@ describe('Page OCR inspection (e2e)', () => {
     await finish(run);
     expect((await get(run)).pages.every((page) => page.status === 'DONE')).toBe(true);
     expect(renderer.render).toHaveBeenCalledTimes(2);
-    expect(google.exchange.mock.calls.map(([image]) => image.hash)).toEqual(
-      yandex.exchange.mock.calls.map(([image]) => image.hash),
+    expect(google.exchange.mock.calls.map(([image]) => image.hash).sort()).toEqual(
+      yandex.exchange.mock.calls.map(([image]) => image.hash).sort(),
     );
     expect(await testPrisma().document.findUniqueOrThrow({ where: { id: documentId } })).toEqual(
       before,

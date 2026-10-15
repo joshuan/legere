@@ -2468,3 +2468,32 @@ Production observation is read-only; source fixes are verified and committed on 
   Update Next.js and its ESLint plugin to 16.3.8, sharp to 0.35.5, and locked proxy-addr and
   source-map-js to their patched versions. The production dependency audit reports zero
   vulnerabilities; retain the normal CI and image-scan gates before publication.
+
+## M83 — Electronic signatures
+
+- [x] **M83.1 — Attach signatures and inspect signed originals.**
+  Implement [the electronic signature contract](../23-electronic-signatures.md): preserve detached
+  CMS uploads bound to immutable originals, detect embedded PDF signatures, expose signer and
+  certificate metadata and honest cryptographic/trust states in the localized viewer. Cover
+  GOST government signatures, byte integrity, access, persistence and UI behavior without
+  committing private examples.
+
+  Validation: 38 focused server checks (CMS/GOST/PDF, HTTP, persistence, access and schema), five
+  component checks, and phone/light plus desktop/dark Chromium checks pass. The supplied private
+  PDF/SIG pair verifies through the production inspector without copying it into the repository.
+  Typecheck, lint and production build pass; production dependency audit reports zero findings.
+  The full 2,787-test run on the host's Node 25 passed 2,745 and skipped 35: six bootstrap failures
+  require Node 26, and one existing parallel OCR assertion compared call order. Both affected
+  suites (22 checks) pass on the required Node 26 runtime. XMLDSig ingestion/validation, trust
+  chains, revocation and qualified-signature certification remain outside this feature's scope.
+
+- [x] **M83.2 — Prepare electronic signature release gates.**
+  Update and verify affected browser baselines in the pinned Linux environment, make the existing
+  concurrent OCR assertion independent of provider completion order, and keep presentation fixtures
+  from opening fictional library paths while checking signatures. Publish and deploy only after
+  the standard CI gate passes.
+
+  Validation: 41 pinned Linux browser scenarios pass both while regenerating the 40 affected
+  baselines and in a second comparison-only run. Reviewed every changed image in before/after
+  contact sheets. The prior main CI failure was the same concurrent OCR call-order assertion;
+  comparing sorted hashes preserves the image-sharing assertion without assuming delivery order.

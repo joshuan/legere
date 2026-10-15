@@ -2,6 +2,7 @@ import { test as base, expect, type Page, type TestInfo } from '@playwright/test
 import { pdfWithText } from '../fixtures/pdf';
 import { VISUAL_NOW } from './constants';
 import { captureFullPage } from './capture';
+import { documentDetailDtoSchema } from '../../src/shared/contracts/documents';
 
 const preview = `<svg xmlns="http://www.w3.org/2000/svg" width="612" height="792" viewBox="0 0 612 792">
 <rect width="612" height="792" fill="#fffdf7"/><rect x="44" y="44" width="524" height="704" rx="3" fill="none" stroke="#d6d0bd"/>
@@ -45,6 +46,32 @@ export const test = base.extend({
     // Ant Design 6 measures notice lifetimes with Date.now() inside animation frames.
     // Keep the fixture's calendar date, but let elapsed time advance so notices can close.
     await page.clock.install({ time: new Date(VISUAL_NOW) });
+    // These browser originals are presentation fixtures, served by the routes below. Never ask
+    // the byte inspector to open their fictional library paths and mark shared fixtures missing.
+    // CMS/PDF verification uses genuine bytes in the dedicated inspector and HTTP suites.
+    await page.route(/\/api\/documents\/[^/]+\/signatures$/, async (route) => {
+      const path = new URL(route.request().url()).pathname.replace(/\/signatures$/, '');
+      const response = await page.request.get(path);
+      const body: unknown = await response.json();
+      const parsed =
+        typeof body === 'object' && body !== null && 'data' in body
+          ? documentDetailDtoSchema.safeParse(body.data)
+          : undefined;
+      if (parsed?.success !== true) throw new Error('Signature fixture needs a readable document');
+      await route.fulfill({
+        json: {
+          data: {
+            files: parsed.data.files.map((file) => ({
+              fileId: file.id,
+              fileName: file.name,
+              originalHash: '0'.repeat(64),
+              discovery: file.mimeType === 'application/pdf' ? 'COMPLETE' : 'UNSUPPORTED',
+              signatures: [],
+            })),
+          },
+        },
+      });
+    });
     await page.route('http://in-memory-storage.test/**', async (route) => {
       const path = new URL(route.request().url()).pathname;
       const pdf = path.endsWith('.pdf');

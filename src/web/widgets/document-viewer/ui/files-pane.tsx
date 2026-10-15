@@ -17,6 +17,7 @@ import { useUploadQueue } from '../../../features/upload-queue';
 import { useErrorMessage, formatBytes } from '../../../shared/lib';
 import { DownloadSplitButton } from './preview-pane';
 import { DeleteSection } from './delete-section';
+import { SignaturesSection } from './signatures-section';
 
 // A document is an ordered list of **pages** (docs/03 §3.3.17, ADR-025), and this is where that list
 // is visible and worked on (docs/11 §11.5a). A tab of its own rather than the last section of
@@ -273,6 +274,7 @@ export function FilesPane({
       {/* Last in the tab, below everything the document can still be used for (docs/11 §11.5d).
           Never in a peek: the one control that destroys anything belongs on the screen of the
           document it destroys (docs/11 §11.5e). */}
+      <SignaturesSection document={document} isAdmin={isAdmin} readOnly={readOnly} />
       {isAdmin && !readOnly && <DeleteSection document={document} />}
     </Space>
   );

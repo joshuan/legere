@@ -104,3 +104,5 @@ off in the same commit; the temporary direct-to-`main` workflow in ADR-014 appli
 [21. Receipt duplicate review](./21-receipt-duplicates.md) specifies data-based matching, manual decisions, preserved originals and ordered PDF merges.
 
 - [22. Manual page OCR inspection](22-page-ocr.md) — Google/Yandex, immutable page images and text overlays.
+
+- [23. Electronic signatures](23-electronic-signatures.md) — detached CMS/GOST signatures and embedded PDF signatures of originals.

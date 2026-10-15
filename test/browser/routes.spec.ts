@@ -81,6 +81,7 @@ for (const [name, path, content] of routes) {
     }
     if (name === 'document-files') {
       const title = page
+        .locator('.legere-file-list')
         .getByText('household-record-1.pdf', { exact: true })
         .filter({ visible: true });
       // Zero page overflow alone can still hide text compressed to a single-letter column.

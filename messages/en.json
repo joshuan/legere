@@ -91,7 +91,9 @@
       "RECEIPT_REVIEW_DEPENDENCY": "Undo the later decisions involving this result first.",
       "PREVIEW_PAGE_NOT_READY": "Wait for the page to finish processing, then select it again.",
       "OCR_NOT_CONFIGURED": "Configure the selected OCR providers first.",
-      "OCR_NOT_READY": "Recognition is not ready yet."
+      "OCR_NOT_READY": "Recognition is not ready yet.",
+      "SIGNATURE_INVALID": "Choose a CMS/PKCS#7 detached signature (.sig or .p7s).",
+      "SIGNATURE_MISMATCH": "The signature does not match the selected original or is damaged."
     }
   },
   "auth": {
@@ -1589,6 +1591,49 @@
       "newRecognition": "New recognition",
       "prepareHint": "Prepare the pages of this older PDF before recognizing them. Document text and search are preserved.",
       "preparePages": "Prepare pages"
+    },
+    "signatures": {
+      "heading": "Electronic signatures",
+      "badge": "Original signatures: {count}",
+      "scope": "Signatures apply to the original files below. The assembled PDF, cropped pages and extracted text are separate copies and are not certified by these signatures.",
+      "original": "Original to attach the signature to",
+      "attach": "Attach .sig signature",
+      "attached": "Signature attached to the original",
+      "checking": "Checking original signatures",
+      "retry": "Retry",
+      "unsigned": "No embedded PDF signature found and no detached signature attached.",
+      "embedded": "Embedded PDF signature {number}",
+      "earlierRevision": "Earlier PDF revision",
+      "changedAfterSigning": "This signature covers an earlier revision. Bytes were added after signing; later changes are not certified by this signature.",
+      "checkedAt": "Cryptographic check: {date}",
+      "originalHash": "Original SHA-256",
+      "signatureHash": "Signature SHA-256",
+      "unknownSigner": "Signer certificate not included",
+      "issuer": "Certificate issuer",
+      "serial": "Certificate serial (hex)",
+      "fingerprint": "Certificate SHA-256 fingerprint",
+      "validity": "Certificate dates: {from} – {to}",
+      "outsideValidity": "Outside certificate validity today",
+      "signingTime": "Signing time claimed by the signer (timestamp not verified)",
+      "digestAlgorithm": "Digest algorithm",
+      "signatureAlgorithm": "Signature algorithm",
+      "digestMatches": "Content digest matches the signed bytes",
+      "digestMismatch": "Content digest does not match",
+      "download": "Download signature",
+      "remove": "Remove signature",
+      "removeConfirm": "Remove this signature attachment from the original?",
+      "discovery": {
+        "UNAVAILABLE": "Original unavailable; embedded signatures could not be inspected.",
+        "UNSUPPORTED": "Embedded signature inspection is unavailable for this format or encrypted PDF.",
+        "ERROR": "Could not inspect this original. Its signature status is unknown."
+      },
+      "verification": {
+        "VALID": "Cryptographic signature correct",
+        "INVALID": "Signature invalid",
+        "UNSUPPORTED": "Algorithm or parameters not supported; signature unverified",
+        "NO_CERTIFICATE": "Certificate missing; signature unverified"
+      },
+      "trustNote": "Certificate chains, revocation, trusted timestamps and qualified-signature status are not checked. A correct cryptographic signature alone does not establish certificate trust."
     }
   },
   "nav": {

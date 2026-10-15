@@ -373,3 +373,13 @@ its lines were false. A claim nobody can run is a claim nobody is checking.
 | Resolve a chosen page against the stored canonical order while live pages change; publish an image revision only after rendering succeeds | `src/server/application/jobs/handle-document-process.test.ts` — preview |
 | Choose/reset, read-only and unsaved-arrangement controls, localized errors and history, retry an image after a new revision | `page-strip.test.tsx`, `document-card.test.tsx`, `document-viewer-screen.test.tsx` |
 | Choice marker, reset and reading order at all five widths in both appearances | `test/browser/routes.spec.ts` — preview page; canonical `document-preview-page-selected` screenshots |
+
+## M83 — Electronic signatures of originals
+
+| Scenario | Evidence |
+| --- | --- |
+| RSA/GOST CMS, exact content digest, PEM/base64, multiple signers, missing certificates, unsupported algorithms and subject-key identifiers | `src/server/infrastructure/signatures/cms-signature-inspector.test.ts` |
+| Embedded PDF signatures, exact ByteRange/Contents, changed signed bytes and later unsigned revisions | Same inspector suite with synthetic signed PDFs |
+| Immutable file association, exact stored bytes, duplicate upload concurrency, limits, rollback, private/shared access and read-only tokens | `test/e2e/document-signatures.e2e.test.ts` |
+| Original selector, upload refresh, certificate identifiers, unverified states, retry and read-only peeks | `src/web/widgets/document-viewer/ui/signatures-section.test.tsx` |
+| Real Chromium upload, expandable certificate details, signed earlier revisions and responsive wrapping | `test/browser/signatures.spec.ts` — all five widths and both themes verified in pinned Linux; affected Files baselines reviewed and compared again |

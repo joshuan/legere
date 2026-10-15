@@ -743,6 +743,10 @@ lived at must not be where they are left — and the archive is re-fetched under
 
 ## 11.5a. The Files tab
 
+The Files tab also attaches and inspects electronic signatures of originals; the sidebar links to
+this section when signatures exist. Certificate identifiers, cryptographic status, signed earlier
+PDF revisions and unchecked trust are shown separately. See [23](23-electronic-signatures.md#viewer).
+
 A document is an ordered list of **pages** (`03 §3.3.17`, ADR-025), and this is where that list is
 visible and worked on. **A tab of its own, not a section at the foot of `Details`.** What a document
 is made of is a different question from what it is about, and it is the one thing on this screen that

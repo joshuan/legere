@@ -1170,6 +1170,11 @@ person confirms or dismisses (05 §5.6b). Nothing about a suggestion is stored, 
 
 ## 3.4. Access model (authoritative summary)
 
+Electronic-signature evidence belongs to immutable File bytes rather than DocumentPage or the
+canonical PDF. Detached evidence is deduplicated per original and survives composition; replacement
+does not transfer it. See [23](23-electronic-signatures.md) for the FileSignature lifecycle and
+the separation between cryptographic validity and certificate trust.
+
 Full rules in [`08 §8.5`](./08-auth-and-authorization.md); the model in one place:
 
 ```

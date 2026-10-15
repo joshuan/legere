@@ -32,6 +32,10 @@ Two distinct storages with opposite rules:
 
 ## 9.2. S3 bucket
 
+Detached electronic signatures preserve exact uploaded bytes under
+`files/:fileId/signatures/:id.sig`; they belong to the original's lifecycle and are always served
+as authorized attachments. See [23](23-electronic-signatures.md#persistence-and-storage).
+
 - S3-compatible storage, AWS SDK v3 (`@aws-sdk/client-s3`, `@aws-sdk/s3-request-presigner`,
   `@aws-sdk/lib-storage` for the multipart `Upload` helper below), custom
   `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE=true` for MinIO. The bucket is **private**; no public ACLs; no

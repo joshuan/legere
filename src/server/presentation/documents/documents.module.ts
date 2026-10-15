@@ -1,4 +1,10 @@
 import { PageOcrModule } from './page-ocr.module';
+import { ManageSignatures } from '../../application/documents/manage-signatures';
+import { FileSignatureRepository } from '../../domain/repositories/file-signature.repository';
+import { SignatureInspector } from '../../application/ports/signature-inspector';
+import { CmsSignatureInspector } from '../../infrastructure/signatures/cms-signature-inspector';
+import { PrismaFileSignatureRepository } from '../../infrastructure/persistence/prisma-file-signature.repository';
+import { DocumentSignaturesController } from './document-signatures.controller';
 import { Module } from '@nestjs/common';
 import {
   DeleteDocument,
@@ -91,11 +97,37 @@ function pageThumbSettings(config: AppConfig): PageThumbSettings {
 @Module({
   imports: [PageOcrModule],
   exports: [UploadDocument],
-  controllers: [DocumentsController, DocumentIngestController],
+  controllers: [DocumentsController, DocumentIngestController, DocumentSignaturesController],
   providers: [
     ...sessionGuardProviders,
     DocumentAccessGuard,
     ApiTokenScopeGuard,
+    { provide: FileSignatureRepository, useClass: PrismaFileSignatureRepository },
+    { provide: SignatureInspector, useClass: CmsSignatureInspector },
+    {
+      provide: ManageSignatures,
+      useFactory: (
+        repository: FileSignatureRepository,
+        storage: FileStorage,
+        bytes: DocumentFileBytes,
+        inspector: SignatureInspector,
+        config: AppConfig,
+      ) =>
+        new ManageSignatures(
+          repository,
+          storage,
+          bytes,
+          inspector,
+          config.get('SIGNED_URL_TTL_SEC'),
+        ),
+      inject: [
+        FileSignatureRepository,
+        FileStorage,
+        DocumentFileBytes,
+        SignatureInspector,
+        AppConfig,
+      ],
+    },
     // The one read model that is not a repository: the grouping suggestions are a single bounded
     // query nothing else asks (docs/05 §5.6a).
     { provide: GroupingCandidateReader, useClass: PrismaGroupingCandidateReader },

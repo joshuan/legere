@@ -12,3 +12,4 @@ export { isViewerTab, VIEWER_TABS, type ViewerTab } from './viewer-tab';
 export { DocumentImage } from './document-image';
 
 export { documentOcrApi } from './ocr-api';
+export { documentSignatureApi, signatureKey } from './signature-api';

@@ -811,11 +811,29 @@ model File {
   receipt         Receipt?
   replacedBy      File?          @relation("FileVersions", fields: [replacedById], references: [id])
   earlierVersions File[]         @relation("FileVersions")
+  signatures      FileSignature[]
 
   // The trash is read newest first and swept by age; both are this index.
   @@index([trashedAt(sort: Desc)])
   @@index([replacedById])
   @@map("files")
+}
+
+// Detached CMS evidence belongs to immutable bytes, independently of document page composition.
+model FileSignature {
+  id           String   @id @default(uuid()) @db.Uuid
+  fileId       String   @map("file_id") @db.Uuid
+  contentHash  String   @map("content_hash") @db.Char(64)
+  originalHash String   @map("original_hash") @db.Char(64)
+  name         String
+  sizeBytes    BigInt   @map("size_bytes")
+  storageKey   String   @map("storage_key")
+  report       Json
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  file         File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, contentHash])
+  @@map("file_signatures")
 }
 
 // A document is an ordered list of pages (docs/03 §3.3.17, ADR-025): one page, read out of one file,

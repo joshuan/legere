@@ -4,6 +4,8 @@ import type { ErrorCode } from '../../../shared/contracts/common';
 // is deliberate: adding a code to the contracts without a message here is a type error, so the UI
 // can never fall back to showing the server's developer-facing `message`.
 export const ERROR_MESSAGE_KEYS: Record<ErrorCode | 'NETWORK', string> = {
+  SIGNATURE_INVALID: 'errors.codes.SIGNATURE_INVALID',
+  SIGNATURE_MISMATCH: 'errors.codes.SIGNATURE_MISMATCH',
   UNAUTHENTICATED: 'errors.codes.UNAUTHENTICATED',
   INVALID_CREDENTIALS: 'errors.codes.INVALID_CREDENTIALS',
   FORBIDDEN: 'errors.codes.FORBIDDEN',

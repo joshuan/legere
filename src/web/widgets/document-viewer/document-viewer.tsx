@@ -38,6 +38,7 @@ import { RelatedPane } from './ui/related-pane';
 import { LogPane } from './ui/log-pane';
 import { DetailsPane } from './ui/details-pane';
 import { FilesPane } from './ui/files-pane';
+import { SignatureBadge } from './ui/signatures-section';
 
 // /documents/:id (docs/11 §11.5): read the document, and manage the little that belongs to it.
 export function DocumentViewer({ id, tab = 'preview' }: { id: string; tab?: ViewerTab }) {
@@ -331,6 +332,7 @@ export function DocumentViewer({ id, tab = 'preview' }: { id: string; tab?: View
                   </Tooltip>
                 </div>
               )}
+              <SignatureBadge document={detail} />
             </Card>
 
             {detail.documentType?.slug === 'receipt' && (
