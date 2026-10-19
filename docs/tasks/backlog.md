@@ -2520,6 +2520,15 @@ Production observation is read-only; source fixes are verified and committed on 
   stored vectors and forced name-index scans. Typecheck, lint and formatting checks pass.
   Further search improvements are proposed in [the follow-up plan](./search-quality.md).
 
+- [x] **M84.2 — Align search result visual baselines with relevance ranking.**
+  Review the search result order after full-query title/file-name prioritization, refresh its
+  canonical screenshots across all widths and themes, and verify them in a comparison-only run
+  before cutting the requested release. Preserve the existing CI gate.
+
+  Validation: reviewed all 10 before/after screenshots; the full-query title match now leads the
+  results instead of the electricity invoice. All 11 targeted canonical Chromium checks pass in
+  both the update and comparison-only runs. Typecheck and formatting checks pass.
+
 ## M85 — Object cards and scoped document browsing
 
 - [x] **M85.1 — Browse objects and kinds as useful cards.**
