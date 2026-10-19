@@ -13,6 +13,7 @@ const kind = {
   note: null,
   subjectCount: 3,
   documentCount: 11,
+  icon: null,
   lastDocumentAt: '2026-03-01',
 };
 
@@ -111,6 +112,7 @@ describe('SubjectKindsScreen', () => {
                 note: null,
                 subjectCount: 0,
                 documentCount: 0,
+                icon: null,
                 lastDocumentAt: null,
               },
             ],
@@ -161,6 +163,7 @@ describe('SubjectKindsScreen', () => {
       note: null,
       subjectCount: 1,
       documentCount: 2,
+      icon: null,
       lastDocumentAt: null,
     };
 

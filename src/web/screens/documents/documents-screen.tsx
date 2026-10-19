@@ -1,8 +1,21 @@
 'use client';
 
-import { DownOutlined, RightOutlined, SettingOutlined } from '@ant-design/icons';
+import { DownOutlined, LockOutlined, RightOutlined, SettingOutlined } from '@ant-design/icons';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Card, Col, Empty, Row, Select, Space, Spin, Typography } from 'antd';
+import {
+  App,
+  Breadcrumb,
+  Button,
+  Card,
+  Col,
+  Empty,
+  Row,
+  Select,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+} from 'antd';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -49,7 +62,11 @@ import { ControlPopover, PageHeader, QueryError } from '../../shared/ui';
 const LIVE_REFRESH_MS = 5000;
 
 // /documents (docs/11 §11.3): the home screen.
-export function DocumentsScreen() {
+export function DocumentsScreen({
+  subject,
+}: {
+  subject?: { id: string; name: string; kindId: string; kind: string };
+}) {
   const t = useTranslations();
   // Who is reading this comes from the layout that already asked, not from a page that asked again
   // (docs/10 §10.2).
@@ -66,8 +83,18 @@ export function DocumentsScreen() {
   // them — the chosen order, which fields the cards show, and what the shelf is grouped by — for the
   // same reason and at the same accepted cost: it can be linked, and it does not follow the person
   // to another screen.
-  const view = useMemo(() => parseView(searchParams), [searchParams]);
-  const { filters, sort, fields, groupBy } = view;
+  const view = useMemo(() => {
+    const parsed = parseView(searchParams);
+    if (subject !== undefined) {
+      delete parsed.filters.subjectId;
+      // A single subject filter cannot also express a second subject within a grouped section.
+      if (parsed.groupBy === 'subject') parsed.groupBy = null;
+    }
+    return parsed;
+  }, [searchParams, subject]);
+  const { sort, fields, groupBy } = view;
+  const filters: DocumentFilters =
+    subject === undefined ? view.filters : { ...view.filters, subjectId: subject.id };
 
   // The four are written together, because they share one query string: changing any of them must
   // not drop the others. A default leaves no trace, the way an unset filter does not.
@@ -170,18 +197,65 @@ export function DocumentsScreen() {
     // where the eye happens to be, and "not over the grid" is not a reason to refuse it
     // (docs/11 §11.3).
     <UploadDropZone onFiles={send}>
+      {subject !== undefined && (
+        <Breadcrumb
+          styles={{
+            item: { color: 'var(--ant-color-text-secondary)' },
+            separator: { color: 'var(--ant-color-text-secondary)' },
+          }}
+          items={[
+            {
+              title: (
+                <Link href="/browse/subjects" style={{ color: 'var(--ant-color-text-secondary)' }}>
+                  {t('facets.subjects')}
+                </Link>
+              ),
+            },
+            {
+              title: (
+                <Link
+                  href={`/browse/subjects/${subject.kindId}`}
+                  style={{ color: 'var(--ant-color-text-secondary)' }}
+                >
+                  {subject.kind}
+                </Link>
+              ),
+            },
+            { title: subject.name },
+          ]}
+        />
+      )}
       <PageHeader
-        title={t('nav.documents')}
+        title={subject?.name ?? t('nav.documents')}
         actions={<UploadButton onFiles={sendToLibrary} primary />}
       />
       <Space orientation="vertical" size="large" style={{ width: '100%' }}>
         <div className="legere-toolbar">
-          <DocumentFiltersBar value={filters} onChange={setFilters} compact />
+          {subject !== undefined && (
+            <Tag
+              icon={<LockOutlined />}
+              style={{ maxWidth: '100%', whiteSpace: 'normal', overflowWrap: 'anywhere' }}
+              title={t('catalogueCards.lockedSubject', { name: subject.name })}
+            >
+              {subject.name}
+            </Tag>
+          )}
+          <DocumentFiltersBar value={view.filters} onChange={setFilters} compact />
           {/* Arranging the shelf, not narrowing it: the order sits beside the filters and outlives
               "Clear filters", which takes off what is in force rather than how it is laid out
               (docs/11 §11.3). */}
           <Select<DocumentSort>
             style={{ width: 200, maxWidth: '100%' }}
+            styles={
+              subject === undefined
+                ? undefined
+                : {
+                    root: {
+                      backgroundColor: 'var(--ant-color-bg-container)',
+                      color: 'var(--ant-color-text)',
+                    },
+                  }
+            }
             aria-label={t('documents.sort.label')}
             value={sort}
             onChange={(next) => setView({ sort: next })}
@@ -223,7 +297,9 @@ export function DocumentsScreen() {
                   onChange={(next) => setView({ groupBy: next === '' ? null : next })}
                   options={[
                     { value: '', label: t('documents.groupBy.none') },
-                    ...DOCUMENT_GROUP_BY.map((option) => ({
+                    ...DOCUMENT_GROUP_BY.filter(
+                      (option) => subject === undefined || option !== 'subject',
+                    ).map((option) => ({
                       value: option,
                       label: t(`documents.groupBy.options.${option}`),
                     })),
@@ -292,16 +368,18 @@ export function DocumentsScreen() {
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={
-              Object.keys(filters).length > 0
+              Object.keys(view.filters).length > 0
                 ? t('documents.empty.filtered')
-                : t('documents.empty.instance')
+                : subject === undefined
+                  ? t('documents.empty.instance')
+                  : t('facets.emptyDocuments')
             }
           >
-            {Object.keys(filters).length > 0 ? (
+            {Object.keys(view.filters).length > 0 ? (
               <Button onClick={() => setView({ filters: {} })}>
                 {t('documents.filters.clear')}
               </Button>
-            ) : (
+            ) : subject === undefined ? (
               <Space wrap>
                 <UploadButton primary onFiles={sendToLibrary} />
                 {isAdmin && (
@@ -310,7 +388,7 @@ export function DocumentsScreen() {
                   </Link>
                 )}
               </Space>
-            )}
+            ) : null}
           </Empty>
         ) : (
           <>

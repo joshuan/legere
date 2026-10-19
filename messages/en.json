@@ -1886,5 +1886,45 @@
     "itemDifferences": "Items differ",
     "pairPosition": "{current} / {count}",
     "closeNotice": "Dismiss notice"
+  },
+  "catalogueCards": {
+    "editIcon": "Change icon for {name}",
+    "chooseIcon": "Choose an icon",
+    "uploadLogo": "Upload logo",
+    "defaultIcon": "Use default icon",
+    "iconSaved": "Icon saved",
+    "logoHint": "PNG, JPEG or WebP, up to 2 MB. The image fits inside the card without cropping.",
+    "tooLarge": "Choose an image smaller than 2 MB.",
+    "objectCount": "{count, plural, one {# object} other {# objects}}",
+    "lastDocument": "Last document: {date}",
+    "sortLabel": "Sort objects",
+    "lockedSubject": "Documents about {name} — fixed filter",
+    "sorts": {
+      "documents_desc": "Most documents",
+      "documents_asc": "Fewest documents",
+      "name_asc": "Name: A–Z",
+      "name_desc": "Name: Z–A",
+      "lastDocumentAt_desc": "Latest document: newest first",
+      "lastDocumentAt_asc": "Latest document: oldest first",
+      "things_desc": "Most objects",
+      "things_asc": "Fewest objects"
+    },
+    "symbols": {
+      "building": "Company",
+      "bank": "Bank",
+      "home": "Home",
+      "car": "Car",
+      "shop": "Shop",
+      "health": "Health",
+      "education": "Education",
+      "travel": "Travel",
+      "document": "Document",
+      "tool": "Tools",
+      "globe": "Country",
+      "folder": "Folder",
+      "heart": "Personal",
+      "person": "Person"
+    },
+    "readError": "The image could not be read. Choose it again or try another file."
   }
 }

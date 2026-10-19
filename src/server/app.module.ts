@@ -1,4 +1,5 @@
 import { OAuthModule } from './presentation/oauth/oauth.module';
+import { CatalogueIconsModule } from './presentation/catalogue-icons/catalogue-icons.module';
 import { IntegrationsModule } from './presentation/integrations/integrations.module';
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
@@ -65,6 +66,7 @@ import { UsersModule } from './presentation/users/users.module';
     DocumentTypesModule,
     PeopleModule,
     SubjectsModule,
+    CatalogueIconsModule,
     SubjectKindsModule,
     SearchModule,
     // The archive as a tool set for an assistant (docs/07 §7.3a, ADR-024): after the search it is

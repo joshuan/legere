@@ -315,7 +315,22 @@ Explicit date/title sorting overrides relevance tiers. All terms of an ordinary 
 required; matching only the requested month or year does not count as a title/file-name match.
 
 
+### Object appearance
+
+Object appearance (M85.1): subject and subject-kind DTOs include nullable `icon`, either
+`{ type: "symbol", symbol }` from the shared closed icon set, or `{ type: "image", revision }`
+with a UUID revision. Names/notes and merges preserve the existing icon unless explicitly changed.
+`PATCH /api/admin/catalogue-icons/:catalogue/:id` accepts `{ symbol: <symbol|null> }`;
+`POST /api/admin/catalogue-icons/:catalogue/:id/image` accepts a raw PNG/JPEG/WebP body up to 2 MiB.
+Both require an admin session and return `{ icon }`; uploads use the catalogue throttle.
+`:catalogue` is `subjects` or `subject-kinds`. Uploaded images are decoded with a 16-megapixel
+limit, oriented and reencoded as a contained WebP of at most 512 px, discarding metadata.
+`GET /api/catalogue-icons/:catalogue/:id/image` requires a session and a living catalogue row,
+and redirects to a short-lived private signed URL for its current image. Missing/reset images
+answer 404. Symbols/reset need no object storage read. Existing catalogue visibility rules apply.
+
 ### People
+
 | Method & path | Auth | Notes |
 |---------------|------|-------|
 | `GET /api/people` | 🔒 | one page of the catalogue, each row with its document count and `lastDocumentAt` — the newest `documentDate` among the living documents that name it, `null` when none carries a date. Every count and date on these three lists reads **living documents only**, because the count is a door to the browse (`11 §11.12a`) and the browse shows exactly those. `?sort=lastDocumentAt\|documents\|name` with `?order=asc\|desc`, defaulting to `lastDocumentAt desc` with the dateless rows last: the catalogue opens on who the paper spoke of most recently (11 §11.12a). Paginated like every other list (§7.1, SEC-56), the cursor bound to the sort that minted it |

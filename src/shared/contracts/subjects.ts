@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { catalogueIconSchema } from './catalogue-icons';
 import { catalogueReadingStateSchema, listCatalogueQuerySchema, paginatedSchema } from './common';
 
 // The note's own contract limit (docs/07 §7.3): a subject's note is a paragraph rather than a line,
@@ -14,6 +15,7 @@ export const subjectDtoSchema = z.object({
   kind: z.string(),
   name: z.string(),
   note: z.string().nullable(),
+  icon: catalogueIconSchema.nullable(),
   documentCount: z.number().int().nonnegative(),
   // The newest `documentDate` among the living documents about this thing — an ISO `yyyy-mm-dd`,
   // `null` when none carries a date (docs/07 §7.3, docs/11 §11.12a).

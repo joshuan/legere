@@ -1,3 +1,4 @@
+import { catalogueIconSchema, type CatalogueIcon } from '../../../shared/contracts/catalogue-icons';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
@@ -28,6 +29,7 @@ type SubjectRow = {
   kind: { name: string };
   name: string;
   note: string | null;
+  icon: unknown;
   createdAt: Date;
   deletedAt: Date | null;
 };
@@ -39,6 +41,7 @@ function toSubject(row: SubjectRow): Subject {
     kind: row.kind.name,
     name: row.name,
     note: row.note,
+    icon: catalogueIconSchema.nullable().parse(row.icon),
     createdAt: row.createdAt,
     deletedAt: row.deletedAt,
   };
@@ -53,6 +56,7 @@ type SubjectPageRow = {
   kind: string;
   name: string;
   note: string | null;
+  icon: unknown;
   createdAt: Date;
   documentCount: number;
   lastDocumentAt: Date | null;
@@ -65,6 +69,7 @@ function toSubjectListRow(row: SubjectPageRow): SubjectListRow {
     kind: row.kind,
     name: row.name,
     note: row.note,
+    icon: catalogueIconSchema.nullable().parse(row.icon),
     createdAt: row.createdAt,
     deletedAt: null,
     documentCount: row.documentCount,
@@ -104,7 +109,7 @@ export class PrismaSubjectRepository extends SubjectRepository {
     const cursor = decodeCatalogueCursor(query.cursor, query.sort, query.order);
     const rows = await this.prisma.$queryRaw<SubjectPageRow[]>`
       WITH page AS (
-        SELECT s.id, s.kind_id AS "kindId", k.name AS kind, s.name, s.note,
+        SELECT s.id, s.kind_id AS "kindId", k.name AS kind, s.name, s.note, s.icon,
                s.created_at AS "createdAt",
                count(d.id)::int AS "documentCount",
                max(d.document_date) AS "lastDocumentAt"
@@ -138,7 +143,7 @@ export class PrismaSubjectRepository extends SubjectRepository {
 
   async findListRow(id: string, tx?: TransactionHandle): Promise<SubjectListRow | null> {
     const rows = await clientOf(this.prisma, tx).$queryRaw<SubjectPageRow[]>`
-      SELECT s.id, s.kind_id AS "kindId", k.name AS kind, s.name, s.note,
+      SELECT s.id, s.kind_id AS "kindId", k.name AS kind, s.name, s.note, s.icon,
              s.created_at AS "createdAt",
              count(d.id)::int AS "documentCount",
              max(d.document_date) AS "lastDocumentAt"
@@ -215,7 +220,7 @@ export class PrismaSubjectRepository extends SubjectRepository {
 
   async update(
     id: string,
-    input: { kindId?: string; name?: string; note?: string | null },
+    input: { kindId?: string; name?: string; note?: string | null; icon?: CatalogueIcon | null },
     tx?: TransactionHandle,
   ): Promise<Subject> {
     try {
@@ -227,6 +232,7 @@ export class PrismaSubjectRepository extends SubjectRepository {
             ? {}
             : { name: input.name.trim(), nameFolded: foldName(input.name) }),
           ...(input.note === undefined ? {} : { note: input.note }),
+          ...(input.icon === undefined ? {} : { icon: input.icon ?? Prisma.DbNull }),
         },
         include: { kind: true },
       });

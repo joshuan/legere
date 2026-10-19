@@ -25,6 +25,7 @@ const subject = {
   name: 'Njegoševa 5',
   note: null,
   documentCount: 4,
+  icon: null,
   lastDocumentAt: '2026-03-01',
 };
 
@@ -60,6 +61,7 @@ beforeEach(() => {
               note: null,
               subjectCount: 1,
               documentCount: 4,
+              icon: null,
               lastDocumentAt: '2026-03-01',
             },
             {
@@ -68,6 +70,7 @@ beforeEach(() => {
               note: null,
               subjectCount: 0,
               documentCount: 0,
+              icon: null,
               lastDocumentAt: null,
             },
           ],

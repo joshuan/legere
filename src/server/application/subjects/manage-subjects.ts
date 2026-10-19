@@ -26,6 +26,7 @@ function toSubjectDto(row: SubjectListRow): SubjectDto {
     kind: row.kind,
     name: row.name,
     note: row.note,
+    icon: row.icon,
     documentCount: row.documentCount,
     lastDocumentAt: lastDocumentAtIso(row.lastDocumentAt),
   };
@@ -97,6 +98,7 @@ export class CreateSubject {
       kind: created.kind,
       name: created.name,
       note: created.note,
+      icon: created.icon,
       documentCount: 0,
       lastDocumentAt: null,
     };

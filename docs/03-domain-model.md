@@ -664,6 +664,11 @@ as fenced data, never as instructions, because the catalogue is writable by ever
 
 ### 3.3.20. Subject
 
+Subjects and subject kinds have an optional `icon` JSON value: a built-in symbol or an uploaded
+logo revision (`07`, M85.1). It is display metadata, independent of recognition notes and names.
+Creates default to null; ordinary edits and merges preserve the survivor's icon. Only an admin
+may change/reset an existing icon, on the same terms as renaming a catalogue row.
+
 What a document is *about*: a flat, a car, a country, a company. The **kind** says what sort of thing
 it is, the **name** says which one — a lease is about *that* flat, a tax return about *that* country,
 and "the papers for the car" is how anybody actually looks for them.

@@ -1,0 +1,2 @@
+ALTER TABLE subjects ADD COLUMN icon JSONB;
+ALTER TABLE subject_kinds ADD COLUMN icon JSONB;

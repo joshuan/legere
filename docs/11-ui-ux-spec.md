@@ -370,15 +370,28 @@ documents screen uses, because a document should look the same wherever it is fo
 | `/browse/subjects` → `/browse/subjects/:kind` → `/browse/subjects/:kind/:id` | kinds, then the things of that kind | documents about that thing |
 | `/browse/years` → `/browse/years/:year` | the years documents carry, newest first | documents dated in that year |
 
-Folders are a list, not cards: a folder is a word, and a word does not need a picture. The heading of
-a contents page is resolved on the server, so it is right in the first paint rather than after a
+Object kinds and the objects inside a kind use the same responsive card grid as documents. A card
+has an icon or contained logo, its name, a short note, a labeled document count, and the latest
+document date when known; kinds also show their object count. The whole card opens its contents.
+An admin can change its icon from a separate accessible action, choosing a built-in symbol,
+uploading a PNG/JPEG/WebP logo, or returning to the default. The icon editor does not open the card.
+Sorting lives in the URL: document count descending by default, name and latest-document date in
+either direction, and object count for kinds. Existing management-table defaults stay unchanged.
+
+An object's contents reuse the full documents screen of §11.3, including sorting, card settings,
+additional filters, selection and pagination. A labeled locked subject filter comes from the
+route and overrides query-string attempts to change it. Clearing filters removes only additional
+filters. Grouping by the locked subject dimension is unavailable; other grouping requests retain
+the locked subject on every page. Breadcrumbs lead back through the kind to all object kinds.
+
+Other facets remain lists. The heading of a contents page is resolved on the server, so it is right in the first paint rather than after a
 fetch; a folder that does not exist answers 404, because a wrong address is not an empty shelf. It
 is resolved by **asking for that one row by id** (`07 §7.3`), never by reading a page of the
 catalogue and looking for the id in it: the catalogues are paginated (SEC-56), so a row on any page
 but the first would be reported as a wrong address — a shelf holding forty documents answering 404
 because its owner's name sorts late.
 
-A contents page is arranged **by the date on the document**, and asks for that order by name rather
+Other facet contents pages are arranged **by the date on the document**, and ask for that order by name rather
 than taking whatever `GET /api/documents` defaults to (`07 §7.3`): everything about one person is
 read the way a shelf is read, and a screen that inherits its order changes under its readers the day
 another screen's default moves (`§11.3`). There is no control for it here — one order, chosen for

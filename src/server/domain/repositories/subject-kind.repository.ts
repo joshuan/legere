@@ -1,3 +1,4 @@
+import type { CatalogueIcon } from '../../../shared/contracts/catalogue-icons';
 import type { CatalogueOrder, SubjectKindSort } from '../../../shared/contracts/common';
 import type { TransactionHandle } from '../../application/ports/unit-of-work';
 import type { SubjectKind } from '../entities/subject-kind';
@@ -54,7 +55,7 @@ export abstract class SubjectKindRepository {
 
   abstract update(
     id: string,
-    input: { name?: string; note?: string | null },
+    input: { name?: string; note?: string | null; icon?: CatalogueIcon | null },
     tx?: TransactionHandle,
   ): Promise<SubjectKind>;
 

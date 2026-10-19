@@ -2,13 +2,25 @@ import '@testing-library/jest-dom/vitest';
 import userEvent from '@testing-library/user-event';
 import { screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiMock, envelope } from '../../../../test/helpers/msw';
-import { enMessages, renderWithProviders } from '../../../../test/helpers/render';
-import { DocumentsOfPersonScreen } from './facet-screens';
+import { TEST_ADMIN, enMessages, renderWithProviders } from '../../../../test/helpers/render';
+import {
+  DocumentsOfPersonScreen,
+  SubjectKindsFacetScreen,
+  SubjectsOfKindFacetScreen,
+} from './facet-screens';
+
+const replace = vi.fn();
+let currentSearch = '';
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace }),
+  usePathname: () => '/browse/subjects',
+  useSearchParams: () => new URLSearchParams(currentSearch),
+}));
 
 vi.mock('next/link', () => ({
-  default: ({ children }: { children: React.ReactNode }) => children,
+  default: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>,
 }));
 
 const PERSON_ID = 'dddddddd-1111-4111-8111-111111111111';
@@ -16,11 +28,116 @@ const PERSON_ID = 'dddddddd-1111-4111-8111-111111111111';
 const server = createApiMock();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeEach(() => {
+  currentSearch = '';
+});
 afterEach(() => {
   server.resetHandlers();
   vi.clearAllMocks();
 });
 afterAll(() => server.close());
+
+describe('object cards', () => {
+  const kind = {
+    id: PERSON_ID,
+    name: 'Company',
+    note: 'Organisations in the archive',
+    icon: null,
+    subjectCount: 2,
+    documentCount: 8,
+    lastDocumentAt: '2026-06-30',
+  };
+  const company = {
+    id: 'aaaaaaaa-2222-4222-8222-222222222222',
+    kindId: PERSON_ID,
+    kind: 'Company',
+    name: 'Example company',
+    note: 'Business records',
+    icon: null,
+    documentCount: 5,
+    lastDocumentAt: null,
+  };
+
+  it('asks for document-count descending and shows kind counts and links', async () => {
+    const seen: URLSearchParams[] = [];
+    server.use(
+      http.get('/api/subject-kinds', ({ request }) => {
+        seen.push(new URL(request.url).searchParams);
+        return HttpResponse.json(envelope({ items: [kind], nextCursor: null }));
+      }),
+    );
+    renderWithProviders(<SubjectKindsFacetScreen />);
+    const link = await screen.findByRole('link', { name: 'Company' });
+    expect(link).toHaveAttribute('href', `/browse/subjects/${kind.id}`);
+    expect(screen.getByText('8 documents')).toBeInTheDocument();
+    expect(screen.getByText('2 objects')).toBeInTheDocument();
+    expect(seen[0]?.get('sort')).toBe('documents');
+    expect(seen[0]?.get('order')).toBe('desc');
+    expect(screen.queryByRole('button', { name: /Change icon/ })).not.toBeInTheDocument();
+  });
+
+  it('honors the URL ordering and only shows the selected kind', async () => {
+    currentSearch = 'sort=name&order=asc';
+    const seen: URLSearchParams[] = [];
+    server.use(
+      http.get('/api/subjects', ({ request }) => {
+        seen.push(new URL(request.url).searchParams);
+        return HttpResponse.json(
+          envelope({
+            items: [
+              company,
+              {
+                ...company,
+                id: 'aaaaaaaa-3333-4333-8333-333333333333',
+                kindId: 'bbbbbbbb-4444-4444-8444-444444444444',
+                name: 'Unrelated object',
+              },
+            ],
+            nextCursor: null,
+          }),
+        );
+      }),
+    );
+    renderWithProviders(<SubjectsOfKindFacetScreen kindId={kind.id} title="Company" />);
+    expect(await screen.findByRole('link', { name: 'Example company' })).toHaveAttribute(
+      'href',
+      `/browse/subjects/${kind.id}/${company.id}`,
+    );
+    expect(screen.getByText('5 documents')).toBeInTheDocument();
+    expect(screen.queryByText('Unrelated object')).not.toBeInTheDocument();
+    expect(seen[0]?.get('sort')).toBe('name');
+    expect(seen[0]?.get('order')).toBe('asc');
+    await userEvent.click(
+      screen.getByRole('combobox', { name: enMessages.catalogueCards.sortLabel }),
+    );
+    await userEvent.click(await screen.findByTitle(enMessages.catalogueCards.sorts.documents_desc));
+    expect(replace).toHaveBeenCalledWith('/browse/subjects');
+  });
+
+  it('lets an admin change an icon without opening its card', async () => {
+    let saved: unknown;
+    server.use(
+      http.get('/api/subjects', () =>
+        HttpResponse.json(envelope({ items: [company], nextCursor: null })),
+      ),
+      http.patch(`/api/admin/catalogue-icons/subjects/${company.id}`, async ({ request }) => {
+        saved = await request.json();
+        return HttpResponse.json(envelope({ icon: { type: 'symbol', symbol: 'bank' } }));
+      }),
+    );
+    renderWithProviders(<SubjectsOfKindFacetScreen kindId={kind.id} title="Company" />, {
+      user: TEST_ADMIN,
+    });
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Change icon for Example company' }),
+    );
+    await userEvent.click(screen.getByRole('radio', { name: 'Bank' }));
+    await userEvent.click(screen.getByRole('button', { name: enMessages.common.actions.save }));
+    await waitFor(() => expect(saved).toEqual({ symbol: 'bank' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(replace).not.toHaveBeenCalled();
+  });
+});
 
 // Browsing by what a document is about (docs/11 §11.4): the same grid as the home screen, and an
 // order of its own.

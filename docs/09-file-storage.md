@@ -1,5 +1,12 @@
 # 09. File Storage
 
+Object and object-kind logos (M85.1) are derived WebP artifacts at
+`catalogue-icons/{subjects|subject-kinds}/{id}/{revision}.webp`. The revision is a UUID, and only
+the current revision referenced by the living catalogue row is served. Original uploads are not
+retained. Replacing/resetting an icon deletes its previous image on a best-effort basis; a failed
+metadata update removes the newly uploaded artifact. Retrieval uses authenticated application
+routes and short-lived private signed URLs, following the catalogue's visibility rules.
+
 Two distinct storages with opposite rules:
 
 | Storage | Access | Contents |

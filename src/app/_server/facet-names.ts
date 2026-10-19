@@ -41,10 +41,10 @@ export async function fetchPersonName(id: string): Promise<string> {
   return parsed.data.name;
 }
 
-export async function fetchSubjectName(id: string): Promise<string> {
+export async function fetchSubject(id: string) {
   const parsed = subjectDtoSchema.safeParse(await fetchJson(`/api/subjects/${id}`));
   if (!parsed.success) notFound();
-  return `${parsed.data.name} · ${parsed.data.kind}`;
+  return parsed.data;
 }
 
 export async function fetchSubjectKindName(id: string): Promise<string> {

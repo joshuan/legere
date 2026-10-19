@@ -1,3 +1,4 @@
+import type { CatalogueIcon } from '../../src/shared/contracts/catalogue-icons';
 import { Readable } from 'node:stream';
 import {
   DocumentParser,
@@ -1536,6 +1537,7 @@ export class InMemorySubjectKindRepository extends SubjectKindRepository {
       id: `kind-${this.kinds.size + 1}`,
       name: input.name.trim().toLowerCase(),
       note: input.note ?? null,
+      icon: null,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       deletedAt: null,
     };
@@ -1543,7 +1545,10 @@ export class InMemorySubjectKindRepository extends SubjectKindRepository {
     return Promise.resolve(kind);
   }
 
-  update(id: string, input: { name?: string; note?: string | null }): Promise<SubjectKind> {
+  update(
+    id: string,
+    input: { name?: string; note?: string | null; icon?: CatalogueIcon | null },
+  ): Promise<SubjectKind> {
     const kind = this.kinds.get(id);
     if (kind === undefined) throw new Error(`No subject kind ${id}`);
     const updated = { ...kind, ...input };
@@ -1641,6 +1646,7 @@ export class InMemorySubjectRepository extends SubjectRepository {
       kind: this.kinds.kinds.get(input.kindId)?.name ?? input.kindId,
       name: input.name.trim(),
       note: input.note ?? null,
+      icon: null,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       deletedAt: null,
     };
@@ -1648,7 +1654,10 @@ export class InMemorySubjectRepository extends SubjectRepository {
     return Promise.resolve(subject);
   }
 
-  update(id: string, input: { kindId?: string; name?: string }): Promise<Subject> {
+  update(
+    id: string,
+    input: { kindId?: string; name?: string; note?: string | null; icon?: CatalogueIcon | null },
+  ): Promise<Subject> {
     const subject = this.subjects.get(id);
     if (subject === undefined) throw new Error(`No subject ${id}`);
     const updated = { ...subject, ...input };

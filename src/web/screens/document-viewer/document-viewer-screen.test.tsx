@@ -245,6 +245,7 @@ function serve(
               name: 'Njegoševa 5',
               note: null,
               documentCount: 1,
+              icon: null,
               lastDocumentAt: null,
             },
           ],
@@ -262,6 +263,7 @@ function serve(
               note: null,
               subjectCount: 1,
               documentCount: 1,
+              icon: null,
               lastDocumentAt: null,
             },
           ],
@@ -849,6 +851,7 @@ describe('DocumentViewerScreen', () => {
             name: 'Novel Flat',
             note: null,
             documentCount: 0,
+            icon: null,
             lastDocumentAt: null,
           }),
         );

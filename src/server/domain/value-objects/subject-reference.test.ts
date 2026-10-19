@@ -9,6 +9,7 @@ function home(id: string, name: string, note: string | null = null): Subject {
     kind: 'Жильё',
     name,
     note,
+    icon: null,
     createdAt: new Date('2025-01-01'),
     deletedAt: null,
   };

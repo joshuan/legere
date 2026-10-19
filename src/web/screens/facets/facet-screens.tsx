@@ -1,9 +1,16 @@
 'use client';
 
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { Button, Card, Empty, List, Spin, Typography } from 'antd';
+import { Breadcrumb, Button, Card, Empty, List, Select, Space, Spin, Typography } from 'antd';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import type { ZodType } from 'zod';
+import {
+  catalogueOrderSchema,
+  catalogueSortSchema,
+  subjectKindSortSchema,
+} from '../../../shared/contracts/common';
 import { documentApi, documentKeys, type DocumentFilters } from '../../entities/document';
 import { documentTypeApi, documentTypeKeys } from '../../entities/document-type';
 import { personApi, personKeys } from '../../entities/person';
@@ -11,6 +18,61 @@ import { subjectApi, subjectKeys } from '../../entities/subject';
 import { subjectKindApi, subjectKindKeys } from '../../entities/subject-kind';
 import { PageHeader, QueryError } from '../../shared/ui';
 import { DocumentCard } from '../../widgets/document-card';
+import { CatalogueCard } from '../../widgets/catalogue-card';
+
+function useFacetSort<Sort extends string>(schema: ZodType<Sort>) {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const sort = schema.parse(
+    schema.safeParse(params.get('sort')).success ? params.get('sort') : 'documents',
+  );
+  const order = catalogueOrderSchema.catch('desc').parse(params.get('order'));
+  const change = (value: string): void => {
+    const [key, direction] = value.split(':');
+    const next = new URLSearchParams(params);
+    if (key === 'documents') next.delete('sort');
+    else next.set('sort', schema.parse(key));
+    if (direction === 'desc') next.delete('order');
+    else next.set('order', catalogueOrderSchema.parse(direction));
+    const query = next.toString();
+    router.replace(query === '' ? pathname : `${pathname}?${query}`);
+  };
+  return { sort, order, change };
+}
+
+function FacetSort({
+  value,
+  onChange,
+  kinds = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  kinds?: boolean;
+}) {
+  const t = useTranslations();
+  const keys = [
+    'documents:desc',
+    'documents:asc',
+    'name:asc',
+    'name:desc',
+    'lastDocumentAt:desc',
+    'lastDocumentAt:asc',
+    ...(kinds ? ['things:desc', 'things:asc'] : []),
+  ];
+  return (
+    <Select
+      aria-label={t('catalogueCards.sortLabel')}
+      value={value}
+      onChange={onChange}
+      style={{ width: 260, maxWidth: '100%' }}
+      options={keys.map((key) => ({
+        value: key,
+        label: t(`catalogueCards.sorts.${key.replace(':', '_')}`),
+      }))}
+    />
+  );
+}
 
 // Browsing by what a document *is about* rather than where its bytes are (docs/11 §11.4). Every
 // facet is two screens — the folders, then what is in one — and the shelf itself is the same grid
@@ -159,9 +221,13 @@ export function PeopleFacetScreen() {
 // then which flat (docs/03 §3.3.20).
 export function SubjectKindsFacetScreen() {
   const t = useTranslations();
+  const sorting = useFacetSort(subjectKindSortSchema);
   // The catalogue itself, not the kinds that happen to be in use: an empty folder is a shelf with
   // nothing on it yet, which is different from a shelf that does not exist (docs/03 §3.3.20a).
-  const kinds = useQuery({ queryKey: subjectKindKeys.all, queryFn: () => subjectKindApi.list() });
+  const kinds = useQuery({
+    queryKey: subjectKindKeys.list(sorting.sort, sorting.order),
+    queryFn: () => subjectKindApi.list(sorting),
+  });
   if (kinds.isPending) return <Spin />;
   if (kinds.isError && kinds.data === undefined)
     return <QueryError error={kinds.error} retry={kinds.refetch} />;
@@ -171,24 +237,34 @@ export function SubjectKindsFacetScreen() {
       {kinds.isError && <QueryError error={kinds.error} retry={kinds.refetch} />}
 
       <PageHeader title={t('facets.subjects')} />
-      <Card size="small">
-        <FolderList
-          empty={t('facets.emptySubjects')}
-          items={(kinds.data?.items ?? []).map((kind) => ({
-            href: `/browse/subjects/${kind.id}`,
-            title: kind.name,
-            note: kind.note ?? undefined,
-            count: kind.documentCount,
-          }))}
-        />
-      </Card>
+      <Space orientation="vertical" size="large" style={{ width: '100%' }}>
+        <FacetSort value={`${sorting.sort}:${sorting.order}`} onChange={sorting.change} kinds />
+        {(kinds.data?.items.length ?? 0) === 0 ? (
+          <Empty description={t('facets.emptySubjects')} />
+        ) : (
+          <div className="legere-card-grid">
+            {kinds.data?.items.map((kind) => (
+              <CatalogueCard
+                key={kind.id}
+                target="subject-kinds"
+                item={kind}
+                href={`/browse/subjects/${kind.id}`}
+              />
+            ))}
+          </div>
+        )}
+      </Space>
     </>
   );
 }
 
 export function SubjectsOfKindFacetScreen({ kindId, title }: { kindId: string; title: string }) {
   const t = useTranslations();
-  const subjects = useQuery({ queryKey: subjectKeys.all, queryFn: () => subjectApi.list() });
+  const sorting = useFacetSort(catalogueSortSchema);
+  const subjects = useQuery({
+    queryKey: subjectKeys.list(sorting.sort, sorting.order),
+    queryFn: () => subjectApi.list(sorting),
+  });
   if (subjects.isPending) return <Spin />;
   if (subjects.isError && subjects.data === undefined)
     return <QueryError error={subjects.error} retry={subjects.refetch} />;
@@ -199,18 +275,27 @@ export function SubjectsOfKindFacetScreen({ kindId, title }: { kindId: string; t
     <>
       {subjects.isError && <QueryError error={subjects.error} retry={subjects.refetch} />}
 
+      <Breadcrumb
+        items={[{ title: <Link href="/browse/subjects">{t('facets.subjects')}</Link> }, { title }]}
+      />
       <PageHeader title={title} />
-      <Card size="small">
-        <FolderList
-          empty={t('facets.emptySubjects')}
-          items={items.map((subject) => ({
-            href: `/browse/subjects/${kindId}/${subject.id}`,
-            title: subject.name,
-            note: subject.note ?? undefined,
-            count: subject.documentCount,
-          }))}
-        />
-      </Card>
+      <Space orientation="vertical" size="large" style={{ width: '100%' }}>
+        <FacetSort value={`${sorting.sort}:${sorting.order}`} onChange={sorting.change} />
+        {items.length === 0 ? (
+          <Empty description={t('facets.emptySubjects')} />
+        ) : (
+          <div className="legere-card-grid">
+            {items.map((subject) => (
+              <CatalogueCard
+                key={subject.id}
+                target="subjects"
+                item={subject}
+                href={`/browse/subjects/${kindId}/${subject.id}`}
+              />
+            ))}
+          </div>
+        )}
+      </Space>
     </>
   );
 }
@@ -247,10 +332,6 @@ export function DocumentsOfTypeScreen({ id, title }: { id: string; title: string
 
 export function DocumentsOfPersonScreen({ id, title }: { id: string; title: string }) {
   return <FacetDocuments title={title} filters={{ personId: id }} />;
-}
-
-export function DocumentsOfSubjectScreen({ id, title }: { id: string; title: string }) {
-  return <FacetDocuments title={title} filters={{ subjectId: id }} />;
 }
 
 export function DocumentsOfYearScreen({ year }: { year: number }) {

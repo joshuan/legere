@@ -1886,5 +1886,45 @@
     "itemDifferences": "Позиции различаются",
     "pairPosition": "{current} / {count}",
     "closeNotice": "Закрыть уведомление"
+  },
+  "catalogueCards": {
+    "editIcon": "Изменить иконку «{name}»",
+    "chooseIcon": "Выбрать иконку",
+    "uploadLogo": "Загрузить логотип",
+    "defaultIcon": "Иконка по умолчанию",
+    "iconSaved": "Иконка сохранена",
+    "logoHint": "PNG, JPEG или WebP, до 2 МБ. Изображение вписывается в карточку без обрезки.",
+    "tooLarge": "Выберите изображение размером до 2 МБ.",
+    "objectCount": "{count, plural, one {# объект} few {# объекта} many {# объектов} other {# объекта}}",
+    "lastDocument": "Последний документ: {date}",
+    "sortLabel": "Сортировка объектов",
+    "lockedSubject": "Документы об объекте «{name}» — закреплённый фильтр",
+    "sorts": {
+      "documents_desc": "Больше документов",
+      "documents_asc": "Меньше документов",
+      "name_asc": "Название: А–Я",
+      "name_desc": "Название: Я–А",
+      "lastDocumentAt_desc": "Последний документ: сначала новые",
+      "lastDocumentAt_asc": "Последний документ: сначала старые",
+      "things_desc": "Больше объектов",
+      "things_asc": "Меньше объектов"
+    },
+    "symbols": {
+      "building": "Компания",
+      "bank": "Банк",
+      "home": "Дом",
+      "car": "Автомобиль",
+      "shop": "Магазин",
+      "health": "Здоровье",
+      "education": "Образование",
+      "travel": "Путешествие",
+      "document": "Документ",
+      "tool": "Инструменты",
+      "globe": "Страна",
+      "folder": "Папка",
+      "heart": "Личное",
+      "person": "Человек"
+    },
+    "readError": "Не удалось прочитать изображение. Выберите его ещё раз или попробуйте другой файл."
   }
 }

@@ -1,3 +1,5 @@
+import type { CatalogueIcon } from '../../../shared/contracts/catalogue-icons';
+
 // What a document is about (docs/03 §3.3.20): a flat, a car, a country. The kind says what sort of
 // thing it is; the name says which one.
 export type Subject = {
@@ -8,6 +10,7 @@ export type Subject = {
   kind: string;
   name: string;
   note: string | null;
+  icon: CatalogueIcon | null;
   createdAt: Date;
   deletedAt: Date | null;
 };

@@ -684,6 +684,7 @@ model SubjectKind {
   // rename; the C-collation database cannot compute it, but since M49.4 it enforces uniqueness
   // over it with a partial unique index on living rows (docs/04 §4.3).
   nameFolded String    @default("") @map("name_folded")
+  icon       Json?
   note       String?
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -702,6 +703,7 @@ model Subject {
   // rename; the C-collation database cannot compute it, but since M49.4 it enforces uniqueness
   // over it with a partial unique index on living rows (docs/04 §4.3).
   nameFolded String    @default("") @map("name_folded")
+  icon       Json?
   note       String?
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)

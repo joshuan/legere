@@ -1,4 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import sharp from 'sharp';
+import {
+  catalogueIconResponseSchema,
+  MAX_CATALOGUE_ICON_BYTES,
+} from '../../src/shared/contracts/catalogue-icons';
 import { registerVerifyResponseSchema, userDtoSchema } from '../../src/shared/contracts/auth';
 import { listPeopleResponseSchema, personDtoSchema } from '../../src/shared/contracts/people';
 import {
@@ -87,7 +92,188 @@ describe('Catalogues (e2e)', () => {
       subjectKindDtoSchema,
     ).id;
 
+  describe.each(['subjects', 'subject-kinds'] as const)('%s icons', (target) => {
+    async function row(): Promise<string> {
+      const kindId = await givenKind('Company');
+      return target === 'subject-kinds'
+        ? kindId
+        : expectData(
+            await api(app)
+              .post('/api/subjects', { kindId, name: 'Example company' })
+              .set('Cookie', adminCookie),
+            subjectDtoSchema,
+          ).id;
+    }
+
+    it('persists a built-in icon, preserves it on rename, and allows a reset', async () => {
+      const id = await row();
+      const path = `/api/admin/catalogue-icons/${target}/${id}`;
+      expectData(
+        await api(app).patch(path, { symbol: 'bank' }).set('Cookie', adminCookie),
+        catalogueIconResponseSchema,
+      );
+      await api(app)
+        .patch(`/api/admin/${target}/${id}`, { name: 'Renamed company' })
+        .set('Cookie', adminCookie)
+        .expect(200);
+      const response = await api(app).get(`/api/${target}/${id}`).set('Cookie', userCookie);
+      const result =
+        target === 'subjects'
+          ? expectData(response, subjectDtoSchema)
+          : expectData(response, subjectKindDtoSchema);
+      expect(result.icon).toEqual({ type: 'symbol', symbol: 'bank' });
+      expectData(
+        await api(app).patch(path, { symbol: null }).set('Cookie', adminCookie),
+        catalogueIconResponseSchema,
+      );
+      await api(app)
+        .get(`/api/catalogue-icons/${target}/${id}/image`)
+        .set('Cookie', userCookie)
+        .expect(404);
+    });
+
+    it('normalizes uploaded images, serves them privately, and cleans up replaced images', async () => {
+      const id = await row();
+      const path = `/api/admin/catalogue-icons/${target}/${id}`;
+      const image = await sharp({
+        create: { width: 1024, height: 200, channels: 4, background: '#005599' },
+      })
+        .png()
+        .toBuffer();
+      const uploaded = expectData(
+        await api(app)
+          .postBinary(`${path}/image`, image)
+          .set('Content-Type', 'image/png')
+          .set('Cookie', adminCookie),
+        catalogueIconResponseSchema,
+      );
+      if (uploaded.icon?.type !== 'image') throw new Error('Image was not stored');
+      const key = `catalogue-icons/${target}/${id}/${uploaded.icon.revision}.webp`;
+      const object = app.files.objects.get(key);
+      expect(object?.contentType).toBe('image/webp');
+      const metadata = await sharp(object?.body).metadata();
+      expect(metadata).toMatchObject({ width: 512, height: 100, format: 'webp' });
+      expect(metadata.exif).toBeUndefined();
+      const served = await api(app)
+        .get(`/api/catalogue-icons/${target}/${id}/image`)
+        .set('Cookie', userCookie)
+        .expect(302);
+      expect(served.headers['cache-control']).toBe('private, no-store');
+      expect(served.headers.location).toContain(key);
+      const listed = await api(app).get(`/api/${target}`).set('Cookie', userCookie);
+      const items =
+        target === 'subjects'
+          ? expectData(listed, listSubjectsResponseSchema).items
+          : expectData(listed, listSubjectKindsResponseSchema).items;
+      expect(items.find((item) => item.id === id)?.icon).toEqual(uploaded.icon);
+      await api(app)
+        .postBinary(`${path}/image`, image)
+        .set('Content-Type', 'image/png')
+        .set('Cookie', adminCookie)
+        .expect(201);
+      expect(app.files.objects.has(key)).toBe(false);
+      await api(app).patch(path, { symbol: null }).set('Cookie', adminCookie).expect(200);
+      expect(
+        [...app.files.objects.keys()].filter((entry) =>
+          entry.startsWith(`catalogue-icons/${target}/${id}/`),
+        ),
+      ).toEqual([]);
+    });
+
+    it('enforces admin writes, authentication, format and upload bounds', async () => {
+      const id = await row();
+      const path = `/api/admin/catalogue-icons/${target}/${id}`;
+      await api(app).patch(path, { symbol: 'bank' }).set('Cookie', userCookie).expect(403);
+      await api(app)
+        .postBinary(`${path}/image`, Buffer.from('image'))
+        .set('Content-Type', 'image/png')
+        .set('Cookie', userCookie)
+        .expect(403);
+      await api(app).get(`/api/catalogue-icons/${target}/${id}/image`).expect(401);
+      await api(app).patch(path, { symbol: 'unknown' }).set('Cookie', adminCookie).expect(422);
+      await api(app)
+        .postBinary(
+          `${path}/image`,
+          Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'),
+        )
+        .set('Content-Type', 'image/svg+xml')
+        .set('Cookie', adminCookie)
+        .expect(422);
+      await api(app)
+        .postBinary(`${path}/image`, Buffer.alloc(MAX_CATALOGUE_ICON_BYTES + 1))
+        .set('Content-Type', 'image/png')
+        .set('Cookie', adminCookie)
+        .expect(413);
+    });
+  });
+
   describe('subject kinds', () => {
+    it('sorts object and kind cards by whole-catalogue counts, name and document date', async () => {
+      const company = await givenKind('Company');
+      const emptyKind = await givenKind('Place');
+      const create = async (name: string) =>
+        expectData(
+          await api(app)
+            .post('/api/subjects', { kindId: company, name })
+            .set('Cookie', adminCookie),
+          subjectDtoSchema,
+        ).id;
+      const busy = await create('Zulu company');
+      const recent = await create('Alpha company');
+      const empty = await create('Empty company');
+      for (const [subjectId, date] of [
+        [busy, '2020-01-01'],
+        [busy, '2021-01-01'],
+        [recent, '2026-06-30'],
+      ] as const) {
+        const document = await seedDocument({
+          document: { title: 'Company paper', documentDate: new Date(`${date}T00:00:00Z`) },
+        });
+        await testPrisma().documentSubject.create({ data: { documentId: document.id, subjectId } });
+      }
+      for (const [sort, order, first] of [
+        ['documents', 'desc', busy],
+        ['documents', 'asc', empty],
+        ['name', 'asc', recent],
+        ['lastDocumentAt', 'desc', recent],
+      ]) {
+        const page = expectData(
+          await api(app)
+            .get(`/api/subjects?sort=${sort}&order=${order}&limit=1`)
+            .set('Cookie', adminCookie),
+          listSubjectsResponseSchema,
+        );
+        expect(page.items.map((item) => item.id)).toEqual([first]);
+      }
+      const first = expectData(
+        await api(app)
+          .get('/api/subjects?sort=documents&order=desc&limit=1')
+          .set('Cookie', adminCookie),
+        listSubjectsResponseSchema,
+      );
+      const second = expectData(
+        await api(app)
+          .get(
+            `/api/subjects?sort=documents&order=desc&limit=1&cursor=${encodeURIComponent(first.nextCursor ?? '')}`,
+          )
+          .set('Cookie', adminCookie),
+        listSubjectsResponseSchema,
+      );
+      expect(second.items.map((item) => item.id)).toEqual([recent]);
+      for (const [order, expected] of [
+        ['desc', company],
+        ['asc', emptyKind],
+      ]) {
+        const page = expectData(
+          await api(app)
+            .get(`/api/subject-kinds?sort=documents&order=${order}&limit=1`)
+            .set('Cookie', adminCookie),
+          listSubjectKindsResponseSchema,
+        );
+        expect(page.items.map((item) => item.id)).toEqual([expected]);
+      }
+    });
+
     it('lets anyone signed in add one, spelled their way and only once', async () => {
       // Open on purpose: whoever files a boat must not wait for an admin to invent "boat"
       // (docs/03 §3.3.20a).

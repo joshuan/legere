@@ -104,6 +104,89 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe('DocumentsScreen', () => {
+  describe('a locked object scope', () => {
+    const subject = {
+      id: 'dddddddd-5555-4555-8555-555555555555',
+      name: 'Example company',
+      kindId: KIND_ID,
+      kind: 'Company',
+    };
+
+    it('overrides a conflicting URL subject while keeping additional filters and sorting', async () => {
+      currentSearch = `subjectId=${PERSON_ID}&origin=MANAGED&sort=documentDate`;
+      const seen: URLSearchParams[] = [];
+      server.use(
+        http.get('/api/documents', ({ request }) => {
+          seen.push(new URL(request.url).searchParams);
+          return HttpResponse.json(envelope({ items: [documentAt(1)], nextCursor: null }));
+        }),
+      );
+      renderWithProviders(<DocumentsScreen subject={subject} />);
+      await screen.findByText('Document 1');
+      expect(seen[0]?.get('subjectId')).toBe(subject.id);
+      expect(seen[0]?.get('origin')).toBe('MANAGED');
+      expect(seen[0]?.get('sort')).toBe('documentDate');
+      expect(
+        screen.getByTitle(`Documents about ${subject.name} — fixed filter`),
+      ).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /^Filters/ }));
+      await userEvent.click(
+        screen.getByRole('button', { name: enMessages.documents.filters.clear }),
+      );
+      await waitFor(() => expect(replace).toHaveBeenCalledWith('/documents?sort=documentDate'));
+    });
+
+    it('keeps the fixed subject on every cursor page', async () => {
+      vi.stubGlobal(
+        'IntersectionObserver',
+        class {
+          constructor(
+            private readonly callback: (entries: Array<{ isIntersecting: boolean }>) => void,
+          ) {}
+          observe() {
+            this.callback([{ isIntersecting: true }]);
+          }
+          disconnect() {}
+        },
+      );
+      const seen: URLSearchParams[] = [];
+      server.use(
+        http.get('/api/documents', ({ request }) => {
+          const params = new URL(request.url).searchParams;
+          seen.push(params);
+          return HttpResponse.json(
+            envelope({
+              items: [documentAt(params.has('cursor') ? 2 : 1)],
+              nextCursor: params.has('cursor') ? null : 'next-page',
+            }),
+          );
+        }),
+      );
+      try {
+        renderWithProviders(<DocumentsScreen subject={subject} />);
+        await screen.findByText('Document 2');
+        expect(seen).toHaveLength(2);
+        expect(seen.every((params) => params.get('subjectId') === subject.id)).toBe(true);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('ignores grouping by the fixed dimension and shows no no-op clear button', async () => {
+      currentSearch = 'groupBy=subject';
+      server.use(
+        http.get('/api/documents', () =>
+          HttpResponse.json(envelope({ items: [], nextCursor: null })),
+        ),
+      );
+      renderWithProviders(<DocumentsScreen subject={subject} />);
+      await screen.findByText(enMessages.facets.emptyDocuments);
+      expect(
+        screen.queryByRole('button', { name: enMessages.documents.filters.clear }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it('shows the grid', async () => {
     renderWithProviders(<DocumentsScreen />);
 

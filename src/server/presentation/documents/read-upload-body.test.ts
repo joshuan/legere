@@ -65,6 +65,18 @@ describe('isRawBodyRoute', () => {
   it('names every route whose body is the file itself', () => {
     expect(isRawBodyRoute('POST', '/documents')).toBe(true);
     expect(isRawBodyRoute('POST', '/incoming/documents')).toBe(true);
+    expect(
+      isRawBodyRoute(
+        'POST',
+        '/admin/catalogue-icons/subjects/11111111-1111-4111-8111-111111111111/image',
+      ),
+    ).toBe(true);
+    expect(
+      isRawBodyRoute(
+        'POST',
+        '/admin/catalogue-icons/subject-kinds/11111111-1111-4111-8111-111111111111/image',
+      ),
+    ).toBe(true);
     expect(isRawBodyRoute('POST', '/documents/11111111-1111-4111-8111-111111111111/files')).toBe(
       true,
     );

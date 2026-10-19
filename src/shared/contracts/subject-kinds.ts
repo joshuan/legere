@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { catalogueIconSchema } from './catalogue-icons';
 import {
   catalogueOrderSchema,
   catalogueReadingStateSchema,
@@ -18,6 +19,7 @@ export const subjectKindDtoSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   note: z.string().nullable(),
+  icon: catalogueIconSchema.nullable(),
   // How many things of this kind the catalogue holds, and how many documents they are on between
   // them — a kind is worth keeping for what hangs off it.
   subjectCount: z.number().int().nonnegative(),

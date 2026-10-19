@@ -2519,3 +2519,21 @@ Production observation is read-only; source fixes are verified and committed on 
   Validation: 70 focused unit, HTTP and migration checks pass, including a replay over existing
   stored vectors and forced name-index scans. Typecheck, lint and formatting checks pass.
   Further search improvements are proposed in [the follow-up plan](./search-quality.md).
+
+## M85 — Object cards and scoped document browsing
+
+- [x] **M85.1 — Browse objects and kinds as useful cards.**
+  Show responsive cards with icons/logos, names, notes and document counts. Offer URL-backed
+  sorting with document count descending as the browse default, and object-count sorting for
+  kinds. Support both built-in icons and uploaded logos for subjects and kinds. Reuse the full
+  documents screen for an object's documents, with its subject filter locked across sorting,
+  additional filters, clearing, grouping and pagination. Cover persistence, image handling,
+  access, URL state and responsive browser interaction.
+
+  Validation: focused application, component, HTTP, image-rendering and schema checks pass;
+  typecheck, lint and the production build pass. All 31 targeted canonical Chromium scenarios
+  pass across five widths in both themes, followed by a comparison-only run. Reviewed 40 new
+  and 10 updated screenshots, including explicit contrast checks for the scoped toolbar and
+  breadcrumbs. Covered native image previews under the existing CSP and bounded uploads with
+  an HTTP 413 response. The migration was applied only to isolated test databases; no production
+  deployment was performed during validation.
