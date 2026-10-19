@@ -53,7 +53,7 @@ export const SEARCH_MATCH_FIELDS = searchMatchFieldSchema.options;
 export const searchHitSchema = z.object({
   document: documentListDtoSchema,
   // Rank within this result set, not a similarity: hybrid fuses two orderings that have no common
-  // scale (docs/07 §7.3, RRF).
+  // scale (docs/07 §7.3, RRF), plus 1 for a full-query title/file-name match.
   score: z.number(),
   // Text mode marks the matched words with <mark>; nothing else is ever HTML.
   snippet: z.string().nullable(),

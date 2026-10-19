@@ -30,7 +30,7 @@ export class SearchDocuments {
 
   async execute(viewer: Viewer, query: SearchQuery): Promise<SearchResponse> {
     const semanticAvailable = this.embeddings.isConfigured;
-    const q = query.q.trim();
+    const q = query.q.trim().normalize('NFC');
     if (q === '') return { items: [], semanticAvailable, semanticFallback: false };
 
     const filters: SearchFilters = {
@@ -147,6 +147,12 @@ function fuse(text: readonly SearchMatch[], semantic: readonly SearchMatch[]): F
       if (existing.snippet === null) existing.snippet = match.snippet;
       existing.matchedIn = ordered([...existing.matchedIn, ...match.matchedIn]);
     }
+  }
+
+  // A full-query name match outranks incidental prose and meaning. Both RRF contributions
+  // together are below 1, so the bonus preserves RRF order within each tier (docs/07 §7.3).
+  for (const hit of scores.values()) {
+    if (hit.matchedIn.includes('title') || hit.matchedIn.includes('fileName')) hit.score += 1;
   }
 
   return [...scores.values()].sort(

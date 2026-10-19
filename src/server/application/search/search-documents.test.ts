@@ -145,6 +145,43 @@ describe('SearchDocuments', () => {
     expect(documents.calls).toEqual([]);
   });
 
+  it('normalizes copied Unicode text before both text search and embedding', async () => {
+    const text = vi.spyOn(documents, 'searchByText');
+    await search.execute(VIEWER, { ...query, q: '  Расчетныи\u0306 листок июнь 2026  ' });
+
+    expect(text).toHaveBeenCalledWith(VIEWER, 'Расчетный листок июнь 2026', {}, 10, 'relevance');
+    expect(embeddings.batches).toEqual([['Расчетный листок июнь 2026']]);
+  });
+
+  it.each(['title', 'fileName'] as const)(
+    'keeps a complete %s match ahead of prose and semantic matches even with limit 1',
+    async (field) => {
+      documents.text = [match('incidental', 1, 'prose'), match('payslip', 20, 'name', [field])];
+      documents.vector = [
+        match('utility', 1, 'bill', ['meaning']),
+        match('incidental', 2, 'prose', ['meaning']),
+      ];
+
+      const result = await search.execute(VIEWER, { ...query, limit: 1 });
+
+      expect(result.items.map((hit) => hit.document.id)).toEqual(['payslip']);
+    },
+  );
+
+  it('uses RRF within the full-query name tier and keeps both reasons', async () => {
+    documents.text = [
+      match('only-text', 1, 'title', ['title']),
+      match('both', 2, 'file', ['fileName']),
+    ];
+    documents.vector = [match('both', 1, 'chunk', ['meaning'])];
+
+    const result = await search.execute(VIEWER, query);
+
+    expect(result.items.map((hit) => hit.document.id)).toEqual(['both', 'only-text']);
+    expect(result.items[0]?.matchedIn).toEqual(['fileName', 'meaning']);
+    expect(result.items[0]?.score).toBeCloseTo(1 + 1 / 62 + 1 / 61);
+  });
+
   it('merges the two orderings by rank rather than by score', async () => {
     // A document ranked second by both engines beats one ranked first by only one of them.
     documents.text = [match('only-text', 1, 'from text'), match('both', 2, 'both from text')];
@@ -267,7 +304,7 @@ describe('SearchDocuments', () => {
   it.each(['documentDateAsc', 'documentDateDesc'] as const)(
     'sorts fused results by %s before limiting, with missing dates last',
     async (sort) => {
-      const old = match('old', 1, null);
+      const old = match('old', 1, null, ['title']);
       old.item.document.documentDate = '2020-01-01';
       const recent = match('recent', 2, null);
       recent.item.document.documentDate = '2025-01-01';

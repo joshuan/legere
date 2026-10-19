@@ -1121,6 +1121,11 @@ visible explanation. An unconfigured embeddings provider is reported before the 
 disables semantic mode. A provider failure falls back to text with an explicit notice. A failed
 search is an error with a retry action, never an empty result. No query shows recent documents.
 
+With relevance sorting, a title or file name satisfying the full text query ranks before matches
+found only in other fields or by meaning. A semantically similar utility bill must not displace
+the payslip whose title matches the requested month and year. Canonically equivalent Unicode
+spellings produce the same search; copying text from a file name requires no manual retyping.
+
 ## 11.7. Collections (`/collections`, `/collections/:id`)
 
 - List: two groups — "My collections" and "Shared with me" (owner name shown). Create button → name

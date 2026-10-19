@@ -2506,3 +2506,16 @@ Production observation is read-only; source fixes are verified and committed on 
   Validation: both patched images built and passed the existing HIGH/CRITICAL archive scans
   without new exceptions; 19 Stirling and 2 Docling native conversion tests passed. Typecheck,
   lint and formatting checks passed.
+
+## M84 — Search quality
+
+- [x] **M84.1 — Recover exact document searches.**
+  Normalize queries and indexed text to Unicode NFC, rebuild existing search vectors and name
+  indexes, and normalize bounded snippets before highlighting. Rank full-query title/file-name
+  matches before body-only or semantic matches, while preserving explicit date/title sorting and
+  RRF within each relevance tier. Regress the decomposed `й` in a June 2026 payslip query against
+  misleading utility bills, other periods, decomposed stored names, and semantic provider failure.
+
+  Validation: 70 focused unit, HTTP and migration checks pass, including a replay over existing
+  stored vectors and forced name-index scans. Typecheck, lint and formatting checks pass.
+  Further search improvements are proposed in [the follow-up plan](./search-quality.md).

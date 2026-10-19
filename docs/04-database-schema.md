@@ -1352,6 +1352,16 @@ snippet and no `<mark>` in it. And a **fold does not cross a phrase query**: twi
 the text, so their positions do not sit beside their neighbours' and `"ulica sremcevica"` will not
 match `Ulica Sremčevića`.
 
+**Amended by M84.1 (canonically equivalent text):** queries and `search_tokens` input are
+normalized to Unicode NFC before parsing or generating alternative spellings. A copied
+`Расчетный` contains `и` plus a combining breve; it must find the same papers as `Расчетный`,
+and a decomposed file name must be findable by either spelling. NFC composes letters without
+removing their marks: Serbian diacritics and Cyrillic `й` remain letters, with the existing
+diacritic/transliteration rules applied afterward. Original titles, files and extracted text
+retain their stored spelling. Only the bounded snippet is normalized for highlighting.
+The forward migration rebuilds the generated vector and all three name indexes, so documents
+already in the archive receive the same rule as new documents without rerunning OCR or AI.
+
 The query side (`07 §7.3`) carries the other direction, since the stored side only reads Cyrillic
 *out*: somebody typing `Шершнев` reaches the Serbian paper that says `SHERSHNEV` through two further
 branches, one per mapping.

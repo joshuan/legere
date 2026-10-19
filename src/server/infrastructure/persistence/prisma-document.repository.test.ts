@@ -82,7 +82,7 @@ describe('searchByTextSql', () => {
     expect(sql.text).not.toContain('fold_to_cyrillic');
     // Everything the query is compared against is written in the expression the indexes are built
     // on: the three names, and each column a hit may be credited to.
-    expect(occurrences(sql.text, 'search_tokens(')).toBe(9);
+    expect(occurrences(sql.text, 'search_tokens(')).toBe(10);
   });
 
   it('sends every value as a bound parameter, including the words a person typed', () => {

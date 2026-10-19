@@ -136,6 +136,81 @@ describe('Search (e2e)', () => {
     api(app).get(`/api/search${query}`).set('Cookie', cookie);
 
   describe('text mode', () => {
+    it.each(['Расчетный', 'Расчетныи\u0306', 'Расчётный'])(
+      'finds the requested payslip with %s, excluding bills and other periods',
+      async (word) => {
+        const libraryId = await givenLibrary();
+        const payslip = await givenDocument(libraryId, 'Расчетный листок, июнь 2026', null);
+        await givenDocument(libraryId, 'Расчетный листок, май 2026', null);
+        await givenDocument(libraryId, 'Расчетный листок, июнь 2025', null);
+        await givenDocument(libraryId, 'Счёт за электроэнергию, июнь 2026', 'Расчёт за июнь 2026');
+
+        const result = expectData(
+          await search(
+            adminCookie,
+            `?q=${encodeURIComponent(`${word} листок июнь 2026`)}&mode=text`,
+          ),
+          searchResponseSchema,
+        );
+
+        expect(result.items.map((hit) => hit.document.id)).toEqual([payslip]);
+        expect(result.items[0]?.matchedIn).toContain('title');
+      },
+    );
+
+    it('finds and highlights decomposed stored titles and file names with a composed query', async () => {
+      const libraryId = await givenLibrary();
+      const title = await givenDocument(libraryId, 'Расчетныи\u0306 листок, июнь 2026', null);
+      const file = await seedDocument({
+        document: { title: 'Payroll', markdown: null },
+        libraryId,
+        files: [{ name: 'Расчетныи\u0306 листок июнь 2026.pdf' }],
+      });
+      const result = expectData(
+        await search(
+          adminCookie,
+          `?q=${encodeURIComponent('Расчетный листок июнь 2026')}&mode=text`,
+        ),
+        searchResponseSchema,
+      );
+
+      expect(result.items.map((hit) => hit.document.id).sort()).toEqual([title, file.id].sort());
+      for (const hit of result.items) {
+        expect(hit.snippet).toContain('<mark>Расчетный</mark>');
+      }
+      expect(result.items.find((hit) => hit.document.id === title)?.matchedIn).toContain('title');
+      expect(result.items.find((hit) => hit.document.id === file.id)?.matchedIn).toContain(
+        'fileName',
+      );
+    });
+
+    it('ranks complete title and file-name matches before frequent field matches before the limit', async () => {
+      const libraryId = await givenLibrary();
+      const title = await givenDocument(libraryId, 'Расчетный листок июнь 2026', null);
+      const file = await seedDocument({
+        document: { title: 'Payroll', markdown: null },
+        libraryId,
+        files: [{ name: 'Расчетный листок июнь 2026.pdf' }],
+      });
+      await seedDocument({
+        document: {
+          title: 'Annual report',
+          extractedSearchText: 'Расчетный листок июнь 2026 '.repeat(50),
+        },
+        libraryId,
+      });
+
+      const result = expectData(
+        await search(
+          adminCookie,
+          `?q=${encodeURIComponent('Расчетный листок июнь 2026')}&mode=text&limit=2`,
+        ),
+        searchResponseSchema,
+      );
+
+      expect(result.items.map((hit) => hit.document.id).sort()).toEqual([title, file.id].sort());
+    });
+
     it('finds a document by a word in its body, with the match highlighted', async () => {
       const libraryId = await givenLibrary();
       const documentId = await givenDocument(
@@ -616,6 +691,37 @@ describe('Search (e2e)', () => {
   });
 
   describe('semantic and hybrid', () => {
+    it('ranks the exact payslip above misleading semantic bills for a copied query', async () => {
+      const provider = app.nestApp.get(EmbeddingProvider);
+      vi.spyOn(provider, 'isConfigured', 'get').mockReturnValue(true);
+      vi.spyOn(provider, 'model', 'get').mockReturnValue('search-test');
+      const embed = vi.spyOn(provider, 'embed').mockResolvedValue([padded([1, 0])]);
+      const libraryId = await givenLibrary();
+      const payslip = await givenDocument(libraryId, 'Расчетный листок, июнь 2026', null);
+      const bill = await givenDocument(
+        libraryId,
+        'Счёт за электроэнергию, июнь 2026',
+        'Расчёт за июнь 2026',
+        { chunk: [1, 0] },
+      );
+      await testPrisma().documentChunk.updateMany({
+        where: { documentId: bill },
+        data: { model: 'search-test' },
+      });
+
+      const result = expectData(
+        await search(
+          adminCookie,
+          `?q=${encodeURIComponent('Расчетныи\u0306 листок июнь 2026')}&limit=1`,
+        ),
+        searchResponseSchema,
+      );
+
+      expect(result.items.map((hit) => hit.document.id)).toEqual([payslip]);
+      expect(result.items[0]?.matchedIn).toContain('title');
+      expect(embed).toHaveBeenCalledWith(['Расчетный листок июнь 2026']);
+    });
+
     it('uses real vectors for meaning-only matches, excludes other models and enforces access', async () => {
       const provider = app.nestApp.get(EmbeddingProvider);
       vi.spyOn(provider, 'isConfigured', 'get').mockReturnValue(true);

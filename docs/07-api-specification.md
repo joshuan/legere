@@ -305,6 +305,15 @@ the configured embedding model. `semanticAvailable` reports configuration even f
 `semanticFallback` says the requested semantic half could not run and text results were used.
 Hybrid and semantic queries fall back to text on provider failure, while the UI reports the fallback.
 
+**M84.1 relevance amendment:** NFC normalization precedes query parsing and embedding; the stored
+search tokens and bounded text snippets use the same normalization (`04 §4.3`). A full-query match
+in a title or file name is ranked before other matches, both before the text limit and in hybrid
+fusion. Within each tier, text uses its existing `ts_rank` and hybrid uses RRF (`k = 60`). A fused
+score adds `1` for the title/file-name tier, larger than both possible RRF contributions combined.
+The title test parses only the short title; Markdown is still never retokenized during ranking.
+Explicit date/title sorting overrides relevance tiers. All terms of an ordinary text query remain
+required; matching only the requested month or year does not count as a title/file-name match.
+
 
 ### People
 | Method & path | Auth | Notes |

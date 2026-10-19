@@ -572,6 +572,7 @@ export function searchByTextSql(
   limit: number,
   sort: SearchSort = 'relevance',
 ): Prisma.Sql {
+  const normalizedQuery = query.normalize('NFC');
   return Prisma.sql`
     WITH q AS MATERIALIZED (
       -- 🔒 One rule of tokenisation for the query and for everything it is compared against
@@ -600,15 +601,15 @@ export function searchByTextSql(
       -- so these branches exist for the other direction — somebody who types Шершнев reaching the
       -- Serbian paper that says SHERSHNEV. On a query with no Cyrillic in it they are the first
       -- branch again, which costs a parse of a handful of words and changes nothing.
-      SELECT websearch_to_tsquery('simple', translate(${query}, '_-.', '   ')) ||
-             websearch_to_tsquery('simple', translate(fold_diacritics(${query}), '_-.', '   ')) ||
+      SELECT websearch_to_tsquery('simple', translate(${normalizedQuery}, '_-.', '   ')) ||
+             websearch_to_tsquery('simple', translate(fold_diacritics(${normalizedQuery}), '_-.', '   ')) ||
              websearch_to_tsquery(
                'simple',
-               translate(fold_diacritics(transliterate_serbian(lower(${query}))), '_-.', '   ')
+               translate(fold_diacritics(transliterate_serbian(lower(${normalizedQuery}))), '_-.', '   ')
              ) ||
              websearch_to_tsquery(
                'simple',
-               translate(transliterate_russian(lower(${query})), '_-.', '   ')
+               translate(transliterate_russian(lower(${normalizedQuery})), '_-.', '   ')
              ) AS tsq
     ), named AS MATERIALIZED (
       -- DISTINCT because one file may be read by several pages of one document (ADR-025), and a
@@ -643,6 +644,8 @@ export function searchByTextSql(
       -- One ranking, not two scales fused by hand: the matched names join the document's own vector
       -- at weight A, so a document found by the name of its scan ranks with the titles.
       SELECT d.id,
+             (search_tokens(coalesce(d.title, '')) @@ q.tsq
+               OR coalesce(n.in_file_name, false)) AS name_match,
              ts_rank(
                d.search_vector || setweight(search_tokens(coalesce(n.names, '')), 'A'),
                q.tsq
@@ -674,7 +677,7 @@ export function searchByTextSql(
       LEFT JOIN names n ON n.id = d.id, q
       WHERE ${readableSql(viewer)}
         AND ${filtersSql(filters)}
-      ORDER BY ${searchOrderSql(sort, Prisma.sql`score`)}
+      ORDER BY ${searchOrderSql(sort, Prisma.sql`score`, Prisma.sql`name_match`)}
       LIMIT ${limit}
     )
     -- Why each row is here, asked of the answered page alone: to_tsvector over the Markdown of every
@@ -682,7 +685,7 @@ export function searchByTextSql(
     SELECT m.id,
            ts_headline(
              'simple',
-             m.excerpt,
+             normalize(m.excerpt, NFC),
              q.tsq,
              'MaxFragments=2, MinWords=5, MaxWords=24, StartSel=<mark>, StopSel=</mark>'
            ) AS snippet,
@@ -703,12 +706,12 @@ export function searchByTextSql(
              AND NOT (search_tokens(coalesce(d.description, '')) @@ q.tsq) AS in_text
     FROM matches m
     JOIN documents d ON d.id = m.id, q
-    ORDER BY ${searchOrderSql(sort, Prisma.sql`m.score`)}
+    ORDER BY ${searchOrderSql(sort, Prisma.sql`m.score`, Prisma.sql`m.name_match`)}
   `;
 }
 
 // Ordering is chosen from fixed SQL fragments; no request value becomes a column or direction.
-function searchOrderSql(sort: SearchSort, score: Prisma.Sql): Prisma.Sql {
+function searchOrderSql(sort: SearchSort, score: Prisma.Sql, nameMatch: Prisma.Sql): Prisma.Sql {
   switch (sort) {
     case 'documentDateDesc':
       return Prisma.sql`d.document_date DESC NULLS LAST, d.id`;
@@ -723,7 +726,7 @@ function searchOrderSql(sort: SearchSort, score: Prisma.Sql): Prisma.Sql {
     case 'titleDesc':
       return Prisma.sql`d.title COLLATE "C" DESC, d.id`;
     default:
-      return Prisma.sql`${score} DESC, d.id`;
+      return Prisma.sql`${nameMatch} DESC, ${score} DESC, d.id`;
   }
 }
 
