@@ -12,7 +12,7 @@
 #
 #   docker buildx imagetools inspect stirlingtools/stirling-pdf:latest --format '{{.Manifest.Digest}}'
 FROM ghcr.io/astral-sh/uv:0.13.1@sha256:4a1f3666816dafadd20ceb71eac9a7d56d7ef30279f7d64048519ab901ada336 AS python-installer
-FROM stirlingtools/stirling-pdf:2.14.3@sha256:3b3670fce70b396ec56ba380a3cc7858e0abf83fe13f31c88f7737847763a396
+FROM stirlingtools/stirling-pdf:3.4.0@sha256:972ffc10fbd63a9e7178253a49050c7658e0d4e03b2701005c3e12e210d2e068
 
 # The pinned base predates Ubuntu's DTLS security fix (CVE-2026-84782). Upgrade the matched
 # library/CLI pair from signed Noble repositories; never fall back to the vulnerable base version.
